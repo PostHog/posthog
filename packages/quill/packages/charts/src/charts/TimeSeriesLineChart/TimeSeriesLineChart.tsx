@@ -184,7 +184,9 @@ export function TimeSeriesLineChart<Meta = unknown>({
                 onError={onError}
             >
                 {referenceLines.length > 0 && <ReferenceLines lines={referenceLines} />}
-                {valueLabelsConfig && <ValueLabels valueFormatter={valueLabelFormatter} />}
+                {valueLabelsConfig && (
+                    <ValueLabels {...valueLabelsConfig} position="end" valueFormatter={valueLabelFormatter} />
+                )}
                 {children}
             </LineChart>
         </ChartLegend>

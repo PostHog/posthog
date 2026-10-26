@@ -121,9 +121,6 @@ export const SUMMARY_METADATA_PROPERTIES = new Set([
     '$ai_time_to_first_token',
     '$ai_metric_name',
     '$ai_metric_value',
-    '$ai_score',
-    '$ai_score_max',
-    '$ai_score_min',
     '$ai_span_type',
     // Spend. A cost or latency survey is what summary detail is for, so the
     // whole breakdown stays: every token count, every per-token price, and the
@@ -144,6 +141,7 @@ export const SUMMARY_METADATA_PROPERTIES = new Set([
     '$ai_cache_creation_1h_input_tokens',
     '$ai_cache_creation_5m_input_tokens',
     '$ai_cache_read_audio_tokens',
+    '$ai_cache_read_image_tokens',
     '$ai_audio_cost_usd',
     '$ai_image_cost_usd',
     '$ai_video_cost_usd',

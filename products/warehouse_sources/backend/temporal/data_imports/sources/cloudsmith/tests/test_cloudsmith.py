@@ -156,7 +156,9 @@ class TestCloudsmithTransport:
         assert isinstance(resource["endpoint"]["paginator"], CloudsmithPaginator)
         assert resource["endpoint"]["data_selector_required"] is True
 
-    @parameterized.expand([("packages",), ("entitlements",), ("webhooks",)])
+    @parameterized.expand(
+        [("packages",), ("entitlements",), ("webhooks",), ("repository_audit_log",), ("package_dependencies",)]
+    )
     def test_get_resource_rejects_fanout_endpoints(self, endpoint) -> None:
         with pytest.raises(ValueError, match="Fan-out endpoint"):
             get_resource(CLOUDSMITH_ENDPOINTS[endpoint], "acme")
@@ -219,11 +221,13 @@ class TestCloudsmithTransport:
             ("packages", {"sort": "date"}),
             ("entitlements", {"sort": "name"}),
             ("webhooks", None),
+            ("repository_audit_log", None),
         ]
     )
     def test_fanout_wiring(self, endpoint: str, expected_child_params: dict[str, str] | None) -> None:
-        skipped_path = f"/{endpoint}/acme/skip/"
-        child_path = f"/{endpoint}/acme/prod/"
+        child_prefix = CLOUDSMITH_ENDPOINTS[endpoint].path.split("/")[1]
+        skipped_path = f"/{child_prefix}/acme/skip/"
+        child_path = f"/{child_prefix}/acme/prod/"
         result = self._driver().run(
             endpoint,
             [self._page([{"slug": "skip"}, {"slug": "prod"}]), self._page([{"slug_perm": "item"}])],
@@ -231,7 +235,7 @@ class TestCloudsmithTransport:
         )
 
         assert result.raised is None
-        assert result.paths == ["/v1/repos/acme/", f"/v1/{endpoint}/acme/prod/"]
+        assert result.paths == ["/v1/repos/acme/", f"/v1{child_path}"]
         assert result.params("page_size") == ["100", "100"]
         # `{owner}` has to be pre-formatted: the fan-out helper only substitutes `{repo}`.
         assert result.params("page") == ["1", "1"]
@@ -268,3 +272,63 @@ class TestCloudsmithTransport:
             if should_use_incremental_field
             else None
         )
+
+    def test_quota_history_reads_rows_from_single_object_response(self) -> None:
+        periods = [
+            {"start": "2026-08-01T00:00:00Z", "end": "2026-08-31T23:59:59Z", "plan": "Pro", "days": 31},
+            {"start": "2026-09-01T00:00:00Z", "end": "2026-09-30T23:59:59Z", "plan": "Pro", "days": 30},
+        ]
+        result = self._driver().run("quota_history", [ScriptedResponse(json={"history": periods})])
+
+        assert result.raised is None
+        assert result.paths == ["/v1/quota/history/acme/"]
+        # The endpoint is not paginated, so no page params are sent.
+        assert result.params("page") == [None]
+        assert result.params("page_size") == [None]
+        assert result.rows == periods
+
+    def test_package_dependencies_chains_repositories_then_packages(self) -> None:
+        result = self._driver().run(
+            "package_dependencies",
+            [
+                self._page([{"slug": "prod"}]),
+                self._page([{"slug_perm": "pkg1", "repository": "prod"}, {"slug_perm": "gone", "repository": "prod"}]),
+                ScriptedResponse(
+                    json={
+                        "dependencies": [
+                            {"name": "requests", "version": "2.31", "operator": ">=", "dep_type": "Requires"},
+                            {"name": "urllib3", "version": None, "operator": None, "dep_type": "Requires"},
+                        ]
+                    }
+                ),
+                # A package deleted between the packages page and its dependencies fetch.
+                ScriptedResponse(status=404, json={"detail": "Not found."}),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == [
+            "/v1/repos/acme/",
+            "/v1/packages/acme/prod/",
+            "/v1/packages/acme/prod/pkg1/dependencies/",
+            "/v1/packages/acme/prod/gone/dependencies/",
+        ]
+        assert result.params("page_size") == ["100", "100", None, None]
+        assert result.rows == [
+            {
+                "name": "requests",
+                "version": "2.31",
+                "operator": ">=",
+                "dep_type": "Requires",
+                "repository_slug": "prod",
+                "package_slug_perm": "pkg1",
+            },
+            {
+                "name": "urllib3",
+                "version": None,
+                "operator": None,
+                "dep_type": "Requires",
+                "repository_slug": "prod",
+                "package_slug_perm": "pkg1",
+            },
+        ]

@@ -354,6 +354,14 @@ class TestGetTeamIdsForAIObservability:
         assert "$ai_generation" in passed_trigger_events
         assert set(passed_trigger_events) < set(AI_OBSERVABILITY_REPORT_TRIGGER_EVENTS)
 
+    @patch("posthog.tasks.ai_observability_usage_report.get_teams_with_ai_events")
+    async def test_trigger_events_override_the_default_list(self, mock_get_teams, _mock_ff):
+        mock_get_teams.return_value = []
+
+        await get_team_ids_for_ai_observability(TeamDiscoveryInput(trigger_events=["$ai_evaluation"]))
+
+        assert mock_get_teams.call_args.args[2] == ["$ai_evaluation"]
+
     @pytest.mark.parametrize(
         "inputs,expected_window",
         [

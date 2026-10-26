@@ -117,7 +117,16 @@
             "dependsOn": ["^build"],
             "persistent": true,
             "cache": false,
-            "passThroughEnv": ["SKIP_TYPEGEN", "COREPACK_ENABLE_DOWNLOAD_PROMPT", "SSL_CERT_FILE", "JS_URL"]
+            // Turbo strips undeclared env vars, so an opt-in set in .env.local never reaches vite.config.mts
+            // unless it is listed here. DEV_CODE_INSPECTOR loads the click-to-source plugin, and CODE_EDITOR picks the editor it opens.
+            "passThroughEnv": [
+                "SKIP_TYPEGEN",
+                "COREPACK_ENABLE_DOWNLOAD_PROMPT",
+                "SSL_CERT_FILE",
+                "JS_URL",
+                "DEV_CODE_INSPECTOR",
+                "CODE_EDITOR"
+            ]
         },
         "dev": {
             "dependsOn": ["^build"],

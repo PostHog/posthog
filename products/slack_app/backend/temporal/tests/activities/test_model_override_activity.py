@@ -81,7 +81,7 @@ class TestClassifySlackAppModelOverrideActivity:
         ):
             text = "fix the flaky checkout test"
             assert classify_slack_app_model_override_activity(_input(integration, text)) == classified
-        classify.assert_called_once_with(text, CATALOGUE, trace_id=None)
+        classify.assert_called_once_with(text, CATALOGUE, trace_id=None, team_id=integration.team_id)
 
     @pytest.mark.parametrize(
         "thread_ts,groups_with_its_thread",

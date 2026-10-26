@@ -13,6 +13,7 @@ from products.workflows.backend.facade.enums import (
     HogFlowScheduleStatus,
     HogFlowTemplateExitCondition,
     HogFlowTemplateScope,
+    SetupStepKey,
     WorkflowProposalStatus,
 )
 
@@ -51,6 +52,18 @@ class WorkflowActivitySummary:
 
 
 @frozen
+class OwnedWorkflowHealth:
+    """A live workflow one person created: its runs over the last 7 days and what waits on its owner."""
+
+    workflow_id: UUID
+    name: str
+    succeeded: int
+    failed: int
+    email_sending_paused: bool
+    pending_suggestions: int
+
+
+@frozen
 class WorkflowTaskDailyLimits:
     """A team's daily caps on tasks created by workflows. None means the default cap applies."""
 
@@ -64,6 +77,17 @@ class WorkflowVisionScanDailyLimits:
 
     per_workflow: int | None
     per_team: int | None
+
+
+@frozen
+class RealtimeAudienceCohort:
+    """A realtime cohort a batch audience sends to from the realtime pipeline's membership."""
+
+    id: int
+    name: str
+    ready: bool
+    # False when the realtime pipeline doesn't run for the cohort's project, so it never becomes ready.
+    can_finish: bool
 
 
 @frozen
@@ -103,6 +127,38 @@ class WorkflowSchedule:
     next_run_at: datetime | None
     created_at: datetime
     updated_at: datetime
+
+
+@frozen
+class SendCalendarBatchJob:
+    """One batch run, with only the fields the send calendar shows."""
+
+    id: UUID
+    status: HogFlowBatchJobState
+    created_at: datetime
+
+
+@frozen
+class SendCalendarFlow:
+    """An active, scheduled email workflow, with only the fields a send calendar card shows.
+
+    The email fields come from the first email step. ``audience_properties`` and ``audience_type``
+    come from a batch trigger's filters, and ``email_to`` only from a schedule trigger, which has no
+    audience. ``batch_jobs`` holds only the runs inside the requested range.
+    """
+
+    id: UUID
+    name: str | None
+    origin_product: str | None
+    created_by: "User | None"
+    user_access_level: str | None
+    trigger_type: str
+    audience_properties: list[dict[str, Any]]
+    audience_type: str | None
+    email_to: str | None
+    message_category_id: str | None
+    schedules: tuple[WorkflowSchedule, ...]
+    batch_jobs: tuple[SendCalendarBatchJob, ...]
 
 
 class WorkflowScheduleNotFound(Exception):
@@ -159,6 +215,17 @@ class AccountAudienceProvider(Protocol):
 
 
 @frozen
+class RealtimeCohortStatus:
+    """How far a realtime cohort audience is from having its membership calculated."""
+
+    id: int
+    name: str
+    # A CohortRealtimeState value: "ready", "building", "rebuilding" or "needs_attention".
+    state: str
+    percent_complete: int | None
+
+
+@frozen
 class AudienceSize:
     """How many recipients a batch audience matches, and the most a batch trigger may send to."""
 
@@ -166,6 +233,10 @@ class AudienceSize:
     total: int
     limit: int
     dedupe_key: str | None
+    # Set when the audience is one realtime cohort. A send waits until that cohort is ready.
+    realtime_cohort: RealtimeCohortStatus | None = None
+    # Set when a realtime cohort shares the audience with other conditions, which a save rejects.
+    realtime_cohort_with_other_conditions: RealtimeAudienceCohort | None = None
 
 
 @frozen
@@ -366,6 +437,12 @@ class TwilioAccount(TypedDict, total=False):
 
 
 @frozen
+class TeamUtmDefaults:
+    enabled: bool
+    params: dict[str, str]
+
+
+@frozen
 class MessageAsset:
     invocation_id: str
     action_id: str
@@ -463,9 +540,22 @@ class Workflow:
     email_sending_paused_by: str
     email_sending_resumed_at: datetime | None
     user_access_level: str | None
+    # Tag names, sorted.
+    tags: tuple[str, ...] = ()
     # Read on the list only. A single-workflow read leaves both None and ``schedules`` filled.
     pending_suggestions: int | None = None
     suggestions_enabled: bool | None = None
+
+
+@frozen
+class SuggestionsSample:
+    """Whether the live version has sent enough email for the suggestions scout to judge it."""
+
+    reached: bool
+    # Tracked sends (sent minus untracked) from the live version's busiest email step in the window.
+    tracked_sends: int
+    required_sends: int
+    version_live_since: datetime
 
 
 @frozen
@@ -486,6 +576,35 @@ class WorkflowRef:
     variables: list[dict[str, Any]] | None
     # Read from the published steps, not the draft.
     has_email_step: bool
+
+
+@frozen
+class TransactionalEmailContent:
+    """What a transactional email's workflow sends, taken from the message template it was made from."""
+
+    message_template_id: UUID
+    name: str
+    subject: str
+    preheader: str
+    html: str
+    text: str
+    # None uses the project's default sender on create, and keeps the workflow's sender on update.
+    from_integration_id: int | None
+    message_category_id: UUID | None
+    # Sends keep a placeholder instead of the body, and clicks drop the link's query string.
+    sensitive: bool = False
+    # Empty values use the sender's own address, name and default reply-to.
+    from_email: str = ""
+    from_name: str = ""
+    reply_to: str = ""
+
+
+class TransactionalEmailSenderUnavailable(Exception):
+    """No verified email sender: neither the requested one nor the project's default."""
+
+
+class TransactionalEmailContentInvalid(Exception):
+    """The content has no subject or no body, so the workflow could not send it."""
 
 
 class WorkflowNotFound(Exception):
@@ -512,6 +631,8 @@ class WorkflowListQuery:
     broadcast_eligible: bool = False
     broadcast_statuses: frozenset[str] = frozenset()
     suggestions_first: bool = False
+    # A workflow matches when it carries at least one of these tags.
+    tags: frozenset[str] = frozenset()
     field_filters: Mapping[str, str] = field(default_factory=dict)
 
 
@@ -688,6 +809,8 @@ class DataSuggestion:
     weekly_count: int
     stage: LifecycleStage
     step_outline: tuple[OutlineKind, ...]
+    # Prepared ahead of time with its workflow already built, so a click creates the draft without a model call.
+    premade: bool = False
 
 
 @frozen
@@ -721,8 +844,21 @@ class BuiltSuggestion:
     missing_inputs: tuple[MissingInput, ...] = ()
 
 
+@frozen
+class PreparedIdeas:
+    """What `prepare_workflow_ideas` did for one project."""
+
+    status: DataSuggestionsStatus
+    stored: tuple[str, ...] = ()
+    failed_builds: int = 0
+
+
 class DataSuggestionNotFound(Exception):
     """The suggestion id is unknown, usually because the cached suggestions expired."""
+
+
+class WorkflowIdeaAlreadyResolved(Exception):
+    """The premade idea was already used."""
 
 
 class EmailDraftSourceNotFound(Exception):
@@ -743,3 +879,11 @@ class EmailDraft:
     text: str
     generated_by: EmailDraftOrigin
     fallback_reason: EmailDraftFallbackReason | None = None
+
+
+@frozen
+class SetupStep:
+    """One messaging setup step and whether the project has done it."""
+
+    key: SetupStepKey
+    done: bool

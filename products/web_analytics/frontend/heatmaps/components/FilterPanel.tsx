@@ -1,8 +1,8 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconFilter, IconGear, IconLaptop, IconPhone, IconTabletLandscape, IconTabletPortrait } from '@posthog/icons'
-import { LemonBadge, LemonButton, LemonSelect } from '@posthog/lemon-ui'
+import { LemonBadge, LemonButton, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { HEATMAP_LOADING_DEBOUNCE_MS, heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
@@ -68,10 +68,11 @@ export function ViewportChooser({ lockedWidth }: { lockedWidth?: number }): JSX.
     }
 
     return (
-        <div className="flex justify-center items-center gap-2">
-            <span>Screen width:</span>
+        <div className="flex items-center gap-2">
             <LemonSelect
                 size="small"
+                aria-label="Screen width"
+                tooltip="Screen width"
                 onChange={setWindowWidthOverride}
                 value={lockedWidth ?? widthOverride}
                 disabledReason={lockedWidth ? 'This capture is saved at a fixed viewport width' : undefined}
@@ -108,6 +109,7 @@ export function FilterPanel({
     lockedWidth?: number
     dateControl?: JSX.Element
 }): JSX.Element {
+    useMountedLogic(heatmapCoverageLogic)
     const [isSettingsOpen, setIsSettingsOpen] = useState(false)
     const [isEventFilterOpen, setIsEventFilterOpen] = useState(false)
     const {
@@ -141,7 +143,7 @@ export function FilterPanel({
                     className="h-1 rounded-none"
                 />
             )}
-            <div className="flex flex-wrap justify-between items-center gap-2 my-2">
+            <div className="flex flex-wrap justify-between items-center gap-2">
                 <div className="flex flex-wrap items-center gap-2 min-w-0">
                     {dateControl ?? (
                         <DateFilter
@@ -151,6 +153,7 @@ export function FilterPanel({
                                 setCommonFilters?.({ ...commonFilters, date_from: fromDate, date_to: toDate })
                             }}
                             dateOptions={heatmapDateOptions}
+                            type="tertiary"
                         />
                     )}
                     {cohortFilterEnabled && (
@@ -233,6 +236,10 @@ export function FilterPanel({
                         <Popover
                             overlay={
                                 <div className="p-2 w-80 max-h-96 overflow-y-auto">
+                                    <div className="mb-3">
+                                        <LemonLabel>Screen width</LemonLabel>
+                                        <ViewportChooser lockedWidth={lockedWidth} />
+                                    </div>
                                     <HeatmapsSettings
                                         heatmapFilters={heatmapFilters}
                                         patchHeatmapFilters={patchHeatmapFilters}
@@ -266,20 +273,21 @@ export function FilterPanel({
                             placement="bottom"
                         >
                             <LemonButton
-                                type="secondary"
+                                type="tertiary"
                                 size="small"
                                 onClick={() => setIsSettingsOpen(!isSettingsOpen)}
                                 icon={<IconGear />}
-                                tooltip="Heatmap settings"
+                                tooltip="Heatmap display settings"
+                                aria-label="Heatmap display settings"
+                                active={isSettingsOpen}
                                 data-attr="heatmap-settings"
                             >
-                                Heatmap settings
+                                Display
                             </LemonButton>
                         </Popover>
                     </div>
                     {clickmapSettings ? <div className="min-w-0">{clickmapSettings}</div> : null}
                 </div>
-                <ViewportChooser lockedWidth={lockedWidth} />
             </div>
             {heatmapEmpty && !rawHeatmapLoading && !previewUnavailable ? (
                 <HeatmapEmptyState lockedWidth={lockedWidth} />

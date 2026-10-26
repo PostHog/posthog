@@ -713,6 +713,8 @@ def web_ensure_precomputed(
             schedule = replace(schedule, rules=[(forced_cutoff, 1), *schedule.rules])
         kwargs["ttl_seconds"] = schedule
     result = ensure_precomputed(team=team, **kwargs)
+    if result.ready and result.computed_at is not None and runner is not None:
+        runner.record_lazy_precompute_computed_at(result.computed_at)
     if not result.ready and not background and runner is not None and family is not None:
         # Check-only miss: warm in the background (debounced per team/family/shape)
         # so the next visit is served from precompute while this one goes live.
@@ -1008,7 +1010,7 @@ def check_common_eligibility(
     # cache key, bounded by the per-team shape ceiling in `web_ensure_precomputed`.
     # Session and cohort filters are refused: the precompute INSERT applies the whole
     # list userlessly, but the live runners handle those types differently per family
-    # (web vitals drops them entirely), so precomputing them would serve a different
+    # (web vitals drops session filters), so precomputing them would serve a different
     # population than the live fallback. Those queries fall through to the live path,
     # which applies them correctly.
     for prop in properties:

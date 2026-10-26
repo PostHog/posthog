@@ -37,28 +37,39 @@ flowchart TB
 Timers feed the same workers.
 The eviction sweep, the pending-transfer redrive, merge garbage collection and the reconcile drain all send messages through the router instead of touching the store themselves.
 So while a worker runs, it is the only writer of its partition, and nothing needs a lock.
-Boot recovery and revoke cleanup are the only code that touches a slice from outside its worker.
-Revoke cleanup waits for the worker to exit.
-Boot recovery finishes before any worker starts, as [startup](#startup) explains.
+Boot recovery is the only code that touches a slice from outside its worker.
+It finishes before any worker starts, as [startup](#startup) explains.
 
 ## Consumers and ownership
 
-The **events consumer** is the only consumer that joins a Kafka consumer group with a real assignment.
-It reads `cohort_stream_events` with cooperative-sticky assignment and static membership, so a quick restart reclaims the same partitions without a rebalance.
+Each pod owns a fixed set of partitions for as long as it runs.
+`COHORT_POD_COUNT` sets how many pods split the partitions, and the ordinal at the end of the StatefulSet pod name in `POD_NAME` says which pod this is.
+Pod `i` owns every partition `p` with `p mod COHORT_POD_COUNT = i`.
+The pod refuses to start unless `COHORT_POD_COUNT` divides `COHORT_PARTITION_COUNT` and the ordinal is below `COHORT_POD_COUNT`.
+The default is one pod, which owns every partition.
+Only a single pod may run without `POD_NAME`, and it counts as ordinal 0.
 
+The **events consumer** reads `cohort_stream_events`.
 **Follower consumers** read the other co-partitioned topics.
 Merges and merge transfers always have one.
 Cascades and seeds have one when those features are enabled.
-Followers never subscribe.
-Whenever the events consumer is assigned or revoked a partition, the followers are assigned or unassigned the same partition number, resuming at their group's committed offsets.
-One rebalance decides ownership of partition N on every input topic at once, which is what [partition affinity](event-routing.md#partition-affinity) needs.
+No consumer subscribes to its group.
+At startup each one is assigned the owned partitions, resuming at its group's committed offsets.
+So the pod owns partition N on every input topic at once, which is what [partition affinity](event-routing.md#partition-affinity) needs, and no rebalance moves a partition while the pod runs.
+The consumer groups have no members and only hold the committed offsets and their [stamps](#ownership-and-the-single-pod-deployment).
+A broker can expire the offsets of a group without members, so every consumer resets to `earliest`: a partition that lost its offset replays instead of skipping to the tail.
+A commit from a client outside the group is refused while the group has a live member, such as the static member an older build left behind until its session expires.
+librdkafka logs each refused commit as a `COMMITFAIL` warning, and the next commit retries it.
+`rebalances_total` counts rebalance callbacks on the events consumer, which fire only if the consumer subscribes.
+`owned_partitions` and `partition_ownership_info`, labelled by `pods` and `ordinal`, show the pod's share.
+No pod can see the StatefulSet's replica count, so fewer replicas than `COHORT_POD_COUNT` leave the partitions of the missing ordinals without a consumer.
+Only their group lag and a `sum(owned_partitions)` below `COHORT_PARTITION_COUNT` show it, so alert on that sum.
 
 The merge, transfer, cascade and seed followers start only after the first catalog load and the end of boot recovery.
 The events consumer does not wait for the catalog.
 
-Workers spawn lazily, on the first message for an owned partition.
-With durable restore enabled, the end of boot recovery also spawns a worker for every owned partition.
-A **tenure** is the time a worker owns a partition, from an assignment to the next revoke or restart.
+The end of boot spawns a worker for every owned partition.
+A **tenure** is the time a worker owns a partition, from boot to the next restart.
 
 ## From a Kafka batch to a worker
 
@@ -143,19 +154,19 @@ Hot-path writes do not wait for the disk, so this one flush per commit is what m
 Different paths make different promises.
 This table is worth knowing before you debug a missing or duplicated membership change.
 
-| Path                                  | Guarantee                                                                                                                                                                                      | Why                                                                                                                                                                                            |
-| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Events into Stage 1 state             | At least once across restarts, applied once. Within a tenure, an event whose fold fails on a store error, or whose re-key to a survivor's partition fails, is skipped and later committed past | Offsets commit after the work. A redelivered event is recognized by its replay marks. Only the merge, cascade and seed paths hold a failed offset                                              |
-| Event to membership change            | At most once                                                                                                                                                                                   | State commits inside the fold, before the produce. If the produce fails, the next clean sub-batch marks past it, and a replay finds no transition to emit                                      |
-| First-hop cascade messages            | At most once from the live, merge and sweep paths. At least once from seed apply and reconcile                                                                                                 | The live, merge and sweep paths produce them after the flip is committed. Seed apply and reconcile produce them before writing the flip, and retry on failure                                  |
-| Sweep expiry of a single-leaf cohort  | At least once while the worker runs                                                                                                                                                            | The sweep produces before it writes, and reschedules the keys on failure. The retry lives in the in-memory queue, so a restart keeps it only with durable restore on                           |
-| Sweep expiry that recomposes a cohort | At most once                                                                                                                                                                                   | The composed result is written before it is produced                                                                                                                                           |
-| Cascade messages consumed             | At least once                                                                                                                                                                                  | Produce before state, and a failure holds the offset                                                                                                                                           |
-| Merge state                           | At least once, applied once                                                                                                                                                                    | Drain and apply markers keyed by the original merge message                                                                                                                                    |
-| Merge state transfer                  | At least once while the partition stays assigned                                                                                                                                               | An outbox row survives until the transfer is acknowledged, and a timer redrives it. A revoke deletes the row with the slice, and later merges may already have committed past its merge offset |
-| Merge membership output               | At most once                                                                                                                                                                                   | State commits before the produce, and a failed produce is dropped                                                                                                                              |
-| Backfill seed runs                    | At least once                                                                                                                                                                                  | A failure holds the run's first offset, and the seed replays on the next tenure. A redelivered seed re-emits a change that was lost                                                            |
-| Reconcile                             | At least once                                                                                                                                                                                  | A failed page retries on the next tick, and a deferred floor keeps the request uncommitted until the job completes                                                                             |
+| Path                                  | Guarantee                                                                                                                                                                                      | Why                                                                                                                                                                                |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Events into Stage 1 state             | At least once across restarts, applied once. Within a tenure, an event whose fold fails on a store error, or whose re-key to a survivor's partition fails, is skipped and later committed past | Offsets commit after the work. A redelivered event is recognized by its replay marks. Only the merge, cascade and seed paths hold a failed offset                                  |
+| Event to membership change            | At most once                                                                                                                                                                                   | State commits inside the fold, before the produce. If the produce fails, the next clean sub-batch marks past it, and a replay finds no transition to emit                          |
+| First-hop cascade messages            | At most once from the live, merge and sweep paths. At least once from seed apply and reconcile                                                                                                 | The live, merge and sweep paths produce them after the flip is committed. Seed apply and reconcile produce them before writing the flip, and retry on failure                      |
+| Sweep expiry of a single-leaf cohort  | At least once while the worker runs                                                                                                                                                            | The sweep produces before it writes, and reschedules the keys on failure. The retry lives in the in-memory queue, so a restart keeps it only with durable restore on               |
+| Sweep expiry that recomposes a cohort | At most once                                                                                                                                                                                   | The composed result is written before it is produced                                                                                                                               |
+| Cascade messages consumed             | At least once                                                                                                                                                                                  | Produce before state, and a failure holds the offset                                                                                                                               |
+| Merge state                           | At least once, applied once                                                                                                                                                                    | Drain and apply markers keyed by the original merge message                                                                                                                        |
+| Merge state transfer                  | At least once while the slice survives                                                                                                                                                         | An outbox row survives until the transfer is acknowledged, and a timer redrives it. A wiped slice loses the row, and later merges may already have committed past its merge offset |
+| Merge membership output               | At most once                                                                                                                                                                                   | State commits before the produce, and a failed produce is dropped                                                                                                                  |
+| Backfill seed runs                    | At least once                                                                                                                                                                                  | A failure holds the run's first offset, and the seed replays on the next tenure. A redelivered seed re-emits a change that was lost                                                |
+| Reconcile                             | At least once                                                                                                                                                                                  | A failed page retries on the next tick, and a deferred floor keeps the request uncommitted until the job completes                                                                 |
 
 So live, merge, sweep-recompose and their first-hop cascade output can all lose a membership change, and nothing on those paths puts it back.
 The pipeline accepts that and relies on reconcile, run as part of every backfill, to re-emit the full membership of a cohort.
@@ -168,50 +179,106 @@ Writes reach the disk only at the next commit's flush, while output is acknowled
 A host crash that loses unflushed writes rolls state back to the last flush, and the replayed inputs can emit the same changes again.
 A wiped store does the same.
 
-## Rebalance and the single-pod constraint
+## Ownership and the single-pod deployment
 
-When the events consumer loses a partition, the processor:
+A pod's store holds the slices of the partitions it owns, and only a reshard hands a slice to another pod.
+The store records the split it was written under in `cf_meta[pod_partitions]`: the pod count, the ordinal and the partition count.
+A store from before that record takes the configured split as its own the first time it opens.
+A split covers another when it owns every partition the other owns.
+A store opens when its recorded split covers the pod's split, and then records the pod's split.
+Any other store refuses to open, so the pod crash-loops instead of reading slices that another pod may have changed since.
+With durable restore enabled, boot deletes the slices of partitions the pod does not own, so a single pod deletes nothing.
 
-1. stops routing to the partition and unassigns the followers,
-2. lets the worker drain both lanes and exit,
-3. forgets every tracker's progress for the partition without committing it,
-4. deletes the partition's slice of the store.
+The store record cannot stop a pod on an empty volume, so the **ownership fence** keeps a second record on the broker.
+Every offset commit on every input group carries the committer's split as Kafka commit metadata, its stamp, for example `cohort-split/1:2:0:64` for pod 0 of 2 over 64 partitions.
+The pod reads these stamps three times:
 
-If a cooperative rebalance hands the partition straight back, the cleanup is skipped and the slice is kept.
+1. Before the store opens, it reads the last commit of every group on each partition it owns.
+   A stamp from another split, or metadata it cannot read, holds the boot, because the pods of that split may still run.
+   During [a reshard](#raising-the-pod-count), the parent's stamp passes too.
+   On a follower group, the stamp of a split that covers the pod's also passes, because a pod of that split that still runs also commits the events group.
+   The pod retries after 30 seconds, doubling the wait up to 5 minutes, and meanwhile `/_ready` reads not ready and `ownership_fence_blocked{reason}` is 1.
+   A commit without a stamp passes, because older builds and standard Kafka tools, such as an offset reset, write none.
+   A checkpoint restore waits for the same check again before it commits the follower positions.
+2. After the store opens, it checks the stamps again, commits every owned partition on every group with its own stamp, and reads the stamps back.
+   Another split's stamp, metadata it cannot read, or a stamp that reads back empty stops the pod with an error.
+   An empty read-back means the broker does not keep commit metadata, so the fence cannot work on it.
+3. Every 30 seconds, an audit reads the stamps on the owned partitions.
+   Another split's stamp, or metadata it cannot read, increments `ownership_fence_violations_total{topic}`, makes every later commit of the pod fail, and stops the pod.
+   So the final commits of that stop fail and leave the foreign stamp in place, and the next boot holds at step 1.
 
-State never moves with a partition.
-Whoever owns the partition next, even the same pod later, starts from an empty slice at the last committed offset.
-It rebuilds no history, so every cohort on that partition is wrong until a backfill runs.
-The slice's coverage record goes with it, so the new slice withholds every reconcile whose run boundary is earlier than its start.
-That is why the processor runs as a single pod that owns every partition.
-Nothing moves state between pods, so more than one replica is unsupported, and running two would corrupt state without any error.
+Two processes of the same split, such as two pods with the same ordinal, write the same stamp, so the fence cannot tell them apart.
+Builds from before stamps commit without one, so the fence cannot see them either.
+Change `COHORT_POD_COUNT` only after every pod runs a build with stamps.
+
+### Raising the pod count
+
+`COHORT_RESHARD_FROM_POD_COUNT` marks a reshard and names the old pod count.
+`COHORT_POD_COUNT` must be a larger whole multiple of it, or the pod refuses to start.
+With durable restore enabled, the pod also refuses to start without checkpoints, because each parent deletes the slices it gives away and its child would start without them.
+
+- A pod whose ordinal is below the old count is a parent.
+  It reopens its store, and boot deletes the slices it gave away and drops their files.
+- Every other pod is a child, and takes its partitions over from the parent at its ordinal modulo the old count.
+  It waits, with the `parent_running` reason, until the parent has stamped a partition under the new split.
+  It then deletes a live store that holds no pending restore, and restores the newest checkpoint in the parent's S3 lineage that covers it, counted in `checkpoint_restore_total{source="parent_s3"}`.
+  With no usable checkpoint, it creates its store behind the coverage fence.
+- Once one of a child's events partitions carries the child's stamp, the takeover is over, and later boots open its store as usual.
+
+To reshard:
+
+1. On each parent, run `kill -USR1 1` from a shell in the pod, and wait for `checkpoint uploaded to S3` with `trigger` `requested`.
+   If a warning with that `trigger` comes instead, the upload failed, so send the signal again.
+   Within a minute or two, scale the processor to 0, and wait until every pod has stopped.
+   A stop's final checkpoint stays local, so each child replays only what its parent processed after that upload.
+2. Set `COHORT_POD_COUNT` to the new count, `COHORT_RESHARD_FROM_POD_COUNT` to the old count, and the replicas to the new count.
+3. Check `owned_partitions` on each pod, `ownership_fence_blocked` at 0, and one `parent_s3` restore for each child.
+4. Remove `COHORT_RESHARD_FROM_POD_COUNT` in a later change, and before any offset reset of the events group.
+   While it is set, a reset that clears the stamp from every events partition of a child makes the child take its partitions over again and delete its store.
+
+Scaling to 0 is required.
+The StatefulSet updates from the highest ordinal and waits for each pod to turn ready, and a child is not ready while it waits for its parent, so a reshard applied in one edit deadlocks.
+After its takeover, a child searches only its own lineage.
+So a child that loses its volume before its first upload finishes creates its store behind the coverage fence, even though its parent's checkpoint still covers it.
+That upload waits until the child is ready and has compacted the partitions it does not own.
+
+### Lowering the pod count
+
+Nothing merges two stores, so lowering `COHORT_POD_COUNT` requires wiping every store, including the volume of an ordinal that a scale-down removed.
+That volume keeps its old record, so when a later change brings back that split or one it covers, it opens with slices another pod has moved past.
+With checkpoints enabled, also delete every pod's checkpoints, local and in S3.
+While no pod runs, reset every group's offsets to their current positions, because the stamps of the larger split hold every boot and a standard offset reset writes no stamp.
+Each slice then begins again behind the coverage fence and holds no history until a backfill runs.
+
+More than one pod needs chart changes that are not done yet, so one pod that owns every partition is the supported deployment.
 
 ## Startup
 
 At boot the processor:
 
-1. validates its configuration and refuses unsafe combinations,
+1. validates its configuration, refuses unsafe combinations, and works out the partitions it owns,
 2. binds the health server, so `/_health` answers from here on and `/_ready` reads not ready,
 3. loads the catalog once,
-4. decides where the store comes from: with durable restore enabled, the live store on disk or a checkpoint, otherwise an empty store.
-   A checkpoint restore that cannot finish blocks here and retries, as [a blocked restore](state-store-and-durability.md#a-blocked-restore) describes,
-5. checks the partition counts of the co-partitioned topics against broker metadata,
-6. starts the timer loops and the events consumer, and starts the followers and the checkpoint loop once the catalog has loaded and boot recovery has ended.
+4. checks the partition counts of the co-partitioned topics against broker metadata,
+5. waits until the [ownership fence](#ownership-and-the-single-pod-deployment) admits its split,
+6. decides where the store comes from: with durable restore enabled, the live store on disk or a checkpoint, otherwise an empty store.
+   A checkpoint restore that cannot finish blocks here and retries, as [a blocked restore](state-store-and-durability.md#a-blocked-restore) describes.
+   A store written under a split that does not cover the pod's refuses to open, as [ownership](#ownership-and-the-single-pod-deployment) explains,
+7. stamps every owned partition on every input group, and reads the stamps back,
+8. starts the timer loops and the events consumer, starts the followers once the catalog has loaded and boot recovery has ended, and takes the first checkpoint once the pod is ready.
 
 By default the store is wiped at boot, so there is nothing to recover, and the events consumer dispatches from its first poll.
 
 With durable restore enabled, a restart reopens the same local store instead, and the events consumer runs boot recovery before it dispatches anything:
 
-1. It polls until two consecutive polls report the same non-empty assignment.
-   It dispatches nothing these polls return, and records the lowest offset it polled on each partition.
-2. It deletes the slices of partitions it does not own, and re-produces every transfer waiting in the merge outbox, clearing each outbox row from outside the worker.
-3. After a checkpoint restore, it lowers each owned partition's resume point to the position the restore kept for it.
-4. It seeks every owned partition back to its resume point, so every event it polled and did not dispatch is fetched again.
-   After a checkpoint restore, it then commits those positions and deletes the restore marker.
+1. Before its first poll, it deletes the slices of partitions it does not own, and re-produces every transfer waiting in the merge outbox, clearing each outbox row from outside the worker.
+2. After a checkpoint restore, it seeks every owned partition back to the position the restore kept for it, or to the first event it polled and did not dispatch if that is lower.
+   It dispatches nothing it polls before that seek succeeds.
+   It then commits those positions and deletes the restore marker.
    A failed seek, commit or delete is retried on the next poll, and nothing is dispatched until all of them succeed.
    The consumer reports no liveness while one of them fails, so a failure that persists restarts the process.
    A restored position the broker expired since the restore checked it stops the process instead, so the next boot resets that slice.
-5. It spawns a worker for every owned partition.
+3. It spawns a worker for every owned partition.
    Each worker rebuilds its in-memory eviction queue by scanning its slice of behavioral state, so a dormant member on a partition with no traffic still leaves on time.
 
 The followers start only after these steps, and the timers reach only partitions that have a worker.
@@ -223,7 +290,6 @@ So no worker runs while boot recovery writes to the store.
 `/_ready` returns 200 only once the catalog has loaded, boot recovery has ended, and no worker is still rebuilding its eviction queue.
 Until then it returns 503, and the body names the reason.
 The startup and liveness probes use `/_health`, so a slow rebuild never restarts the pod.
-A partition that moves in after boot spawns a worker that rebuilds too, and the pod reads not ready until that rebuild ends.
 
 ## Shutdown
 
@@ -232,13 +298,14 @@ When the last worker exits, the events consumer records the partitions it owned 
 
 The merge, transfer, cascade and seed followers wait for that drain before their final commit.
 So follower work that finishes during the drain is committed, not replayed on the next boot.
-They commit only for the partitions recorded at the drain, because closing the events consumer revokes every partition from the live ownership.
+They commit only for the partitions recorded at the drain.
 A follower that waits longer than 35 seconds commits for the partitions it owned when shutdown began.
 
 With checkpoints enabled, a final checkpoint follows once every consumer and follower has finished.
-It captures positions for the partitions recorded at the drain and uploads within `CHECKPOINT_FINAL_UPLOAD_TIMEOUT_SECS` of the drain, after shutdown cancels any periodic upload in flight.
-A plan that would upload in full stays local, because it cannot finish in that budget, and the next start uploads in full anyway.
+It captures positions for the partitions recorded at the drain, after shutdown cancels any upload in flight.
+It stays local, and the next start's first upload covers what changed since the last upload.
 It is skipped when boot never ended or the drain never finished, because positions are not settled then.
+The binary must run as PID 1, from an exec-form command, so that SIGTERM and SIGUSR1 reach it.
 
 The events consumer gets 30 seconds to drain, each follower 45 seconds, and the final checkpoint 60 seconds after them, inside the process's 110-second ceiling.
 Kubernetes kills the pod when its termination grace period ends, and that period also covers the chart's 5-second preStop sleep before the shutdown starts.
@@ -272,7 +339,7 @@ Durable restore is enabled.
    Processed becomes 1204568.
 5. On the next commit tick, the task flushes the write-ahead log and commits 1204568.
 
-Three variations show the edges.
+Two variations show the edges.
 
 - **Backpressure.** If partition 26 already held more than 1,016 events, the default budget of 1,024 would refuse these 8.
   The sub-batch would go to the holdover and fetching for the partition would pause.
@@ -282,8 +349,6 @@ Three variations show the edges.
   When the next sub-batch succeeds, processed jumps past 1204567, and the `entered` is never emitted on the live path.
   A restart before that would replay 1204567 against the reopened store, see it as a duplicate, and still emit nothing.
   Only reconcile repairs it.
-- **Revoke.** If partition 26 were revoked between steps 4 and 5, the commit would never happen.
-  The slice would be deleted, and the next owner would start empty and replay from 1204501.
 
 ## Optimizations
 
@@ -309,13 +374,12 @@ Three variations show the edges.
 - The events consumer does not wait for the catalog.
   If the first catalog load fails, events are consumed, skipped for lack of definitions, and committed.
   The pod reads not ready meanwhile.
-- A revoke does not commit.
-  Anything processed since the last commit replays on the next owner.
-- A held offset stays held for the rest of the partition's tenure.
-  With one pod, that means until the next restart, and the symptom is growing lag on that topic and partition.
+- A held offset stays held for the rest of the partition's tenure, which means until the next restart.
+  The symptom is growing lag on that topic and partition.
 - A created store withholds every reconcile whose run boundary predates its slices, because each slice begins when its partition is assigned.
   In an environment that wipes the store at every start, that is every run created before the last boot, and `cohort_slices_begun_total` rises at every boot.
   [Slice coverage](state-store-and-durability.md#slice-coverage) covers the records and their metrics.
-- A timer message does not spawn a worker.
-  Without durable restore that costs nothing, because the store starts empty.
-  With durable restore, boot spawns a worker for every owned partition, so overdue evictions run from boot.
+- Nothing fences two processes that run with the same ordinal.
+  Both consume and commit the same partitions, and both produce.
+  A StatefulSet runs one pod per ordinal, so this takes a force-deleted pod that still runs on a node the cluster cannot reach.
+  Do not force-delete processor pods.

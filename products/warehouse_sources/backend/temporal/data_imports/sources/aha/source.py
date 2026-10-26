@@ -54,7 +54,7 @@ class AhaSource(ResumableSource[AhaSourceConfig, AhaResumeConfig]):
             name=ExternalDataSourceType.AHA,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Aha!",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Aha! account domain and API key to pull your Aha! data into the PostHog Data warehouse.
 
 Create an API key under **Settings → Personal → Developer → API keys** in your Aha! account. The key inherits your account permissions, so it can read every record you can see.""",

@@ -33,6 +33,16 @@ impl PodOrdinal {
             .map(Self)
             .ok_or_else(|| NotAnOrdinalPod(name.to_owned()))
     }
+
+    pub fn get(self) -> u16 {
+        self.0
+    }
+}
+
+impl From<u16> for PodOrdinal {
+    fn from(ordinal: u16) -> Self {
+        Self(ordinal)
+    }
 }
 
 impl fmt::Display for PodOrdinal {

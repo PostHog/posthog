@@ -49,6 +49,7 @@ const MOCK_ALERT: LogsAlertConfigurationApi = {
     consecutive_failures: 0,
     last_error_message: null,
     destination_types: ['slack'],
+    platform_owned: false,
     state_timeline: [],
     first_enabled_at: null,
     created_at: '2024-01-01T00:00:00Z',
@@ -142,6 +143,35 @@ describe('logsAlertDetailSceneLogic — save-then-enable chain', () => {
         // Reducer flips back to false once applyEnabledChange fires.
         expect(logic.values.pendingEnableAfterSave).toBe(false)
 
+        logic.unmount()
+    })
+
+    it('keeps the pending enable while a regroup waits for confirmation, then enables once confirmed', async () => {
+        const platformAlert: LogsAlertConfigurationApi = { ...MOCK_ALERT, platform_owned: true }
+        mockedApi.logsAlertsRetrieve.mockResolvedValue(platformAlert)
+        const logic = await mountSceneLogic()
+        // The scene renders the form with the loaded alert, which is what tells the form it can group.
+        const formLogic = logsAlertFormLogic({ alert: platformAlert })
+        formLogic.actions.setGroupBy('service')
+
+        await expectLogic(logic, () => {
+            logic.actions.enableAlert()
+        })
+            .toDispatchActions(['markPendingEnable', 'submitAlertFormFailure'])
+            .toFinishAllListeners()
+
+        expect(formLogic.values.isRegroupConfirmationOpen).toBe(true)
+        expect(logic.values.pendingEnableAfterSave).toBe(true)
+
+        await expectLogic(logic, () => {
+            formLogic.actions.confirmRegroup()
+        })
+            .toDispatchActions(['submitAlertFormSuccess', logic.actionCreators.applyEnabledChange(true)])
+            .toFinishAllListeners()
+
+        expect(mockedApi.logsAlertsPartialUpdate).toHaveBeenCalledWith(expect.anything(), MOCK_ALERT_ID, {
+            enabled: true,
+        })
         logic.unmount()
     })
 

@@ -209,6 +209,7 @@ class TestTrackReviewCompleted(BaseTest):
         assert props["pr_draft"] is True
         # The finding budget's effect is measured by splitting on this, so it must be on every turn.
         assert props["finding_budget_arm"] == budget_arm("o/r", 7)
+        assert props["review_round"] == 1
         assert 90 <= props["duration_seconds"] < 600
         assert props["reviewhog_version"] == "reviewhog-full-9-9"
         assert props["reviewhog_fingerprint"] == "abc1234"
@@ -244,6 +245,9 @@ class TestTrackReviewCompleted(BaseTest):
             kept=4,
             dedup_fell_back=True,
             budget_left=3,
+            changed_lines=40,
+            must_fix_on_change=1,
+            must_fix_off_change=2,
         )
         sessions = FlashSessionStats(lens_failures=1, lens_timeouts=1, slowest_session_seconds=412.5)
 
@@ -264,6 +268,9 @@ class TestTrackReviewCompleted(BaseTest):
             "flash_kept": 4,
             "flash_dedup_fallback": True,
             "flash_budget_left": 3,
+            "flash_changed_lines": 40,
+            "flash_must_fix_on_change": 1,
+            "flash_must_fix_off_change": 2,
             "flash_lens_failures": 1,
             "flash_lens_timeouts": 1,
             "flash_slowest_session_seconds": 412.5,

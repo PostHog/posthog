@@ -57,7 +57,7 @@ class StreamElementsSource(ResumableSource[StreamElementsSourceConfig, StreamEle
             category=DataWarehouseSourceCategory.COMMUNICATION,
             keywords=["twitch", "streaming", "tips", "donations"],
             label="StreamElements",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Sync tips, activity feed events, loyalty points, store redemptions and chatbot settings from StreamElements into the PostHog Data warehouse.
 
 Use the channel JWT token from your StreamElements dashboard: open your account page, enable **Show secrets** under **Channels**, then copy the JWT token. An OAuth2 access token also works if it has the `channel:read`, `tips:read`, `activities:read`, `loyalty:read` and `store:read` scopes.

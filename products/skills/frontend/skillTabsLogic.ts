@@ -9,7 +9,7 @@ import { llmSkillsList } from 'products/skills/frontend/generated/api'
 /** URL/UI key for the default tab — the uncategorized skills (everything not pulled into a category tab). */
 export const DEFAULT_SKILLS_TAB_KEY: string = 'skills'
 
-/** Sub-title shown for the default "Uncategorized skills" tab. Category tabs carry their own copy (below). */
+/** Sub-title shown for the default "Skills" tab. Category tabs carry their own copy (below). */
 export const DEFAULT_SKILLS_TAB_DESCRIPTION = 'Manage skills that are not assigned to a product category.'
 
 export interface SkillCategoryTab {
@@ -23,7 +23,7 @@ export interface SkillCategoryTab {
 }
 
 /**
- * Category-backed tabs shown alongside the default "Uncategorized skills" tab. Each entry surfaces one
+ * Category-backed tabs shown alongside the default "Skills" tab. Each entry surfaces one
  * `LLMSkill.category` value as its own tab and removes it from the default list (which only shows
  * uncategorized skills). To add a tab — e.g. official AI-plugin skills — add an entry here, register
  * the matching `/skills/<key>` route in manifest.tsx, and have the producer stamp that `category`.

@@ -48,6 +48,10 @@ pnpm --filter=@posthog/mcp run generate:ui-apps
 MCP tools should be **basic capabilities** – atomic CRUD operations and simple actions.
 Agents compose these primitives into higher-level workflows.
 
+For tools that save a visual artifact, briefly suggest checking the rendered result after substantial visual changes
+when browser access is already available. Skip browser checks for small edits. Check the final saved artifact once after
+all edits, rather than after every tool call. The tool can save the artifact, but it cannot give an agent browser access.
+
 **Good tools**:
 
 - List feature flags
@@ -73,6 +77,24 @@ Copying only the message loses the HTTP status and retry guidance.
 For HTTP 503 responses, the shared client passes a numeric `Retry-After` value to the agent as a minimum wait.
 It does not retry these requests automatically.
 
+## Project and organization context
+
+Resolve tool targets through `context.stateManager.getProjectId()` or `getOrgID()`. The Hono server snapshots the active selection for each request and stores it per credential and MCP transport session. Separate sessions can use the same credential concurrently in different organizations and projects, with or without URL pins. Unpinned sessions initialize from the user's active selection within the credential's allowed scope; later website changes do not retarget an existing session. Organization switches clear the previous project, and project switches keep the organization consistent with the selected project.
+
+The shared token cache holds credential and entity metadata. Its `orgId` and `projectId` selection keys remain only for requests without a session or conversation identity. Session-aware tools must use the state manager instead of reading those keys directly. Session selections expire after 24 hours without requests.
+
+For sessionless clients, the server scopes selection to the SDK's echoed `conversation_id`, bound to the credential and separated from transport session IDs. The dispatcher restores echoed handles before state resolution. When the SDK mints a handle on the first tool call, the executor resolves state with that handle before running the tool. Switches require a carried session or conversation handle, including when called through `exec`. A switch without one returns an error and a new handle; the client must retry with that handle and echo it on subsequent calls. Calls without either identity start from the connection's pin or default selection. Clients unable to retain handles should pin the project or organization in the connection URL. The SDK remains responsible for generating and normalizing conversation handles and producing analytics.
+
+Sessionless legacy batches resolve each call's handle and state independently before checking whether a switch is allowed. The wrapper's `sessionId` query parameter groups analytics but cannot restore selections; wrapper-only calls still receive SDK-minted conversation handles.
+
+State managers share credential, user, and entity lookups within one HTTP request, including when a new conversation handle requires another resolution. Lookup keys include the credential cache scope and entity ID. Each call retains its own state manager, selection, flags, and API client. Redis TTLs still govern freshness, and rejected lookup promises are removed so later attempts can retry.
+
+Remote flag evaluations share the same request-local cache when the credential, distinct ID, groups, and requested flag keys match. Flag values and payloads stay separate across different evaluation contexts. Request overrides are applied after the shared evaluation, and failed evaluations remain retryable.
+
+Session defaults are saved once with `SET NX` and kept separate from explicit selections. Lazy organization and project resolution updates only the request snapshot, so a delayed read cannot replace a newer switch in the same session.
+
+An org-only default does not freeze a failed project lookup. Project discovery retries within the saved organization and records the first successful result separately with `SET NX`. Organization-scoped discovery establishes project ownership without a second global metadata lookup. Organization switches can retain a selected project using the destination organization's team list when project metadata is unavailable.
+
 ## SQL-first data retrieval
 
 The MCP server instructs the agent to read data through a unified HogQL interface
@@ -89,6 +111,33 @@ Primarily oriented toward coding agents (PostHog Desktop, PostHog AI, Claude Cod
 ### Knowledge source checks
 
 When the MCP server advertises Business Knowledge or documentation search tools, its agent instructions require one search of each available source before the first answer to a request. Business Knowledge is searched first, followed by current PostHog documentation. If a search fails or returns no relevant result, the agent continues with the other available evidence. In exec sessions with skill discovery enabled, the agent loads the relevant skill before it runs these searches.
+
+## Intent prompt trials
+
+The MCP Analytics SDK adds a `context` argument asking the agent to explain why it calls a tool.
+The `mcp-intent-prompt` flag can select a different description for ordinary external MCP requests.
+Disabled flags, missing or invalid payloads, impersonation, and analytics-suppressed requests retain the SDK default.
+
+Set the description directly in the flag payload:
+
+```json
+{
+  "prompt": "The intent instruction, including its privacy constraints."
+}
+```
+
+The server reads the text from the existing flag evaluation and accepts only nonblank text of at most 2,000 characters.
+Keep the instruction abstract and preserve the default prompt's constraints against identifying or sensitive information.
+Start with a release condition matching one authenticated user's distinct ID; do not add an unconditional release condition.
+
+Clients cache tool schemas. Refresh the client's tool list or reconnect after deployment before collecting trial data.
+Use the targeted user's calls after that refresh for offline evaluation, and record when the payload changes.
+Each `$mcp_tool_call` records the evaluated flag as `$feature/mcp-intent-prompt`: `true` for enabled and `false` for disabled.
+If evaluation is unavailable, the property is omitted. This records flag assignment; clients may still have cached an earlier prompt.
+The server does not capture the prompt text separately.
+
+This collection trial changes no tool results and adds no recommendations or elicitation.
+Evaluate intent against independently recorded abstract task goals, checking invented goals, identifying details, and appropriate uncertainty.
 
 ## Interview recruitment with URL elicitation
 
@@ -165,11 +214,19 @@ Client names and consumer headers are self-reported; they do not prove a human i
 A third-party unattended agent using the same identity and capabilities as an interactive client
 cannot be distinguished by this feature.
 
-The invitation uses native URL elicitation on protocol revision `2026-07-28`, for clients advertising
-URL support. Legacy protocol connections and clients with only form support continue without an
-invitation. No MCP App, extra tool, or agent instruction is involved. The client displays the booking
-URL and asks permission to open it, using its own controls and labels. No questionnaire is displayed.
-The original tool runs after the client returns the invitation response, without waiting for a booking.
+The invitation uses native URL elicitation for clients advertising URL support. Clients with only
+form support continue without an invitation. No MCP App, extra tool, or agent instruction is involved.
+The client displays the booking URL and asks permission to open it, using its own controls and labels.
+No questionnaire is displayed.
+
+Protocol revision `2026-07-28` uses an `input_required` result. The original tool runs after the client
+returns the invitation response, without waiting for a booking. Earlier protocol connections remember
+URL support from initialization and receive an `elicitation/create` request alongside the completed
+tool result in a short SSE response. These clients must accept `text/event-stream`; JSON-only requests
+and batches skip recruitment. The tool completes once, without waiting for the invitation reply.
+Both paths include an `elicitationId` for clients that require it when parsing URL requests.
+Sessions initialized before capability persistence was deployed need to reconnect before they can recruit.
+
 Claude Code can keep its dialog open after opening the URL until the user chooses “I'm done.”
 The server cannot remove that client-controlled step. The `2026-07-28` protocol has no URL-elicitation
 completion notification; see the [SDK protocol notes](https://ts.sdk.modelcontextprotocol.io/v2/servers/elicitation).
@@ -190,8 +247,9 @@ Accepted-link and opted-out records have no TTL. They remain suppressed until re
 retains the records; this is not a separate durable database. Do not put these keys behind an
 expiring cache or delete them during cache maintenance. Cooldown records expire after seven days.
 Already-suppressed users skip progress writes and booking-link creation; the final reservation remains atomic.
-Redis failures skip new invitations. A response write must succeed before the original tool runs;
-the client can retry the continuation if that write fails.
+Redis failures skip new invitations. On `2026-07-28`, a response write must succeed before the
+original tool runs; the client can retry the continuation if that write fails. Earlier protocols
+already completed the tool, so an invitation reply only updates suppression and never reruns it.
 
 Recruitment analytics use the existing PostHog SDK and the MCP server's analytics project:
 
@@ -200,6 +258,34 @@ Recruitment analytics use the existing PostHog SDK and the MCP server's analytic
 | `mcp interview invitation sent`      | The server returns a native invitation after reserving it. This does not confirm that the client rendered the dialog. |
 | `mcp interview booking link opened`  | The invitation's redirect URL receives its first GET request. Repeated opens do not add events.                       |
 | `mcp interview invitation responded` | A valid response is saved, with `response` equal to `accept`, `decline`, or `cancel`.                                 |
+
+Tool-call events also carry recruitment diagnostics through the existing SDK capture path, without
+an extra event per eligibility check:
+
+| Property                                                                             | Meaning                                                                                                                                                                |
+| ------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `interview_recruitment_reason`                                                       | The first gate that skipped recruitment, `eligible` for a legacy call ready before execution, or `continuation` when resuming an invitation.                           |
+| `interview_recruitment_url_supported`, `interview_recruitment_form_supported`        | Whether this request explicitly advertises each elicitation mode. `null` means the request carries no capability metadata; it does not prove the client lacks support. |
+| `interview_recruitment_campaign_id`                                                  | Selected campaign, when a valid recruitment configuration exists.                                                                                                      |
+| `interview_recruitment_completed_calls`, `interview_recruitment_session_age_seconds` | Progress before the current call, when the warmup check was reached.                                                                                                   |
+
+Reasons distinguish `legacy_protocol`, `url_unsupported`, `surface_excluded`, `internal_run`,
+`task_bound`, `flag_disabled`, `flag_unavailable`, `invalid_configuration`, `configuration_unavailable`,
+`not_product_call`, `missing_conversation`, `request_state_present`, `insufficient_tool_calls`,
+`session_too_young`, `suppressed`, `reservation_conflict`, and `redis_error`.
+`flag_unavailable` includes evaluation failures; it is not proof that the flag was evaluated as disabled.
+Only the first failing gate is recorded. A call with `flag_disabled` can also lack URL support; use the
+capability booleans to compare clients independently of the selected reason.
+
+Legacy SSE calls evaluate eligibility before execution without reserving or showing an invitation.
+Their tool-call diagnostics describe that check; `eligible` does not confirm an invitation. The server
+rechecks eligibility after successful execution, including any privacy suppression learned from the API.
+The existing `mcp interview invitation sent` event includes these diagnostics with reason `invited`.
+A paused invitation has not executed a tool, so do not expect a completed tool-call event until its
+continuation runs. Exec emits one tool-call event relabeled to the inner tool. Filter
+`$mcp_exec_verb = 'call'` to exclude exec discovery commands, and include direct-tool events
+separately. Private scout tools, impersonated requests, and analytics-suppressed calls do not expose
+these diagnostics. No raw capability objects, tool arguments, or invitation answers are added.
 
 Every event carries the authenticated user's distinct ID, `campaign_id`, `invitation_id`, and the `feature_flag`
 key. The campaign comes from the selected variant and is retained for link opens and responses. Count distinct people for reach and invitation IDs for attempts. Invitations without a response
@@ -219,7 +305,10 @@ resetting. Do not reset all users just to test a change. Pending continuations e
 and are bound to the original token, tool arguments, organization, and project. A changed context
 rejects the continuation before the tool runs. Consumed continuations retain a ten-minute marker
 and cannot run again. Expired or consumed errors require checking the original tool's outcome
-before retrying, because a write may already have succeeded.
+before retrying, because a write may already have succeeded. Replies on earlier protocols expire
+after ten minutes and are bound to the authenticated user, PostHog instance, invitation, and original
+token. They remain valid after project changes or flag changes because they cannot execute a tool.
+Duplicate, expired, and mismatched replies do not update suppression or emit response events.
 
 ## Claude web and desktop exec schema budget
 
@@ -362,6 +451,8 @@ Register your new reference in [`products/posthog_ai/skills/querying-posthog-dat
 
 ## Code generation pipeline
 
+Generated handlers URL-encode path parameters. `ApiClient.request` also rejects empty path segments and paths that URL parsing would normalize. Keep generated calls on this client so the requested resource stays within the handler's endpoint.
+
 The pipeline turns Django serializers into MCP tool handlers via OpenAPI.
 Run the full pipeline with:
 
@@ -431,6 +522,9 @@ Product teams own their definitions and control which operations are exposed as 
    Scopes come from the API when you omit them. Annotations default for GET and DELETE, so declare them for PATCH, POST and PUT.
    A `scopes` list that misses a scope the API requires fails codegen.
    When an action's scopes depend on the request, list the action in the viewset's `request_dependent_scope_actions`, and declare `scopes` on its tools.
+   A tool that reads ingested project data declares `reads_ingested_data`: `events`, or `events_or_warehouse` for a tool that also reads data warehouse tables.
+   On a project that has not received an event yet, the server can return install guidance for these tools instead of an empty result.
+   Every `query-*` tool must declare it.
    Each YAML file has a top-level structure validated by Zod ([`scripts/yaml-config-schema.ts`](https://github.com/PostHog/posthog/blob/master/services/mcp/scripts/yaml-config-schema.ts)):
 
    **Tool names** follow a **`domain-action`** convention in lowercase kebab-case (`[a-z0-9-]`),
@@ -507,6 +601,8 @@ Product teams own their definitions and control which operations are exposed as 
 
    Unknown keys are rejected at build time (Zod `.strict()`) to catch typos early.
 
+   Keep plan-limit guidance aligned with backend permissions. For `project-create`, `organization-get` exposes the plan feature limits and each team's `project_id` and `is_demo`. Count distinct project IDs among non-demo teams; neither the project list length nor the environment count matches the backend rule. Visible lists can omit inaccessible projects, so a count below the limit does not guarantee permission. The backend remains authoritative.
+
    For list tools with a UI app, set `response.text_include` to the dot-path fields an agent
    needs from each result row. This adds a compact text response for clients that cannot read
    `structuredContent`, while preserving the full structured payload for the app and explicit
@@ -545,7 +641,11 @@ Product teams own their definitions and control which operations are exposed as 
    The two overrides above reshape a generated tool's schema.
    Neither can change what happens around the request.
    `validators` runs as a synchronous `superRefine`, so it cannot await anything;
-   `inject_body` supplies static values; `rename_params` only renames.
+   `inject_body` supplies static values; `rename_params` renames body or query parameters.
+   Query aliases retain the original HTTP parameter name. For example, `dashboard-insights-run` exposes
+   `dashboard_tile_ids` as an integer array and sends it as the API's comma-separated `tile_ids` parameter.
+   The tool also accepts `tile_ids` as a legacy alias, with either an array or a comma-separated string.
+   Its `id` parameter accepts `dashboard_id` and `dashboardId` aliases.
 
    When a tool has to read current state before writing, or handle a specific error, set `hooks:` on the tool.
    The value is a module path relative to `src/tools/`, without the extension:
@@ -560,14 +660,20 @@ Product teams own their definitions and control which operations are exposed as 
    The module default-exports an object with any of these functions, written `export default { beforeRequest } satisfies ToolHooks<Params>` so a misspelled name fails typecheck:
 
    - `beforeRequest(context, params)` returns the params the request should use.
+   - `transformBody(context, params, body)` returns the body to send after the handler selects its declared fields. Use it when a read must supply fields the caller does not pass, such as an experiment's stored parameters and concurrency version.
    - `afterResponse(context, params, result)` returns the result to send to the client.
    - `onError(context, params, error)` returns a result that handles the error, or rethrows it.
 
    Codegen wraps the generated handler with them, so the name, schema and metadata stay generated.
    A `beforeRequest` that throws stops the request, and `onError` does not see that error.
+   A `transformBody` that throws stops the request and reaches `onError`. When merging stored state, send the version read with that state and surface a conflict instead of retrying a stale body.
    `hooks` cannot be combined with `confirmed_action`.
    `src/tools/featureFlags/updateFeatureFlagHooks.ts` is the reference.
    Do not shadow a generated tool with a hand-written tool of the same name.
+
+   The Logs tools use `logs/redactCredentialsHooks` to mask credentials in response strings and structured fields. This covers credential parameters, JSON and header values, URL passwords, bearer tokens, private PostHog and GitHub tokens, credential command-line flags such as `--password VALUE` and `-u user:pass`, and private key blocks inside one string. Nested URL encoding and JSON escaping do not bypass masking. The hook preserves unrelated text, except that strings with more than eight encoding layers are masked in full to bound parsing work. It does not change stored logs or responses outside MCP.
+
+   The Engineering analytics CI failure-log tools and the broken-tests tool use `engineeringAnalytics/redactFailureLogsHooks`. It applies the same masking, but with a narrower list of credential names: CI output uses names such as `key`, `code` and `input_tokens` for diagnostics. It also masks the lines of a private key that spans several log lines in one job, including body lines next to an omitted gap, and keeps each line's original line number.
 
    #### Typed-confirm paradigm for destructive tools
 

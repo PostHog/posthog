@@ -18,6 +18,7 @@ use deltalake::{DeltaResult, Path, TableProperty};
 use deltalite_core::handle::TableHandle;
 use deltalite_core::table::{open_table, open_table_multipart, wrap_multipart, MultipartConfig};
 use deltalite_core::upsert::{upsert_cached_with_state, RelaxCache, UpsertOptions};
+use deltalite_core::ProbeCache;
 use futures::stream::BoxStream;
 use object_store::local::LocalFileSystem;
 use object_store::{
@@ -925,6 +926,8 @@ async fn hit_file_footer_reuse_is_bounded_by_reader_concurrency() {
             s.clone(),
             UpsertOptions {
                 max_parallel_files: 2,
+                // The seeding upserts cached these files; the test needs their probe.
+                probe_cache: None,
                 ..opts()
             },
             MultipartConfig::default(),
@@ -941,6 +944,63 @@ async fn hit_file_footer_reuse_is_bounded_by_reader_concurrency() {
         .collect();
     assert_eq!(counts.iter().filter(|&&count| count == 1).count(), 2);
     assert_eq!(counts.iter().filter(|&&count| count == 2).count(), 3);
+}
+
+/// A file whose keys the cache holds is decided with no data read: first a file the
+/// probe read once and found without a match, then a file an earlier upsert wrote.
+#[tokio::test]
+async fn a_cached_file_is_decided_without_a_data_read() {
+    register_counting_scheme();
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("t");
+    let uri = format!("dltest://{}", path.to_string_lossy());
+    let root = table_root(&path);
+    let s = create_disjoint_files_table(&uri, &[&["a0", "a9"], &["m0", "m9"]]).await;
+    let mut handle = TableHandle::open(uri.clone(), HashMap::new())
+        .await
+        .expect("open");
+    let data_reads = |ops: &[(Op, String)]| {
+        ops.iter()
+            .filter(|(op, p)| op.is_read() && p.ends_with(".parquet") && !p.contains("_delta_log"))
+            .count()
+    };
+    let cache = Arc::new(ProbeCache::new(1 << 20));
+
+    // A fresh cache knows nothing yet: the probe reads the file and caches it.
+    let probe = |key: &'static str| {
+        let opts = UpsertOptions {
+            probe_cache: Some(cache.clone()),
+            ..opts()
+        };
+        (vec![batch(&s, &[key], vec![Some(1)])], opts)
+    };
+    for (key, probed, cached, reads) in [("a5", 1, 0, 1), ("a6", 0, 1, 0)] {
+        let (b, o) = probe(key);
+        let start = ops_len();
+        let stats = handle
+            .upsert(b, s.clone(), o, MultipartConfig::default())
+            .await
+            .expect("upsert");
+        let ops = ops_since(start, &root);
+        assert_eq!(stats.files_probed, probed, "{key}");
+        assert_eq!(stats.files_probe_cached, cached, "{key}");
+        assert_eq!(stats.files_removed, 0, "{key}");
+        assert_eq!(data_reads(&ops), reads, "{key}: {ops:?}");
+    }
+
+    // The upserts above wrote files for `a5` and `a6`; their keys came from the writer.
+    let (b, o) = probe("a5");
+    let start = ops_len();
+    let stats = handle
+        .upsert(b, s.clone(), o, MultipartConfig::default())
+        .await
+        .expect("upsert");
+    assert_eq!(stats.files_probed, 0);
+    assert_eq!(stats.files_removed, 1);
+    assert_eq!(stats.rows_updated, 1);
+    let ops = ops_since(start, &root);
+    // The one data read is the rewrite of the hit file, not a probe.
+    assert_eq!(data_reads(&ops), 1, "{ops:?}");
 }
 
 /// After the commit the handle adopts the state delta-rs derived for it instead of
@@ -1470,7 +1530,10 @@ async fn a_probed_small_file_costs_one_request() {
         .upsert(
             vec![batch(&s, &["a5"], vec![Some(1)])],
             s.clone(),
-            opts(),
+            UpsertOptions {
+                probe_cache: None,
+                ..opts()
+            },
             MultipartConfig::default(),
         )
         .await

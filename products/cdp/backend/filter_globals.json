@@ -1,6 +1,6 @@
 {
     "$comment": "Generated. Do not edit: run `pnpm --filter=@posthog/nodejs run build:filter-globals`. roots are the data globals the CDP filter runtime builds for a hog function. callables are the standard-library names the VM hands back as values and can then invoke, so they are the ones a filter can pass as a callback. functions are every standard-library name a filter can call directly, with the argument count the VM enforces as [min, max]. template_roots are the names an input template can read. Django reads this to refuse a filter or an input the runtime could not evaluate. contract is a hash of the rest, stamped on compiled bytecode.",
-    "contract": "bfd6ece60e41383c",
+    "contract": "2c9c13700371fbf9",
     "roots": [
         "$group_0",
         "$group_1",
@@ -117,6 +117,7 @@
         "sha1HmacChainHex",
         "sha256",
         "sha256Hex",
+        "sha256HmacBase64Key",
         "sha256HmacChain",
         "sha256HmacChainHex",
         "splitByString",
@@ -513,6 +514,10 @@
         "sha256Hex": [
             1,
             1
+        ],
+        "sha256HmacBase64Key": [
+            2,
+            3
         ],
         "sha256HmacChain": [
             1,

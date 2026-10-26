@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto'
 
 import { ApiClient } from '@/api/client'
+import { StateLookupCache } from '@/lib/cache/StateLookupCache'
 import { MCP_ANALYTICS_SOURCE, MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@/lib/constants'
-import { wrapError } from '@/lib/errors'
 import { getPostHogClient } from '@/lib/posthog'
 import {
     AnalyticsEvent,
@@ -37,6 +37,7 @@ export class RequestContext {
     private legacySessionScopedCacheInstance: RedisCache<SessionScopedState> | undefined
     private apiInstance: ApiClient | undefined
     private sessionManagerInstance: SessionManager | undefined
+    private stateManagerInstance: StateManager | undefined
     private distinctIdPromise: Promise<string> | undefined
     private readonly sessionUuidPromises = new Map<string, Promise<string>>()
     private readonly redis: RedisLike
@@ -50,7 +51,8 @@ export class RequestContext {
         redis: RedisLike,
         env: Env,
         props: RequestProperties,
-        requestContext: MCPRequestContext = buildMCPRequestContext(props)
+        requestContext: MCPRequestContext = buildMCPRequestContext(props),
+        readonly lookups = new StateLookupCache()
     ) {
         this.redis = redis
         this.env = env
@@ -73,21 +75,18 @@ export class RequestContext {
     }
 
     /**
-     * State scoped to the MCP protocol session rather than the token, holding the
-     * session's in-session context switches and last-applied request pin. The
-     * token cache can't hold these: it is shared by every concurrent session on
-     * the same credential. Undefined when the request carries no session id.
-     *
-     * The key includes the credential: a caller chooses its session id, so a
-     * request must never restore context that another credential saved.
+     * Selections cannot live in the token cache shared by concurrent connections.
+     * Include the credential because callers choose their session and conversation IDs.
      */
     get sessionScopedCache(): RedisCache<SessionScopedState> | undefined {
         const mcpSessionId = this.requestContext.mcpSessionId
-        if (!mcpSessionId) {
+        const conversationId = this.requestContext.mcpConversationId
+        if (!mcpSessionId && !conversationId) {
             return undefined
         }
         if (!this.sessionScopedCacheInstance) {
-            this.sessionScopedCacheInstance = this.sessionCacheFor(`${this.props.userHash ?? ''}\0${mcpSessionId}`)
+            const scopeId = mcpSessionId ?? `conversation\0${conversationId}`
+            this.sessionScopedCacheInstance = this.sessionCacheFor(`${this.props.userHash ?? ''}\0${scopeId}`)
         }
         return this.sessionScopedCacheInstance
     }
@@ -207,30 +206,18 @@ export class RequestContext {
     }
 
     getDistinctId(): Promise<string> {
-        if (!this.distinctIdPromise) {
-            this.distinctIdPromise = this.resolveDistinctId()
-        }
-        return this.distinctIdPromise
-    }
-
-    private async resolveDistinctId(): Promise<string> {
-        const cached = await this.tokenCache.get('distinctId')
-        if (cached) {
-            return cached
-        }
-        const userResult = await (await this.api()).users().me()
-        if (!userResult.success) {
-            throw wrapError(`Failed to get user: ${userResult.error.message}`, userResult.error)
-        }
-        const distinctId = userResult.data.distinct_id as string
-        await this.tokenCache.set('distinctId', distinctId)
-        return distinctId
+        return (this.distinctIdPromise ??= this.getContext().then(({ stateManager }) => stateManager.getDistinctId()))
     }
 
     async getContext(): Promise<Context> {
         const api = await this.api()
-        const stateManager = new StateManager(this.tokenCache, api, this.pinnedContext)
-        const sessionScopedCache = this.sessionScopedCache
+        const stateManager = (this.stateManagerInstance ??= new StateManager(
+            this.tokenCache,
+            api,
+            this.pinnedContext,
+            this.sessionScopedCache,
+            this.lookups
+        ))
         const partialContext: Omit<Context, 'trackEvent'> = {
             api,
             cache: this.tokenCache,
@@ -238,16 +225,6 @@ export class RequestContext {
             stateManager,
             sessionManager: this.sessionManager,
             getDistinctId: () => this.getDistinctId(),
-            ...(sessionScopedCache
-                ? {
-                      setSessionActiveContext: async (updates: { orgId?: string; projectId?: string }) => {
-                          await sessionScopedCache.setMany({
-                              ...(updates.orgId ? { activeOrgId: updates.orgId } : {}),
-                              ...(updates.projectId ? { activeProjectId: updates.projectId } : {}),
-                          })
-                      },
-                  }
-                : {}),
         }
         const trackEvent: Context['trackEvent'] = async (event, properties = {}) => {
             const analyticsContext = await this.safelyGetAnalyticsContext(partialContext)

@@ -76,12 +76,12 @@ from products.endpoints.backend.exceptions import EndpointAtCapacity, EndpointQu
 from products.endpoints.backend.insight_transformers import MaterializedSeriesMismatchError
 from products.endpoints.backend.logic.materialized_serving import serving_state_for_version
 from products.endpoints.backend.logic.pagination import EndpointPagination
+from products.endpoints.backend.logic.rate_limit_signal import EndpointRateLimitReason, record_endpoint_rate_limited
 from products.endpoints.backend.logic.strategies import EndpointQueryStrategy, strategy_for
 from products.endpoints.backend.logic.validation import NATIVE_CLUSTER_UNSUPPORTED
 from products.endpoints.backend.logs import build_execution_message, log_endpoint_execution
 from products.endpoints.backend.metrics import (
     ENDPOINT_CACHE_RESULT_TOTAL,
-    ENDPOINT_CONCURRENCY_REJECTED_TOTAL,
     ENDPOINT_EXECUTION_DURATION_SECONDS,
     ENDPOINT_EXECUTION_TOTAL,
     ENDPOINT_HOGQL_RESULT_ROWS,
@@ -137,6 +137,16 @@ _QUERY_GUARDRAIL_ERRORS: tuple[type[Exception], ...] = (
 
 def _is_query_guardrail_error(error: BaseException) -> bool:
     return isinstance(error, _QUERY_GUARDRAIL_ERRORS)
+
+
+# ClickHouse cannot parse a value the customer sent (e.g. a bad date variable). execute() returns a 400.
+_CUSTOMER_INPUT_ERROR_CODES = frozenset(
+    {"cannot_parse_date", "cannot_parse_datetime", "cannot_parse_number", "decimal_overflow"}
+)
+
+
+def _is_customer_input_error(error: BaseException) -> bool:
+    return isinstance(error, ExposedCHQueryError) and error.code_name in _CUSTOMER_INPUT_ERROR_CODES
 
 
 # Connection loss outside SQLSTATE class 08 (connection_exception).
@@ -636,11 +646,24 @@ class EndpointExecutionService(PydanticModelMixin):
             )
             raise ValidationError("Query resolution failed: unable to resolve table or field references.")
         except ConcurrencyLimitExceeded:
-            ENDPOINT_CONCURRENCY_REJECTED_TOTAL.labels(team_id=str(self.team.pk)).inc()
+            record_endpoint_rate_limited(
+                team_id=self.team.pk,
+                endpoint_name=endpoint.name,
+                version=version_obj.version,
+                reason=EndpointRateLimitReason.CONCURRENCY,
+                scope=EndpointRateLimitReason.CONCURRENCY.value,
+            )
             raise Throttled(detail="Too many concurrent requests. Please try again later.")
         except APIQueriesBudgetExceeded:
             # The platform refused this query on purpose, so it is not an endpoint fault. Leave the
             # execution counter alone: the budget path counts its own refusals.
+            record_endpoint_rate_limited(
+                team_id=self.team.pk,
+                endpoint_name=endpoint.name,
+                version=version_obj.version,
+                reason=EndpointRateLimitReason.READ_BUDGET,
+                scope=EndpointRateLimitReason.READ_BUDGET.value,
+            )
             raise
         except tuple(_QUERY_PERFORMANCE_ERRORS) as e:
             execution_status = "query_performance"
@@ -886,8 +909,8 @@ class EndpointExecutionService(PydanticModelMixin):
 
             return result
         except Exception as e:
-            # Guardrail errors are customer-caused, not faults: skip capture and let execute() classify them.
-            if _is_query_guardrail_error(e):
+            # Guardrail and input errors are customer-caused, not faults: skip capture and let execute() classify them.
+            if _is_query_guardrail_error(e) or _is_customer_input_error(e):
                 raise
             logger.exception(
                 "Materialized endpoint execution failed",
@@ -996,8 +1019,8 @@ class EndpointExecutionService(PydanticModelMixin):
 
         except Exception as e:
             self.handle_column_ch_error(e)
-            # Guardrail errors are customer-caused, not faults: skip capture and let execute() classify them.
-            if _is_query_guardrail_error(e):
+            # Guardrail and input errors are customer-caused, not faults: skip capture and let execute() classify them.
+            if _is_query_guardrail_error(e) or _is_customer_input_error(e):
                 raise
             logger.exception(
                 "Inline endpoint execution failed",

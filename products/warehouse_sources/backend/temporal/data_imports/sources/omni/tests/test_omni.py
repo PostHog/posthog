@@ -10,6 +10,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     ScriptedResponse,
     SourceDriver,
     always,
+    route,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.omni import OmniSourceConfig
@@ -21,11 +22,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.omni.omni 
     _format_watermark,
     get_endpoint_permissions,
     get_key_scope,
-    get_resource,
     normalize_host,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.omni.settings import PARTITION_KEYS, PRIMARY_KEYS
+from products.warehouse_sources.backend.temporal.data_imports.sources.omni.settings import (
+    FANOUT_ENDPOINTS,
+    PARTITION_KEYS,
+    PRIMARY_KEYS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.omni.source import OmniSource
 
 
@@ -96,12 +100,6 @@ class TestOmniScimPaginator:
         request = Request(method="GET", url="https://acme.omniapp.co/api/scim/v2/users")
         paginator.init_request(request)
         assert request.params["startIndex"] == 201
-
-
-class TestGetResource:
-    def test_unknown_endpoint_raises(self):
-        with pytest.raises(ValueError):
-            get_resource("Nope", should_use_incremental_field=False, stop_when_older_than=None)
 
 
 class TestValidateCredentials:
@@ -242,7 +240,115 @@ class TestOmniSourceEndToEnd:
         assert result.params("startIndex") == ["1", "2"]
         assert result.saved_states == [OmniResumeConfig(start_index=2)]
 
-    @pytest.mark.parametrize("endpoint", list(PRIMARY_KEYS.keys()))
+    def test_schedule_recipients_fans_out_per_schedule(self) -> None:
+        result = self._driver().run(
+            "ScheduleRecipients",
+            route(
+                {
+                    "/api/v1/schedules": [
+                        ScriptedResponse(
+                            json={
+                                "pageInfo": {"hasNextPage": False, "nextCursor": None},
+                                "records": [{"id": "s1"}, {"id": "s2"}],
+                            }
+                        )
+                    ],
+                    "/api/v1/schedules/s1/recipients": [
+                        ScriptedResponse(json={"type": "email", "recipients": [{"id": "u1", "email": "a@example.com"}]})
+                    ],
+                    # A schedule deleted between the listing and its recipients fetch is skipped.
+                    "/api/v1/schedules/s2/recipients": [ScriptedResponse(status=404, json={"detail": "not found"})],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert result.rows == [
+            {"type": "email", "recipients": [{"id": "u1", "email": "a@example.com"}], "scheduleId": "s1"}
+        ]
+        assert result.response is not None
+        assert result.response.primary_keys == ["scheduleId"]
+
+    def test_document_permissions_paginates_per_document_and_keys_principals(self) -> None:
+        result = self._driver().run(
+            "DocumentPermissions",
+            route(
+                {
+                    "/api/v1/documents": [
+                        ScriptedResponse(
+                            json={
+                                "pageInfo": {"hasNextPage": False, "nextCursor": None},
+                                "records": [{"identifier": "d1"}, {"identifier": "d2"}],
+                            }
+                        )
+                    ],
+                    "/api/v1/documents/d1/access-list": [
+                        ScriptedResponse(
+                            json={
+                                "pageInfo": {"hasNextPage": True, "nextCursor": "p2"},
+                                "principals": [{"userId": "u1", "type": "user", "accessSource": "direct"}],
+                            }
+                        ),
+                        ScriptedResponse(
+                            json={
+                                "pageInfo": {"hasNextPage": False, "nextCursor": None},
+                                "principals": [{"userGroupId": "g1", "type": "userGroup", "accessSource": "folder"}],
+                            }
+                        ),
+                    ],
+                    # The key lacks Manager permission on this document; it's skipped, not fatal.
+                    "/api/v1/documents/d2/access-list": [ScriptedResponse(status=403, json={"status": 403})],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert [(row["documentId"], row["principalId"], row["accessSource"]) for row in result.rows] == [
+            ("d1", "u1", "direct"),
+            ("d1", "g1", "folder"),
+        ]
+        # The parent listing sorts on a field that edits don't move, unlike the Documents table's `updatedAt`.
+        assert result.requests[0].path == "/api/v1/documents"
+        assert result.requests[0].param("sortField") == "name"
+        assert result.params("cursor") == [None, None, "p2", None]
+
+    def test_document_permissions_resume_skips_completed_documents(self) -> None:
+        result = self._driver().run(
+            "DocumentPermissions",
+            route(
+                {
+                    "/api/v1/documents": [
+                        ScriptedResponse(
+                            json={
+                                "pageInfo": {"hasNextPage": False, "nextCursor": None},
+                                "records": [{"identifier": "d1"}, {"identifier": "d2"}],
+                            }
+                        )
+                    ],
+                    "/api/v1/documents/d2/access-list": [
+                        ScriptedResponse(
+                            json={
+                                "pageInfo": {"hasNextPage": False, "nextCursor": None},
+                                "principals": [{"userId": "u2", "type": "user", "accessSource": "direct"}],
+                            }
+                        )
+                    ],
+                }
+            ),
+            resume_state=OmniResumeConfig(
+                fanout_state={"completed": ["/v1/documents/d1/access-list"], "current": None, "child_state": None}
+            ),
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/api/v1/documents", "/api/v1/documents/d2/access-list"]
+        assert [row["documentId"] for row in result.rows] == ["d2"]
+        assert result.final_state.fanout_state["completed"] == [
+            "/v1/documents/d1/access-list",
+            "/v1/documents/d2/access-list",
+        ]
+
+    @pytest.mark.parametrize("endpoint", [name for name in PRIMARY_KEYS if name not in FANOUT_ENDPOINTS])
     def test_response_metadata_per_endpoint(self, endpoint: str) -> None:
         selector = {
             "Documents": "records",
@@ -251,6 +357,8 @@ class TestOmniSourceEndToEnd:
             "Schedules": "records",
             "Users": "Resources",
             "UserGroups": "Resources",
+            "Models": "records",
+            "UserAttributes": "records",
         }[endpoint]
         body = {"pageInfo": {"hasNextPage": False, "nextCursor": None}, selector: []}
         result = self._driver().run(endpoint, [ScriptedResponse(json=body)])

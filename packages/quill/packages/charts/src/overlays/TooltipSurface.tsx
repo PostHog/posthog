@@ -1,10 +1,14 @@
-import React from 'react'
+import React, { useContext } from 'react'
 
-import { useChartLayout } from '../core/chart-context'
+import { ChartLayoutContext } from '../core/chart-context'
 
 // Fallback colors for non-quill hosts; quill hosts get --card / --foreground from the theme reader.
 export const TOOLTIP_FALLBACK_BG = '#1d2330'
 export const TOOLTIP_FALLBACK_COLOR = '#ffffff'
+
+// Outside a chart there is no theme, so read the same tokens the theme reader does.
+const STANDALONE_BG = `var(--card, var(--color-bg-surface-popover, ${TOOLTIP_FALLBACK_BG}))`
+const STANDALONE_COLOR = `var(--foreground, var(--color-text-primary, ${TOOLTIP_FALLBACK_COLOR}))`
 
 interface TooltipSurfaceProps {
     children: React.ReactNode
@@ -19,7 +23,7 @@ export function TooltipSurface({
     className,
     'data-attr': dataAttr,
 }: TooltipSurfaceProps): React.ReactElement {
-    const { theme } = useChartLayout()
+    const theme = useContext(ChartLayoutContext)?.theme
     return (
         <div
             className={className}
@@ -37,8 +41,8 @@ export function TooltipSurface({
                 // one intentional addition over quill's flat in-page tooltip.
                 border: '1px solid rgba(255, 255, 255, 0.1)',
                 boxShadow: '0 4px 16px rgb(0 0 0 / 40%)',
-                backgroundColor: theme.tooltipBackground ?? TOOLTIP_FALLBACK_BG,
-                color: theme.tooltipColor ?? TOOLTIP_FALLBACK_COLOR,
+                backgroundColor: theme ? (theme.tooltipBackground ?? TOOLTIP_FALLBACK_BG) : STANDALONE_BG,
+                color: theme ? (theme.tooltipColor ?? TOOLTIP_FALLBACK_COLOR) : STANDALONE_COLOR,
             }}
         >
             {children}

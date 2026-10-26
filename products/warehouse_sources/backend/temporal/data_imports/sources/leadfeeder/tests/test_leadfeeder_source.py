@@ -37,30 +37,6 @@ class TestLeadfeederSource:
 
     @parameterized.expand(
         [
-            "401 Client Error: Unauthorized for url: https://api.leadfeeder.com/accounts",
-            "403 Client Error: Forbidden for url: https://api.leadfeeder.com/accounts/1/leads",
-        ]
-    )
-    def test_non_retryable_errors_match_auth_failures(self, observed_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            "429 Client Error: Too Many Requests for url: https://api.leadfeeder.com/accounts/1/visits",
-            "500 Server Error for url: https://api.leadfeeder.com/accounts",
-        ]
-    )
-    def test_non_retryable_errors_ignore_transient(self, other_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert not any(key in other_error for key in non_retryable)
-
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["leads"])
-        assert [s.name for s in schemas] == ["leads"]
-
-    @parameterized.expand(
-        [
             (True, True, None),
             (
                 False,

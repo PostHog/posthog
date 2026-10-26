@@ -45,6 +45,7 @@ export interface PropertyFiltersProps {
     schemaColumns?: DatabaseSchemaField[]
     dataWarehouseTableName?: string
     logicalRowDivider?: boolean
+    logicalRowDividerTooltip?: string
     orFiltering?: boolean
     propertyGroupType?: FilterLogicalOperator | null
     addText?: string | null
@@ -110,6 +111,7 @@ export function PropertyFilters({
     dataWarehouseTableName,
     orFiltering = false,
     logicalRowDivider = false,
+    logicalRowDividerTooltip,
     propertyGroupType = null,
     addText = null,
     buttonText = 'Filter',
@@ -170,7 +172,10 @@ export function PropertyFilters({
         return (
             <React.Fragment key={displayedFilterIds[index]}>
                 {logicalRowDivider && index > 0 && index !== displayedFilters.length - 1 && (
-                    <LogicalRowDivider logicalOperator={propertyGroupType ?? FilterLogicalOperator.And} />
+                    <LogicalRowDivider
+                        logicalOperator={propertyGroupType ?? FilterLogicalOperator.And}
+                        tooltip={logicalRowDividerTooltip}
+                    />
                 )}
                 {addFilterDivider &&
                     showNewFilterRow &&

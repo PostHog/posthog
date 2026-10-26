@@ -65,7 +65,7 @@ class GitLabSource(ResumableSource[GitLabSourceConfig, GitLabResumeConfig]):
             name=ExternalDataSourceType.GITLAB,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="GitLab",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Sync issues, merge requests, commits, pipelines, and more from a GitLab project.
 
 Create a personal access token in your GitLab **User settings > Access tokens** with the `read_api` scope.

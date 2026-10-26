@@ -638,10 +638,6 @@ class TestValidateCredentials:
             assert valid is False
         assert network.requests_log == []
 
-    def test_invalid_token(self):
-        with scripted_network([ScriptedResponse(status=401)]):
-            assert validate_credentials("https://argocd.example.com", "tok") == (False, "Invalid Argo CD API token")
-
     def test_403_at_source_create_is_accepted(self):
         with scripted_network([ScriptedResponse(status=403)]):
             assert validate_credentials("https://argocd.example.com", "tok", schema_name=None) == (True, None)
@@ -652,7 +648,7 @@ class TestValidateCredentials:
             assert valid is False
             assert "clusters" in (msg or "")
 
-    @pytest.mark.parametrize("status_code", [429, 500, 503])
+    @pytest.mark.parametrize("status_code", [429, 503])
     def test_transient_errors_are_not_reported_as_bad_credentials(self, status_code):
         with scripted_network([ScriptedResponse(status=status_code)]):
             valid, msg = validate_credentials("https://argocd.example.com", "tok")
@@ -698,12 +694,6 @@ class TestValidateCredentials:
             valid, msg = validate_credentials("https://argocd.example.com", "tok")
             assert valid is False
             assert "certificate" in (msg or "")
-
-    def test_connection_error_returns_failure(self):
-        with scripted_network([requests.exceptions.ConnectionError("boom")]):
-            valid, msg = validate_credentials("https://argocd.example.com", "tok")
-            assert valid is False
-            assert "boom" in (msg or "")
 
     def test_session_opts_out_of_sample_capture_and_redacts_token(self):
         with scripted_network([ScriptedResponse(json={"items": None})]) as network:

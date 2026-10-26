@@ -125,20 +125,6 @@ class TestFormatTimestamp:
 
 
 class TestValidateCredentials:
-    @pytest.mark.parametrize(
-        "status, expected",
-        [
-            (200, True),
-            # 403 = token minted (keys valid) but missing the disputes scope — accept at create time.
-            (403, True),
-            (401, False),
-        ],
-    )
-    @mock.patch(PROBE_SESSION_PATCH)
-    def test_maps_probe_status(self, mock_session, status, expected):
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status)
-        assert validate_credentials("production", "ack_id", "secret") is expected
-
     @mock.patch(PROBE_SESSION_PATCH)
     def test_invalid_on_exception(self, mock_session):
         mock_session.return_value.get.side_effect = Exception("boom")

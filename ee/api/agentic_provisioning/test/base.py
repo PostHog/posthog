@@ -3,6 +3,7 @@ import base64
 import hashlib
 import secrets
 import dataclasses
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 from urllib.parse import quote_plus
 
@@ -10,6 +11,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.core.cache import cache
+from django.test import override_settings
 from django.utils import timezone
 
 from rest_framework.test import APIClient
@@ -57,6 +59,18 @@ TEST_PARTNER_PROVISIONING: dict[str, bool] = {
 }
 
 
+# Signing depends on the clock, so tests pin the window rather than age against the real dates.
+SIGNING_WINDOW_IN_THE_FUTURE = datetime(2100, 1, 1, tzinfo=UTC)
+SIGNING_WINDOW_IN_THE_PAST = datetime(2000, 1, 1, tzinfo=UTC)
+
+
+def signing_required() -> override_settings:
+    return override_settings(
+        PROVISIONING_SIGNING_REQUIRED_SINCE=SIGNING_WINDOW_IN_THE_PAST,
+        PROVISIONING_UNSIGNED_GRACE_UNTIL=SIGNING_WINDOW_IN_THE_PAST,
+    )
+
+
 def provisioning_config(**overrides) -> dict:
     """The stored form of the test partner's config. Goes into ``_provisioning_config``."""
     from posthog.models.oauth_provisioning import ProvisioningConfig
@@ -79,6 +93,10 @@ def patched_budget(view_cls, method: str, endpoint: str, budget, *, multipliers=
     return patch.dict(budgets, {endpoint: dataclasses.replace(budgets[endpoint], **changes)})
 
 
+@override_settings(
+    PROVISIONING_SIGNING_REQUIRED_SINCE=SIGNING_WINDOW_IN_THE_FUTURE,
+    PROVISIONING_UNSIGNED_GRACE_UNTIL=SIGNING_WINDOW_IN_THE_FUTURE,
+)
 class ProvisioningTestBase(APIBaseTest):
     def setUp(self):
         super().setUp()

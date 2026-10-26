@@ -111,6 +111,7 @@ export const stickinessOperatorMap: Record<string, string> = {
 
 export const cleanedPathOperatorMap: Record<string, string> = {
     is_cleaned_path_exact: '= equals',
+    is_cleaned_path_not_exact: "≠ doesn't equal",
 }
 
 export const semverOperatorMap: Record<string, string> = {
