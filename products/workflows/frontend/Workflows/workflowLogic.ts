@@ -281,6 +281,29 @@ function lifecycleUpdate(latest: HogFlow, fresh: HogFlow): Partial<HogFlow> | nu
     return update as Partial<HogFlow>
 }
 
+/** The lifecycle a go-live wrote since `latest`, when nothing else changed on the server. */
+async function goLiveSince(workflowId: string, latest: HogFlow): Promise<Partial<HogFlow> | null> {
+    let fresh: HogFlow
+    try {
+        fresh = await api.hogFlows.getHogFlow(workflowId)
+    } catch {
+        return null
+    }
+    const lifecycle = lifecycleUpdate(latest, fresh)
+    return lifecycle && 'updated_at' in lifecycle ? lifecycle : null
+}
+
+function applyWorkflowLifecycle(
+    cache: Record<string, any>,
+    actions: { setWorkflowLifecycle: (lifecycle: Partial<HogFlow>) => void },
+    lifecycle: Partial<HogFlow>
+): void {
+    if (cache.lastSavedWorkflow) {
+        cache.lastSavedWorkflow = { ...cache.lastSavedWorkflow, ...lifecycle }
+    }
+    actions.setWorkflowLifecycle(lifecycle)
+}
+
 /** What a save was dispatched with, kept per save because a later save moves the shared state. */
 interface SenderDomainSetup {
     integrationId: number | null
@@ -3549,6 +3572,7 @@ export const workflowLogic = kea<workflowLogicType>([
                     cache.nextSaveMovesWorkflowIds = []
                     cache.nextSaveKeepsFormEdits = false
 
+                    let reconciledGoLive = false
                     const runSave = async (): Promise<HogFlow> => {
                         updates = sanitizeWorkflow(updates, values.hogFunctionTemplatesById)
 
@@ -3677,6 +3701,21 @@ export const workflowLogic = kea<workflowLogicType>([
                             return result
                         } catch (error) {
                             if (error instanceof ApiError && error.status === 409) {
+                                if (
+                                    initiatedByAutoSave &&
+                                    !reconciledGoLive &&
+                                    latest?.status === 'waiting_for_domain'
+                                ) {
+                                    // The go-live bumped the stamp under this save. Take its lifecycle and
+                                    // save again, instead of a reload that would drop the edit.
+                                    reconciledGoLive = true
+                                    const lifecycle = await goLiveSince(props.id, latest)
+                                    if (lifecycle) {
+                                        applyWorkflowLifecycle(cache, actions, lifecycle)
+                                        updates = { ...updates, ...lifecycle }
+                                        return await runSave()
+                                    }
+                                }
                                 if (initiatedByAutoSave && values.pendingSchedule === false) {
                                     // An auto-save losing the race is not a decision point: the user never
                                     // asked to overwrite anything, so reconcile to the newer copy silently.
@@ -4739,6 +4778,15 @@ export const workflowLogic = kea<workflowLogicType>([
             // A domain verified while the setup was open can take the workflow live on the server. Its copy
             // goes through the edit events' path, which tells our own saves apart and holds it while one runs.
             const latest = await api.hogFlows.getHogFlow(props.id)
+            const local = (cache.lastSavedWorkflow as HogFlow | undefined) ?? values.originalWorkflow
+            if (local && !values.workflowLoading && newestStamp(latest) === newestStamp(local)) {
+                // Verifying a draft's sender moves no stamp, so the edit events would skip it as unchanged.
+                const lifecycle = lifecycleUpdate(local, latest)
+                if (lifecycle) {
+                    applyWorkflowLifecycle(cache, actions, lifecycle)
+                }
+                return
+            }
             actions.resourceEdited({
                 notification_type: 'resource_edited',
                 team_id: latest.team_id,
@@ -4768,13 +4816,9 @@ export const workflowLogic = kea<workflowLogicType>([
                 return
             }
             const lifecycle = lifecycleUpdate(latest, fresh)
-            if (!lifecycle) {
-                return
+            if (lifecycle) {
+                applyWorkflowLifecycle(cache, actions, lifecycle)
             }
-            if (cache.lastSavedWorkflow) {
-                cache.lastSavedWorkflow = { ...cache.lastSavedWorkflow, ...lifecycle }
-            }
-            actions.setWorkflowLifecycle(lifecycle)
         },
         dismissStartedSendingNotice: () => {
             if (values.startedSendingNoticeKey) {

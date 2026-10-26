@@ -610,6 +610,28 @@ describe('workflowLogic send once verified', () => {
             }
         )
 
+        it('takes the verified sender of a draft, whose stamps the verification leaves alone', async () => {
+            const draft = withEmailStep(makeWorkflow({ unverified_email_senders: [UNVERIFIED_SENDER] }), {
+                integrationId: 7,
+            })
+            await mountWith(draft)
+            logic.actions.openSenderDomainSetup(7)
+            logic.actions.setAutoSaveEnabled(false)
+            logic.actions.setWorkflowValue('name', 'Welcome, renamed')
+            storedWorkflow = { ...draft, unverified_email_senders: [] }
+            projectSenders = [{ ...PENDING_PROJECT_SENDER, verified: true }]
+
+            await expectLogic(logic, () => {
+                logic.actions.closeSenderDomainSetup()
+            })
+                .toFinishAllListeners()
+                .toNotHaveDispatchedActions(['loadWorkflow', 'setExternallyEdited'])
+
+            expect(logic.values.unverifiedSenderDomains).toEqual([])
+            expect(logic.values.senderDomainNotice).toBeNull()
+            expect(logic.values.workflow.name).toEqual('Welcome, renamed')
+        })
+
         it('leaves the workflow alone when nothing changed on the server', async () => {
             await mountWith(waiting())
             logic.actions.openSenderDomainSetup(7)
@@ -690,6 +712,33 @@ describe('workflowLogic send once verified', () => {
                     base_updated_at: wentLive.updated_at,
                 }),
             ])
+        })
+
+        it('keeps an edit whose auto-save lands after the workflow went live, and saves it to the live copy', async () => {
+            useMocks({
+                patch: {
+                    '/api/environments/:team_id/hog_flows/:id/': async ({ request }) => {
+                        const body = (await request.json()) as Record<string, any>
+                        patchBodies.push(body)
+                        if (body.base_updated_at !== storedWorkflow.updated_at) {
+                            return [409, { detail: 'stale_update', code: 'stale_update' }]
+                        }
+                        storedWorkflow = { ...storedWorkflow, name: body.name, updated_at: '2026-05-03T09:00:00Z' }
+                        return [200, storedWorkflow]
+                    },
+                },
+            })
+            await mountWaiting()
+            storedWorkflow = wentLive
+
+            logic.actions.setWorkflowValue('name', 'Renamed while waiting')
+            await jest.advanceTimersByTimeAsync(3_000)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.originalWorkflow?.status).toEqual('active')
+            expect(logic.values.workflow.name).toEqual('Renamed while waiting')
+            expect(storedWorkflow).toMatchObject({ status: 'active', name: 'Renamed while waiting' })
+            expect(patchBodies.at(-1)).not.toHaveProperty('status')
         })
 
         it('drops a status answer that lands after the editor closed', async () => {

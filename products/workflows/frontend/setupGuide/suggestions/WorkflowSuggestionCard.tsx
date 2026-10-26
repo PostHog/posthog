@@ -17,7 +17,11 @@ import { IconSlack, IconTwilio } from 'lib/lemon-ui/icons'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import type { SuggestionCard, SuggestionStepKind } from './suggestionCards'
-import { WorkflowDataSuggestionsSurface, workflowDataSuggestionsLogic } from './workflowDataSuggestionsLogic'
+import {
+    WorkflowDataSuggestionsPlacement,
+    WorkflowDataSuggestionsSurface,
+    workflowDataSuggestionsLogic,
+} from './workflowDataSuggestionsLogic'
 
 const STEP_DISPLAY: Record<SuggestionStepKind | 'trigger', { label: string; icon: JSX.Element }> = {
     trigger: { label: 'Trigger', icon: <IconBolt /> },
@@ -39,10 +43,12 @@ const MAX_STEP_CHIPS = 6
 export function WorkflowSuggestionCard({
     card,
     surface,
+    placement,
     primary = false,
 }: {
     card: SuggestionCard
     surface: WorkflowDataSuggestionsSurface
+    placement?: WorkflowDataSuggestionsPlacement
     primary?: boolean
 }): JSX.Element {
     const logic = workflowDataSuggestionsLogic({ surface })
@@ -86,7 +92,7 @@ export function WorkflowSuggestionCard({
                     size="small"
                     loading={building}
                     disabledReason={buildingKey && !building ? 'Another workflow is being built' : undefined}
-                    onClick={() => startSuggestion(card)}
+                    onClick={() => startSuggestion(card, placement)}
                     // pinned: data-attr - autocapture dashboards read it
                     data-attr="workflows-data-suggestion-ai"
                 >

@@ -244,6 +244,9 @@ describe('EmailDomainScene', () => {
         expect(screen.getByText('Welcome new teammates')).toBeInTheDocument()
         expect(document.querySelector('[data-attr="email-domain-verifying-create-welcome-workflow"]')).toBeNull()
         expect(element('email-domain-verifying-skip-suggestions')).toBeInTheDocument()
+        expect(element('email-domain-verifying-suggested-workflow-choices')).toContainElement(
+            element('workflows-data-suggestion-ai')
+        )
         expect(shownEvents()).toHaveLength(1)
 
         backend.verifyDomain(DOMAIN)
@@ -251,12 +254,21 @@ describe('EmailDomainScene', () => {
         expectStep(/You can send from/)
         expect(screen.getByText('Welcome new teammates')).toBeInTheDocument()
         expect(element('workflows-data-suggestion-ai')).toHaveTextContent('Create workflow')
+        expect(element('email-domain-suggested-workflow-choices')).toContainElement(
+            element('workflows-data-suggestion-ai')
+        )
         expect(document.querySelector('[data-attr="email-domain-create-welcome-workflow"]')).toBeNull()
         expect(document.querySelector('[data-attr="email-domain-create-blank-workflow"]')).toBeNull()
         expect(backend.requestsTo('data_suggestions_generate')).toHaveLength(1)
         expect(shownEvents()).toEqual([
-            ['workflows data suggestions shown', expect.objectContaining({ surface: 'email_domain_wizard' })],
-            ['workflows data suggestions shown', expect.objectContaining({ surface: 'email_domain_wizard' })],
+            [
+                'workflows data suggestions shown',
+                expect.objectContaining({ surface: 'email_domain_wizard', placement: 'verifying' }),
+            ],
+            [
+                'workflows data suggestions shown',
+                expect.objectContaining({ surface: 'email_domain_wizard', placement: 'ready' }),
+            ],
         ])
 
         expect(screen.queryByText('Nudge trials before they end')).not.toBeInTheDocument()
