@@ -22,6 +22,10 @@ tools:
                 aliases:
     survey-get:
         operation: surveys_retrieve
+    survey-delete:
+        operation: surveys_destroy
+        confirmed_action:
+            action_label: Delete survey
 wrappers:
     query-survey:
         schema_ref: SurveyQuery
@@ -57,6 +61,8 @@ describe('weekly MCP tool health report', () => {
             [
                 ['survey-create', 'products/surveys/mcp/tools.yaml'],
                 ['survey-get', 'products/surveys/mcp/tools.yaml'],
+                ['survey-delete-prepare', 'products/surveys/mcp/tools.yaml'],
+                ['survey-delete-execute', 'products/surveys/mcp/tools.yaml'],
                 ['query-survey', 'products/surveys/mcp/tools.yaml'],
             ]
         )

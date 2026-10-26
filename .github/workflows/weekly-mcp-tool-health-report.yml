@@ -18,7 +18,7 @@ on:
     workflow_dispatch:
         inputs:
             dry_run:
-                description: 'Print the report blocks instead of posting to Slack'
+                description: 'Print each failing tool with its owner and channel instead of posting to Slack'
                 type: boolean
                 default: true
 

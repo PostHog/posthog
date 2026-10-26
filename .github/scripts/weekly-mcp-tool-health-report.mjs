@@ -84,7 +84,9 @@ async function fetchFailingTools(runHogql = hogql) {
 }
 
 // Tool names are the keys directly under `tools:` and `wrappers:` in each definition file. A line
-// scan keeps the script free of a YAML dependency, and the generator enforces this layout.
+// scan keeps the script free of a YAML dependency, and the generator enforces this layout. Codegen
+// registers a `confirmed_action` tool only as its `-prepare` and `-execute` pair, so analytics never
+// sees the base name.
 function parseToolNames(yamlText) {
     const names = []
     let section = null
@@ -97,6 +99,10 @@ function parseToolNames(yamlText) {
         const toolKey = /^ {4}([a-z0-9][a-z0-9-]*):\s*$/.exec(line)
         if (toolKey && (section === 'tools' || section === 'wrappers')) {
             names.push(toolKey[1])
+        }
+        if (/^ {8}confirmed_action:/.test(line) && section === 'tools' && names.length > 0) {
+            const base = names.pop()
+            names.push(`${base}-prepare`, `${base}-execute`)
         }
     }
     return names
@@ -282,14 +288,12 @@ async function main() {
     const blocks = buildBlocks(now, rows)
     const teamDigests = buildTeamDigests(entries)
     if (DRY_RUN) {
-        console.info(JSON.stringify(blocks, null, 2))
-        console.info(
-            JSON.stringify(
-                teamDigests.map((team) => ({ channel: team.channel, blocks: buildTeamBlocks(now, team) })),
-                null,
-                2
-            )
-        )
+        // Actions logs on this public repo are readable by anyone, so a dry run prints only the routing.
+        // Shadow mode previews the full report, with its counts and errors, in the Slack digest thread.
+        for (const item of items) {
+            const { owner, slack } = ownerFor(item)
+            console.info(`${item.tool} -> ${owner} (${slack ?? 'digest only'})`)
+        }
         return
     }
     if (!SLACK_BOT_TOKEN) {
