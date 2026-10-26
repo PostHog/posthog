@@ -217,6 +217,16 @@ export function createUrlPropertyFilter(url: string, stripQueryParams: boolean):
     // kea-router JSON-parses query params (?pageURL=123 arrives as a number) and pageUrl is
     // persisted, so a non-string value would otherwise crash `url.split` below on every recompute
     const urlString: string = String(url ?? '')
+    if (urlString.startsWith('/')) {
+        return [
+            {
+                key: '$pathname',
+                value: urlString.split(/[?#]/)[0],
+                operator: PropertyOperator.Exact,
+                type: PropertyFilterType.Event,
+            },
+        ]
+    }
     const parsed = parseWebAnalyticsURL(urlString)
 
     if (parsed.isValid && parsed.host && parsed.pathname) {
@@ -1460,6 +1470,9 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
     listeners: ({ actions, values }) => ({
         openPageReport: ({ source, position }) => {
             posthog.capture('web analytics page report opened', { source, row_position: position })
+            if (values.isInitialLoad) {
+                actions.loadPages('')
+            }
         },
         backToDirectory: () => {
             posthog.capture('web analytics page report back to directory', { method: 'breadcrumb' })
@@ -1474,7 +1487,15 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
             actions.loadPages(searchTerm)
         },
         loadPages: ({ searchTerm }) => {
+            if (values.isDirectoryEnabled && !values.pageUrl) {
+                return
+            }
             actions.loadPagesUrls({ searchTerm })
+        },
+        setPageUrl: () => {
+            if (values.isDirectoryEnabled && values.pageUrl && values.isInitialLoad) {
+                actions.loadPages('')
+            }
         },
         setDates: () => {
             if (values.featureFlags[FEATURE_FLAGS.PAGE_REPORTS_RANKED_URL_SEARCH]) {
