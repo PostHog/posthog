@@ -52,6 +52,8 @@ class TestFormatJqlDatetime:
             ("date", date(2026, 3, 4), "2026-03-03 00:00"),
             ("iso_string", "2026-03-04T02:58:14+00:00", "2026-03-03 02:58"),
             ("iso_string_z", "2026-03-04T02:58:14Z", "2026-03-03 02:58"),
+            ("epoch_millis", 1772593094000, "2026-03-03 02:58"),
+            ("epoch_millis_string", "1772593094000", "2026-03-03 02:58"),
         ]
     )
     def test_format_jql_datetime(self, _name: str, value: Any, expected: str) -> None:
@@ -389,6 +391,13 @@ class TestIssueChangelogs:
                 'updated >= "2026-03-03 02:58" ORDER BY updated ASC',
                 ["recent"],
             ),
+            # The stored watermark is the max ``created``, which bulkfetch returns as epoch milliseconds.
+            (
+                "incremental_epoch_millis_watermark",
+                {"incremental_field": "created", "db_incremental_field_last_value": 1772593080000},
+                'updated >= "2026-03-03 02:58" ORDER BY updated ASC',
+                ["recent"],
+            ),
         ]
     )
     def test_incremental_shapes_jql_and_drops_history_before_the_window(
@@ -406,8 +415,8 @@ class TestIssueChangelogs:
                                     {
                                         "issueId": "10",
                                         "changeHistories": [
-                                            {"id": "old", "created": "2026-03-03T02:57:00.000+0000"},
-                                            {"id": "recent", "created": "2026-03-03T02:58:00.000+0000"},
+                                            {"id": "old", "created": 1772506620000},
+                                            {"id": "recent", "created": 1772506680000},
                                         ],
                                     }
                                 ]

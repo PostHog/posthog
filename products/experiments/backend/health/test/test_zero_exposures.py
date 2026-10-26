@@ -40,6 +40,8 @@ NO_EXPOSURES = ExposureTotals(
     total_exposures={"control": 0, "test": 0},
     multiple_variant_handling=MultipleVariantHandling.EXCLUDE,
     sample_ratio_mismatch_p_value=None,
+    sample_ratio_expected={},
+    daily_exposures={},
     hours_since_launch=48,
     counts_groups=False,
 )

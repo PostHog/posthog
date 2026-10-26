@@ -12,7 +12,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.models import Organization, Team
+from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.scoping import team_scope
 
 from products.signals.backend.artefact_schemas import (
@@ -58,6 +58,7 @@ from products.signals.backend.scout_report import (
 )
 from products.signals.backend.scout_report.judge import resolve_authored_report_status
 from products.signals.backend.scout_report.persistence import _report_metrics_unchanged
+from products.signals.backend.slack_inbox_notifications import resolve_suggested_reviewer_user_ids
 from products.signals.backend.spend import signal_spend_totals
 from products.tasks.backend.models import Task, TaskRun
 
@@ -102,21 +103,31 @@ class TestScoutReportPersistence(BaseTest):
         )
         return run
 
-    def test_empty_selection_enrolls_a_new_report_in_the_writer(self) -> None:
+    @parameterized.expand([False, True])
+    def test_agent_selection_enrolls_a_new_report_in_the_writer(self, selected: bool) -> None:
+        member = User.objects.create(email="scout-reviewer@example.com")
+        OrganizationMembership.objects.create(user=member, organization=self.organization)
+        chosen = [member, self.user] if selected else []
         with (
             patch("products.signals.backend.reviewer_rules.assignment_writer_enabled", return_value=True),
             patch("products.signals.backend.assignment_flags.feature_enabled_or_false", return_value=False),
         ):
             result = create_scout_report(
                 team_id=self.team.id,
-                title="A report without reviewers",
-                summary="No suitable owner was selected.",
+                title="A report with an agent reviewer decision",
+                summary="Checked current responsibility.",
                 signals=[ScoutReportSignal(description="A synthetic finding", source_id="example", weight=1.0)],
                 attribution=ArtefactAttribution.system(),
+                suggested_reviewers=SuggestedReviewers(
+                    root=[SuggestedReviewerEntry(user_uuid=str(user.uuid)) for user in chosen]
+                ),
             )
             snapshot = ReviewerRules.read_for_report(team_id=self.team.id, report_id=result.report_id)
             assert snapshot.state.corrections_id is not None
-            assert snapshot.reviewers == ()
+            assert [entry.user_uuid for entry in snapshot.reviewers] == [str(user.uuid) for user in chosen]
+            assert resolve_suggested_reviewer_user_ids(SignalReport.objects.get(id=result.report_id)) == {
+                user.id for user in chosen
+            }
             assert not assignment_side_effects_allowed(team_id=self.team.id, report_id=result.report_id)
 
     @parameterized.expand(
@@ -143,10 +154,14 @@ class TestScoutReportPersistence(BaseTest):
         report = SignalReport.objects.get(id=result.report_id)
         assert (report.first_visible_at is not None) is expect_stamp
 
-    def test_create_refuses_a_second_report_for_a_key_one_already_holds(self) -> None:
+    @parameterized.expand([(False,), (True,)])
+    def test_create_refuses_a_second_report_for_a_key_one_already_holds(self, first_report: bool) -> None:
         # The case the emit path's own pre-check can't see: a retry arriving mid-judge passes it and
         # reaches the insert too. The index has to stop it, and surface the first report, not a 500.
         run = self._make_run()
+        if first_report:
+            run.skill_name = "signals-scout-first-report"
+            run.save(update_fields=["skill_name"])
         first = create_scout_report(
             team_id=self.team.id,
             title="Checkout API p99 latency regressed",
@@ -164,7 +179,7 @@ class TestScoutReportPersistence(BaseTest):
                 signals=[ScoutReportSignal(description="p99 doubled on /checkout", source_id="obs-1", weight=1.0)],
                 attribution=ArtefactAttribution.from_task(str(run.task_run.task_id)),
                 run=run,
-                idempotency_key="emission-1",
+                idempotency_key="a-different-key" if first_report else "emission-1",
             )
         assert raised.value.existing.report_id == first.report_id
         assert raised.value.existing.status == SignalReport.Status.READY

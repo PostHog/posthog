@@ -1066,7 +1066,6 @@ export const SignalsReportsStateCreateBody = /* @__PURE__ */ zod.object({
  * Append an artefact to a report (see artefact_type for the writable types). Everything is append-only: log entries (code reference, commit, task run, note) accumulate, while status types (safety / actionability / priority judgments, repo selection, suggested reviewers, channel assignments) are latest-wins — appending a new version supersedes the previous one as the report's canonical status. Content is validated against the type's schema.
  * @summary Append an artefact to a report
  */
-export const signalsReportArtefactsCreateBodyReviewerOutcomeDefault = `selected`
 export const signalsReportArtefactsCreateBodyReviewerRetryReasonMax = 500
 
 export const SignalsReportArtefactsCreateBody = /* @__PURE__ */ zod
@@ -1091,9 +1090,9 @@ export const SignalsReportArtefactsCreateBody = /* @__PURE__ */ zod
             .describe(
                 '\* `selected` - Selected\n\* `no_suitable_owner` - No suitable owner\n\* `lookup_failed` - Lookup failed'
             )
-            .default(signalsReportArtefactsCreateBodyReviewerOutcomeDefault)
+            .optional()
             .describe(
-                'A successful selection, a deliberate empty result, or an unavailable lookup.\n\n\* `selected` - Selected\n\* `no_suitable_owner` - No suitable owner\n\* `lookup_failed` - Lookup failed'
+                'A successful selection, a deliberate empty result, or an unavailable lookup. Defaults to selected when omitted.\n\n\* `selected` - Selected\n\* `no_suitable_owner` - No suitable owner\n\* `lookup_failed` - Lookup failed'
             ),
         reviewer_retry_reason: zod
             .string()
@@ -1386,6 +1385,65 @@ export const SignalsReportsSourceMetadataCreateBody = /* @__PURE__ */ zod.object
         .min(1)
         .max(signalsReportsSourceMetadataCreateBodyReportIdsMax)
         .describe('Reports to describe. At most 100 ids per call.'),
+})
+
+/**
+ * @summary Stay off automatic reviewer selection in an area
+ */
+export const signalsReviewerExclusionsCreateBodyRepositoryMax = 200
+
+export const signalsReviewerExclusionsCreateBodyPathPrefixMax = 500
+
+export const signalsReviewerExclusionsCreateBodyInstructionMax = 2000
+
+export const SignalsReviewerExclusionsCreateBody = /* @__PURE__ */ zod.object({
+    repository: zod
+        .string()
+        .max(signalsReviewerExclusionsCreateBodyRepositoryMax)
+        .optional()
+        .describe('Repository in `owner\/name` form. Leave empty to cover every repository.'),
+    path_prefix: zod
+        .string()
+        .max(signalsReviewerExclusionsCreateBodyPathPrefixMax)
+        .optional()
+        .describe('Path inside the repository, such as `src\/billing`. Needs a repository.'),
+    instruction: zod
+        .string()
+        .max(signalsReviewerExclusionsCreateBodyInstructionMax)
+        .describe('Why you stay off this area, for the people who read it later.'),
+    report_id: zod
+        .uuid()
+        .optional()
+        .describe(
+            'Optional report to take you off first. The report removal and the instruction save are separate steps.'
+        ),
+})
+
+/**
+ * @summary Change one of your reviewer exclusions
+ */
+export const signalsReviewerExclusionsPartialUpdateBodyRepositoryMax = 200
+
+export const signalsReviewerExclusionsPartialUpdateBodyPathPrefixMax = 500
+
+export const signalsReviewerExclusionsPartialUpdateBodyInstructionMax = 2000
+
+export const SignalsReviewerExclusionsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    repository: zod
+        .string()
+        .max(signalsReviewerExclusionsPartialUpdateBodyRepositoryMax)
+        .optional()
+        .describe('Repository in `owner\/name` form. Leave empty to cover every repository.'),
+    path_prefix: zod
+        .string()
+        .max(signalsReviewerExclusionsPartialUpdateBodyPathPrefixMax)
+        .optional()
+        .describe('Path inside the repository, such as `src\/billing`. Needs a repository.'),
+    instruction: zod
+        .string()
+        .max(signalsReviewerExclusionsPartialUpdateBodyInstructionMax)
+        .optional()
+        .describe('New text for the instruction.'),
 })
 
 /**
@@ -2507,7 +2565,6 @@ export const SignalsScoutRecordCheckResultBody = /* @__PURE__ */ zod
  * Rewrite a report's title/summary, append a note or fresh evidence, set its suggested reviewers, and/or point it at another repository. Can target ANY of the project's inbox reports, not just scout-authored ones — so the edit is attributed to this scout. Reviewers and repository are how you rescue a report that surfaced routed to no one or against the wrong codebase: each replaces what the report holds and re-runs autostart, so a report that was missing a qualifying reviewer or a repository can open a draft PR. The response carries the repository the report holds after the edit, and the call fails when a repository it named did not land. Set `actionability` and/or `priority` (each with its explanation) when new evidence changed your judgment: each replaces the report's decision and re-runs autostart, without changing the report's inbox status. `tags` replaces the report's slug tags, and an omitted `tags` keeps them. Title/summary edits are best-effort: the pipeline may later re-research them. Set `supersedes_implementation` alongside a rewrite when the fix changed. Verified automated predecessor PRs close only after the replacement completes with verified open PRs.
  * @summary Edit an existing report for a run
  */
-export const signalsScoutEditReportBodyReviewerOutcomeDefault = `selected`
 export const signalsScoutEditReportBodyReviewerRetryReasonMax = 500
 
 export const signalsScoutEditReportBodyTitleMax = 300
@@ -2582,9 +2639,9 @@ export const SignalsScoutEditReportBody = /* @__PURE__ */ zod
             .describe(
                 '\* `selected` - Selected\n\* `no_suitable_owner` - No suitable owner\n\* `lookup_failed` - Lookup failed'
             )
-            .default(signalsScoutEditReportBodyReviewerOutcomeDefault)
+            .optional()
             .describe(
-                'A successful selection, a deliberate empty result, or an unavailable lookup.\n\n\* `selected` - Selected\n\* `no_suitable_owner` - No suitable owner\n\* `lookup_failed` - Lookup failed'
+                'A successful selection, a deliberate empty result, or an unavailable lookup. Defaults to selected when omitted.\n\n\* `selected` - Selected\n\* `no_suitable_owner` - No suitable owner\n\* `lookup_failed` - Lookup failed'
             ),
         reviewer_retry_reason: zod
             .string()

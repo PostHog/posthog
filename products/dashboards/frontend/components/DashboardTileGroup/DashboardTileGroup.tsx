@@ -5,16 +5,8 @@ import { IconChevronRight } from '@posthog/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { pluralize } from 'lib/utils/strings'
 
-import type { DashboardTileGroupApi, DashboardTileGroupColorEnumApi } from '../../generated/api.schemas'
-
-const DOT_CLASS_NAMES: Record<DashboardTileGroupColorEnumApi, string> = {
-    blue: 'bg-[var(--blue)]',
-    purple: 'bg-[var(--purple)]',
-    green: 'bg-[var(--green)]',
-    yellow: 'bg-[var(--warning)]',
-    orange: 'bg-[var(--color-orange-500)]',
-    red: 'bg-[var(--danger)]',
-}
+import type { DashboardTileGroupApi } from '../../generated/api.schemas'
+import { TileGroupColorDot } from './TileGroupColorDot'
 
 interface DashboardTileGroupProps {
     group: DashboardTileGroupApi
@@ -54,12 +46,7 @@ export function DashboardTileGroup({
                     aria-expanded={!collapsed}
                     data-attr="dashboard-tile-group-toggle"
                 >
-                    {group.color && (
-                        <span
-                            aria-hidden
-                            className={clsx('mr-2 inline-block size-2 rounded-full', DOT_CLASS_NAMES[group.color])}
-                        />
-                    )}
+                    {group.color && <TileGroupColorDot color={group.color} className="mr-2" />}
                     <span className="font-semibold">{group.title || tileCountLabel}</span>
                 </LemonButton>
                 {group.title && collapsed && <span className="shrink-0 text-secondary text-xs">{tileCountLabel}</span>}

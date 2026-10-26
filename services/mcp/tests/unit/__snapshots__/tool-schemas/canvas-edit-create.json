@@ -89,6 +89,15 @@
                             },
                             "maxItems": 2,
                             "type": "array"
+                        },
+                        "tools": {
+                            "description": "PostHog MCP tools the canvas may run via ph.tools (e.g. 'feature-flag-get-definition', 'feature-flag-set-release-condition-rollout'). Each runs as the viewer; declaring one shows it in the promote review.",
+                            "items": {
+                                "maxLength": 200,
+                                "type": "string"
+                            },
+                            "maxItems": 32,
+                            "type": "array"
                         }
                     },
                     "required": ["insights", "inlineQueries", "captureEvents"],

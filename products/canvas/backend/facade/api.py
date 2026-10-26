@@ -59,15 +59,19 @@ from products.canvas.backend.logic.runtime import (
     action_required_scopes as action_required_scopes,
     action_starts_cloud_run as action_starts_cloud_run,
     call_connector as call_connector,
+    call_tool as call_tool,
     execute_action as execute_action,
     list_actions as list_actions,
+    list_tools as list_tools,
     prepare_agent_request as prepare_agent_request,
     prepare_fix_request as prepare_fix_request,
     read_state as read_state,
     read_state_value as read_state_value,
     report_error as report_error,
     set_state as set_state,
+    tool_required_scopes as tool_required_scopes,
     validate_action as validate_action,
+    validate_tool as validate_tool,
 )
 from products.canvas.backend.logic.sources import (
     build_action as build_action,
@@ -87,6 +91,7 @@ from products.canvas.backend.logic.sources import (
     revert as revert,
     wait_for_build as wait_for_build,
 )
+from products.canvas.backend.mcp_tools import canvas_mcp_tools_enabled as canvas_mcp_tools_enabled
 from products.canvas.backend.source import (
     has_errors as has_errors,
     validate_source_project as validate_source_project,
