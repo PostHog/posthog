@@ -69,6 +69,10 @@ from products.error_tracking.backend.facade.api import (
     document_embedding_tables,
     document_embeddings_buffer_table,
 )
+from products.mcp_analytics.backend.facade.clickhouse_schema import (
+    MCP_INTENT_ASSIGNMENTS_DATA_TABLE,
+    MCP_INTENT_ASSIGNMENTS_DISTRIBUTED_TABLE,
+)
 
 
 class DeleteConfig(dagster.Config):
