@@ -1,34 +1,27 @@
 """Invitations to book a research interview with the Slack app team.
 
-The ``slack-app-interview-recruitment`` flag decides who gets an invitation. Each variant key is a
-campaign id, and the variant's payload holds the message and the booking link. The flag targets
-people, so a Slack user with no linked PostHog account matches only a rule that needs no person
-property.
+Every invitation links to ``BOOKING_URL``. A click arrives as a ``block_actions`` payload, which is
+how the click is counted.
 
-A person gets at most one unsolicited invitation in ``INVITE_INTERVAL``. The Home tab button does
-not count, because the reader opens the tab and clicks by choice.
+- The bad-rating modal always shows the link, because the reader already chose to tell us what went wrong.
+- The Home tab shows a button when the ``slack-app-interview-recruitment`` flag selects the reader.
 """
 
 from __future__ import annotations
 
 import json
-import uuid
-from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Any, Literal
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from typing import TYPE_CHECKING, Any, Literal, get_args
 
 from django.http import HttpResponse
-from django.utils import timezone
 
 import structlog
-from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from posthog.dataclasses import frozen
 from posthog.models.integration import Integration
 
 from products.slack_app.backend.analytics import capture_slack_event, slack_distinct_id
-from products.slack_app.backend.feature_flags import get_slack_app_interview_recruitment_flag
-from products.slack_app.backend.logic.feature_tips.state import FeatureTipsState, update_state
+from products.slack_app.backend.feature_flags import is_slack_app_interview_recruitment_enabled
+from products.slack_app.backend.services.slack_messages import section_block
 from products.slack_app.backend.services.slack_user_oauth import find_linked_posthog_user
 
 if TYPE_CHECKING:
@@ -37,67 +30,15 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 InterviewSurface = Literal["home", "bad_rating_modal"]
-INTERVIEW_SURFACES: frozenset[str] = frozenset({"home", "bad_rating_modal"})
+INTERVIEW_SURFACES: frozenset[str] = frozenset(get_args(InterviewSurface))
 
-DEFAULT_CAMPAIGN_ID = "slack-research"
-INVITE_INTERVAL = timedelta(days=30)
+BOOKING_URL = "https://cal.com/vojta-bartos-wye08f/posthog-slack-app"
+INVITE_MESSAGE = "Got 30 minutes to tell us how the PostHog Slack app works for you? Book a chat with the team."
+MODAL_INVITE_MESSAGE = "Want to talk it through? Book 30 minutes with the team."
 
 INTERVIEW_BOOK_ACTION_ID = "slack_app_interview:book"
 INTERVIEW_ACTION_IDS: frozenset[str] = frozenset({INTERVIEW_BOOK_ACTION_ID})
-
-
-class _CampaignPayload(BaseModel):
-    message: str = Field(min_length=1, max_length=1000)
-    booking_url: str
-    min_interactions: int = Field(default=3, ge=0, le=1000)
-
-    @field_validator("message")
-    @classmethod
-    def _strip_message(cls, value: str) -> str:
-        return value.strip()
-
-    @field_validator("booking_url")
-    @classmethod
-    def _https_only(cls, value: str) -> str:
-        parts = urlsplit(value)
-        if parts.scheme != "https" or not parts.netloc:
-            raise ValueError("booking_url must be an https URL")
-        return value
-
-
-@frozen
-class InterviewCampaign:
-    campaign_id: str
-    message: str
-    booking_url: str
-    min_interactions: int
-
-
-def parse_campaign(variant: Any, payload: Any) -> InterviewCampaign | None:
-    """The campaign a flag result describes, or ``None`` when the payload cannot be used.
-
-    A boolean rollout has no variant and runs the default campaign. The payload is typed by hand
-    into the flag, so a bad value turns the invitation off instead of showing a broken link.
-    """
-    campaign_id = variant if isinstance(variant, str) and variant else DEFAULT_CAMPAIGN_ID
-    if isinstance(payload, str):
-        try:
-            payload = json.loads(payload)
-        except json.JSONDecodeError:
-            payload = None
-    try:
-        parsed = _CampaignPayload.model_validate(payload)
-    except ValidationError:
-        logger.warning("slack_app_interview_campaign_invalid", campaign_id=campaign_id)
-        return None
-    if not parsed.message:
-        return None
-    return InterviewCampaign(
-        campaign_id=campaign_id,
-        message=parsed.message,
-        booking_url=parsed.booking_url,
-        min_interactions=parsed.min_interactions,
-    )
+_CLICK_EVENTS: dict[str, str] = {INTERVIEW_BOOK_ACTION_ID: "slack app interview invite clicked"}
 
 
 def linked_posthog_user(integration: Integration, slack_user_id: str) -> User | None:
@@ -113,123 +54,48 @@ def linked_posthog_user(integration: Integration, slack_user_id: str) -> User | 
         return None
 
 
-def resolve_campaign(
-    integration: Integration, slack_user_id: str, posthog_user: User | None
-) -> InterviewCampaign | None:
+def is_recruiting(integration: Integration, slack_user_id: str, posthog_user: User | None) -> bool:
     distinct_id = (
         posthog_user.distinct_id
         if posthog_user is not None and posthog_user.distinct_id
         else slack_distinct_id(integration, slack_user_id)
     )
-    result = get_slack_app_interview_recruitment_flag(integration, distinct_id)
-    if result is None:
-        return None
-    return parse_campaign(result.variant, result.payload)
+    return is_slack_app_interview_recruitment_enabled(integration, distinct_id)
 
 
-def booking_link(campaign: InterviewCampaign, surface: InterviewSurface, invitation_id: str) -> str:
-    """The booking URL with the invitation's attribution in cal.com ``metadata`` parameters.
-
-    cal.com copies these parameters into the booking webhook, which is how a booking joins the
-    invitation that led to it. The link goes to a third party, so it carries no email or Slack id.
-    """
-    parts = urlsplit(campaign.booking_url)
-    query = [
-        *parse_qsl(parts.query, keep_blank_values=True),
-        ("metadata[campaign_id]", campaign.campaign_id),
-        ("metadata[surface]", surface),
-        ("metadata[invitation_id]", invitation_id),
-    ]
-    return urlunsplit(parts._replace(query=urlencode(query)))
-
-
-def new_invitation_id() -> str:
-    return str(uuid.uuid4())
-
-
-def book_button(
-    integration_id: int,
-    campaign: InterviewCampaign,
-    surface: InterviewSurface,
-    invitation_id: str,
-    **extra: str | None,
-) -> dict[str, Any]:
+def book_button(integration_id: int, surface: InterviewSurface, **extra: str | None) -> dict[str, Any]:
     # The integration id lets the cross-region interactivity router find the region that owns the click.
-    value = {
-        "integration_id": integration_id,
-        "campaign_id": campaign.campaign_id,
-        "surface": surface,
-        "invitation_id": invitation_id,
-        **{key: item for key, item in extra.items() if item},
-    }
+    value = {"integration_id": integration_id, "surface": surface, **{key: item for key, item in extra.items() if item}}
     return {
         "type": "button",
         "action_id": INTERVIEW_BOOK_ACTION_ID,
         "text": {"type": "plain_text", "text": "Book a chat"},
         "style": "primary",
-        "url": booking_link(campaign, surface, invitation_id),
+        "url": BOOKING_URL,
         "value": json.dumps(value),
     }
 
 
 def invite_section(text: str, button: dict[str, Any]) -> dict[str, Any]:
-    return {"type": "section", "text": {"type": "mrkdwn", "text": text}, "accessory": button}
+    return {**section_block(text), "accessory": button}
 
 
-def is_invite_due(state: FeatureTipsState, now: datetime) -> bool:
-    return state.interview_invited_at is None or now - state.interview_invited_at >= INVITE_INTERVAL
+@frozen
+class _InterviewClick:
+    action_id: str
+    value: dict[str, Any]
 
 
-def reserve_invite(slack_workspace_id: str, slack_user_id: str) -> bool:
-    """Hold this person's invitation slot. ``False`` means another invitation is too recent.
-
-    The slot is held before the invitation shows, so two answers that finish together cannot both
-    send one. An invitation that then fails to show gives up the slot, which is the cheaper mistake.
-    """
-    now = timezone.now()
-    reserved = False
-
-    def change(state: FeatureTipsState) -> None:
-        nonlocal reserved
-        if is_invite_due(state, now):
-            state.interview_invited_at = now
-            reserved = True
-
-    update_state(slack_workspace_id, slack_user_id, change)
-    return reserved
-
-
-def capture_invite_shown(
-    integration: Integration,
-    *,
-    slack_user_id: str,
-    posthog_user: User | None,
-    campaign: InterviewCampaign,
-    surface: InterviewSurface,
-    invitation_id: str,
-    **props: object,
-) -> None:
-    capture_slack_event(
-        integration,
-        "slack app interview invite shown",
-        slack_user_id=slack_user_id,
-        posthog_user=posthog_user,
-        campaign_id=campaign.campaign_id,
-        surface=surface,
-        invitation_id=invitation_id,
-        **props,
-    )
-
-
-def _clicked_value(payload: dict[str, Any]) -> dict[str, Any] | None:
+def _clicked(payload: dict[str, Any]) -> _InterviewClick | None:
     for action in payload.get("actions", []) or ():
-        if action.get("action_id") not in INTERVIEW_ACTION_IDS:
+        action_id = action.get("action_id")
+        if not is_interview_action(action_id):
             continue
         try:
             value = json.loads(action.get("value") or "")
         except json.JSONDecodeError:
             return None
-        return value if isinstance(value, dict) else None
+        return _InterviewClick(action_id=action_id, value=value) if isinstance(value, dict) else None
     return None
 
 
@@ -237,10 +103,13 @@ def is_interview_action(action_id: object) -> bool:
     return action_id in INTERVIEW_ACTION_IDS
 
 
-def interview_integration_hint(payload: dict[str, Any]) -> int | None:
-    value = _clicked_value(payload)
-    integration_id = value.get("integration_id") if value else None
+def _integration_id(clicked: _InterviewClick | None) -> int | None:
+    integration_id = clicked.value.get("integration_id") if clicked is not None else None
     return integration_id if isinstance(integration_id, int) else None
+
+
+def interview_integration_hint(payload: dict[str, Any]) -> int | None:
+    return _integration_id(_clicked(payload))
 
 
 def handle_interview_action(payload: dict[str, Any]) -> HttpResponse:
@@ -248,12 +117,13 @@ def handle_interview_action(payload: dict[str, Any]) -> HttpResponse:
 
     Slack opens the booking page itself and sends this payload only so the click can be counted.
     """
-    value = _clicked_value(payload)
+    clicked = _clicked(payload)
     slack_user_id = (payload.get("user") or {}).get("id")
     slack_team_id = (payload.get("team") or {}).get("id")
-    integration_id = value.get("integration_id") if value else None
-    if value is None or not isinstance(integration_id, int) or not slack_user_id or not slack_team_id:
+    integration_id = _integration_id(clicked)
+    if clicked is None or integration_id is None or not slack_user_id or not slack_team_id:
         return HttpResponse(status=200)
+    value = clicked.value
     integration = (
         Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
             id=integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
@@ -269,12 +139,10 @@ def handle_interview_action(payload: dict[str, Any]) -> HttpResponse:
 
     capture_slack_event(
         integration,
-        "slack app interview invite clicked",
+        _CLICK_EVENTS[clicked.action_id],
         slack_user_id=slack_user_id,
         posthog_user=linked_posthog_user(integration, slack_user_id),
-        campaign_id=value.get("campaign_id"),
         surface=surface,
-        invitation_id=value.get("invitation_id"),
         task_run_id=value.get("run_id"),
         ai_trace_id=value.get("trace_id"),
     )

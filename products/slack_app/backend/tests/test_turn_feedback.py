@@ -1,6 +1,6 @@
 import json
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from django.apps import apps
 from django.test import TestCase, override_settings
@@ -14,6 +14,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.slack_app.backend.logic import interview_recruitment
+from products.slack_app.backend.logic.interview_recruitment import BOOKING_URL
 from products.slack_app.backend.services.slack_messages import TURN_FEEDBACK_ACTION_ID, turn_feedback_block
 from products.slack_app.backend.services.slack_user_info import cache_workspace_bot_user_id
 from products.slack_app.backend.services.turn_feedback import (
@@ -175,22 +176,13 @@ class TestTurnFeedback(TestCase):
         assert kwargs["event"] == "$ai_feedback"
         assert kwargs["properties"]["$ai_trace_id"] == trace_id
 
-    def test_a_thumbs_down_invites_to_an_interview_once_a_month(self):
-        flag = MagicMock(
-            variant="slack-research",
-            payload={"message": "Book 30 minutes with the team?", "booking_url": "https://cal.example.com/slack"},
-        )
+    def test_every_thumbs_down_modal_links_to_the_interview_booking(self):
         client = self.mock_slack.return_value.client
-        client.views_open.return_value = {"view": {"id": "V_MODAL"}}
-        with (
-            patch.object(interview_recruitment, "get_slack_app_interview_recruitment_flag", return_value=flag),
-            patch.object(interview_recruitment, "capture_slack_event") as capture,
-        ):
+        with patch.object(interview_recruitment, "capture_slack_event") as capture:
             self._pick(self._thumb_value("negative"))
-            view = client.views_update.call_args.kwargs["view"]
+            self._pick(self._thumb_value("negative"))
+            view = client.views_open.call_args.kwargs["view"]
             button = view["blocks"][-1]["accessory"]
-            assert view["blocks"][0]["block_id"] == _MODAL_TEXT_BLOCK_ID
-            assert button["url"].startswith("https://cal.example.com/slack?metadata%5Bcampaign_id%5D=slack-research")
 
             response = self._post(
                 {
@@ -201,16 +193,14 @@ class TestTurnFeedback(TestCase):
                     "actions": [{"type": "button", "action_id": button["action_id"], "value": button["value"]}],
                 }
             )
-            client.views_update.reset_mock()
-            self._pick(self._thumb_value("negative"))
 
+        assert client.views_open.call_count == 2
+        assert view["blocks"][0]["block_id"] == _MODAL_TEXT_BLOCK_ID
+        assert button["url"] == BOOKING_URL
         assert response.status_code == 200
-        assert [(c.args[1], c.kwargs["surface"]) for c in capture.call_args_list] == [
-            ("slack app interview invite shown", "bad_rating_modal"),
-            ("slack app interview invite clicked", "bad_rating_modal"),
-        ]
+        assert capture.call_args.args[1] == "slack app interview invite clicked"
+        assert capture.call_args.kwargs["surface"] == "bad_rating_modal"
         assert capture.call_args.kwargs["task_run_id"] == str(self.task_run.id)
-        client.views_update.assert_not_called()
 
     def test_a_run_from_another_project_is_not_rated(self):
         other_org = Organization.objects.create(name="OtherOrg")

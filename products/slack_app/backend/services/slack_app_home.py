@@ -42,10 +42,10 @@ from products.slack_app.backend.feature_flags import (
 from products.slack_app.backend.logic.feature_tips.features import SlackFeature
 from products.slack_app.backend.logic.feature_tips.state import record_feature_used
 from products.slack_app.backend.logic.interview_recruitment import (
+    INVITE_MESSAGE,
     book_button,
     invite_section,
-    new_invitation_id,
-    resolve_campaign,
+    is_recruiting,
 )
 from products.slack_app.backend.models import (
     ChannelWelcomeMode,
@@ -551,19 +551,19 @@ def render_home_view(
         blocks.append({"type": "divider"})
         blocks.extend(_linked_accounts_section_blocks(account_state, github_state))
 
+    # Section 6a — interview invitation. `interview_invite` is the section block, present only
+    # for a viewer the recruitment flag selects.
+    if interview_invite is not None:
+        blocks.append({"type": "divider"})
+        blocks.append(_section_title("💬 Talk to the team"))
+        blocks.append(interview_invite)
+
     # Section 7 — your tasks: a quiet list of tasks the calling user
     # started via @PostHog mentions, so they can see status without
     # the bot pinging the activity feed for every transition.
     if tasks_state is not None:
         blocks.append({"type": "divider"})
         blocks.extend(_tasks_section_blocks(tasks_state))
-
-    # Section 8 — interview invitation. `interview_invite` is the section block, present only
-    # for a viewer the recruitment flag selects.
-    if interview_invite is not None:
-        blocks.append({"type": "divider"})
-        blocks.append(_section_title("💬 Talk to the team"))
-        blocks.append(interview_invite)
 
     blocks.append({"type": "divider"})
     blocks.extend(_footer_blocks())
@@ -2334,13 +2334,12 @@ def _build_home_view(
 def _resolve_interview_invite(integration: Integration, slack_user_id: str, home_user: User | None) -> dict | None:
     """The invitation section for a viewer the recruitment flag selects. Best-effort, like every card."""
     try:
-        campaign = resolve_campaign(integration, slack_user_id, home_user)
+        if not is_recruiting(integration, slack_user_id, home_user):
+            return None
     except Exception:
         logger.warning("slack_app_home_interview_invite_failed", exc_info=True)
         return None
-    if campaign is None:
-        return None
-    return invite_section(campaign.message, book_button(integration.id, campaign, "home", new_invitation_id()))
+    return invite_section(INVITE_MESSAGE, book_button(integration.id, "home"))
 
 
 def _republish_home(
