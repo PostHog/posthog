@@ -9,6 +9,10 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    ActivitySummaryApi,
+    ActivitySummaryVersionApi,
+    AnomalyInsightResponseApi,
+    AnomalySearchResponseApi,
     CancelReportCheckRequestApi,
     CommitDiffResponseApi,
     CreateReportCheckRequestApi,
@@ -47,6 +51,7 @@ import type {
     PullRequestReviewCommentCreateResponseApi,
     PullRequestReviewCommentReactionCreateApi,
     PullRequestReviewCommentReactionCreateResponseApi,
+    RankingOutcomesResponseApi,
     RecordCheckResultRequestApi,
     RecordCheckResultResponseApi,
     RecordStructuredOutputRequestApi,
@@ -131,6 +136,9 @@ import type {
     SignalTeamConfigApi,
     SignalUserAutonomyConfigApi,
     SignalUserAutonomyConfigCreateApi,
+    SignalsActivitySummaryVersionsRetrieveParams,
+    SignalsAnomaliesInsightRetrieveParams,
+    SignalsAnomaliesSearchRetrieveParams,
     SignalsProcessingListParams,
     SignalsReportArtefactsListParams,
     SignalsReportChecksListParams,
@@ -183,6 +191,124 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getSignalsActivitySummaryListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/activity_summary/`
+}
+
+/**
+ * @summary Get your activity summary
+ */
+export const signalsActivitySummaryList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ActivitySummaryApi> => {
+    return apiMutator<ActivitySummaryApi>(getSignalsActivitySummaryListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsActivitySummaryVersionsRetrieveUrl = (
+    projectId: string,
+    params?: SignalsActivitySummaryVersionsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/activity_summary/versions/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/activity_summary/versions/`
+}
+
+/**
+ * @summary List your activity summary versions
+ */
+export const signalsActivitySummaryVersionsRetrieve = async (
+    projectId: string,
+    params?: SignalsActivitySummaryVersionsRetrieveParams,
+    options?: RequestInit
+): Promise<ActivitySummaryVersionApi[]> => {
+    return apiMutator<ActivitySummaryVersionApi[]>(getSignalsActivitySummaryVersionsRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsAnomaliesInsightRetrieveUrl = (
+    projectId: string,
+    params: SignalsAnomaliesInsightRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/anomalies/insight/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/anomalies/insight/`
+}
+
+/**
+ * Read-only anomaly rates of the saved trends insights that anomaly scoring checks.
+ * @summary Get the scored anomaly history of an insight
+ */
+export const signalsAnomaliesInsightRetrieve = async (
+    projectId: string,
+    params: SignalsAnomaliesInsightRetrieveParams,
+    options?: RequestInit
+): Promise<AnomalyInsightResponseApi> => {
+    return apiMutator<AnomalyInsightResponseApi>(getSignalsAnomaliesInsightRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsAnomaliesSearchRetrieveUrl = (
+    projectId: string,
+    params?: SignalsAnomaliesSearchRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/anomalies/search/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/anomalies/search/`
+}
+
+/**
+ * Read-only anomaly rates of the saved trends insights that anomaly scoring checks.
+ * @summary Search anomalous insight series
+ */
+export const signalsAnomaliesSearchRetrieve = async (
+    projectId: string,
+    params?: SignalsAnomaliesSearchRetrieveParams,
+    options?: RequestInit
+): Promise<AnomalySearchResponseApi> => {
+    return apiMutator<AnomalySearchResponseApi>(getSignalsAnomaliesSearchRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
 
 export const getSignalsConfigListUrl = (projectId: string) => {
     return `/api/projects/${projectId}/signals/config/`
@@ -928,10 +1054,7 @@ export const getSignalsReportsReviewersUpdateUrl = (projectId: string, id: strin
 }
 
 /**
- * Set a report's suggested reviewers (full-replacement PUT), whether or not the report already
- * has any. Appends a new latest-wins `suggested_reviewers` status row — the same write the artefact
- * PUT performs, but addressed by report so a report with zero reviewers (and thus no artefact yet)
- * can still be assigned one. App-only: agents append reviewers via the artefacts POST instead.
+ * Apply a human reviewer edit, including on reports without a reviewer artefact.
  * @summary Set a report's suggested reviewers
  */
 export const signalsReportsReviewersUpdate = async (
@@ -1157,7 +1280,7 @@ export const getSignalsReportArtefactsDestroyUrl = (projectId: string, reportId:
 }
 
 /**
- * Delete an artefact, addressed by id. Deleting the latest row of a status type reverts the report's canonical status to the previous version (latest-wins over what remains). `task_run` artefacts are an append-only work log and cannot be deleted. Neither can the types this API cannot write, which the pipeline owns: `autostart_skip`, `check_cancelled`, `check_expired`, `check_observation`, `check_result`, `check_scheduled`, `code_review`, `impact_measurement_plan`, `implementation_decision`, `implementation_dispatch`, `implementation_handover`, `implementation_replacement`, `pull_request`, `ranking_score`, `report_link`, `summary_change`, `task_run`, `title_change`, `video_segment`, `work_claim`, `work_release`.
+ * Delete an artefact, addressed by id. Deleting the latest row of a status type reverts the report's canonical status to the previous version (latest-wins over what remains). `task_run` artefacts are an append-only work log and cannot be deleted. Neither can the types this API cannot write, which the pipeline owns: `autostart_skip`, `check_cancelled`, `check_expired`, `check_observation`, `check_result`, `check_scheduled`, `code_review`, `impact_measurement_plan`, `implementation_decision`, `implementation_dispatch`, `implementation_handover`, `implementation_replacement`, `pr_owner_assignment`, `pull_request`, `ranking_score`, `report_link`, `reviewer_corrections`, `summary_change`, `task_run`, `title_change`, `video_segment`, `work_claim`, `work_release`.
  * @summary Delete an artefact
  */
 export const signalsReportArtefactsDestroy = async (
@@ -1409,6 +1532,24 @@ export const signalsReportsPrCiStatuses = async (
     options?: RequestInit
 ): Promise<PullRequestCiStatusesResponseApi> => {
     return apiMutator<PullRequestCiStatusesResponseApi>(getSignalsReportsPrCiStatusesUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsReportsRankingOutcomesListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/reports/ranking_outcomes/`
+}
+
+/**
+ * What each public outcome of the served ranking model predicts, with its horizon, cohort, base rate and readability from the model that scored this project's reports. Users who cannot see the ranking model get status not_available and no outcomes.
+ * @summary List the ranking model's public outcomes
+ */
+export const signalsReportsRankingOutcomesList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<RankingOutcomesResponseApi> => {
+    return apiMutator<RankingOutcomesResponseApi>(getSignalsReportsRankingOutcomesListUrl(projectId), {
         ...options,
         method: 'GET',
     })
@@ -2323,7 +2464,7 @@ export const getSignalsScoutEditReportUrl = (projectId: string, runId: string) =
 }
 
 /**
- * Rewrite a report's title/summary, append a note or fresh evidence, set its suggested reviewers, and/or point it at another repository. Can target ANY of the project's inbox reports, not just scout-authored ones — so the edit is attributed to this scout. Reviewers and repository are how you rescue a report that surfaced routed to no one or against the wrong codebase: each replaces what the report holds and re-runs autostart, so a report that was missing a qualifying reviewer or a repository can open a draft PR. The response carries the repository the report holds after the edit, and the call fails when a repository it named did not land. Set `actionability` and/or `priority` (each with its explanation) when new evidence changed your judgment: each replaces the report's decision and re-runs autostart, without changing the report's inbox status. Title/summary edits are best-effort: the pipeline may later re-research them. Set `supersedes_implementation` alongside a rewrite when the fix changed. Verified automated predecessor PRs close only after the replacement completes with verified open PRs.
+ * Rewrite a report's title/summary, append a note or fresh evidence, set its suggested reviewers, and/or point it at another repository. Can target ANY of the project's inbox reports, not just scout-authored ones — so the edit is attributed to this scout. Reviewers and repository are how you rescue a report that surfaced routed to no one or against the wrong codebase: each replaces what the report holds and re-runs autostart, so a report that was missing a qualifying reviewer or a repository can open a draft PR. The response carries the repository the report holds after the edit, and the call fails when a repository it named did not land. Set `actionability` and/or `priority` (each with its explanation) when new evidence changed your judgment: each replaces the report's decision and re-runs autostart, without changing the report's inbox status. `tags` replaces the report's slug tags, and an omitted `tags` keeps them. Title/summary edits are best-effort: the pipeline may later re-research them. Set `supersedes_implementation` alongside a rewrite when the fix changed. Verified automated predecessor PRs close only after the replacement completes with verified open PRs.
  * @summary Edit an existing report for a run
  */
 export const signalsScoutEditReport = async (

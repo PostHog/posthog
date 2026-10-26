@@ -222,12 +222,12 @@ def _get_event_summary(event: dict[str, Any]) -> str:
             parts.append(_format_cost(props["$ai_total_cost_usd"]))
 
         if props.get("$ai_model"):
-            parts.append(props["$ai_model"])
+            parts.append(str(props["$ai_model"]))
 
         if props.get("$ai_is_error") or props.get("$ai_error"):
             parts.append("ERROR")
 
-        summary = span_name
+        summary = str(span_name)
         if parts:
             summary += f" ({', '.join(parts)})"
         return summary
@@ -242,7 +242,7 @@ def _get_event_summary(event: dict[str, Any]) -> str:
         if props.get("$ai_is_error"):
             parts.append("ERROR")
 
-        summary = span_name
+        summary = str(span_name)
         if parts:
             summary += f" ({', '.join(parts)})"
         return summary
@@ -258,12 +258,12 @@ def _get_event_summary(event: dict[str, Any]) -> str:
             parts.append(_format_cost(props["$ai_total_cost_usd"]))
 
         if props.get("$ai_model"):
-            parts.append(props["$ai_model"])
+            parts.append(str(props["$ai_model"]))
 
         if props.get("$ai_is_error") or props.get("$ai_error"):
             parts.append("ERROR")
 
-        summary = span_name
+        summary = str(span_name)
         if parts:
             summary += f" ({', '.join(parts)})"
         return summary
@@ -276,7 +276,7 @@ def _get_event_summary(event: dict[str, Any]) -> str:
 
         parts = []
         if runtime:
-            parts.append(runtime)
+            parts.append(str(runtime))
         if applicable is False or applicable == "false":
             parts.append("N/A")
         elif props.get("$ai_evaluation_result_type") == "categorical" and isinstance(
@@ -293,7 +293,7 @@ def _get_event_summary(event: dict[str, Any]) -> str:
         elif result is False or result == "false":
             parts.append("false")
 
-        summary = eval_name
+        summary = str(eval_name)
         if parts:
             summary += f" ({', '.join(parts)})"
         return summary

@@ -127,7 +127,7 @@ class TestRouteThreadMessage(TestCase):
             "channel_type": "channel",
             "ts": "2000.0000",
             "thread_ts": None,
-            "text": "How many people signed up last week?",
+            "text": "How many people signed up last week in PostHog?",
         }
         return self._make_event(**{**defaults, **overrides})
 
@@ -162,8 +162,31 @@ class TestRouteThreadMessage(TestCase):
         [
             ("an untagged question", {}, True, None, False, True),
             ("a private channel", {"channel_type": "group"}, True, None, False, True),
-            ("a statement", {"text": "Shipped the new export filter today"}, True, None, False, False),
-            ("a question to a person", {"text": "<@U_ALICE> how many signups last week?"}, True, None, False, False),
+            (
+                "a request without a question word",
+                {"text": "need signups by country from PostHog for last month"},
+                True,
+                None,
+                False,
+                True,
+            ),
+            (
+                "a question that does not name PostHog",
+                {"text": "How many people signed up last week?"},
+                True,
+                None,
+                False,
+                True,
+            ),
+            ("a question to a person", {"text": "<@U_ALICE> how many signups last week?"}, True, None, False, True),
+            (
+                "a question that tags the app",
+                {"text": "<@U0BOT> how many signups last week?"},
+                True,
+                None,
+                False,
+                False,
+            ),
             ("a group DM", {"channel_type": "mpim"}, True, None, False, False),
             ("the flag is off", {}, False, None, False, False),
             ("the author picks up only tagged messages", {}, True, UntaggedFollowupMode.NEVER, False, False),
@@ -181,6 +204,7 @@ class TestRouteThreadMessage(TestCase):
         event = self._make_question_event(**overrides)
         with (
             patch("products.slack_app.backend.api.is_slack_app_unprompted_answers_enabled", return_value=flag_on),
+            patch("products.slack_app.backend.api.get_cached_bot_user_id", return_value="U0BOT"),
             patch("products.slack_app.backend.api._start_mention_workflow") as mock_start,
             patch("products.slack_app.backend.api._post_user_resolution_failure_reply") as mock_failure_reply,
         ):

@@ -123,15 +123,10 @@ describe('inboxAnalytics', () => {
                     signal_count: 3,
                     is_suggested_reviewer: true,
                     ranking: {
-                        served_key: 'report_embeddings@2026-09-30',
-                        model_name: 'report_embeddings',
-                        model_version: '2026-09-30',
-                        manifest_version: 'manifest',
+                        status: 'scored',
+                        model: 'report_embeddings@2026-09-30',
                         scored_at: '2026-09-30T12:00:00Z',
-                        scores: { pr_merged: 0.4 },
-                        lifts: {},
-                        readable_heads: ['pr_merged'],
-                        stale: false,
+                        predictions: [{ outcome: 'fix', probability: 0.4, lift: null, readable: true }],
                     },
                 }),
                 makeReport({ id: 'b', priority: null, actionability: null, source_products: ['error_tracking'] }),
@@ -144,7 +139,7 @@ describe('inboxAnalytics', () => {
             sortField: 'ranking_pr_merged',
             sortDirection: 'desc',
             createdWindow: '7d',
-            rankerId: 'fixed',
+            rankerId: 'fix',
         })
         const props = lastCapture(INBOX_EVENTS.REPORTS_IMPRESSED)
         expect(props).toMatchObject({
@@ -155,7 +150,7 @@ describe('inboxAnalytics', () => {
             sort_field: 'ranking_pr_merged',
             sort_direction: 'desc',
             created_window: '7d',
-            ranker_id: 'fixed',
+            ranker_id: 'fix',
         })
         expect(props?.impressions).toEqual([
             expect.objectContaining({
@@ -178,7 +173,7 @@ describe('inboxAnalytics', () => {
     })
 
     it('emits a single-report action with the report context and the ranker of the list in view', () => {
-        setInboxServedRanker('fixed')
+        setInboxServedRanker('fix')
         captureInboxReportAction({
             report: makeReport(),
             actionType: 'create_pr',
@@ -190,12 +185,12 @@ describe('inboxAnalytics', () => {
             surface: 'detail_pane',
             is_bulk: false,
             bulk_size: 1,
-            ranker_id: 'fixed',
+            ranker_id: 'fix',
         })
     })
 
     it('never attributes a Today action to the Inbox ranker', () => {
-        setInboxServedRanker('fixed')
+        setInboxServedRanker('fix')
         captureInboxReportAction({ report: makeReport(), actionType: 'discuss', surface: 'today' })
         expect(lastCapture(INBOX_EVENTS.REPORT_ACTION)?.ranker_id).toBeNull()
     })

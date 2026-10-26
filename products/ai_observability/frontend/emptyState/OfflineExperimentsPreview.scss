@@ -1,0 +1,91 @@
+@import '../../../../frontend/src/lib/components/ProductEmptyState/previewMixins';
+
+.OfflineExperimentsPreview {
+    --offline-experiments-preview-accent: var(--empty-state-accent, var(--color-primary-500));
+
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+
+    &__radio {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        opacity: 0;
+    }
+
+    &__table {
+        font-size: 0.6875rem;
+
+        th,
+        td {
+            padding: 0.5rem;
+        }
+    }
+
+    &__choice {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+        min-width: 0;
+        cursor: pointer;
+        border-radius: var(--radius);
+    }
+
+    &__selection {
+        flex-shrink: 0;
+        width: 12px;
+        height: 12px;
+        border: 1.5px solid var(--offline-experiments-preview-accent);
+        border-radius: 50%;
+    }
+
+    &__swap {
+        display: grid;
+
+        > * {
+            grid-area: 1 / 1;
+            min-width: 0;
+        }
+    }
+}
+
+@each $experiment in (baseline-gpt, baseline-claude, revised-gpt, revised-claude) {
+    .OfflineExperimentsPreview__when-#{$experiment} {
+        @include preview-swap-hidden;
+    }
+
+    #offline-experiments-preview-#{$experiment}:checked ~ * {
+        .OfflineExperimentsPreview__when-#{$experiment} {
+            @include preview-swap-visible;
+        }
+
+        .OfflineExperimentsPreview__row--#{$experiment} {
+            background: color-mix(in oklab, var(--offline-experiments-preview-accent) 8%, transparent);
+
+            .OfflineExperimentsPreview__selection {
+                background: var(--offline-experiments-preview-accent);
+                box-shadow: inset 0 0 0 2px var(--color-bg-surface-primary);
+                animation: OfflineExperimentsPreview__pulse 2s ease-in-out infinite;
+            }
+        }
+    }
+
+    #offline-experiments-preview-#{$experiment}:focus-visible ~ * .OfflineExperimentsPreview__choice--#{$experiment} {
+        outline: 2px solid var(--offline-experiments-preview-accent);
+        outline-offset: 2px;
+    }
+}
+
+@keyframes OfflineExperimentsPreview__pulse {
+    0%,
+    100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0.55;
+    }
+}
+
+@include preview-motion-guards('OfflineExperimentsPreview');

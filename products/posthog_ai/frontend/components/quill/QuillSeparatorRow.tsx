@@ -16,6 +16,7 @@ const SETTLED_LABELS: Record<string, string> = {
     compacting_failed: "Couldn't compact the conversation",
     refusal: 'The model declined this request. Rephrase it, or switch models and try again.',
     refusal_fallback: 'Request declined, retried with the fallback model',
+    turn_cancelled: 'The agent stopped before it finished. Background agents may have stopped too.',
 }
 
 function statusLabel(item: ThreadItem, live: boolean): { label: string; running: boolean } {

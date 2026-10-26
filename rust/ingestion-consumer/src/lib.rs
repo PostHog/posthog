@@ -1,5 +1,6 @@
 pub mod aperture;
 pub mod batcher;
+pub mod charge_limit;
 mod commit_pacer;
 pub mod config;
 pub mod consumer;
@@ -9,6 +10,8 @@ pub mod grpc_transport;
 pub mod kafka_stats;
 pub mod ledger_rejection;
 pub mod order_sentinel;
+pub mod partition_budget;
+mod polling;
 pub mod readiness;
 pub mod rebalance;
 pub mod routing;

@@ -31,6 +31,7 @@ from posthog.hogql.database.models import DatabaseField, FieldOrTable, StructDat
 from posthog.hogql.database.s3_table import (
     DataWarehouseTable as HogQLDataWarehouseTable,
     build_function_call,
+    compression_for_url_pattern,
 )
 from posthog.hogql.escape_sql import (
     backquote_clickhouse_identifier,
@@ -52,6 +53,7 @@ from posthog.schema_enums import DatabaseSerializedFieldType
 from posthog.settings import TEST
 from posthog.sync import database_sync_to_async
 
+from products.warehouse_sources.backend.file_uploads import HostedUpload, parse_hosted_upload
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.util import (
     CLICKHOUSE_HOGQL_MAPPING,
@@ -75,6 +77,8 @@ if TYPE_CHECKING:
     from posthog.schema import HogQLQueryModifiers
 
     from posthog.models import User
+
+    from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING: dict[DatabaseSerializedFieldType, str] = {
     DatabaseSerializedFieldType.INTEGER: "Int64",
@@ -270,6 +274,10 @@ _CHDB_SUBPROCESS_EXCLUDED_ENV_VARS = frozenset({"LD_PRELOAD", "MALLOC_CONF"})
 # credentials when a read carries none.
 _CHDB_SUBPROCESS_FORCED_ENV_VARS = {"AWS_EC2_METADATA_DISABLED": "true"}
 
+# The deployment sets the egress proxy in the uppercase variables, and chdb reads only the lowercase
+# ones. Without a lowercase copy, chdb connects directly and its reads skip the proxy's address checks.
+_CHDB_SUBPROCESS_PROXY_ENV_VARS = ("HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY")
+
 # A table's URL is customer input, and URL validation only sees the first host. The S3 client follows
 # redirects by default, so a URL that passes validation can send chdb to an internal address. The
 # ClickHouse cluster checks every hop against remote_url_allow_hosts. chdb has no such list, so it
@@ -290,6 +298,7 @@ def run_chdb_query(query: str, timeout: float = CHDB_QUERY_TIMEOUT_SECONDS) -> s
             timeout=timeout,
             env={
                 **{name: value for name, value in os.environ.items() if name not in _CHDB_SUBPROCESS_EXCLUDED_ENV_VARS},
+                **{name.lower(): os.environ[name] for name in _CHDB_SUBPROCESS_PROXY_ENV_VARS if name in os.environ},
                 **_CHDB_SUBPROCESS_FORCED_ENV_VARS,
             },
         )
@@ -553,13 +562,35 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
     def csv_allow_double_quotes(self) -> bool | None:
         return self.options.get("csv_allow_double_quotes")
 
-    def soft_delete(self):
+    @property
+    def hosted_upload(self) -> HostedUpload | None:
+        """The file this team uploaded that a credential-less table reads in place, if it reads one."""
+        if self.credential_id is not None:
+            return None
+        return parse_hosted_upload(self.team_id, self.url_pattern or "")
+
+    def adopt_into_source(self, source: "ExternalDataSource") -> list[str]:
+        """Make a self-managed table one that `source` syncs. Returns the fields this changed.
+
+        The caller saves these fields together with the new `url_pattern` and `format`: the
+        customer's key can't read PostHog's bucket, and PostHog's key can't read the customer's, so
+        a row that has only some of these changes can't be read at all. The row id and the name stay,
+        so joins, views and saved queries that refer to the table keep working.
+        """
+        self.external_data_source = source
+        self.credential = None
+        # A CSV setting for the customer's files. The table now reads Parquet files PostHog wrote.
+        self.options = {key: value for key, value in (self.options or {}).items() if key != "csv_allow_double_quotes"}
+        return ["external_data_source", "credential", "options"]
+
+    def soft_delete(self, *, delete_joins: bool = True):
         from products.data_tools.backend.models.join import DataWarehouseJoin
 
-        for join in DataWarehouseJoin.objects.filter(
-            Q(team_id=self.team.pk) & (Q(source_table_name=self.name) | Q(joining_table_name=self.name))
-        ).exclude(deleted=True):
-            join.soft_delete()
+        if delete_joins:
+            for join in DataWarehouseJoin.objects.filter(
+                Q(team_id=self.team.pk) & (Q(source_table_name=self.name) | Q(joining_table_name=self.name))
+            ).exclude(deleted=True):
+                join.soft_delete()
 
         self.deleted = True
         self.deleted_at = timezone.now()
@@ -717,11 +748,30 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         """
         return read_format != DataWarehouseTableFormat.Delta or self.credential_id is None
 
+    def _chdb_compression(self, read_format: str) -> str | None:
+        compression = compression_for_url_pattern(self.url_pattern)
+        # A wrong codec fails a Parquet read, which falls back to the cluster, but a CSV or JSON read
+        # can infer a wrong schema instead.
+        if compression is None and read_format == DataWarehouseTableFormat.Parquet:
+            return "none"
+        return compression
+
     def _describe_with_chdb(
-        self, s3_table_func: str, placeholder_context: HogQLContext, describe_settings: dict[str, str | int]
+        self, read_format: str, compression: str, describe_settings: dict[str, str | int]
     ) -> list[tuple[str, ...]] | None:
         """The DESCRIBE rows read by the embedded engine, or None when it cannot answer and
         ClickHouse has to."""
+        placeholder_context = HogQLContext(team_id=self.team.pk)
+        s3_table_func = build_function_call(
+            url=self.url_pattern,
+            queryable_folder=self.queryable_folder,
+            format=read_format,
+            access_key=self.credential.access_key if self.credential else None,
+            access_secret=self.credential.access_secret if self.credential else None,
+            context=placeholder_context,
+            table_size_mib=0,
+            compression=compression,
+        )
         try:
             quoted_placeholders = {k: escape_param_clickhouse(v) for k, v in placeholder_context.values.items()}
             # chdb doesn't support parameterized queries
@@ -752,9 +802,10 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             context=placeholder_context,
             table_size_mib=0,  # Use the non-cluster s3 table function for chdb
         )
+        chdb_compression = self._chdb_compression(describe_format)
         # chdb hangs in CI during tests
-        if not TEST and self._chdb_may_read(describe_format):
-            result = self._describe_with_chdb(s3_table_func, placeholder_context, describe_settings)
+        if not TEST and chdb_compression is not None and self._chdb_may_read(describe_format):
+            result = self._describe_with_chdb(describe_format, chdb_compression, describe_settings)
 
         if result is None:
             tag_queries(
@@ -862,7 +913,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         """
         return self.size_in_s3_mib is None or self.size_in_s3_mib < S3_CLUSTER_TABLE_SIZE_MIB
 
-    def _count_with_chdb(self) -> int | None:
+    def _count_with_chdb(self, compression: str) -> int | None:
         """The row count read by the embedded engine, or None when it cannot answer and ClickHouse
         has to."""
         placeholder_context = HogQLContext(team_id=self.team.pk)
@@ -874,6 +925,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             access_secret=self.credential.access_secret if self.credential else None,
             context=placeholder_context,
             table_size_mib=0,  # Use the non-cluster s3 table function for chdb
+            compression=compression,
         )
         try:
             quoted_placeholders = {k: escape_param_clickhouse(v) for k, v in placeholder_context.values.items()}
@@ -892,9 +944,15 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         return int(rows[0][0]) if rows else None
 
     def get_count(self, safe_expose_ch_error=True) -> int:
+        chdb_compression = self._chdb_compression(self.format)
         # chdb hangs in CI during tests
-        if not TEST and self._count_fits_the_chdb_budget() and self._chdb_may_read(self.format):
-            chdb_count = self._count_with_chdb()
+        if (
+            not TEST
+            and chdb_compression is not None
+            and self._count_fits_the_chdb_budget()
+            and self._chdb_may_read(self.format)
+        ):
+            chdb_count = self._count_with_chdb(chdb_compression)
             if chdb_count is not None:
                 return chdb_count
 

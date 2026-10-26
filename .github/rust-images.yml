@@ -80,6 +80,7 @@
 - image: cohort-stream-processor
   dockerfile: ./rust/Dockerfile
   project: vglf58qgzw
+  features: hotpath-prometheus
 
 - image: batch-import-worker
   dockerfile: ./rust/Dockerfile
@@ -148,6 +149,15 @@
 - image: personhog-writer
   dockerfile: ./rust/Dockerfile
   project: hj9nd3cg9w
+
+- image: personhog-changelog-relay
+  dockerfile: ./rust/Dockerfile
+  project: lvsrh6c64c
+
+# Records the v4 AI research replay dataset (products/ai_training/docs/replay-data.md).
+- image: replay-recorder-v4
+  dockerfile: ./rust/Dockerfile
+  project: vznmbshh6q
 
 - image: personhog-test-harness
   dockerfile: ./rust/Dockerfile

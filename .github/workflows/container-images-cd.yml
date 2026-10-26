@@ -123,6 +123,12 @@ jobs:
               with:
                   fetch-depth: 2
 
+            - name: Resolve commit timestamp
+              id: commit-time
+              env:
+                  HEAD_COMMIT_TIMESTAMP: ${{ github.event.head_commit.timestamp }}
+              run: echo "timestamp=${HEAD_COMMIT_TIMESTAMP:-$(TZ=UTC git show -s --date=format-local:%Y-%m-%dT%H:%M:%SZ --format=%cd HEAD)}" >> "$GITHUB_OUTPUT"
+
             - name: Set up Docker Buildx
               uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
 
@@ -371,7 +377,7 @@ jobs:
             - name: Verify image boots (web + temporal + celery)
               if: github.event_name == 'push'
               env:
-                  IMAGE: ghcr.io/posthog/posthog:${{ github.sha }}
+                  IMAGE: ${{ steps.docker-meta.outputs.ecr-registry }}/${{ env.ECR_REPOSITORY }}@${{ steps.image.outputs.digest }}
               run: |
                   set -euo pipefail
                   docker pull "$IMAGE"
@@ -747,7 +753,7 @@ jobs:
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
                       }
 
             - name: Trigger Ingestion Cloud deployment
@@ -768,7 +774,7 @@ jobs:
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": "PostHog/posthog",
                         "labels": ${{ toJson(steps.labels.outputs.labels) }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
                       }
 
             - name: Trigger Batch Exports Temporal Worker Cloud deployment
@@ -789,7 +795,7 @@ jobs:
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
                       }
 
             - name: Trigger Max AI Temporal worker cloud deployment
@@ -810,7 +816,7 @@ jobs:
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
                       }
 
             - name: Trigger Tasks Agent Temporal worker cloud deployment
@@ -831,7 +837,7 @@ jobs:
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
                       }
 
             - name: Install uv for dependency analysis
@@ -906,7 +912,7 @@ jobs:
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
                       }
 
             - name: Trigger Video Export Temporal Worker Cloud deployment
@@ -927,7 +933,7 @@ jobs:
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
                       }
 
             - name: Trigger Self-Driving Temporal Worker Cloud deployment
@@ -948,7 +954,7 @@ jobs:
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
                       }
 
             - name: Trigger Session Replay Temporal Worker Cloud deployment
@@ -969,7 +975,7 @@ jobs:
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
                       }
 
             - name: Trigger Replay Vision Temporal Worker Cloud deployment
@@ -990,7 +996,7 @@ jobs:
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
                       }
 
             - name: Trigger Web Analytics Temporal Worker Cloud deployment
@@ -1011,7 +1017,7 @@ jobs:
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
                       }
 
             - name: Trigger Experiments Recalculation Temporal Worker Cloud deployment
@@ -1032,7 +1038,7 @@ jobs:
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
                       }
 
             - name: Trigger Error Tracking Temporal Worker Cloud deployment
@@ -1053,7 +1059,7 @@ jobs:
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
                       }
 
             - name: Trigger Weekly Digest Temporal Worker Cloud deployment
@@ -1074,7 +1080,7 @@ jobs:
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
                       }
 
             - name: Trigger Analytics Platform Temporal Worker Cloud deployment
@@ -1095,7 +1101,7 @@ jobs:
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
                       }
 
             # The path list for this worker lives in the filter step above. This clause
@@ -1156,7 +1162,7 @@ jobs:
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
                       }
 
             - name: Trigger Signup Enrichment Temporal Worker Cloud deployment
@@ -1177,7 +1183,7 @@ jobs:
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
                       }
 
             # The product path list for this worker lives in the filter step above and
@@ -1223,7 +1229,7 @@ jobs:
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
                       }
 
             - name: Trigger LLM Analytics Evals Temporal Worker Cloud deployment
@@ -1244,7 +1250,7 @@ jobs:
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
                       }
 
             # NOTE: temporal-worker-llm-analytics rollout moved to cd-llm-analytics-image.yml
@@ -1268,7 +1274,7 @@ jobs:
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
                       }
 
             - name: Trigger Logs Alerting Temporal Worker Cloud deployment
@@ -1289,7 +1295,7 @@ jobs:
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
                       }
 
             - name: Trigger Stamphog Temporal Worker Cloud deployment
@@ -1310,7 +1316,7 @@ jobs:
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
                       }
 
             - name: Trigger DuckLake Temporal Worker Cloud deployment
@@ -1331,7 +1337,7 @@ jobs:
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
                       }
 
             - name: Trigger Data Warehouse Temporal Worker Cloud deployment
@@ -1352,7 +1358,7 @@ jobs:
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
                       }
 
             - name: Trigger Warehouse Sources Load Cloud deployment
@@ -1373,7 +1379,7 @@ jobs:
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
                       }
 
             - name: Trigger Data Warehouse CDP Producer Temporal Worker Cloud deployment
@@ -1394,7 +1400,7 @@ jobs:
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
                       }
 
             - name: Trigger Data Warehouse Modeling Temporal Worker Cloud deployment
@@ -1415,7 +1421,7 @@ jobs:
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
                       }
 
             - name: Trigger Dagster Code Location Reload
@@ -1435,7 +1441,7 @@ jobs:
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": "PostHog/posthog",
                         "labels": ${{ toJson(steps.labels.outputs.labels) }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
                       }
 
     # Main image plus the inbox-ranking dependency group, for the inbox ranking training code
@@ -1446,7 +1452,7 @@ jobs:
     dagster_ml_build:
         name: Build and push Dagster ML image
         needs: posthog_build
-        if: ${{ needs.posthog_build.result == 'success' && needs.posthog_build.outputs.image-digest != '' && github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true' && github.ref == 'refs/heads/master' }}
+        if: ${{ !cancelled() && needs.posthog_build.result == 'success' && needs.posthog_build.outputs.image-digest != '' && github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true' && github.ref == 'refs/heads/master' }}
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 30
         continue-on-error: true
@@ -1470,6 +1476,12 @@ jobs:
 
             - name: Check out
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            - name: Resolve commit timestamp
+              id: commit-time
+              env:
+                  HEAD_COMMIT_TIMESTAMP: ${{ github.event.head_commit.timestamp }}
+              run: echo "timestamp=${HEAD_COMMIT_TIMESTAMP:-$(TZ=UTC git show -s --date=format-local:%Y-%m-%dT%H:%M:%SZ --format=%cd HEAD)}" >> "$GITHUB_OUTPUT"
 
             - name: Set up Depot CLI
               uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
@@ -1570,7 +1582,7 @@ jobs:
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": "PostHog/posthog",
                         "labels": ${{ toJson(steps.labels.outputs.labels || '[]') }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
                       }
 
             - name: Warn when the ML image failed
@@ -1580,10 +1592,9 @@ jobs:
     ordered_image_alias:
         name: Publish ordered image alias
         needs: posthog_build
-        if: ${{ needs.posthog_build.result == 'success' && github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true' && vars.ORDERED_IMAGE_ALIAS_PAUSED != 'true' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+        if: ${{ !cancelled() && needs.posthog_build.result == 'success' && github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true' && vars.ORDERED_IMAGE_ALIAS_PAUSED != 'true' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
         runs-on: ubuntu-24.04
         timeout-minutes: 5
-        continue-on-error: true
         permissions:
             id-token: write
             contents: read
@@ -1621,6 +1632,7 @@ jobs:
               uses: aws-actions/amazon-ecr-login@f2e9fc6c2b355c1890b65e6f6f0e2ac3e6e22f78 # v2.1.2
 
             - name: Publish and read back ordered image alias
+              id: publish-alias
               if: ${{ steps.ordered-release.outputs.tag != '' }}
               timeout-minutes: 2
               shell: bash
@@ -1631,6 +1643,14 @@ jobs:
                   ORDERED_ALIAS: ${{ steps.ordered-release.outputs.tag }}
                   REGCTL: ${{ runner.temp }}/regctl
               run: bash .github/scripts/ordered-image-release.sh publish
+
+            - name: Fail when the ordered image alias is missing
+              if: ${{ steps.ordered-release.outputs.tag == '' || steps.publish-alias.outputs.outcome != 'present-at-expected-digest' }}
+              env:
+                  OUTCOME: ${{ steps.publish-alias.outputs.outcome || 'not published' }}
+              run: |
+                  echo "::error title=Ordered image alias missing::Kargo only creates freight from the ordered alias, so Kargo-delivered apps stay on the previous image (outcome: ${OUTCOME})."
+                  exit 1
 
     shared_image_channels:
         name: Publish eligible shared-image channels

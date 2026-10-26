@@ -16,6 +16,7 @@ from products.alerts_platform.backend.facade.contracts import (
     AnnouncedTransition,
     IncidentAction,
     MessageDetail,
+    MessageImage,
     MessageLink,
     SourceKind,
 )
@@ -50,6 +51,7 @@ def alert_message(
     symbol: str = "\U0001f534",
     context: tuple[str, ...] = (),
     data_link: MessageLink | None = None,
+    image: MessageImage | None = None,
 ) -> AlertMessage:
     return AlertMessage(
         headline=headline,
@@ -62,6 +64,7 @@ def alert_message(
         transition=transition or announced_transition(),
         context=context,
         data_link=data_link,
+        image=image,
         incident_action=incident_action,
     )
 

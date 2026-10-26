@@ -947,6 +947,7 @@ describe('biSceneLogic', () => {
             () => editor.actions.addFieldToShelf(eventField, 'filters'),
             () => editor.actions.setFilterValue(0, '$pageview'),
             () => editor.actions.addFieldToShelf(eventField, 'values'),
+            () => editor.actions.setMeasureExpression(0, 'count(DISTINCT distinct_id)', 'custom'),
             () => editor.actions.setTableCalculation(0, { type: 'running_total' }),
             () => editor.actions.updateMeasureSettings(0, { formatting: { prefix: '€' } }),
             () => editor.actions.addResultFilter(),
@@ -1069,16 +1070,30 @@ describe('biSceneLogic', () => {
         expect(logic.values.insight?.name).toBe('Saved worksheet (copy)')
     })
 
-    it('preserves an unfinished calculated measure when chart settings update', () => {
-        logic.actions.restoreWorksheet(worksheet())
+    it('saves and reloads conditional formatting without discarding an unfinished calculated measure', async () => {
+        await expectLogic(logic, () => logic.actions.loadInsight(stored.short_id)).toFinishAllListeners()
         editor.actions.setCalculatedMeasureDraft({
             index: null,
             name: 'Revenue per user',
             expression: 'sum(revenue) /',
         })
         const draft = editor.values.calculatedMeasureDraft
-        logic.actions.setVisualization({ ...logic.values.worksheet, tableSettings: { conditionalFormatting: [] } })
+        const conditionalFormatting = [
+            {
+                id: 'count-threshold',
+                templateId: 'equals',
+                columnName: 'count',
+                input: '10',
+                color: '#FFADAD',
+                bytecode: ['_H', 1, 32, 'input', 1, 1, 32, 'value', 1, 1, 11, 38],
+            },
+        ]
+        logic.actions.setVisualization({ ...logic.values.worksheet, tableSettings: { conditionalFormatting } })
         expect(editor.values.calculatedMeasureDraft).toEqual(draft)
+        await expectLogic(logic, () => logic.actions.saveInsight()).toFinishAllListeners()
+        expect(stored.query.tableSettings?.conditionalFormatting).toEqual(conditionalFormatting)
+        await expectLogic(logic, () => logic.actions.loadInsight(stored.short_id)).toFinishAllListeners()
+        expect(logic.values.worksheet.tableSettings?.conditionalFormatting).toEqual(conditionalFormatting)
     })
 
     it('reruns unchanged SQL for a date change while preserving dashboard properties', async () => {

@@ -89,7 +89,9 @@ class BraintrustEngine:
     supports_public_experiments: ClassVar[bool] = True
 
     @classmethod
-    def required_env(cls) -> tuple[EnvVarSpec, ...]:
+    def required_env(cls, *, no_send_logs: bool = False) -> tuple[EnvVarSpec, ...]:
+        if no_send_logs:
+            return ()
         return (EnvVarSpec("BRAINTRUST_API_KEY", "records experiments and scores to Braintrust"),)
 
     @staticmethod

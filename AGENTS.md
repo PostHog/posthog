@@ -208,6 +208,10 @@ Each rule is tagged with what catches a violation.
 
 - **A new DNS-resolution or outbound-host entry point calls the shared out-of-band domain check.** `[lint: test_oob_denylist_coverage.py]` Every host guard here is IP-based, and an out-of-band interaction domain resolves to an ordinary public IP, so a resolver that skips the check restores the gap in silence. The list and the edit procedure live in `posthog/security/crosslang/`.
 
+### Configuration and secrets
+
+- **A key in `posthog/settings/dynamic_settings.py` exists only because operators must change its value live, without a deploy.** `[review]` These instance settings are Postgres rows that staff edit at runtime, and a stored row overrides the environment variable. Kill switches and tuning knobs for incidents qualify. Secrets and static config are environment variables read in `posthog/settings/`, with values from the deployment secret store and charts. Never store a secret as an instance setting, because the database keeps it as plain text. A per-team rollout or a team allowlist is a feature flag.
+
 ### Django admin
 
 - **A new `ForeignKey`/`OneToOneField` on an admin-exposed model needs explicit widget config.** `[review]` List the field in `autocomplete_fields`, `raw_id_fields`, or `readonly_fields` on **every** admin class that renders the model, including inlines attached to a related admin. Otherwise the default `<select>` loads the entire target table per row on each change-page render. Declare it on a shared base inline so per-parent variants inherit it.
@@ -310,6 +314,7 @@ ALWAYS invoke the matching skill **first** — do not skip it, and do not attemp
 
 - `/writing-dataclasses` — adding or changing a Python dataclass, replacing a tuple or `dict[str, Any]` payload, or passing a dataclass or facade contract through internal layers
 - `/announcing-behavior-changes` — shipping a fix that changes what an existing user sees (a metric moves, a count drops, a range resolves differently), or adding, reviewing, or removing an in-app change notice
+- `/verifying-changes` — choosing how to confirm a change works before reporting it done, or before starting Storybook, the dev stack, or a Playwright run to check your own work
 - `/merging-prs` — merging a PR, or babysitting one through the Trunk merge queue
 - `/stacking-prs` — creating, restacking, adopting, or landing a stack of PRs (`gh stack`)
 - `/implementing-mcp-tools` — adding/modifying endpoints or `tools.yaml`
@@ -321,6 +326,7 @@ ALWAYS invoke the matching skill **first** — do not skip it, and do not attemp
 - `/sending-notifications` — adding notification support
 - `/routing-outbound-api-calls` — adding or changing Python code that calls a third-party HTTP API, or changing any domain under `posthog/egress/` (budget, lanes, identity, metrics, headers)
 - `/authenticating-to-clickhouse` — adding a service, sidecar, or container that connects to ClickHouse, adding a `ClickHouseUser`, or building or changing a ClickHouse pool or client by hand; it must stay token-aware (a native pool carries the credential provider, an HTTP client resolves the token per call) or it silently uses the static password
+- `/writing-clickhouse-queries` — adding or changing a ClickHouse call site (`sync_execute`, `execute_hogql_query`, a `QueryRunner`), including the `Workload` it passes
 - `/adding-activity-logging` — adding activity logging (the audit trail) to a model, writing or changing a `model_activity_signal` receiver or an activity describer, auditing which write paths of a model are logged, or debugging a change that is missing from the activity log
 - `/adding-inbound-webhooks` — adding a webhook endpoint for a third party that sends to PostHog, adding a consumer for a provider that already has an endpoint, or migrating a verifier the `inbound-webhooks-go-through-ingress` rule flags
 - `/writing-skills` — creating or updating skills in `.agents/skills/`

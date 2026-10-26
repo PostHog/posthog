@@ -37,9 +37,12 @@ from ..facade.models import Metric, RelationshipProposal, TableCertification
 from .serializers import (
     CertificationCreateSerializer,
     CertificationSerializer,
+    MetricApproveRequestSerializer,
     MetricBulkApproveResponseSerializer,
     MetricBulkDeleteResponseSerializer,
     MetricBulkNamesRequestSerializer,
+    MetricCreateSerializer,
+    MetricNameConflictSerializer,
     MetricRunQuerySerializer,
     MetricRunRequestSerializer,
     MetricRunResponseSerializer,
@@ -172,11 +175,25 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return self.get_paginated_response(serializer.data)
         return Response(serializer.data)
 
-    @extend_schema(description="Create a metric, or refine the one already holding this name for the team.")
+    @extend_schema(
+        description="Create a metric. When a live metric already holds the name, returns 409 unless overwrite "
+        "is true, in which case the existing metric is refined with the fields sent.",
+        request=MetricCreateSerializer,
+        responses={
+            201: MetricSerializer,
+            409: OpenApiResponse(
+                response=MetricNameConflictSerializer,
+                description="A live metric already holds this name (code 'metric_name_taken'). "
+                "extra.existing_metric holds its name and status, unless the metric is hidden from the caller. "
+                "Send overwrite true to replace a visible metric.",
+            ),
+        },
+    )
     def create(self, request: Request, *args, **kwargs) -> Response:
-        serializer = self.get_serializer(data=request.data)
+        serializer = MetricCreateSerializer(data=request.data, context=self.get_serializer_context())
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
+        user = cast(User, request.user)
         # Pass only the fields the client actually sent, so an upsert that refines an existing metric
         # leaves omitted fields (a stored definition, provenance, ...) untouched rather than resetting them.
         optional = {
@@ -195,9 +212,11 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         }
         metric = api.upsert_metric(
             team=self.team,
-            user=cast(User, request.user),
+            user=user,
             name=data["name"],
             description=data["description"],
+            overwrite=data["overwrite"],
+            user_access_control=self.user_access_control,
             request=request,
             **optional,
         )
@@ -219,12 +238,18 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         detail=True,
         methods=["POST"],
         required_scopes=["data_catalog_approval:write", "data_catalog:read"],
-        request=None,
+        request=MetricApproveRequestSerializer,
         responses={200: MetricSerializer},
     )
-    def approve(self, request: Request, **kwargs) -> Response:
+    @validated_request(request_serializer=MetricApproveRequestSerializer)
+    def approve(self, request: ValidatedRequest, **kwargs) -> Response:
         """Bless a metric as canonical. Returns 409 while the metric is drifted from its insight."""
-        metric = api.approve_metric(self.get_object(), cast(User, request.user), request=request)
+        metric = api.approve_metric(
+            self.get_object(),
+            cast(User, request.user),
+            request=request,
+            expected_updated_at=request.validated_data.get("expected_updated_at"),
+        )
         return Response(self.get_serializer(metric).data)
 
     # DRF routes detail=False actions before the {name} detail route, so these paths can't be

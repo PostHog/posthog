@@ -47,6 +47,8 @@ export function ReportReviewersSection({ report }: { report: SignalReport }) {
     updateReviewers(
       {
         content: toSuggestedReviewerWriteContent(next),
+        action: "remove",
+        targets: toSuggestedReviewerWriteContent([reviewer]),
         optimisticReviewers: next,
       },
       {

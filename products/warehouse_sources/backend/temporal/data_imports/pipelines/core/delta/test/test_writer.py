@@ -1,6 +1,7 @@
 import os
 import json
 import random
+import tempfile
 from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
@@ -56,6 +57,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
     _deltalite_write_stats,
     _merge_predicate_ops,
     commit_covers_batch,
+    dedupe_incremental_batch,
 )
 
 _REPARTITION_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition"
@@ -754,17 +756,83 @@ class TestIncrementalBatchDeduplication:
 
     @parameterized.expand(
         [
-            ("keep_first", "first", ["a1", "b1"]),
-            ("keep_last", "last", ["a2", "b1"]),
+            ("unique_key", [{"id": [1, 2, 3], "k2": ["a", "a", "a"]}], ["id"], "last", [0, 1, 2]),
+            ("unique_composite_key", [{"id": [1, 1, 2], "k2": ["a", "b", "a"]}], ["id", "k2"], "last", [0, 1, 2]),
+            (
+                "unique_across_chunks",
+                [{"id": [1, 2], "k2": ["a", "a"]}, {"id": [3], "k2": ["a"]}],
+                ["id"],
+                "last",
+                [0, 1, 2],
+            ),
+            ("null_in_one_composite_part", [{"id": [1, 1], "k2": [None, "a"]}], ["id", "k2"], "last", [0, 1]),
+            ("repeated_key_keeps_last", [{"id": [1, 2, 1, 3], "k2": ["a", "a", "a", "a"]}], ["id"], "last", [1, 2, 3]),
+            (
+                "repeated_key_keeps_first",
+                [{"id": [1, 2, 1, 3], "k2": ["a", "a", "a", "a"]}],
+                ["id"],
+                "first",
+                [0, 1, 3],
+            ),
+            ("repeated_composite_key", [{"id": [1, 1, 1], "k2": ["a", "b", "a"]}], ["id", "k2"], "last", [1, 2]),
+            (
+                "repeated_across_chunks",
+                [{"id": [1, 2], "k2": ["a", "a"]}, {"id": [2, 3], "k2": ["a", "a"]}],
+                ["id"],
+                "last",
+                [0, 2, 3],
+            ),
+            ("null_keys_are_one_key", [{"id": [None, 1, None], "k2": ["a", "a", "a"]}], ["id"], "last", [1, 2]),
         ]
     )
-    def test_first_per_pk_table_keep_modes(self, _name, keep, expected_names):
-        table = pa.table({"id": [1, 1, 2], "name": ["a1", "a2", "b1"]})
+    def test_first_per_pk_table(
+        self,
+        _name: str,
+        chunks: list[dict[str, list[Any]]],
+        keys: list[str],
+        keep: Literal["first", "last"],
+        kept_positions: list[int],
+    ) -> None:
+        table = pa.concat_tables(
+            [pa.table({**chunk, "pos": range(offset, offset + len(chunk["id"]))}) for offset, chunk in _offsets(chunks)]
+        )
 
-        result = first_per_pk_table(table, ["id"], keep=keep).sort_by("id")
+        result = first_per_pk_table(table, keys, keep=keep)
 
-        assert result.column("id").to_pylist() == [1, 2]
-        assert result.column("name").to_pylist() == expected_names
+        assert result.column("pos").to_pylist() == kept_positions
+        # A batch without a repeated key must come back as it is, not as a copy of every row.
+        assert (result is table) == (len(kept_positions) == table.num_rows)
+
+    @parameterized.expand([("unique_keys", 0), ("one_repeated_key", 1)])
+    def test_dedupe_holds_a_second_copy_only_when_a_key_repeats(self, _name: str, repeats: int) -> None:
+        ids = list(range(2_000)) + list(range(repeats))
+        table = pa.table({"id": ids, "payload": [f"{i:0>200}" for i in range(len(ids))]})
+        before = pa.total_allocated_bytes()
+
+        result = first_per_pk_table(table, ["id"], keep="last")
+
+        copied = pa.total_allocated_bytes() - before
+        assert result.num_rows == 2_000
+        if repeats:
+            assert copied > table.nbytes // 2
+        else:
+            assert copied < table.nbytes // 10
+
+    @parameterized.expand(
+        [
+            ("one_partition", ["p0", "p0", "p0", "p0"]),
+            ("key_moves_partition", ["p0", "p1", "p0", "p1"]),
+            ("every_row_own_partition", ["p0", "p1", "p2", "p3"]),
+        ]
+    )
+    def test_partition_keyed_pass_keeps_the_rows_of_a_key_only_pass(self, _name: str, partitions: list[str]) -> None:
+        table = pa.table({"id": [1, 1, 2, 1], PARTITION_KEY: partitions, "pos": [0, 1, 2, 3]})
+
+        key_only, _ = dedupe_incremental_batch(table, ["id"], use_partitioning=False)
+        partition_keyed, _ = dedupe_incremental_batch(table, ["id"], use_partitioning=True)
+        both, _ = dedupe_incremental_batch(partition_keyed, ["id"], use_partitioning=False)
+
+        assert both.column("pos").to_pylist() == key_only.column("pos").to_pylist() == [2, 3]
 
     @pytest.mark.asyncio
     async def test_incremental_merge_dedupes_duplicate_source_rows(self, tmp_path: Path) -> None:
@@ -805,6 +873,15 @@ class TestIncrementalBatchDeduplication:
         final = result.to_pyarrow_table()
         assert final.column("id").to_pylist() == [1]
         assert final.column("name").to_pylist() == ["second_copy"]
+
+
+def _offsets(chunks: list[dict[str, list[Any]]]) -> list[tuple[int, dict[str, list[Any]]]]:
+    offsets: list[tuple[int, dict[str, list[Any]]]] = []
+    start = 0
+    for chunk in chunks:
+        offsets.append((start, chunk))
+        start += len(chunk["id"])
+    return offsets
 
 
 def _commit_operations(delta_path: str) -> list[str]:
@@ -1293,14 +1370,15 @@ class TestDeltaliteWritePath:
 
     @parameterized.expand(
         [
-            ("row_group_cap_on", 16 * 1024 * 1024, 16 * 1024 * 1024),
-            ("row_group_cap_off", 0, None),
-            ("negative_cap_is_off", -1, None),
+            ("row_group_cap_on", 16 * 1024 * 1024, 16 * 1024 * 1024, True),
+            ("row_group_cap_off", 0, None, True),
+            ("negative_cap_is_off", -1, None, True),
+            ("probe_cache_off", 16 * 1024 * 1024, 16 * 1024 * 1024, False),
         ]
     )
     @pytest.mark.asyncio
     async def test_writes_via_deltalite_when_enabled(
-        self, _name: str, row_group_cap: int, expected_max_row_group_bytes: int | None
+        self, _name: str, row_group_cap: int, expected_max_row_group_bytes: int | None, probe_cache: bool
     ):
         logger = make_logger()  # captured so we can inspect the structured log without hitting the typed attr
         helper = DeltaTableRef(resource_name="t", job=MagicMock(team_id=2, schema_id="sch-1"), logger=logger)
@@ -1318,7 +1396,10 @@ class TestDeltaliteWritePath:
             patch.dict("sys.modules", {"deltalite": fake_deltalite}),
             patch.object(helper, "_get_delta_table_uri", AsyncMock(return_value="s3://b/t")),
             patch.object(helper, "_get_credentials", return_value={"AWS_REGION": "us-east-1"}),
-            override_settings(DATA_WAREHOUSE_DELTALITE_MAX_ROW_GROUP_BYTES=row_group_cap),
+            override_settings(
+                DATA_WAREHOUSE_DELTALITE_MAX_ROW_GROUP_BYTES=row_group_cap,
+                DATA_WAREHOUSE_DELTALITE_PROBE_CACHE=probe_cache,
+            ),
         ):
             wrote = await DeltaWriter(helper)._write_via_deltalite(
                 existing_delta_table=existing,
@@ -1332,6 +1413,9 @@ class TestDeltaliteWritePath:
         fake_table.upsert.assert_called_once()
         assert fake_table.upsert.call_args.kwargs["max_row_group_bytes"] == expected_max_row_group_bytes
         assert "isolate_source_rows" not in fake_table.upsert.call_args.kwargs
+        # The default leaves the argument out, so a deltalite build without it still works.
+        assert fake_table.upsert.call_args.kwargs.get("use_probe_cache", True) is probe_cache
+        assert ("use_probe_cache" in fake_table.upsert.call_args.kwargs) is not probe_cache
         # PARTITION_KEY is passed as the partition arg when the table is partitioned.
         assert fake_table.upsert.call_args.args[2] == PARTITION_KEY
         # The delta-rs handle is not refreshed on the write path (a log listing per batch); the ref
@@ -1440,6 +1524,8 @@ class TestDeltaliteWritePath:
         assert log_kwargs["governor_max_row_group_mb"] == round(partition_a_bytes / (1024 * 1024), 1)
         assert log_kwargs["governor_reader_mb"] is not None and log_kwargs["governor_writer_mb"] is not None
         assert log_kwargs["governor_reserved_slots"] is not None and log_kwargs["governor_wait_ms"] == 0
+        # (1, 8) is already the widest plan here, so nothing is borrowed.
+        assert (log_kwargs["governor_borrow_mpp"], log_kwargs["governor_borrow_applied"]) == (None, False)
         # The measured peak sits next to the prediction, with the concurrency to filter solo runs.
         assert (log_kwargs["governor_peak_rss_mb"], log_kwargs["governor_rss_delta_mb"]) == (650.0, 150.0)
         assert log_kwargs["governor_concurrent_upserts"] == log_kwargs["governor_max_concurrent_upserts"] == 1
@@ -1917,3 +2003,68 @@ class TestCommitCoversBatch:
 
         assert await DeltaWriter(helper).has_batch_been_committed("r", 5) is True
         assert await DeltaWriter(helper).has_batch_been_committed("r", 6) is False
+
+
+class TestDeleteWhere:
+    _SEED = pa.table(
+        {
+            "_file_name": ["a.csv", "a.csv", "b.csv", "it's.csv", "c.csv", None],
+            "id": [1, 2, 3, 4, 5, 6],
+        }
+    )
+
+    @parameterized.expand(
+        [
+            ("in_one_commit", 1000, 1),
+            ("in_a_commit_per_two_values", 2, 2),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_deletes_the_rows_of_the_named_values_only(
+        self, _name: str, chunk_size: int, expected_commits: int
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            deltalake.write_deltalake(tmp, self._SEED)
+            writer = DeltaWriter(make_local_table_ref(tmp))
+            before_commit = MagicMock()
+
+            deleted = await writer.delete_where(
+                "_file_name",
+                ["b.csv", "it's.csv", "a.csv", "not_in_the_table.csv"],
+                chunk_size=chunk_size,
+                commit_metadata={"replace_scope_run": "run-1"},
+                before_commit=before_commit,
+            )
+
+            rows = deltalake.DeltaTable(tmp).to_pyarrow_table().sort_by("id").to_pydict()
+            assert deleted == 4
+            assert rows == {"_file_name": ["c.csv", None], "id": [5, 6]}
+            assert await writer.distinct_values("_file_name") == {"c.csv"}
+            deletes = [c for c in deltalake.DeltaTable(tmp).history() if c["operation"] == "DELETE"]
+            assert len(deletes) == expected_commits == before_commit.call_count
+            # A delete that carried a batch tag would make a redelivered batch skip its own write.
+            assert not any(commit_covers_batch(commit, "run-1", 0) for commit in deletes)
+
+    @pytest.mark.asyncio
+    async def test_a_delete_retried_after_a_conflict_checks_ownership_again(self) -> None:
+        async def retry_once(table: Any, operation_fn: Any, *args: Any, **kwargs: Any) -> Any:
+            operation_fn()
+            return operation_fn()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            deltalake.write_deltalake(tmp, self._SEED)
+            writer = DeltaWriter(make_local_table_ref(tmp))
+            before_commit = MagicMock()
+
+            with patch(f"{_WRITER_MODULE}.execute_with_conflict_retry", side_effect=retry_once):
+                await writer.delete_where("_file_name", ["a.csv"], before_commit=before_commit)
+
+            assert before_commit.call_count == 2
+
+    @parameterized.expand([("no_table", False), ("no_such_column", True)])
+    @pytest.mark.asyncio
+    async def test_distinct_values_are_unknown_without_the_column(self, _name: str, table_exists: bool) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            if table_exists:
+                deltalake.write_deltalake(tmp, pa.table({"id": [1]}))
+            assert await DeltaWriter(make_local_table_ref(tmp)).distinct_values("_file_name") is None

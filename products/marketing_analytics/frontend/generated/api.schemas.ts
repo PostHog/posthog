@@ -225,6 +225,10 @@ export interface SessionPropertyFilterApi {
 }
 
 export interface CohortPropertyFilterApi {
+    /** Set by the feature flag API when the cohort is deleted or does not exist. */
+    cohort_deleted?: boolean | null
+    /** Set by the feature flag API when the cohort does not exist, so it cannot be restored. */
+    cohort_missing?: boolean | null
     cohort_name?: string | null
     key?: 'id'
     label?: string | null
@@ -1317,6 +1321,101 @@ export interface PatchedConversionGoalUpdateApi {
 export interface ConversionGoalWriteApi {
     /** The conversion goal. Must match one of the ConversionGoalFilter shapes: an events node, an actions node or a data warehouse node. conversion_goal_id is assigned by the server and any value sent is ignored. */
     goal: ConversionGoalApi
+}
+
+/**
+ * * `pending` - Pending
+ * * `running` - Running
+ * * `completed` - Completed
+ * * `failed` - Failed
+ */
+export type ZendeskImportJobStatusEnumApi =
+    (typeof ZendeskImportJobStatusEnumApi)[keyof typeof ZendeskImportJobStatusEnumApi]
+
+export const ZendeskImportJobStatusEnumApi = {
+    Pending: 'pending',
+    Running: 'running',
+    Completed: 'completed',
+    Failed: 'failed',
+} as const
+
+export interface ConversionRecommendationRunApi {
+    readonly id: string
+    readonly status: ZendeskImportJobStatusEnumApi
+    readonly lookback_days: number
+    readonly date_from: string
+    readonly date_to: string
+    readonly created_at: string
+    /** @nullable */
+    readonly completed_at: string | null
+    readonly error: string
+}
+
+export type IntentEnumApi = (typeof IntentEnumApi)[keyof typeof IntentEnumApi]
+
+export const IntentEnumApi = {
+    Conversion: 'conversion',
+    Customer: 'customer',
+    Revenue: 'revenue',
+} as const
+
+export type ConversionCandidateKindEnumApi =
+    (typeof ConversionCandidateKindEnumApi)[keyof typeof ConversionCandidateKindEnumApi]
+
+export const ConversionCandidateKindEnumApi = {
+    EventsNode: 'EventsNode',
+    ActionsNode: 'ActionsNode',
+} as const
+
+export interface ConversionCandidateApi {
+    source_ref: string
+    kind: ConversionCandidateKindEnumApi
+    event?: string | null
+    action_id?: number | null
+    name: string
+    description?: string
+    count?: number | null
+    distinct_users?: number | null
+    numeric_properties?: string[]
+    property_names?: string[]
+    already_configured?: boolean
+}
+
+export interface ConversionRecommendationApi {
+    source_ref: string
+    name: string
+    reason: string
+    intent: IntentEnumApi
+    questions: string[]
+    candidate: ConversionCandidateApi
+    /** Observed numeric property proposed for revenue. Confirm its units and currency. */
+    amount_property?: string | null
+}
+
+export interface ConversionRecommendationResultsApi {
+    recommendations?: ConversionRecommendationApi[]
+    limitations?: string[]
+}
+
+export interface ConversionRecommendationStateApi {
+    /**
+     * Why this user cannot start an analysis, or null when generation is available.
+     * @nullable
+     */
+    generation_disabled_reason: string | null
+    /** Latest analysis, including its actual state and observation period. */
+    latest_run: ConversionRecommendationRunApi | null
+    /** Completed analysis that supplied the visible recommendations. Previous results remain available during an update or failure. */
+    result_run: ConversionRecommendationRunApi | null
+    /** Suggested event or action goals with source evidence and business questions. Configure reviewed goals with the existing editor. */
+    results: ConversionRecommendationResultsApi
+    /** Whether this user can request or initialize project recommendations. */
+    can_generate: boolean
+}
+
+export interface ConversionRecommendationStartApi {
+    /** False starts the first 30-day analysis once. True requests a new 14-day analysis; use only after an explicit user request. */
+    refresh?: boolean
 }
 
 export interface CompareFilterApi {

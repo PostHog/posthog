@@ -14,14 +14,16 @@ import {
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+import { MemberSelect } from 'lib/components/MemberSelect'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { updatedAtColumn } from '~/lib/lemon-ui/LemonTable/columnUtils'
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, UserBasicType } from '~/types'
 
 import { ResourceTagFilter } from '../components/ResourceTagFilter'
 import { ResourceTags } from '../components/ResourceTags'
@@ -35,6 +37,7 @@ import {
 } from './aiObservabilityScoreDefinitionsLogic'
 import { ScoreDefinitionActions } from './ScoreDefinitionActions'
 import { formatKindLabel } from './scoreDefinitionModalUtils'
+import { ScorersEmptyState } from './ScorersEmptyState'
 
 const KIND_OPTIONS: { label: string; value: ScoreDefinitionKind | '' }[] = [
     { label: 'All kinds', value: '' },
@@ -59,32 +62,29 @@ export function AIObservabilityScoreDefinitions(): JSX.Element {
     const {
         scoreDefinitions,
         scoreDefinitionsLoading,
+        scoreDefinitionsLoaded,
         scoreDefinitionsError,
+        showEmptyState,
         sorting,
         pagination,
         filters,
         scoreDefinitionCountLabel,
         isArchivingDefinition,
     } = useValues(logic)
+    if (showEmptyState) {
+        return <ScorersEmptyState />
+    }
+
     const columns: LemonTableColumns<ScoreDefinition> = [
         {
             title: 'Name',
             dataIndex: 'name',
             key: 'name',
-            width: '25%',
+            width: '18%',
             render: function renderName(_, scoreDefinition) {
                 return (
-                    <div className="space-y-1">
-                        <div className="font-semibold max-w-64 @max-[50rem]/scorers:max-w-32 truncate">
-                            <Link to={urls.aiObservabilityScorer(scoreDefinition.id)}>{scoreDefinition.name}</Link>
-                        </div>
-                        {scoreDefinition.description ? (
-                            <div className="max-w-64 @max-[50rem]/scorers:max-w-32 truncate text-muted-alt">
-                                {scoreDefinition.description}
-                            </div>
-                        ) : (
-                            <div className="text-muted">No description</div>
-                        )}
+                    <div className="font-semibold max-w-64 @max-[50rem]/scorers:max-w-32 @max-[40rem]/scorers:max-w-24 truncate">
+                        <Link to={urls.aiObservabilityScorer(scoreDefinition.id)}>{scoreDefinition.name}</Link>
                     </div>
                 )
             },
@@ -132,7 +132,8 @@ export function AIObservabilityScoreDefinitions(): JSX.Element {
         {
             title: 'Tags',
             key: 'tags',
-            width: '25%',
+            width: '18%',
+            className: '@max-[40rem]/scorers:hidden',
             render: (_, scoreDefinition) => (
                 <ResourceTags
                     entity="scorers"
@@ -142,6 +143,30 @@ export function AIObservabilityScoreDefinitions(): JSX.Element {
                     onTagClick={(tag) => setFilters({ tags: [tag] }, true, false)}
                 />
             ),
+        },
+        {
+            title: 'Created by',
+            key: 'created_by',
+            className:
+                '[&_.profile-package]:max-w-32 @max-[40rem]/scorers:[&_.profile-package]:max-w-24 [&_.profile-name]:truncate',
+            render: (_, scorer) =>
+                scorer.created_by ? (
+                    <ProfilePicture user={scorer.created_by as UserBasicType} size="md" showName />
+                ) : (
+                    <span className="text-muted">Unknown</span>
+                ),
+        },
+        {
+            title: <span className="whitespace-normal">Last updated by</span>,
+            key: 'updated_by',
+            className:
+                '[&_.profile-package]:max-w-32 @max-[40rem]/scorers:[&_.profile-package]:max-w-24 [&_.profile-name]:truncate',
+            render: (_, scorer) =>
+                scorer.updated_by ? (
+                    <ProfilePicture user={scorer.updated_by as UserBasicType} size="md" showName />
+                ) : (
+                    <span className="text-muted">Unknown</span>
+                ),
         },
         {
             ...(updatedAtColumn<ScoreDefinition>() as LemonTableColumn<
@@ -167,9 +192,10 @@ export function AIObservabilityScoreDefinitions(): JSX.Element {
 
     return (
         <div className="space-y-4 @container/scorers">
-            <div className="flex gap-x-4 gap-y-2 items-center flex-wrap py-4 mb-4 border-b justify-between">
+            <div className="flex gap-x-4 gap-y-2 items-center flex-wrap pb-4 mb-4 border-b justify-between">
                 <div className="flex items-center gap-2 flex-wrap">
                     <LemonInput
+                        size="small"
                         type="search"
                         placeholder="Search scorers..."
                         value={filters.search}
@@ -177,14 +203,28 @@ export function AIObservabilityScoreDefinitions(): JSX.Element {
                         className="min-w-64"
                         data-attr="llma-scorers-search-input"
                     />
-                    <ResourceTagFilter filters={filters} onChange={(tags) => setFilters(tags, true, false)} />
+                    <ResourceTagFilter
+                        size="small"
+                        filters={filters}
+                        onChange={(tags) => setFilters(tags, true, false)}
+                    />
+                    <div data-attr="llma-scorers-created-by-filter">
+                        <MemberSelect
+                            value={filters.created_by}
+                            size="small"
+                            defaultLabel="Any creator"
+                            onChange={(user) => setFilters({ created_by: user?.id ?? null }, true, false)}
+                        />
+                    </div>
                     <LemonSelect<ScoreDefinitionKind | ''>
+                        size="small"
                         value={filters.kind}
                         onChange={(value) => setFilters({ kind: value || '' })}
                         options={KIND_OPTIONS}
                         data-attr="llma-scorers-kind-filter"
                     />
                     <LemonSelect<'' | 'false' | 'true'>
+                        size="small"
                         value={filters.archived}
                         onChange={(value) => setFilters({ archived: value === '' ? '' : value || 'false' })}
                         options={ARCHIVED_OPTIONS}
@@ -221,7 +261,8 @@ export function AIObservabilityScoreDefinitions(): JSX.Element {
             {!scoreDefinitionsError && (
                 <LemonTable
                     className="@max-[50rem]/scorers:[&_colgroup]:hidden"
-                    loading={scoreDefinitionsLoading}
+                    size="small"
+                    loading={scoreDefinitionsLoading || !scoreDefinitionsLoaded}
                     columns={columns}
                     dataSource={scoreDefinitions.results}
                     pagination={pagination}
