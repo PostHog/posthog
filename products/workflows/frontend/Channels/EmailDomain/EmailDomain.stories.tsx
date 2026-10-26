@@ -1,10 +1,15 @@
+import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
+
 import { Meta, StoryObj } from '@storybook/react'
+import { useActions } from 'kea'
 import { useEffect, useMemo } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { organizationLogic } from 'scenes/organizationLogic'
 
 import { useStorybookMocks } from '~/mocks/browser'
 
+import type { DataSuggestionApi } from '../../generated/api.schemas'
 import { FakeDnsHost, FakeEmailDomainBackend, FakeRecord } from './__mocks__/fakeEmailDomainBackend'
 import { emailDomainAgentLogic } from './emailDomainAgentLogic'
 import { emailDomainManualSetupLogic } from './emailDomainManualSetupLogic'
@@ -13,6 +18,43 @@ import { emailDomainStatusLogic } from './emailDomainStatusLogic'
 
 const DOMAIN = 'mail.acme.com'
 const EMAIL = `hello@${DOMAIN}`
+const LONG_DOMAIN = 'updates.hedgebox-mail.com'
+
+const SUGGESTED_WORKFLOWS: DataSuggestionApi[] = [
+    {
+        id: 'suggestion-welcome',
+        name: 'Welcome new teammates',
+        description: 'Email a new teammate a getting started guide after they join a workspace.',
+        reason: 'teammate_joined fires every day.',
+        trigger_event: 'teammate_joined',
+        weekly_count: 1_840,
+        stage: 'onboarding',
+        premade: false,
+        step_outline: ['email', 'delay', 'email'],
+    },
+    {
+        id: 'suggestion-trial',
+        name: 'Nudge trials before they end',
+        description: 'Remind a workspace on a trial three days before it ends, and again on the last day.',
+        reason: 'trial_started fires every week.',
+        trigger_event: 'trial_started',
+        weekly_count: 320,
+        stage: 'trial',
+        premade: false,
+        step_outline: ['delay', 'email', 'delay', 'email'],
+    },
+    {
+        id: 'suggestion-inactive',
+        name: 'Win back quiet workspaces',
+        description: 'Email the owner of a workspace that has not created a board in 14 days.',
+        reason: 'board_created drops off for some workspaces.',
+        trigger_event: 'board_created',
+        weekly_count: 9_600,
+        stage: 'churn_risk',
+        premade: false,
+        step_outline: ['wait_until', 'branch', 'email'],
+    },
+]
 
 const halfPublished = (record: FakeRecord, index: number): boolean =>
     ['verification', 'spf'].includes(record.kind) || (record.kind === 'dkim' && index < 3)
@@ -22,14 +64,20 @@ type Stage = (backend: FakeEmailDomainBackend, id: string) => void
 
 interface DomainPageArgs {
     host: FakeDnsHost
+    email?: string
     seed?: (backend: FakeEmailDomainBackend) => void
     stage?: Stage
+    aiApproved?: boolean
 }
 
-const seededBackend = (host: FakeDnsHost, seed?: DomainPageArgs['seed']): FakeEmailDomainBackend => {
+const seededBackend = (
+    host: FakeDnsHost,
+    seed?: DomainPageArgs['seed'],
+    email: string = EMAIL
+): FakeEmailDomainBackend => {
     const backend = new FakeEmailDomainBackend()
     backend.hostDnsAt('acme.com', host)
-    backend.addSender({ email: EMAIL })
+    backend.addSender({ email })
     seed?.(backend)
     return backend
 }
@@ -41,10 +89,14 @@ function Staged({ backend, id, stage }: { backend: FakeEmailDomainBackend; id: s
     return null
 }
 
-function DomainPage({ host, seed, stage }: DomainPageArgs): JSX.Element {
-    const backend = useMemo(() => seededBackend(host, seed), [host, seed])
+function DomainPage({ host, email, seed, stage, aiApproved = false }: DomainPageArgs): JSX.Element {
+    const backend = useMemo(() => seededBackend(host, seed, email), [host, seed, email])
     const id = String(backend.sender(42)?.id)
     useStorybookMocks(backend.mocks())
+    const { loadCurrentOrganizationSuccess } = useActions(organizationLogic)
+    useEffect(() => {
+        loadCurrentOrganizationSuccess({ ...MOCK_DEFAULT_ORGANIZATION, is_ai_data_processing_approved: aiApproved })
+    }, [aiApproved, loadCurrentOrganizationSuccess])
     return (
         <>
             <EmailDomainScene id={id} />
@@ -166,6 +218,25 @@ export const VerifyingFailed: Story = {
 }
 
 export const Ready: Story = { args: { host: 'cloudflare', seed: (backend) => backend.verifyDomain(DOMAIN) } }
+
+export const ReadyLongDomain: Story = {
+    args: {
+        host: 'cloudflare',
+        email: `hello@${LONG_DOMAIN}`,
+        seed: (backend) => backend.verifyDomain(LONG_DOMAIN),
+    },
+}
+
+export const ReadyWithSuggestions: Story = {
+    args: {
+        host: 'cloudflare',
+        seed: (backend) => {
+            backend.verifyDomain(DOMAIN)
+            backend.suggestWorkflows(SUGGESTED_WORKFLOWS)
+        },
+        aiApproved: true,
+    },
+}
 
 export const Unavailable: Story = { render: () => <UnavailableDomainPage /> }
 
