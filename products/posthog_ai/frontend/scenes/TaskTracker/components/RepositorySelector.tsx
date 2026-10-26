@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconGitBranch, IconGithub } from '@posthog/icons'
+import { IconGitBranch, IconGithub, IconX } from '@posthog/icons'
 import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 import {
     Button,
@@ -27,8 +27,8 @@ export interface RepositorySelectorProps {
     value: RepositoryConfig
     onChange: (config: RepositoryConfig) => void
     autoOpen?: boolean
-    onPickerClose?: () => void
     variant?: 'lemon' | 'quill'
+    onRemove?: () => void
 }
 
 export const githubAuthorizeUrl = api.integrations.authorizeUrl({ kind: 'github', next: urls.taskTracker() })
@@ -42,8 +42,8 @@ export function RepositorySelector({
     value,
     onChange,
     autoOpen = false,
-    onPickerClose,
     variant = 'lemon',
+    onRemove,
 }: RepositorySelectorProps): JSX.Element {
     const { getIntegrationsByKind, integrationsLoading } = useValues(integrationsLogic)
     const { reportIntegrationConnectClicked } = useActions(eventUsageLogic)
@@ -100,6 +100,17 @@ export function RepositorySelector({
                     >
                         Connect GitHub
                     </LemonButton>
+                )}
+                {onRemove && (
+                    <Button
+                        variant="default"
+                        size="icon-sm"
+                        aria-label="Remove repository"
+                        onClick={onRemove}
+                        data-attr="task-composer-remove-repository"
+                    >
+                        <IconX />
+                    </Button>
                 )}
             </div>
         )
@@ -203,9 +214,19 @@ export function RepositorySelector({
                     onRepositoryChange={handleRepositoryChange}
                     onBranchChange={handleBranchChange}
                     autoOpen={autoOpen}
-                    onPickerClose={onPickerClose}
                 />
             ) : null}
+            {onRemove && (
+                <Button
+                    variant="default"
+                    size="icon-sm"
+                    aria-label="Remove repository"
+                    onClick={onRemove}
+                    data-attr="task-composer-remove-repository"
+                >
+                    <IconX />
+                </Button>
+            )}
         </div>
     )
 }
@@ -216,7 +237,6 @@ interface RepositoryBranchPickersProps {
     onRepositoryChange: (repository: string | null) => void
     onBranchChange: (branch: string | null) => void
     autoOpen: boolean
-    onPickerClose?: () => void
 }
 
 /**
@@ -231,7 +251,6 @@ function RepositoryBranchPickers({
     onRepositoryChange,
     onBranchChange,
     autoOpen,
-    onPickerClose,
 }: RepositoryBranchPickersProps): JSX.Element {
     // Same keyed instance GitHubRepositoryCombobox mounts, so this shares its load state — no extra fetch.
     const { loading: repositoriesLoading } = useValues(githubRepositorySearchLogic({ id: integrationId }))
@@ -245,7 +264,6 @@ function RepositoryBranchPickers({
                 placeholder="No repo"
                 showNoneOption
                 defaultOpen={autoOpen && !value.repository}
-                onOpenChange={(open) => !open && onPickerClose?.()}
             />
             {value.repository && !repositoriesLoading ? (
                 <GitHubBranchCombobox
