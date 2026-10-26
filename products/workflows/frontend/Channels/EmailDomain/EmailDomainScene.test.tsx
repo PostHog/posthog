@@ -243,7 +243,7 @@ describe('EmailDomainScene', () => {
         expectStep('Checking your settings…')
         expect(screen.getByText('Welcome new teammates')).toBeInTheDocument()
         expect(document.querySelector('[data-attr="email-domain-verifying-create-welcome-workflow"]')).toBeNull()
-        expect(element('email-domain-verifying-create-blank-workflow')).toBeInTheDocument()
+        expect(element('email-domain-verifying-skip-suggestions')).toBeInTheDocument()
         expect(shownEvents()).toHaveLength(1)
 
         backend.verifyDomain(DOMAIN)
