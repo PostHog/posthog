@@ -548,7 +548,7 @@ class TestTrainScoreSplit(BaseTest):
             insight,
             self._score_pick(insight, trained),
             trained_at + timedelta(days=2),
-            [*self.values[-4:], 500.0, 100.0],
+            [*self.values[-7:], 500.0, 100.0],
         )
         self._train(insight, trained_at + timedelta(days=7))
 

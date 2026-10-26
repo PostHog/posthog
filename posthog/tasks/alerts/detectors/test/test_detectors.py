@@ -290,6 +290,38 @@ class TestStatisticalDetectors:
         result = detector_cls({"threshold": 0.9, "window": window, "preprocessing": {"diffs_n": diffs_n}}).detect(data)
         assert result.score is not None
 
+    @parameterized.expand(
+        [
+            ("spike_default_flags_the_return", [0.0] * 5 + [2, 2, 0, 0, 0], 0, [5, 6, 8, 9]),
+            ("spike_suppressed_return", [0.0] * 5 + [2, 2, 0, 0, 0], 3, [5, 6]),
+            ("level_shift_up_flags_its_onset", [0.0] * 5 + [2.0] * 8, 3, [5, 6, 7]),
+            ("level_shift_down_flags_its_onset", [5.0] * 5 + [0.0] * 8, 3, [5, 6, 7]),
+        ]
+    )
+    def test_suppress_return_n_on_every_scoring_path(
+        self, _name: str, tail: list[float], suppress_return_n: int, expected: list[int]
+    ) -> None:
+        detector = ZScoreDetector(
+            {
+                "type": "zscore",
+                "threshold": 0.95,
+                "window": 56,
+                "preprocessing": {"diffs_n": 1, "smooth_n": 3},
+                "suppress_return_n": suppress_return_n,
+            }
+        )
+        base = 60
+        data = np.array([tail[0]] * base + tail)
+
+        detected = [i - base for i in range(base, len(data)) if detector.detect(data[: i + 1]).is_anomaly]
+        batch = [i - base for i in detector.detect_batch(data).triggered_indices if i >= base]
+        artifact = detector.fit(data[: base + 5])
+        scored = detector.score(artifact, data[base + 5 - detector.context_buckets() :])
+
+        assert detected == expected
+        assert batch == expected
+        assert [i + 5 for i in scored.triggered_indices] == expected
+
 
 class TestMovingAverageSmoothing:
     def test_smoothed_value_is_stable_once_computed(self) -> None:

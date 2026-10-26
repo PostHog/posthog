@@ -72,12 +72,13 @@ def _buckets(start: datetime, interval: IntervalType, count: int) -> list[dateti
 class TestScoreSeries(SimpleTestCase):
     @parameterized.expand(
         [
-            ("default_profile", DAY_SCORING, {"mean", "std", "value", "raw_zscore"}),
-            ("ensemble", ZSCORE_OR_KNN, {"sub_scores"}),
+            # The fall back to the baseline is not flagged. Without suppress_return_n, it flags at 113.
+            ("default_profile", DAY_SCORING, {"mean", "std", "value", "raw_zscore"}, [110]),
+            ("ensemble", ZSCORE_OR_KNN, {"sub_scores"}, [110, 111]),
         ]
     )
     def test_flags_the_spike_and_not_its_flat_neighbor(
-        self, _name: str, scoring: IntervalScoring, detail_keys: set[str]
+        self, _name: str, scoring: IntervalScoring, detail_keys: set[str], flagged: list[int]
     ) -> None:
         values = list(np.random.default_rng(0).normal(100, 5, size=120))
         values[110] = 400.0
@@ -92,8 +93,7 @@ class TestScoreSeries(SimpleTestCase):
         )
 
         by_bucket = {point.bucket_start: point for point in points}
-        assert by_bucket[buckets[110]].flag is True
-        assert by_bucket[buckets[109]].flag is False
+        assert [buckets.index(point.bucket_start) for point in points if point.flag] == flagged
         assert set(by_bucket[buckets[110]].details) == detail_keys
         assert len(points) == DEFAULT_LIMITS.max_backfill_buckets
 
@@ -287,7 +287,7 @@ class TestScoreInsight(SimpleTestCase):
             assert limits[0] == 150
 
     # The context of the day detector is 3 buckets, then one guard bucket and the 2 new buckets.
-    @parameterized.expand([("no_smoothing", None, "-6d"), ("smoothing", 7, "-12d")])
+    @parameterized.expand([("no_smoothing", None, "-9d"), ("smoothing", 7, "-15d")])
     def test_a_score_step_fetches_only_the_context_and_new_buckets(
         self, _name: str, smoothing: int | None, date_from: str
     ) -> None:
@@ -324,7 +324,7 @@ class TestScoreInsight(SimpleTestCase):
 
         scores, query = run(
             datetime(2026, 1, 12, 0, 30, tzinfo=UTC),
-            [result("kept", datetime(2026, 1, 6, tzinfo=UTC), 7), result("new", datetime(2026, 1, 6, tzinfo=UTC), 7)],
+            [result("kept", datetime(2026, 1, 3, tzinfo=UTC), 10), result("new", datetime(2026, 1, 3, tzinfo=UTC), 10)],
             SplitRun(state=state, artifacts=trained.artifacts),
         )
 
@@ -344,7 +344,7 @@ class TestScoreInsight(SimpleTestCase):
         # "gone" comes back. Its own newest scored bucket is still the one from the train step.
         with patch("products.signals.backend.anomaly_scores.scoring.TrendsQueryRunner") as runner:
             runner.return_value.run.return_value = MagicMock(
-                results=[result("gone", datetime(2026, 1, 6, tzinfo=UTC), 7)]
+                results=[result("gone", datetime(2026, 1, 3, tzinfo=UTC), 10)]
             )
             returned = score_insight(
                 insight,

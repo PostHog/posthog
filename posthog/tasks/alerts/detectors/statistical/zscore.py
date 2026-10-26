@@ -8,7 +8,7 @@ from posthog.tasks.alerts.detectors.base import BaseDetector, DetectionResult, D
 from posthog.tasks.alerts.detectors.registry import register_detector
 
 
-def _zscore_to_probability(z_score: float, window_zscores: np.ndarray) -> float:
+def _normalize_zscore(z_score: float, min_z: float, max_z: float) -> float:
     """Normalize a z-score to a [0, 1] anomaly probability.
 
     Uses min-max normalization against the training window z-scores,
@@ -17,13 +17,31 @@ def _zscore_to_probability(z_score: float, window_zscores: np.ndarray) -> float:
     training window: 0 means at or below the minimum, 1 means at or above
     the maximum.
     """
-    return _normalize_zscore(z_score, float(window_zscores.min()), float(window_zscores.max()))
-
-
-def _normalize_zscore(z_score: float, min_z: float, max_z: float) -> float:
     if max_z == min_z:
         return 1.0 if z_score > max_z else 0.0
     return float(np.clip((z_score - min_z) / (max_z - min_z), 0.0, 1.0))
+
+
+def _probability(value: float, mean: float, std: float, min_z: float, max_z: float) -> float:
+    """The anomaly probability of ``value``. With a flat window, any change scores 1."""
+    if std == 0:
+        return 1.0 if abs(value - mean) > 0 else 0.0
+    return _normalize_zscore(abs((value - mean) / std), min_z, max_z)
+
+
+def _is_return(
+    value: float, recent: np.ndarray, mean: float, std: float, min_z: float, max_z: float, threshold: float
+) -> bool:
+    """Whether ``value`` moves against a recent value that scores above ``threshold``.
+
+    On differenced data, the fall of a spike back to its baseline is a large change in the
+    opposite direction of its rise, so it scores as high as the rise itself.
+    """
+    direction = np.sign(value - mean)
+    return any(
+        np.sign(previous - mean) == -direction and _probability(previous, mean, std, min_z, max_z) > threshold
+        for previous in recent
+    )
 
 
 @register_detector(DetectorType.ZSCORE)
@@ -41,7 +59,31 @@ class ZScoreDetector(BaseDetector):
     Config:
         threshold: float - Anomaly probability threshold (default: 0.95)
         window: int - Rolling window size (default: 30)
+        suppress_return_n: int - Buckets after a value above the threshold in which a value in the
+            opposite direction is not flagged, so the end of a spike does not flag again (default: 0, off)
     """
+
+    def _return_lookback(self) -> int:
+        return max(self.config.get("suppress_return_n") or 0, 0)
+
+    def _without_return(
+        self,
+        prob: float,
+        value: float,
+        recent: np.ndarray,
+        mean: float,
+        std: float,
+        min_z: float,
+        max_z: float,
+        threshold: float,
+    ) -> float:
+        """``prob``, capped at ``threshold`` when the value is the return of a recent spike."""
+        if prob > threshold and len(recent) and _is_return(value, recent, mean, std, min_z, max_z, threshold):
+            return threshold
+        return prob
+
+    def context_buckets(self) -> int:
+        return super().context_buckets() + self._return_lookback()
 
     def detect(self, data: np.ndarray) -> DetectionResult:
         """Check if the most recent point is an anomaly based on z-score."""
@@ -72,20 +114,28 @@ class ZScoreDetector(BaseDetector):
         std = np.std(window_data)
 
         current_value = values[-1]
+        lookback = self._return_lookback()
+        recent = values[max(len(values) - 1 - lookback, 0) : -1]
 
         if std == 0:
-            is_anomaly = abs(current_value - mean) > 0
+            score = self._without_return(
+                _probability(current_value, mean, 0.0, 0.0, 0.0), current_value, recent, mean, 0.0, 0.0, 0.0, threshold
+            )
+            is_anomaly = score > threshold
             return DetectionResult(
                 is_anomaly=is_anomaly,
-                score=1.0 if is_anomaly else 0.0,
+                score=score,
                 triggered_indices=[original_length - 1] if is_anomaly else [],
-                all_scores=[1.0 if is_anomaly else 0.0],
+                all_scores=[score],
                 metadata={"mean": float(mean), "std": 0.0, "value": float(current_value), "raw_zscore": None},
             )
 
         z_score = abs((current_value - mean) / std)
         window_zscores = np.abs((window_data - mean) / std)
-        prob = _zscore_to_probability(z_score, window_zscores)
+        min_z, max_z = float(window_zscores.min()), float(window_zscores.max())
+        prob = self._without_return(
+            _normalize_zscore(z_score, min_z, max_z), current_value, recent, mean, std, min_z, max_z, threshold
+        )
 
         return DetectionResult(
             is_anomaly=prob > threshold,
@@ -121,6 +171,7 @@ class ZScoreDetector(BaseDetector):
 
         triggered = []
         scores: list[float | None] = [None] * (diffs_n + window + offset - 1)
+        lookback = self._return_lookback()
 
         for i in range(window + offset - 1, len(values)):
             window_data = values[i - window - offset + 1 : i - offset + 1]
@@ -128,18 +179,23 @@ class ZScoreDetector(BaseDetector):
             std = np.std(window_data)
 
             current_val = values[i]
+            recent = values[max(i - lookback, 0) : i]
 
             if std == 0:
-                if abs(current_val - mean) > 0:
-                    scores.append(1.0)
-                    triggered.append(i + diffs_n)
-                else:
-                    scores.append(0.0)
-                continue
-
-            z_score = abs((current_val - mean) / std)
-            window_zscores = np.abs((window_data - mean) / std)
-            prob = _zscore_to_probability(z_score, window_zscores)
+                min_z = max_z = 0.0
+            else:
+                window_zscores = np.abs((window_data - mean) / std)
+                min_z, max_z = float(window_zscores.min()), float(window_zscores.max())
+            prob = self._without_return(
+                _probability(current_val, mean, std, min_z, max_z),
+                current_val,
+                recent,
+                mean,
+                std,
+                min_z,
+                max_z,
+                threshold,
+            )
             scores.append(prob)
 
             if prob > threshold:
@@ -167,21 +223,40 @@ class ZScoreDetector(BaseDetector):
             params.update(min_z=float(window_zscores.min()), max_z=float(window_zscores.max()))
         return self._artifact(params)
 
+    def score(self, artifact: DetectorArtifact, data: np.ndarray) -> DetectionResult:
+        self._check_artifact(artifact)
+        context = self.context_buckets()
+        if len(data) <= context:
+            return DetectionResult(is_anomaly=False)
+        processed = self.preprocess(np.asarray(data, dtype=float))
+        # The rows before the first scored row stay, so the first scored rows can see a spike that started before them.
+        start = context - self._return_lookback()
+        scores, metadata = self._score_rows(artifact, processed[start:], first=context - start)
+        return self._scored_result(scores, metadata)
+
     def _score_rows(
-        self, artifact: DetectorArtifact, rows: np.ndarray
+        self, artifact: DetectorArtifact, rows: np.ndarray, first: int = 0
     ) -> tuple[list[float | None], list[dict[str, Any]]]:
+        """The score and metadata of each row from ``first`` on. The rows before ``first`` are only read as recent values."""
         mean = artifact.params["mean"]
         std = artifact.params["std"]
+        min_z = artifact.params.get("min_z", 0.0)
+        max_z = artifact.params.get("max_z", 0.0)
+        threshold = self.config.get("threshold", self.DEFAULT_THRESHOLD)
+        lookback = self._return_lookback()
+        values = rows if rows.ndim == 1 else rows[:, 0]
         scores: list[float | None] = []
         metadata: list[dict[str, Any]] = []
-        for value in rows if rows.ndim == 1 else rows[:, 0]:
-            if std == 0:
-                scores.append(1.0 if abs(value - mean) > 0 else 0.0)
-                metadata.append({"mean": mean, "std": 0.0, "value": float(value), "raw_zscore": None})
-                continue
-            z_score = abs((value - mean) / std)
-            scores.append(_normalize_zscore(z_score, artifact.params["min_z"], artifact.params["max_z"]))
-            metadata.append({"mean": mean, "std": std, "value": float(value), "raw_zscore": float(z_score)})
+        for i in range(first, len(values)):
+            value = values[i]
+            recent = values[max(i - lookback, 0) : i]
+            scores.append(
+                self._without_return(
+                    _probability(value, mean, std, min_z, max_z), value, recent, mean, std, min_z, max_z, threshold
+                )
+            )
+            raw_zscore = None if std == 0 else float(abs((value - mean) / std))
+            metadata.append({"mean": mean, "std": std, "value": float(value), "raw_zscore": raw_zscore})
         return scores, metadata
 
     @classmethod
