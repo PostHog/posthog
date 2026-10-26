@@ -590,10 +590,15 @@ async function main() {
         console.log(
             `Created releases/requests/${request.id}.json; review and commit it with the app changes. No release was published`
         )
+    } else if (command === 'fingerprint') {
+        const { expoRequire } = expoConfig()
+        console.log(JSON.stringify(await nativeFingerprints(expoRequire), null, 2))
     } else if (command === 'publish') {
         await publish()
     } else {
-        throw new Error('Use release:request, release:check or release:test. Publishing is hosted by Mobile Release')
+        throw new Error(
+            'Use release:request, release:check, release:fingerprint or release:test. Publishing is hosted by Mobile Release'
+        )
     }
 }
 
