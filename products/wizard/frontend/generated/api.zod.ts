@@ -10,6 +10,39 @@
 import * as zod from 'zod'
 
 /**
+ * Start the setup agent in the cloud on a GitHub repository of this project. It adds PostHog to the code and opens a pull request. Each user can have one setup run active per project at a time.
+ * @summary Start a setup run
+ */
+export const wizardInstallsCreateBodyRepositoryMax = 255
+
+export const wizardInstallsCreateBodyBranchMax = 255
+
+export const wizardInstallsCreateBodyIdempotencyKeyMax = 255
+
+export const WizardInstallsCreateBody = /* @__PURE__ */ zod.object({
+    repository: zod
+        .string()
+        .max(wizardInstallsCreateBodyRepositoryMax)
+        .describe(
+            "GitHub repository to set up, in owner\/name format. The project's GitHub connection must have access to it."
+        ),
+    branch: zod
+        .string()
+        .max(wizardInstallsCreateBodyBranchMax)
+        .optional()
+        .describe(
+            "Branch to start from and to open the pull request against. Defaults to the repository's default branch."
+        ),
+    idempotency_key: zod
+        .string()
+        .max(wizardInstallsCreateBodyIdempotencyKeyMax)
+        .optional()
+        .describe(
+            'Unique key for this request. A retry with the same key returns the same run instead of starting another.'
+        ),
+})
+
+/**
  * Create a local or cloud Wizard run for a project workspace.
  */
 export const wizardRunsCreateBodyProgramIdRegExp = new RegExp('^[a-z0-9]+(?:-[a-z0-9]+)\*$')
@@ -100,6 +133,89 @@ export const WizardRunsTasksUpdateBody = /* @__PURE__ */ zod.object({
             })
         )
         .describe("Complete task snapshot. An empty list clears the run's tasks."),
+})
+
+/**
+ * @summary Record the tools a wizard scan found in a codebase
+ */
+export const wizardScansCreateBodySessionIdMax = 255
+
+export const wizardScansCreateBodyProgramMax = 50
+
+export const wizardScansCreateBodyWizardVersionMax = 32
+
+export const wizardScansCreateBodyWorkspaceFingerprintMax = 64
+
+export const wizardScansCreateBodyWorkspaceFingerprintRegExp = new RegExp('^[0-9a-f]{64}$')
+export const wizardScansCreateBodyToolsItemKindMax = 64
+
+export const wizardScansCreateBodyToolsItemSignalsItemSourceMax = 32
+
+export const wizardScansCreateBodyToolsItemSignalsItemNameMax = 255
+
+export const wizardScansCreateBodyToolsItemSignalsItemFileMax = 512
+
+export const wizardScansCreateBodyToolsItemSignalsMax = 50
+
+export const wizardScansCreateBodyToolsMax = 300
+
+export const wizardScansCreateBodyCompleteDefault = true
+
+export const WizardScansCreateBody = /* @__PURE__ */ zod.object({
+    session_id: zod.string().max(wizardScansCreateBodySessionIdMax).describe('The wizard run that made the scan.'),
+    program: zod
+        .string()
+        .max(wizardScansCreateBodyProgramMax)
+        .describe('The wizard program that scanned, such as `posthog-integration` or `warehouse-source`.'),
+    wizard_version: zod
+        .string()
+        .max(wizardScansCreateBodyWizardVersionMax)
+        .describe('Version of the wizard that made the scan.'),
+    workspace_fingerprint: zod
+        .string()
+        .max(wizardScansCreateBodyWorkspaceFingerprintMax)
+        .regex(wizardScansCreateBodyWorkspaceFingerprintRegExp)
+        .describe('sha256 hex digest that identifies the scanned repository without naming it.'),
+    scanned_at: zod.iso.datetime({ offset: true }).describe('When the wizard scanned the codebase.'),
+    tools: zod
+        .array(
+            zod.object({
+                kind: zod
+                    .string()
+                    .max(wizardScansCreateBodyToolsItemKindMax)
+                    .describe("The tool's kind in the wizard tool catalog, such as `Stripe` or `Amplitude`."),
+                signals: zod
+                    .array(
+                        zod.object({
+                            source: zod
+                                .string()
+                                .max(wizardScansCreateBodyToolsItemSignalsItemSourceMax)
+                                .describe(
+                                    'Where the wizard found the tool, such as `npm`, `pypi`, `env_key` or `script_host`.'
+                                ),
+                            name: zod
+                                .string()
+                                .max(wizardScansCreateBodyToolsItemSignalsItemNameMax)
+                                .describe(
+                                    'The package name, `.env` key name or script host that matched. Never a `.env` value.'
+                                ),
+                            file: zod
+                                .string()
+                                .max(wizardScansCreateBodyToolsItemSignalsItemFileMax)
+                                .nullish()
+                                .describe('Path of the file the signal came from, relative to the scanned directory.'),
+                        })
+                    )
+                    .max(wizardScansCreateBodyToolsItemSignalsMax)
+                    .describe('The signals that matched this tool.'),
+            })
+        )
+        .max(wizardScansCreateBodyToolsMax)
+        .describe('Every tool the scan found. An empty list is a scan that found nothing.'),
+    complete: zod
+        .boolean()
+        .default(wizardScansCreateBodyCompleteDefault)
+        .describe('False when the scan could not read the whole workspace. Tools it did not find are then kept.'),
 })
 
 /**

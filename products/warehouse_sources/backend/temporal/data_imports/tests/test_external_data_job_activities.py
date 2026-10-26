@@ -18,8 +18,10 @@ from products.warehouse_sources.backend.models.external_data_schema import Exter
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import (
     CANCELLED_RUN_MESSAGE,
+    RAILWAY_PROXY_CONNECTION_MESSAGE,
     SYNC_RUN_STALLED_MESSAGE,
     SYNC_RUN_TOO_LONG_MESSAGE,
+    TRANSIENT_CONNECT_DROPPED_MESSAGE,
     TRANSIENT_EGRESS_MESSAGE,
     TRANSIENT_POOLER_MESSAGE,
     TRANSIENT_SOURCE_CONNECTION_MESSAGE,
@@ -32,9 +34,11 @@ from products.warehouse_sources.backend.temporal.data_imports.external_data_job 
     trigger_schedule_buffer_one_activity,
     update_external_data_job_model,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.matomo.source import MatomoSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import (
     _CONNECTION_LIMIT_EXHAUSTED_MESSAGE,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.redshift.source import RedshiftSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -346,10 +350,17 @@ def test_read_only_transaction_disables_the_schema_only_when_the_source_raised_i
         # psycopg's connect-time wrapper around a dropped TLS session. The address is a
         # documentation-reserved one, standing in for the host the driver echoes back.
         (
-            "postgres_ssl_drop",
+            "postgres_ssl_drop_at_connect",
             ExternalDataSourceType.POSTGRES,
             'connection failed: connection to server at "198.51.100.7", port 5432 failed: '
             "SSL SYSCALL error: EOF detected",
+            TRANSIENT_CONNECT_DROPPED_MESSAGE,
+        ),
+        # The same drop on an established connection, which keeps the idle-connection copy.
+        (
+            "postgres_server_closed_mid_stream",
+            ExternalDataSourceType.POSTGRES,
+            "consuming input failed: server closed the connection unexpectedly",
             TRANSIENT_SOURCE_CONNECTION_MESSAGE,
         ),
         # A connect-time capacity refusal. The generic map has no entry for it, so the Postgres
@@ -395,6 +406,51 @@ def test_read_only_transaction_disables_the_schema_only_when_the_source_raised_i
             ExternalDataSourceType.APPLESEARCHADS,
             "503 Server Error: Service Temporarily Unavailable for url: https://api.example.com/v1/things",
             TRANSIENT_VENDOR_UNAVAILABLE_MESSAGE,
+        ),
+        # Railway's TCP proxy, which the generic connection-drop copy would otherwise claim. Both
+        # shapes are matched, because a customer configures either the proxy host or its address.
+        (
+            "railway_proxy_by_host",
+            ExternalDataSourceType.POSTGRES,
+            'connection failed: connection to server at "test.proxy.rlwy.net" (198.51.100.7), '
+            "port 31234 failed: server closed the connection unexpectedly",
+            RAILWAY_PROXY_CONNECTION_MESSAGE,
+        ),
+        (
+            "railway_proxy_by_address",
+            ExternalDataSourceType.POSTGRES,
+            'connection failed: connection to server at "66.33.22.7", port 31234 failed: '
+            "server closed the connection unexpectedly",
+            RAILWAY_PROXY_CONNECTION_MESSAGE,
+        ),
+        # Railway's HTTP domain is not its TCP proxy, so a REST source hosted on Railway keeps the
+        # copy for its own failure rather than being told to check a connection limit.
+        (
+            "railway_hosted_rest_api",
+            ExternalDataSourceType.APPLESEARCHADS,
+            "503 Server Error: Service Temporarily Unavailable for url: https://api.up.railway.app/v1/things",
+            TRANSIENT_VENDOR_UNAVAILABLE_MESSAGE,
+        ),
+        # A hand-rolled transport's own retryable marker, which no map names for this source.
+        (
+            "retryable_status_marker",
+            ExternalDataSourceType.HUBSPOT,
+            "Hubspot search error (retryable): status=500, url=https://api.example.com/v3/things/search",
+            TRANSIENT_SOURCE_ERROR_MESSAGE,
+        ),
+        # A source that names its vendor for the same marker keeps that copy over the generic one.
+        (
+            "retryable_status_marker_with_source_copy",
+            ExternalDataSourceType.MATOMO,
+            "Matomo API error (retryable): status=503, url=https://matomo.example.com/index.php",
+            MatomoSource().get_retry_exhausted_errors()["Matomo API error (retryable)"],
+        ),
+        # A Redshift cluster that never answered the connect keeps its schedule.
+        (
+            "redshift_connect_timeout",
+            ExternalDataSourceType.REDSHIFT,
+            "connection timeout expired",
+            RedshiftSource().get_retry_exhausted_errors()["connection timeout expired"],
         ),
     ]
 )

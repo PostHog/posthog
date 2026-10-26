@@ -136,7 +136,7 @@ function claudeModelOption(
     category: "model",
     currentValue,
     options: [
-      { name: "Claude Sonnet 5", value: "claude-sonnet-5" },
+      { name: "Claude Sonnet 5.5", value: "claude-sonnet-5-5" },
       { name: "Claude Opus 5.5", value: "claude-opus-5-5" },
       { name: "Claude Fable 5.1", value: "claude-fable-5-1" },
     ],
@@ -160,7 +160,7 @@ function mixedModelOption(
 }
 
 function groupedModelOption(
-  currentValue = "claude-sonnet-5",
+  currentValue = "claude-sonnet-5-5",
 ): SessionConfigOption {
   return {
     type: "select",
@@ -174,8 +174,8 @@ function groupedModelOption(
         name: "Anthropic",
         options: [
           {
-            name: "Claude Sonnet 5",
-            value: "claude-sonnet-5",
+            name: "Claude Sonnet 5.5",
+            value: "claude-sonnet-5-5",
             _meta: { "posthog.code/modelHarness": "claude" },
           },
           {
@@ -208,7 +208,7 @@ function effortlessModelOption(): SessionConfigOption {
     category: "model",
     currentValue: "moonshotai/kimi-k3",
     options: [
-      { name: "Claude Sonnet 5", value: "claude-sonnet-5" },
+      { name: "Claude Sonnet 5.5", value: "claude-sonnet-5-5" },
       { name: "Claude Opus 5.5", value: "claude-opus-5-5" },
       { name: "Kimi K3", value: "moonshotai/kimi-k3" },
     ],
@@ -445,7 +445,7 @@ describe("ReasoningLevelSelector", () => {
       <Theme>
         <ReasoningLevelSelector
           thoughtOption={thoughtOption()}
-          modelOption={claudeModelOption("claude-sonnet-5")}
+          modelOption={claudeModelOption("claude-sonnet-5-5")}
           adapter="claude"
         />
       </Theme>,
@@ -505,7 +505,7 @@ describe("ReasoningLevelSelector", () => {
       <Theme>
         <ReasoningLevelSelector
           thoughtOption={thoughtOption({ currentValue: "xhigh" })}
-          modelOption={claudeModelOption("claude-sonnet-5")}
+          modelOption={claudeModelOption("claude-sonnet-5-5")}
           adapter="claude"
         />
       </Theme>,
@@ -555,7 +555,7 @@ describe("ReasoningLevelSelector", () => {
       <Theme>
         <ReasoningLevelSelector
           thoughtOption={thoughtOption()}
-          modelOption={claudeModelOption("claude-sonnet-5")}
+          modelOption={claudeModelOption("claude-sonnet-5-5")}
           adapter="claude"
           includePiHarness
           onHarnessChange={onHarnessChange}
@@ -584,7 +584,7 @@ describe("ReasoningLevelSelector", () => {
       <Theme>
         <ReasoningLevelSelector
           thoughtOption={thoughtOption()}
-          modelOption={claudeModelOption("claude-sonnet-5")}
+          modelOption={claudeModelOption("claude-sonnet-5-5")}
           adapter="claude"
           onModelChange={onModelChange}
         />
@@ -615,7 +615,7 @@ describe("ReasoningLevelSelector", () => {
       <Theme>
         <ReasoningLevelSelector
           thoughtOption={thoughtOption()}
-          modelOption={groupedModelOption("claude-sonnet-5")}
+          modelOption={groupedModelOption("claude-sonnet-5-5")}
           adapter="claude"
           onAdapterChange={() => {}}
           onModelChange={onModelChange}

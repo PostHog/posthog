@@ -23,6 +23,7 @@ const PASSING_METRIC_RUN: DataQualityCheckRunApi = {
     failed_row_count: 0,
     observed_value: 0,
     compiled_query: 'SELECT count() FROM signups',
+    audited_staged_refresh: false,
     error: '',
     duration_ms: 20,
     started_at: null,
@@ -66,6 +67,13 @@ describe('CheckRunsTable', () => {
         expect(screen.getByText('7 rows returned')).toBeInTheDocument()
         expect(screen.getByText('Unknown column signups')).toBeInTheDocument()
         expect(screen.queryByText('Failed rows')).not.toBeInTheDocument()
+        expect(screen.queryByText('Unpublished refresh')).not.toBeInTheDocument()
+    })
+
+    it('marks a run that checked a refresh before it was published', () => {
+        initKeaTests()
+        render(<CheckRunsTable runs={[metricRun({ status: 'failed', audited_staged_refresh: true })]} />)
+        expect(screen.getByText('Unpublished refresh')).toBeInTheDocument()
     })
 
     it('shows a freshness run as how old its newest row is', () => {

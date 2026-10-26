@@ -27,6 +27,7 @@ from posthog.hogql import ast
 from posthog.clickhouse.workload import Workload
 
 from products.engineering_analytics.backend.facade.contracts import (
+    CIEngine,
     CostPerMergeBucket,
     PRCostSummary,
     RunCost,
@@ -143,10 +144,11 @@ _PR_COST_SELECT = """
         c.workflow_name AS workflow_name,
         c.run_id AS run_id,
         c.run_attempt AS run_attempt,
+        c.ci_engine AS ci_engine,
         __COST_AGGREGATES__
     FROM __COST_SOURCE__ AS c
     WHERE c.pr_number = {pr_number} AND c.repo_owner = {repo_owner} AND c.repo_name = {repo_name}
-    GROUP BY c.workflow_name, c.run_id, c.run_attempt
+    GROUP BY c.workflow_name, c.run_id, c.run_attempt, c.ci_engine
     LIMIT 1000000
 """
 
@@ -173,19 +175,19 @@ def query_pr_cost(
         },
     )
     rows = response.results or []
-    overall = _sum_aggregates(row[3:] for row in rows)
+    overall = _sum_aggregates(row[4:] for row in rows)
     by_workflow_rows: dict[str, list[tuple]] = defaultdict(list)
-    by_run_rows: dict[tuple[int, int], list[tuple]] = defaultdict(list)
-    for workflow, run_id, run_attempt, *agg in rows:
+    by_run_rows: dict[tuple[CIEngine, int, int], list[tuple]] = defaultdict(list)
+    for workflow, run_id, run_attempt, ci_engine, *agg in rows:
         by_workflow_rows[workflow or ""].append(tuple(agg))
-        by_run_rows[(int(run_id), int(run_attempt))].append(tuple(agg))
+        by_run_rows[(CIEngine(ci_engine), int(run_id), int(run_attempt))].append(tuple(agg))
     by_workflow = [
         _to_workflow_cost(workflow, _sum_aggregates(agg_rows))
         for workflow, agg_rows in sorted(by_workflow_rows.items())
     ]
     by_run = [
-        _to_run_cost(run_id, run_attempt, _sum_aggregates(agg_rows))
-        for (run_id, run_attempt), agg_rows in sorted(by_run_rows.items())
+        _to_run_cost(run_id, run_attempt, _sum_aggregates(agg_rows), ci_engine=ci_engine)
+        for (ci_engine, run_id, run_attempt), agg_rows in sorted(by_run_rows.items())
     ]
 
     return PRCostSummary(
@@ -215,9 +217,18 @@ _COSTS_BY_PR_SELECT = f"""
 """
 
 
+# The endpoint and MCP descriptions state that cost can lag new CI by this long.
+_PR_COSTS_CACHE_SECONDS = 300
+# The cache stores the SQL row, not a PRCostAggregate, because the cache key covers the SQL but not
+# the Python classes that read the row.
+_CostRow = tuple[str, str, float | None, float | None, int | None, int | None, int | None]
+# (repo_owner, repo_name, pr_number). PR numbers restart per repository, so the number alone is not a key.
+PullRequestKey = tuple[str, str, int]
+
+
 def query_pr_costs(
     *, curated: CuratedGitHubSource, pr_numbers: list[int], run_from: datetime | None = None
-) -> dict[tuple[str, str, int], PRCostAggregate]:
+) -> dict[PullRequestKey, PRCostAggregate]:
     """Per-PR billable cost across the given PR numbers' runs, keyed by (repo_owner, repo_name, pr_number).
 
     Empty when the jobs source isn't synced or no PR numbers are given. One grouped pass over the cost
@@ -240,10 +251,27 @@ def query_pr_costs(
         .replace("__COST_AGGREGATES__", _cost_aggregates())
         .replace("__RUN_FROM__", run_from_clause)
     )
-    response = curated.run(sql, query_type="engineering_analytics.pr_costs", placeholders=placeholders)
+
+    def load(numbers: list[int]) -> dict[int, tuple[_CostRow, ...]]:
+        response = curated.run(
+            sql,
+            query_type="engineering_analytics.pr_costs",
+            placeholders={**placeholders, "pr_numbers": ast.Constant(value=numbers)},
+        )
+        by_number: dict[int, list[_CostRow]] = {number: [] for number in numbers}
+        for repo_owner, repo_name, pr_number, *agg in response.results or []:
+            by_number[int(pr_number)].append((repo_owner, repo_name, *agg))
+        # A PR without costed jobs is stored too, so it does not bring the full jobs scan back on every view.
+        return {number: tuple(costs) for number, costs in by_number.items()}
+
+    if run_from is None:
+        costs_by_number = curated.read_through(sql=sql, keys=pr_numbers, load=load, ttl_seconds=_PR_COSTS_CACHE_SECONDS)
+    else:
+        costs_by_number = load(pr_numbers)
     return {
-        (repo_owner, repo_name, int(pr_number)): _aggregate(*agg)
-        for repo_owner, repo_name, pr_number, *agg in response.results or []
+        (repo_owner, repo_name, number): _aggregate(billable, cost, costed, unsettled, excluded)
+        for number, costs in costs_by_number.items()
+        for repo_owner, repo_name, billable, cost, costed, unsettled, excluded in costs
     }
 
 
@@ -353,9 +381,10 @@ def query_author_workflow_costs(
 # The window-cost shape twice over — the current window and the equal-length one before it — as
 # per-window conditional aggregates on one cost-source scan, so the repo hub's delta doesn't pay the
 # scan twice. The previous window is half-open ([prev_from, date_from)) so no run lands in both.
-# __QUEUE_AGG__ rides the same scan: the merge-queue slice of each window's billable seconds.
+# __QUEUE_AGG__ and __DEPOT_CI_AGG__ ride the same scan: the merge-queue and Depot CI engine slices
+# of each window's billable seconds.
 _WINDOW_COST_WITH_PREV_SELECT = """
-    SELECT c.workflow_name AS workflow_name, __CUR_AGG__, __PREV_AGG__, __QUEUE_AGG__
+    SELECT c.workflow_name AS workflow_name, __CUR_AGG__, __PREV_AGG__, __QUEUE_AGG__, __DEPOT_CI_AGG__
     FROM __COST_SOURCE__ AS c
     WHERE c.run_started_at >= {prev_from} __DATE_TO__
     GROUP BY c.workflow_name
@@ -365,18 +394,25 @@ _WINDOW_COST_WITH_PREV_SELECT = """
 
 @dataclass(frozen=True, kw_only=True)
 class WindowCostsWithPrev:
-    """Per-workflow cost aggregates for a window and its previous twin, plus the merge-queue slice
-    of each window's billable seconds — carried on the same scan so queue spend never needs a
-    second pass over the cost source."""
+    """Per-workflow cost aggregates for a window and its previous twin, plus the merge-queue and
+    Depot CI engine slices of each window's billable seconds. The slices come from the same scan,
+    so they never need a second pass over the cost source."""
 
     by_workflow: dict[str, PRCostAggregate]
     by_workflow_prev: dict[str, PRCostAggregate]
     merge_queue_billable_seconds: float
     merge_queue_billable_seconds_prev: float
+    depot_ci_billable_seconds: float
+    depot_ci_billable_seconds_prev: float
 
 
 _EMPTY_WINDOW_COSTS = WindowCostsWithPrev(
-    by_workflow={}, by_workflow_prev={}, merge_queue_billable_seconds=0.0, merge_queue_billable_seconds_prev=0.0
+    by_workflow={},
+    by_workflow_prev={},
+    merge_queue_billable_seconds=0.0,
+    merge_queue_billable_seconds_prev=0.0,
+    depot_ci_billable_seconds=0.0,
+    depot_ci_billable_seconds_prev=0.0,
 )
 
 
@@ -402,6 +438,7 @@ def query_workflow_window_costs_with_prev(
         "prev_from": ast.Constant(value=prev_from),
         # Floored off prev_from, the earlier of the two window starts — this scan carries both.
         "job_created_floor": run_windowed_job_created_floor_constant(prev_from),
+        "depot_ci_engine": ast.Constant(value=CIEngine.DEPOT_CI.value),
     }
     windows = window_pair_predicates("c.run_started_at", date_to=date_to)
     date_to_clause = ""
@@ -413,15 +450,19 @@ def query_workflow_window_costs_with_prev(
     # in merge_queue_overview.py use the narrower corroborated population; the two answer different
     # questions, so don't unify them casually.
     queue = in_merge_queue_namespace_expr("c.head_branch")
-    queue_agg = (
-        f"sumIf(ifNull(c.billable_seconds, 0), {queue} AND {windows.current}) AS queue_billable_seconds, "
-        f"sumIf(ifNull(c.billable_seconds, 0), {queue} AND {windows.previous}) AS queue_billable_seconds_prev"
-    )
+
+    def slice_aggregates(predicate: str, alias: str) -> str:
+        return (
+            f"sumIf(ifNull(c.billable_seconds, 0), {predicate} AND {windows.current}) AS {alias}, "
+            f"sumIf(ifNull(c.billable_seconds, 0), {predicate} AND {windows.previous}) AS {alias}_prev"
+        )
+
     sql = (
         _WINDOW_COST_WITH_PREV_SELECT.replace("__COST_SOURCE__", cost_source)
         .replace("__CUR_AGG__", _cost_aggregates(when=windows.current))
         .replace("__PREV_AGG__", _cost_aggregates(when=windows.previous, suffix="_prev"))
-        .replace("__QUEUE_AGG__", queue_agg)
+        .replace("__QUEUE_AGG__", slice_aggregates(queue, "queue_billable_seconds"))
+        .replace("__DEPOT_CI_AGG__", slice_aggregates("c.ci_engine = {depot_ci_engine}", "depot_ci_billable_seconds"))
         .replace("__DATE_TO__", date_to_clause)
     )
     response = curated.run(
@@ -429,7 +470,7 @@ def query_workflow_window_costs_with_prev(
     )
     by_workflow_cur: dict[str, PRCostAggregate] = {}
     by_workflow_prev: dict[str, PRCostAggregate] = {}
-    queue_billable = queue_billable_prev = 0.0
+    slice_seconds = [0.0, 0.0, 0.0, 0.0]
     for workflow_name, *columns in response.results or []:
         workflow = workflow_name or ""
         cur_agg = _aggregate(*columns[0:5])
@@ -438,13 +479,15 @@ def query_workflow_window_costs_with_prev(
             by_workflow_cur[workflow] = cur_agg
         if _has_jobs(prev_agg):
             by_workflow_prev[workflow] = prev_agg
-        queue_billable += float(columns[10] or 0.0)
-        queue_billable_prev += float(columns[11] or 0.0)
+        slice_seconds = [total + float(value or 0.0) for total, value in zip(slice_seconds, columns[10:14])]
+    queue_billable, queue_billable_prev, depot_ci_billable, depot_ci_billable_prev = slice_seconds
     return WindowCostsWithPrev(
         by_workflow=by_workflow_cur,
         by_workflow_prev=by_workflow_prev,
         merge_queue_billable_seconds=queue_billable,
         merge_queue_billable_seconds_prev=queue_billable_prev,
+        depot_ci_billable_seconds=depot_ci_billable,
+        depot_ci_billable_seconds_prev=depot_ci_billable_prev,
     )
 
 
@@ -633,10 +676,11 @@ def _has_jobs(aggregate: PRCostAggregate) -> bool:
     return bool(aggregate.costed_jobs + aggregate.unsettled_jobs + aggregate.excluded_jobs)
 
 
-def _to_run_cost(run_id: int, run_attempt: int, aggregate: PRCostAggregate) -> RunCost:
+def _to_run_cost(run_id: int, run_attempt: int, aggregate: PRCostAggregate, *, ci_engine: CIEngine) -> RunCost:
     return RunCost(
         run_id=run_id,
         run_attempt=run_attempt,
+        ci_engine=ci_engine,
         billable_minutes=aggregate.billable_seconds / 60,
         estimated_cost_usd=aggregate.estimated_cost_usd,
     )

@@ -19,12 +19,6 @@ def _run_pr_review(delivery: WebhookDelivery) -> None:
     accept_github_pull_request_review(delivery)
 
 
-def _run_loops(delivery: WebhookDelivery) -> None:
-    from products.tasks.backend.facade.api import accept_github_event_for_loops  # noqa: PLC0415
-
-    accept_github_event_for_loops(delivery)
-
-
 WEBHOOK_CONSUMERS = (
     WebhookConsumer(
         name="tasks_pr_backstop",
@@ -39,12 +33,5 @@ WEBHOOK_CONSUMERS = (
         app="posthog",
         event_types=frozenset({"pull_request_review"}),
         handler=_run_pr_review,
-    ),
-    WebhookConsumer(
-        name="loops",
-        provider="github",
-        app="posthog",
-        event_types=frozenset({"issues", "issue_comment", "pull_request", "push"}),
-        handler=_run_loops,
     ),
 )

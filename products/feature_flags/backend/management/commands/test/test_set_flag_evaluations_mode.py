@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from io import StringIO
 from typing import Any
 
@@ -15,13 +15,15 @@ from parameterized import parameterized
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.organization import Organization
 
+from products.experiments.backend.models.experiment import Experiment
+from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.facade.flags import get_organization_flag_evaluations_mode
 from products.feature_flags.backend.flag_evaluations_mode import (
     OrganizationModeChange,
     set_organization_flag_evaluations_mode,
 )
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
-from products.feature_flags.backend.models.team_feature_flags_config import FlagEvaluationsMode
 
 
 class TestSetFlagEvaluationsMode(BaseTest):
@@ -58,6 +60,22 @@ class TestSetFlagEvaluationsMode(BaseTest):
         self.assertIn("mode 0 -> 1", output)
         self.assertIn("Would set mode 1 on 1 organization(s).", output)
         self.assertIsNone(self._stored_mode(self.organization))
+
+    @parameterized.expand([("flag_evaluations_only", "2", True), ("read_flag_evaluations", "1", False)])
+    def test_warns_only_when_the_mode_stops_experiments_on_feature_flag_called(
+        self, _name: str, mode: str, expects_warning: bool
+    ) -> None:
+        Experiment.objects.create(
+            team=self.team,
+            name="Started before the cutoff",
+            feature_flag=FeatureFlag.objects.create(team=self.team, key="experiment-flag", created_by=self.user),
+            start_date=datetime(2026, 8, 1, tzinfo=UTC),
+        )
+
+        output = self._run("--mode", mode, "--organization-id", str(self.organization.id), "--dry-run")
+
+        self.assertIn("1 experiment(s) on $feature_flag_called", output)
+        self.assertEqual("1 running experiment(s) count exposures on $feature_flag_called" in output, expects_warning)
 
     @time_machine.travel("2026-09-01T12:00:00Z", tick=False)
     def test_created_after_selects_only_newer_organizations(self) -> None:
@@ -98,10 +116,10 @@ class TestSetFlagEvaluationsMode(BaseTest):
         self.assertEqual(get_organization_flag_evaluations_mode(self.organization.id), expected_mode)
         self.assertIn(expected_output, output)
 
-    def test_allow_downgrade_lowers_the_stored_mode_while_the_usage_tab_is_forced_to_events(self) -> None:
+    def test_allow_downgrade_lowers_the_stored_mode_while_reads_are_forced_to_events(self) -> None:
         self._store_mode(self.organization, FlagEvaluationsMode.READ_FLAG_EVALUATIONS)
 
-        with override_instance_config("FLAG_EVALUATIONS_USAGE_TAB_FORCE_EVENTS", True):
+        with override_instance_config("FLAG_EVALUATIONS_READS_FORCE_EVENTS", True):
             self._run("--mode", "0", "--organization-id", str(self.organization.id), "--allow-downgrade")
 
         self.assertEqual(self._stored_mode(self.organization), FlagEvaluationsMode.EVENTS)

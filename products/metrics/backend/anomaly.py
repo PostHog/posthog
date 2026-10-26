@@ -31,12 +31,9 @@ from products.metrics.backend.facade.contracts import (
     MetricSeries,
 )
 from products.metrics.backend.metric_names_query_runner import MetricNamesQueryRunner
-from products.metrics.backend.metric_query_runner import (
-    _INTERVAL_LADDER,
-    MetricQueryRunner,
-    _pick_interval,
-    time_range_expr,
-)
+from products.metrics.backend.metric_query_runner import _INTERVAL_LADDER, _pick_interval, time_range_expr
+from products.metrics.backend.metric_samples_query_runner import build_metric_query_runner
+from products.metrics.backend.metrics4_samples import reads_metrics4_only, series_in_range_query
 
 # How many label keys to drill into and how many movers to report.
 MAX_CANDIDATE_KEYS = 4
@@ -161,7 +158,7 @@ def characterize_anomaly(
     interval = _pick_combined_interval(baseline_from, anomaly_from, anomaly_to)
 
     def _run(group_by: tuple[MetricGroupBy, ...] = ()) -> list[dict[str, Any]]:
-        return MetricQueryRunner(
+        return build_metric_query_runner(
             team=team,
             metric_name=metric_name,
             aggregation=aggregation,
@@ -228,6 +225,25 @@ def characterize_anomaly(
     )
 
 
+def _series_in_range(metric_name: str, date_from: dt.datetime, date_to: dt.datetime) -> ast.SelectQuery:
+    if reads_metrics4_only(date_from):
+        return series_in_range_query(metric_name, date_from, date_to)
+    query = parse_select(
+        """
+            SELECT DISTINCT series_fingerprint
+            FROM posthog.metrics
+            WHERE metric_name = {metric_name}
+              AND {time_range}
+        """,
+        placeholders={
+            "metric_name": ast.Constant(value=metric_name),
+            "time_range": time_range_expr(date_from, date_to),
+        },
+    )
+    assert isinstance(query, ast.SelectQuery)
+    return query
+
+
 def _discover_candidate_keys(
     team: Team, metric_name: str, date_from: dt.datetime, date_to: dt.datetime
 ) -> tuple[str, ...]:
@@ -248,12 +264,7 @@ def _discover_candidate_keys(
                     SELECT any(attributes) AS attributes, any(resource_attributes) AS resource_attributes
                     FROM posthog.metric_series
                     WHERE metric_name = {metric_name}
-                      AND series_fingerprint IN (
-                        SELECT DISTINCT series_fingerprint
-                        FROM posthog.metrics
-                        WHERE metric_name = {metric_name}
-                          AND {time_range}
-                      )
+                      AND series_fingerprint IN {series_in_range}
                     GROUP BY series_fingerprint
                 )
             )
@@ -263,7 +274,7 @@ def _discover_candidate_keys(
         """,
         placeholders={
             "metric_name": ast.Constant(value=metric_name),
-            "time_range": time_range_expr(date_from, date_to),
+            "series_in_range": _series_in_range(metric_name, date_from, date_to),
             "limit": ast.Constant(value=MAX_CANDIDATE_KEYS),
         },
     )

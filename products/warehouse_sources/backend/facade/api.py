@@ -18,16 +18,19 @@ exception is ``soft_delete_tables``: consumers may not iterate the model to call
 ``soft_delete()`` themselves, so the facade does it for them.
 """
 
+from collections import defaultdict
 from collections.abc import Collection
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from django.db.models import OuterRef, Prefetch, QuerySet, Subquery
+from django.db.models import OuterRef, Prefetch, Q, QuerySet, Subquery
+from django.utils import timezone
 
 # Source-agnostic storage contract for user-uploaded files — shared with the upload endpoint.
 from products.warehouse_sources.backend.file_uploads import (
     FILE_FORMAT_READ_HINTS,
     FILE_FORMAT_TO_TABLE_FORMAT,
+    FORMAT_CSV,
     MAX_UPLOAD_SIZE_BYTES as MAX_FILE_UPLOAD_SIZE_BYTES,
     SUPPORTED_FILE_FORMATS,
     build_file_upload_s3_key,
@@ -63,7 +66,9 @@ from products.warehouse_sources.backend.models.util import (
     validate_source_prefix,
     validate_warehouse_table_url_pattern,
 )
+from products.warehouse_sources.backend.source_status import effective_source_status
 from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.view_consumers import saved_queries_feeding_consumers
 
 from . import contracts
 
@@ -79,18 +84,23 @@ __all__ = [
     "list_revenue_source_settings",
     "get_schema",
     "list_schemas_for_source",
+    "list_imported_schema_snapshots",
     "source_locations_for_tables",
     "get_table",
     "get_queryable_table",
     "resolve_object_by_name",
     "direct_access_table_ids",
+    "discard_backing_table",
+    "record_table_row_count",
     "allowed_table_ids",
     "all_queryable_tables",
     "all_queryable_table_columns",
     "list_tables_for_source",
     "list_jobs_for_source",
     "list_column_statistics",
+    "saved_queries_feeding_consumers",
     # framework-free helper transforms
+    "effective_source_status",
     "clickhouse_columns_to_dwh_columns",
     "motherduck_columns_to_dwh_columns",
     "trino_columns_to_dwh_columns",
@@ -104,6 +114,7 @@ __all__ = [
     # file-upload storage contract
     "FILE_FORMAT_READ_HINTS",
     "FILE_FORMAT_TO_TABLE_FORMAT",
+    "FORMAT_CSV",
     "MAX_FILE_UPLOAD_SIZE_BYTES",
     "SUPPORTED_FILE_FORMATS",
     "build_file_upload_s3_key",
@@ -268,7 +279,9 @@ def list_sources(
 
 
 def list_source_health(team_id: int) -> list[contracts.ExternalDataSourceHealth]:
-    """Live sources with the timestamp of their newest completed run and their newest schema error.
+    """Live sources with their effective status, newest completed run and newest schema error.
+
+    The status rolls up the source's active schemas the same way the source list does.
 
     One correlated probe per source for each of the two lookups, so the cost tracks the number
     of sources rather than the length of the team's job history.
@@ -287,9 +300,26 @@ def list_source_health(team_id: int) -> list[contracts.ExternalDataSourceHealth]
             latest_error=latest_error,
         )
         .order_by("source_type", "id")
-        .values("source_type", "status", "prefix", "created_at", "last_run_at", "latest_error")
+        .values("id", "source_type", "status", "prefix", "created_at", "last_run_at", "latest_error")
     )
-    return [contracts.ExternalDataSourceHealth(**row) for row in rows]
+    active_schemas_by_source: defaultdict[UUID, list[_ExternalDataSchema]] = defaultdict(list)
+    for schema in (
+        _ExternalDataSchema.objects.filter(team_id=team_id, deleted=False, source__deleted=False)
+        .filter(Q(should_sync=True) | Q(latest_error__isnull=False))
+        .only("source_id", "status", "should_sync")
+    ):
+        active_schemas_by_source[schema.source_id].append(schema)
+    return [
+        contracts.ExternalDataSourceHealth(
+            source_type=row["source_type"],
+            status=effective_source_status(active_schemas_by_source[row["id"]], fallback=row["status"]),
+            prefix=row["prefix"],
+            created_at=row["created_at"],
+            last_run_at=row["last_run_at"],
+            latest_error=row["latest_error"],
+        )
+        for row in rows
+    ]
 
 
 def _revenue_source_queryset(
@@ -347,6 +377,21 @@ def get_schema(schema_id: UUID, team_id: int) -> contracts.ExternalDataSchema:
 def list_schemas_for_source(source_id: UUID, team_id: int) -> list[contracts.ExternalDataSchema]:
     qs = _ExternalDataSchema.objects.select_related("source").filter(team_id=team_id, source_id=source_id)
     return [_to_schema(s) for s in qs]
+
+
+def list_imported_schema_snapshots(team_id: int) -> list[contracts.ImportedSchemaSnapshot]:
+    rows = _ExternalDataSchema.objects.filter(
+        team_id=team_id,
+        deleted=False,
+        source__deleted=False,
+        source__team_id=team_id,
+        source__access_method="warehouse",
+        table__deleted=False,
+        table__team_id=team_id,
+    ).values_list("id", "table__queryable_folder")
+    return [
+        contracts.ImportedSchemaSnapshot(schema_id=schema_id, queryable_folder=folder) for schema_id, folder in rows
+    ]
 
 
 def source_locations_for_tables(team_id: int, table_ids: Collection[UUID]) -> dict[UUID, contracts.TableSourceLocation]:
@@ -574,6 +619,20 @@ def soft_delete_tables(team_id: int, names: Collection[str]) -> int:
         table.soft_delete()
         deleted += 1
     return deleted
+
+
+def record_table_row_count(team_id: int, table_id: UUID, row_count: int) -> None:
+    """Set a table's row count, unless the table was deleted in the meantime."""
+    _DataWarehouseTable.objects.filter(team_id=team_id, id=table_id).exclude(deleted=True).update(
+        row_count=row_count, updated_at=timezone.now()
+    )
+
+
+def discard_backing_table(team_id: int, table_id: UUID) -> None:
+    """Soft-delete a view's backing table but keep the view's joins, which match the table's name."""
+    table = _DataWarehouseTable.objects.filter(team_id=team_id, id=table_id).exclude(deleted=True).first()
+    if table is not None:
+        table.soft_delete(delete_joins=False)
 
 
 MAX_JOBS_PER_SOURCE = 100

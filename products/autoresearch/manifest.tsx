@@ -20,10 +20,16 @@ export const manifest: ProductManifest = {
             import: () => import('./frontend/AutoresearchNewScene'),
             projectBased: true,
         },
+        AutoresearchPipeline: {
+            name: 'Autoresearch model',
+            import: () => import('./frontend/AutoresearchPipelineScene'),
+            projectBased: true,
+        },
     },
     routes: {
         '/autoresearch': ['Autoresearch', 'autoresearch'],
         '/autoresearch/new': ['AutoresearchNew', 'autoresearchNew'],
+        '/autoresearch/:id': ['AutoresearchPipeline', 'autoresearchPipeline'],
     },
     urls: {
         autoresearch: (): string => '/autoresearch',
@@ -37,6 +43,7 @@ export const manifest: ProductManifest = {
             category: ProductItemCategory.TOOLS,
             type: 'autoresearch',
             href: urls.autoresearch(),
+            searchKeywords: ['predictions', 'churn prediction'],
             flag: FEATURE_FLAGS.AUTORESEARCH,
             iconType: 'experiment',
             tags: ['alpha'],

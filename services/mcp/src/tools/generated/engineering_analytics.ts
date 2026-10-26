@@ -3,6 +3,10 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/engineering_analytics/api'
+import hooks_engineeringAnalyticsBrokenTests from '@/tools/engineeringAnalytics/redactFailureLogsHooks'
+import hooks_engineeringAnalyticsCiFailureLogs from '@/tools/engineeringAnalytics/redactFailureLogsHooks'
+import hooks_engineeringAnalyticsRunFailureLogs from '@/tools/engineeringAnalytics/redactFailureLogsHooks'
+import { withToolHooks } from '@/tools/tool-hooks'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
@@ -17,18 +21,21 @@ const engineeringAnalyticsBrokenTests = (): ToolBase<
 > => ({
     name: 'engineering-analytics-broken-tests',
     schema: EngineeringAnalyticsBrokenTestsSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof EngineeringAnalyticsBrokenTestsSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.BrokenTestsResult>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/engineering_analytics/broken_tests/`,
-            query: {
-                repo: params.repo,
-                source_id: params.source_id,
-            },
-        })
-        return result
-    },
+    handler: withToolHooks(
+        hooks_engineeringAnalyticsBrokenTests,
+        async (context: Context, params: z.infer<ReturnType<typeof EngineeringAnalyticsBrokenTestsSchema>>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const result = await context.api.request<Schemas.BrokenTestsResult>({
+                method: 'GET',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/engineering_analytics/broken_tests/`,
+                query: {
+                    repo: params.repo,
+                    source_id: params.source_id,
+                },
+            })
+            return result
+        }
+    ),
 })
 
 const EngineeringAnalyticsCiFailureLogsSchema = () => {
@@ -42,19 +49,22 @@ const engineeringAnalyticsCiFailureLogs = (): ToolBase<
 > => ({
     name: 'engineering-analytics-ci-failure-logs',
     schema: EngineeringAnalyticsCiFailureLogsSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof EngineeringAnalyticsCiFailureLogsSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.CIFailureLogs>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/engineering_analytics/ci_failure_logs/`,
-            query: {
-                pr_number: params.pr_number,
-                repo: params.repo,
-                source_id: params.source_id,
-            },
-        })
-        return result
-    },
+    handler: withToolHooks(
+        hooks_engineeringAnalyticsCiFailureLogs,
+        async (context: Context, params: z.infer<ReturnType<typeof EngineeringAnalyticsCiFailureLogsSchema>>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const result = await context.api.request<Schemas.CIFailureLogs>({
+                method: 'GET',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/engineering_analytics/ci_failure_logs/`,
+                query: {
+                    pr_number: params.pr_number,
+                    repo: params.repo,
+                    source_id: params.source_id,
+                },
+            })
+            return result
+        }
+    ),
 })
 
 const EngineeringAnalyticsFlakyTestsSchema = () => {
@@ -124,19 +134,23 @@ const engineeringAnalyticsRunFailureLogs = (): ToolBase<
 > => ({
     name: 'engineering-analytics-run-failure-logs',
     schema: EngineeringAnalyticsRunFailureLogsSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof EngineeringAnalyticsRunFailureLogsSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.RunFailureLogs>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/engineering_analytics/run_failure_logs/`,
-            query: {
-                repo: params.repo,
-                run_id: params.run_id,
-                source_id: params.source_id,
-            },
-        })
-        return result
-    },
+    handler: withToolHooks(
+        hooks_engineeringAnalyticsRunFailureLogs,
+        async (context: Context, params: z.infer<ReturnType<typeof EngineeringAnalyticsRunFailureLogsSchema>>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const result = await context.api.request<Schemas.RunFailureLogs>({
+                method: 'GET',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/engineering_analytics/run_failure_logs/`,
+                query: {
+                    ci_engine: params.ci_engine,
+                    repo: params.repo,
+                    run_id: params.run_id,
+                    source_id: params.source_id,
+                },
+            })
+            return result
+        }
+    ),
 })
 
 const EngineeringAnalyticsSourcesSchema = () => z.object({})
@@ -179,6 +193,7 @@ const engineeringAnalyticsTeamCiHealth = (): ToolBase<
                 limit: params.limit,
                 min_failed_prs: params.min_failed_prs,
                 owner_team: params.owner_team,
+                repo: params.repo,
                 source_id: params.source_id,
             },
         })
@@ -203,6 +218,7 @@ const engineeringAnalyticsWorkflowJobs = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/engineering_analytics/workflow_jobs/`,
             query: {
+                ci_engine: params.ci_engine,
                 repo: params.repo,
                 run_attempt: params.run_attempt,
                 run_id: params.run_id,
@@ -290,8 +306,12 @@ const pullRequests = (): ToolBase<ReturnType<typeof PullRequestsSchema>, WithPos
             query: {
                 author: params.author,
                 date_from: params.date_from,
+                date_to: params.date_to,
+                limit: params.limit,
+                offset: params.offset,
                 repo: params.repo,
                 source_id: params.source_id,
+                state: params.state,
             },
         })
         return await withPostHogUrl(context, result, '/engineering-analytics')

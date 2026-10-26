@@ -20,6 +20,7 @@ import { dayjs } from 'lib/dayjs'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { formatDate } from 'lib/utils/datetime'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 
 import { DetectorType } from '~/queries/schema/schema-general'
 
@@ -157,7 +158,7 @@ export function AlertHistorySection({
     const showWhyColumn =
         isLLMDetectorAlert ||
         alertHistoryChecksSortedDesc.some(
-            (check) => !!(check.triggered_metadata as { rationale?: string } | null)?.rationale
+            (check) => !!check.triggered_metadata?.rationale || !!check.triggered_metadata?.skipped_reason
         )
 
     const checkHistoryColumns = useMemo((): LemonTableColumn<AlertCheck, keyof AlertCheck | undefined>[] => {
@@ -165,7 +166,7 @@ export function AlertHistorySection({
             {
                 title: 'Status',
                 key: 'state',
-                render: (_value, check) => check.state,
+                render: (_value, check) => (check.triggered_metadata?.skipped_reason ? 'Skipped' : check.state),
             },
             {
                 title: 'Time',
@@ -180,13 +181,21 @@ export function AlertHistorySection({
                 render: (_value, check) => check.calculated_value ?? '—',
             },
         ]
-        if (alertHistoryIsAnomalyDetection) {
+        if (alertHistoryChecksSortedDesc.some((check) => check.triggered_metadata?.evaluated_interval_start)) {
             columns.push({
-                title: alertHistoryChartSeriesName === 'Anomaly confidence' ? 'Anomaly confidence' : 'Score',
-                tooltip:
-                    alertHistoryChartSeriesName === 'Anomaly confidence'
-                        ? "How sure the model was that the latest point is an anomaly. This is the model's own estimate, not a measured probability."
-                        : undefined,
+                title: 'Evaluated interval',
+                render: (_value, check) => {
+                    const metadata = check.triggered_metadata
+                    return metadata?.evaluated_interval_start ? (
+                        <div className="text-sm max-w-xs break-words">{`${metadata.evaluated_interval_start} to ${metadata.evaluated_interval_end} (${metadata.evaluated_interval_timezone}; delay: ${metadata.evaluation_delay_intervals} intervals)`}</div>
+                    ) : null
+                },
+            })
+        }
+        // The AI detector has no score. Its checks read as fired or not fired, with a kind and a reason.
+        if (alertHistoryIsAnomalyDetection && !isLLMDetectorAlert) {
+            columns.push({
+                title: 'Score',
                 align: 'right',
                 render: (_value, check) => {
                     const scores = check.anomaly_scores
@@ -195,11 +204,23 @@ export function AlertHistorySection({
                 },
             })
         }
+        if (alertHistoryChecksSortedDesc.some((check) => typeof check.triggered_metadata?.kind === 'string')) {
+            columns.push({
+                title: 'Kind',
+                render: (_value, check) => {
+                    const kind = check.triggered_metadata?.kind
+                    return typeof kind === 'string' && kind !== 'none'
+                        ? capitalizeFirstLetter(kind.replaceAll('_', ' '))
+                        : '—'
+                },
+            })
+        }
         if (showWhyColumn) {
             columns.push({
                 title: 'Why',
                 render: (_value, check) => {
-                    const rationale = (check.triggered_metadata as { rationale?: string } | null)?.rationale?.trim()
+                    const metadata = check.triggered_metadata as { rationale?: string; skipped_reason?: string } | null
+                    const rationale = (metadata?.skipped_reason ?? metadata?.rationale)?.trim()
                     if (!rationale) {
                         return '—'
                     }
@@ -277,8 +298,9 @@ export function AlertHistorySection({
         alertHistoryIsAnomalyDetection,
         investigationAgentEnabled,
         isAnyRowSqlAlert,
-        alertHistoryChartSeriesName,
+        isLLMDetectorAlert,
         showWhyColumn,
+        alertHistoryChecksSortedDesc,
     ])
 
     if (!alert) {

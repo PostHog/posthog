@@ -9,15 +9,16 @@ from django.test import RequestFactory
 
 import structlog
 
-from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
-from products.workflows.backend.presentation.views.hog_flow import (
-    HogFlowSerializer,
+from products.workflows.backend.facade.secrets import (
     TemplateCache,
     mask_secret_action_inputs,
     merge_secret_maps,
     partition_flow_secrets,
     plaintext_secret_map,
 )
+from products.workflows.backend.facade.writes import save_validated_workflow
+from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
+from products.workflows.backend.presentation.views.hog_flow import HogFlowSerializer
 
 logger = structlog.get_logger(__name__)
 
@@ -171,7 +172,11 @@ class Command(BaseCommand):
                                 )
                                 raise Exception("Refresh would change the stored secrets")
                             if not dry_run:
-                                serializer.save()
+                                save_validated_workflow(
+                                    team_id=hog_flow.team_id,
+                                    hog_flow_id=hog_flow.id,
+                                    validated_data=dict(serializer.validated_data),
+                                )
                             total_updated += 1
                             logger.info(
                                 "Would refresh HogFlow" if dry_run else "Successfully refreshed HogFlow",

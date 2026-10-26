@@ -80,12 +80,9 @@ export const alertsCreateBodyDetectorConfigOneOnetwoTypeDefault = `ocsvm`
 export const alertsCreateBodyDetectorConfigOneOnethreeTypeDefault = `pca`
 export const alertsCreateBodyDetectorConfigOneOnefourInstructionsOneMax = 2000
 
-export const alertsCreateBodyDetectorConfigOneOnefourThresholdOneMin = 0
-export const alertsCreateBodyDetectorConfigOneOnefourThresholdOneMax = 1
-
 export const alertsCreateBodyDetectorConfigOneOnefourTypeDefault = `llm`
-export const alertsCreateBodyDetectorConfigOneOnefourWindowOneMin = 5
-export const alertsCreateBodyDetectorConfigOneOnefourWindowOneMax = 400
+export const alertsCreateBodyEvaluationDelayIntervalsMin = 0
+export const alertsCreateBodyEvaluationDelayIntervalsMax = 100
 
 export const AlertsCreateBody = () => zod.object({
     insight: zod
@@ -1259,35 +1256,21 @@ export const AlertsCreateBody = () => zod.object({
                             .describe(
                                 'What counts as unusual or interesting for this metric, in your own words. Optional.'
                             ),
-                        threshold: zod
-                            .union([
-                                zod
-                                    .number()
-                                    .min(alertsCreateBodyDetectorConfigOneOnefourThresholdOneMin)
-                                    .max(alertsCreateBodyDetectorConfigOneOnefourThresholdOneMax),
-                                zod.null(),
-                            ])
-                            .optional()
-                            .describe(
-                                'Minimum confidence [0-1] the model must report before the alert fires (default: 0.7)'
-                            ),
                         type: zod.enum(['llm']).default(alertsCreateBodyDetectorConfigOneOnefourTypeDefault),
-                        window: zod
-                            .union([
-                                zod
-                                    .number()
-                                    .min(alertsCreateBodyDetectorConfigOneOnefourWindowOneMin)
-                                    .max(alertsCreateBodyDetectorConfigOneOnefourWindowOneMax),
-                                zod.null(),
-                            ])
-                            .optional()
-                            .describe('How many recent points the model is shown (default: 90)'),
                     }),
                 ])
                 .describe('Detector configuration types'),
             zod.null(),
         ])
         .optional(),
+    evaluation_delay_intervals: zod
+        .number()
+        .min(alertsCreateBodyEvaluationDelayIntervalsMin)
+        .max(alertsCreateBodyEvaluationDelayIntervalsMax)
+        .optional()
+        .describe(
+            'Skip this many completed insight intervals after excluding the ongoing interval (0-100, default 0). Time-series Trends only. A positive delay requires check_ongoing_interval=false. Uses the insight interval, not the check frequency. Allows late data to arrive, but also delays detection of real problems.'
+        ),
     calculation_interval: zod
         .enum(['real_time', 'every_15_minutes', 'hourly', 'daily', 'weekly', 'monthly'])
         .describe(
@@ -1432,12 +1415,9 @@ export const alertsPartialUpdateBodyDetectorConfigOneOnetwoTypeDefault = `ocsvm`
 export const alertsPartialUpdateBodyDetectorConfigOneOnethreeTypeDefault = `pca`
 export const alertsPartialUpdateBodyDetectorConfigOneOnefourInstructionsOneMax = 2000
 
-export const alertsPartialUpdateBodyDetectorConfigOneOnefourThresholdOneMin = 0
-export const alertsPartialUpdateBodyDetectorConfigOneOnefourThresholdOneMax = 1
-
 export const alertsPartialUpdateBodyDetectorConfigOneOnefourTypeDefault = `llm`
-export const alertsPartialUpdateBodyDetectorConfigOneOnefourWindowOneMin = 5
-export const alertsPartialUpdateBodyDetectorConfigOneOnefourWindowOneMax = 400
+export const alertsPartialUpdateBodyEvaluationDelayIntervalsMin = 0
+export const alertsPartialUpdateBodyEvaluationDelayIntervalsMax = 100
 
 export const AlertsPartialUpdateBody = () => zod.object({
     insight: zod
@@ -2636,35 +2616,21 @@ export const AlertsPartialUpdateBody = () => zod.object({
                             .describe(
                                 'What counts as unusual or interesting for this metric, in your own words. Optional.'
                             ),
-                        threshold: zod
-                            .union([
-                                zod
-                                    .number()
-                                    .min(alertsPartialUpdateBodyDetectorConfigOneOnefourThresholdOneMin)
-                                    .max(alertsPartialUpdateBodyDetectorConfigOneOnefourThresholdOneMax),
-                                zod.null(),
-                            ])
-                            .optional()
-                            .describe(
-                                'Minimum confidence [0-1] the model must report before the alert fires (default: 0.7)'
-                            ),
                         type: zod.enum(['llm']).default(alertsPartialUpdateBodyDetectorConfigOneOnefourTypeDefault),
-                        window: zod
-                            .union([
-                                zod
-                                    .number()
-                                    .min(alertsPartialUpdateBodyDetectorConfigOneOnefourWindowOneMin)
-                                    .max(alertsPartialUpdateBodyDetectorConfigOneOnefourWindowOneMax),
-                                zod.null(),
-                            ])
-                            .optional()
-                            .describe('How many recent points the model is shown (default: 90)'),
                     }),
                 ])
                 .describe('Detector configuration types'),
             zod.null(),
         ])
         .optional(),
+    evaluation_delay_intervals: zod
+        .number()
+        .min(alertsPartialUpdateBodyEvaluationDelayIntervalsMin)
+        .max(alertsPartialUpdateBodyEvaluationDelayIntervalsMax)
+        .optional()
+        .describe(
+            'Skip this many completed insight intervals after excluding the ongoing interval (0-100, default 0). Time-series Trends only. A positive delay requires check_ongoing_interval=false. Uses the insight interval, not the check frequency. Allows late data to arrive, but also delays detection of real problems.'
+        ),
     calculation_interval: zod
         .enum(['real_time', 'every_15_minutes', 'hourly', 'daily', 'weekly', 'monthly'])
         .describe(
@@ -2805,6 +2771,10 @@ export const AlertsSimulateCreateParams = () => zod.object({
         ),
 })
 
+export const alertsSimulateCreateBodyEvaluationDelayIntervalsDefault = 0
+export const alertsSimulateCreateBodyEvaluationDelayIntervalsMin = 0
+export const alertsSimulateCreateBodyEvaluationDelayIntervalsMax = 100
+
 export const alertsSimulateCreateBodyDetectorConfigOneOneDetectorsItemOneTypeDefault = `zscore`
 export const alertsSimulateCreateBodyDetectorConfigOneOneDetectorsItemTwoTypeDefault = `mad`
 export const alertsSimulateCreateBodyDetectorConfigOneOneDetectorsItemThreeTypeDefault = `iqr`
@@ -2832,13 +2802,7 @@ export const alertsSimulateCreateBodyDetectorConfigOneOnetwoTypeDefault = `ocsvm
 export const alertsSimulateCreateBodyDetectorConfigOneOnethreeTypeDefault = `pca`
 export const alertsSimulateCreateBodyDetectorConfigOneOnefourInstructionsOneMax = 2000
 
-export const alertsSimulateCreateBodyDetectorConfigOneOnefourThresholdOneMin = 0
-export const alertsSimulateCreateBodyDetectorConfigOneOnefourThresholdOneMax = 1
-
 export const alertsSimulateCreateBodyDetectorConfigOneOnefourTypeDefault = `llm`
-export const alertsSimulateCreateBodyDetectorConfigOneOnefourWindowOneMin = 5
-export const alertsSimulateCreateBodyDetectorConfigOneOnefourWindowOneMax = 400
-
 export const alertsSimulateCreateBodySeriesIndexDefault = 0
 export const alertsSimulateCreateBodyConfigOneOneTypeDefault = `TrendsAlertConfig`
 export const alertsSimulateCreateBodyConfigOneTwoTypeDefault = `HogQLAlertConfig`
@@ -2846,6 +2810,14 @@ export const alertsSimulateCreateBodyConfigOneThreeTypeDefault = `FunnelsAlertCo
 export const alertsSimulateCreateBodyConfigOneFourTypeDefault = `MetricsAlertConfig`
 
 export const AlertsSimulateCreateBody = () => zod.object({
+    evaluation_delay_intervals: zod
+        .number()
+        .min(alertsSimulateCreateBodyEvaluationDelayIntervalsMin)
+        .max(alertsSimulateCreateBodyEvaluationDelayIntervalsMax)
+        .default(alertsSimulateCreateBodyEvaluationDelayIntervalsDefault)
+        .describe(
+            'Skip this many completed insight intervals before simulation, matching live evaluation. Time-series Trends only; a positive delay requires check_ongoing_interval=false.'
+        ),
     insight: zod
         .union([zod.number(), zod.string()])
         .describe('Numeric insight ID or saved insight short ID to simulate the detector on.'),
@@ -3858,27 +3830,7 @@ export const AlertsSimulateCreateBody = () => zod.object({
                     ])
                     .optional()
                     .describe('What counts as unusual or interesting for this metric, in your own words. Optional.'),
-                threshold: zod
-                    .union([
-                        zod
-                            .number()
-                            .min(alertsSimulateCreateBodyDetectorConfigOneOnefourThresholdOneMin)
-                            .max(alertsSimulateCreateBodyDetectorConfigOneOnefourThresholdOneMax),
-                        zod.null(),
-                    ])
-                    .optional()
-                    .describe('Minimum confidence [0-1] the model must report before the alert fires (default: 0.7)'),
                 type: zod.enum(['llm']).default(alertsSimulateCreateBodyDetectorConfigOneOnefourTypeDefault),
-                window: zod
-                    .union([
-                        zod
-                            .number()
-                            .min(alertsSimulateCreateBodyDetectorConfigOneOnefourWindowOneMin)
-                            .max(alertsSimulateCreateBodyDetectorConfigOneOnefourWindowOneMax),
-                        zod.null(),
-                    ])
-                    .optional()
-                    .describe('How many recent points the model is shown (default: 90)'),
             }),
         ])
         .describe('Detector configuration types')
@@ -3966,5 +3918,11 @@ export const AlertsSimulateCreateBody = () => zod.object({
         .optional()
         .describe(
             'Per-insight-kind alert config. For SQL insights, selects the evaluated column and read direction (last_row\/first_row) so the preview matches the alert; ignored for trends.'
+        ),
+    alert: zod
+        .string()
+        .nullish()
+        .describe(
+            "ID of the saved alert this preview is for. The AI detector reads the points that the alert's earlier AI checks fired on, the same way a live check does. Omit it for a new alert."
         ),
 })

@@ -2,7 +2,7 @@
 
 Django decides when a backfill is owed, freezes what it must replay, and at the end decides whether the finished run may open the cohort to feature flags.
 It never turns history into seeds, never produces to Kafka and never reconciles.
-Its one ClickHouse query is the size estimate for person runs.
+Its only ClickHouse queries are the size estimate for person runs and the operator command's event count for behavioral team runs.
 This page covers the run tables, the save path that triggers runs, pinning, supersession, the gates, and what happens when things go wrong.
 The last step, finalization and readiness stamps, is in [completion and readiness](completion-and-readiness.md).
 [Backfill overview](backfill-overview.md) explains what a run does and its lifecycle.
@@ -158,9 +158,14 @@ Missing one of them fails quietly, so they are worth knowing.
 | `COHORT_BACKFILL_TRIGGER_TEAM_ALLOWLIST` | Teams whose saves create runs automatically. Unset or empty means **no** teams                                                                                                                                                                                                                                                                                                                              |
 | Operator attestations                    | Settings an operator sets to declare that prerequisites hold. They are declarations, not live checks. Behavioral runs need `BEHAVIORAL_BACKFILL_MERGE_GATE_ATTESTED` and `BEHAVIORAL_BACKFILL_DURABILITY_ATTESTED`. Person runs also need the person TTL and sizing attestations and a positive seed-bytes budget                                                                                           |
 | Person sizing budget                     | A cohort-scoped person run is refused when the team's active person-run estimates plus its own would exceed the budget. The check reads the active estimates before the run exists and reserves nothing, so two cohorts sized at the same time can together exceed the budget. A team run checks only its own estimate. Hitting the size estimate's scan cap, or the cap on pinned conditions, also refuses |
+| Behavioral scan limit                    | `create_cohort_backfill_run` refuses a behavioral team run when its pinned event names had more events than `BEHAVIORAL_BACKFILL_MAX_SCAN_EVENTS_PER_DAY` on the busiest of the last 7 complete UTC days. `--max-scan-events-per-day` overrides it for one invocation, and 0 skips the count and the check. The save path does not check it                                                                 |
 
 The Rust services have their own switches, and Django cannot see them.
-Two of them gate person runs, and they must open in order.
+A team must reach the processor's copy of `REALTIME_COHORT_TEAM_ALLOWLIST` before the seeder's.
+A processor that does not hold the team withholds every reconcile request of its runs with `team_absent`, and the seeder supersedes those participations.
+No new run is owed afterwards, so the team never becomes ready until an operator creates one.
+`seeder_reconcile_cohorts_withheld_total{reason="team_absent"}` shows that this happened.
+Two of the switches gate person runs, and they must open in order.
 The processor's `COHORT_SEED_PERSON_APPLY_ENABLED` must be on everywhere before the seeder's `SEEDER_PERSON_SEEDS_ENABLED`, or the processor skips and commits the seeds.
 The seeder's switch must be on before a team with person-leaf cohorts joins the trigger allowlist.
 Until it is, the seeder never discovers person runs, so each one waits in `awaiting_boundary`, holding its cohort's run slot.
@@ -181,6 +186,11 @@ Two management commands cover operator work.
 - `create_cohort_backfill_run` creates team-scoped runs, behavioral or person, including disaster-recovery runs with a pinned boundary.
   It can narrow the run to chosen cohorts, which is how an operator re-drives one cohort whose trigger was lost.
   It refuses when an attestation is missing or when a target cohort already has an open participation, and it supports a dry run.
+  For a behavioral run it first counts the team's events on the pinned event names over the last 7 complete UTC days, through the `events` primary key on the offline cluster.
+  It prints the busiest day and its largest events, refuses above the behavioral scan limit, and records the count in the run's `preconditions`.
+  The count is a recent sample, not a bound: an older day, or a day in the run's timezone, can hold more events.
+  The seeder reads fewer rows when every condition on an event name filters on event property values.
+  The person size estimate also runs on the offline cluster, and aggregates in primary-key order so its memory does not grow with the team.
 - `manage_cohort_backfill_runs inventory` lists and classifies active runs.
   `manage_cohort_backfill_runs terminalize` cancels chosen runs.
   It is a dry run unless told otherwise, and it never cancels a run that already stamped.
@@ -223,9 +233,10 @@ Other cases to know:
   The revert's own save schedules a fresh run.
 - **A cohort leaves the realtime set mid-run.**
   A soft delete, a switch to static, or losing realtime support skips hash maintenance, so Django does not supersede the run, and the finalizer does not re-check `deleted` or `cohort_type`.
-  At its next catalog refresh the processor drops a cohort that is deleted or no longer `realtime`, and then discards the cohort's reconcile requests without markers.
-  So the run stamps only if every marker landed first.
-  Otherwise a soft delete ends with the seeder superseding the participation, and losing realtime support leaves a retryable shortfall that holds the run in `reconciling`.
+  At its next catalog refresh the processor drops a cohort that is deleted or no longer `realtime`.
+  It then withholds each of the cohort's reconcile requests with a `reconcile_withheld` marker, once a catalog refresh that began after the request arrived has run.
+  So the run stamps only if every completion marker landed first.
+  Otherwise the seeder supersedes the participation when it reads a withheld marker, and the run finishes without the cohort.
 - **A cohort re-enters the realtime set without a leaf change.**
   An undelete, a static-to-dynamic switch, or regained realtime support leaves the hashes as they were, so no run is owed, and the cohort keeps whatever stamps it had.
 - **A save from a stale copy of the row.**

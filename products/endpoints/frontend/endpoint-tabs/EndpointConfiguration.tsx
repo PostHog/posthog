@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconBrackets, IconClock, IconDatabase, IconInfo, IconList, IconRefresh, IconSparkles } from '@posthog/icons'
+import { IconBrackets, IconClock, IconDatabase, IconInfo, IconList, IconRefresh } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -16,16 +16,13 @@ import {
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { MaterializationStatusModal } from 'scenes/data-warehouse/saved_queries/MaterializationStatusModal'
 
-import { NodeKind } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { endpointLogic } from '../endpointLogic'
 import { endpointSceneLogic, extractBreakdownPropertyNames, MaterializationPreview } from '../endpointSceneLogic'
-import { MaterializationSuggestionModal } from '../MaterializationSuggestionModal'
 
 // Names where flipping a breakdown to optional is most likely a customer-data leak — show
 // a soft warning when the user does so. Not a hard block; the author may have legitimate
@@ -329,16 +326,14 @@ function MaterializationContent(): JSX.Element {
         materializationStatus: loadedMaterializationStatus,
         materializationStatusLoading,
     } = useValues(endpointLogic)
-    const { setIsMaterialized, setBucketOverride, openMaterializationSuggestionModal } = useActions(endpointSceneLogic)
+    const { setIsMaterialized, setBucketOverride } = useActions(endpointSceneLogic)
     const {
         isMaterialized: localIsMaterialized,
         viewingVersion,
         materializationPreview,
         bucketOverrides,
-        localQuery,
     } = useValues(endpointSceneLogic)
     const [runsModalOpen, setRunsModalOpen] = useState(false)
-    const materializationFixFlagEnabled = useFeatureFlag('ENDPOINTS_AI_MATERIALIZATION_FIX')
 
     if (!endpoint) {
         return <></>
@@ -369,19 +364,13 @@ function MaterializationContent(): JSX.Element {
     const cannotMaterializeReason =
         materializationPreview?.reason ?? freshMaterialization?.reason ?? endpoint.materialization?.reason ?? null
     const isMaterialized = effectiveIsMaterialized || effectiveMaterializationStatus?.toLowerCase() === 'running'
+    // Eligibility gates turning materialization on. A version materialized before its query became
+    // ineligible still needs the switch, or there is no way to turn it off.
+    const showMaterializationSwitch = canMaterialize || baseIsMaterialized
 
     const handleToggleMaterialization = (): void => {
         setIsMaterialized(!isMaterialized)
     }
-
-    // Offer an AI rewrite only where it can help: a SQL endpoint, on its latest version,
-    // whose live checks reject the query.
-    const isLatestVersion = !viewingVersion || viewingVersion.version === endpoint.current_version
-    const showOptimizeWithAI =
-        materializationFixFlagEnabled &&
-        isLatestVersion &&
-        endpoint.query?.kind === NodeKind.HogQLQuery &&
-        !isMaterialized
 
     const rangePairs = materializationPreview?.range_pairs ?? []
 
@@ -392,35 +381,21 @@ function MaterializationContent(): JSX.Element {
             </p>
 
             {!canMaterialize && cannotMaterializeReason && (
-                <div className="flex flex-col gap-4 items-start">
+                <div className="flex flex-col gap-4 items-start mb-4">
                     <LemonBanner type="warning" hideIcon={false} className="w-full">
                         <div className="flex flex-col gap-1">
                             <span className="font-semibold">
-                                This endpoint can't be materialized yet, so every execution runs the full query.
+                                {baseIsMaterialized
+                                    ? "This endpoint is materialized, but its query isn't supported for materialization anymore. You can turn materialization off. To turn it back on, change the query first."
+                                    : "This endpoint can't be materialized yet, so every execution runs the full query."}
                             </span>
                             <span className="font-normal">Reason: {cannotMaterializeReason}</span>
                         </div>
                     </LemonBanner>
-                    {showOptimizeWithAI && (
-                        <LemonButton
-                            type="secondary"
-                            icon={<IconSparkles />}
-                            onClick={openMaterializationSuggestionModal}
-                            disabledReason={
-                                localQuery
-                                    ? 'Save or discard your query changes first — the AI rewrites the saved query'
-                                    : undefined
-                            }
-                            tooltip="AI rewrites the query into an equivalent form that passes our materialization checks. You review the suggested change in the SQL editor before anything is saved."
-                            data-attr="endpoint-optimize-with-ai"
-                        >
-                            Optimize with AI
-                        </LemonButton>
-                    )}
                 </div>
             )}
 
-            {canMaterialize && (
+            {showMaterializationSwitch && (
                 <div className="flex flex-col gap-4">
                     <AccessControlAction
                         resourceType={AccessControlResourceType.Endpoint}
@@ -437,8 +412,8 @@ function MaterializationContent(): JSX.Element {
                     {hasUnsavedMaterializationChange && (
                         <LemonBanner type="info">
                             {isMaterialized
-                                ? 'Save your changes to start materialization.'
-                                : 'Save your changes to disable materialization.'}
+                                ? 'Materialization will start after you save.'
+                                : 'Materialization will stop after you save.'}
                         </LemonBanner>
                     )}
 
@@ -536,7 +511,6 @@ function MaterializationContent(): JSX.Element {
                 viewName={endpoint.name}
                 kind="endpoint"
             />
-            <MaterializationSuggestionModal />
         </div>
     )
 }

@@ -93,7 +93,7 @@ class DataCatalogWeeklyDigestWorkflow(PostHogWorkflow):
         if batch_count == 0:
             workflow.logger.info("No org batches for data catalog weekly digest")
 
-        threshold_exceeded = totals.batch_size > 0 and totals.failure_rate > input.failure_threshold
+        threshold_exceeded = input.exceeds_failure_threshold(totals)
 
         if input.publishes_metrics:
             await workflow.execute_activity(

@@ -47,6 +47,14 @@ export const PersonsDeletePropertyCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Shows how the person's key properties changed within the time window of a Trends data point. The key properties are the person properties that the insight's query uses.
+ * @summary Get a person's properties timeline for an insight data point
+ */
+export const PersonsPropertiesTimelineCreateBody = /* @__PURE__ */ zod
+    .record(zod.string(), zod.unknown())
+    .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+
+/**
  * Split distinct_ids off a merged person. Two mutually exclusive modes:
  *
  * - **`distinct_ids_to_split`** (recommended for surgical edits): moves only the listed distinct_ids off this person onto new single-id persons. The original person keeps every other distinct_id and its properties.
@@ -54,7 +62,7 @@ export const PersonsDeletePropertyCreateBody = /* @__PURE__ */ zod.object({
  *
  * The original person always retains its properties. To clear individual properties afterward, use the `delete_property` endpoint.
  *
- * The split runs asynchronously: a 201 response means the task was enqueued. Newly-created split-off persons get a deterministic UUID derived from `(team_id, distinct_id)`, so they can be located client-side without polling. If you need to delete a split-off person after this call, prefer looking it up by that deterministic UUID rather than by distinct_id, since the latter still resolves to the original merged person until the async task completes.
+ * The split runs asynchronously: a 201 response means the task was enqueued. A split-off person usually gets a UUID derived from `(team_id, distinct_id)`, but gets a random UUID when another person already holds that UUID, so do not compute it client-side. To find or delete a split-off person, look it up by its distinct_id once the task completes. Until then the distinct_id still resolves to the original person.
  */
 export const PersonsSplitCreateBody = /* @__PURE__ */ zod.object({
     main_distinct_id: zod
@@ -129,7 +137,7 @@ export const PersonsBulkDeleteCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Reset a distinct_id for a deleted person. This allows the distinct_id to be used again.
+ * Fix a distinct_id that stays hidden after its person was deleted and created again. Does nothing if no live person uses this distinct_id. In that case, send a new event for it instead.
  */
 export const PersonsResetPersonDistinctIdCreateBody = /* @__PURE__ */ zod.object({
     properties: zod

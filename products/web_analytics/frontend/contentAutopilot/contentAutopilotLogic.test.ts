@@ -6,6 +6,9 @@ import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
 
 import {
+    webAnalyticsContentAutopilotOpportunitiesDraft,
+    webAnalyticsContentAutopilotOpportunitiesList,
+    webAnalyticsContentAutopilotOpportunitiesRefresh,
     webAnalyticsContentAutopilotProfilesCreate,
     webAnalyticsContentAutopilotProfilesDestroy,
     webAnalyticsContentAutopilotProfilesDiscover,
@@ -21,9 +24,14 @@ import {
     webAnalyticsContentAutopilotRunsList,
     webAnalyticsContentAutopilotRunsStart,
 } from '../generated/api'
-import type { ContentAutopilotProposalListApi, ContentAutopilotRunApi } from '../generated/api.schemas'
+import type {
+    ContentAutopilotOpportunityApi,
+    ContentAutopilotProposalListApi,
+    ContentAutopilotRunApi,
+} from '../generated/api.schemas'
 import { contentAutopilotLogic } from './contentAutopilotLogic'
 import {
+    EXAMPLE_OPPORTUNITIES,
     EXAMPLE_PROFILE,
     EXAMPLE_PROPOSAL,
     EXAMPLE_PROPOSAL_LIST,
@@ -32,6 +40,10 @@ import {
 } from './contentAutopilotStoryFixtures'
 
 jest.mock('../generated/api', () => ({
+    webAnalyticsContentAutopilotOpportunitiesDismiss: jest.fn(),
+    webAnalyticsContentAutopilotOpportunitiesDraft: jest.fn(),
+    webAnalyticsContentAutopilotOpportunitiesList: jest.fn(),
+    webAnalyticsContentAutopilotOpportunitiesRefresh: jest.fn(),
     webAnalyticsContentAutopilotProfilesCreate: jest.fn(),
     webAnalyticsContentAutopilotProfilesDestroy: jest.fn(),
     webAnalyticsContentAutopilotProfilesDiscover: jest.fn(),
@@ -53,6 +65,8 @@ jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
     lemonToast: { success: jest.fn(), error: jest.fn() },
 }))
 
+const mockOpportunitiesDraft = jest.mocked(webAnalyticsContentAutopilotOpportunitiesDraft)
+const mockOpportunitiesRefresh = jest.mocked(webAnalyticsContentAutopilotOpportunitiesRefresh)
 const mockProfilesCreate = jest.mocked(webAnalyticsContentAutopilotProfilesCreate)
 const mockProfilesDestroy = jest.mocked(webAnalyticsContentAutopilotProfilesDestroy)
 const mockProfilesList = jest.mocked(webAnalyticsContentAutopilotProfilesList)
@@ -110,6 +124,9 @@ describe('contentAutopilotLogic', () => {
         jest.mocked(webAnalyticsContentAutopilotProposalsRegenerate).mockResolvedValue(EXAMPLE_PROPOSAL)
         jest.mocked(webAnalyticsContentAutopilotProposalsReject).mockResolvedValue(EXAMPLE_PROPOSAL)
         jest.mocked(webAnalyticsContentAutopilotRunsCancel).mockResolvedValue(EXAMPLE_RUN)
+        mockOpportunitiesRefresh.mockResolvedValue(EXAMPLE_OPPORTUNITIES)
+        jest.mocked(webAnalyticsContentAutopilotOpportunitiesList).mockResolvedValue(paginated(EXAMPLE_OPPORTUNITIES))
+        mockOpportunitiesDraft.mockResolvedValue({ ...EXAMPLE_RUN, run_status: 'pending', completed_at: null })
     })
 
     afterEach(() => {
@@ -122,6 +139,74 @@ describe('contentAutopilotLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         return logic
     }
+
+    it('shows saved opportunities while the refresh runs and keeps rows the refresh response leaves out', async () => {
+        const [first] = EXAMPLE_OPPORTUNITIES
+        const pendingRefresh = deferred<typeof EXAMPLE_OPPORTUNITIES>()
+        mockOpportunitiesRefresh.mockReturnValue(pendingRefresh.promise)
+        logic = contentAutopilotLogic()
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['loadOpportunitiesSuccess', 'refreshOpportunities'])
+        expect(logic.values.opportunities).toEqual(EXAMPLE_OPPORTUNITIES)
+        expect(mockOpportunitiesRefresh).toHaveBeenCalledTimes(1)
+        expect(mockOpportunitiesRefresh).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), {
+            profile_id: EXAMPLE_PROFILE.id,
+        })
+
+        pendingRefresh.resolve([first])
+        await expectLogic(logic).toDispatchActions(['refreshOpportunitiesSuccess'])
+        expect(logic.values.opportunities).toEqual(EXAMPLE_OPPORTUNITIES)
+    })
+
+    it('skips the refresh on open when the citation data was read in the last hour, but not after a settings save', async () => {
+        const freshOpportunities = EXAMPLE_OPPORTUNITIES.map((opportunity) => ({
+            ...opportunity,
+            last_refreshed_at: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
+        }))
+        jest.mocked(webAnalyticsContentAutopilotOpportunitiesList).mockResolvedValue(paginated(freshOpportunities))
+
+        const mountedLogic = await mountWorkspace()
+
+        expect(mountedLogic.values.opportunities).toEqual(freshOpportunities)
+        expect(mockOpportunitiesRefresh).not.toHaveBeenCalled()
+
+        await expectLogic(mountedLogic, () => mountedLogic.actions.saveProfile()).toDispatchActions([
+            'saveProfileSuccess',
+            'loadOpportunitiesSuccess',
+            'refreshOpportunities',
+        ])
+        expect(mockOpportunitiesRefresh).toHaveBeenCalledTimes(1)
+    })
+
+    it('drafts only the selected opportunities for the current site and clears the selection', async () => {
+        const mountedLogic = await mountWorkspace()
+        const [first, second] = EXAMPLE_OPPORTUNITIES
+
+        expect(mountedLogic.values.draftDisabledReason).toEqual('Select at least one opportunity')
+
+        mountedLogic.actions.setOpportunitySearch(first.title.toUpperCase())
+        expect(mountedLogic.values.visibleOpportunities.map(({ id }) => id)).toEqual([first.id])
+        mountedLogic.actions.setOpportunitySearch('')
+
+        mountedLogic.actions.toggleOpportunitySelection(first.id)
+        mountedLogic.actions.toggleOpportunitySelection(second.id)
+        jest.mocked(webAnalyticsContentAutopilotOpportunitiesList).mockResolvedValue(
+            paginated([first, { ...second, status: 'queued' }])
+        )
+        await expectLogic(mountedLogic, () => mountedLogic.actions.refreshOpportunities()).toFinishAllListeners()
+        expect(mountedLogic.values.selectedOpportunityIds).toEqual([first.id])
+        expect(mountedLogic.values.draftDisabledReason).toBeUndefined()
+
+        await expectLogic(mountedLogic, () => mountedLogic.actions.draftOpportunities()).toFinishAllListeners()
+
+        expect(mockOpportunitiesDraft).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), {
+            profile_id: EXAMPLE_PROFILE.id,
+            opportunity_ids: [first.id],
+        })
+        expect(mountedLogic.values.selectedOpportunityIds).toEqual([])
+        expect(mountedLogic.values.workspaceTab).toBe('drafts')
+    })
 
     it('sends typed run and profile payloads to the generated API clients', async () => {
         const mountedLogic = await mountWorkspace()
@@ -150,7 +235,6 @@ describe('contentAutopilotLogic', () => {
             sourceUrls: 'https://blog.example.com/sitemap.xml',
             contentBoundaries: '/blog',
             brandRules: 'Use sentence case',
-            searchConsoleEnabled: false,
         })
 
         await expectLogic(mountedLogic, () => mountedLogic.actions.saveProfile()).toFinishAllListeners()
@@ -161,7 +245,6 @@ describe('contentAutopilotLogic', () => {
             source_urls: ['https://blog.example.com/sitemap.xml'],
             content_boundaries: ['/blog'],
             brand_rules: ['Use sentence case'],
-            search_console_enabled: false,
         })
     })
 
@@ -255,19 +338,138 @@ describe('contentAutopilotLogic', () => {
         expect(mountedLogic.values.runs).toEqual([secondRun])
     })
 
-    it('groups the proposals returned for the selected site', async () => {
-        const newContent: ContentAutopilotProposalListApi = {
+    it('ignores refresh and drafting results for a site the user switched away from', async () => {
+        mockProfilesList.mockResolvedValue(paginated([EXAMPLE_PROFILE, EXAMPLE_SECOND_PROFILE]))
+        const mountedLogic = await mountWorkspace()
+        const [first] = EXAMPLE_OPPORTUNITIES
+        const secondSiteOpportunity: ContentAutopilotOpportunityApi = {
+            ...first,
+            id: '00000000-0000-4000-8000-000000000399',
+            profile_id: EXAMPLE_SECOND_PROFILE.id,
+        }
+        const staleRefresh = deferred<typeof EXAMPLE_OPPORTUNITIES>()
+        const staleDraft = deferred<ContentAutopilotRunApi>()
+        const secondSiteLoad = deferred<ReturnType<typeof paginated<ContentAutopilotOpportunityApi>>>()
+        mockOpportunitiesRefresh.mockReturnValueOnce(staleRefresh.promise)
+        mockOpportunitiesDraft.mockReturnValueOnce(staleDraft.promise)
+        jest.mocked(webAnalyticsContentAutopilotOpportunitiesList).mockImplementation((_, params) =>
+            params?.profile_id === EXAMPLE_SECOND_PROFILE.id
+                ? secondSiteLoad.promise
+                : Promise.resolve(paginated([{ ...first, title: 'Refreshed for the first site' }]))
+        )
+
+        mountedLogic.actions.refreshOpportunities()
+        mountedLogic.actions.toggleOpportunitySelection(first.id)
+        mountedLogic.actions.draftOpportunities()
+        mountedLogic.actions.selectProfile(EXAMPLE_SECOND_PROFILE.id)
+        mountedLogic.actions.toggleOpportunitySelection(secondSiteOpportunity.id)
+
+        staleRefresh.resolve(EXAMPLE_OPPORTUNITIES)
+        staleDraft.resolve({ ...EXAMPLE_RUN, run_status: 'pending', profile_id: EXAMPLE_PROFILE.id })
+        await expectLogic(mountedLogic).toDispatchActionsInAnyOrder([
+            'refreshOpportunitiesSuccess',
+            'draftOpportunitiesSuccess',
+        ])
+        expect(mountedLogic.values.opportunities).toBeNull()
+        expect(mountedLogic.values.workspaceTab).toBe('opportunities')
+
+        secondSiteLoad.resolve(paginated([secondSiteOpportunity]))
+        await expectLogic(mountedLogic).toFinishAllListeners()
+        expect(mountedLogic.values.opportunities).toEqual([secondSiteOpportunity])
+        expect(mountedLogic.values.selectedOpportunityIds).toEqual([secondSiteOpportunity.id])
+        expect(mountedLogic.values.workspaceTab).toBe('opportunities')
+    })
+
+    it('lists queued pages last only while their run is active, and keeps only run-level errors', async () => {
+        const rejected: ContentAutopilotProposalListApi = {
             ...EXAMPLE_PROPOSAL_LIST,
             id: '00000000-0000-4000-8000-000000000202',
-            proposal_type: 'new_content',
+            lifecycle_status: 'rejected',
         }
-        mockProposalsList.mockResolvedValue(paginated([EXAMPLE_PROPOSAL_LIST, newContent]))
+        const failed: ContentAutopilotProposalListApi = {
+            ...EXAMPLE_PROPOSAL_LIST,
+            id: '00000000-0000-4000-8000-000000000203',
+            lifecycle_status: 'failed',
+        }
+        const ready: ContentAutopilotProposalListApi = {
+            ...EXAMPLE_PROPOSAL_LIST,
+            lifecycle_status: 'ready_for_review',
+        }
+        const failedInAnOlderRun: ContentAutopilotProposalListApi = {
+            ...EXAMPLE_PROPOSAL_LIST,
+            id: '00000000-0000-4000-8000-000000000204',
+            run_id: '00000000-0000-4000-8000-000000000199',
+            lifecycle_status: 'failed',
+        }
+        const queued: ContentAutopilotOpportunityApi = {
+            ...EXAMPLE_OPPORTUNITIES[0],
+            id: '00000000-0000-4000-8000-000000000301',
+            status: 'queued',
+            run_id: EXAMPLE_RUN.id,
+            proposal_id: null,
+        }
+        const redraftedFromAnOlderRun: ContentAutopilotOpportunityApi = {
+            ...EXAMPLE_OPPORTUNITIES[0],
+            id: '00000000-0000-4000-8000-000000000302',
+            status: 'queued',
+            run_id: EXAMPLE_RUN.id,
+            proposal_id: failedInAnOlderRun.id,
+        }
+        const startedInThisRun: ContentAutopilotOpportunityApi = {
+            ...EXAMPLE_OPPORTUNITIES[0],
+            id: '00000000-0000-4000-8000-000000000303',
+            status: 'queued',
+            run_id: EXAMPLE_RUN.id,
+            proposal_id: failed.id,
+        }
+        mockProposalsList.mockResolvedValue(paginated([rejected, failed, failedInAnOlderRun, ready]))
+        jest.mocked(webAnalyticsContentAutopilotOpportunitiesList).mockResolvedValue(
+            paginated([queued, redraftedFromAnOlderRun, startedInThisRun])
+        )
+        mockRunsList.mockResolvedValue(paginated([{ ...EXAMPLE_RUN, run_status: 'generating' }]))
 
         const mountedLogic = await mountWorkspace()
 
-        expect(mountedLogic.values.siteProposals.map(({ id }) => id)).toEqual([EXAMPLE_PROPOSAL_LIST.id, newContent.id])
-        expect(mountedLogic.values.newContentProposals.map(({ id }) => id)).toEqual([newContent.id])
-        expect(mountedLogic.values.pageImprovementProposals.map(({ id }) => id)).toEqual([EXAMPLE_PROPOSAL_LIST.id])
+        expect(mountedLogic.values.draftRows.map(({ id }) => id)).toEqual([
+            ready.id,
+            failed.id,
+            failedInAnOlderRun.id,
+            rejected.id,
+            queued.id,
+            redraftedFromAnOlderRun.id,
+        ])
+
+        mockRunsList.mockResolvedValue(
+            paginated([
+                {
+                    ...EXAMPLE_RUN,
+                    run_status: 'failed',
+                    errors: [
+                        {
+                            error_code: 'checks_failed',
+                            message: "A question: the draft didn't pass its checks. Open it to see what to fix.",
+                        },
+                        {
+                            error_code: 'timed_out',
+                            message: 'Drafting took too long. Try fewer opportunities at once.',
+                        },
+                    ],
+                },
+            ])
+        )
+        mountedLogic.actions.loadRuns()
+        await expectLogic(mountedLogic).toFinishAllListeners()
+
+        expect(mountedLogic.values.draftRows.map(({ id }) => id)).toEqual([
+            ready.id,
+            failed.id,
+            failedInAnOlderRun.id,
+            rejected.id,
+        ])
+        expect(mountedLogic.values.readyDraftCount).toBe(1)
+        expect(mountedLogic.values.latestRunErrors).toEqual([
+            'Drafting took too long. Try fewer opportunities at once.',
+        ])
     })
 
     it('polls while work is active and stops refreshing after it settles', async () => {
@@ -338,31 +540,31 @@ describe('contentAutopilotLogic', () => {
         ['ready_for_review' as const, undefined, undefined, 'No unsaved changes', undefined],
         [
             'failed' as const,
-            'Only a proposal ready for review can be rejected',
+            'Only a draft ready for review can be rejected',
             undefined,
-            'Only a proposal ready for review can be edited',
-            'Only a proposal ready for review can be exported',
+            'Only a draft ready for review can be edited',
+            'Only a draft ready for review can be downloaded',
         ],
         [
             'rejected' as const,
-            'Only a proposal ready for review can be rejected',
-            'Only proposals ready for review or failed can be regenerated',
-            'Only a proposal ready for review can be edited',
-            'Only a proposal ready for review can be exported',
+            'Only a draft ready for review can be rejected',
+            'Only drafts ready for review or failed can be regenerated',
+            'Only a draft ready for review can be edited',
+            'Only a draft ready for review can be downloaded',
         ],
         [
             'generating' as const,
-            'Only a proposal ready for review can be rejected',
-            'Only proposals ready for review or failed can be regenerated',
-            'Only a proposal ready for review can be edited',
-            'Only a proposal ready for review can be exported',
+            'Only a draft ready for review can be rejected',
+            'Only drafts ready for review or failed can be regenerated',
+            'Only a draft ready for review can be edited',
+            'Only a draft ready for review can be downloaded',
         ],
         [
             'exported' as const,
-            'Only a proposal ready for review can be rejected',
-            'Only proposals ready for review or failed can be regenerated',
-            'Only a proposal ready for review can be edited',
-            'Only a proposal ready for review can be exported',
+            'Only a draft ready for review can be rejected',
+            'Only drafts ready for review or failed can be regenerated',
+            'Only a draft ready for review can be edited',
+            'Only a draft ready for review can be downloaded',
         ],
     ])(
         'only offers the proposal actions a %s proposal accepts',

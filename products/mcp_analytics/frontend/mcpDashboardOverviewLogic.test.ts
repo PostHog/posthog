@@ -11,7 +11,7 @@ import { urls } from 'scenes/urls'
 import { initKeaTests } from '~/test/init'
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
-import { HARNESS_BY_LABEL, harnessLogo } from './dashboard/harnessRegistry'
+import { HARNESS_BY_LABEL, harnessMark } from './dashboard/harnessRegistry'
 import {
     type ActivityRow,
     type BucketRow,
@@ -46,7 +46,7 @@ function session(overrides: Partial<SessionRow> & { session_id: string }): Sessi
 }
 
 describe('mcpDashboardOverviewLogic', () => {
-    describe('harnessLogo', () => {
+    describe('harnessMark', () => {
         // The expected labels mirror HARNESS_LABELS in mcp_harness.py, minus "Other".
         // If the backend renames or adds a label, update this list to keep it in sync
         // and add the corresponding entry to HARNESS_BY_LABEL in harnessRegistry.ts.
@@ -76,6 +76,7 @@ describe('mcpDashboardOverviewLogic', () => {
             'Linear',
             'LibreChat',
             'Pi',
+            'Kimchi',
             'Antigravity',
             'Poke',
             'opencode',
@@ -102,17 +103,24 @@ describe('mcpDashboardOverviewLogic', () => {
             'Manus',
             'LibreChat',
             'Pi',
+            'Kimchi',
             'Antigravity',
-        ])('resolves a logo for the %s category', (category) => {
-            expect(harnessLogo(category)?.src).toBeTruthy()
+            'Anthropic API',
+            'Kiro',
+            'PostHog CLI',
+            'Poke',
+            'Desktop Commander',
+        ])('resolves a brand mark for the %s category', (category) => {
+            expect(harnessMark(category)).not.toEqual('Other harnesses')
         })
 
-        it.each(['Anthropic API', 'Poke', 'Kiro', 'Desktop Commander', 'Other'])(
-            'has no logo for the logo-less %s category',
-            (category) => {
-                expect(harnessLogo(category)).toBeUndefined()
-            }
-        )
+        it.each([
+            ['Other', 'Other harnesses'],
+            ['Unidentified client', 'Unidentified client'],
+            ['A harness with no mark yet', 'Other harnesses'],
+        ])('falls back to a generic mark for %s', (category, expected) => {
+            expect(harnessMark(category)).toEqual(expected)
+        })
     })
 
     describe('deltaPct', () => {
@@ -568,6 +576,25 @@ describe('mcpDashboardOverviewLogic', () => {
             expect(
                 reloads.every((call) => JSON.stringify(filtersOf(call).properties) === JSON.stringify([EVENT_FILTER]))
             ).toBe(true)
+        })
+        it('opens a tool report on the dashboard window with the shared filters', async () => {
+            router.actions.push(urls.mcpAnalyticsDashboard(), {
+                properties: [EVENT_FILTER],
+                filter_test_accounts: true,
+            })
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.openToolReport('search docs')
+
+            const { pathname, searchParams } = router.values.currentLocation
+            expect(pathname.endsWith(urls.mcpAnalyticsTool('search docs'))).toBe(true)
+            expect(searchParams).toEqual({
+                date_from: '-7d',
+                properties: [EVENT_FILTER],
+                filter_test_accounts: true,
+            })
         })
         it('reloads tiles once when the URL changes the date and shared filters together', async () => {
             router.actions.push(urls.mcpAnalyticsDashboard())

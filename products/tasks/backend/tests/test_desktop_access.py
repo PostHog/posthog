@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -84,6 +86,7 @@ class TestDesktopAccessPolicy(APIBaseTest):
         self.assertEqual(decision.allowed, expected_allowed)
         self.assertEqual(decision.reason, expected_reason)
 
+    @override_settings(DESKTOP_SIGNUP_CUTOFF="2000-01-01T00:00:00+00:00")
     @patch("products.tasks.backend.access._get_funding_status")
     def test_override_grants_access_before_funding_resolution(self, mock_funding) -> None:
         self.mock_feature_flag.side_effect = [True]
@@ -92,6 +95,118 @@ class TestDesktopAccessPolicy(APIBaseTest):
 
         self.assertTrue(decision.allowed)
         mock_funding.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("joined_before_cutoff", "2026-10-02T00:00:00+00:00", "2026-10-01T23:59:59+00:00", True, True),
+            ("joined_at_cutoff", "2026-10-02T00:00:00+00:00", "2026-10-02T00:00:00+00:00", True, False),
+            ("naive_cutoff_reads_as_utc", "2026-10-02T00:00:00", "2026-10-02T00:00:01+00:00", True, False),
+            ("cutoff_unset", "", "2026-10-03T00:00:00+00:00", True, True),
+            ("gate_flag_off", "2026-10-02T00:00:00+00:00", "2026-10-03T00:00:00+00:00", False, True),
+        ]
+    )
+    @patch("products.tasks.backend.access._get_funding_status")
+    def test_signup_cutoff_blocks_new_users_without_a_reason(
+        self,
+        _name: str,
+        cutoff: str,
+        date_joined: str,
+        gate_flag_enabled: bool,
+        expected_allowed: bool,
+        mock_funding,
+    ) -> None:
+        mock_funding.return_value = OrganizationFundingStatus(
+            startup_program_label=None, prepaid_credit_state=PrepaidCreditState.NONE
+        )
+        self.mock_feature_flag.side_effect = lambda key, *_args, **_kwargs: (
+            gate_flag_enabled if key == "posthog-desktop-signup-gate" else False
+        )
+        self.user.date_joined = datetime.fromisoformat(date_joined)
+        self.user.save(update_fields=["date_joined"])
+
+        with override_settings(DESKTOP_SIGNUP_CUTOFF=cutoff):
+            response = self.client.get(f"/api/projects/{self.team.id}/desktop/access/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"allowed": expected_allowed, "reason": None})
+
+    @parameterized.expand(
+        [
+            ("allowed", None, PrepaidCreditState.NONE, True),
+            ("startup", "Startup", PrepaidCreditState.NONE, False),
+            ("prepaid", None, PrepaidCreditState.ACTIVE, False),
+        ]
+    )
+    @patch("products.tasks.backend.access._get_funding_status")
+    def test_funding_cache_reuses_the_decision_within_its_window(
+        self, _name, startup_program_label, prepaid_credit_state, expected_allowed, mock_funding
+    ) -> None:
+        mock_funding.return_value = OrganizationFundingStatus(
+            startup_program_label=startup_program_label, prepaid_credit_state=prepaid_credit_state
+        )
+        first = get_desktop_access_decision(self.user, self.organization, funding_cache_seconds=300)
+        second = get_desktop_access_decision(self.user, self.organization, funding_cache_seconds=300)
+
+        self.assertEqual((first.allowed, second.allowed), (expected_allowed, expected_allowed))
+        self.assertEqual(first, second)
+        self.assertEqual(mock_funding.call_count, 1)
+        # The per-user override flag is never cached.
+        self.assertEqual(self.mock_feature_flag.call_count, 2)
+
+    @patch("products.tasks.backend.access._get_funding_status")
+    def test_funding_cache_lives_for_the_window_it_was_given(self, mock_funding) -> None:
+        mock_funding.return_value = OrganizationFundingStatus(
+            startup_program_label=None, prepaid_credit_state=PrepaidCreditState.NONE
+        )
+        with patch("products.tasks.backend.access.cache.set", wraps=cache.set) as cache_set:
+            get_desktop_access_decision(self.user, self.organization, funding_cache_seconds=300)
+        cache_set.assert_called_once_with(
+            f"desktop_access_funding_decision:{self.organization.id}", "allowed", timeout=300
+        )
+
+    @patch("products.tasks.backend.access._get_funding_status")
+    def test_without_a_funding_cache_every_call_reads_funding(self, mock_funding) -> None:
+        mock_funding.return_value = OrganizationFundingStatus(
+            startup_program_label=None, prepaid_credit_state=PrepaidCreditState.NONE
+        )
+        get_desktop_access_decision(self.user, self.organization)
+        get_desktop_access_decision(self.user, self.organization)
+        self.assertEqual(mock_funding.call_count, 2)
+
+    @patch("products.tasks.backend.access._get_funding_status")
+    def test_a_funding_failure_is_not_cached(self, mock_funding) -> None:
+        mock_funding.side_effect = [
+            DesktopAccessResolutionError("unavailable"),
+            OrganizationFundingStatus(startup_program_label=None, prepaid_credit_state=PrepaidCreditState.NONE),
+        ]
+        with self.assertRaises(DesktopAccessResolutionError):
+            get_desktop_access_decision(self.user, self.organization, funding_cache_seconds=300)
+        self.assertTrue(get_desktop_access_decision(self.user, self.organization, funding_cache_seconds=300).allowed)
+        self.assertEqual(mock_funding.call_count, 2)
+
+    @patch("products.tasks.backend.access._get_funding_status")
+    def test_an_unexpected_cached_value_falls_through_to_the_live_lookup(self, mock_funding) -> None:
+        mock_funding.return_value = OrganizationFundingStatus(
+            startup_program_label="Startup", prepaid_credit_state=PrepaidCreditState.NONE
+        )
+        for unexpected in (["allowed"], "not_a_decision"):
+            cache.set(f"desktop_access_funding_decision:{self.organization.id}", unexpected, timeout=300)
+            decision = get_desktop_access_decision(self.user, self.organization, funding_cache_seconds=300)
+            self.assertFalse(decision.allowed)
+        self.assertEqual(mock_funding.call_count, 2)
+
+    @patch("products.tasks.backend.access._get_funding_status")
+    def test_a_cache_error_falls_through_to_the_live_lookup(self, mock_funding) -> None:
+        mock_funding.return_value = OrganizationFundingStatus(
+            startup_program_label="Startup", prepaid_credit_state=PrepaidCreditState.NONE
+        )
+        with (
+            patch("products.tasks.backend.access.cache.get", side_effect=ConnectionError("down")),
+            patch("products.tasks.backend.access.cache.set", side_effect=ConnectionError("down")),
+        ):
+            decision = get_desktop_access_decision(self.user, self.organization, funding_cache_seconds=300)
+        self.assertFalse(decision.allowed)
+        mock_funding.assert_called_once()
 
     @patch(
         "products.tasks.backend.logic.services.code_usage_gate.get_desktop_access_decision",
@@ -106,12 +221,43 @@ class TestDesktopAccessPolicy(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
         self.assertEqual(response.data["code"], "desktop_access_unavailable")
 
-    @parameterized.expand([(None,), ("control",), ("false",)])
-    def test_indeterminate_override_flag_fails_closed(self, flag_value) -> None:
-        self.mock_feature_flag.side_effect = [flag_value]
+    @parameterized.expand(
+        [
+            ("override_none", None, False, None, False),
+            ("override_control", "control", False, None, False),
+            ("override_false_string", "false", False, None, False),
+            ("override_none_funding_fails", None, False, DesktopAccessResolutionError("unavailable"), True),
+            ("gate_none_after_cutoff", False, True, None, True),
+        ]
+    )
+    @patch("products.tasks.backend.access._get_funding_status")
+    def test_indeterminate_flags(
+        self,
+        _name: str,
+        override_value: object,
+        signed_up_after_cutoff: bool,
+        funding_error: DesktopAccessResolutionError | None,
+        expected_raise: bool,
+        mock_funding,
+    ) -> None:
+        if funding_error is not None:
+            mock_funding.side_effect = funding_error
+        else:
+            mock_funding.return_value = OrganizationFundingStatus(
+                startup_program_label=None, prepaid_credit_state=PrepaidCreditState.NONE
+            )
+        self.mock_feature_flag.side_effect = [override_value, None]
+        cutoff = "2000-01-01T00:00:00+00:00" if signed_up_after_cutoff else ""
 
-        with self.assertRaises(DesktopAccessResolutionError):
-            get_desktop_access_decision(self.user, self.organization)
+        with override_settings(DESKTOP_SIGNUP_CUTOFF=cutoff):
+            if expected_raise:
+                with self.assertRaises(DesktopAccessResolutionError):
+                    get_desktop_access_decision(self.user, self.organization)
+                return
+            decision = get_desktop_access_decision(self.user, self.organization)
+
+        self.assertTrue(decision.allowed)
+        mock_funding.assert_called_once()
 
     @patch(
         "products.tasks.backend.access._get_funding_status",

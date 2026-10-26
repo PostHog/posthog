@@ -4,7 +4,7 @@ Use this first when the user asks which errors are happening, which errors are m
 
 Defaults are intentionally useful: active issues, last 7 days, sorted by occurrences, test accounts filtered out, 10 rows per page, and compact aggregate counts. Each row carries a short `description` preview. Use `query-error-tracking-issue` for the full description.
 
-Keep `limit` small. When `hasMore` is true and you need more rows, fetch the next page with `offset` set to `nextOffset`. Set `volumeResolution` only when the user asks for volume over time.
+Keep `limit` small. When `hasMore` is true and you need more rows, fetch the next page with `offset` set to `nextOffset`. Set `volumeResolution` only when the user asks for volume over time. It is an integer count of equal-width buckets across `dateRange`, from 0 to 200, not a unit such as `hour` or `day`. For daily volume over the default 7-day range, send `7`. For hourly volume over the last 24 hours, send `24` with `dateRange.date_from` set to `-24h`.
 
 For all-time issue counts by status or severity, query `system.error_tracking_issues` with `posthog:execute-sql`. The table follows the connected user's Error tracking access and only returns issues from the current project. This list tool only includes issues observed during `dateRange`.
 
@@ -15,7 +15,7 @@ Be minimalist. Only add filters needed to answer the user’s question. Do not a
 - `status`: `active`, `resolved`, `suppressed`, `pending_release`, `archived`, or `all`. Defaults to `active`.
 - `searchQuery`: free-text search for exception names, values, stack frames, and email text.
 - `library`: exact `$lib` match, for example `posthog-js`.
-- `release`: exact release ID, release version, or git commit ID captured in `$exception_releases`. This intentionally does not match project name, branch, or timestamp fragments.
+- `release`: exact release ID, release version, or git commit ID captured in `$exception_release`. This intentionally does not match project name, branch, or timestamp fragments.
 - `fingerprint`: exact `$exception_fingerprint` match.
 - `url`: substring match on `$current_url`.
 - `personId`: exact PostHog person UUID.

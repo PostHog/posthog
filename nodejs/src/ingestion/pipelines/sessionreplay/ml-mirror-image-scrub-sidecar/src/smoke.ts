@@ -17,11 +17,17 @@
  * the output pixels, because a face model can run and still put its boxes away from the face.
  */
 import { readFile } from 'node:fs/promises'
+import { fileURLToPath } from 'node:url'
 import sharp from 'sharp'
 
 import { startPool } from './pool.ts'
+import { startSvgRasterizer } from './svg.ts'
 
 const WORKER_URL = new URL('./scrub-worker.ts', import.meta.url)
+const SVG_RASTERIZER_PATH = fileURLToPath(new URL('./svg-rasterizer-process.mjs', import.meta.url))
+const SVG_FIXTURE = Buffer.from(
+    "<svg xmlns='http://www.w3.org/2000/svg' width='16' height='8'><rect width='16' height='8' fill='red'/></svg>"
+)
 
 /**
  * A rendered fixture, embedded as bytes rather than drawn here.
@@ -127,11 +133,20 @@ async function greySpreadOverFaceMiddle(
 
 async function main(): Promise<void> {
     const pool = await startPool(2, WORKER_URL)
+    const svg = await startSvgRasterizer(1, SVG_RASTERIZER_PATH, 10_000, 10_000)
     const png = TEXT_FIXTURE_PNG
     const face = await readFile(FACE_FIXTURE)
     // Two at once, so the build fails if a second worker cannot start or the pool mis-routes replies.
-    const [first, second, faceScrub] = await Promise.all([pool.scrub(png), pool.scrub(png), pool.scrub(face)])
-    await pool.close()
+    const [first, second, faceScrub, svgScrub] = await Promise.all([
+        pool.scrub(png),
+        pool.scrub(png),
+        pool.scrub(face),
+        svg.rasterize(SVG_FIXTURE).then((raster) => pool.scrub(raster)),
+    ])
+    await Promise.all([pool.close(), svg.close()])
+    if (svgScrub.out.length === 0) {
+        throw new Error('smoke scrub of the rendered svg produced empty output')
+    }
 
     for (const [label, result] of [
         ['first', first],

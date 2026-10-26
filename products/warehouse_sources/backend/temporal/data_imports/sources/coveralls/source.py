@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,16 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CoverallsSource(ResumableSource[CoverallsSourceConfig, CoverallsResumeConfig]):
+    codebase_detection = detect(
+        env=("^COVERALLS_",),
+        npm=("coveralls", "coveralls-next"),
+        pypi=("coveralls",),
+        composer=("php-coveralls/php-coveralls",),
+        go=("github.com/mattn/goveralls",),
+        hex=("excoveralls",),
+        rubygems=("coveralls", "coveralls_reborn", "ajax-datatables-rails-coveralls"),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -54,7 +65,7 @@ class CoverallsSource(ResumableSource[CoverallsSourceConfig, CoverallsResumeConf
             name=ExternalDataSourceType.COVERALLS,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Coveralls",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["code coverage", "coverage", "coveralls.io"],
             caption="""Pull per-build code coverage history from [Coveralls](https://coveralls.io) into the PostHog Data warehouse to track coverage trends and catch regressions across repositories.
 

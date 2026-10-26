@@ -38,10 +38,10 @@ class TestSetScheduleAnchor(BaseTest):
         Edge.objects.create(team=self.team, dag=self.dag, source=self.source, target=self.matview)
         set_declared_target(self.matview, H1)
 
-    def _run(self, *args, reconcile_applied=True):
+    def _run(self, *args):
         out = StringIO()
         with (
-            mock.patch(f"{COMMAND}.reconcile_dag_schedules", return_value=reconcile_applied) as reconcile,
+            mock.patch(f"{COMMAND}.reconcile_dag_schedules") as reconcile,
         ):
             call_command("set_schedule_anchor", "--team-id", str(self.team.pk), *args, stdout=out)
         return out.getvalue(), reconcile
@@ -50,7 +50,7 @@ class TestSetScheduleAnchor(BaseTest):
         output, reconcile = self._run("--dag-id", str(self.dag.id), "--at", "00:00")
         self.matview.refresh_from_db()
         self.assertEqual(get_declared_anchor(self.matview), 0)
-        reconcile.assert_called_once_with(self.dag, require_tiered=True)
+        reconcile.assert_called_once_with(self.dag)
         self.assertIn("1hour@00:00", output)
 
     def test_saved_query_mode_anchors_only_the_named_query(self):
@@ -111,12 +111,6 @@ class TestSetScheduleAnchor(BaseTest):
         downstream.refresh_from_db()
         self.assertIsNone(get_declared_anchor(self.matview))
         self.assertIsNone(get_declared_anchor(downstream))
-
-    def test_untiered_dag_stores_anchor_but_says_so_instead_of_claiming_reconcile(self):
-        output, _reconcile = self._run("--dag-id", str(self.dag.id), "--at", "00:00", reconcile_applied=False)
-        self.matview.refresh_from_db()
-        self.assertEqual(get_declared_anchor(self.matview), 0)
-        self.assertIn("not on cadence-tier schedules yet", output)
 
     def test_a_refusal_on_one_dag_writes_nothing_anywhere(self):
         # a --saved-query-names set spanning two DAGs must validate both before writing to either:

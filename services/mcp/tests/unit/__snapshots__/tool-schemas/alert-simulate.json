@@ -1,6 +1,17 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "alert": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "ID of the saved alert this preview is for. The AI detector reads the points that the alert's earlier AI checks fired on, the same way a live check does. Omit it for a new alert."
+        },
         "config": {
             "anyOf": [
                 {
@@ -2215,42 +2226,23 @@
                             ],
                             "description": "What counts as unusual or interesting for this metric, in your own words. Optional."
                         },
-                        "threshold": {
-                            "anyOf": [
-                                {
-                                    "maximum": 1,
-                                    "minimum": 0,
-                                    "type": "number"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ],
-                            "description": "Minimum confidence [0-1] the model must report before the alert fires (default: 0.7)"
-                        },
                         "type": {
                             "default": "llm",
                             "enum": ["llm"],
                             "type": "string"
-                        },
-                        "window": {
-                            "anyOf": [
-                                {
-                                    "maximum": 400,
-                                    "minimum": 5,
-                                    "type": "number"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ],
-                            "description": "How many recent points the model is shown (default: 90)"
                         }
                     },
                     "type": "object"
                 }
             ],
             "description": "Detector configuration to simulate. Omit it to use the default daily z-score detector (threshold 0.95, window 90, first-difference preprocessing)."
+        },
+        "evaluation_delay_intervals": {
+            "default": 0,
+            "description": "Skip this many completed insight intervals before simulation, matching live evaluation. Time-series Trends only; a positive delay requires check_ongoing_interval=false.",
+            "maximum": 100,
+            "minimum": 0,
+            "type": "number"
         },
         "insight": {
             "anyOf": [

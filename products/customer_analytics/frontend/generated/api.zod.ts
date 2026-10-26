@@ -234,7 +234,7 @@ export const AccountTrackRulesRunCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * @summary Create a private account view
+ * @summary Create a personal account view
  */
 export const accountViewsCreateBodyNameMax = 400
 
@@ -319,10 +319,12 @@ export const AccountViewsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Replacement account view components. Omit to keep current content.'),
     visibility: zod
-        .enum(['private'])
-        .describe('\* `private` - Personal')
+        .enum(['private', 'team'])
+        .describe('\* `private` - Personal\n\* `team` - Team')
         .optional()
-        .describe('Views can only be private.\n\n\* `private` - Personal'),
+        .describe(
+            'New visibility. Only the creator or a project admin can change it.\n\n\* `private` - Personal\n\* `team` - Team'
+        ),
     version: zod.number().min(1).describe('Version returned by the last read.'),
 })
 
@@ -388,6 +390,12 @@ export const AccountsCreateBody = /* @__PURE__ */ zod
             .datetime({ offset: true })
             .nullish()
             .describe('When the account churned. Null means the account has not churned.'),
+        ignored_at: zod.iso
+            .datetime({ offset: true })
+            .nullish()
+            .describe(
+                'When the account was ignored, set by Track Rules or by hand. Null means the account is tracked.'
+            ),
     })
     .describe('A Customer Analytics account — a logical grouping used to assign customer-success ownership.')
 
@@ -486,6 +494,12 @@ export const AccountsUpdateBody = /* @__PURE__ */ zod
             .datetime({ offset: true })
             .nullish()
             .describe('When the account churned. Null means the account has not churned.'),
+        ignored_at: zod.iso
+            .datetime({ offset: true })
+            .nullish()
+            .describe(
+                'When the account was ignored, set by Track Rules or by hand. Null means the account is tracked.'
+            ),
     })
     .describe('A Customer Analytics account — a logical grouping used to assign customer-success ownership.')
 
@@ -555,6 +569,12 @@ export const AccountsPartialUpdateBody = /* @__PURE__ */ zod
             .datetime({ offset: true })
             .nullish()
             .describe('When the account churned. Null means the account has not churned.'),
+        ignored_at: zod.iso
+            .datetime({ offset: true })
+            .nullish()
+            .describe(
+                'When the account was ignored, set by Track Rules or by hand. Null means the account is tracked.'
+            ),
     })
     .describe('A Customer Analytics account — a logical grouping used to assign customer-success ownership.')
 
@@ -574,8 +594,17 @@ export const CustomerAnalyticsAccountsTableQueryCreateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
+export const announcementsCreateBodySendAsDefault = `bot`
+
 export const AnnouncementsCreateBody = /* @__PURE__ */ zod.object({
     message: zod.string().describe('Message body to send, rendered as Slack mrkdwn.'),
+    send_as: zod
+        .enum(['bot', 'user'])
+        .describe('\* `bot` - SupportHog\n\* `user` - The person who created it')
+        .default(announcementsCreateBodySendAsDefault)
+        .describe(
+            "Slack identity the message is posted under: 'bot' posts as SupportHog, 'user' posts under the Slack name and avatar of the person sending it (matched by their PostHog email).\n\n\* `bot` - SupportHog\n\* `user` - The person who created it"
+        ),
     channels: zod
         .array(zod.string())
         .describe(
@@ -1865,20 +1894,29 @@ export const GroupsTypesMetricsPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Replace the requesting user's ordered account sidebar properties when pinned_properties is provided, and change the task digest email preferences when task_digest is provided. Anything omitted keeps its current value. At most 50 account custom properties and relationships can be pinned.
+ * Replace the requesting user's ordered account sidebar properties when pinned_properties is provided, and change the task digest email preferences when task_digest is provided. Anything omitted keeps its current value. At most 50 account custom properties, relationships, and account fields can be pinned.
  * @summary Update account sidebar configuration
  */
+export const userCustomerAnalyticsConfigPartialUpdateBodyPinnedPropertiesItemIdMax = 64
+
 export const UserCustomerAnalyticsConfigPartialUpdateBody = /* @__PURE__ */ zod.object({
     pinned_properties: zod
         .array(
             zod.object({
                 kind: zod
-                    .enum(['custom_property', 'relationship'])
-                    .describe('\* `custom_property` - Custom property\n\* `relationship` - Relationship')
+                    .enum(['custom_property', 'relationship', 'account_field'])
                     .describe(
-                        'Definition type for this pinned account property.\n\n\* `custom_property` - Custom property\n\* `relationship` - Relationship'
+                        '\* `custom_property` - Custom property\n\* `relationship` - Relationship\n\* `account_field` - Account field'
+                    )
+                    .describe(
+                        'Type of this pinned account property: a custom property, a relationship, or a built-in account field.\n\n\* `custom_property` - Custom property\n\* `relationship` - Relationship\n\* `account_field` - Account field'
                     ),
-                id: zod.uuid().describe('Team-scoped custom property or relationship definition UUID.'),
+                id: zod
+                    .string()
+                    .max(userCustomerAnalyticsConfigPartialUpdateBodyPinnedPropertiesItemIdMax)
+                    .describe(
+                        'Team-scoped custom property or relationship definition UUID. For an account_field pin, the account field name, such as stripe_customer_id.'
+                    ),
             })
         )
         .optional()
@@ -1902,4 +1940,15 @@ export const UserCustomerAnalyticsConfigPartialUpdateBody = /* @__PURE__ */ zod.
         .describe(
             'Task digest email preferences to change. Omit the object to keep them all; omit a field inside it to keep that one.'
         ),
+    account_detail_tabs: zod
+        .object({
+            ordered_tab_ids: zod.array(zod.string()).describe("Tab identifiers in the user's preferred order."),
+            hidden_tab_ids: zod.array(zod.string()).describe('Tab identifiers hidden from the tab strip.'),
+            default_tab_id: zod
+                .string()
+                .nullable()
+                .describe('Tab identifier opened by default. Null uses the first available system tab.'),
+        })
+        .optional()
+        .describe('Complete personal account tab configuration. Omit to keep it unchanged.'),
 })

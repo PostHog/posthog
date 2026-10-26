@@ -77,7 +77,7 @@ TICKET_COMMENT_SCOPES = frozenset({"Ticket", "conversations_ticket"})
 COMMENT_SCOPES_BLOCKED_FROM_GENERIC_API = frozenset({"EmailThread"})
 
 CANVAS_COMMENT_SCOPES = frozenset({"canvas", "desktop_canvas"})
-STORED_CANVAS_COMMENT_SCOPE = "desktop_canvas"
+STORED_CANVAS_COMMENT_SCOPE = "canvas"
 
 
 def canonical_comment_scope(scope: str) -> str:

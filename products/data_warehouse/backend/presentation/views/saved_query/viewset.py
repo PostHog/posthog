@@ -6,7 +6,6 @@ from typing import Any, cast
 from django.db.models import Model, Prefetch
 
 import structlog
-import posthoganalytics
 from asgiref.sync import async_to_sync
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import exceptions, filters, request, response, serializers, status, viewsets
@@ -18,17 +17,32 @@ from posthog.hogql.database.database import Database
 
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import User
-from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
+from posthog.models.activity_logging.activity_log import Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response, parse_activity_page_params
 from posthog.rate_limit import MaterializationRateThrottle, RunSavedQueryRateThrottle
-from posthog.rbac.query_access import assert_user_can_read_query
 from posthog.temporal.common.client import sync_connect
 
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
-from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobEngine, DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.api import (
+    MaterializationFailedError,
+    MaterializationForbiddenError,
+    MaterializationRefusedError,
+    MaterializationRunDirection,
+    SavedQueryNotFoundError,
+    disable_saved_query_materialization,
+    enable_saved_query_materialization,
+    run_related_node_materializations,
+)
+from products.data_modeling.backend.facade.flags import is_managed_viewset_enabled
+from products.data_modeling.backend.facade.models import (
+    DataModelingJob,
+    DataModelingJobEngine,
+    DataWarehouseSavedQuery,
+    Node,
+    NodeType,
+)
 from products.warehouse_sources.backend.facade.models import sync_frequency_to_sync_frequency_interval
 
 from . import editing, incremental_config, lifecycle, lineage, sync_cadence, view_state
@@ -89,6 +103,28 @@ class SavedQueryRunSerializer(serializers.Serializer):
         "view that is not incremental. This is how you reprocess history after changing what the "
         "query means without changing its text, or after upstream data was corrected.",
     )
+    direction = serializers.ChoiceField(
+        choices=MaterializationRunDirection.choices,
+        required=False,
+        help_text=(
+            "Run this view with all upstream dependencies or all downstream dependents. "
+            "Omit this field to run only this view. You cannot use it with full_refresh."
+        ),
+    )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if attrs.get("direction") and attrs["full_refresh"]:
+            raise serializers.ValidationError(
+                {"full_refresh": "You cannot use full_refresh with an upstream or downstream run."}
+            )
+        return attrs
+
+
+class SavedQueryRunResponseSerializer(serializers.Serializer):
+    node_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        help_text="The data model nodes included in the run.",
+    )
 
 
 class SavedQueryMaterializeSerializer(serializers.Serializer):
@@ -130,6 +166,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
         context["include_columns"] = self._include_columns
+        context["report_view_actions"] = self.action in {"create", "update", "partial_update"}
         request_data = getattr(self.request, "data", {})
         # Read actions stay out: building a database selects every view in the team, SQL body
         # included, and neither serializer reads it. Only the write paths below do, to check a
@@ -189,25 +226,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             base_queryset = base_queryset.defer("columns")
 
         # Detect whether we should include managed views in the queryset
-        is_managed_viewset_enabled = posthoganalytics.feature_enabled(
-            "managed-viewsets",
-            str(self.team.uuid),
-            groups={
-                "organization": str(self.team.organization_id),
-                "project": str(self.team.id),
-            },
-            group_properties={
-                "organization": {
-                    "id": str(self.team.organization_id),
-                },
-                "project": {
-                    "id": str(self.team.id),
-                },
-            },
-            send_feature_flag_events=False,
-        )
-
-        if not is_managed_viewset_enabled:
+        if not is_managed_viewset_enabled(self.team):
             base_queryset = base_queryset.filter(managed_viewset__isnull=True)
 
         return base_queryset
@@ -261,7 +280,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
 
         return response.Response(status=status.HTTP_204_NO_CONTENT)
 
-    @extend_schema(request=SavedQueryRunSerializer, responses={200: None})
+    @extend_schema(request=SavedQueryRunSerializer, responses={200: SavedQueryRunResponseSerializer})
     @action(
         methods=["POST"],
         detail=True,
@@ -271,6 +290,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
     def run(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Run this saved query."""
         from products.data_modeling.backend.facade.api import (
+            TRINO_INCREMENTAL_SCOPE,
             MissingDagNodeError,
             clear_incremental_state,
             materialize_saved_query,
@@ -287,13 +307,39 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             # dispatch could roll back, or the worker reads the old watermark and runs
             # incrementally instead.
             clear_incremental_state(saved_query)
+            clear_incremental_state(saved_query, scope=TRINO_INCREMENTAL_SCOPE)
 
         try:
-            materialize_saved_query(saved_query, triggered_by_id=request.user.pk)
+            direction = body.validated_data.get("direction")
+            if direction:
+                node = (
+                    Node.objects.filter(team_id=self.team_id, saved_query_id=saved_query.id)
+                    .order_by("created_at")
+                    .first()
+                )
+                if node is None:
+                    raise MissingDagNodeError
+                hidden_types = (
+                    frozenset()
+                    if self.user_access_control.check_access_level_for_resource("data_catalog", required_level="viewer")
+                    else frozenset({NodeType.METRIC})
+                )
+                node_ids = run_related_node_materializations(
+                    self.team_id,
+                    node.id,
+                    direction=direction,
+                    user=cast(User, request.user),
+                    hidden_types=hidden_types,
+                )
+            else:
+                node_id = materialize_saved_query(saved_query, triggered_by_id=request.user.pk)
+                node_ids = [str(node_id)]
         except MissingDagNodeError:
             raise exceptions.ValidationError(
                 detail="This view isn't fully set up to materialize. Save the query again, then try syncing."
             )
+        except MaterializationForbiddenError as error:
+            raise exceptions.PermissionDenied(str(error))
 
         log_activity(
             organization_id=self.team.organization_id,
@@ -306,7 +352,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             detail=Detail(name=saved_query.name),
         )
 
-        return response.Response(status=status.HTTP_200_OK)
+        return response.Response({"node_ids": node_ids}, status=status.HTTP_200_OK)
 
     @extend_schema(
         request=incremental_config.CheckIncrementalSerializer,
@@ -324,7 +370,11 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         Parses the SQL only, so it is cheap enough to call from the editor as the user types. Lets
         the editor explain why the incremental option is unavailable before anything is saved.
         """
-        from products.data_modeling.backend.facade.api import IncrementalConfig, check_incremental_eligibility
+        from products.data_modeling.backend.facade.api import (
+            IncrementalConfig,
+            check_incremental_eligibility,
+            definition_database,
+        )
 
         body = incremental_config.CheckIncrementalSerializer(data=request.data)
         body.is_valid(raise_exception=True)
@@ -341,7 +391,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         result = check_incremental_eligibility(
             data["query"],
             config,
-            database=Database.create_for(team_id=self.team_id, user=cast(User, request.user)),
+            database=definition_database(self.team_id, user=cast(User, request.user)),
         )
         return response.Response(
             incremental_config.IncrementalEligibilitySerializer(
@@ -384,31 +434,19 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         """
         saved_query: DataWarehouseSavedQuery = self.get_object()
 
-        if saved_query.managed_viewset is not None:
-            raise serializers.ValidationError("Cannot revert materialization of a query from a managed viewset.")
-
-        saved_query.revert_materialization()
-
-        # set data modeling node type to view
         try:
-            from products.data_modeling.backend.facade.api import update_node_type
-            from products.data_modeling.backend.facade.models import NodeType
-
-            update_node_type(saved_query, NodeType.VIEW)
-        except Exception as e:
-            capture_exception(e)
-            logger.exception("Failed to update node type to view", saved_query_name=saved_query.name)
-
-        log_activity(
-            organization_id=self.team.organization_id,
-            team_id=self.team_id,
-            user=cast(User, request.user),
-            was_impersonated=is_impersonated(request),
-            item_id=saved_query.id,
-            scope="DataWarehouseSavedQuery",
-            activity="materialization_disabled",
-            detail=Detail(name=saved_query.name),
-        )
+            disable_saved_query_materialization(
+                self.team_id,
+                saved_query.id,
+                user=cast(User, request.user),
+                was_impersonated=is_impersonated(request),
+            )
+        except SavedQueryNotFoundError:
+            raise exceptions.NotFound()
+        except MaterializationForbiddenError as e:
+            raise exceptions.PermissionDenied(str(e))
+        except (MaterializationRefusedError, MaterializationFailedError) as e:
+            raise serializers.ValidationError(str(e))
 
         return response.Response(status=status.HTTP_200_OK)
 
@@ -425,104 +463,30 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         """
         saved_query: DataWarehouseSavedQuery = self.get_object()
 
-        if saved_query.managed_viewset is not None:
-            raise serializers.ValidationError("Cannot materialize a query from a managed viewset.")
-
-        assert_user_can_read_query(saved_query.query, self.team_id, cast(User, request.user))
-
         params = SavedQueryMaterializeSerializer(data=request.data)
         params.is_valid(raise_exception=True)
-        sync_frequency_interval = sync_frequency_to_sync_frequency_interval(params.validated_data["sync_frequency"])
 
-        from products.data_modeling.backend.facade.api import (
-            UnsatisfiableFrequencyError,
-            UnsupportedFrequencyTargetError,
-            check_saved_query_frequency_target,
-            saved_query_target_bounds,
-        )
-
-        if sync_frequency_interval is not None:
-            # Ask before writing, so the ordinary refusal never has to be undone below. Names only
-            # what this caller may read, matching the bounds payload — otherwise one rejected
-            # materialize reads back a node they were never shown.
-            bounds = saved_query_target_bounds(self.team_id, saved_query.pk)
-            try:
-                check_saved_query_frequency_target(
-                    saved_query,
-                    sync_frequency_interval,
-                    visible_names=(
-                        sync_cadence.visible_blocker_names(bounds, self.user_access_control, team_id=self.team_id)
-                        if bounds
-                        else {}
-                    ),
-                )
-            except (UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError) as e:
-                raise serializers.ValidationError(str(e))
-
-        previous_interval = saved_query.sync_frequency_interval
-        previously_materialized = saved_query.is_materialized
-
-        saved_query.sync_frequency_interval = sync_frequency_interval
-        saved_query.is_materialized = True
-        saved_query.save(update_fields=["sync_frequency_interval", "is_materialized"])
-
-        # Enable materialization - this handles model path setup and schedule creation
-        # If this fails, it will set is_materialized = False
         try:
-            saved_query.schedule_materialization(trigger_immediate_run=True, triggered_by_id=request.user.pk)
-        except (UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError):
-            # The check above already refused every cadence the lineage forbids, so reaching here
-            # means the lineage moved mid-request. Say so plainly rather than forwarding a message
-            # built from unredacted names. `schedule_materialization` re-raises these without
-            # applying its disable-on-failure contract, and this action is not inside an atomic
-            # block, so undo the enable by hand: otherwise the 400 leaves is_materialized=True
-            # behind and the UI reads the rejection as a success.
-            saved_query.sync_frequency_interval = previous_interval
-            saved_query.is_materialized = previously_materialized
-            saved_query.save(update_fields=["sync_frequency_interval", "is_materialized"])
-            raise serializers.ValidationError(
-                "This view's lineage changed while we were setting it up. Reopen it and pick a cadence again."
+            enable_saved_query_materialization(
+                self.team_id,
+                saved_query.id,
+                user=cast(User, request.user),
+                sync_frequency_interval=sync_frequency_to_sync_frequency_interval(
+                    params.validated_data["sync_frequency"]
+                ),
+                visible_blocker_names=lambda bounds: sync_cadence.visible_blocker_names(
+                    bounds, self.user_access_control, team_id=self.team_id
+                ),
+                was_impersonated=is_impersonated(request),
             )
-
-        # Refresh from DB to check if schedule_materialization set is_materialized = False on failure
-        saved_query.refresh_from_db()
-        if saved_query.is_materialized is False:
-            return response.Response(
-                {"error": "Materialization failed. Please try again or contact support."},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
-
-        # set data modeling node type to matview
-        try:
-            from products.data_modeling.backend.facade.api import update_node_type
-            from products.data_modeling.backend.facade.models import NodeType
-
-            update_node_type(saved_query, NodeType.MAT_VIEW)
-        except Exception as e:
-            capture_exception(e)
-            logger.exception("Failed to update node type to matview", saved_query_name=saved_query.name)
-
-        log_activity(
-            organization_id=self.team.organization_id,
-            team_id=self.team_id,
-            user=cast(User, request.user),
-            was_impersonated=is_impersonated(request),
-            item_id=saved_query.id,
-            scope="DataWarehouseSavedQuery",
-            activity="materialization_enabled",
-            detail=Detail(
-                name=saved_query.name,
-                changes=[
-                    Change(
-                        field="sync_frequency_interval",
-                        action="changed",
-                        type="DataWarehouseSavedQuery",
-                        before=str(previous_interval) if previous_interval else None,
-                        after=str(sync_frequency_interval),
-                    ),
-                ],
-            ),
-        )
+        except SavedQueryNotFoundError:
+            raise exceptions.NotFound()
+        except MaterializationForbiddenError as e:
+            raise exceptions.PermissionDenied(str(e))
+        except MaterializationRefusedError as e:
+            raise serializers.ValidationError(str(e))
+        except MaterializationFailedError as e:
+            return response.Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         return response.Response(status=status.HTTP_200_OK)
 

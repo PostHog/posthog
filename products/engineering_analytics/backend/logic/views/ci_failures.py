@@ -53,6 +53,7 @@ FIELDS: dict[str, FieldOrTable] = {
     "job_id": IntegerDatabaseField(name="job_id"),
     "run_attempt": IntegerDatabaseField(name="run_attempt", nullable=True),
     "conclusion": StringDatabaseField(name="conclusion", nullable=True),
+    "ci_engine": StringDatabaseField(name="ci_engine", nullable=True),
 }
 
 # ``__SERVICE_NAME__`` is substituted with the constant below (a plain identifier, not user input) —
@@ -75,7 +76,8 @@ _SELECT = """
         run_id,
         job_id,
         run_attempt,
-        conclusion
+        conclusion,
+        ci_engine
     FROM (
         SELECT
             `timestamp`,
@@ -96,7 +98,8 @@ _SELECT = """
             accurateCastOrNull(attributes['run_id'], 'Int64') AS run_id,
             accurateCastOrNull(attributes['job_id'], 'Int64') AS job_id,
             accurateCastOrNull(attributes['run_attempt'], 'Int64') AS run_attempt,
-            nullIf(attributes['conclusion'], '') AS conclusion
+            nullIf(attributes['conclusion'], '') AS conclusion,
+            nullIf(attributes['ci_engine'], '') AS ci_engine
         FROM logs
         WHERE service_name = '__SERVICE_NAME__' AND regexpExtract(body, 'FAILED ([^[:space:]]+::[^[:space:]]+)') != ''
     )

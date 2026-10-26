@@ -10,6 +10,7 @@ use crate::domain::{BackoffPolicyError, PersonEmissionPolicy, PlanCaps, RetryBac
 use crate::store::runs::RunKind;
 use crate::store::{LeaseDuration, LeaseDurationError, MaxAttempts, MaxAttemptsError};
 
+use super::breaker::{BreakerPolicy, BreakerPolicyError};
 use super::deliver::QUEUE_FULL_BACKOFF_CAP;
 use super::orchestrator::ORCHESTRATOR_LIVENESS_DEADLINE;
 
@@ -62,6 +63,7 @@ pub struct OrchestratorSettings {
     pub(super) chunk_lease: LeaseDuration,
     pub(super) max_chunk_attempts: MaxAttempts,
     pub(super) retry_backoff: RetryBackoffPolicy,
+    pub(super) breaker: BreakerPolicy,
     pub(super) plan_caps: PlanCaps,
     pub(super) producer: ProducerSettings,
     pub(super) person: Option<PersonSettings>,
@@ -75,6 +77,7 @@ impl OrchestratorSettings {
         chunk_lease: Duration,
         max_chunk_attempts: u32,
         retry_backoff: RetryBackoffPolicy,
+        breaker: BreakerPolicy,
         max_lookback_days: u32,
         bands_per_day: u16,
         live_tracking_lag: Duration,
@@ -109,6 +112,7 @@ impl OrchestratorSettings {
             chunk_lease,
             max_chunk_attempts,
             retry_backoff,
+            breaker,
             plan_caps: PlanCaps {
                 max_lookback_days,
                 bands_per_day,
@@ -179,12 +183,20 @@ impl TryFrom<&Config> for OrchestratorSettings {
             Duration::from_secs(config.seeder_retry_backoff_cap_secs),
         )
         .map_err(OrchestratorSettingsError::RetryBackoff)?;
+        let breaker = BreakerPolicy::new(
+            config.seeder_ch_breaker_threshold,
+            Duration::from_secs(config.seeder_ch_breaker_cooldown_base_secs),
+            Duration::from_secs(config.seeder_ch_breaker_cooldown_cap_secs),
+            config.seeder_ch_breaker_max_trips,
+        )
+        .map_err(OrchestratorSettingsError::Breaker)?;
         Ok(Self::new(
             Duration::from_secs(config.seeder_run_poll_secs),
             config.seeder_max_concurrent_chunks,
             Duration::from_secs(config.seeder_chunk_lease_secs),
             config.seeder_max_chunk_attempts,
             retry_backoff,
+            breaker,
             config.seeder_max_lookback_days,
             config.seeder_bands_per_day,
             Duration::from_secs(config.seeder_live_tracking_lag_secs),
@@ -215,6 +227,8 @@ pub enum OrchestratorSettingsError {
     BandsPerDayOutOfRange,
     #[error(transparent)]
     RetryBackoff(#[from] BackoffPolicyError),
+    #[error(transparent)]
+    Breaker(#[from] BreakerPolicyError),
     #[error("person seeds per second must be greater than zero")]
     ZeroPersonSeedRate,
     #[error("persons per chunk must be greater than zero")]
@@ -291,6 +305,10 @@ mod tests {
         RetryBackoffPolicy::new(Duration::from_secs(30), Duration::from_secs(1800)).unwrap()
     }
 
+    fn breaker() -> BreakerPolicy {
+        BreakerPolicy::new(3, Duration::from_secs(300), Duration::from_secs(1800), 4).unwrap()
+    }
+
     #[test]
     fn producer_settings_reject_unbounded_bounds() {
         assert_eq!(
@@ -319,6 +337,7 @@ mod tests {
                     Duration::from_secs(3),
                     1,
                     backoff(),
+                    breaker(),
                     400,
                     1,
                     Duration::ZERO,
@@ -335,6 +354,7 @@ mod tests {
                     Duration::from_secs(3),
                     1,
                     backoff(),
+                    breaker(),
                     400,
                     1,
                     Duration::ZERO,
@@ -351,6 +371,7 @@ mod tests {
                     Duration::from_secs(3),
                     1,
                     backoff(),
+                    breaker(),
                     400,
                     1,
                     Duration::ZERO,
@@ -367,6 +388,7 @@ mod tests {
                     Duration::from_secs(2),
                     1,
                     backoff(),
+                    breaker(),
                     400,
                     1,
                     Duration::ZERO,
@@ -383,6 +405,7 @@ mod tests {
                     Duration::from_secs(3),
                     0,
                     backoff(),
+                    breaker(),
                     400,
                     1,
                     Duration::ZERO,
@@ -399,6 +422,7 @@ mod tests {
                     Duration::from_secs(3),
                     1,
                     backoff(),
+                    breaker(),
                     400,
                     0,
                     Duration::ZERO,
@@ -415,6 +439,7 @@ mod tests {
                     Duration::from_secs(3),
                     1,
                     backoff(),
+                    breaker(),
                     400,
                     u16::MAX,
                     Duration::ZERO,
@@ -518,6 +543,25 @@ mod tests {
                     projected_secs: 15_000,
                     budget_secs: 7_200,
                 }
+            ))
+        ));
+    }
+
+    #[test]
+    fn breaker_is_parsed_from_config_and_rejected_when_it_cannot_trip() {
+        let config = Config::init_from_hashmap(&HashMap::new()).unwrap();
+        let settings = OrchestratorSettings::try_from(&config).unwrap();
+        assert_eq!(
+            settings.breaker,
+            BreakerPolicy::new(3, Duration::from_secs(300), Duration::from_secs(1800), 4).unwrap()
+        );
+
+        let mut zero_threshold = config.clone();
+        zero_threshold.seeder_ch_breaker_threshold = 0;
+        assert!(matches!(
+            OrchestratorSettings::try_from(&zero_threshold),
+            Err(SettingsError::Orchestrator(
+                OrchestratorSettingsError::Breaker(BreakerPolicyError::ZeroThreshold)
             ))
         ));
     }

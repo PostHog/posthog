@@ -34,8 +34,8 @@ BEHAVIORAL_BACKFILL_PERSON_TOPIC_BYTES_BUDGET: int = get_from_env(
     "BEHAVIORAL_BACKFILL_PERSON_TOPIC_BYTES_BUDGET", 0, type_cast=int
 )
 # Bounds the ClickHouse sizing scan that runs before a person-property run is created. The scan
-# reads the team's whole person history on the user-facing cluster, so it carries its own limits
-# rather than the query defaults. `read_overflow_mode: throw` turns either limit into a refusal to
+# reads the team's whole person history on the offline cluster, so it carries its own limits rather
+# than the query defaults. `read_overflow_mode: throw` turns either limit into a refusal to
 # create the run, instead of a run sized off a partial scan.
 #
 # Do not set either to 0. ClickHouse reads 0 as "no limit" for both, so a cleared value removes the
@@ -45,6 +45,12 @@ BEHAVIORAL_BACKFILL_PERSON_SIZING_MAX_BYTES: int = get_from_env(
 )
 BEHAVIORAL_BACKFILL_PERSON_SIZING_MAX_SECONDS: int = get_from_env(
     "BEHAVIORAL_BACKFILL_PERSON_SIZING_MAX_SECONDS", 30, type_cast=int
+)
+# Refuses a behavioral team run whose pinned event names had more events than this on the busiest
+# of the last 7 complete UTC days, as a proxy for one seeder chunk's scan. Older days can hold more.
+# `--max-scan-events-per-day` overrides it per invocation; 0 skips the count and the check.
+BEHAVIORAL_BACKFILL_MAX_SCAN_EVENTS_PER_DAY: int = get_from_env(
+    "BEHAVIORAL_BACKFILL_MAX_SCAN_EVENTS_PER_DAY", 50_000_000, type_cast=int
 )
 BEHAVIORAL_BACKFILL_PERSON_SIZING_ATTESTED: bool = get_from_env(
     "BEHAVIORAL_BACKFILL_PERSON_SIZING_ATTESTED", False, type_cast=str_to_bool
@@ -107,3 +113,8 @@ BEHAVIORAL_BACKFILL_FINALIZER_MAX_RUNS_PER_PASS: int = get_from_env(
 COHORT_DEPENDENCY_INCREMENTAL_MAINTENANCE: bool = get_from_env(
     "COHORT_DEPENDENCY_INCREMENTAL_MAINTENANCE", True, type_cast=str_to_bool
 )
+# Bounds one static cohort CSV upload. The IDs are collected in memory and sent to Celery in one
+# message, so the byte size and the row count both need a ceiling. 50 MB matches MAX_UPLOAD_SIZE_BYTES
+# in products/warehouse_sources/backend/file_uploads.py.
+COHORT_CSV_UPLOAD_MAX_BYTES: int = get_from_env("COHORT_CSV_UPLOAD_MAX_BYTES", 50 * 1024 * 1024, type_cast=int)
+COHORT_CSV_UPLOAD_MAX_ROWS: int = get_from_env("COHORT_CSV_UPLOAD_MAX_ROWS", 1_000_000, type_cast=int)

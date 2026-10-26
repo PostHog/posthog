@@ -1,5 +1,7 @@
 use crate::{
-    api::flag_definitions::FLAG_DEFINITIONS_REBUILD_REQUESTS_ZSET,
+    api::flag_definitions::{
+        FLAG_DEFINITIONS_REBUILD_REQUESTS_ZSET, FLAG_DEFINITIONS_S3_REBUILD_REQUESTS_ZSET,
+    },
     cohorts::cohort_models::{Cohort, CohortId, CohortType},
     config::{Config, DEFAULT_TEST_CONFIG},
     flags::{
@@ -25,6 +27,7 @@ use rand::{distributions::Alphanumeric, Rng};
 use serde_json::{json, Value};
 use sqlx::{pool::PoolConnection, Error as SqlxError, Postgres, Row};
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use uuid::Uuid;
@@ -101,6 +104,27 @@ pub async fn insert_new_team_in_redis(
     client.set_bytes(cache_key, pickled_bytes, None).await?;
 
     Ok(team)
+}
+
+/// v1 filters that the typed decoder rejects and Python's builder reads. The property filter
+/// has no `"type"` key. `PropertyFilter` requires one.
+pub fn unparseable_v1_filters() -> Value {
+    json!({"groups": [{
+        "properties": [{"key": "email", "value": "a@example.com"}],
+        "rollout_percentage": 100
+    }]})
+}
+
+/// A cached flag that the serving read cannot deserialize, because of its filters.
+pub fn unparseable_flag_json(id: i32, key: &str, team_id: i32) -> Value {
+    json!({
+        "id": id,
+        "key": key,
+        "team_id": team_id,
+        "active": true,
+        "deleted": false,
+        "filters": unparseable_v1_filters()
+    })
 }
 
 /// Write flags to the hypercache key for `team_id` in Redis.
@@ -198,10 +222,7 @@ pub async fn write_flags_wire_json_to_redis(
 }
 
 pub async fn setup_redis_client(url: Option<String>) -> Arc<dyn RedisClientTrait + Send + Sync> {
-    let redis_url = match url {
-        Some(value) => value,
-        None => "redis://localhost:6379/".to_string(),
-    };
+    let redis_url = url.unwrap_or_else(|| DEFAULT_TEST_CONFIG.redis_url.clone());
     // Use reasonable test timeout defaults
     const TEST_RESPONSE_TIMEOUT_MS: u64 = 1000; // 1s for tests - longer than production to avoid flaky tests
     const TEST_CONNECTION_TIMEOUT_MS: u64 = 5000; // 5s connection timeout
@@ -221,24 +242,38 @@ pub async fn setup_redis_client(url: Option<String>) -> Arc<dyn RedisClientTrait
 /// Read the members of the flag-definitions self-heal rebuild-requests sorted set.
 /// Used by tests asserting the endpoint enqueues (or doesn't) on a cache miss.
 pub async fn read_flag_definitions_rebuild_requests(redis_url: &str) -> Vec<String> {
+    read_rebuild_requests(redis_url, FLAG_DEFINITIONS_REBUILD_REQUESTS_ZSET).await
+}
+
+pub async fn read_s3_rebuild_requests(redis_url: &str) -> Vec<String> {
+    read_rebuild_requests(redis_url, FLAG_DEFINITIONS_S3_REBUILD_REQUESTS_ZSET).await
+}
+
+async fn read_rebuild_requests(redis_url: &str, queue: &str) -> Vec<String> {
     let redis = setup_redis_client(Some(redis_url.to_string())).await;
     redis
-        .zrangebyscore(
-            FLAG_DEFINITIONS_REBUILD_REQUESTS_ZSET.to_string(),
-            "-inf".to_string(),
-            "+inf".to_string(),
-        )
+        .zrangebyscore(queue.to_string(), "-inf".to_string(), "+inf".to_string())
         .await
         .unwrap_or_default()
 }
 
-/// Clear the flag-definitions self-heal rebuild-requests sorted set. Nothing flushes the
-/// test redis between runs, and team ids restart when the test database is recreated, so a
-/// stale member with a reused id would satisfy a poll on its first read.
-pub async fn clear_flag_definitions_rebuild_requests(redis_url: &str) {
+pub async fn remove_flag_definitions_rebuild_request(redis_url: &str, team_id: i32) {
+    remove_rebuild_request(redis_url, team_id, FLAG_DEFINITIONS_REBUILD_REQUESTS_ZSET).await;
+}
+
+pub async fn remove_s3_rebuild_request(redis_url: &str, team_id: i32) {
+    remove_rebuild_request(
+        redis_url,
+        team_id,
+        FLAG_DEFINITIONS_S3_REBUILD_REQUESTS_ZSET,
+    )
+    .await;
+}
+
+async fn remove_rebuild_request(redis_url: &str, team_id: i32, queue: &str) {
     let redis = setup_redis_client(Some(redis_url.to_string())).await;
     redis
-        .del(FLAG_DEFINITIONS_REBUILD_REQUESTS_ZSET.to_string())
+        .zrem(queue.to_string(), team_id.to_string())
         .await
         .unwrap();
 }
@@ -273,23 +308,59 @@ impl common_hypercache::S3Client for AlwaysMissS3Client {
     }
 }
 
+#[cfg(test)]
+pub fn counter_total(
+    snapshotter: &metrics_util::debugging::Snapshotter,
+    name: &str,
+    labels: &[(&str, &str)],
+) -> u64 {
+    snapshotter
+        .snapshot()
+        .into_vec()
+        .into_iter()
+        .filter(|(key, ..)| {
+            key.key().name() == name
+                && labels
+                    .iter()
+                    .all(|(k, v)| key.key().labels().any(|l| l.key() == *k && l.value() == *v))
+        })
+        .map(|(.., value)| match value {
+            metrics_util::debugging::DebugValue::Counter(c) => c,
+            _ => 0,
+        })
+        .sum()
+}
+
 /// A dummy S3 client (always NotFound) for injecting into the test server.
 pub fn dummy_s3_client() -> Arc<dyn common_hypercache::S3Client + Send + Sync> {
     Arc::new(AlwaysMissS3Client)
 }
 
 pub async fn insert_v1_v2_and_unsupported_flags(context: &TestContext, team_id: i32) {
-    for (key, filters) in [
-        (
-            "v1-flag",
-            json!({"groups": [{"properties": [], "rollout_percentage": 100}]}),
-        ),
-        (
-            "v2-flag",
-            json!({"version": 2, "return_type": "boolean", "default_value": false, "rules": []}),
-        ),
-        ("v3-flag", json!({"version": 3})),
-    ] {
+    insert_active_flags(
+        context,
+        team_id,
+        [
+            (
+                "v1-flag",
+                json!({"groups": [{"properties": [], "rollout_percentage": 100}]}),
+            ),
+            (
+                "v2-flag",
+                json!({"version": 2, "return_type": "boolean", "default_value": false, "rules": []}),
+            ),
+            ("v3-flag", json!({"version": 3})),
+        ],
+    )
+    .await;
+}
+
+pub async fn insert_active_flags(
+    context: &TestContext,
+    team_id: i32,
+    flags: impl IntoIterator<Item = (&str, Value)>,
+) {
+    for (key, filters) in flags {
         context
             .insert_flag(
                 team_id,
@@ -321,6 +392,40 @@ pub fn published_flag_keys(redis: &MockRedisClient) -> Vec<String> {
     let mut keys: Vec<String> = wrapper.flags.into_iter().map(|flag| flag.key).collect();
     keys.sort();
     keys
+}
+
+/// An S3 client that answers every key with one fixed JSON body. Lets integration tests
+/// force the HyperCache read to fall through an empty Redis and hit S3, which is the state
+/// a team lands in when its Redis entry is evicted while S3 still holds the payload.
+pub struct StaticS3Client(pub String);
+
+#[async_trait]
+impl common_hypercache::S3Client for StaticS3Client {
+    async fn get_string(
+        &self,
+        _bucket: &str,
+        _key: &str,
+    ) -> Result<String, common_hypercache::S3Error> {
+        Ok(self.0.clone())
+    }
+
+    async fn put_string(
+        &self,
+        _bucket: &str,
+        _key: &str,
+        _value: &str,
+    ) -> Result<(), common_hypercache::S3Error> {
+        Ok(())
+    }
+
+    async fn delete(&self, _bucket: &str, _key: &str) -> Result<(), common_hypercache::S3Error> {
+        Ok(())
+    }
+}
+
+/// An S3 client that serves `body` for every key, for injecting into the test server.
+pub fn static_s3_client(body: &str) -> Arc<dyn common_hypercache::S3Client + Send + Sync> {
+    Arc::new(StaticS3Client(body.to_string()))
 }
 
 /// Create a HyperCacheReader for tests using the provided Redis client.
@@ -592,8 +697,52 @@ impl Client for MockPgClient {
     }
 }
 
+pub struct CountingFailingClient {
+    pub error: fn() -> SqlxError,
+    pub calls: AtomicUsize,
+}
+
+impl CountingFailingClient {
+    pub fn new(error: fn() -> SqlxError) -> Self {
+        Self {
+            error,
+            calls: AtomicUsize::new(0),
+        }
+    }
+}
+
+#[async_trait]
+impl Client for CountingFailingClient {
+    async fn get_connection(&self) -> Result<PoolConnection<Postgres>, CustomDatabaseError> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        Err(CustomDatabaseError::Other((self.error)()))
+    }
+
+    fn get_pool_stats(&self) -> Option<common_database::PoolStats> {
+        None
+    }
+}
+
 pub async fn setup_invalid_pg_client() -> Arc<dyn Client + Send + Sync> {
     Arc::new(MockPgClient)
+}
+
+/// A database that never answers: every connection request waits forever.
+#[derive(Default)]
+pub struct StalledPgClient {
+    pub connection_requests: AtomicUsize,
+}
+
+#[async_trait]
+impl Client for StalledPgClient {
+    async fn get_connection(&self) -> Result<PoolConnection<Postgres>, CustomDatabaseError> {
+        self.connection_requests.fetch_add(1, Ordering::SeqCst);
+        std::future::pending().await
+    }
+
+    fn get_pool_stats(&self) -> Option<common_database::PoolStats> {
+        None
+    }
 }
 
 /// Inserts an organization if it doesn't exist
@@ -1220,6 +1369,7 @@ pub fn flag_list_with_metadata_and_filter(
         dependency_stages: stages,
         flags_with_missing_deps,
         transitive_deps,
+        ..Default::default()
     });
 
     FeatureFlagList {
@@ -1695,8 +1845,22 @@ impl TestContext {
         label: &str,
         scopes: Option<Vec<&str>>,
     ) -> Result<(String, String), Error> {
-        let key_id = format!("test_psk_{}", &uuid::Uuid::new_v4().to_string()[..8]);
         let raw_key = format!("phs_{}", &uuid::Uuid::new_v4().to_string()[..12]);
+        self.create_project_secret_api_key_with_value(team_id, label, scopes, &raw_key)
+            .await
+    }
+
+    /// Same, but hashing a caller-provided token value — e.g. a mirror row holding a
+    /// team's legacy secret token, as the backfill migration writes them.
+    pub async fn create_project_secret_api_key_with_value(
+        &self,
+        team_id: i32,
+        label: &str,
+        scopes: Option<Vec<&str>>,
+        raw_key: &str,
+    ) -> Result<(String, String), Error> {
+        let key_id = format!("test_psk_{}", &uuid::Uuid::new_v4().to_string()[..8]);
+        let raw_key = raw_key.to_string();
 
         let secure_value = crate::api::auth::hash_token_value(&raw_key);
         let mask_value = format!("...{}", &raw_key[raw_key.len().saturating_sub(5)..]);
@@ -1721,6 +1885,25 @@ impl TestContext {
         .await?;
 
         Ok((key_id, raw_key))
+    }
+
+    /// Records a token hash as leak-revoked (`revoke_exposed_project_secret_api_key`).
+    pub async fn create_revoked_team_secret_token(
+        &self,
+        team_id: i32,
+        raw_key: &str,
+    ) -> Result<(), Error> {
+        let secure_value = crate::api::auth::hash_token_value(raw_key);
+        let mut conn = self.non_persons_writer.get_connection().await?;
+        sqlx::query(
+            r#"INSERT INTO posthog_revokedteamsecrettoken (team_id, secure_value, created_at)
+               VALUES ($1, $2, NOW())"#,
+        )
+        .bind(team_id)
+        .bind(&secure_value)
+        .execute(&mut *conn)
+        .await?;
+        Ok(())
     }
 
     /// Creates a team with both public token and secret API token

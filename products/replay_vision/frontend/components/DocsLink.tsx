@@ -7,7 +7,6 @@ export type VisionDocsPage =
     | 'creating-scanners'
     | 'running-scanners'
     | 'observations'
-    | 'calibration'
     | 'quota-and-limits'
     | 'actions'
     | 'webhooks'

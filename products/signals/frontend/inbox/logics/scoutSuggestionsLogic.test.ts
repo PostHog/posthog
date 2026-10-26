@@ -4,11 +4,9 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api-error'
-import { FEATURE_FLAGS } from 'lib/constants'
 // Imported from the source module rather than the `@posthog/lemon-ui` barrel, so the spies below
 // replace the methods on the same `lemonToast` singleton the logic calls at runtime.
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { initKeaTests } from '~/test/init'
 
@@ -101,6 +99,7 @@ const CONFIG: SignalScoutConfigApi = {
     enabled: false,
     status: 'active',
     pause_reason: null,
+    managed_by: 'team',
     deprecation: null,
     emit: true,
     run_interval_minutes: 1440,
@@ -109,13 +108,23 @@ const CONFIG: SignalScoutConfigApi = {
     structured_output_schema: null,
     mcp_gateway_server_ids: [],
     write_scopes: [],
+    allowed_mcp_tools: null,
+    tool_preset: null,
     last_run_at: null,
     consecutive_failure_count: 0,
     status_changed_at: null,
     status_changed_by: null,
     auto_pause_exempt: false,
+    lifecycle_locked: false,
     network_access: 'trusted',
     model: null,
+    precheck_query: null,
+    precheck_disabled: false,
+    effective_precheck_query: null,
+    precheck_query_source: 'off',
+    last_precheck_at: null,
+    last_precheck_outcome: null,
+    last_precheck_row_count: null,
     source_product: null,
     source_id: null,
     created_at: '2026-07-22T00:00:00Z',
@@ -136,19 +145,11 @@ function suggestionSet(overrides: Partial<ScoutSuggestionSetApi> = {}): ScoutSug
 describe('scoutSuggestionsLogic', () => {
     let logic: ReturnType<typeof scoutSuggestionsLogic.build>
 
-    function setSuggestionsFlag(enabled: boolean): void {
-        featureFlagLogic.actions.setFeatureFlags(enabled ? [FEATURE_FLAGS.SCOUTS_SUGGESTIONS_UI] : [], {
-            [FEATURE_FLAGS.SCOUTS_SUGGESTIONS_UI]: enabled,
-        })
-    }
-
     beforeEach(() => {
         // The strip's collapsed and closed state persists per user and project, so one test's
         // chevron would otherwise decide how the next one opens.
         localStorage.clear()
         initKeaTests()
-        featureFlagLogic.mount()
-        setSuggestionsFlag(true)
         mockList.mockReset().mockResolvedValue(suggestionSet())
         mockDismiss.mockReset().mockResolvedValue(CANONICAL_ITEM)
         mockRefresh.mockReset().mockResolvedValue({ workflow_id: 'workflow-1' })
@@ -176,19 +177,76 @@ describe('scoutSuggestionsLogic', () => {
         scoutFleetLogic.actions.loadScoutConfigsSuccess([CONFIG])
     }
 
-    it('reads nothing until the person is on the suggestions flag', async () => {
-        setSuggestionsFlag(false)
+    // The 500 row is the point of this case: a guard wide enough to swallow it would leave a real
+    // suggestions outage looking identical to a project the member cannot read.
+    it.each([
+        [403, 'loadSuggestionsSuccess'],
+        [404, 'loadSuggestionsSuccess'],
+        [500, 'loadSuggestionsFailure'],
+    ])('resolves a %s from the batch read to %s', async (status, expectedAction) => {
+        mockList.mockRejectedValueOnce(new ApiError('nope', status))
+        logic = scoutSuggestionsLogic()
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions([expectedAction])
+        expect(logic.values.stripVisible).toBe(false)
+    })
+
+    // The members this guard serves send the read on every tab open, so leaving before the 403
+    // lands is routine and must not turn the refusal into a report.
+    it('reports nothing when a refusal lands after the strip unmounts', async () => {
+        let refuse: (error: ApiError) => void = () => {}
+        mockList.mockReturnValueOnce(
+            new Promise((_, reject) => {
+                refuse = reject
+            })
+        )
+        logic = scoutSuggestionsLogic()
+        logic.mount()
+
+        logic.unmount()
+        refuse(new ApiError('nope', 403))
+        await new Promise(setImmediate)
+
+        expect(posthog.captureException).not.toHaveBeenCalled()
+    })
+
+    // Access can go away between reads — a role change, or a project switch leaving a stale id in
+    // the URL. Every button on a pick would be refused, so the picks go with the access.
+    it('takes the strip away when a later read is refused', async () => {
         await mountWithBatch()
+        expect(logic.values.stripVisible).toBe(true)
 
-        expect(mockList).not.toHaveBeenCalled()
-        expect(logic.values.hasPicks).toBe(false)
+        mockList.mockRejectedValueOnce(new ApiError('nope', 403))
+        logic.actions.loadSuggestions()
 
-        // Flags usually resolve after the tab mounts, so the answer arriving is what starts the read.
-        setSuggestionsFlag(true)
+        await expectLogic(logic).toDispatchActions(['loadSuggestionsSuccess'])
+        expect(logic.values.stripVisible).toBe(false)
+    })
+
+    // A refused read returns no batch, which the scan-settled check would otherwise read as a scan
+    // that found nothing (baseline set) or as a scan still running (no baseline).
+    it.each([
+        ['after an earlier scan', '2026-09-01T00:00:00Z'],
+        ['before any scan', null],
+    ])('stops waiting on a scan when a read during it is refused: %s', async (_name, generatedAt) => {
+        const info = jest.spyOn(lemonToast, 'info').mockReturnValue('toast-1')
+        const error = jest.spyOn(lemonToast, 'error').mockReturnValue('toast-1')
+        await mountWithBatch(suggestionSet({ generated_at: generatedAt }))
+        logic.actions.requestRefresh('strip')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.isRefreshing).toBe(true)
+
+        mockList.mockRejectedValueOnce(new ApiError('nope', 403))
+        logic.actions.loadSuggestions()
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(mockList).toHaveBeenCalledTimes(1)
-        expect(logic.values.hasPicks).toBe(true)
+        expect(logic.values.isRefreshing).toBe(false)
+        expect(logic.values.refreshScan).toBeNull()
+        expect(info).not.toHaveBeenCalled()
+        expect(error).not.toHaveBeenCalled()
+        info.mockRestore()
+        error.mockRestore()
     })
 
     // Whatever the batch row says, a batch with no picks has nothing to put on the roster.
@@ -383,14 +441,22 @@ describe('scoutSuggestionsLogic', () => {
         expect(logic.values.isRefreshing).toBe(false)
     })
 
-    it('does not wait for a scan the daily cap refused', async () => {
+    it.each([
+        ['strip', 429, true],
+        ['onboarding', 403, false],
+        ['strip', 403, true],
+        ['onboarding', 500, true],
+    ] as const)('handles a refused %s scan with status %s', async (source, status, showsToast) => {
         await mountWithBatch()
-        mockRefresh.mockRejectedValueOnce(new ApiError("You've reached today's limit.", 429))
+        const toast = jest.spyOn(lemonToast, 'error')
+        mockRefresh.mockRejectedValueOnce(new ApiError('Scan unavailable', status))
 
-        logic.actions.requestRefresh('strip')
+        logic.actions.requestRefresh(source)
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.isRefreshing).toBe(false)
+        expect(toast).toHaveBeenCalledTimes(showsToast ? 1 : 0)
+        toast.mockRestore()
     })
 
     it('keeps waiting when the row was already failed before the refresh', async () => {
@@ -469,5 +535,59 @@ describe('scoutSuggestionsLogic', () => {
         logic.actions.showStrip()
         expect(logic.values.stripHidden).toBe(false)
         expect(logic.values.collapsed).toBe(false)
+    })
+
+    it('reports each expand, collapse and close of the strip once, and nothing for a remembered state', async () => {
+        await mountWithBatch()
+        ;(posthog.capture as jest.Mock).mockClear()
+
+        logic.actions.setCollapsed(false)
+        logic.actions.setCollapsed(true)
+        logic.actions.hideStrip()
+
+        const clicks = (posthog.capture as jest.Mock).mock.calls.filter(
+            ([event]) => event === INBOX_EVENTS.SCOUT_SUGGESTION_CLICKED
+        )
+        expect(clicks.map(([, properties]) => properties)).toEqual(
+            ['expand', 'collapse', 'close'].map((target) =>
+                expect.objectContaining({
+                    click_target: target,
+                    suggestion_count: 2,
+                    batch_status: 'fresh',
+                    surface: 'strip',
+                })
+            )
+        )
+        expect(clicks[0][1]).not.toHaveProperty('skill_name')
+
+        // A reload restores the closed strip from storage, and that is not a press.
+        logic.unmount()
+        ;(posthog.capture as jest.Mock).mockClear()
+        await mountWithBatch()
+        expect(logic.values.stripHidden).toBe(true)
+        expect(
+            (posthog.capture as jest.Mock).mock.calls.filter(
+                ([event]) => event === INBOX_EVENTS.SCOUT_SUGGESTION_CLICKED
+            )
+        ).toEqual([])
+    })
+
+    it('ties a created scout to its suggestion and config, under the name it was created with', async () => {
+        await mountWithBatch()
+        ;(posthog.capture as jest.Mock).mockClear()
+
+        logic.actions.suggestionCreated(CUSTOM_ITEM, 'strip', { ...CONFIG, id: 'config-9', skill_name: 'renamed' })
+
+        const created = (posthog.capture as jest.Mock).mock.calls.filter(
+            ([event]) => event === INBOX_EVENTS.SCOUT_SUGGESTION_CREATED
+        )
+        expect(created.map(([, properties]) => properties)).toEqual([
+            expect.objectContaining({
+                suggestion_id: CUSTOM_ITEM.id,
+                config_id: 'config-9',
+                skill_name: 'renamed',
+                suggestion_kind: 'custom',
+            }),
+        ])
     })
 })

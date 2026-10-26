@@ -1,11 +1,12 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { Suspense, useEffect, useRef, useState } from 'react'
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconArrowLeft, IconArrowRight } from '@posthog/icons'
-import { LemonButton, LemonCard, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonTabs, Link, Spinner } from '@posthog/lemon-ui'
 
 import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { lazyWithRetry } from 'lib/utils/retryImport'
@@ -23,7 +24,9 @@ import { ObservationPrompt } from '../components/ObservationPrompt'
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
 import { configFromSnapshot } from '../replay_scanners/types'
 import { scannerLabel } from '../utils/observation'
+import { recordingTimeline } from '../utils/recordingTimeline'
 import { parseNumericParam } from '../utils/urlParams'
+import { ConfidenceBadge } from './ConfidenceBadge'
 import { ObservationDetails } from './ObservationDetails'
 import { ObservationFacts } from './ObservationFacts'
 import { ObservationHeadline } from './ObservationHeadline'
@@ -33,6 +36,7 @@ import { ObservationReasoning } from './ObservationReasoning'
 import { ObservationRecordingUnavailable } from './ObservationRecordingUnavailable'
 import { ObservationShareButton } from './ObservationShareButton'
 import { ObservationUnsuccessfulScan } from './ObservationUnsuccessfulScan'
+import { QuillReplayObservationActions } from './QuillReplayObservationActions'
 import {
     neighborFilterParams,
     observationDetailUrl,
@@ -43,6 +47,7 @@ import {
 import { replayObservationSceneLogic } from './replayObservationSceneLogic'
 
 const ObservationRecording = lazyWithRetry(() => import('./ObservationRecording'))
+const ObservationTimeline = lazyWithRetry(() => import('./ObservationTimeline'))
 
 export const scene: SceneExport = {
     component: ReplayObservationSceneComponent,
@@ -51,7 +56,8 @@ export const scene: SceneExport = {
 }
 
 export function ReplayObservationSceneComponent(): JSX.Element {
-    const { observationId } = useValues(replayObservationSceneLogic)
+    const { observationId, resultTab } = useValues(replayObservationSceneLogic)
+    const { setResultTab } = useActions(replayObservationSceneLogic)
     const { searchParams } = useValues(router)
     const playerRef = useRef<HTMLDivElement>(null)
     const [pendingSeek, setPendingSeek] = useState<{ ms: number; trigger: number } | null>(null)
@@ -74,6 +80,11 @@ export function ReplayObservationSceneComponent(): JSX.Element {
     const { observation, observationLoading, retrying, previousObservationId, nextObservationId, neighborsPending } =
         useValues(observationLogic)
     const { retryObservation } = useActions(observationLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const hasTimeline = useMemo(
+        () => (observation ? recordingTimeline([observation]).chapters.length > 0 : false),
+        [observation]
+    )
 
     // Filters carried over from the scanner's observations table; preserved on prev/next so
     // navigation (and the server-computed neighbor ids) stay within the filtered list.
@@ -116,7 +127,10 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                 <SceneTitleSection name="Observation not found" resourceType={{ type: 'replay_vision' }} />
                 <p className="text-muted">
                     This observation either doesn't exist or you don't have access to it.{' '}
-                    <Link to={urls.replayVision()}>Go to Replay vision</Link>.
+                    <Link data-attr="vision-observation-back" to={urls.replayVision()}>
+                        Go to Replay vision
+                    </Link>
+                    .
                 </p>
             </SceneContent>
         )
@@ -144,64 +158,76 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                 description={observation.recording_subject_email ?? undefined}
                 resourceType={{ type: 'replay_vision' }}
                 actions={
-                    <>
-                        <LemonButton
-                            icon={<IconArrowLeft />}
-                            type="secondary"
-                            size="small"
-                            loading={neighborsPending}
-                            to={previousObservationId ? observationUrl(previousObservationId) : undefined}
-                            disabledReason={
-                                previousObservationId || neighborsPending
-                                    ? undefined
-                                    : neighborsFiltered
-                                      ? 'No previous observation matching your filters'
-                                      : 'No newer observation'
-                            }
-                            tooltip={
-                                <>
-                                    {neighborsFiltered
-                                        ? 'Previous observation matching your filters'
-                                        : 'Previous (newer) observation for this scanner'}{' '}
-                                    <KeyboardShortcut k />
-                                </>
-                            }
-                            data-attr="vision-observation-prev"
-                        >
-                            Previous
-                        </LemonButton>
-                        <LemonButton
-                            sideIcon={<IconArrowRight />}
-                            type="secondary"
-                            size="small"
-                            loading={neighborsPending}
-                            to={nextObservationId ? observationUrl(nextObservationId) : undefined}
-                            disabledReason={
-                                nextObservationId || neighborsPending
-                                    ? undefined
-                                    : neighborsFiltered
-                                      ? 'No next observation matching your filters'
-                                      : 'No older observation'
-                            }
-                            tooltip={
-                                <>
-                                    {neighborsFiltered
-                                        ? 'Next observation matching your filters'
-                                        : 'Next (older) observation for this scanner'}{' '}
-                                    <KeyboardShortcut j />
-                                </>
-                            }
-                            data-attr="vision-observation-next"
-                        >
-                            Next
-                        </LemonButton>
-                        <ObservationShareButton
+                    todayRailNav ? (
+                        <QuillReplayObservationActions
+                            previousUrl={previousObservationId ? observationUrl(previousObservationId) : undefined}
+                            nextUrl={nextObservationId ? observationUrl(nextObservationId) : undefined}
+                            neighborsPending={neighborsPending}
+                            neighborsFiltered={neighborsFiltered}
                             observationId={observation.id}
                             sessionRecordingId={observation.session_id}
                             playerKey={playerKey}
                         />
-                        <ReplayVisionFeedbackButton />
-                    </>
+                    ) : (
+                        <>
+                            <LemonButton
+                                icon={<IconArrowLeft />}
+                                type="secondary"
+                                size="small"
+                                loading={neighborsPending}
+                                to={previousObservationId ? observationUrl(previousObservationId) : undefined}
+                                disabledReason={
+                                    previousObservationId || neighborsPending
+                                        ? undefined
+                                        : neighborsFiltered
+                                          ? 'No previous observation matching your filters'
+                                          : 'No newer observation'
+                                }
+                                tooltip={
+                                    <>
+                                        {neighborsFiltered
+                                            ? 'Previous observation matching your filters'
+                                            : 'Previous (newer) observation for this scanner'}{' '}
+                                        <KeyboardShortcut k />
+                                    </>
+                                }
+                                data-attr="vision-observation-prev"
+                            >
+                                Previous
+                            </LemonButton>
+                            <LemonButton
+                                sideIcon={<IconArrowRight />}
+                                type="secondary"
+                                size="small"
+                                loading={neighborsPending}
+                                to={nextObservationId ? observationUrl(nextObservationId) : undefined}
+                                disabledReason={
+                                    nextObservationId || neighborsPending
+                                        ? undefined
+                                        : neighborsFiltered
+                                          ? 'No next observation matching your filters'
+                                          : 'No older observation'
+                                }
+                                tooltip={
+                                    <>
+                                        {neighborsFiltered
+                                            ? 'Next observation matching your filters'
+                                            : 'Next (older) observation for this scanner'}{' '}
+                                        <KeyboardShortcut j />
+                                    </>
+                                }
+                                data-attr="vision-observation-next"
+                            >
+                                Next
+                            </LemonButton>
+                            <ObservationShareButton
+                                observationId={observation.id}
+                                sessionRecordingId={observation.session_id}
+                                playerKey={playerKey}
+                            />
+                            <ReplayVisionFeedbackButton />
+                        </>
+                    )
                 }
             />
 
@@ -227,18 +253,54 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                             {observation.status === 'succeeded' && snapshot && result && (
                                 <>
                                     {/* The answer and its evidence sit closer to each other than to the rest. */}
-                                    <div className="flex flex-col gap-2">
-                                        <ObservationHeadline observation={observation} onSeek={seekEmbeddedPlayer} />
-                                        {scannerType !== 'summarizer' && reasoning && (
-                                            <LabeledRow label="Reasoning" size="medium">
-                                                <ObservationReasoning
-                                                    reasoning={reasoning}
-                                                    segments={reasoningSegments}
-                                                    onSeek={seekEmbeddedPlayer}
-                                                />
-                                            </LabeledRow>
-                                        )}
-                                    </div>
+                                    {hasTimeline && (
+                                        <LemonTabs
+                                            size="small"
+                                            activeKey={resultTab}
+                                            onChange={setResultTab}
+                                            tabs={[
+                                                {
+                                                    key: 'summary',
+                                                    label: 'Summary',
+                                                    'data-attr': 'vision-observation-tab-summary',
+                                                },
+                                                {
+                                                    key: 'timeline',
+                                                    label: 'Timeline',
+                                                    'data-attr': 'vision-observation-tab-timeline',
+                                                },
+                                            ]}
+                                            barClassName="!mb-0"
+                                            rightSlot={<ConfidenceBadge observation={observation} />}
+                                            rightSlotClassName="bg-transparent pr-0"
+                                        />
+                                    )}
+                                    {hasTimeline && resultTab === 'timeline' ? (
+                                        <Suspense fallback={<Spinner />}>
+                                            <ObservationTimeline
+                                                observation={observation}
+                                                playerKey={playerKey}
+                                                onSeek={seekEmbeddedPlayer}
+                                            />
+                                        </Suspense>
+                                    ) : (
+                                        <div className="flex flex-col gap-2">
+                                            <ObservationHeadline
+                                                observation={observation}
+                                                onSeek={seekEmbeddedPlayer}
+                                                hideLabel={hasTimeline}
+                                            />
+                                            {scannerType !== 'summarizer' && reasoning && (
+                                                <LabeledRow label="Reasoning" size="medium">
+                                                    <ObservationReasoning
+                                                        reasoning={reasoning}
+                                                        segments={reasoningSegments}
+                                                        onSeek={seekEmbeddedPlayer}
+                                                    />
+                                                </LabeledRow>
+                                            )}
+                                        </div>
+                                    )}
                                     <ObservationLabelControl
                                         observationId={observation.id}
                                         initialLabel={observation.label}

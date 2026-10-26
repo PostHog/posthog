@@ -205,7 +205,7 @@ export function ObservationSearch({ className }: { className?: string }): JSX.El
                             onChange={(fromDate, toDate) => setDateRange(fromDate, toDate)}
                             size="small"
                             type="secondary"
-                            placeholder="Any time"
+                            placeholder="All time"
                         />
                     </span>
                     <span onClick={(event) => event.stopPropagation()}>
@@ -289,7 +289,7 @@ export function ObservationSearch({ className }: { className?: string }): JSX.El
                                     icon={<IconPlusSmall />}
                                     to={
                                         combineUrl(
-                                            urls.replayVisionTemplates(),
+                                            urls.replayVisionNewScanner(),
                                             searchedQuery && !sourceObservationId ? { goal: searchedQuery } : {}
                                         ).url
                                     }

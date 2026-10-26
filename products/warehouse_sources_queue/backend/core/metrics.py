@@ -1,3 +1,4 @@
+import math
 import time
 import asyncio
 from collections.abc import Iterator
@@ -34,6 +35,15 @@ BATCH_RETRY_TOTAL = Counter(
     labelnames=["attempt", "error_type"],
 )
 
+# Batches a consumer shutdown cut off mid-run. "marked_on_shutdown" counts the attempts a
+# stopping consumer marked, "recovered" the sweep's re-queues that used no retry, and
+# "cap_exceeded" the runs failed because one batch was cut off too many times.
+BATCH_INTERRUPTIONS_TOTAL = Counter(
+    "warehouse_pg_consumer_batch_interruptions_total",
+    "Batch attempts cut off by a consumer shutdown, by outcome",
+    labelnames=["outcome"],
+)
+
 RUNS_FAILED_TOTAL = Counter(
     "warehouse_pg_consumer_runs_failed_total",
     "Total runs fully failed via fail_run()",
@@ -64,6 +74,12 @@ ACTIVE_GROUPS = Gauge(
     "Number of (team_id, schema_id) groups currently being processed",
     multiprocess_mode="livesum",
 )
+
+# "orphans_found" counts the sweeps that found at least one executing batch without a shutdown
+# marker, which means a consumer died without notice (an OOM kill or a crash) or lost its lease.
+# "orphans_found_after_shutdown" counts the sweeps whose orphans all came from a graceful shutdown,
+# such as a deploy, a scale-down or a liveness restart. Alerts read "orphans_found".
+RECOVERY_SWEEP_OUTCOMES = ("clean", "orphans_found", "orphans_found_after_shutdown")
 
 RECOVERY_SWEEPS_TOTAL = Counter(
     "warehouse_pg_consumer_recovery_sweeps_total",
@@ -97,11 +113,18 @@ RUNS_TERMINALIZED_STALE_TOTAL = Counter(
     "staleness threshold) that the reconcile sweep failed before the retention prune would",
 )
 
+RUNS_FAILED_AGED_OUT_TOTAL = Counter(
+    "warehouse_pg_consumer_runs_failed_aged_out_total",
+    "Runs the reconcile sweep failed because a batch aged out of the claim window before it "
+    "loaded. Without the sweep, the later batches of such a run could complete the job past "
+    "the batch that never loaded",
+)
+
 # The loader's data-freshness signal: it rises whenever loading stalls,
 # regardless of why (wedged consumers, claim-query degradation, crashloops).
-# Every pod reports the same queue-wide value, so aggregate with max().
-# livemax matches that: it stays accurate even if two consumer processes
-# briefly co-exist in one pod, where livesum would double the age.
+# One elected pod per fleet samples it (see clear_queue_sample_gauges), so
+# aggregate with max(). liveall keeps each process's sample separate: during a
+# restart, one process's NaN must not hide the elected process's finite sample.
 OLDEST_UNCLAIMED_BATCH_SECONDS = Gauge(
     "warehouse_pg_queue_oldest_unclaimed_batch_seconds",
     "Age of the oldest queue batch no consumer has picked up yet, counting only batches a "
@@ -109,7 +132,7 @@ OLDEST_UNCLAIMED_BATCH_SECONDS = Gauge(
     "batch are excluded — the claim query refuses those, so their age is not queue lag; they are "
     "counted by warehouse_pg_queue_blocked_batches instead. "
     "Sampled on the reconcile cadence; saturates at the freshness probe window.",
-    multiprocess_mode="livemax",
+    multiprocess_mode="liveall",
 )
 
 # The population the age gauge above excludes. Split out rather than dropped: these
@@ -121,7 +144,7 @@ BLOCKED_BATCHES = Gauge(
     "warehouse_pg_queue_blocked_batches",
     "Pending batches no consumer can ever claim because their run already holds a failed "
     "batch. Sampled on the reconcile cadence, within the freshness probe window.",
-    multiprocess_mode="livemax",
+    multiprocess_mode="liveall",
 )
 
 # Breadth companion to the age gauge. The age is a fleet-wide max, so a single wedged
@@ -131,7 +154,7 @@ BACKLOGGED_GROUPS = Gauge(
     "warehouse_pg_queue_backlogged_groups",
     "Distinct (team_id, schema_id) groups whose oldest claimable batch is older than the "
     "backlog threshold. Sampled on the reconcile cadence.",
-    multiprocess_mode="livemax",
+    multiprocess_mode="liveall",
 )
 
 # Depth companion to the age gauge above: age says how stale the head of the queue
@@ -142,7 +165,7 @@ CLAIMABLE_BATCHES = Gauge(
     "Batches whose state makes them claimable right now (pending or waiting_retry, "
     "within the claim eligibility window; per-run and lease gates not applied). "
     "Sampled on the reconcile cadence.",
-    multiprocess_mode="livemax",
+    multiprocess_mode="liveall",
 )
 
 # Concentration companions to the depth gauge. The loader drains each (team,
@@ -156,7 +179,7 @@ CLAIMABLE_GROUPS = Gauge(
     "Distinct (team_id, schema_id) groups holding at least one claimable batch. Excludes "
     "batches whose run already holds a failed batch, as warehouse_pg_queue_oldest_unclaimed_"
     "batch_seconds does. Sampled on the reconcile cadence.",
-    multiprocess_mode="livemax",
+    multiprocess_mode="liveall",
 )
 
 TOP_GROUPS_CLAIMABLE_SHARE = Gauge(
@@ -165,7 +188,7 @@ TOP_GROUPS_CLAIMABLE_SHARE = Gauge(
     "most claimable batches; 0 when the queue is empty. Near 1 means a few groups own the "
     "queue and drain serially by design. Same blocked-batch exclusion as "
     "warehouse_pg_queue_claimable_groups. Sampled on the reconcile cadence.",
-    multiprocess_mode="livemax",
+    multiprocess_mode="liveall",
 )
 
 SLOT_WAITING_BATCHES = Gauge(
@@ -175,7 +198,7 @@ SLOT_WAITING_BATCHES = Gauge(
     "claim path is slow. Same blocked-batch exclusion as warehouse_pg_queue_claimable_groups; "
     "with warehouse_pg_queue_serialized_batches it sums to the depth minus the blocked "
     "batches. Sampled on the reconcile cadence.",
-    multiprocess_mode="livemax",
+    multiprocess_mode="liveall",
 )
 
 SERIALIZED_BATCHES = Gauge(
@@ -183,8 +206,52 @@ SERIALIZED_BATCHES = Gauge(
     "Claimable batches whose (team_id, schema_id) group already has a batch executing: they "
     "wait behind their own group, not for fleet capacity. Same blocked-batch exclusion as "
     "warehouse_pg_queue_claimable_groups. Sampled on the reconcile cadence.",
-    multiprocess_mode="livemax",
+    multiprocess_mode="liveall",
 )
+
+# A depth statement that times out must not read as an empty queue. The sampling pod
+# re-exports its last good depth sample and says how old it is here, so a panel can
+# tell a fresh 47k from a 47k that was last measured minutes ago.
+DEPTH_SAMPLE_AGE_SECONDS = Gauge(
+    "warehouse_pg_queue_depth_sample_age_seconds",
+    "Seconds since the depth gauges were last measured in full (0 = measured this round). "
+    "Rises while the depth probe times out and the gauges repeat their last good sample. "
+    "NaN when no sample exists. Aggregate with max().",
+    multiprocess_mode="liveall",
+)
+
+DEPTH_PROBE_TIMEOUTS_TOTAL = Counter(
+    "warehouse_pg_queue_depth_probe_timeouts_total",
+    "Depth probe statements that hit the statement timeout, by stage: count (the headline "
+    "claimable batch count) or breakdown (the group and slot split).",
+    labelnames=["stage"],
+)
+
+QUEUE_SAMPLE_GAUGES: tuple[Gauge, ...] = (
+    OLDEST_UNCLAIMED_BATCH_SECONDS,
+    BLOCKED_BATCHES,
+    BACKLOGGED_GROUPS,
+    CLAIMABLE_BATCHES,
+    CLAIMABLE_GROUPS,
+    TOP_GROUPS_CLAIMABLE_SHARE,
+    SLOT_WAITING_BATCHES,
+    SERIALIZED_BATCHES,
+    DEPTH_SAMPLE_AGE_SECONDS,
+)
+
+
+def clear_queue_sample_gauges() -> None:
+    """Mark this pod's queue-wide gauges as "no sample" until it takes a fresh one.
+
+    Only the pod that holds the gauge slot samples the queue. A Prometheus gauge
+    exports its last value forever, so a pod that sampled in an earlier round
+    would keep exporting that old value, and max() across pods would pin it.
+    NaN is the "no value" marker: PromQL and MetricsQL max() skip it while any
+    pod has a real value.
+    """
+    for gauge in QUEUE_SAMPLE_GAUGES:
+        gauge.set(math.nan)
+
 
 # The maintenance queries (sweeps, reconcile passes, probes) shaped like the claim
 # poll: cost scales with queue state, and the 2026-08 stall came from one that had
@@ -257,6 +324,7 @@ class ConsumerMetrics:
     batches_processed_total: Counter
     batch_processing_duration_seconds: Histogram
     batch_retry_total: Counter
+    batch_interruptions_total: Counter
     runs_failed_total: Counter
     poll_duration_seconds: Histogram
     poll_batches_fetched: Histogram
@@ -267,6 +335,8 @@ class ConsumerMetrics:
     coalesced_set_batches: Histogram
     coalesced_set_runs: Histogram
     coalesced_set_rows: Histogram
+    heartbeat_reconnects_total: Counter
+    heartbeat_reconnect_failures_total: Counter
 
 
 COALESCED_SET_BATCHES_BUCKETS = (1, 2, 4, 8, 16, 32, 64, 128, 256)
@@ -294,10 +364,20 @@ COALESCED_SET_ROWS = Histogram(
     buckets=COALESCED_SET_ROWS_BUCKETS,
 )
 
+HEARTBEAT_RECONNECTS_TOTAL = Counter(
+    "warehouse_pg_consumer_heartbeat_reconnects_total",
+    "Batch heartbeats that replaced a dropped group connection with a new one",
+)
+HEARTBEAT_RECONNECT_FAILURES_TOTAL = Counter(
+    "warehouse_pg_consumer_heartbeat_reconnect_failures_total",
+    "Batch heartbeats that could not open a new group connection or renew the lease on it",
+)
+
 DELTA_CONSUMER_METRICS = ConsumerMetrics(
     batches_processed_total=BATCHES_PROCESSED_TOTAL,
     batch_processing_duration_seconds=BATCH_PROCESSING_DURATION_SECONDS,
     batch_retry_total=BATCH_RETRY_TOTAL,
+    batch_interruptions_total=BATCH_INTERRUPTIONS_TOTAL,
     runs_failed_total=RUNS_FAILED_TOTAL,
     poll_duration_seconds=POLL_DURATION_SECONDS,
     poll_batches_fetched=POLL_BATCHES_FETCHED,
@@ -308,6 +388,8 @@ DELTA_CONSUMER_METRICS = ConsumerMetrics(
     coalesced_set_batches=COALESCED_SET_BATCHES,
     coalesced_set_runs=COALESCED_SET_RUNS,
     coalesced_set_rows=COALESCED_SET_ROWS,
+    heartbeat_reconnects_total=HEARTBEAT_RECONNECTS_TOTAL,
+    heartbeat_reconnect_failures_total=HEARTBEAT_RECONNECT_FAILURES_TOTAL,
 )
 
 _metrics_by_prefix: dict[str, ConsumerMetrics] = {}
@@ -335,6 +417,11 @@ def make_consumer_metrics(prefix: str) -> ConsumerMetrics:
             f"{p}_batch_retry_total",
             "Total batch retry attempts",
             labelnames=["attempt", "error_type"],
+        ),
+        batch_interruptions_total=Counter(
+            f"{p}_batch_interruptions_total",
+            "Batch attempts cut off by a consumer shutdown, by outcome",
+            labelnames=["outcome"],
         ),
         runs_failed_total=Counter(
             f"{p}_runs_failed_total",
@@ -384,6 +471,14 @@ def make_consumer_metrics(prefix: str) -> ConsumerMetrics:
             f"{p}_coalesced_set_rows",
             "Rows per set loaded as a single write",
             buckets=COALESCED_SET_ROWS_BUCKETS,
+        ),
+        heartbeat_reconnects_total=Counter(
+            f"{p}_heartbeat_reconnects_total",
+            "Batch heartbeats that replaced a dropped group connection with a new one",
+        ),
+        heartbeat_reconnect_failures_total=Counter(
+            f"{p}_heartbeat_reconnect_failures_total",
+            "Batch heartbeats that could not open a new group connection or renew the lease on it",
         ),
     )
     _metrics_by_prefix[prefix] = metrics

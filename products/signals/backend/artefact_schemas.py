@@ -19,6 +19,7 @@ degraded, never raised to users).
 from __future__ import annotations
 
 import re
+import json
 from collections.abc import Mapping
 from datetime import datetime
 from enum import Enum
@@ -27,8 +28,9 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, RootModel, ValidationError, field_validator, model_validator
 
-from products.signals.backend.enums import ReportLinkKind, ReportPriority
-from products.signals.backend.report_checks import CheckInconclusiveReason, CheckOutcome
+from products.signals.backend.enums import ReportLinkKind, ReportPriority, SuggestedSourceProduct
+from products.signals.backend.report_checks import CheckComparison, CheckInconclusiveReason, CheckOutcome
+from products.signals.backend.report_metrics import MAX_METRIC_UNIT_LENGTH, ReportMetricValueFormat
 from products.tasks.backend.facade.repo_selection_types import RepoSelectionResult
 
 # Product / type identifier parts must be routing-safe — mirrors the custom-agent identifier
@@ -134,6 +136,25 @@ class ActionabilityAssessment(BaseModel):
         return v
 
 
+def priority_from_judgment(content: str | None) -> str | None:
+    """The priority of a `priority_judgment` artefact's content, or None when the content has none.
+
+    Tolerant on purpose: an old or malformed judgment reads as "no priority" rather than an error.
+    """
+    try:
+        data = json.loads(content or "")
+    except (TypeError, ValueError):
+        return None
+    priority = data.get("priority") if isinstance(data, dict) else None
+    return priority if isinstance(priority, str) else None
+
+
+class PriorityAdjustment(BaseModel):
+    previous_priority: Priority | None
+    previous_judgment_id: UUID | None
+    source: Literal["inbox_sidebar"] = "inbox_sidebar"
+
+
 class PriorityAssessment(BaseModel):
     """Content schema for a `priority_judgment` artefact."""
 
@@ -146,6 +167,11 @@ class PriorityAssessment(BaseModel):
         ),
     )
     priority: Priority = Field(description="Priority (P0-P4)")
+    adjustment: PriorityAdjustment | None = Field(
+        default=None,
+        exclude_if=lambda adjustment: adjustment is None,
+        description="Correction metadata recorded when a person changes the priority in the inbox.",
+    )
     dollar_value: float | None = Field(
         default=None,
         description=(
@@ -224,6 +250,10 @@ class SuggestedReviewerEntry(BaseModel):
             "could name a privileged teammate as owner and have an implementation agent run as them."
         ),
     )
+    is_research_selected: bool = Field(
+        default=False,
+        description="Research selected this reviewer. Autostart requires independent ownership or commit confirmation.",
+    )
     source_skill: str | None = Field(
         default=None,
         description=(
@@ -269,10 +299,99 @@ class SuggestedReviewers(RootModel[list[SuggestedReviewerEntry]]):
     """Content schema for a `suggested_reviewers` artefact — the content root is a JSON list."""
 
 
+class ReviewerState(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    reviewers_id: UUID | None = None
+    corrections_id: UUID | None = None
+
+
+class PROwnerIdentityProof(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    source: Literal["github_user_integration", "github_oauth"]
+    user_uuid: UUID
+    github_user_id: int
+    verified_at: datetime
+    expires_at: datetime
+
+
+class PROwnerIdentity(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    login: str = Field(pattern=r"^[a-z0-9](?:-?[a-z0-9]){0,38}$")
+    proof: PROwnerIdentityProof | None = None
+
+
+class PROwnerAssignment(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    repository: str
+    pr_number: int = Field(gt=0)
+    owners: tuple[PROwnerIdentity, ...]
+    origin: Literal["report", "claim", "legacy"]
+    assigned_at: datetime
+    replaced_logins: tuple[str, ...] = ()
+
+
+class ReviewerCorrections(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    pinned: tuple[SuggestedReviewerEntry, ...] = ()
+    excluded: tuple[SuggestedReviewerEntry, ...] = ()
+    confirmed: bool = False
+    needs_review: bool = False
+
+
+class ReviewerProposal(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    expected_state: ReviewerState
+    source: str = "automatic"
+    outcome: Literal["selected", "no_suitable_owner", "lookup_failed"] = "selected"
+    retry_reason: str | None = Field(default=None, max_length=500)
+
+    @model_validator(mode="after")
+    def validate_outcome(self) -> ReviewerProposal:
+        if self.outcome == "lookup_failed" and not self.retry_reason:
+            raise ValueError("A failed lookup needs a retry reason.")
+        return self
+
+
+class ReviewerEdit(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    action: Literal["add", "remove", "replace", "confirm"]
+    expected_state: ReviewerState | None = None
+
+
 class ChannelAssignment(BaseModel):
     """The space that currently owns a report. The latest assignment wins."""
 
     channel_id: UUID | None = Field(description="Channel UUID, or null to leave the report unassigned.")
+
+
+# The inbox renders the reason as one line under the report's evidence, so it is one sentence.
+MAX_SOURCE_SUGGESTION_REASON_LENGTH = 300
+
+
+class SourceSuggestion(BaseModel):
+    """A product the team does not use that would have given this report better evidence.
+
+    The latest suggestion wins. The report API hides it while the product is in use, so a
+    suggestion stops showing once the team turns the product on, without a second write.
+    """
+
+    product: SuggestedSourceProduct = Field(description="The product the team should turn on.")
+    reason: str = Field(
+        min_length=1,
+        max_length=MAX_SOURCE_SUGGESTION_REASON_LENGTH,
+        description=(
+            "One sentence on what this product would have shown for this report, specific to its "
+            "evidence. For example: 'Logs from the checkout service could show whether the timeout "
+            "starts at the payment provider.'"
+        ),
+    )
 
 
 # A scoring pass runs several models over one report (one served, the rest challengers), and every
@@ -320,6 +439,15 @@ class RankingModelResult(BaseModel):
     scores: dict[str, Annotated[float, Field(ge=0.0, le=1.0)]] = Field(
         default_factory=dict,
         description="Outcome head name to its calibrated probability. Empty on a skipped model.",
+    )
+    # No upper bound: a lift reaches `1 / base_rate`.
+    lifts: dict[str, Annotated[float, Field(ge=0.0)]] = Field(
+        default_factory=dict,
+        description=(
+            "Outcome head name to its probability divided by the head's base rate "
+            "(`refit_classification_threshold`) from the model's metadata. Empty on a skipped model. "
+            "A head without a saved threshold has no entry."
+        ),
     )
     metadata: dict[str, Any] = Field(
         default_factory=dict,
@@ -409,8 +537,9 @@ class RankingScore(BaseModel):
         return self
 
 
-# Reason code shared by the dismissal writer (the state API) and the corrections reader
-# (`repo_corrections`), defined here so the two cannot drift apart.
+# Reason-only routing feedback still needs to reach the authoring scout.
+DISMISSAL_REASON_WRONG_ASSIGNEE = "wrong_assignee"
+# Shared by the dismissal writer and repository-corrections reader so they cannot drift apart.
 DISMISSAL_REASON_WRONG_REPO = "wrong_repo"
 # Reason codes that claim the issue is fixed, rather than stating a preference about the report.
 # A later matching signal contradicts the claim, so the grouping stage treats these dismissals the
@@ -428,12 +557,16 @@ DISMISSAL_IDENTITY_MAX_LENGTH = 128
 
 
 class Dismissal(BaseModel):
-    """Content schema for a `dismissal` artefact: feedback captured when a report is dismissed/snoozed.
+    """Feedback records retain their verdict because the report can change state later.
 
     The user fields predate row-level attribution and are kept for compatibility with existing
     rows and readers; new rows also carry attribution on the artefact row itself.
     """
 
+    state: Literal["resolved", "suppressed", "potential"] | None = Field(
+        default=None,
+        description="Report verdict when this feedback was recorded. Null on legacy feedback with no recorded verdict.",
+    )
     reason: str | None = Field(
         default=None, max_length=DISMISSAL_REASON_MAX_LENGTH, description="Caller-owned dismissal reason code."
     )
@@ -973,6 +1106,34 @@ class CheckResult(BaseModel):
         return self
 
 
+class CheckObservation(BaseModel):
+    explanation: str
+    check_id: str
+    title: str
+    monitoring_started_at: datetime
+    measured_at: datetime
+    monitoring_ends_at: datetime | None = None
+    value_format: ReportMetricValueFormat | None = None
+    unit: str | None = Field(default=None, max_length=MAX_METRIC_UNIT_LENGTH)
+    comparison: CheckComparison | None = None
+    observed_value: float | None = Field(default=None, allow_inf_nan=False)
+    matches: bool | None = None
+    error: str | None = None
+
+    @model_validator(mode="after")
+    def measurement_is_complete(self) -> CheckObservation:
+        if self.measured_at <= self.monitoring_started_at:
+            raise ValueError("An observation must end after Monitoring starts.")
+        if self.monitoring_ends_at is not None and self.measured_at >= self.monitoring_ends_at:
+            raise ValueError("An interim observation must precede the Monitoring deadline.")
+        if self.error is None:
+            if self.observed_value is None or self.matches is None or self.comparison is None:
+                raise ValueError("A measured observation needs its value, comparison, and match result.")
+        elif not self.error.strip() or self.observed_value is not None or self.matches is not None:
+            raise ValueError("An errored observation needs an error and no measured result.")
+        return self
+
+
 class CheckLifecycleEntry(BaseModel):
     """What every entry in a check's life carries, so the three cannot drift apart.
 
@@ -1025,9 +1186,9 @@ class CheckCancelled(CheckLifecycleEntry):
     the type rather than a nullable field.
     """
 
-    reason: Literal["stopped_by_person", "stopped_by_scout", "replaced_by_research"] = Field(
-        description="Which path stopped the check."
-    )
+    reason: Literal[
+        "stopped_by_person", "stopped_by_scout", "replaced_by_research", "replaced_by_request", "no_check_lane"
+    ] = Field(description="Which path stopped the check.")
 
 
 # ── Type mapping ─────────────────────────────────────────────────────────────────
@@ -1092,13 +1253,16 @@ StatusArtefactContent = (
     | PriorityAssessment
     | RepoSelectionResult
     | SuggestedReviewers
+    | ReviewerCorrections
     | ChannelAssignment
     | ImplementationDecision
     | ImplementationDispatch
     | RankingScore
+    | SourceSuggestion
 )
 LogArtefactContent = (
     CodeReference
+    | PROwnerAssignment
     | Commit
     | TaskRunArtefact
     | NoteArtefact
@@ -1112,6 +1276,7 @@ LogArtefactContent = (
     | WorkRelease
     | PullRequestLink
     | CheckResult
+    | CheckObservation
     | CheckScheduled
     | CheckExpired
     | CheckCancelled
@@ -1131,6 +1296,8 @@ ARTEFACT_CONTENT_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "signal_finding": SignalFinding,
     "repo_selection": RepoSelectionResult,
     "suggested_reviewers": SuggestedReviewers,
+    "reviewer_corrections": ReviewerCorrections,
+    "pr_owner_assignment": PROwnerAssignment,
     "channel_assignment": ChannelAssignment,
     "ranking_score": RankingScore,
     "dismissal": Dismissal,
@@ -1148,6 +1315,7 @@ ARTEFACT_CONTENT_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "work_release": WorkRelease,
     "pull_request": PullRequestLink,
     "check_result": CheckResult,
+    "check_observation": CheckObservation,
     "check_scheduled": CheckScheduled,
     "check_expired": CheckExpired,
     "check_cancelled": CheckCancelled,
@@ -1156,6 +1324,7 @@ ARTEFACT_CONTENT_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "implementation_replacement": ImplementationReplacement,
     "implementation_handover": ImplementationHandover,
     "impact_measurement_plan": ImpactMeasurementPlan,
+    "source_suggestion": SourceSuggestion,
 }
 
 _ARTEFACT_TYPE_BY_MODEL: Mapping[type[BaseModel], str] = {model: t for t, model in ARTEFACT_CONTENT_SCHEMAS.items()}
@@ -1183,6 +1352,8 @@ _ARTEFACT_TYPE_BY_MODEL: Mapping[type[BaseModel], str] = {model: t for t, model 
 # the API would let a caller fabricate a probability the model never produced.
 NON_WRITABLE_ARTEFACT_TYPES: frozenset[str] = frozenset(
     {
+        "reviewer_corrections",
+        "pr_owner_assignment",
         "task_run",
         "video_segment",
         "title_change",
@@ -1192,6 +1363,7 @@ NON_WRITABLE_ARTEFACT_TYPES: frozenset[str] = frozenset(
         "work_release",
         "pull_request",
         "check_result",
+        "check_observation",
         "check_scheduled",
         "check_expired",
         "check_cancelled",
@@ -1202,20 +1374,26 @@ NON_WRITABLE_ARTEFACT_TYPES: frozenset[str] = frozenset(
         "implementation_replacement",
         "implementation_handover",
         "ranking_score",
+        "impact_measurement_plan",
     }
 )
 
 
-def artefact_type_for(content: BaseModel) -> str:
-    """The artefact type a content model persists as (exact class match).
+def artefact_type_for_model(model: type[BaseModel]) -> str:
+    """The artefact type a content model class persists as (exact class match).
 
     Deriving the row's type from the model class makes a type/content mismatch unrepresentable.
     Raises `ArtefactContentValidationError` for models that aren't artefact content schemas.
     """
-    artefact_type = _ARTEFACT_TYPE_BY_MODEL.get(type(content))
+    artefact_type = _ARTEFACT_TYPE_BY_MODEL.get(model)
     if artefact_type is None:
-        raise ArtefactContentValidationError(f"{type(content).__name__} is not an artefact content model")
+        raise ArtefactContentValidationError(f"{model.__name__} is not an artefact content model")
     return artefact_type
+
+
+def artefact_type_for(content: BaseModel) -> str:
+    """The artefact type a content model instance persists as. See `artefact_type_for_model`."""
+    return artefact_type_for_model(type(content))
 
 
 def parse_artefact_content(artefact_type: str, content: str | dict | list) -> ArtefactContent:

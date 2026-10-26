@@ -38,6 +38,7 @@ from posthog.auth import (
     SessionAuthentication,
     is_mcp_request,
 )
+from posthog.clickhouse.query_tagging import tag_queries
 from posthog.models.integration import POSTHOG_CONNECT_KIND, Integration, OauthIntegration, posthog_connect_base_url
 from posthog.oauth_provenance import SANDBOX_ORIGIN_HEADER, is_sandbox_origin_request
 from posthog.permissions import get_authenticator_scopes
@@ -195,6 +196,8 @@ def _forward_through_connection(
                 # Stream so an oversized body is capped below rather than fully buffered by requests.
                 stream=True,
             )
+            if res.headers.get("X-PostHog-Suppress-Analytics") == "true":
+                tag_queries(is_scout_experiment=True)
             with res:
                 # Bound the *total* time we hold a worker, not just each socket read. A target that
                 # trickles a long-lived stream (SSE keepalives, say) would otherwise keep this read

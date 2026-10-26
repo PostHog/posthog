@@ -15,7 +15,6 @@ from django.core.cache import cache
 
 from drf_spectacular.utils import OpenApiResponse
 from rest_framework import exceptions, serializers, status, viewsets
-from rest_framework.authentication import SessionAuthentication
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -23,15 +22,15 @@ from rest_framework.throttling import UserRateThrottle
 
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
+from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.models.user import User
 from posthog.permissions import APIScopePermission
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.signals.backend.models import SignalScoutConfig
+from products.signals.backend.presentation.scout_permissions import ScoutCanonicalTeamAccessPermission
 from products.signals.backend.scout_harness.prompt import SCOUT_PROJECT_SCAN_GUIDANCE
 from products.signals.backend.scout_harness.suggestions import find_suggestion
-from products.signals.backend.scout_harness.views import ScoutCanonicalTeamAccessPermission
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.access import usage_limit_response
 

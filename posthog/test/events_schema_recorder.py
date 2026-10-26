@@ -27,6 +27,7 @@ from posthog.clickhouse.events_json import (
     EVENTS_JSON_DATA_TABLE,
     WRITABLE_EVENTS_JSON_TABLE,
 )
+from posthog.models.event.sql import EVENTS_JSON_CLEANED_ALIAS, EVENTS_JSON_CLEANER
 from posthog.temporal.common.clickhouse import ClickHouseClient as AsyncClickHouseClient
 
 if TYPE_CHECKING:
@@ -37,7 +38,7 @@ EVENTS_JSON_TABLE_NAME = re.compile(rf"(?<!\w)(?:{'|'.join(EVENTS_JSON_TABLES)})
 # In this mode the event fixtures also insert every event into the JSON table. Only a read or a
 # mutation of that table can change what a test sees, so the fixture insert and the table setup and
 # cleanup statements do not count.
-FIXTURE_INSERT_MARKER = "JSONCleanPostHogTemporaryProperties(source.c3) FROM values("
+FIXTURE_INSERT_MARKER = f"{EVENTS_JSON_CLEANER}(c3, c9) AS {EVENTS_JSON_CLEANED_ALIAS} FROM values("
 SETUP_STATEMENT = re.compile(r"\s*(?:CREATE|DROP|TRUNCATE)\b", re.IGNORECASE)
 AS_SELECT = re.compile(r"\bAS\s+SELECT\b", re.IGNORECASE)
 

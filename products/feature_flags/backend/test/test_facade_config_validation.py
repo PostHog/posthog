@@ -17,14 +17,21 @@ from products.feature_flags.backend.api.feature_flag import calculate_filter_siz
 from products.feature_flags.backend.facade import config_validation
 from products.feature_flags.backend.facade.config_validation import (
     _COMMON_RULE_FIELDS,
+    _EXPERIMENT_ONLY_FIELDS,
+    _HOLDOUT_FIELDS,
     _PROPERTY_FIELDS,
     _ROLLOUT_RULE_FIELDS,
     _ROOT_FIELDS,
     _UUID as UUID_PATTERN,
+    _VARIANT_FIELDS,
     ASSIGNMENT_ALGORITHM,
+    MAX_OBJECT_DEPTH,
     MAX_PREDICATES_PER_RULE,
     MAX_RULES,
+    MAX_SAFE_INTEGER,
     MAX_SEED_LENGTH,
+    MAX_VARIANTS,
+    MIN_VARIANTS,
     PERSON_ASSIGNMENT,
     PROPERTY_OPERATORS,
     PROPERTY_TYPES,
@@ -34,19 +41,24 @@ from products.feature_flags.backend.facade.config_validation import (
     ConfigValidationError,
     Predicate,
     ValidatedConfig,
+    ValidatedHoldout,
     ValidatedRule,
+    ValidatedVariant,
     ValidationLimits,
     _encoded_size as config_size_bytes,
+    canonical_value,
     validate_config,
 )
 
-# Vendored from the released harness contract; SOURCE.json records the revision and digests.
-CONTRACT_DIR = Path(__file__).parent / "fixtures" / "rules_v2_contract" / "2.0.0"
+# Vendored from the harness contract; SOURCE.json records the revision and digests.
+CONTRACT_DIR = Path(__file__).parent / "fixtures" / "rules_v2_contract"
 LIMITS = ValidationLimits(max_config_bytes=64 * 1024, max_metadata_bytes=1024)
 
 TARGETED_ID = "11111111-1111-4111-8111-111111111111"
 ROLLOUT_ID = "22222222-2222-4222-8222-222222222222"
+EXPERIMENT_ID = "33333333-3333-4333-8333-333333333333"
 SEED = "release-preview"
+HOLDOUT_SEED = "release-preview-holdout"
 
 
 def targeted(**overrides: Any) -> dict[str, Any]:
@@ -73,6 +85,30 @@ def rollout(**overrides: Any) -> dict[str, Any]:
     }
 
 
+def variants(*values: Any, weights: tuple[float, ...] = (50, 50)) -> list[dict[str, Any]]:
+    keys = ("control", "test", "third")
+    return [{"key": key, "weight": weight, "value": value} for key, weight, value in zip(keys, weights, values)]
+
+
+def experiment(**overrides: Any) -> dict[str, Any]:
+    return {
+        "id": EXPERIMENT_ID,
+        "rule_type": "experiment",
+        "targeting": {"properties": []},
+        "paused": False,
+        "rollout_percentage": 100,
+        "on_rollout_miss": "continue",
+        "assignment_algorithm": ASSIGNMENT_ALGORITHM,
+        "seed": SEED,
+        "variants": variants(False, True),
+        **overrides,
+    }
+
+
+def holdout(**overrides: Any) -> dict[str, Any]:
+    return {"seed": HOLDOUT_SEED, "exclusion_percentage": 10, **overrides}
+
+
 def person(**overrides: Any) -> dict[str, Any]:
     return {"key": "account_tier", "type": "person", "operator": "exact", "value": "preview", **overrides}
 
@@ -81,11 +117,19 @@ def config(*rules: dict[str, Any], **overrides: Any) -> dict[str, Any]:
     return {"version": 2, "return_type": "boolean", "default_value": False, "rules": list(rules), **overrides}
 
 
+def nested(depth: int, leaf: Any = True) -> dict[str, Any]:
+    """An object ``depth`` containers deep, counting itself as level 1."""
+    value: Any = {"leaf": leaf}
+    for _ in range(depth - 1):
+        value = {"child": value}
+    return value
+
+
 def without(document: dict[str, Any], key: str) -> dict[str, Any]:
     return {name: value for name, value in document.items() if name != key}
 
 
-def errors_of(document: object, limits: ValidationLimits = LIMITS) -> list[tuple[str, str]]:
+def errors_of(document: object, limits: ValidationLimits = LIMITS) -> list[tuple[str, str | None]]:
     with pytest.raises(ConfigValidationError) as exc_info:
         validate_config(document, limits=limits)
     return [(error.code, error.attr) for error in exc_info.value.errors]
@@ -162,7 +206,68 @@ VALID_DOCUMENTS: list[tuple[str, dict[str, Any]]] = [
             )
         ),
     ),
+    ("uncompilable_regex", config(targeted(targeting={"properties": [person(operator="regex", value="[")]}))),
+    ("uncompilable_not_regex", config(targeted(targeting={"properties": [person(operator="not_regex", value="(")]}))),
+    (
+        "string_values",
+        config(targeted(value="compact"), rollout(value="wide"), return_type="string", default_value="standard"),
+    ),
+    ("string_null_default", config(targeted(value="compact"), return_type="string", default_value=None)),
+    # Readers accept the event-storage sentinels; only the writer reserves them.
+    ("string_sentinels", config(targeted(value="$false"), return_type="string", default_value="$true")),
+    ("number_values", config(targeted(value=1.25), rollout(value=-40), return_type="number", default_value=0)),
+    (
+        "number_safe_integer_bounds",
+        config(
+            targeted(value=MAX_SAFE_INTEGER), rollout(value=-MAX_SAFE_INTEGER), return_type="number", default_value=None
+        ),
+    ),
+    (
+        "object_values",
+        config(
+            targeted(value={"layout": "compact", "options": [1, True, None]}),
+            rollout(value={}),
+            return_type="object",
+            default_value={"layout": "standard"},
+        ),
+    ),
+    ("object_max_depth", config(targeted(value=nested(MAX_OBJECT_DEPTH)), return_type="object", default_value=None)),
     ("max_rules", config(*[targeted(id=f"00000000-0000-4000-8000-{index:012d}") for index in range(MAX_RULES)])),
+    ("experiment_split", config(experiment())),
+    ("experiment_paused_with_holdout", config(experiment(paused=True, holdout=holdout()))),
+    (
+        "experiment_partial_rollout_return_default",
+        config(experiment(rollout_percentage=33.33, on_rollout_miss="return_default", assign_by=PERSON_ASSIGNMENT)),
+    ),
+    ("experiment_equal_values", config(experiment(variants=variants(True, True)))),
+    (
+        "experiment_two_decimal_weights",
+        config(experiment(variants=variants(False, True, True, weights=(33.33, 33.33, 33.34)))),
+    ),
+    ("experiment_zero_weight", config(experiment(variants=variants(False, True, weights=(0, 100))))),
+    (
+        "experiment_max_variants",
+        config(
+            experiment(variants=[{"key": f"arm_{i}", "weight": 5, "value": i % 2 == 0} for i in range(MAX_VARIANTS)])
+        ),
+    ),
+    ("experiment_holdout_bounds", config(experiment(holdout=holdout(exclusion_percentage=0.01)))),
+    (
+        "experiment_string_values",
+        config(experiment(variants=variants("compact", "wide")), return_type="string", default_value=None),
+    ),
+    (
+        "experiment_number_values",
+        config(experiment(variants=variants(0, 12.5)), return_type="number", default_value=-1),
+    ),
+    (
+        "experiment_object_values",
+        config(experiment(variants=variants({}, {"columns": 2})), return_type="object", default_value=None),
+    ),
+    (
+        "experiment_beside_other_rules",
+        config(targeted(targeting={"properties": [person()]}), rollout(), experiment(holdout=holdout())),
+    ),
     (
         "max_predicates",
         config(targeted(targeting={"properties": [person(key=f"k{i}") for i in range(MAX_PREDICATES_PER_RULE)]})),
@@ -191,9 +296,70 @@ INVALID_DOCUMENTS: list[tuple[str, object, list[tuple[str, str]]]] = [
     ("missing_return_type", without(config(), "return_type"), [("required", "filters.return_type")]),
     ("return_type_unknown", config(return_type="json"), [("invalid", "filters.return_type")]),
     ("return_type_null", config(return_type=None), [("invalid", "filters.return_type")]),
-    ("return_type_string", config(return_type="string", default_value="a"), [("unsupported", "filters.return_type")]),
-    ("return_type_number", config(return_type="number", default_value=0), [("unsupported", "filters.return_type")]),
-    ("return_type_object", config(return_type="object", default_value={}), [("unsupported", "filters.return_type")]),
+    (
+        "experiment_with_unknown_return_type",
+        config(experiment(), return_type="json"),
+        [("invalid", "filters.return_type")],
+    ),
+    ("string_empty_default", config(return_type="string", default_value=""), [("invalid", "filters.default_value")]),
+    ("string_bool_default", config(return_type="string", default_value=True), [("invalid", "filters.default_value")]),
+    (
+        "string_empty_value",
+        config(targeted(value=""), return_type="string", default_value=None),
+        [("invalid", "filters.rules[0].value")],
+    ),
+    (
+        "string_bool_value",
+        config(targeted(value=True), return_type="string", default_value=None),
+        [("invalid", "filters.rules[0].value")],
+    ),
+    ("number_bool_default", config(return_type="number", default_value=False), [("invalid", "filters.default_value")]),
+    (
+        "number_string_value",
+        config(targeted(value="1.25"), return_type="number", default_value=0),
+        [("invalid", "filters.rules[0].value")],
+    ),
+    (
+        "number_above_safe_integer",
+        config(rollout(value=MAX_SAFE_INTEGER + 1), return_type="number", default_value=0),
+        [("invalid", "filters.rules[0].value")],
+    ),
+    (
+        "number_below_safe_integer",
+        config(return_type="number", default_value=-float(MAX_SAFE_INTEGER + 1)),
+        [("invalid", "filters.default_value")],
+    ),
+    (
+        "number_not_finite",
+        config(targeted(value=float("inf")), return_type="number", default_value=0),
+        [("invalid", "filters.rules[0].value")],
+    ),
+    ("object_string_default", config(return_type="object", default_value="{}"), [("invalid", "filters.default_value")]),
+    (
+        "object_array_value",
+        config(targeted(value=[{"layout": "compact"}]), return_type="object", default_value=None),
+        [("invalid", "filters.rules[0].value")],
+    ),
+    (
+        "object_too_deep",
+        config(targeted(value=nested(MAX_OBJECT_DEPTH + 1)), return_type="object", default_value=None),
+        [("invalid", "filters.rules[0].value")],
+    ),
+    (
+        "object_array_too_deep",
+        config(targeted(value={"list": nested(MAX_OBJECT_DEPTH - 1, [])}), return_type="object", default_value=None),
+        [("invalid", "filters.rules[0].value")],
+    ),
+    (
+        "object_nested_number_above_safe_integer",
+        config(targeted(value={"limit": [MAX_SAFE_INTEGER + 1]}), return_type="object", default_value=None),
+        [("invalid", "filters.rules[0].value")],
+    ),
+    (
+        "object_null_value",
+        config(targeted(value=None), return_type="object", default_value=None),
+        [("invalid", "filters.rules[0].value")],
+    ),
     ("missing_default", without(config(), "default_value"), [("required", "filters.default_value")]),
     ("default_zero", config(default_value=0), [("invalid", "filters.default_value")]),
     ("default_one", config(default_value=1), [("invalid", "filters.default_value")]),
@@ -238,7 +404,128 @@ INVALID_DOCUMENTS: list[tuple[str, object, list[tuple[str, str]]]] = [
     ("removed_rule_type", config(targeted(rule_type="variant_rollout")), [("invalid", "filters.rules[0].rule_type")]),
     ("rule_type_null", config(targeted(rule_type=None)), [("invalid", "filters.rules[0].rule_type")]),
     ("rule_type_list", config(targeted(rule_type=["targeted_release"])), [("invalid", "filters.rules[0].rule_type")]),
-    ("experiment_rule", config(targeted(rule_type="experiment")), [("unsupported", "filters.rules[0].rule_type")]),
+    (
+        "experiment_rule_with_targeted_fields",
+        config(targeted(rule_type="experiment")),
+        [
+            ("unknown_field", "filters.rules[0].value"),
+            ("required", "filters.rules[0].rollout_percentage"),
+            ("required", "filters.rules[0].on_rollout_miss"),
+            ("required", "filters.rules[0].assignment_algorithm"),
+            ("required", "filters.rules[0].seed"),
+            ("required", "filters.rules[0].paused"),
+            ("required", "filters.rules[0].variants"),
+        ],
+    ),
+    ("experiment_id", config(experiment(experiment_id=42)), [("unknown_field", "filters.rules[0].experiment_id")]),
+    (
+        "null_experiment_id",
+        config(experiment(experiment_id=None)),
+        [("unknown_field", "filters.rules[0].experiment_id")],
+    ),
+    ("missing_paused", config(without(experiment(), "paused")), [("required", "filters.rules[0].paused")]),
+    ("paused_null", config(experiment(paused=None)), [("invalid", "filters.rules[0].paused")]),
+    (
+        "experiment_missing_seed",
+        config(without(experiment(), "seed")),
+        [("required", "filters.rules[0].seed")],
+    ),
+    ("experiment_group_assign_by", config(experiment(assign_by="group")), [("invalid", "filters.rules[0].assign_by")]),
+    ("missing_variants", config(without(experiment(), "variants")), [("required", "filters.rules[0].variants")]),
+    ("variants_object", config(experiment(variants={})), [("invalid", "filters.rules[0].variants")]),
+    (
+        "one_variant",
+        config(experiment(variants=variants(True, weights=(100,)))),
+        [("invalid", "filters.rules[0].variants")],
+    ),
+    (
+        "too_many_variants",
+        config(experiment(variants=[{"key": f"arm_{i}", "weight": 5, "value": True} for i in range(MAX_VARIANTS + 1)])),
+        [("limit_exceeded", "filters.rules[0].variants")],
+    ),
+    (
+        "variant_not_object",
+        config(experiment(variants=[1, 2])),
+        [("invalid", "filters.rules[0].variants[0]"), ("invalid", "filters.rules[0].variants[1]")],
+    ),
+    (
+        "duplicate_variant_keys",
+        config(experiment(variants=[{**variant, "key": "control"} for variant in variants(False, True)])),
+        [("not_unique", "filters.rules[0].variants[1].key")],
+    ),
+    (
+        "variant_key_characters",
+        config(experiment(variants=[variants(False, True)[0], {**variants(False, True)[1], "key": "test.v2"}])),
+        [("invalid", "filters.rules[0].variants[1].key")],
+    ),
+    (
+        "variant_unknown_field",
+        config(experiment(variants=[variants(False, True)[0], {**variants(False, True)[1], "name": "Test"}])),
+        [("unknown_field", "filters.rules[0].variants[1].name")],
+    ),
+    (
+        "variant_value_type",
+        config(experiment(variants=variants(False, "true"))),
+        [("invalid", "filters.rules[0].variants[1].value")],
+    ),
+    (
+        "variant_null_value",
+        config(experiment(variants=variants(False, None))),
+        [("invalid", "filters.rules[0].variants[1].value")],
+    ),
+    (
+        "variant_missing_weight",
+        config(experiment(variants=[variants(False, True)[0], without(variants(False, True)[1], "weight")])),
+        [("required", "filters.rules[0].variants[1].weight")],
+    ),
+    (
+        "variant_weight_three_decimals",
+        config(experiment(variants=variants(False, True, weights=(33.333, 66.667)))),
+        [("invalid", "filters.rules[0].variants[0].weight"), ("invalid", "filters.rules[0].variants[1].weight")],
+    ),
+    (
+        "variant_weights_below_100",
+        config(experiment(variants=variants(False, True, True, weights=(33.33, 33.33, 33.33)))),
+        [("invalid", "filters.rules[0].variants")],
+    ),
+    (
+        "variant_weights_above_100",
+        config(experiment(variants=variants(False, True, weights=(50.01, 50)))),
+        [("invalid", "filters.rules[0].variants")],
+    ),
+    ("experiment_with_value", config(experiment(value=True)), [("unknown_field", "filters.rules[0].value")]),
+    ("holdout_id", config(experiment(holdout=holdout(id=7))), [("unknown_field", "filters.rules[0].holdout.id")]),
+    (
+        "null_holdout_id",
+        config(experiment(holdout=holdout(id=None))),
+        [("unknown_field", "filters.rules[0].holdout.id")],
+    ),
+    ("holdout_list", config(experiment(holdout=[])), [("invalid", "filters.rules[0].holdout")]),
+    (
+        "holdout_missing_seed",
+        config(experiment(holdout=without(holdout(), "seed"))),
+        [("required", "filters.rules[0].holdout.seed")],
+    ),
+    (
+        "holdout_unknown_field",
+        config(experiment(holdout=holdout(name="x"))),
+        [("unknown_field", "filters.rules[0].holdout.name")],
+    ),
+    (
+        "holdout_three_decimals",
+        config(experiment(holdout=holdout(exclusion_percentage=5.555))),
+        [("invalid", "filters.rules[0].holdout.exclusion_percentage")],
+    ),
+    (
+        "holdout_above_maximum",
+        config(experiment(holdout=holdout(exclusion_percentage=100.5))),
+        [("invalid", "filters.rules[0].holdout.exclusion_percentage")],
+    ),
+    (
+        "rollout_with_experiment_fields",
+        config(rollout(paused=False, variants=[])),
+        [("unknown_field", "filters.rules[0].paused"), ("unknown_field", "filters.rules[0].variants")],
+    ),
     (
         "unknown_rule_field",
         config(targeted(implicit_default=False)),
@@ -251,9 +538,9 @@ INVALID_DOCUMENTS: list[tuple[str, object, list[tuple[str, str]]]] = [
     ),
     (
         "targeted_with_experiment_fields",
-        config(targeted(experiment_id=1, variants=[], holdout=None)),
+        config(targeted(paused=False, variants=[], holdout=None)),
         [
-            ("unknown_field", "filters.rules[0].experiment_id"),
+            ("unknown_field", "filters.rules[0].paused"),
             ("unknown_field", "filters.rules[0].variants"),
             ("unknown_field", "filters.rules[0].holdout"),
         ],
@@ -625,9 +912,98 @@ class TestValidateConfig:
         assert str(exc_info.value) == "filters.future: Unknown field."
 
     def test_unsupported_family_is_reported_before_shape_of_its_values(self) -> None:
-        # A canonical string document is refused for the family, not for values this validator cannot judge.
-        document = config(targeted(value="compact"), return_type="string", default_value="standard")
-        assert errors_of(document) == [("unsupported", "filters.return_type")]
+        # The unsupported family is reported first. The rule value is still checked against the boolean return type.
+        document = config(targeted(value=1), aggregation_group_type_index=0)
+        assert errors_of(document) == [
+            ("unsupported", "filters.aggregation_group_type_index"),
+            ("invalid", "filters.rules[0].value"),
+        ]
+
+    @parameterized.expand(
+        [
+            ("boolean", True, True, "true", "true"),
+            ("string", "compact", "compact", '"compact"', '"compact"'),
+            ("number", 1.0, -0.0, "1", "0"),
+            ("object", {"b": [1.0, True], "a": "ü"}, {"b": [1.0, True]}, '{"a":"ü","b":[1,true]}', '{"b":[1,true]}'),
+        ]
+    )
+    def test_values_are_canonical_json_so_equal_json_values_compare_equal(
+        self, return_type: str, value: Any, default: Any, canonical: str, canonical_default: str
+    ) -> None:
+        validated = validate_config(
+            config(targeted(value=value), return_type=return_type, default_value=default), limits=LIMITS
+        )
+        assert validated.rules[0].value == canonical
+        assert validated.default_value == canonical_default
+        assert canonical_value(True) != canonical_value(1)
+        assert canonical_value({"n": 1}) == canonical_value({"n": 1.0}) != canonical_value({"n": True})
+
+    @parameterized.expand(
+        [
+            ("boolean", 1, "Must be true or false"),
+            ("string", "", "Must be a non-empty string"),
+            ("number", "1", "Must be a number from -9007199254740991 to 9007199254740991"),
+            (
+                "object",
+                [],
+                "Must be an object at most 20 levels deep with numbers from -9007199254740991 to 9007199254740991",
+            ),
+        ]
+    )
+    def test_value_errors_name_the_type_and_allow_null_only_for_the_default(
+        self, return_type: str, invalid: Any, message: str
+    ) -> None:
+        document = config(targeted(value=invalid), return_type=return_type, default_value=invalid)
+        with pytest.raises(ConfigValidationError) as exc_info:
+            validate_config(document, limits=LIMITS)
+        assert [(error.attr, error.detail) for error in exc_info.value.errors] == [
+            ("filters.default_value", f"{message}, or null."),
+            ("filters.rules[0].value", f"{message}."),
+        ]
+
+    @parameterized.expand(
+        [
+            # Mirrors the semver cases of the flags service's parser test in rust/feature-flags/tests/test_config_v2.rs.
+            *[
+                (operator, value, True)
+                for operator, value in [
+                    ("semver_eq", "1.2.3"),
+                    ("semver_eq", " 1.2.3 "),
+                    ("semver_tilde", "1.2"),
+                    ("semver_wildcard", "1.2.*"),
+                    ("semver_eq", "01.2.3-rc.1"),
+                    ("semver_eq", "1.2.3-alpha+build.01"),
+                    ("semver_eq", "18446744073709551615.0.0"),
+                ]
+            ],
+            *[
+                (operator, value, False)
+                for operator, value in [
+                    ("semver_eq", "1.2.3.4"),
+                    ("semver_tilde", "1.2.3.4"),
+                    ("semver_wildcard", "1.2.3.4.*"),
+                    ("semver_eq", "1.2.3-"),
+                    ("semver_eq", "1.2.3-01"),
+                    ("semver_eq", "1.2.3-a_b"),
+                    ("semver_eq", "1_0.2.3"),
+                    ("semver_eq", "18446744073709551616.0.0"),
+                    ("semver_eq", "1.2.3+meta"),
+                    ("semver_eq", "v1.2.3"),
+                    ("semver_eq", "+1.2.3"),
+                    ("semver_eq", "1. 2.3"),
+                    ("semver_eq", "1.+2.3"),
+                ]
+            ],
+        ]
+    )
+    def test_semver_values_are_the_ones_the_flags_service_parses(
+        self, operator: str, value: str, accepted: bool
+    ) -> None:
+        document = config(targeted(targeting={"properties": [person(operator=operator, value=value)]}))
+        if accepted:
+            validate_config(document, limits=LIMITS)
+        else:
+            assert errors_of(document) == [("invalid", "filters.rules[0].targeting.properties[0].value")]
 
     def test_v1_only_fields_name_the_format_clash(self) -> None:
         with pytest.raises(ConfigValidationError) as exc_info:
@@ -674,13 +1050,13 @@ class TestValidateConfig:
                             Predicate(key="beta", operator="is_set", value="null", negation=False),
                         }
                     ),
-                    value=True,
+                    value="true",
                 ),
                 ValidatedRule(
                     id=ROLLOUT_ID,
                     rule_type="percentage_rollout",
                     predicates=frozenset(),
-                    value=True,
+                    value="true",
                     rollout_percentage=Decimal("33.33"),
                     on_rollout_miss="continue",
                     seed=SEED,
@@ -689,6 +1065,35 @@ class TestValidateConfig:
         )
         assert validated.rules[1].rollout_percentage == Decimal("33.33")
         assert SEED not in repr(validated)
+
+    def test_validated_experiment_rule_carries_its_split_without_seeds(self) -> None:
+        document = config(
+            experiment(
+                paused=True,
+                rollout_percentage=80.5,
+                variants=variants("compact", "compact", weights=(33.33, 66.67)),
+                holdout=holdout(exclusion_percentage=12.5),
+            ),
+            return_type="string",
+            default_value=None,
+        )
+        (rule,) = validate_config(document, limits=LIMITS).rules
+        assert rule == ValidatedRule(
+            id=EXPERIMENT_ID,
+            rule_type="experiment",
+            predicates=frozenset(),
+            value=None,
+            rollout_percentage=Decimal("80.5"),
+            on_rollout_miss="continue",
+            seed=SEED,
+            paused=True,
+            variants=(
+                ValidatedVariant(key="control", weight=Decimal("33.33"), value='"compact"'),
+                ValidatedVariant(key="test", weight=Decimal("66.67"), value='"compact"'),
+            ),
+            holdout=ValidatedHoldout(exclusion_percentage=Decimal("12.5"), seed=HOLDOUT_SEED),
+        )
+        assert SEED not in repr(rule) and HOLDOUT_SEED not in repr(rule)
 
     @parameterized.expand([("explicit", {"negation": True}), ("omitted", {})])
     def test_predicates_are_canonical_across_equivalent_spellings(self, _name: str, extra: dict[str, Any]) -> None:
@@ -702,8 +1107,8 @@ class TestValidateConfig:
 
 def _contract_path(instance_path: str, expected: dict[str, Any]) -> str:
     attr = "filters" + re.sub(r"/(\d+)", r"[\1]", instance_path).replace("/", ".")
-    # Upstream writes the bare field name in `message_contains` for these two keywords, so it is
-    # the missing or unknown field's path segment. Other keywords carry prose (`2 was expected`).
+    # Upstream writes the field name in `message_contains` for these two keywords,
+    # so it is the missing or unknown field's path segment. Other keywords carry prose (`2 was expected`).
     if expected["keyword"] in ("required", "additionalProperties"):
         attr += "." + expected["message_contains"]
     return attr
@@ -721,38 +1126,22 @@ def _admitted_family(document: dict[str, Any]) -> bool:
         for prop in rule["targeting"].get("properties", [])
         if isinstance(prop, dict)
     ]
-    return (
-        document.get("return_type") == "boolean"
-        and "aggregation_group_type_index" not in document
-        and all(rule.get("rule_type") != "experiment" for rule in rules)
-        and all(prop.get("type") == "person" for prop in properties)
-    )
+    return "aggregation_group_type_index" not in document and all(prop.get("type") == "person" for prop in properties)
 
 
 class TestReleasedContract:
     def test_vendored_contract_is_intact(self) -> None:
         source = load_contract("SOURCE.json")
-        index_bytes = (CONTRACT_DIR / "SHA256SUMS").read_bytes()
-        assert hashlib.sha256(index_bytes).hexdigest() == source["source_sha256sums_digest"]
-        index = {
-            path: digest for digest, path in re.findall(r"^([0-9a-f]{64})  (.+)$", index_bytes.decode("utf-8"), re.M)
-        }
-        vendored = [
-            path
+        vendored = {
+            path.relative_to(CONTRACT_DIR).as_posix(): path
             for path in CONTRACT_DIR.rglob("*")
-            if path.is_file() and path.name not in ("SHA256SUMS", "SOURCE.json")
-        ]
-        relatives = {path.relative_to(CONTRACT_DIR).as_posix() for path in vendored}
-        # A deliberate subset of the upstream index: the corpus and wire files stay with the Rust runner.
-        assert relatives <= set(index)
-        for path in vendored:
-            relative = path.relative_to(CONTRACT_DIR).as_posix()
-            assert hashlib.sha256(path.read_bytes()).hexdigest() == index[relative], relative
-        assert {entry["path"] for entry in CONTRACT_FIXTURES} <= relatives
+            if path.is_file() and path.name != "SOURCE.json"
+        }
+        assert set(vendored) == set(source["files"])
+        for relative, path in vendored.items():
+            assert hashlib.sha256(path.read_bytes()).hexdigest() == source["files"][relative], relative
+        assert {entry["path"] for entry in CONTRACT_FIXTURES} <= set(vendored)
         assert MANIFEST["contract"]["version"] == source["contract_version"]
-        versions = {artifact["path"]: artifact.get("version") for artifact in MANIFEST["artifacts"]}
-        assert versions["schemas/config.schema.json"] == source["config_schema_version"]
-        assert versions["registries/literals.json"] == source["registry_version"]
 
     def test_literals_agree_with_the_released_registry(self) -> None:
         registry = load_contract("registries/literals.json")
@@ -765,6 +1154,8 @@ class TestReleasedContract:
         assert MAX_PREDICATES_PER_RULE == CONFIG_SCHEMA["$defs"]["targeting"]["properties"]["properties"]["maxItems"]
         assert MAX_SEED_LENGTH == CONFIG_SCHEMA["$defs"]["seed"]["maxLength"]
         assert UUID_PATTERN.pattern == CONFIG_SCHEMA["$defs"]["uuid"]["pattern"]
+        safe_number = CONFIG_SCHEMA["$defs"]["safeNumber"]
+        assert (safe_number["minimum"], safe_number["maximum"]) == (-MAX_SAFE_INTEGER, MAX_SAFE_INTEGER)
         assert set(RETURN_TYPES) == {entry["value"] for entry in registry["return_types"]}
         assert set(RULE_TYPES) == {entry["value"] for entry in registry["rule_types"]}
 
@@ -773,6 +1164,13 @@ class TestReleasedContract:
         assert _ROOT_FIELDS == set(CONFIG_SCHEMA["properties"])
         assert _COMMON_RULE_FIELDS == set(defs["targetedReleaseRule"]["properties"])
         assert _COMMON_RULE_FIELDS | _ROLLOUT_RULE_FIELDS == set(defs["percentageRolloutRule"]["properties"])
+        assert (_COMMON_RULE_FIELDS - {"value"}) | _ROLLOUT_RULE_FIELDS | _EXPERIMENT_ONLY_FIELDS == set(
+            defs["experimentRule"]["properties"]
+        )
+        assert _VARIANT_FIELDS == set(defs["variant"]["properties"])
+        assert _HOLDOUT_FIELDS == set(defs["holdout"]["properties"])
+        variant_list = defs["experimentRule"]["properties"]["variants"]
+        assert (MIN_VARIANTS, MAX_VARIANTS) == (variant_list["minItems"], variant_list["maxItems"])
         assert _PROPERTY_FIELDS == set(defs["propertyFilter"]["properties"])
 
     def test_operator_tables_match_the_v1_cross_field_tier(self) -> None:
@@ -804,7 +1202,11 @@ class TestReleasedContract:
         errors = errors_of(document)
         if _admitted_family(document):
             expected_attr = _contract_path(entry["expected_failure"]["instance_path"], entry["expected_failure"])
-            assert any(code != "unsupported" and attr == expected_attr for code, attr in errors), (
+            # A value is one field here, so a failure the schema locates inside it is reported on the value.
+            assert any(
+                code != "unsupported" and (attr == expected_attr or expected_attr.startswith(f"{attr}."))
+                for code, attr in errors
+            ), (
                 errors,
                 expected_attr,
             )

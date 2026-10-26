@@ -287,7 +287,7 @@ class TeamMarketingAnalyticsConfig(models.Model):
     attribution_mode = field_access_control(
         models.CharField(
             max_length=20,
-            default=AttributionMode.LAST_TOUCH,
+            default=AttributionMode.LAST_TOUCH.value,
             choices=[(mode.value, mode.value.replace("_", " ").title()) for mode in AttributionMode],
             help_text="Attribution mode: first_touch, last_touch, linear, time_decay, or position_based",
         ),

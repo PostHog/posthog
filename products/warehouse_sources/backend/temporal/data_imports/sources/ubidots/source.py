@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -38,6 +39,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class UbidotsSource(ResumableSource[UbidotsSourceConfig, UbidotsResumeConfig]):
+    codebase_detection = detect(env=("^UBIDOTS_",), pypi=("ubidots",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://docs.ubidots.com/reference/welcome"
     supported_versions = SUPPORTED_UBIDOTS_API_VERSIONS
@@ -53,7 +56,7 @@ class UbidotsSource(ResumableSource[UbidotsSourceConfig, UbidotsResumeConfig]):
             name=ExternalDataSourceType.UBIDOTS,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Ubidots",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["iot", "sensors", "telemetry"],
             caption="""Enter your Ubidots API token to pull your IoT devices, variables, and sensor values into the PostHog Data warehouse.
 

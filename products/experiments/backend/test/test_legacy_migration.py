@@ -113,6 +113,24 @@ class TestExperimentMigrateEndpoint(APILicensedTest):
         assert Experiment.objects.filter(team=self.team).count() == 2
         assert ExperimentSavedMetric.objects.filter(team=self.team).count() == 2
 
+    def test_names_the_shared_metric_that_converts_to_an_invalid_metric(self) -> None:
+        ExperimentSavedMetric.objects.filter(pk=self.shared_metric.pk).update(
+            query={"kind": "ExperimentFunnelsQuery", "funnels_query": {"series": []}}
+        )
+
+        response = self._migrate()
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == (
+            "Couldn't migrate this experiment: "
+            f'The shared metric "Legacy shared metric" (id {self.shared_metric.id}) is not valid: '
+            "funnel metrics require at least one step. "
+            "The experiment exposure event is added as the initial step automatically. "
+            "Contact support if it keeps happening."
+        )
+        assert Experiment.objects.filter(team=self.team).count() == 1
+        assert ExperimentSavedMetric.objects.filter(team=self.team).count() == 1
+
     def test_rejects_an_experiment_that_is_already_on_the_new_engine(self) -> None:
         Experiment.objects.filter(pk=self.experiment.pk).update(metrics=[])
         ExperimentToSavedMetric.objects.filter(experiment=self.experiment).delete()

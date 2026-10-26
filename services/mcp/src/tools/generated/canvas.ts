@@ -205,27 +205,19 @@ const canvasDraftCreate = (): ToolBase<
 
 const CanvasDraftsRetrieveSchema = () => {
     const CanvasesDraftsRetrieveParams = orvalSchemas.CanvasesDraftsRetrieveParams()
-    const CanvasesDraftsRetrieveQueryParams = orvalSchemas.CanvasesDraftsRetrieveQueryParams()
-    return CanvasesDraftsRetrieveParams.omit({ project_id: true })
-        .extend(CanvasesDraftsRetrieveQueryParams.shape)
-        .extend({ id: CanvasesDraftsRetrieveParams.shape['id'].describe('ID of the canvas whose drafts to list.') })
+    return CanvasesDraftsRetrieveParams.omit({ project_id: true }).extend({
+        id: CanvasesDraftsRetrieveParams.shape['id'].describe('ID of the canvas whose drafts to list.'),
+    })
 }
 
-const canvasDraftsRetrieve = (): ToolBase<
-    ReturnType<typeof CanvasDraftsRetrieveSchema>,
-    Schemas.PaginatedCanvasDraftList
-> => ({
+const canvasDraftsRetrieve = (): ToolBase<ReturnType<typeof CanvasDraftsRetrieveSchema>, Schemas.CanvasDraft[]> => ({
     name: 'canvas-drafts-retrieve',
     schema: CanvasDraftsRetrieveSchema(),
     handler: async (context: Context, params: z.infer<ReturnType<typeof CanvasDraftsRetrieveSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PaginatedCanvasDraftList>({
+        const result = await context.api.request<Schemas.CanvasDraft[]>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/canvases/${encodeURIComponent(String(params.id))}/drafts/`,
-            query: {
-                limit: params.limit,
-                offset: params.offset,
-            },
         })
         return result
     },
@@ -407,9 +399,11 @@ const canvasList = (): ToolBase<ReturnType<typeof CanvasListSchema>, Schemas.Pag
             path: `/api/projects/${encodeURIComponent(String(projectId))}/canvases/`,
             query: {
                 channel: params.channel,
+                created_by: params.created_by,
                 kind: params.kind,
                 limit: params.limit,
                 offset: params.offset,
+                ordering: params.ordering,
                 search: params.search,
             },
         })
@@ -594,6 +588,7 @@ const canvasStateRetrieve = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/canvases/${encodeURIComponent(String(params.id))}/state/`,
             query: {
+                cursor: params.cursor,
                 key: params.key,
                 key_prefix: params.key_prefix,
                 keys_only: params.keys_only,

@@ -1,7 +1,9 @@
-from unittest.mock import MagicMock, patch
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.codacy.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.codacy.source import CodacySource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.codacy import CodacySourceConfig
 
 
@@ -27,22 +29,17 @@ class TestCodacySource:
         assert all(schema.supports_incremental is False for schema in schemas)
         assert all(schema.supports_append is False for schema in schemas)
 
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = self.source.get_schemas(_config(), team_id=1, names=["files", "commits"])
-        assert {schema.name for schema in schemas} == {"files", "commits"}
-
     def test_get_documented_tables_lists_static_catalog(self) -> None:
         # lists_tables_without_credentials powers the public docs table catalog; it must work
         # with a placeholder config and no network.
         tables = self.source.get_documented_tables()
         assert [table["name"] for table in tables] == list(ENDPOINTS)
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.codacy.source.validate_codacy_credentials")
-    def test_validate_credentials_maps_transport_result(self, mock_validate: MagicMock) -> None:
-        mock_validate.return_value = True
-        assert self.source.validate_credentials(_config(), team_id=1) == (True, None)
+    def test_validate_credentials_maps_transport_result(self) -> None:
+        with scripted_network([ScriptedResponse(status=200)]):
+            assert self.source.validate_credentials(_config(), team_id=1) == (True, None)
 
-        mock_validate.return_value = False
-        ok, error = self.source.validate_credentials(_config(), team_id=1)
+        with scripted_network([ScriptedResponse(status=401)]):
+            ok, error = self.source.validate_credentials(_config(), team_id=1)
         assert ok is False
         assert error == "Invalid Codacy API token"

@@ -19,7 +19,6 @@ from posthog.temporal.ai.anomaly_investigation.workflow import (
     investigate_anomaly_activity,
 )
 
-from products.alerts.backend.facade.contracts import AlertDelivery
 from products.alerts.backend.models.alert import (
     AlertCheck,
     AlertConfiguration,
@@ -27,6 +26,7 @@ from products.alerts.backend.models.alert import (
     InvestigationStatus,
     InvestigationVerdict,
 )
+from products.alerts_platform.backend.facade.contracts import AlertDelivery
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.notebooks.backend.facade.content import is_markdown_notebook_content
@@ -201,11 +201,13 @@ class TestInvestigationVerdictPersistence(NonAtomicBaseTest):
             model="test-model",
         )
         await sync_to_async(self._create_slack_destination)()
+        # A render records the user it ran as, and the URL is minted only for that user's asset.
         asset = await sync_to_async(ExportedAsset.objects.create)(
             team=self.team,
             insight=self.insight,
             export_format=ExportedAsset.ExportFormat.PNG,
             content=b"png-bytes",
+            created_by=self.user,
         )
         mock_render.return_value = (asset, b"png-bytes")
 

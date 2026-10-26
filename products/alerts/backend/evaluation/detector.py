@@ -21,6 +21,7 @@ from posthog.tasks.alerts.detector import (
     _date_range_override_for_detector,
     _extract_sub_detector_scores,
     _prepare_series,
+    min_points_to_evaluate,
 )
 from posthog.tasks.alerts.detectors import DetectionResult, get_detector
 from posthog.tasks.alerts.metric_definition import MetricDateRange, describe_metric_definition
@@ -42,7 +43,13 @@ from products.alerts.backend.evaluation.contract import (
     SimulationContext,
     execution_mode_for_alert,
 )
+from products.alerts.backend.evaluation.delay import (
+    DelayedEvaluationUnavailable,
+    apply_evaluation_delay,
+    validate_evaluation_delay,
+)
 from products.alerts.backend.judge import (
+    EarlierFlag,
     JudgeAttribution,
     LLMDetectorMisconfiguredError,
     SeriesContext,
@@ -51,7 +58,7 @@ from products.alerts.backend.judge import (
 )
 from products.alerts.backend.judge.llm import LLMSeriesJudge, prompt_window
 from products.alerts.backend.llm_detector_limits import is_llm_detector_config
-from products.alerts.backend.models.alert import AlertConfiguration
+from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 from products.product_analytics.backend.facade.models import Insight
 
 
@@ -65,6 +72,7 @@ def extract_detector_series(
     series_index: int = 0,
     date_from: str | None = None,
     user: Optional[User] = None,
+    evaluation_delay_intervals: int = 0,
 ) -> ExtractionResult:
     """Run a trends insight over the detector's lookback window and normalize it into series.
 
@@ -74,7 +82,8 @@ def extract_detector_series(
     ``empty_query_result=True``; rows that exist but are too short to score are dropped, also leaving
     an empty series list, but with the flag False — the two cases evaluate to 0 and None respectively.
     """
-    min_samples = _compute_min_samples_for_detector(detector_config) + 1
+    interval_value = query.interval.value if query.interval else None
+    min_samples = _compute_min_samples_for_detector(detector_config, interval_value) + 1 + evaluation_delay_intervals
     is_non_time_series = _is_non_time_series_trend(query)
     already_complete = query_excludes_incomplete_periods(query)
     has_breakdown = _has_breakdown(query)
@@ -98,6 +107,10 @@ def extract_detector_series(
     if calculation_result.result is None:
         raise RuntimeError(f"No results found for insight with id = {insight.id}")
     if not calculation_result.result:
+        if evaluation_delay_intervals:
+            raise DelayedEvaluationUnavailable(
+                "No series is available to score. Wait for more data or check the insight."
+            )
         return ExtractionResult(
             series=[], is_breakdown=has_breakdown, interval_type=query.interval, empty_query_result=True
         )
@@ -112,16 +125,37 @@ def extract_detector_series(
     for result in results:
         prepared = _prepare_series(result, is_non_time_series, drop_current=not already_complete)
         if prepared is None:
+            if evaluation_delay_intervals:
+                raise DelayedEvaluationUnavailable(
+                    "A series has too few completed intervals. Wait for more data or reduce the delay."
+                )
             continue
+        if evaluation_delay_intervals:
+            dates = result.get("dates") or result.get("days") or []
+            prepared.dates = dates[: len(prepared.data)]
         points = [
-            SeriesPoint(date=(prepared.dates[i] if i < len(prepared.dates) else None), value=float(value))
+            SeriesPoint(
+                date=(prepared.dates[i] if i < len(prepared.dates) else None),
+                value=None if value is None and evaluation_delay_intervals else float(value),
+            )
             for i, value in enumerate(prepared.data)
         ]
         # current_index is set for contract conformance but unread on this path: the detector scores
         # the whole series rather than comparing against a single anchor interval.
         series.append(ComparableSeries(label=prepared.label, points=points, current_index=len(points) - 1))
 
-    return ExtractionResult(series=series, is_breakdown=has_breakdown, interval_type=query.interval)
+    delayed = apply_evaluation_delay(
+        ExtractionResult(series=series, is_breakdown=has_breakdown, interval_type=query.interval),
+        delay=evaluation_delay_intervals,
+        minimum_points=min_points_to_evaluate(detector_config),
+        timezone=team.timezone,
+    )
+    # The detector scores every retained point, not only the trailing window the delay checks.
+    if any(point.value is None for item in delayed.series for point in item.points):
+        raise DelayedEvaluationUnavailable(
+            "The eligible intervals contain missing values. Wait for more data or check the insight."
+        )
+    return delayed
 
 
 def _triggered_dates(series: ComparableSeries, triggered_indices: list[int]) -> list[str]:
@@ -151,7 +185,8 @@ def _effective_date_range(result: ExtractionResult, detector_config: dict[str, A
     holds, so the saved range would describe a shorter span than the points beside it. The AI
     judge is shown only its trailing window, so its description covers that window alone.
     """
-    shown = prompt_window(detector_config) if is_llm_detector_config(detector_config) else None
+    interval = result.interval_type.value if result.interval_type else None
+    shown = prompt_window(interval) if is_llm_detector_config(detector_config) else None
     for series in result.series:
         dates = [point.date for point in series.points if point.date]
         if shown is not None:
@@ -168,6 +203,7 @@ def _series_context(
     insight: Insight | None,
     interval: str | None,
     metric_description: str,
+    earlier_flags: tuple[EarlierFlag, ...] = (),
 ) -> SeriesContext:
     """What the judge reads about the series that the values array cannot carry."""
     return SeriesContext(
@@ -177,7 +213,38 @@ def _series_context(
         metric_description=metric_description,
         insight_name=(insight.name or "") if insight is not None else "",
         instructions=str(detector_config.get("instructions") or ""),
+        earlier_flags=earlier_flags,
     )
+
+
+# More checks than the longest lookback has points, so every point the model is shown can
+# carry its flag.
+MAX_EARLIER_CHECKS = 500
+
+
+def _earlier_flags(alert_id: Any) -> tuple[EarlierFlag, ...]:
+    """The points that earlier AI checks of this alert fired on, with the reason each check gave.
+
+    Statistical checks and errored checks are left out: only an AI verdict has a reason the
+    model can read. When two checks fired on the same date, the newer reason wins.
+    """
+    checks = (
+        AlertCheck.objects.filter(
+            alert_configuration_id=alert_id,
+            error__isnull=True,
+            triggered_metadata__detector_type=DetectorType.LLM.value,
+            triggered_dates__isnull=False,
+        )
+        .order_by("-created_at")
+        .values_list("triggered_dates", "triggered_metadata")[:MAX_EARLIER_CHECKS]
+    )
+    by_date: dict[str, str] = {}
+    for triggered_dates, metadata in checks:
+        rationale = str((metadata or {}).get("rationale") or "")
+        for date in triggered_dates if isinstance(triggered_dates, list) else []:
+            if isinstance(date, str):
+                by_date.setdefault(date, rationale)
+    return tuple(EarlierFlag(date=date, rationale=rationale) for date, rationale in sorted(by_date.items()))
 
 
 def _judge_attribution(
@@ -212,15 +279,17 @@ class _ScoredSeries:
     breach_suffix: str
 
 
-def _detection_from_judgment(judgment: SeriesJudgment | None) -> DetectionResult | None:
-    """The judgment on the shape the rest of the evaluation reads. None is a series too short to judge."""
+def _detection_from_judgment(judgment: SeriesJudgment | None, *, length: int) -> DetectionResult | None:
+    """The judgment on the shape the rest of the evaluation reads. None is a series too short to judge.
+
+    The judge has no score. A verdict flags the latest point only.
+    """
     if judgment is None:
         return None
     return DetectionResult(
         is_anomaly=judgment.fires,
-        score=judgment.score,
-        triggered_indices=list(judgment.triggered_indices),
-        all_scores=list(judgment.all_scores),
+        score=None,
+        triggered_indices=[length - 1] if judgment.fires else [],
     )
 
 
@@ -251,18 +320,17 @@ def _score_series(
 
     ``attribution`` is resolved only on the judge path, so an alert with no creator still
     evaluates on a statistical detector and only fails when a charged call would need someone
-    to run as.
+    to run as. The judge always judges the latest point only, so ``every_point`` applies to a
+    registry detector alone.
     """
     data = np.array([p.value for p in series.points])
     detector_type_str = detector_config.get("type", "zscore")
     if detector_type_str == DetectorType.LLM.value:
-        judge = _series_judge(detector_config)
-        judge_method = judge.judge_every_point if every_point else judge.judge_latest
-        judgment = judge_method(data, series=series_context, attribution=attribution())
+        judgment = _series_judge(detector_config).judge_latest(data, series=series_context, attribution=attribution())
         rationale = judgment.rationale.strip() if judgment is not None else ""
         return _ScoredSeries(
             data=data,
-            detection=_detection_from_judgment(judgment),
+            detection=_detection_from_judgment(judgment, length=len(data)),
             persisted_metadata=judgment.persisted_metadata() if judgment is not None else {},
             breach_suffix=f". {rationale}" if rationale else "",
         )
@@ -284,10 +352,7 @@ _DETECTOR_DISPLAY_NAMES = {DetectorType.LLM.value: "AI"}
 def _anomaly_breach(label: str, scored: _ScoredSeries, detector_type_str: str) -> str:
     current_value = float(scored.data[-1])
     score = scored.detection.score if scored.detection is not None else None
-    # The model's number is its own stated confidence, not a calibrated probability, so
-    # the message must not present it as one.
-    score_label = "model confidence" if detector_type_str == DetectorType.LLM.value else "anomaly probability"
-    score_str = f" ({score_label}: {score:.0%})" if score is not None else ""
+    score_str = f" (anomaly probability: {score:.0%})" if score is not None else ""
     name = _DETECTOR_DISPLAY_NAMES.get(detector_type_str, detector_type_str)
     return (
         f"Anomaly detected in {label}: value {current_value:.2f}{score_str} using {name} detector{scored.breach_suffix}"
@@ -323,6 +388,9 @@ def evaluate_with_detector(
     metric_description = _metric_description(
         insight, series_index, _effective_date_range(result, detector_config), alert_config
     )
+    earlier_flags = (
+        _earlier_flags(alert.id) if alert is not None and detector_type_str == DetectorType.LLM.value else ()
+    )
 
     def score(series: ComparableSeries) -> _ScoredSeries:
         return _score_series(
@@ -330,7 +398,12 @@ def evaluate_with_detector(
             detector_config,
             every_point=False,
             series_context=_series_context(
-                series, detector_config, insight=insight, interval=interval_value, metric_description=metric_description
+                series,
+                detector_config,
+                insight=insight,
+                interval=interval_value,
+                metric_description=metric_description,
+                earlier_flags=earlier_flags,
             ),
             attribution=lambda: _judge_attribution(
                 team=insight.team if insight is not None else None,
@@ -411,6 +484,7 @@ class TrendsDetectorExtractor:
             execution_mode,
             series_index=series_index,
             user=alert.created_by,
+            evaluation_delay_intervals=alert.evaluation_delay_intervals,
         )
 
     def simulate(self, insight: Insight, query: object, ctx: SimulationContext) -> tuple[ExtractionResult, str | None]:
@@ -426,6 +500,7 @@ class TrendsDetectorExtractor:
             series_index=ctx.series_index,
             date_from=ctx.date_from,
             user=ctx.user,
+            evaluation_delay_intervals=ctx.evaluation_delay_intervals,
         )
         interval_value = trends_query.interval.value if trends_query.interval else None
         return result, interval_value
@@ -442,8 +517,13 @@ def simulate_detector_on_insight(
     *,
     score: bool = True,
     is_agent_billable: bool = True,
+    evaluation_delay_intervals: int = 0,
+    alert_id: Any = None,
 ) -> dict[str, Any]:
     """Run a detector over historical insight data for chart visualization. Read-only (no AlertCheck).
+
+    A statistical detector scores every point. The AI detector makes one live check of the
+    latest point, and reads the earlier flags of ``alert_id`` when the alert is saved.
 
     ``score=False`` returns the extracted series with no scores: for a caller that only wants
     the points, such as the investigation agent's chart, and must not pay for a model call.
@@ -469,12 +549,14 @@ def simulate_detector_on_insight(
     # module's extractor classes — importing the registry at module load would cycle.
     from products.alerts.backend.evaluation.dispatcher import (  # noqa: PLC0415 — breaks dispatcher↔detector import cycle
         DETECTOR_EXTRACTORS,
+        owner_sql_errors,
     )
 
     extractor = DETECTOR_EXTRACTORS.get(kind)
     if extractor is None:
         raise ValueError(f"Anomaly detection simulation isn't supported for {kind} insights")
 
+    validate_evaluation_delay(query, config, evaluation_delay_intervals)
     ctx = SimulationContext(
         team=team,
         detector_config=detector_config,
@@ -482,8 +564,20 @@ def simulate_detector_on_insight(
         series_index=series_index,
         date_from=date_from,
         config=config,
+        evaluation_delay_intervals=evaluation_delay_intervals,
     )
-    result, interval_value = extractor.simulate(insight, query, ctx)
+    with owner_sql_errors(query):
+        result, interval_value = extractor.simulate(insight, query, ctx)
+    interval_metadata = (
+        {
+            "evaluation_delay_intervals": result.evaluated_interval.delay,
+            "evaluated_interval_start": result.evaluated_interval.start,
+            "evaluated_interval_end": result.evaluated_interval.end,
+            "evaluated_interval_timezone": result.evaluated_interval.timezone,
+        }
+        if result.evaluated_interval is not None
+        else {}
+    )
 
     if not result.series:
         # Preserve the original, more specific diagnostics: a genuinely empty query vs rows that
@@ -508,6 +602,11 @@ def simulate_detector_on_insight(
         user=user,
         score=score,
         is_agent_billable=is_agent_billable,
+        earlier_flags=(
+            _earlier_flags(alert_id)
+            if score and alert_id is not None and detector_type_str == DetectorType.LLM.value
+            else ()
+        ),
     )
 
     if result.is_breakdown:
@@ -526,11 +625,12 @@ def simulate_detector_on_insight(
             "total_points": sum(sim["total_points"] for sim in breakdown_sims),
             "anomaly_count": sum(sim["anomaly_count"] for sim in breakdown_sims),
             "breakdown_results": breakdown_sims,
+            **interval_metadata,
         }
 
     sim = _sim_from_series(result.series[0], detector_config, detector_type_str, sim_context)
     sim.pop("label", None)
-    return {**sim, "interval": interval_value}
+    return {**sim, "interval": interval_value, **interval_metadata}
 
 
 @frozen
@@ -547,6 +647,7 @@ class _SimulationSeriesContext:
     user: User | None
     score: bool = True
     is_agent_billable: bool = True
+    earlier_flags: tuple[EarlierFlag, ...] = ()
 
 
 def _sim_from_series(
@@ -555,9 +656,14 @@ def _sim_from_series(
     detector_type_str: str,
     sim_context: _SimulationSeriesContext,
 ) -> dict[str, Any]:
-    """Score a single extracted series over every point and shape it for the simulation chart."""
+    """Score a single extracted series and shape it for the simulation chart.
+
+    A statistical detector scores every point. The AI judge judges only the latest point, the
+    same way a live check does.
+    """
+    persisted_metadata: dict[str, Any] = {}
     if sim_context.score:
-        detection = _score_series(
+        scored = _score_series(
             series,
             detector_config,
             every_point=True,
@@ -567,6 +673,7 @@ def _sim_from_series(
                 insight=sim_context.insight,
                 interval=sim_context.interval,
                 metric_description=sim_context.metric_description,
+                earlier_flags=sim_context.earlier_flags,
             ),
             attribution=lambda: _judge_attribution(
                 team=sim_context.insight.team,
@@ -574,7 +681,9 @@ def _sim_from_series(
                 evaluation_id=None,
                 is_agent_billable=sim_context.is_agent_billable,
             ),
-        ).detection
+        )
+        detection = scored.detection
+        persisted_metadata = scored.persisted_metadata
     else:
         detection = None
     if detection is None:
@@ -597,4 +706,7 @@ def _sim_from_series(
     sub_scores = _extract_sub_detector_scores(detector_type_str, detection)
     if sub_scores:
         sim["sub_detector_scores"] = sub_scores
+    if "rationale" in persisted_metadata:
+        sim["rationale"] = persisted_metadata["rationale"]
+        sim["kind"] = persisted_metadata.get("kind")
     return sim

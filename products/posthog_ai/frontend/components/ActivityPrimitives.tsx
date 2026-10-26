@@ -1,13 +1,16 @@
 import clsx from 'clsx'
-import React, { useLayoutEffect, useState } from 'react'
+import React, { useState } from 'react'
 
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { MarkdownMessage } from '../messages/MarkdownMessage'
 import { ActivityDisclosure } from './ActivityDisclosure'
-
-export type ActivityStatus = 'pending' | 'in_progress' | 'completed' | 'failed'
+import { ActivitySubsteps } from './ActivitySubsteps'
+import type { ActivityProps, ActivityStatus } from './activityTypes'
+import { QuillActivity } from './quill/QuillActivity'
+import { QuillActivityToggleSection } from './quill/QuillActivityToggleSection'
+import { useQuillThread } from './quill/quillThreadContext'
+import { useActivityDisclosure } from './useActivityDisclosure'
 
 export function ShimmeringContent({ children }: { children: React.ReactNode }): JSX.Element {
     const isTextContent = typeof children === 'string'
@@ -38,19 +41,6 @@ export function ShimmeringContent({ children }: { children: React.ReactNode }): 
             {children}
         </span>
     )
-}
-
-function activitySubstepText(content: string, isInProgress: boolean): string {
-    if (content.at(0) === '[' && content.at(-1) === ')') {
-        // Skip ... for web search `updates`, where each is a Markdown-formatted link to a search result.
-        return content
-    }
-    if (!content.endsWith('...') && !content.endsWith('\u2026') && !content.endsWith('.') && isInProgress) {
-        return content + '...'
-    } else if ((content.endsWith('...') || content.endsWith('\u2026')) && !isInProgress) {
-        return content.replace(/\u2026/g, '').replace(/[.]/g, '')
-    }
-    return content
 }
 
 export function ActivityStatusIcon(_props: {
@@ -184,43 +174,6 @@ export function ActivityHeader({
     )
 }
 
-export function ActivitySubsteps({
-    id,
-    substeps,
-    status,
-}: {
-    id: string
-    substeps: string[]
-    status: ActivityStatus
-}): JSX.Element {
-    const isCompleted = status === 'completed'
-    const isFailed = status === 'failed'
-
-    return (
-        <>
-            {substeps.map((substep, substepIndex) => {
-                const isCurrentSubstep = substepIndex === substeps.length - 1
-                const isCompletedSubstep = substepIndex < substeps.length - 1 || isCompleted
-
-                return (
-                    <div key={substepIndex} className="animate-fade-in">
-                        <MarkdownMessage
-                            id={id}
-                            className={clsx(
-                                'leading-relaxed',
-                                isFailed && 'text-danger',
-                                !isFailed && isCompletedSubstep && 'text-muted',
-                                !isFailed && isCurrentSubstep && !isCompleted && 'text-secondary'
-                            )}
-                            content={activitySubstepText(substep ?? '', status === 'in_progress')}
-                        />
-                    </div>
-                )
-            })}
-        </>
-    )
-}
-
 export function ActivityDetails({ children, hasIcon }: { children: React.ReactNode; hasIcon: boolean }): JSX.Element {
     return (
         <div className={clsx('space-y-1 border-l-2 border-border-secondary', hasIcon && 'pl-3.5 ml-[calc(0.775rem)]')}>
@@ -229,17 +182,18 @@ export function ActivityDetails({ children, hasIcon }: { children: React.ReactNo
     )
 }
 
-export function ActivityToggleSection({
-    title,
-    summary,
-    tooltip,
-    children,
-}: {
+export interface ActivityToggleSectionProps {
     title: React.ReactNode
     summary?: React.ReactNode
     tooltip?: string
     children: React.ReactNode
-}): JSX.Element {
+}
+
+export function ActivityToggleSection(props: ActivityToggleSectionProps): JSX.Element {
+    return useQuillThread() ? <QuillActivityToggleSection {...props} /> : <LemonActivityToggleSection {...props} />
+}
+
+function LemonActivityToggleSection({ title, summary, tooltip, children }: ActivityToggleSectionProps): JSX.Element {
     const [isExpanded, setIsExpanded] = useState(false)
 
     return (
@@ -268,7 +222,11 @@ export function ActivityToggleSection({
     )
 }
 
-export function Activity({
+export function Activity(props: ActivityProps): JSX.Element {
+    return useQuillThread() ? <QuillActivity {...props} /> : <LemonActivity {...props} />
+}
+
+function LemonActivity({
     id,
     title,
     subtitle,
@@ -282,30 +240,17 @@ export function Activity({
     details = null,
     children = null,
     autoExpand = true,
+    defaultOpen,
     onToggleDetails,
-}: {
-    id: string
-    title: React.ReactNode
-    subtitle?: React.ReactNode
-    status: ActivityStatus
-    icon?: React.ReactNode
-    animate?: boolean
-    showCompletionIcon?: boolean
-    showProgressIcon?: boolean
-    failedIcon?: React.ReactNode
-    substeps?: string[]
-    details?: React.ReactNode
-    children?: React.ReactNode
-    autoExpand?: boolean
-    onToggleDetails?: (expanded: boolean) => void
-}): JSX.Element {
+}: ActivityProps): JSX.Element {
     const hasDetails = substeps.length > 0 || !!details
-    const shouldExpandDetails = autoExpand && hasDetails && status !== 'completed' && status !== 'failed'
-    const [isDetailsExpanded, setIsDetailsExpanded] = useState(shouldExpandDetails)
-
-    useLayoutEffect(() => {
-        setIsDetailsExpanded(shouldExpandDetails)
-    }, [shouldExpandDetails])
+    const { open: isDetailsExpanded, setOpen: setIsDetailsExpanded } = useActivityDisclosure({
+        autoExpand,
+        defaultOpen,
+        hasDetails,
+        status,
+        onToggleDetails,
+    })
 
     return (
         <div className="flex flex-col rounded w-full min-w-0 text-[13px] leading-5 font-normal">
@@ -316,10 +261,7 @@ export function Activity({
                 animate={animate}
                 hasDetails={hasDetails}
                 isDetailsExpanded={isDetailsExpanded}
-                onToggleDetails={() => {
-                    onToggleDetails?.(!isDetailsExpanded)
-                    setIsDetailsExpanded(!isDetailsExpanded)
-                }}
+                onToggleDetails={() => setIsDetailsExpanded(!isDetailsExpanded)}
                 showCompletionIcon={showCompletionIcon}
                 showProgressIcon={showProgressIcon}
                 failedIcon={failedIcon}

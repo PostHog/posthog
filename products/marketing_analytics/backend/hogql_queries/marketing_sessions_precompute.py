@@ -19,7 +19,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     parse_ttl_schedule,
 )
 
-# Today's window refreshes hourly, the last two days daily, everything older is held for 90 days.
+# UTC-day bands keep TTL cutoffs aligned with the daily INSERT windows.
 # The today band is two warmer periods wide: at one, it expires the minute the next run starts, so
 # any delay in that run makes the window read as cold.
 SESSIONS_TTL_SECONDS: dict[str, int] = {
@@ -130,7 +130,7 @@ def ensure_marketing_sessions_precomputed(
         # the window was still settling must not freeze that snapshot for the whole band TTL.
         ttl_seconds=parse_ttl_schedule(
             SESSIONS_TTL_SECONDS,
-            team.timezone,
+            "UTC",
             max_window_days=CHUNK_DAYS,
             settling_period_seconds=SESSION_SETTLING_PERIOD_SECONDS,
             invalidate_at_window_start=True,

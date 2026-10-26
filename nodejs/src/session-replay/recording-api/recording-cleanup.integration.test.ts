@@ -112,6 +112,26 @@ describe('recording cleanup (integration)', () => {
             [randomUUID(), alertId, targetObservationId, teamId],
             'fixtureMatch'
         )
+        const thumbnail = await postgres.query(
+            PostgresUse.COMMON_WRITE,
+            `INSERT INTO posthog_exportedasset
+                 (team_id, export_format, created_at, export_context, is_system, expires_after)
+             VALUES ($1, 'image/png', now(), $2::jsonb, true, now() + interval '90 days')
+             RETURNING id`,
+            [
+                teamId,
+                JSON.stringify({ session_recording_id: 'session-to-delete', observation_id: targetObservationId }),
+            ],
+            'fixtureThumbnailAsset'
+        )
+        await postgres.query(
+            PostgresUse.COMMON_WRITE,
+            `INSERT INTO replay_vision_replayobservationmedia
+                 (id, observation_id, asset_id, team_id, kind, position, video_start_ms, created_at)
+             VALUES ($1, $2, $3, $4, 'thumbnail', 0, 0, now())`,
+            [randomUUID(), targetObservationId, thumbnail.rows[0].id, teamId],
+            'fixtureMedia'
+        )
         // Of the deleted recording: a system render, a person's own gif export, and an event screenshot frame.
         // Of a kept recording: one export, which must stay.
         for (const [format, isSystem, sessionId] of [
@@ -158,6 +178,11 @@ describe('recording cleanup (integration)', () => {
         ).toBe(0)
         expect(
             await count(`SELECT count(*) FROM replay_vision_visionalertmatch WHERE observation_id = $1`, [
+                targetObservationId,
+            ])
+        ).toBe(0)
+        expect(
+            await count(`SELECT count(*) FROM replay_vision_replayobservationmedia WHERE observation_id = $1`, [
                 targetObservationId,
             ])
         ).toBe(0)

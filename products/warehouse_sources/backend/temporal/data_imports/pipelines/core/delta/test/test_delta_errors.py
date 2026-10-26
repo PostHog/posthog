@@ -10,7 +10,9 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
     TransientObjectStoreError,
     is_invalid_version_race,
+    is_missing_scan_file_race,
     is_offset_overflow_compaction_error,
+    is_transient_delta_log_listing_race,
     is_transient_delta_maintenance_error,
     is_transient_maintenance_error,
     is_transient_object_store_error,
@@ -60,6 +62,15 @@ class TestIsTransientObjectStoreError:
                 True,
             ),
             (
+                # A read timeout never gets s3fs's OSError translation (there's no response to
+                # translate), so it reaches here as the raw botocore `HTTPClientError` subclass once
+                # s3fs's own retries are exhausted - the same blip `s3/writer.py` already retries on
+                # the write path.
+                "bare_read_timeout_error",
+                botocore.exceptions.ReadTimeoutError(endpoint_url="https://example.com/part-0000.parquet"),
+                True,
+            ),
+            (
                 # aiobotocore's session bootstrap (e.g. inside `aget_s3_client`) opens botocore's own
                 # bundled endpoints.json before any network call is made - a full fd table fails that
                 # local open the same way it fails a socket connect, so it needs the same transient
@@ -71,6 +82,11 @@ class TestIsTransientObjectStoreError:
             (
                 "fd_table_full_enfile",
                 OSError(errno.ENFILE, "Too many open files in system"),
+                True,
+            ),
+            (
+                "s3_service_unavailable_ebusy",
+                OSError(errno.EBUSY, "Service Unavailable"),
                 True,
             ),
             (
@@ -89,11 +105,43 @@ class TestIsTransientObjectStoreError:
                 PermissionError("The difference between the request time and the current time is too large."),
                 True,
             ),
+            (
+                # S3 omits the usual XML error body on some 5xx responses, so the AWS SDK for C++
+                # (pyarrow's S3FileSystem) can't classify the response and reports it as the fixed
+                # "UNKNOWN" code instead of a specific, permanent one like AccessDenied.
+                "bodyless_5xx_reported_as_unknown",
+                OSError(
+                    "When reading information for key 'chunk_0.parquet' in bucket 'example-bucket': "
+                    "AWS Error UNKNOWN (HTTP status 503) during HeadObject operation: No response body."
+                ),
+                True,
+            ),
+            (
+                # AWS omits the error body for every HeadObject response regardless of status, so a
+                # permanent 403/404 reports the same "UNKNOWN" code as the 5xx case above. Only the
+                # status in the message tells them apart, and this one must not be retried.
+                "bodyless_4xx_reported_as_unknown_not_transient",
+                OSError(
+                    "When reading information for key 'chunk_0.parquet' in bucket 'example-bucket': "
+                    "AWS Error UNKNOWN (HTTP status 404) during HeadObject operation: No response body."
+                ),
+                False,
+            ),
             # `get_delta_table` re-raises a recognized transient blip as this wrapper (see
             # `_capture_unless_transient`) instead of the original OSError/DeltaError. A caller
             # further up the stack that catches broadly and re-runs this classifier on the caught
             # exception sees the wrapper, not the original — it must still read as transient.
             ("already_wrapped_transient_error", TransientObjectStoreError("Please reduce your request rate"), True),
+            (
+                # An exhausted `ensure_bucket_exists` HeadBucket 403 retry is deliberately NOT folded
+                # in here: under `USE_LOCAL_SETUP` the credentials are operator-configured, so this
+                # shape can mean a genuinely broken local setup, not just a boot race. Only
+                # `is_transient_maintenance_error` (which has no retry budget to bypass) treats it as
+                # transient — see TestIsTransientMaintenanceError.
+                "exhausted_head_bucket_forbidden_not_matched_here",
+                botocore.exceptions.ClientError({"Error": {"Code": "403"}}, "HeadBucket"),
+                False,
+            ),
         ]
     )
     def test_classifies_transient_errors(self, _name: str, error: Exception, expected: bool):
@@ -169,6 +217,40 @@ class TestIsTransientDeltaMaintenanceError:
             # "not found" outside the log directory must not match, because a data file missing for some
             # other reason is a real failure to capture, not this specific log-commit race.
             ("file_not_found_outside_delta_log", deltalake.exceptions.DeltaError("File not found: some/file"), False),
+            # A log-segment contiguity gap or a dangling checkpoint hint must NOT be folded into this
+            # classifier even though they are also a purge-vs-concurrent-read race (see
+            # TestIsTransientDeltaLogListingRace): this function also backs `is_table_corrupted`, and
+            # unlike the single-file "not found" case above, these two shapes are also the signature of a
+            # log genuinely left broken by an interrupted repartition swap — which must still be read as
+            # corrupt here so it gets revived instead of retried forever.
+            (
+                "delta_log_gap_not_matched_here",
+                deltalake.exceptions.DeltaError(
+                    "Kernel error: Generic delta kernel error: Expected contiguous commit files, but found "
+                    "gap: ParsedLogPath { ... version: 10, file_type: Commit } -> ParsedLogPath "
+                    "{ ... version: 15, file_type: Commit }"
+                ),
+                False,
+            ),
+            (
+                "delta_log_dangling_checkpoint_hint_not_matched_here",
+                deltalake.exceptions.DeltaError(
+                    "Kernel error: Invalid Checkpoint: Had a _last_checkpoint hint but didn't find any checkpoints"
+                ),
+                False,
+            ),
+            # A reset or repartition swap replaced `_delta_log` under a handle that a prior write (or
+            # note_deltalite_commit) had already advanced further: `update_incremental` refuses to apply
+            # the now-lower-numbered log as an increment. Same reset-vs-stale-handle race as the missing
+            # log file cases above, just surfaced by the kernel's monotonic-version check instead.
+            (
+                "snapshot_ahead_of_reset_log",
+                deltalake.exceptions.DeltaError(
+                    "Kernel error: Generic delta kernel error: Unexpected state: the newest version in the "
+                    "log 11 is older than the existing snapshot version 15"
+                ),
+                True,
+            ),
             # Other DeltaErrors are real failures (e.g. a genuinely corrupt log) and must still be captured.
             ("unrelated_delta_error", deltalake.exceptions.DeltaError("no protocol found in delta log"), False),
             # Same message shape but not the DeltaError type delta-rs actually raises for it.
@@ -177,6 +259,38 @@ class TestIsTransientDeltaMaintenanceError:
     )
     def test_classifies_transient_delta_maintenance_errors(self, _name: str, error: Exception, expected: bool):
         assert is_transient_delta_maintenance_error(error) is expected
+
+
+class TestIsTransientDeltaLogListingRace:
+    @parameterized.expand(
+        [
+            # `_purge_s3_prefix_once`'s bulk delete removes a batch of `_delta_log` commit files in no
+            # guaranteed order, so a concurrent listing can see a run of them already gone from the
+            # middle of the sequence.
+            (
+                "delta_log_gap_from_concurrent_purge",
+                deltalake.exceptions.DeltaError(
+                    "Kernel error: Generic delta kernel error: Expected contiguous commit files, but found "
+                    "gap: ParsedLogPath { ... version: 10, file_type: Commit } -> ParsedLogPath "
+                    "{ ... version: 15, file_type: Commit }"
+                ),
+                True,
+            ),
+            # Same race, but the batch happened to take the checkpoint file a `_last_checkpoint` hint
+            # still points to.
+            (
+                "delta_log_dangling_checkpoint_hint_from_concurrent_purge",
+                deltalake.exceptions.DeltaError(
+                    "Kernel error: Invalid Checkpoint: Had a _last_checkpoint hint but didn't find any checkpoints"
+                ),
+                True,
+            ),
+            ("unrelated_delta_error", deltalake.exceptions.DeltaError("no protocol found in delta log"), False),
+            ("wrong_exception_type", RuntimeError("Expected contiguous commit files, but found gap"), False),
+        ]
+    )
+    def test_classifies_delta_log_listing_race(self, _name: str, error: Exception, expected: bool):
+        assert is_transient_delta_log_listing_race(error) is expected
 
 
 class TestIsTransientMaintenanceError:
@@ -237,6 +351,30 @@ class TestIsTransientMaintenanceError:
                 ),
                 True,
             ),
+            (
+                # `ensure_bucket_exists` already retries this exact shape (a bodyless HeadBucket 403,
+                # same ambiguity as the HeadObject case in TestIsTransientObjectStoreError) before
+                # giving up — an exhausted retry is the tail of that same local/self-hosted
+                # object-store bootstrap race. Only safe to fold in here: this function backs the
+                # best-effort pre-extraction probe, which has no retry budget to bypass.
+                "exhausted_head_bucket_forbidden",
+                botocore.exceptions.ClientError({"Error": {"Code": "403"}}, "HeadBucket"),
+                True,
+            ),
+            (
+                # A 403 from some other S3 operation isn't the bodyless-response ambiguity HeadBucket
+                # has — must not be swept up just because it shares the error code.
+                "other_operation_403_not_matched",
+                botocore.exceptions.ClientError({"Error": {"Code": "403"}}, "PutObject"),
+                False,
+            ),
+            (
+                # A HeadBucket failure with a different code (e.g. a real AccessDenied that does
+                # carry a body) isn't the bootstrap race either.
+                "head_bucket_non_403_not_matched",
+                botocore.exceptions.ClientError({"Error": {"Code": "AccessDenied"}}, "HeadBucket"),
+                False,
+            ),
             # Other InternalError subtypes (e.g. real corruption) must not be swept up by the
             # ReadOnlySqlTransaction check just because they share the same Django exception class.
             (
@@ -279,6 +417,51 @@ class TestIsInvalidVersionRace:
     )
     def test_classifies_invalid_version_race(self, _name: str, error: Exception, expected: bool):
         assert is_invalid_version_race(error) is expected
+
+
+class TestIsMissingScanFileRace:
+    @parameterized.expand(
+        [
+            (
+                "data_file_404_during_scan",
+                deltalake.exceptions.DeltaError(
+                    "Generic DeltaTable error: Parquet error: Parquet error: Failed to fetch metadata "
+                    "for file dlt/team_1_source_1/orders/part-00000-abc.snappy.parquet: Object Store "
+                    "error: Object at location dlt/team_1_source_1/orders/part-00000-abc.snappy.parquet "
+                    "not found: Error performing GET in 20ms - Server returned non-2xx status code: "
+                    "404 Not Found"
+                ),
+                True,
+            ),
+            # Same needle, but the object store refused the read rather than reporting it missing —
+            # a real, non-racy refusal that must stay out of this classifier.
+            (
+                "metadata_fetch_permission_denied_not_matched",
+                deltalake.exceptions.DeltaError(
+                    "Generic DeltaTable error: Parquet error: Failed to fetch metadata for file "
+                    "dlt/team_1_source_1/orders/part-00000-abc.snappy.parquet: Object Store error: "
+                    "The operation lacked the necessary privileges to complete"
+                ),
+                False,
+            ),
+            ("unrelated_delta_error", deltalake.exceptions.DeltaError("no protocol found in delta log"), False),
+            # `CommitFailedError` is a `DeltaError` subclass, but this classifier is deliberately exact-type
+            # only, mirroring `is_invalid_version_race` — a missing-file 404 during a commit itself isn't
+            # this scan-planning race.
+            (
+                "commit_failed_error_not_matched",
+                deltalake.exceptions.CommitFailedError("Failed to fetch metadata for file ... not found"),
+                False,
+            ),
+            (
+                "wrong_exception_type",
+                RuntimeError("Failed to fetch metadata for file ... not found"),
+                False,
+            ),
+        ]
+    )
+    def test_classifies_missing_scan_file_race(self, _name: str, error: Exception, expected: bool):
+        assert is_missing_scan_file_race(error) is expected
 
 
 class TestIsOffsetOverflowCompactionError:

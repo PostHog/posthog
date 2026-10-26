@@ -4,6 +4,7 @@ import { act, cleanup, fireEvent, render, screen, within } from '@testing-librar
 import userEvent from '@testing-library/user-event'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
+import { Profiler } from 'react'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -11,17 +12,18 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { initKeaTests } from '~/test/init'
 
-import type { ReportMetricApi } from 'products/signals/frontend/generated/api.schemas'
+import { PullRequestCiStatusEnumApi, type ReportMetricApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { INBOX_EVENTS } from '../../inboxAnalytics'
 import { inboxBulkActionsLogic } from '../../logics/inboxBulkActionsLogic'
+import { prCiStatusLogic } from '../../logics/prCiStatusLogic'
 import { SignalReport, SignalReportStatus } from '../../types'
 import { SELECTION_HOLD_MS } from '../../utils/reportSelection'
 import { ReportCard } from './ReportCard'
 
 jest.mock('posthog-js')
 jest.mock('lib/components/TZLabel', () => ({
-    TZLabel: ({ time }: { time: string }) => <span>{time}</span>,
+    TZLabel: ({ time, title }: { time: string; title?: string }) => <span title={title}>{time}</span>,
 }))
 
 function makeReport(id: string, overrides: Partial<SignalReport> = {}): SignalReport {
@@ -57,9 +59,8 @@ function makeMetric(overrides: Partial<ReportMetricApi> = {}): ReportMetricApi {
     }
 }
 
-function enableRedesign(enabled = true): void {
-    featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_REDESIGN, FEATURE_FLAGS.SIGNALS_REPORT_METRICS], {
-        [FEATURE_FLAGS.INBOX_REDESIGN]: enabled,
+function enableImpactColumn(enabled = true): void {
+    featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SIGNALS_REPORT_METRICS], {
         [FEATURE_FLAGS.SIGNALS_REPORT_METRICS]: enabled,
     })
 }
@@ -222,24 +223,67 @@ describe('ReportCard', () => {
         expect(logic.values.selectedReportIds).toEqual([])
     })
 
-    it('locks the selection while a bulk action is running', () => {
-        const setState = jest.spyOn(api.signalReports, 'setState').mockReturnValue(new Promise<never>(() => {}))
+    test.each([
+        [
+            "a person's reason",
+            { suppression_source: 'dismissed', dismissal_reason: 'analysis_wrong' },
+            "Agent's analysis is wrong",
+        ],
+        [
+            'the safety verdict',
+            { suppression_source: 'safety_judge', suppression_explanation: 'Asks to disable a check.' },
+            'Held back by safety check',
+        ],
+        ['the actionability verdict', { suppression_source: 'not_actionable' }, 'Judged not actionable'],
+        ['a system suppression', { suppression_source: 'system' }, 'Held back automatically'],
+    ] as const)('labels a suppressed row with %s', (_name, overrides, label) => {
+        cleanup()
+        render(<ReportCard report={makeReport('r-2', { status: SignalReportStatus.SUPPRESSED, ...overrides })} />)
+
+        expect(screen.getByText(label)).toBeInTheDocument()
+    })
+
+    it('shows no reason chip on a dismissed row without a reason', () => {
+        cleanup()
+        render(
+            <ReportCard
+                report={makeReport('r-2', { status: SignalReportStatus.SUPPRESSED, suppression_source: 'dismissed' })}
+            />
+        )
+
+        expect(screen.queryByText(/Held back|Judged not actionable/)).not.toBeInTheDocument()
+    })
+
+    it.each([
+        {
+            action: 'dismiss',
+            hold: () => jest.spyOn(api.signalReports, 'setState').mockReturnValue(new Promise<never>(() => {})),
+            start: () => logic.actions.bulkDismiss({ reason: 'other', note: '', correctedRepository: null }),
+        },
+        {
+            action: 'unassign',
+            hold: () => jest.spyOn(api, 'delete').mockReturnValue(new Promise<never>(() => {})),
+            start: () => logic.actions.bulkUnassignMe(['r-1']),
+        },
+    ])('locks the selection while a bulk $action is running', ({ hold, start }) => {
+        const pending = hold()
         act(() => {
             logic.actions.setSelectedReportIds(['r-1'])
-            logic.actions.bulkDismiss({ reason: 'other', note: '', correctedRepository: null })
+            start()
         })
 
         expect(fireEvent.click(cardLink(), { metaKey: true })).toBe(true)
         expect(fireEvent.click(cardLink(), { ctrlKey: true })).toBe(true)
         expect(fireEvent.click(cardLink())).toBe(false)
+        expect(fireEvent.click(cardLink(), { shiftKey: true })).toBe(false)
         expect(logic.values.selectedReportIds).toEqual(['r-1'])
-        setState.mockRestore()
+        pending.mockRestore()
     })
 
-    it('shows the affected-user snapshot in a redesigned row and prefers it over the primary metric', async () => {
+    it('shows the affected-user snapshot in a row and prefers it over the primary metric', async () => {
         // The harness renders a card for every test; these assert against their own.
         cleanup()
-        enableRedesign()
+        enableImpactColumn()
         const user = userEvent.setup()
         const report = makeReport('r-2', {
             metrics: [
@@ -286,7 +330,7 @@ describe('ReportCard', () => {
     it.each(rowPartCases)('prints %s as a figure above its unit word', (_label, metric, figure, unitWord) => {
         // The harness renders a card for every test; these assert against their own.
         cleanup()
-        enableRedesign()
+        enableImpactColumn()
         const { container } = render(<ReportCard report={makeReport('r-2', { metrics: [metric] })} />)
 
         const block = container.querySelector('[data-attr="report-card-impact-metric"]')
@@ -298,7 +342,7 @@ describe('ReportCard', () => {
     it('draws a rate strip as a line instead of bars', () => {
         // The harness renders a card for every test; these assert against their own.
         cleanup()
-        enableRedesign()
+        enableImpactColumn()
         const { container } = render(
             <ReportCard
                 report={makeReport('r-2', {
@@ -323,7 +367,7 @@ describe('ReportCard', () => {
     it('draws no strip for a single-bucket series but keeps the figure', () => {
         // The harness renders a card for every test; these assert against their own.
         cleanup()
-        enableRedesign()
+        enableImpactColumn()
         const { container } = render(
             <ReportCard report={makeReport('r-2', { metrics: [makeMetric({ series: [9] })] })} />
         )
@@ -332,20 +376,30 @@ describe('ReportCard', () => {
         expect(screen.getByText('42')).toBeInTheDocument()
     })
 
-    it('keeps the timestamp on a redesigned row that has no figure', () => {
+    it.each([
+        ['the update time by default', true, undefined, '2026-07-01T10:00:00Z', 'Last updated'],
+        ['the creation time under a created sort', true, 'created_at', '2026-06-11T10:00:00Z', 'Created'],
+        ['the update time under an updated sort', false, 'updated_at', '2026-07-01T10:00:00Z', 'Last updated'],
+        ['the creation time without the impact column', false, 'created_at', '2026-06-11T10:00:00Z', 'Created'],
+    ] as const)('shows %s', (_name, impactColumn, timestampField, time, title) => {
         // The harness renders a card for every test; these assert against their own.
         cleanup()
-        enableRedesign()
-        const { container } = render(<ReportCard report={makeReport('r-2', { metrics: [] })} />)
+        enableImpactColumn(impactColumn)
+        const { container } = render(
+            <ReportCard
+                report={makeReport('r-2', { metrics: [], updated_at: '2026-07-01T10:00:00Z' })}
+                timestampField={timestampField}
+            />
+        )
 
         expect(container.querySelector('[data-attr="report-card-impact-metric"]')).toBeNull()
-        expect(screen.getByText('2026-06-11T10:00:00Z')).toBeInTheDocument()
+        expect(screen.getByText(time)).toHaveAttribute('title', title)
     })
 
     it('uses the primary snapshot when there is no affected-user snapshot', () => {
         // The harness renders a card for every test; these assert against their own.
         cleanup()
-        enableRedesign()
+        enableImpactColumn()
         const report = makeReport('r-2', {
             metrics: [
                 makeMetric({
@@ -367,16 +421,71 @@ describe('ReportCard', () => {
         expect(container.querySelector('[data-attr="report-card-impact-metric"]')).not.toBeNull()
     })
 
-    it('does not show a list metric without a stored snapshot, under the legacy design, or with the metrics flag off', () => {
+    it.each([
+        ['with the impact column', true, 'ranking_fix', '2.7x more likely'],
+        [
+            'without the impact column, falling back to the probability for a head with no lift',
+            false,
+            'ranking_action',
+            '6.2% action',
+        ],
+    ] as const)('shows the active head lift in the meta row %s', (_name, impactColumn, sortField, tagText) => {
+        // The harness renders a card for every test; these assert against their own.
+        cleanup()
+        enableImpactColumn(impactColumn)
+        const report = makeReport('r-2', {
+            metrics: [makeMetric()],
+            ranking: {
+                status: 'scored',
+                model: 'report_embeddings@2026-09-30',
+                scored_at: '2026-09-30T12:00:00Z',
+                predictions: [
+                    { outcome: 'action', probability: 0.062, lift: null, readable: true },
+                    { outcome: 'fix', probability: 0.41, lift: 2.7, readable: true },
+                ],
+            },
+        })
+        const { container } = render(<ReportCard report={report} rankingSortField={sortField} />)
+
+        const tag = screen.getByText(tagText)
+        const impactMetric = container.querySelector('[data-attr="report-card-impact-metric"]')
+        expect(impactMetric !== null).toBe(impactColumn)
+        expect(impactMetric?.contains(tag) ?? false).toBe(false)
+    })
+
+    it('marks an unscored report under a model sort and adds no tag under a time sort', () => {
+        // The harness renders a card for every test; these assert against their own.
+        cleanup()
+        enableImpactColumn()
+        const { rerender } = render(<ReportCard report={makeReport('r-2')} rankingSortField="ranking_fix" />)
+        expect(screen.getByText('Not scored yet')).toBeInTheDocument()
+
+        const stale = makeReport('r-2', {
+            ranking: {
+                status: 'stale',
+                model: 'report_embeddings@2026-09-30',
+                scored_at: '2026-09-30T12:00:00Z',
+                predictions: [{ outcome: 'fix', probability: 0.41, lift: 2.7, readable: true }],
+            },
+        })
+        rerender(<ReportCard report={stale} rankingSortField="ranking_fix" />)
+        expect(screen.getByText('Score out of date')).toBeInTheDocument()
+        expect(screen.queryByText('2.7x more likely')).not.toBeInTheDocument()
+
+        rerender(<ReportCard report={makeReport('r-2')} />)
+        expect(screen.queryByText('Not scored yet')).not.toBeInTheDocument()
+    })
+
+    it('does not show a list metric without a stored snapshot or with the metrics flag off', () => {
         const report = makeReport('r-2', { metrics: [makeMetric({ value: null, value_at: null })] })
 
         // The harness renders a card for every test; these assert against their own.
         cleanup()
-        enableRedesign()
+        enableImpactColumn()
         const { container, rerender } = render(<ReportCard report={report} />)
         expect(container.querySelector('[data-attr="report-card-impact-metric"]')).toBeNull()
 
-        enableRedesign(false)
+        enableImpactColumn(false)
         rerender(
             <ReportCard
                 report={makeReport('r-2', {
@@ -385,18 +494,49 @@ describe('ReportCard', () => {
             />
         )
         expect(container.querySelector('[data-attr="report-card-impact-metric"]')).toBeNull()
+    })
 
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_REDESIGN, FEATURE_FLAGS.SIGNALS_REPORT_METRICS], {
-            [FEATURE_FLAGS.INBOX_REDESIGN]: true,
-            [FEATURE_FLAGS.SIGNALS_REPORT_METRICS]: false,
-        })
-        rerender(
-            <ReportCard
-                report={makeReport('r-2', {
-                    metrics: [{ ...report.metrics![0], value: 42 }],
-                })}
-            />
+    /**
+     * Render two cards, each behind its own profiler, and hand back the per-card render tally.
+     * A card that skips a store change never commits, so its count stands still.
+     */
+    function renderCountedPair(): Record<string, number> {
+        cleanup()
+        const renders: Record<string, number> = { 'r-1': 0, 'r-2': 0 }
+        render(
+            <>
+                {['r-1', 'r-2'].map((id) => (
+                    <Profiler key={id} id={id} onRender={() => (renders[id] += 1)}>
+                        <ReportCard report={makeReport(id)} selectable />
+                    </Profiler>
+                ))}
+            </>
         )
-        expect(container.querySelector('[data-attr="report-card-impact-metric"]')).toBeNull()
+        return renders
+    }
+
+    it('repaints only the row whose selection changed', () => {
+        const renders = renderCountedPair()
+        // Selection mode is already on, so the only thing this toggle changes is one row's own flag.
+        act(() => logic.actions.setSelectedReportIds(['r-3']))
+        const before = { ...renders }
+
+        act(() => logic.actions.toggleReportSelection('r-1'))
+
+        expect(renders['r-1']).toBeGreaterThan(before['r-1'])
+        expect(renders['r-2']).toBe(before['r-2'])
+    })
+
+    it('repaints only the row whose CI state changed', () => {
+        const ciLogic = prCiStatusLogic()
+        ciLogic.mount()
+        const renders = renderCountedPair()
+        const before = { ...renders }
+
+        act(() => ciLogic.actions.loadCiStatusesSuccess({ 'r-1': PullRequestCiStatusEnumApi.Failing }))
+
+        expect(renders['r-1']).toBeGreaterThan(before['r-1'])
+        expect(renders['r-2']).toBe(before['r-2'])
+        ciLogic.unmount()
     })
 })

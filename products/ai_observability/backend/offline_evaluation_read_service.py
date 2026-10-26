@@ -3,13 +3,14 @@ from __future__ import annotations
 import json
 import hashlib
 from collections import defaultdict
+from copy import deepcopy
 from dataclasses import asdict, replace
 from datetime import datetime
 from typing import TYPE_CHECKING, cast
 from uuid import UUID
 
 from django.db import connections
-from django.db.models import Count, Exists, F, OuterRef, Q
+from django.db.models import Case, Count, Exists, F, OuterRef, Q, When, prefetch_related_objects
 
 from posthog.dataclasses import frozen
 
@@ -24,12 +25,15 @@ from products.ai_observability.backend.models.offline_evaluations import (
 from products.ai_observability.backend.models.score_definitions import ScoreDefinition, ScoreDefinitionVersion
 from products.ai_observability.backend.offline_evaluation_read_types import (
     OfflineCategorySummary,
+    OfflineExperimentAuthor,
     OfflineExperimentRead,
     OfflineHistoryPoint,
     OfflineItemPage,
     OfflineItemRead,
     OfflinePayloadRead,
     OfflineReadQuery,
+    OfflineResultCellQuery,
+    OfflineResultCells,
     OfflineResultRead,
     OfflineScorerSummary,
     OfflineScorerVersionRead,
@@ -41,6 +45,7 @@ from products.ai_observability.backend.offline_evaluation_service import (
 )
 from products.ai_observability.backend.offline_evaluation_types import JSONValue, ResultValue
 from products.ai_observability.backend.read_pagination import CursorPage, cursor_page, decode_cursor, encode_cursor
+from products.ai_observability.backend.resource_tags import ResourceTags
 
 if TYPE_CHECKING:
     from django.db.models import QuerySet
@@ -71,6 +76,7 @@ class _Aggregate:
     mean: float | None
     true_count: int
     false_count: int
+    pass_count: int | None
     coverage: _ItemCoverage
     categories: dict[str, int]
 
@@ -97,7 +103,7 @@ class OfflineEvaluationReadService:
         self.can_read_scores = can_read_scores
 
     def _experiments(self) -> QuerySet[OfflineExperiment]:
-        return OfflineExperiment.objects.for_team(self.team_id)
+        return OfflineExperiment.objects.for_team(self.team_id).select_related("created_by")
 
     def _items(self) -> QuerySet[OfflineExperimentItem]:
         return OfflineExperimentItem.objects.for_team(self.team_id)
@@ -153,13 +159,17 @@ class OfflineEvaluationReadService:
         return item
 
     def _filter_experiments(self, query: OfflineReadQuery, *, history: bool = False) -> QuerySet[OfflineExperiment]:
-        experiments = self._experiments()
+        experiments = ResourceTags.filter(self._experiments(), self.team_id, query.tags, query.tag_match)
         if query.date_from is not None:
             experiments = experiments.filter(started_at__gte=query.date_from)
         if query.date_to is not None:
             experiments = experiments.filter(started_at__lt=query.date_to)
         if query.search:
             experiments = experiments.filter(name__icontains=query.search)
+        if query.created_by is not None:
+            experiments = experiments.filter(created_by_id=query.created_by)
+        if query.created_by_is_null:
+            experiments = experiments.filter(created_by__isnull=True)
         if query.run_source_is_null:
             experiments = experiments.filter(run_source__isnull=True)
         elif query.run_source is not None:
@@ -275,13 +285,29 @@ class OfflineEvaluationReadService:
             }
 
     def _experiment_reads(self, experiments: list[OfflineExperiment]) -> list[OfflineExperimentRead]:
+        prefetch_related_objects(experiments, ResourceTags.prefetch())
         ids = [experiment.id for experiment in experiments]
         visible_counts = self._experiment_counts(ids)
         output = []
         for experiment in experiments:
             counts = visible_counts.get(experiment.id, _ExperimentCounts())
+            author = experiment.created_by
             output.append(
                 OfflineExperimentRead(
+                    tags=tuple(ResourceTags.names(experiment)),
+                    created_by=OfflineExperimentAuthor(
+                        id=author.id,
+                        uuid=author.uuid,
+                        distinct_id=author.distinct_id,
+                        first_name=author.first_name,
+                        last_name=author.last_name,
+                        email=author.email,
+                        is_email_verified=author.is_email_verified,
+                        hedgehog_config=deepcopy(author.hedgehog_config),
+                        role_at_organization=author.role_at_organization,
+                    )
+                    if author is not None
+                    else None,
                     id=experiment.id,
                     name=experiment.name,
                     run_source=experiment.run_source,
@@ -340,6 +366,7 @@ class OfflineEvaluationReadService:
             version=version.version,
             kind=definition.kind,
             name=definition.name,
+            short_name=definition.short_name,
             description=definition.description,
             archived=definition.archived,
             config=cast(dict[str, JSONValue], version.config),
@@ -429,6 +456,27 @@ class OfflineEvaluationReadService:
     def get_item(self, experiment_id: UUID, item_id: UUID) -> OfflineItemRead:
         return self._item_read(self._require_item(experiment_id, item_id))
 
+    def result_cells(self, experiment_id: UUID, query: OfflineResultCellQuery) -> OfflineResultCells:
+        self._require_experiment(experiment_id)
+        items = self._items().filter(experiment_id=experiment_id, id__in=query.item_ids)
+        if items.count() != len(query.item_ids):
+            raise OfflineEvaluationNotFound
+        versions = list(
+            self._versions().filter(id__in=query.scorer_version_ids).select_related("definition").order_by("id")
+        )
+        if len(versions) != len(query.scorer_version_ids):
+            raise OfflineEvaluationNotFound
+        scorers = {version.id: self._version_read(version) for version in versions}
+        results = (
+            self._results()
+            .filter(item__in=items, scorer_version_id__in=scorers)
+            .order_by("item_id", "scorer_version_id")
+        )
+        return OfflineResultCells(
+            scorer_versions=list(scorers.values()),
+            results=[self._result_read(result, scorer=scorers[result.scorer_version_id]) for result in results],
+        )
+
     def list_item_results(
         self, experiment_id: UUID, item_id: UUID, query: OfflineReadQuery
     ) -> CursorPage[OfflineResultRead]:
@@ -487,17 +535,56 @@ class OfflineEvaluationReadService:
             data=payload.data if payload is not None else None,
         )
 
-    def _aggregates(self, identities: list[_SummaryIdentity]) -> dict[_SummaryIdentity, _Aggregate]:
+    @staticmethod
+    def _passing_condition(version: ScoreDefinitionVersion) -> Q | None:
+        if version.definition.kind == "boolean":
+            return Q(boolean_value=version.config.get("true_is_failure") is not True)
+        elif version.definition.kind == "numeric":
+            rule = version.config.get("passing_rule")
+            if isinstance(rule, dict):
+                if rule.get("operator") == "gte":
+                    return Q(numeric_value__gte=rule["threshold"])
+                if rule.get("operator") == "lte":
+                    return Q(numeric_value__lte=rule["threshold"])
+        elif version.definition.kind == "categorical":
+            rule = version.config.get("passing_rule")
+            if isinstance(rule, dict):
+                categories = rule["categories"]
+                return (
+                    Q(categorical_values__contained_by=categories) & ~Q(categorical_values=[])
+                    if categories
+                    else Q(categorical_values=[])
+                )
+        return None
+
+    def _aggregates(
+        self, identities: list[_SummaryIdentity], *, versions: dict[UUID, ScoreDefinitionVersion]
+    ) -> dict[_SummaryIdentity, _Aggregate]:
         selected = Q(pk__in=[])
         for identity in identities:
             selected |= Q(item__experiment_id=identity.experiment_id, scorer_version_id=identity.version_id)
+        passing = Q(pk__in=[])
+        configured_versions = set()
+        for version_id, version in versions.items():
+            condition = self._passing_condition(version)
+            if condition is not None:
+                configured_versions.add(version_id)
+                passing |= Q(scorer_version_id=version_id) & condition
         results = (
             self._results()
             .filter(selected)
             .order_by()
-            .annotate(experiment_id=F("item__experiment_id"))
+            .annotate(
+                experiment_id=F("item__experiment_id"), score_passes=Case(When(passing, then=True), default=False)
+            )
             .values(
-                "experiment_id", "scorer_version_id", "status", "numeric_value", "boolean_value", "categorical_values"
+                "experiment_id",
+                "scorer_version_id",
+                "status",
+                "numeric_value",
+                "boolean_value",
+                "categorical_values",
+                "score_passes",
             )
         )
         sql, params = results.query.sql_with_params()
@@ -514,7 +601,8 @@ class OfflineEvaluationReadService:
                        count(*) FILTER (WHERE status = 'not_applicable') AS not_applicable_count,
                        avg(numeric_value::text::numeric) FILTER (WHERE status = 'ok') AS mean,
                        count(*) FILTER (WHERE status = 'ok' AND boolean_value IS TRUE) AS true_count,
-                       count(*) FILTER (WHERE status = 'ok' AND boolean_value IS FALSE) AS false_count
+                       count(*) FILTER (WHERE status = 'ok' AND boolean_value IS FALSE) AS false_count,
+                       count(*) FILTER (WHERE status = 'ok' AND score_passes) AS pass_count
                 FROM selected GROUP BY experiment_id, scorer_version_id
             ), category_counts AS (
                 SELECT experiment_id, scorer_version_id, category, count(*) AS selected_count
@@ -541,7 +629,7 @@ class OfflineEvaluationReadService:
                    a.skipped_count, a.not_applicable_count, a.mean, a.true_count, a.false_count,
                    c.observed_item_count, c.distinct_case_count, c.items_with_case_key_count,
                    c.items_without_case_key_count, c.trial_item_count, c.distinct_trial_count,
-                   categories.keys, categories.counts
+                   categories.keys, categories.counts, a.pass_count
             FROM aggregates a JOIN coverage c USING (experiment_id)
             LEFT JOIN categories USING (experiment_id, scorer_version_id)
         """
@@ -563,6 +651,7 @@ class OfflineEvaluationReadService:
                     mean=float(row[7]) if row[7] is not None else None,
                     true_count=row[8],
                     false_count=row[9],
+                    pass_count=row[18] if row[1] in configured_versions else None,
                     coverage=_ItemCoverage(
                         observed_item_count=row[10],
                         distinct_case_count=row[11],
@@ -585,7 +674,7 @@ class OfflineEvaluationReadService:
             .filter(id__in=[identity.version_id for identity in identities])
             .select_related("definition")
         }
-        aggregates = self._aggregates(identities)
+        aggregates = self._aggregates(identities, versions=versions)
         summaries = {}
         for identity in identities:
             version = versions.get(identity.version_id)
@@ -625,6 +714,13 @@ class OfflineEvaluationReadService:
                 false_count=aggregate.false_count if scorer.kind == "boolean" else None,
                 true_rate=aggregate.true_count / aggregate.status_counts.ok
                 if scorer.kind == "boolean" and aggregate.status_counts.ok
+                else None,
+                pass_count=aggregate.pass_count,
+                fail_count=aggregate.status_counts.ok - aggregate.pass_count
+                if aggregate.pass_count is not None
+                else None,
+                pass_rate=aggregate.pass_count / aggregate.status_counts.ok
+                if aggregate.pass_count is not None and aggregate.status_counts.ok
                 else None,
                 categories=categories,
             )

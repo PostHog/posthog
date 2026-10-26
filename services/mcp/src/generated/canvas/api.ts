@@ -24,12 +24,19 @@ export const CanvasesListParams = () => zod.object({
 
 export const CanvasesListQueryParams = () => zod.object({
     channel: zod.string().optional().describe('Only return canvases in this channel.'),
+    created_by: zod.string().optional().describe('Only return canvases created by the user with this UUID.'),
     kind: zod
         .enum(['component', 'freeform', 'grid'])
         .optional()
         .describe('Only return canvases of this kind. kind=component lists the component store.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    ordering: zod
+        .enum(['-created_at', '-updated_at'])
+        .optional()
+        .describe(
+            'Sort order. -created_at (default) puts the newest canvases first. -updated_at puts the most recently changed canvases first.'
+        ),
     search: zod
         .string()
         .optional()
@@ -494,11 +501,6 @@ export const CanvasesDraftsRetrieveParams = () => zod.object({
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
-})
-
-export const CanvasesDraftsRetrieveQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
-    offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
 /**
@@ -1434,6 +1436,8 @@ export const CanvasesStateRetrieveParams = () => zod.object({
         ),
 })
 
+export const canvasesStateRetrieveQueryCursorMax = 2048
+
 export const canvasesStateRetrieveQueryKeyMax = 200
 
 export const canvasesStateRetrieveQueryKeyPrefixMax = 200
@@ -1445,6 +1449,14 @@ export const canvasesStateRetrieveQueryOffsetDefault = 0
 export const canvasesStateRetrieveQueryOffsetMin = 0
 
 export const CanvasesStateRetrieveQueryParams = () => zod.object({
+    cursor: zod
+        .string()
+        .min(1)
+        .max(canvasesStateRetrieveQueryCursorMax)
+        .optional()
+        .describe(
+            'Cursor from next_cursor. Resumes after the last entry of the previous page, so an entry that exists for the whole read comes back exactly once. A key written between pages can be missing. Keep filters unchanged between pages. Takes precedence over offset.'
+        ),
     key: zod.string().min(1).max(canvasesStateRetrieveQueryKeyMax).optional().describe('Only read this exact key.'),
     key_prefix: zod
         .string()
@@ -1467,7 +1479,9 @@ export const CanvasesStateRetrieveQueryParams = () => zod.object({
         .number()
         .min(canvasesStateRetrieveQueryOffsetMin)
         .default(canvasesStateRetrieveQueryOffsetDefault)
-        .describe('Entry offset from next_offset. Keep filters unchanged between pages.'),
+        .describe(
+            'Entry offset from next_offset. Keep filters unchanged between pages. Prefer cursor: an offset can skip or repeat entries when state changes between pages.'
+        ),
     scope: zod
         .enum(['user', 'shared'])
         .optional()

@@ -29,6 +29,7 @@ import { AnyPropertyFilter, IntervalType } from '~/types'
 import { mcpClusteringLogic } from './clustering/mcpClusteringLogic'
 import type { MCPIntentClusterApi } from './generated/api.schemas'
 import { type MCPSharedQueryFilters, mcpAnalyticsFiltersLogic } from './mcpAnalyticsFiltersLogic'
+import { mcpToolReportUrl } from './mcpAnalyticsToolQualityLogic'
 
 export interface DateFilter {
     dateFrom: string | null
@@ -62,13 +63,16 @@ ORDER BY bucket
 // Distinct MCP users for the "Users" tile — how many distinct people made tool calls.
 // Counted over the doubled window like the KPI query, then split into the selected period
 // and its equal-length predecessor with a single conditional uniq so the comparison is a
-// true distinct-person count (summing per-bucket distinct users would over-count anyone
+// true distinct-user count (summing per-bucket distinct users would over-count anyone
 // active on more than one day). `__CUR_START__` is the selected-period boundary, injected
 // as a timezone-aware toDateTime at call time.
+// Users are counted by distinct_id, not person_id. HogQL resolves person_id through a join
+// over every person override of the project, and on large projects that join runs out of
+// memory. A person with several distinct_ids counts once per distinct_id.
 const USERS_QUERY = `
 SELECT
-    uniqIf(person_id, timestamp >= __CUR_START__) AS current_users,
-    uniqIf(person_id, timestamp < __CUR_START__) AS prior_users
+    uniqIf(distinct_id, timestamp >= __CUR_START__) AS current_users,
+    uniqIf(distinct_id, timestamp < __CUR_START__) AS prior_users
 FROM events
 WHERE event = '$mcp_tool_call'
     AND properties.$mcp_tool_name IS NOT NULL
@@ -129,7 +133,7 @@ LIMIT 50
 // converts, shifting every bucket away from the wall-clock keys it joins and compares against.
 // Rendering it server-side leaves a plain string with nothing left to reinterpret, matching the
 // backend runners (dashboard_series.py, tool_quality_tables.py, tool_tables.py).
-const bucketExpr = (interval: IntervalType): string => `toString(dateTrunc('${interval}', timestamp))`
+export const bucketExpr = (interval: IntervalType): string => `toString(dateTrunc('${interval}', timestamp))`
 
 export interface BucketRow {
     bucket: string
@@ -612,6 +616,9 @@ export interface mcpDashboardOverviewLogicActions {
     markFilterInteraction: () => {
         value: true
     }
+    openToolReport: (tool: string) => {
+        tool: string
+    }
     reloadAll: () => {
         value: true
     }
@@ -686,6 +693,7 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
         setDateFilter: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         reloadAll: true,
         markFilterInteraction: true,
+        openToolReport: (tool: string) => ({ tool }),
     }),
     reducers({
         hasFilterInteraction: [false, { markFilterInteraction: () => true }],
@@ -1002,6 +1010,9 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
     listeners(({ actions, values }) => ({
         setDateFilter: () => {
             actions.reloadAll()
+        },
+        openToolReport: ({ tool }) => {
+            router.actions.push(mcpToolReportUrl(tool, values.dateFilter))
         },
         setFilterTestAccounts: () => {
             actions.markFilterInteraction()

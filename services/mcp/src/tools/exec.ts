@@ -1,6 +1,8 @@
 import { stringify as stringifyYaml } from 'yaml'
 import { z } from 'zod'
 
+import { getToolInputProperties, type ShouldRecordInputKeyFn } from '@posthog/mcp-analytics'
+
 import { classifyAuthMethod } from '@/lib/auth-method'
 import { markExecPayload, buildToolResultPayload, estimateResponseTokens } from '@/lib/build-tool-result'
 import { isPostHogCodeConsumer } from '@/lib/client-detection'
@@ -14,10 +16,14 @@ import {
 } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { GATEWAY_TOOL_SEPARATOR, isGatewayToolName } from '@/lib/gateway-tools'
+import { findIgnoredInputKeys, withIgnoredInputKeys } from '@/lib/ignored-input-keys'
+import { isChatGptAppConnection } from '@/lib/oauth-constants'
+import type { RequestProperties } from '@/lib/request-properties'
 import { formatResponse } from '@/lib/response'
 import { API_KEY_CACHE_TTL_MS } from '@/lib/StateManager'
 import { APP_DATA_META_KEY } from '@/ui-apps/types'
 
+import { readParamAliases } from './cast-helpers'
 import { type ExecLearnCatalog, QUALIFIED_IDENTIFIER, tokenizeLearnInput } from './exec-learn'
 import { TOKEN_CHAR_LIMIT, listAvailablePaths, resolveSchemaPath, summarizeSchema } from './schema-utils'
 import { type BuiltInSkillHint, formatSkillLookupMiss, type SkillLookupMissKind } from './skills/notFound'
@@ -75,6 +81,7 @@ const DATA_DOMAIN_TOOL_PREFIXES = ['billing-', 'web-analytics-', 'usage-metrics-
 
 const METRIC_RUN_TOOL_NAME = 'data-catalog-metric-run'
 const APPROVED_METRIC_STATUS = 'approved'
+const PROPOSED_METRIC_STATUS = 'proposed'
 
 export function markNoncanonicalMetricRun(toolName: string, result: unknown): unknown {
     if (toolName !== METRIC_RUN_TOOL_NAME || result === null || typeof result !== 'object') {
@@ -85,6 +92,12 @@ export function markNoncanonicalMetricRun(toolName: string, result: unknown): un
     const isDrifted = envelope.is_drifted === true
     if (status === APPROVED_METRIC_STATUS && !isDrifted) {
         return result
+    }
+    if (status === PROPOSED_METRIC_STATUS && !isDrifted) {
+        return {
+            NONCANONICAL: `status=proposed is_drifted=false. Not approved: use it only if its definition fits the question. If you use it, open the answer with '📝 **Proposed definition in your data catalog**: [<display_name>](<url>), not yet approved. Review it and approve it if it fits.', with the url from generate-app-url for '/data-catalog/metrics/{name}', and say in one sentence why you used it.`,
+            ...envelope,
+        }
     }
     return {
         NONCANONICAL: `status=${String(status)} is_drifted=${String(isDrifted)}. Do not present this as the answer; derive from an approved metric, label the result noncanonical in \`context\`, and tell the reader plainly that the number is a one-off calculation rather than a saved definition.`,
@@ -216,11 +229,12 @@ export interface ExecToolOptions {
     learnCatalog?: ExecLearnCatalog
     /**
      * Client is an inline-exec UI-app host that renders MCP UI apps on the exec
-     * response (Claude Code, Cowork). Gets the same UI-app payload treatment as the
+     * response (Claude Code). Gets the same UI-app payload treatment as the
      * PostHog Desktop consumer: structuredContent suppressed toward the model, app data
      * re-homed onto `_meta`. Computed from the client profile at the call site.
      */
     isInlineExecUiHost?: boolean
+    mcpClientName?: string | undefined
     /**
      * Resolves the caller's third-party MCP tools (see `lib/gateway-tools.ts`). Awaited
      * lazily by the commands that need a tool roster, so a session that never reaches for
@@ -228,6 +242,7 @@ export interface ExecToolOptions {
      * degrades to "no third-party tools", never to a broken `exec`.
      */
     gatewayToolsProvider?: () => Promise<Tool<ZodObjectAny>[]>
+    gatewayToolFilter?: Pick<RequestProperties, 'tools' | 'features' | 'excludeTools'> | undefined
     /** Reports what the agent asked for, so non-`call` verbs stop being invisible. */
     trackCommand?: ExecCommandTracker
     /**
@@ -242,6 +257,13 @@ export interface ExecToolOptions {
      * is the case where an agent has no way to reach a built-in skill at all.
      */
     builtInSkillHint?: BuiltInSkillHint
+    oauthClientId?: string | undefined
+    /**
+     * The tools a scout run with a picked tool list holds. A catalog or connected tool outside this
+     * set is refused as `tool_not_granted`, so the agent does not search for another way to reach it.
+     */
+    heldTools?: ReadonlySet<string>
+    beforeValidatedCall?: (toolName: string, input: Record<string, unknown>) => Promise<void>
 }
 
 const CALL_USAGE = 'Usage: call [--json] [--confirm] <tool_name> [json_input]'
@@ -467,7 +489,7 @@ const TOOL_TARGETING_VERBS = new Set(['info', 'schema', 'call'])
  * reason (it echoes the caller's tool name); the rejection reason on the event says
  * which of the two failed, so the sentinel loses only the misspelling itself.
  */
-const UNRECOGNIZED_EXEC_TOKEN = 'unrecognized'
+export const UNRECOGNIZED_EXEC_TOKEN = 'unrecognized'
 
 export interface ExecCommandShape {
     /** The dispatcher verb, or `unrecognized` when it isn't one we accept. */
@@ -534,27 +556,6 @@ function isRecordableToolName(name: string, isKnownToolName: (name: string) => b
     return isKnownToolName(name) || Object.prototype.hasOwnProperty.call(DEPRECATED_TOOL_REDIRECTS, name)
 }
 
-// Resolves the inner tool an `exec` call targets: given a request, return the
-// inner tool's { name, description } when the agent invoked it via
-// `call <tool> ...`, or undefined otherwise. Lives here (alongside
-// parseExecCallInnerToolName) so callers and tests share one factory.
-export function createExecInnerToolCallResolver(
-    allTools: ReadonlyArray<Tool<ZodObjectAny>>
-): (request: unknown) => { name: string; description: string } | undefined {
-    return (request: unknown) => {
-        const params = (request as { params?: { name?: unknown; arguments?: { command?: unknown } } })?.params
-        if (params?.name !== 'exec' || typeof params.arguments?.command !== 'string') {
-            return
-        }
-        const innerName = parseExecCallInnerToolName(params.arguments.command)
-        if (!innerName) {
-            return
-        }
-        const tool = allTools.find((t) => t.name === innerName)
-        return tool ? { name: tool.name, description: tool.description } : undefined
-    }
-}
-
 // Tools deleted from the MCP server. When the model attempts to call one,
 // surface a targeted redirect to the replacement instead of dumping the full
 // tool catalog. Keep the redirect text editorial — schemas don't carry
@@ -574,6 +575,8 @@ const DEPRECATED_TOOL_REDIRECTS: Record<string, (allTools: Tool<ZodObjectAny>[])
             ? `${base} For governed business metrics, search \`system.information_schema.metrics\` instead of \`system.insights\`.`
             : base
     },
+    'llma-tagger-create': () =>
+        'Tool "llma-tagger-create" was removed because taggers are deprecated. To tag or classify generations, use "llma-evaluation-create" with output_type="categorical", output_config.selection_mode="multiple", and one option per tag in output_config.options. Each option is { key, label }: the key is lowercase snake_case or kebab-case (for example "billing-issue"), and the label keeps the tag name. For an LLM tagger, set evaluation_type="llm_judge" with model_configuration (provider and model), and put the tagger prompt plus any tag descriptions in evaluation_config.prompt. For a Hog tagger, set evaluation_type="hog" with Hog source in evaluation_config.source that returns option keys. Run "info llma-evaluation-create" for the full schema.',
     'event-definitions-list': () =>
         'Tool "event-definitions-list" was removed. Use "read-data-schema" with input { "query": { "kind": "events" } } to list event definitions.',
     'properties-list': () =>
@@ -595,6 +598,60 @@ const DEPRECATED_TOOL_REDIRECTS: Record<string, (allTools: Tool<ZodObjectAny>[])
     // caller gets an unfiltered list instead of an error.
     'self-driving-inbox-get': () =>
         'Tool "self-driving-inbox-get" was removed. Use "inbox-reports-list", which lists the same reports. For the old default, pass { "view": "actionable", "use_priority_preference": true, "sort": "priority", "limit": 10 }. The array filters became comma-separated strings: `priorities` is now `priority`, `source_products` is now `source_product`, and `scouts` is now `scout`. `view`, `scope`, `teammate_uuid`, `search`, and `offset` keep their names.',
+    // The `experiment-get-all` -> `experiment-list` deprecation alias was deleted in #101042.
+    // Same arguments, so the redirect only has to hand over the new name.
+    'experiment-get-all': () =>
+        'Tool "experiment-get-all" was removed. It was a deprecation alias for "experiment-list", which takes the same arguments. Call "experiment-list" instead.',
+    // Replay Vision prompt suggestions were removed. Ratings now steer scanners without a review step.
+    'vision-scanners-prompt-suggestions-apply': () =>
+        'Tool "vision-scanners-prompt-suggestions-apply" was removed. Replay Vision no longer proposes prompt rewrites to review. Rate observations with "vision-observations-label-create" instead: ratings improve the scanner automatically. To change the prompt yourself, use "vision-scanners-update".',
+    'vision-scanners-prompt-suggestions-current': () =>
+        'Tool "vision-scanners-prompt-suggestions-current" was removed. Replay Vision no longer proposes prompt rewrites to review. Rate observations with "vision-observations-label-create" instead: ratings improve the scanner automatically. To change the prompt yourself, use "vision-scanners-update".',
+    'vision-scanners-prompt-suggestions-dismiss': () =>
+        'Tool "vision-scanners-prompt-suggestions-dismiss" was removed. Replay Vision no longer proposes prompt rewrites to review. Rate observations with "vision-observations-label-create" instead: ratings improve the scanner automatically. To change the prompt yourself, use "vision-scanners-update".',
+    'vision-scanners-prompt-suggestions-generate': () =>
+        'Tool "vision-scanners-prompt-suggestions-generate" was removed. Replay Vision no longer proposes prompt rewrites to review. Rate observations with "vision-observations-label-create" instead: ratings improve the scanner automatically. To change the prompt yourself, use "vision-scanners-update".',
+    // Replay Vision deprecation aliases. Each replacement takes the same arguments.
+    ...Object.fromEntries(
+        [
+            ['vision-observations-label-destroy', 'vision-observations-label-delete'],
+            ['vision-observations-retrieve', 'vision-observations-get'],
+            ['vision-quota-retrieve', 'vision-quota-get'],
+            ['vision-scanners-estimate-create', 'vision-scanners-estimate'],
+            ['vision-scanners-impact-retrieve', 'vision-scanners-impact-get'],
+            ['vision-scanners-inline-scan-create', 'vision-scanners-inline-scan'],
+        ].map(([removed, replacement]) => [
+            removed,
+            () =>
+                `Tool "${removed}" was removed. It was a deprecation alias for "${replacement}", which takes the same arguments. Call "${replacement}" instead.`,
+        ])
+    ),
+    // The legacy loops API was removed. Loops are workflows tagged origin_product "loops".
+    ...Object.fromEntries(
+        [
+            ['loops-create', '"workflows-create"'],
+            ['loops-create-execute', '"workflows-create"'],
+            ['loops-create-prepare', '"workflows-create"'],
+            ['loops-destroy', '"workflows-archive"'],
+            ['loops-list', '"workflows-list"'],
+            ['loops-partial-update', '"workflows-patch-graph" or "workflows-update"'],
+            ['loops-preview-create', '"workflows-test-run"'],
+            ['loops-retrieve', '"workflows-get"'],
+            ['loops-review', '"workflows-create"'],
+        ].map(([removed, replacement]) => [
+            removed,
+            () =>
+                `Tool "${removed}" was removed. Loops run on workflows: read the building-loops skill, then use ${replacement} with origin_product "loops".`,
+        ])
+    ),
+    'loops-run-create': () =>
+        'Tool "loops-run-create" was removed. Loops run on workflows. "workflows-test-run" tests the graph one node at a time and mocks outbound calls by default; it does not start a real task run. To fire a loop for real, use Run now on an enabled schedule loop in PostHog Desktop, or wait for its trigger.',
+    'loops-runs-retrieve': () =>
+        'Tool "loops-runs-retrieve" was removed. Loops run on workflows. For run history, call "tasks-list" with the hog_flow_id of the loop and archived set to all, then "tasks-runs-retrieve" on a run for its branch and output.',
+}
+
+export function getDeprecatedToolRedirect(toolName: string, allTools: Tool<ZodObjectAny>[]): string | undefined {
+    return DEPRECATED_TOOL_REDIRECTS[toolName]?.(allTools)
 }
 
 /** The form caller keys and field names are matched on, so `date_from` reaches a field
@@ -1025,13 +1082,13 @@ function namedKeys(keys: readonly string[]): string {
         .join(', ')
 }
 
-/** Bound on the parameter description echoed back with a missing-parameter
- *  rejection, so a tool with a long field description cannot inflate the
- *  analytics error message. */
-const MAX_MISSING_PARAM_HINT = 200
+/** Bound on the parameter description echoed back with a missing or wrong-type
+ *  parameter rejection, so a tool with a long field description cannot inflate
+ *  the analytics error message. */
+const MAX_PARAM_HINT = 200
 
 /**
- * The missing parameter's own description, appended to the rejection.
+ * The parameter's own description, appended to a missing or wrong-type rejection.
  *
  * A bare `missing required parameter: short_id` names the field to fill but not
  * what to fill it with, so a caller that never held the identifier retries the
@@ -1044,7 +1101,7 @@ const MAX_MISSING_PARAM_HINT = 200
  * input, so it is safe in the message returned to the caller and recorded as the
  * analytics error message.
  */
-function missingParameterHint(path: ReadonlyArray<PropertyKey>, schema: ZodObjectAny | undefined): string {
+function parameterHint(path: ReadonlyArray<PropertyKey>, schema: ZodObjectAny | undefined): string {
     if (!schema || path.length !== 1) {
         return ''
     }
@@ -1056,9 +1113,7 @@ function missingParameterHint(path: ReadonlyArray<PropertyKey>, schema: ZodObjec
         return ''
     }
     const capped =
-        description.length > MAX_MISSING_PARAM_HINT
-            ? `${description.slice(0, MAX_MISSING_PARAM_HINT).trimEnd()}...`
-            : description
+        description.length > MAX_PARAM_HINT ? `${description.slice(0, MAX_PARAM_HINT).trimEnd()}...` : description
     return ` (${capped})`
 }
 
@@ -1278,7 +1333,7 @@ export function formatInputValidationError(
         const path = issue.path.map(String).join('.')
         if (issue.code === 'invalid_type') {
             if ('input' in issue && issue.input === undefined) {
-                const hint = missingParameterHint(issue.path, schema)
+                const hint = parameterHint(issue.path, schema)
                 if (looksLikeUnwrappedPayload(issue.path, input, schema)) {
                     const { shape, unplaced } = acceptedWrapperShape(path, input, schema)
                     const rejected = unplaced.length
@@ -1297,7 +1352,9 @@ export function formatInputValidationError(
                 }
                 return `missing required parameter: ${path}${hint}`
             }
-            return `parameter "${path}" must be of type ${issue.expected}`
+            // The type alone does not say which values the field accepts, for
+            // example a bucket count where the caller sent a unit such as "day".
+            return `parameter "${path}" must be of type ${issue.expected}${parameterHint(issue.path, schema)}`
         }
         if (issue.code === 'invalid_union') {
             const expanded = describeUnionIssue(issue.errors, issue.path)
@@ -1480,9 +1537,6 @@ export function describeApiValidationError(attr: string | undefined, code: strin
  * `fields` are the offending field path + issue code, plus the received type where
  * that distinguishes the bug (e.g. `id:invalid_type:undefined` for an omitted
  * parameter vs `query:invalid_union:string` for an envelope the agent flattened).
- * `inputKeys` — the top-level keys the caller actually sent — is what surfaces an
- * unaccepted alias (e.g. `organizationId` where the schema wants `orgId`).
- *
  * Records only structural information: field names, issue codes, and the TYPE of a
  * rejected value. It never records input VALUES — the ZodError embeds those in
  * `issue.input` and in `.message` (see `formatInputValidationError`), so this reads
@@ -1490,11 +1544,7 @@ export function describeApiValidationError(attr: string | undefined, code: strin
  * true of the field paths as well: a key the schema never declared belongs to the
  * caller, so it is masked rather than recorded (see `normalizeDescriptorPath`).
  */
-export function describeValidationError(
-    error: z.ZodError,
-    input: Record<string, unknown>,
-    schema: z.ZodType
-): { fields: string[]; inputKeys: string[] } {
+export function describeValidationError(error: z.ZodError, schema: z.ZodType): { fields: string[] } {
     const declaredNames = declaredPropertyNames(schema)
     const fields = [
         ...new Set(
@@ -1510,11 +1560,43 @@ export function describeValidationError(
             })
         ),
     ].slice(0, MAX_VALIDATION_DESCRIPTORS)
-    const inputKeys = Object.keys(input)
-        .sort()
-        .slice(0, MAX_VALIDATION_DESCRIPTORS)
-        .map((key) => key.slice(0, MAX_KEY_LENGTH))
-    return { fields, inputKeys }
+    return { fields }
+}
+
+const PARAMETER_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/
+const DIGIT_RUN_PATTERN = /\d{5}/
+const POSTHOG_TOKEN_PREFIX_PATTERN = /^ph[a-z]_/
+const CREDENTIAL_SEGMENT_MIN_LENGTH = 16
+
+function hasCredentialSegment(key: string): boolean {
+    return key.split('_').some((segment) => segment.length >= CREDENTIAL_SEGMENT_MIN_LENGTH && /\d/.test(segment))
+}
+
+/**
+ * Undeclared names come from the caller and can hold private data, so only parameter-shaped
+ * ones are recorded. The digit checks keep out phone numbers, IDs, and most tokens. The prefix
+ * check keeps out PostHog tokens, whose suffix can have no digits.
+ */
+const shouldRecordInputKey: ShouldRecordInputKeyFn = (key, { declared }) =>
+    declared ||
+    (PARAMETER_NAME_PATTERN.test(key) &&
+        !DIGIT_RUN_PATTERN.test(key) &&
+        !hasCredentialSegment(key) &&
+        !POSTHOG_TOKEN_PREFIX_PATTERN.test(key))
+
+/**
+ * `$mcp_input_keys` and `$mcp_input_aliases_used` for one call, from the SDK helper, with no
+ * values. The alias map comes from the schema's own `normalizeParamAliases` layers, so
+ * alias names count as declared and each alias the normaliser relied on is recorded as
+ * `alias:canonical`. The SDK owns the limits (20 names, 64 characters), declared-names-first
+ * ordering, and dropping its injected `context`, `llm_model`, and `conversation_id` unless the
+ * schema declares them. `shouldRecordInputKey` decides which undeclared names are recorded.
+ */
+export function describeInputShape(input: unknown, schema?: z.ZodType): Record<string, unknown> {
+    return getToolInputProperties(input, schema, {
+        shouldRecordInputKey,
+        inputAliases: schema ? readParamAliases(schema) : undefined,
+    })
 }
 
 /** Whether the tool's input schema declares an `output_format` field. Unwraps
@@ -1580,7 +1662,10 @@ function flagGatedToolMessage(gated: FlagGatedTool, tools: Tool<ZodObjectAny>[])
     return `Tool "${gated.name}" is retired on this PostHog connection. Use ${successors} instead.${hint}`
 }
 
-function missingScopeRecovery(context: Context | undefined): string {
+function missingScopeRecovery(context: Context | undefined, oauthClientId: string | undefined): string {
+    if (isChatGptAppConnection(oauthClientId)) {
+        return 'The PostHog app in ChatGPT and Codex does not request every PostHog scope, so reconnecting it adds these scopes only if the app asks for them. If the user already reconnected and approved all access, this tool is not available through the app yet. Continue with the other tools.'
+    }
     switch (classifyAuthMethod(context?.api.config.apiToken)) {
         case 'oauth':
             return 'Reauthorize the PostHog MCP connection and approve these scopes.'
@@ -1596,13 +1681,15 @@ function findTool(
     scopeGatedTools: ScopeGatedTool[],
     flagGatedTools: FlagGatedTool[],
     name: string,
-    context: Context | undefined
+    context: Context | undefined,
+    isNotGranted: (name: string) => boolean,
+    oauthClientId: string | undefined
 ): Tool<ZodObjectAny> {
     const tool = tools.find((t) => t.name === name)
     if (!tool) {
-        const redirect = DEPRECATED_TOOL_REDIRECTS[name]
+        const redirect = getDeprecatedToolRedirect(name, tools)
         if (redirect) {
-            throw new ExecCommandError(redirect(tools), 'deprecated_tool')
+            throw new ExecCommandError(redirect, 'deprecated_tool')
         }
         const flagGatedTool = flagGatedTools.find((candidate) => candidate.name === name)
         if (flagGatedTool) {
@@ -1611,8 +1698,14 @@ function findTool(
         const scopeGatedTool = scopeGatedTools.find((candidate) => candidate.name === name)
         if (scopeGatedTool) {
             throw new ExecCommandError(
-                `Tool "${name}" exists, but this MCP connection is missing the required scope(s): ${scopeGatedTool.missingScopes.join(', ')}. ${missingScopeRecovery(context)} Logging in to PostHog in a browser does not update MCP permissions.`,
+                `Tool "${name}" exists, but this MCP connection is missing the required scope(s): ${scopeGatedTool.missingScopes.join(', ')}. ${missingScopeRecovery(context, oauthClientId)} Logging in to PostHog in a browser does not update MCP permissions.`,
                 'missing_scope'
+            )
+        }
+        if (isNotGranted(name)) {
+            throw new ExecCommandError(
+                `Tool "${name}" exists, but the owner of this run did not grant it. This refusal is final. Do not retry it, and do not reach the same data or action another way.`,
+                'tool_not_granted'
             )
         }
         throw new ExecCommandError(
@@ -1657,6 +1750,7 @@ export function createExecTool(
             }
 
             let gatewayTools: Tool<ZodObjectAny>[] | undefined
+            const withheldGatewayToolNames = new Set<string>()
             /** PostHog's tools plus any third-party tools the caller has connected.
              *  Resolved at most once per command, and only for commands that need a
              *  roster — `learn` never touches the gateway. */
@@ -1666,9 +1760,29 @@ export function createExecTool(
                 }
                 if (gatewayTools === undefined) {
                     gatewayTools = await options.gatewayToolsProvider()
+                    const filter = options.gatewayToolFilter
+                    gatewayTools = gatewayTools.filter(
+                        (tool) =>
+                            !filter?.excludeTools?.includes(tool.name) &&
+                            (!(filter?.tools?.length || filter?.features?.length) || filter?.tools?.includes(tool.name))
+                    )
+                    const { heldTools } = options
+                    if (heldTools) {
+                        for (const tool of gatewayTools) {
+                            if (!heldTools.has(tool.name)) {
+                                withheldGatewayToolNames.add(tool.name)
+                            }
+                        }
+                        gatewayTools = gatewayTools.filter((tool) => heldTools.has(tool.name))
+                    }
                 }
                 return gatewayTools.length > 0 ? [...allTools, ...gatewayTools] : allTools
             }
+            // Only a name that exists is refused as not granted, so a typo still sends the agent to `search`.
+            const isNotGranted = (name: string): boolean =>
+                options.heldTools !== undefined &&
+                !options.heldTools.has(name) &&
+                (getToolDefinitions()[name] !== undefined || withheldGatewayToolNames.has(name))
 
             switch (verb) {
                 case 'help':
@@ -1770,7 +1884,7 @@ export function createExecTool(
                             })),
                             hint:
                                 `These tools also match but are hidden because the API key is missing the ` +
-                                `required scope(s): ${requiredScopes.join(', ')}. ${missingScopeRecovery(context)}`,
+                                `required scope(s): ${requiredScopes.join(', ')}. ${missingScopeRecovery(context, options.oauthClientId)}`,
                         })
                     }
                     if (matches.length === 0) {
@@ -1808,7 +1922,15 @@ export function createExecTool(
                     if (!infoArgs) {
                         throw new ExecCommandError('Usage: info [--json] <tool_name>', 'usage')
                     }
-                    const tool = findTool(await resolveTools(), scopeGatedTools, flagGatedTools, infoArgs, context)
+                    const tool = findTool(
+                        await resolveTools(),
+                        scopeGatedTools,
+                        flagGatedTools,
+                        infoArgs,
+                        context,
+                        isNotGranted,
+                        options.oauthClientId
+                    )
                     // `io: 'input'` mirrors the advertised `tools/list` schema and the executor's
                     // validation: fields with a Zod `.default()` (e.g. a query `kind` discriminator)
                     // are optional and auto-filled. The default `io: 'output'` would list them as
@@ -1858,7 +1980,9 @@ export function createExecTool(
                         scopeGatedTools,
                         flagGatedTools,
                         schemaToolName,
-                        context
+                        context,
+                        isNotGranted,
+                        options.oauthClientId
                     )
                     // See the `info` command: `io: 'input'` keeps this in sync with the advertised
                     // schema and validation, so `.default()` fields aren't shown as required.
@@ -1916,7 +2040,15 @@ export function createExecTool(
                         throw new ExecCommandError(CALL_USAGE, 'usage')
                     }
                     const { verb: toolName, rest: jsonBody } = parseCommand(callArgs)
-                    const tool = findTool(await resolveTools(), scopeGatedTools, flagGatedTools, toolName, context)
+                    const tool = findTool(
+                        await resolveTools(),
+                        scopeGatedTools,
+                        flagGatedTools,
+                        toolName,
+                        context,
+                        isNotGranted,
+                        options.oauthClientId
+                    )
                     if (options.requireDestructiveConfirmation && tool.annotations.destructiveHint && !confirmed) {
                         throw new ExecCommandError(
                             `Tool "${tool.name}" is destructive. Re-run with "call --confirm ${tool.name} ..." after verifying the target IDs. Use "info ${tool.name}" to inspect the tool first.`,
@@ -1983,15 +2115,20 @@ export function createExecTool(
                         // which field/alias was rejected — without the payload.
                         throw new ToolInputValidationError(
                             message,
-                            describeValidationError(validation.error, input, toolSchema)
+                            describeValidationError(validation.error, toolSchema)
                         )
                     }
+                    const ignoredKeys = findIgnoredInputKeys(input, validation.data, toolSchema)
                     input = validation.data as Record<string, unknown>
+                    await options.beforeValidatedCall?.(tool.name, input)
 
                     const startedAt = Date.now()
                     let result: unknown
                     try {
-                        result = markNoncanonicalMetricRun(tool.name, await tool.handler(context, input))
+                        result = withIgnoredInputKeys(
+                            markNoncanonicalMetricRun(tool.name, await tool.handler(context, input)),
+                            ignoredKeys
+                        )
                     } catch (err) {
                         // PostHogValidationError is the API's 400 validation_error body.
                         const apiError = findRecoverableApiError(err)
@@ -2022,7 +2159,7 @@ export function createExecTool(
                     }
                     const durationMs = Date.now() - startedAt
                     // The text path below builds no payload, so emptiness is reported from here.
-                    const resultShape = isEmptyToolResult(result) ? { result_empty: true } : {}
+                    const resultShape = isEmptyToolResult(result, tool.name) ? { result_empty: true } : {}
                     const formattedOverride =
                         result !== null && typeof result === 'object'
                             ? (result as Record<string, unknown>)[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]
@@ -2072,7 +2209,7 @@ export function createExecTool(
                                 toolMeta: tool._meta,
                                 toolName: tool.name,
                                 params: useJson ? { ...input, output_format: 'json' } : input,
-                                // Inline-exec UI-app hosts (PostHog Desktop, Claude Code, Cowork)
+                                // Inline-exec UI-app hosts (PostHog Desktop, Claude Code)
                                 // surface `structuredContent` to the model in preference to the
                                 // text content, which would bury a compact formatted table under
                                 // the raw JSON. When such a table exists, re-home the UI app's data
@@ -2084,6 +2221,7 @@ export function createExecTool(
                                 forceUiDataToMeta: true,
                                 includeAppData,
                                 distinctId,
+                                mcpClientName: options.mcpClientName,
                                 includeUiResponseMeta: isInlineUiAppHost,
                                 includeRenderNote: isInlineUiAppHost,
                             })

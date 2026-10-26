@@ -49,6 +49,29 @@ describe('ScoutNotesPanel', () => {
         expect(getByText(new RegExp(TAIL))).toBeTruthy()
     })
 
+    it('lists a fleet-wide note under its own label', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team/signals/scout/notes/': [
+                    {
+                        id: 'note-fleet',
+                        content: 'Ignore traffic from the staging domain.',
+                        origin: 'human',
+                        skill_name: '',
+                        created_by_name: 'Someone',
+                        created_at: '2026-08-20T10:00:00Z',
+                        expires_at: null,
+                    },
+                ],
+            },
+        })
+
+        const { findByText, getByText } = render(<ScoutNotesPanel skillName={SKILL_NAME} />)
+
+        expect(await findByText('Ignore traffic from the staging domain.')).toBeTruthy()
+        expect(getByText('For every scout')).toBeTruthy()
+    })
+
     it('offers a retry once a load that never settles times out', async () => {
         useMocks({ get: { '/api/projects/:team/signals/scout/notes/': () => new Promise(() => {}) } })
         jest.useFakeTimers()

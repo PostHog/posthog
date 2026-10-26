@@ -243,7 +243,7 @@ def _query_failed_depot_attempts(
     # against the cutoff is chronological. The table name comes from the source's synced schema.
     after = after or DepotAttemptCursor(finished_at=cutoff_iso, attempt_id="")
     sql = f"""
-        SELECT run_id, run_workflow_count, workflow_id, attempt_id, attempt, repo, head_sha, workflow_name,
+        SELECT run_id, run_workflow_count, workflow_id, attempt_id, attempt, repo, head_sha, workflow_name, job_id,
                job_display_name, job_key, attempt_finished_at
         FROM {table}
         WHERE attempt_status = 'failed' AND attempt_finished_at > {{cutoff}} AND (
@@ -286,6 +286,9 @@ def _depot_attempt_inputs(source: ExternalDataSource, row: dict[str, Any]) -> Fe
         job_name=row["job_display_name"] or row["job_key"] or "",
         run_attempt=row["attempt"] or 0,
         head_sha=row["head_sha"] or "",
+        native_run_id=row["run_id"] or "",
+        native_workflow_run_id=row["workflow_id"] or "",
+        native_job_id=row["job_id"] or "",
     )
 
 

@@ -198,6 +198,25 @@ class TestGetEventSummary:
         summary = _get_event_summary(event)
         assert "Factual accuracy (llm_judge, false)" in summary
 
+    @parameterized.expand(
+        [
+            ("generation", "$ai_generation", {"$ai_span_name": 42, "$ai_model": 4}, "42 (4)"),
+            ("generation_model_fallback", "$ai_generation", {"$ai_model": 4}, "4 (4)"),
+            ("span", "$ai_span", {"$ai_span_name": 42, "$ai_is_error": True}, "42 (ERROR)"),
+            ("embedding", "$ai_embedding", {"$ai_span_name": 42, "$ai_model": 4}, "42 (4)"),
+            (
+                "evaluation",
+                "$ai_evaluation",
+                {"$ai_evaluation_name": 42, "$ai_evaluation_runtime": 1, "$ai_evaluation_result": True},
+                "42 (1, true)",
+            ),
+        ]
+    )
+    def test_non_string_names_are_coerced(
+        self, _name: str, event_type: str, properties: dict[str, Any], expected: str
+    ) -> None:
+        assert _get_event_summary({"event": event_type, "properties": properties}) == expected
+
     def test_unknown_event_type(self):
         """Should return event type for unknown events."""
         event = {"event": "custom_event", "properties": {}}

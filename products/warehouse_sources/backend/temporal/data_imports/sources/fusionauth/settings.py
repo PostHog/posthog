@@ -13,7 +13,7 @@ def _datetime_incremental_field(name: str) -> IncrementalField:
     }
 
 
-@dataclass
+@dataclass(frozen=True)
 class FusionAuthEndpointConfig:
     name: str
     path: str
@@ -33,6 +33,10 @@ class FusionAuthEndpointConfig:
     # Elasticsearch-backed search endpoints (currently just user search) cap the standard
     # result window; None means no such cap is documented.
     maximum_offset: Optional[int] = None
+    # Sent as `search.orderBy` on endpoints that document it (only used when sort_mode is "asc").
+    order_by: str = "insertInstant ASC"
+    # Dotted paths removed from every row before it is written, for secrets the API returns.
+    exclude_fields: tuple[str, ...] = ()
 
 
 # Search endpoints only: FusionAuth also has non-search read APIs (e.g. GET /api/user/{id})
@@ -86,6 +90,46 @@ FUSIONAUTH_ENDPOINTS: dict[str, FusionAuthEndpointConfig] = {
         # No documented `orderBy`/sort control on this endpoint, so we can't assert ascending
         # order — assume FusionAuth's usual newest-first default like the other log endpoints.
         sort_mode="desc",
+    ),
+    # Database-backed lookup searches (not Elasticsearch) with no server-side timestamp filter, so
+    # these are full refresh. `id ASC` keeps page boundaries stable while rows are being inserted.
+    "Applications": FusionAuthEndpointConfig(
+        name="Applications",
+        path="/api/application/search",
+        data_selector="applications",
+        primary_keys=["id"],
+        incremental_fields=[],
+        partition_key="insertInstant",
+        order_by="id ASC",
+        exclude_fields=("oauthConfiguration.clientSecret",),
+    ),
+    "Tenants": FusionAuthEndpointConfig(
+        name="Tenants",
+        path="/api/tenant/search",
+        data_selector="tenants",
+        primary_keys=["id"],
+        incremental_fields=[],
+        partition_key="insertInstant",
+        order_by="id ASC",
+        exclude_fields=("captchaConfiguration.secretKey", "emailConfiguration.password"),
+    ),
+    "Groups": FusionAuthEndpointConfig(
+        name="Groups",
+        path="/api/group/search",
+        data_selector="groups",
+        primary_keys=["id"],
+        incremental_fields=[],
+        partition_key="insertInstant",
+        order_by="id ASC",
+    ),
+    "GroupMembers": FusionAuthEndpointConfig(
+        name="GroupMembers",
+        path="/api/group/member/search",
+        data_selector="members",
+        primary_keys=["id"],
+        incremental_fields=[],
+        partition_key="insertInstant",
+        order_by="id ASC",
     ),
 }
 

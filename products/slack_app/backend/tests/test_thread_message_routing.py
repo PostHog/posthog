@@ -121,18 +121,31 @@ class TestRouteThreadMessage(TestCase):
         defaults.update(overrides)
         return defaults
 
-    def _route(self, event: dict, slack_team_id: str = "T_SLACK") -> str:
+    def _make_question_event(self, **overrides) -> dict:
+        defaults = {
+            "channel": "C002",
+            "channel_type": "channel",
+            "ts": "2000.0000",
+            "thread_ts": None,
+            "text": "How many people signed up last week in PostHog?",
+        }
+        return self._make_event(**{**defaults, **overrides})
+
+    def _route(self, event: dict, slack_team_id: str = "T_SLACK", *, is_ext_shared_channel: bool = False) -> str:
         from products.slack_app.backend.api import route_posthog_code_event_to_relevant_region
 
         request = self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com")
-        return route_posthog_code_event_to_relevant_region(request, event, slack_team_id)
+        return route_posthog_code_event_to_relevant_region(
+            request, event, slack_team_id, is_ext_shared_channel=is_ext_shared_channel
+        )
 
     # --- Cheap pre-DB gates ------------------------------------------------
 
     def test_top_level_message_dropped_before_db(self):
         """A message with no ``thread_ts`` (or where ``thread_ts == ts``) is a
-        top-level post in the channel, not a thread reply. Drop before
-        touching the DB — channel chatter dominates wire volume."""
+        top-level post in the channel, not a thread reply. One that fails the cheap
+        question gates is dropped before touching the DB, because channel chatter
+        dominates wire volume."""
         from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY
 
         event = self._make_event(thread_ts="1001.0000")  # same as ts
@@ -143,6 +156,90 @@ class TestRouteThreadMessage(TestCase):
             result = self._route(event)
         assert result == ROUTE_HANDLED_LOCALLY
         mock_filter.assert_not_called()
+        mock_start.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("an untagged question", {}, True, None, False, True),
+            ("a private channel", {"channel_type": "group"}, True, None, False, True),
+            (
+                "a request without a question word",
+                {"text": "need signups by country from PostHog for last month"},
+                True,
+                None,
+                False,
+                True,
+            ),
+            (
+                "a question that does not name PostHog",
+                {"text": "How many people signed up last week?"},
+                True,
+                None,
+                False,
+                True,
+            ),
+            ("a question to a person", {"text": "<@U_ALICE> how many signups last week?"}, True, None, False, True),
+            (
+                "a question that tags the app",
+                {"text": "<@U0BOT> how many signups last week?"},
+                True,
+                None,
+                False,
+                False,
+            ),
+            ("a group DM", {"channel_type": "mpim"}, True, None, False, False),
+            ("the flag is off", {}, False, None, False, False),
+            ("the author picks up only tagged messages", {}, True, UntaggedFollowupMode.NEVER, False, False),
+            ("an author without a PostHog account", {"user": "U_UNKNOWN"}, True, None, False, False),
+            ("an externally shared channel", {}, True, None, True, False),
+        ]
+    )
+    def test_top_level_question_starts_the_untagged_question_workflow(
+        self, _name, overrides, flag_on, author_mode, ext_shared, expect_dispatch
+    ):
+        if author_mode is not None:
+            SlackSettings.objects.create(
+                slack_workspace_id="T_SLACK", slack_user_id="U_BOB", untagged_question_mode=author_mode
+            )
+        event = self._make_question_event(**overrides)
+        with (
+            patch("products.slack_app.backend.api.is_slack_app_unprompted_answers_enabled", return_value=flag_on),
+            patch("products.slack_app.backend.api.get_cached_bot_user_id", return_value="U0BOT"),
+            patch("products.slack_app.backend.api._start_mention_workflow") as mock_start,
+            patch("products.slack_app.backend.api._post_user_resolution_failure_reply") as mock_failure_reply,
+        ):
+            self._route(event, is_ext_shared_channel=ext_shared)
+
+        assert mock_start.called is expect_dispatch
+        # Nobody asked, so a drop says nothing, an unknown author included.
+        mock_failure_reply.assert_not_called()
+        if expect_dispatch:
+            kwargs = mock_start.call_args.kwargs
+            assert kwargs["untagged_question"] is True
+            assert kwargs["posthog_user"].id == self.bob.id
+            assert mock_start.call_args.args[1].id == self.integration.id
+
+    @parameterized.expand(
+        [
+            ("the other region holds the workspace", True, True),
+            ("nobody confirms it", None, False),
+        ]
+    )
+    def test_top_level_question_for_a_workspace_held_elsewhere_crosses_only_when_claimed(
+        self, _name, claimed, expect_proxy
+    ):
+        event = self._make_question_event()
+        with (
+            patch("products.slack_app.backend.api.cross_region_routing_enabled", return_value=True),
+            patch("products.slack_app.backend.api.emit_slack_message_event", return_value=False),
+            patch("products.slack_app.backend.api._mirror_message_event_to_other_region"),
+            patch("products.slack_app.backend.api.does_other_region_claim_workspace", return_value=claimed),
+            patch("products.slack_app.backend.api._proxy_event_and_return_route", return_value="proxied") as proxy,
+            patch("products.slack_app.backend.api._start_mention_workflow") as mock_start,
+        ):
+            self._route(event, slack_team_id="T_ELSEWHERE")
+
+        assert proxy.called is expect_proxy
         mock_start.assert_not_called()
 
     def test_no_user_dropped(self):
@@ -185,7 +282,6 @@ class TestRouteThreadMessage(TestCase):
             ("an edit, owned here", "T_SLACK", "message_changed", False, False),
         ]
     )
-    @override_settings(SLACK_WORKFLOW_TRIGGERS_ENABLED=True)
     def test_top_level_post_reaches_every_region_holding_the_workspace(
         self, _name, slack_team_id, subtype, expect_full_proxy, expect_mirror_dispatch
     ):
@@ -219,7 +315,6 @@ class TestRouteThreadMessage(TestCase):
             assert kwargs["headers"][REGION_PROXY_HEADER] == "1"
             assert "eu.posthog.com" in kwargs["target_url"]
 
-    @override_settings(SLACK_WORKFLOW_TRIGGERS_ENABLED=True)
     def test_emit_only_mirror_emits_for_local_projects_and_nothing_else(self):
         from products.slack_app.backend.api import (
             EMIT_ONLY_MIRROR_HEADER,
@@ -248,7 +343,6 @@ class TestRouteThreadMessage(TestCase):
         mock_proxy.assert_not_called()
         mock_start.assert_not_called()
 
-    @override_settings(SLACK_WORKFLOW_TRIGGERS_ENABLED=True)
     def test_owned_thread_stays_local_without_an_emit_only_mirror(self):
         from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
 
@@ -595,6 +689,80 @@ class TestRouteThreadMessage(TestCase):
             assert [(drop["drop_reason"], drop.get("edit_ignore_cause")) for drop in drops] == [
                 ("ignored:edit", expected_ignore_cause)
             ]
+
+    # --- Reply to a bare mention -------------------------------------------
+
+    @parameterized.expand(
+        [
+            ("same_person", "U_BOB", 30, "and how many signups last week", False, True, []),
+            ("no_bare_mention_in_the_thread", None, 30, "and how many signups last week", False, False, []),
+            (
+                "another_person",
+                "U_ALICE",
+                30,
+                "and how many signups last week",
+                False,
+                False,
+                ["awaited_reply_other_user"],
+            ),
+            (
+                "another_person_but_the_thread_has_a_run",
+                "U_ALICE",
+                30,
+                "and how many signups last week",
+                True,
+                True,
+                [],
+            ),
+            ("tagged_copy", "U_BOB", 30, "<@U0BOT> how many signups last week", False, False, []),
+            (
+                "thread_older_than_a_claim_can_live",
+                "U_BOB",
+                2 * 60 * 60,
+                "and how many signups last week",
+                False,
+                False,
+                [],
+            ),
+        ]
+    )
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
+    def test_untagged_reply_runs_only_when_the_thread_awaits_its_author(
+        self, _name, awaited_from, thread_age_seconds, text, thread_has_run, expect_workflow, expected_drop_reasons
+    ):
+        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, SLACK_MENTION_DROPPED_EVENT
+        from products.slack_app.backend.services.bare_mention import await_request
+
+        now = time.time()
+        thread_ts = f"{now - thread_age_seconds:.6f}"
+        if awaited_from is not None:
+            await_request("T_SLACK", "C001", thread_ts, slack_user_id=awaited_from)
+        if thread_has_run:
+            self.mapping.thread_ts = thread_ts
+            self.mapping.save(update_fields=["thread_ts"])
+        event = self._make_event(user="U_BOB", thread_ts=thread_ts, ts=f"{now:.6f}", text=text)
+
+        with (
+            patch("products.slack_app.backend.api.does_other_region_claim_workspace", return_value=False),
+            patch("products.slack_app.backend.api.get_cached_bot_user_id", return_value="U0BOT"),
+            patch(
+                "products.slack_app.backend.api._start_mention_workflow", return_value=ROUTE_HANDLED_LOCALLY
+            ) as mock_start,
+            patch("products.slack_app.backend.api.posthoganalytics.capture") as mock_capture,
+        ):
+            result = self._route(event)
+
+        assert result == ROUTE_HANDLED_LOCALLY
+        assert mock_start.called is expect_workflow
+        if expect_workflow:
+            assert mock_start.call_args.kwargs["untagged_followup"] is thread_has_run
+            assert mock_start.call_args.kwargs["awaited_request_reply"] is not thread_has_run
+        drop_reasons = [
+            call.kwargs["properties"]["drop_reason"]
+            for call in mock_capture.call_args_list
+            if call.kwargs["event"] == SLACK_MENTION_DROPPED_EVENT
+        ]
+        assert drop_reasons == expected_drop_reasons
 
 
 class TestMirrorSlackMessageEventTask(SimpleTestCase):

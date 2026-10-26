@@ -13,10 +13,13 @@ run starts with personhog_shadow_lane_start_job and reset_state=true.
 import time
 from collections.abc import Callable, Mapping
 from contextlib import closing
+from itertools import groupby
+from typing import Literal
 
 import dagster
 import psycopg2
 from prometheus_client import CollectorRegistry, Gauge
+from pydantic import Field
 
 from posthog.dags.common import JobOwners
 from posthog.dags.personhog_shadow_lane import (
@@ -66,6 +69,25 @@ class DriftCategoryReport:
         if self.compared_keys == 0:
             return 0.0
         return 100.0 * self.drifted_rows / self.compared_keys
+
+
+PropertyDriftKind = Literal["only_in_legacy", "only_in_personhog", "value_differs"]
+
+_PROPERTY_DRIFT_MAX_ROWS = 100
+
+
+@frozen
+class PropertyKeyDrift:
+    key: str
+    kind: PropertyDriftKind
+    persons: int
+
+
+@frozen
+class PropertyDriftSample:
+    sampled_persons: int
+    key_drifts: list[PropertyKeyDrift]
+    person_details: list[str]
 
 
 # Each category is a pair of queries over the same two CTEs: one aggregates
@@ -133,13 +155,21 @@ WHERE p.uuid IS NULL OR l.uuid IS NULL OR {_PERSON_ROW_DIFFERS}
 LIMIT %(limit)s
 """
 
+# These sides join a child table to persons before the full outer join.
+# MATERIALIZED stops the planner from serving the sample LIMIT through
+# index-ordered merge joins: inlined, it merges the child table with persons
+# on team_id alone and checks person_id as a join filter, so every row is
+# compared against every person of its team. The count queries reference
+# each side twice and are materialized either way. The person sides stay
+# inline because their full outer join reads both (team_id, uuid) indexes
+# in order with no intermediate join.
 _DISTINCT_ID_SIDES = """
-WITH legacy AS (
+WITH legacy AS MATERIALIZED (
     SELECT d.team_id, d.distinct_id, p.uuid AS person_uuid, d.version
     FROM posthog_persondistinctid d
     JOIN posthog_person p ON p.id = d.person_id AND p.team_id = d.team_id
     WHERE NOT d.is_deleted AND NOT p.is_deleted
-), personhog AS (
+), personhog AS MATERIALIZED (
     SELECT d.team_id, d.distinct_id, p.uuid AS person_uuid, d.version
     FROM personhog_persondistinctid_tmp d
     JOIN personhog_person_tmp p ON p.team_id = d.team_id AND p.id = d.person_id
@@ -174,13 +204,14 @@ WHERE p.person_uuid IS NULL OR l.person_uuid IS NULL OR l.person_uuid <> p.perso
 LIMIT %(limit)s
 """
 
+# MATERIALIZED for the same reason as _DISTINCT_ID_SIDES.
 _HASH_KEY_SIDES = """
-WITH legacy AS (
+WITH legacy AS MATERIALIZED (
     SELECT h.team_id, p.uuid AS person_uuid, h.feature_flag_key, h.hash_key
     FROM posthog_featureflaghashkeyoverride h
     JOIN posthog_person p ON p.id = h.person_id AND p.team_id = h.team_id
     WHERE NOT p.is_deleted
-), personhog AS (
+), personhog AS MATERIALIZED (
     SELECT h.team_id, p.uuid AS person_uuid, h.feature_flag_key, h.hash_key
     FROM personhog_featureflaghashkeyoverride_tmp h
     JOIN personhog_person_tmp p ON p.team_id = h.team_id AND p.id = h.person_id
@@ -211,6 +242,52 @@ FROM legacy l
 FULL OUTER JOIN personhog p USING (team_id, person_uuid, feature_flag_key)
 WHERE p.hash_key IS NULL OR l.hash_key IS NULL OR l.hash_key <> p.hash_key
 LIMIT %(limit)s
+"""
+
+_PROPERTY_DIFF_ROWS = f"""
+{_PERSON_SIDES}, mismatched AS (
+    SELECT team_id, uuid
+    FROM legacy l
+    JOIN personhog p USING (team_id, uuid)
+    WHERE l.properties_hash IS DISTINCT FROM p.properties_hash
+    ORDER BY team_id, uuid
+    LIMIT %(limit)s
+), pairs AS (
+    SELECT m.team_id, m.uuid, l.properties AS legacy_props, p.properties AS personhog_props
+    FROM mismatched m
+    JOIN posthog_person l USING (team_id, uuid)
+    JOIN personhog_person_tmp p USING (team_id, uuid)
+), keys AS (
+    SELECT team_id, uuid, legacy_props, personhog_props, k.key
+    FROM pairs, LATERAL (
+        SELECT jsonb_object_keys(legacy_props) AS key
+        UNION SELECT jsonb_object_keys(personhog_props)
+    ) k
+), diff AS (
+    SELECT team_id, uuid, key,
+        CASE WHEN NOT legacy_props ? key THEN 'only_in_personhog'
+             WHEN NOT personhog_props ? key THEN 'only_in_legacy'
+             ELSE 'value_differs' END AS kind,
+        jsonb_typeof(legacy_props -> key) AS legacy_type,
+        jsonb_typeof(personhog_props -> key) AS personhog_type,
+        length((legacy_props -> key)::text) AS legacy_length,
+        length((personhog_props -> key)::text) AS personhog_length
+    FROM keys
+    WHERE (legacy_props -> key)::text IS DISTINCT FROM (personhog_props -> key)::text
+)
+"""
+
+_PROPERTY_KEY_DRIFT_SQL = f"""
+{_PROPERTY_DIFF_ROWS}
+SELECT key, kind, count(*) AS persons, (SELECT count(*) FROM mismatched) AS sampled_persons
+FROM diff
+GROUP BY key, kind
+ORDER BY persons DESC, key
+"""
+
+_PROPERTY_DETAIL_SQL = f"""
+{_PROPERTY_DIFF_ROWS}
+SELECT * FROM diff ORDER BY team_id, uuid, key
 """
 
 # Columns every *_DRIFT_SQL returns. _run_category reports any other column
@@ -256,14 +333,20 @@ def _run_category(
     return DriftCategoryReport(category=category, field_mismatches=field_mismatches, samples=samples, **totals)
 
 
-def compute_shadow_drift(connection: psycopg2.extensions.connection, sample_size: int) -> list[DriftCategoryReport]:
+def _configure_session(cursor: psycopg2.extensions.cursor, statement_timeout_minutes: int) -> None:
+    cursor.execute("SET application_name = 'dagster_personhog_shadow_drift'")
+    cursor.execute("SET statement_timeout = %s", (f"{statement_timeout_minutes}min",))
+    # work_mem applies per hash node and per parallel worker, and hash joins
+    # get hash_mem_multiplier times it, so a three-join query can reserve
+    # many times this value at once.
+    cursor.execute("SET work_mem = '256MB'")
+
+
+def compute_shadow_drift(
+    connection: psycopg2.extensions.connection, sample_size: int, statement_timeout_minutes: int = 30
+) -> list[DriftCategoryReport]:
     with connection.cursor() as cursor:
-        cursor.execute("SET application_name = 'dagster_personhog_shadow_drift'")
-        cursor.execute("SET statement_timeout = '30min'")
-        # work_mem applies per hash node and per parallel worker, and hash joins
-        # get hash_mem_multiplier times it, so a three-join query can reserve
-        # many times this value at once.
-        cursor.execute("SET work_mem = '256MB'")
+        _configure_session(cursor, statement_timeout_minutes)
         return [
             _run_category(cursor, "persons", _PERSON_DRIFT_SQL, _PERSON_SAMPLE_SQL, _person_samples, sample_size),
             _run_category(
@@ -283,6 +366,56 @@ def compute_shadow_drift(connection: psycopg2.extensions.connection, sample_size
                 sample_size,
             ),
         ]
+
+
+def _format_property_side(jsonb_type: object, text_length: object) -> str:
+    if jsonb_type is None:
+        return "absent"
+    return f"{jsonb_type}({text_length})"
+
+
+def _format_person_property_detail(team_id: object, person_uuid: object, rows: list[Mapping[str, object]]) -> str:
+    keys = "; ".join(
+        f"{row['key']!r} {row['kind']} "
+        f"legacy={_format_property_side(row['legacy_type'], row['legacy_length'])} "
+        f"personhog={_format_property_side(row['personhog_type'], row['personhog_length'])}"
+        for row in rows[:_PROPERTY_DRIFT_MAX_ROWS]
+    )
+    if len(rows) > _PROPERTY_DRIFT_MAX_ROWS:
+        keys += "; ..."
+    return f"team={team_id} uuid={person_uuid} differing_keys={len(rows)}: {keys}"
+
+
+def sample_property_drift(
+    connection: psycopg2.extensions.connection,
+    persons_limit: int,
+    detail_limit: int,
+    statement_timeout_minutes: int = 30,
+) -> PropertyDriftSample:
+    detail_rows: list[Mapping[str, object]] = []
+    with connection.cursor() as cursor:
+        _configure_session(cursor, statement_timeout_minutes)
+        cursor.execute(_PROPERTY_KEY_DRIFT_SQL, {"limit": persons_limit})
+        key_rows = cursor.fetchall()
+        if detail_limit > 0:
+            cursor.execute(_PROPERTY_DETAIL_SQL, {"limit": min(detail_limit, persons_limit)})
+            detail_rows = cursor.fetchall()
+
+    key_drifts = [PropertyKeyDrift(key=row["key"], kind=row["kind"], persons=int(row["persons"])) for row in key_rows]
+    sampled_persons = int(key_rows[0]["sampled_persons"]) if key_rows else 0
+    person_details = [
+        _format_person_property_detail(team_id, person_uuid, list(person_rows))
+        for (team_id, person_uuid), person_rows in groupby(detail_rows, key=lambda row: (row["team_id"], row["uuid"]))
+    ]
+    return PropertyDriftSample(sampled_persons=sampled_persons, key_drifts=key_drifts, person_details=person_details)
+
+
+def _property_drift_table(sample: PropertyDriftSample) -> str:
+    lines = ["| key | kind | persons |", "|---|---|---|"]
+    for drift in sample.key_drifts[:_PROPERTY_DRIFT_MAX_ROWS]:
+        key = drift.key.replace("|", "\\|").replace("\n", "\\n").replace("\r", "\\r")
+        lines.append(f"| {key} | {drift.kind} | {drift.persons} |")
+    return "\n".join(lines)
 
 
 def record_settle_gauges(
@@ -346,6 +479,7 @@ class ShadowLaneStopConfig(dagster.Config):
     namespace: str = SHADOW_NAMESPACE
     consumer_deployment: str = SHADOW_CONSUMER_DEPLOYMENT
     processor_deployment: str = SHADOW_PROCESSOR_DEPLOYMENT
+    # Per deployment: the consumers get the full budget to drain before the processors scale.
     stop_timeout_seconds: int = 600
 
 
@@ -359,15 +493,13 @@ class ShadowSettleConfig(dagster.Config):
 class ShadowDriftConfig(dagster.Config):
     shadow_db_env_var: str = SHADOW_DB_URL_ENV_VAR
     sample_size: int = 10
+    property_diff_sample_size: int = 500
+    statement_timeout_minutes: int = Field(default=30, gt=0)
 
 
 @dagster.op
 def stop_shadow_lane(context: dagster.OpExecutionContext, config: ShadowLaneStopConfig) -> None:
     apps = apps_api()
-    deployments = [config.consumer_deployment, config.processor_deployment]
-    for deployment in deployments:
-        context.log.info(f"Scaling {config.namespace}/{deployment} to 0 replicas")
-        scale_deployment(apps, config.namespace, deployment, 0)
 
     def is_stopped(deployment: str) -> bool:
         if deployment_pod_count(apps, config.namespace, deployment) > 0:
@@ -375,11 +507,17 @@ def stop_shadow_lane(context: dagster.OpExecutionContext, config: ShadowLaneStop
         context.log.info(f"{deployment} has no pods left")
         return True
 
-    pending = wait_for_deployments(deployments, is_stopped, timeout_seconds=config.stop_timeout_seconds)
-    if pending:
-        raise dagster.Failure(
-            description=f"Pods still running after {config.stop_timeout_seconds}s: {', '.join(sorted(pending))}"
-        )
+    # Consumers first, and processors only once the consumers' pods are gone. A consumer drains its in-flight
+    # batches before it exits, so the processors then hold no un-acked work. A processor scaled down while a
+    # consumer still waits on it gets only its drain window to finish those batches, and fails what is left.
+    for deployment in (config.consumer_deployment, config.processor_deployment):
+        context.log.info(f"Scaling {config.namespace}/{deployment} to 0 replicas")
+        scale_deployment(apps, config.namespace, deployment, 0)
+        pending = wait_for_deployments([deployment], is_stopped, timeout_seconds=config.stop_timeout_seconds)
+        if pending:
+            raise dagster.Failure(
+                description=f"Pods still running after {config.stop_timeout_seconds}s: {', '.join(sorted(pending))}"
+            )
 
 
 @dagster.op(ins={"lane_stopped": dagster.In(dagster.Nothing)})
@@ -426,7 +564,16 @@ def wait_for_shadow_settle(context: dagster.OpExecutionContext, config: ShadowSe
 @dagster.op(ins={"settled": dagster.In(dagster.Nothing)})
 def report_shadow_drift(context: dagster.OpExecutionContext, config: ShadowDriftConfig) -> None:
     with closing(shadow_db_connection(config.shadow_db_env_var)) as connection:
-        reports = compute_shadow_drift(connection, config.sample_size)
+        reports = compute_shadow_drift(connection, config.sample_size, config.statement_timeout_minutes)
+        persons_report = next(report for report in reports if report.category == "persons")
+        property_drift: PropertyDriftSample | None = None
+        if config.property_diff_sample_size > 0 and persons_report.field_mismatches.get("properties", 0) > 0:
+            property_drift = sample_property_drift(
+                connection,
+                persons_limit=config.property_diff_sample_size,
+                detail_limit=config.sample_size,
+                statement_timeout_minutes=config.statement_timeout_minutes,
+            )
 
     with pushed_metrics_registry(f"{DRIFT_METRICS_JOB}_{config.shadow_db_env_var}") as registry:
         record_drift_gauges(registry, config.shadow_db_env_var, reports, time.time())
@@ -452,6 +599,17 @@ def report_shadow_drift(context: dagster.OpExecutionContext, config: ShadowDrift
             context.log.info(f"[{report.category}] drift sample: {sample}")
 
     metadata["summary"] = dagster.MetadataValue.md("\n".join(lines))
+    if property_drift is not None:
+        context.log.info(
+            f"[persons] property drift by key over {property_drift.sampled_persons} sampled persons "
+            f"({len(property_drift.key_drifts)} key rows, up to {_PROPERTY_DRIFT_MAX_ROWS} shown):\n"
+            f"{_property_drift_table(property_drift)}"
+        )
+        for detail in property_drift.person_details:
+            context.log.info(f"[persons] property drift detail: {detail}")
+        metadata["persons_property_drift_sampled_persons"] = dagster.MetadataValue.int(property_drift.sampled_persons)
+        metadata["persons_property_drift_key_rows"] = dagster.MetadataValue.int(len(property_drift.key_drifts))
+        metadata["persons_property_drift_keys"] = dagster.MetadataValue.md(_property_drift_table(property_drift))
     context.add_output_metadata(metadata)
 
 
