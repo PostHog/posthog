@@ -380,6 +380,15 @@ export const watchFeedLogic = kea<watchFeedLogicType>([
                 loadFeedFailure: () => true,
             },
         ],
+        // A filter change reloads page one, unlike loading the next page, which shares the loader.
+        feedReloading: [
+            false,
+            {
+                loadFeed: () => true,
+                loadFeedSuccess: () => false,
+                loadFeedFailure: () => false,
+            },
+        ],
         // Set from each response, so the card layout always matches the ranking it shows.
         feedRanker: [
             'weighted-score' as WatchFeedRanker,
