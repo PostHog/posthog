@@ -454,6 +454,23 @@ class TestNeedsTraining(SimpleTestCase):
             is trains
         )
 
+    @parameterized.expand([("kept_current", 23, False), ("retrain_due", 24, True)])
+    def test_an_hourly_insight_kept_current_trains_only_after_train_every(
+        self, _name: str, hours_since_trained: int, trains: bool
+    ) -> None:
+        identity = StateIdentity(interval=IntervalType.HOUR, detector_version="v1", query_hash="q1")
+        now = datetime(2026, 1, 10, 12, 5, tzinfo=UTC)
+        state = _state(
+            identity=identity,
+            trained_at=now - timedelta(hours=hours_since_trained),
+            scored_through=datetime(2026, 1, 10, 10, tzinfo=UTC),
+        )
+
+        assert (
+            needs_training(state, identity=identity, now=now, timezone=ZoneInfo("UTC"), train_every=24, max_backfill=30)
+            is trains
+        )
+
 
 class TestMetricScoringQuery(SimpleTestCase):
     @parameterized.expand([("without_compare", None), ("with_saved_compare", CompareFilter(compare=True))])
