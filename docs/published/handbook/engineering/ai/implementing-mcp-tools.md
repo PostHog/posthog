@@ -313,7 +313,8 @@ Duplicate, expired, and mismatched replies do not update suppression or emit res
 ## MCP UI hosts
 
 In CLI mode, Claude web and desktop, Cowork, Codex, and ChatGPT receive a separate `render-ui` tool beside `exec`.
-The server offers `render-ui` only when a tool with a UI app is available.
+The server builds the `render-ui` schema from the full catalog of read-only tools with UI apps.
+The schema stays the same across accounts; execution checks the tools available to the current account.
 `MCPClientProfile.isRenderUiHost()` identifies these clients from the existing Claude detection, the client name, or the user agent.
 The OpenAI check includes the shared `openai-mcp` client because requests can omit the product name and share a cached tool list.
 This check does not change mode selection. Cursor still defaults to tools mode, and an explicit mode override still takes precedence.
