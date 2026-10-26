@@ -27,7 +27,29 @@ function groupLabel(groupKey: string): string {
     return capitalizeFirstLetter(pluralTypeName(getItemTypeDisplayName(groupKey) ?? groupKey.replace(/_/g, ' ')))
 }
 
+const RANKED_LOCAL_CACHE_SIZE = 50
+const rankedLocalCache = new WeakMap<SearchItem[], Map<string, RankedItem[]>>()
+
 function rankLocalItems(items: SearchItem[], query: string, groupKey: string): RankedItem[] {
+    const key = `${groupKey}:${query}`
+    let byQuery = rankedLocalCache.get(items)
+    if (!byQuery) {
+        byQuery = new Map()
+        rankedLocalCache.set(items, byQuery)
+    }
+    const cached = byQuery.get(key)
+    if (cached) {
+        return cached
+    }
+    const ranked = rankItems(items, query, groupKey)
+    if (byQuery.size >= RANKED_LOCAL_CACHE_SIZE) {
+        byQuery.delete(byQuery.keys().next().value!)
+    }
+    byQuery.set(key, ranked)
+    return ranked
+}
+
+function rankItems(items: SearchItem[], query: string, groupKey: string): RankedItem[] {
     return items.flatMap((item) => {
         const ranked = rankLocalItem(
             query,

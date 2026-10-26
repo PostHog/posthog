@@ -7,6 +7,10 @@ Manual GitHub assignments and removals remain authoritative.
 
 Other projects retain the legacy DRI and opt-in policies. Task execution permission is
 separate from report and PR assignment. GitHub failures must not break report writes.
+
+Standing reviewer exclusions for the pull request's repository apply to every automatic candidate,
+including reviewer lists saved before the exclusion existed. The person who chose the work is
+still assigned, because a claim is a person's own decision.
 """
 
 from __future__ import annotations
@@ -60,6 +64,7 @@ from products.signals.backend.report_generation.resolve_reviewers import (
     normalized_github_logins_from_reviewer_payloads,
     resolve_org_github_login_to_users,
 )
+from products.signals.backend.reviewer_exclusions import StandingExclusions
 from products.signals.backend.reviewer_rules import ReviewerRules, contains_reviewer
 
 if TYPE_CHECKING:
@@ -357,6 +362,7 @@ def _request_reviews(
     parsed: PullRequestRef,
     pr: dict[str, Any],
     reviewers: list[str],
+    standing: StandingExclusions,
 ) -> list[str]:
     assignees = list(dict.fromkeys(str(login).lower() for login in (pr.get("assignees") or []) if login))
     owner = assignees[0] if len(assignees) == 1 else None
@@ -366,6 +372,14 @@ def _request_reviews(
     existing = {str(login).lower() for login in [pr.get("author"), *(pr.get("requested_reviewers") or [])] if login}
     candidates = [owner] if owner else reviewers
     wanted = [login for login in candidates if login.lower() not in existing]
+    if not wanted:
+        return []
+    # The sole assignee can be an earlier automatic owner who has since excluded themselves. The
+    # person who chose the work is still asked.
+    allowed = standing.allowed_logins(wanted)
+    if owner and not allowed and owner == (human_claimant_login(team_id=team_id, report_id=report_id) or "").lower():
+        allowed = wanted
+    wanted = allowed
     if not wanted:
         return []
 
@@ -739,7 +753,13 @@ def _report_assignee_logins(team: Team, snapshot: ReviewerSnapshot, *, require_o
 
 
 def _assign_report_reviewers(
-    github: GitHubIntegration, *, team_id: int, report_id: str, parsed: PullRequestRef, pr: dict[str, Any]
+    github: GitHubIntegration,
+    *,
+    team_id: int,
+    report_id: str,
+    parsed: PullRequestRef,
+    pr: dict[str, Any],
+    standing: StandingExclusions,
 ) -> list[str]:
     assignments = PROwnerAssignmentService(
         team_id=team_id,
@@ -772,7 +792,7 @@ def _assign_report_reviewers(
         snapshot = ReviewerRules.read_for_report(team_id=team_id, report_id=report_id)
         if snapshot.corrections.needs_review:
             return []
-        candidates = _report_assignee_logins(team, snapshot)
+        candidates = standing.allowed_logins(_report_assignee_logins(team, snapshot))
         if len(candidates) < len(snapshot.reviewers):
             log.info(
                 "signals.reviewer_pr_assignment.unavailable_accounts",
@@ -806,7 +826,11 @@ def _assign_report_reviewers(
         if not current_application.allowed or current_application.previous != application.previous:
             return []
         current = ReviewerRules.read_for_report(team_id=team_id, report_id=report_id)
-        if current.state != snapshot.state or _report_assignee_logins(team, current) != candidates:
+        # An instruction saved during the GitHub calls must still stop the assignment.
+        if (
+            current.state != snapshot.state
+            or standing.refreshed().allowed_logins(_report_assignee_logins(team, current)) != candidates
+        ):
             return []
         if not (
             assignment_writer_enabled(team_id)
@@ -862,8 +886,13 @@ def assign_reviewers_to_pull_request(*, team_id: int, report_id: str, pr_url: st
     if pr is None:
         return []
 
+    standing = StandingExclusions.load(team_id=team_id, report_id=report_id, repository=parsed.repository)
+    logins = standing.allowed_logins(logins)
+    reviewers = standing.allowed_logins(reviewers)
     if shared_assignment:
-        assigned = _assign_report_reviewers(github, team_id=team_id, report_id=report_id, parsed=parsed, pr=pr)
+        assigned = _assign_report_reviewers(
+            github, team_id=team_id, report_id=report_id, parsed=parsed, pr=pr, standing=standing
+        )
     elif dri_enabled:
         assigned = _assign_one_dri(
             github,
@@ -873,6 +902,7 @@ def assign_reviewers_to_pull_request(*, team_id: int, report_id: str, pr_url: st
             pr=pr,
             opted_in=set(logins),
             reviewers=reviewers,
+            standing=standing,
         )
     else:
         assigned = (
@@ -902,6 +932,7 @@ def assign_reviewers_to_pull_request(*, team_id: int, report_id: str, pr_url: st
         if current_pr is None:
             return assigned
         pr = current_pr
+    # An instruction saved during the assignment calls must still stop the review request.
     _request_reviews(
         github,
         team_id=team_id,
@@ -909,6 +940,7 @@ def assign_reviewers_to_pull_request(*, team_id: int, report_id: str, pr_url: st
         parsed=parsed,
         pr={**pr, "assignees": [*(pr.get("assignees") or []), *assigned]},
         reviewers=reviewers,
+        standing=standing.refreshed(),
     )
     return assigned
 
@@ -922,6 +954,7 @@ def _assign_one_dri(
     pr: dict[str, Any],
     opted_in: set[str],
     reviewers: list[str],
+    standing: StandingExclusions,
 ) -> list[str]:
     """Assign one DRI, replacing only a prior owner this worker recorded."""
     assignments = PROwnerAssignmentService(
@@ -960,10 +993,12 @@ def _assign_one_dri(
         reviewers=reviewers,
     )
     members = resolve_org_github_login_to_users(team_id, candidates)
+    allowed = set(standing.allowed_logins(candidates))
     candidates = [
         login
         for login in candidates
-        if not contains_reviewer(
+        if (login == claimant or login in allowed)
+        and not contains_reviewer(
             snapshot.corrections.excluded,
             SuggestedReviewerEntry(
                 github_login=login, user_uuid=str(members[login].uuid) if login in members else None
@@ -997,10 +1032,13 @@ def _assign_one_dri(
     if not current_application.allowed or current_application.previous != application.previous:
         return []
     current = ReviewerRules.read_for_report(team_id=team_id, report_id=report_id)
+    # An instruction saved during the GitHub calls must still stop the assignment.
+    fresh = standing.refreshed()
     if (
         current.state != snapshot.state
         or human_claimant_login(team_id=team_id, report_id=report_id) != claimant
-        or ranked_reviewer_logins(team_id=team_id, report_id=report_id) != reviewers
+        or fresh.allowed_logins(ranked_reviewer_logins(team_id=team_id, report_id=report_id)) != reviewers
+        or not (owner.login == claimant or fresh.allowed_logins([owner.login]))
     ):
         return []
     return _apply_automatic_owners(

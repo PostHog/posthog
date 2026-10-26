@@ -776,6 +776,54 @@ export interface InboxSummaryApi {
 
 /**
  * * `pending` - Pending
+ * * `running` - Running
+ * * `no_data` - No data
+ * * `report_created` - Report created
+ * * `insufficient_data` - Insufficient data
+ * * `no_actionable_finding` - No actionable finding
+ * * `incomplete` - Incomplete
+ */
+export type FirstReportStatusEnumApi = (typeof FirstReportStatusEnumApi)[keyof typeof FirstReportStatusEnumApi]
+
+export const FirstReportStatusEnumApi = {
+    Pending: 'pending',
+    Running: 'running',
+    NoData: 'no_data',
+    ReportCreated: 'report_created',
+    InsufficientData: 'insufficient_data',
+    NoActionableFinding: 'no_actionable_finding',
+    Incomplete: 'incomplete',
+} as const
+
+export interface FirstReportStateApi {
+    /** Scout run ID for inspecting the investigation through the scout API. */
+    scout_run_id?: string
+    /** Task ID for following the investigation's live activity. */
+    task_id?: string
+    /** Task run ID for following the investigation's live activity. */
+    task_run_id?: string
+    /** When the investigation's task run started. */
+    started_at?: string
+    /** Progress of the first investigation.
+     *
+     * * `pending` - Pending
+     * * `running` - Running
+     * * `no_data` - No data
+     * * `report_created` - Report created
+     * * `insufficient_data` - Insufficient data
+     * * `no_actionable_finding` - No actionable finding
+     * * `incomplete` - Incomplete */
+    status: FirstReportStatusEnumApi
+    /** The first useful report produced by the investigation. */
+    report_id?: string
+    /** Products checked during the investigation. */
+    checked_products?: string[]
+    /** Data or history needed for a reliable finding. */
+    missing_data?: string[]
+}
+
+/**
+ * * `pending` - Pending
  * * `started` - Started
  * * `skipped` - Unavailable
  * * `failed` - Failed
@@ -791,7 +839,7 @@ export const InboxOnboardingJobStatusEnumApi = {
 } as const
 
 export interface InboxOnboardingJobsApi {
-    /** Dispatch status of the first general scout run.
+    /** Dispatch status of the first-report scout run.
      *
      * * `pending` - Pending
      * * `started` - Started
@@ -1363,6 +1411,15 @@ export const InboxOnboardingVariantEnumApi = {
 } as const
 
 export interface InboxOnboardingStateApi {
+    /** Whether the current user can receive an in-app notification when this investigation finishes. */
+    first_report_completion_notification?: boolean
+    /**
+     * The current user's email when enrolled for a first-report notification.
+     * @nullable
+     */
+    first_report_notification_email?: string | null
+    /** First investigation outcome. */
+    first_report?: FirstReportStateApi | null
     /** Background work started by quick activation. */
     jobs?: InboxOnboardingJobsApi
     /** Saved setup choices, without activating them. */
@@ -5793,6 +5850,97 @@ export interface SignalReportSourceMetadataApi {
 export interface SignalReportSourceMetadataResponseApi {
     /** One entry per requested id, in request order, duplicates removed. An id with no signals in this project, including one that is not a report here, gets empty values. */
     readonly reports: readonly SignalReportSourceMetadataApi[]
+}
+
+/**
+ * * `active` - Active
+ * * `revoked` - Revoked
+ */
+export type SignalReviewerExclusionStatusEnumApi =
+    (typeof SignalReviewerExclusionStatusEnumApi)[keyof typeof SignalReviewerExclusionStatusEnumApi]
+
+export const SignalReviewerExclusionStatusEnumApi = {
+    Active: 'active',
+    Revoked: 'revoked',
+} as const
+
+export interface ReviewerExclusionApi {
+    /** Identifier of the instruction. */
+    readonly id: string
+    /** Repository in `owner/name` form that the instruction covers. Empty covers every one. */
+    readonly repository: string
+    /** Path inside the repository that the instruction covers. Empty covers the repository. */
+    readonly path_prefix: string
+    /** Why the member stays off this area. */
+    readonly instruction: string
+    /** `active` instructions apply to automatic reviewer selection. `revoked` instructions do not.
+     *
+     * * `active` - Active
+     * * `revoked` - Revoked */
+    readonly status: SignalReviewerExclusionStatusEnumApi
+    /** Increases by one at each change. */
+    readonly revision: number
+    /** When the member saved the instruction. */
+    readonly created_at: string
+    /** When the instruction last changed. */
+    readonly updated_at: string
+}
+
+export interface ReviewerExclusionCreateApi {
+    /**
+     * Repository in `owner/name` form. Leave empty to cover every repository.
+     * @maxLength 200
+     */
+    repository?: string
+    /**
+     * Path inside the repository, such as `src/billing`. Needs a repository.
+     * @maxLength 500
+     */
+    path_prefix?: string
+    /**
+     * Why you stay off this area, for the people who read it later.
+     * @maxLength 2000
+     */
+    instruction: string
+    /** Optional report to take you off first. The report removal and the instruction save are separate steps. */
+    report_id?: string
+}
+
+export interface ReviewerExclusionCreateResultApi {
+    /** True only when the instruction is saved. Only then does it keep you off automatic selection. */
+    instruction_saved: boolean
+    /**
+     * True when the report removal succeeded. Null when no report was given.
+     * @nullable
+     */
+    report_removed: boolean | null
+    /** The saved instruction, or null. */
+    exclusion: ReviewerExclusionApi | null
+    /** What happened, and what to do next. */
+    detail: string
+}
+
+export interface ReviewerExclusionErrorApi {
+    /** Why the request failed. */
+    detail: string
+}
+
+export interface PatchedReviewerExclusionUpdateApi {
+    /**
+     * Repository in `owner/name` form. Leave empty to cover every repository.
+     * @maxLength 200
+     */
+    repository?: string
+    /**
+     * Path inside the repository, such as `src/billing`. Needs a repository.
+     * @maxLength 500
+     */
+    path_prefix?: string
+    /**
+     * New text for the instruction.
+     * @maxLength 2000
+     */
+    instruction?: string
 }
 
 export interface LLMSkillFileInputApi {
