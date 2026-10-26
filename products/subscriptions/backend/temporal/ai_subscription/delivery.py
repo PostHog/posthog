@@ -598,7 +598,7 @@ def _build_ai_slack_message(
     env: EnvType = {}
     tokens = _MARKDOWN_RENDERER.parse(markdown, env)
     if tokens and tokens[0].type == "heading_open" and tokens[0].tag == "h1" and tokens[0].map:
-        markdown = "".join(markdown.splitlines(keepends=True)[tokens[0].map[1] :]).lstrip()
+        markdown = "".join(markdown.splitlines(keepends=True)[tokens[0].map[1] :]).lstrip("\r\n")
     sections = _safe_slack_markdown_sections(markdown)
     title = subscription.title or "Your PostHog AI report"
     first_section = sections[0] if sections else "_No report content was generated._"

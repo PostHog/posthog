@@ -579,6 +579,7 @@ class TestBuildAISlackMessage:
             ("Generated report title\n=====\n\nReport content.", "Report content."),
             ("# Generated report title", "_No report content was generated._"),
             ("```\n# Keep this heading\n```", None),
+            ("# Generated report title\n\n    # Keep this code\n    value = 1", "    # Keep this code\n    value = 1"),
         ],
     )
     def test_preserves_report_markdown(self, markdown: str, expected: str | None) -> None:
