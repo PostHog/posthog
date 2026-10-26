@@ -126,6 +126,16 @@ class TestMetricsDashboardWidget(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(self._values(self._run(tile_id)), [10.0, 30.0, 180.0])
         self.assertEqual(self._values(self._run(tile_id, filters_override={"date_from": "-1h"})), [10.0, 30.0])
 
+    def test_a_cleared_dashboard_date_range_restores_the_widget_range(self) -> None:
+        tile_id = self._add_tile(GAUGE_QUERY)
+        self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{self.dashboard_id}", {"filters": {"date_from": "-1h"}}
+        )
+
+        self.assertEqual(self._values(self._run(tile_id)), [10.0, 30.0])
+        cleared = {"date_from": None, "date_to": None, "metricFilters": []}
+        self.assertEqual(self._values(self._run(tile_id, filters_override=cleared)), [10.0, 30.0, 180.0])
+
     def test_a_manual_refresh_skips_the_query_cache(self) -> None:
         tile_id = self._add_tile(GAUGE_QUERY)
         self._run(tile_id)
