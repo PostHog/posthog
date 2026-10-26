@@ -42,6 +42,10 @@ import {
   ProjectApiError,
 } from "./projectApiClient";
 
+// Outlasts the backend's MCP call timeout, so a stalled write still reaches the
+// viewer as the backend's "the change can still apply" answer.
+const CANVAS_TOOL_TIMEOUT_MS = 60_000;
+
 // A canvas as the PostHog canvases API returns it.
 interface ApiCanvas {
   id: string;
@@ -565,6 +569,7 @@ export class DashboardsService {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ tool: input.tool, arguments: input.arguments }),
+        signal: AbortSignal.timeout(CANVAS_TOOL_TIMEOUT_MS),
       },
     );
     const body = (await res.json().catch(() => ({}))) as {
