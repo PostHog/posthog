@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom'
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
@@ -9,20 +10,45 @@ import { QuillSceneStaticName } from './QuillSceneStaticName'
 jest.mock('lib/utils/copyToClipboard', () => ({ copyToClipboard: jest.fn() }))
 
 describe('QuillSceneStaticName', () => {
+    beforeEach(() => {
+        jest.mocked(copyToClipboard).mockResolvedValue(true)
+    })
+
     afterEach(() => {
         cleanup()
-        jest.mocked(copyToClipboard).mockClear()
+        jest.mocked(copyToClipboard).mockReset()
     })
 
     test.each([
         { label: 'with a description', description: 'Tier request rollout' },
         { label: 'without a description', description: undefined },
-    ])('copies a text name on click $label', ({ description }) => {
+    ])('copies a text name on click $label, without a toast', ({ description }) => {
         render(<QuillSceneStaticName name="my-flag-key" description={description} />)
 
         fireEvent.click(screen.getByText('my-flag-key'))
 
-        expect(copyToClipboard).toHaveBeenCalledWith('my-flag-key', 'name')
+        expect(copyToClipboard).toHaveBeenCalledWith('my-flag-key', 'name', { silent: true })
+    })
+
+    test('confirms the copy in the tooltip', async () => {
+        render(<QuillSceneStaticName name="my-flag-key" />)
+
+        await userEvent.tab()
+        expect(await screen.findByText('Click to copy')).toBeInTheDocument()
+        await userEvent.click(screen.getByText('my-flag-key'))
+
+        expect(await screen.findByText('Copied')).toBeInTheDocument()
+    })
+
+    test('does not confirm a copy that failed', async () => {
+        jest.mocked(copyToClipboard).mockResolvedValue(false)
+        render(<QuillSceneStaticName name="my-flag-key" />)
+
+        await userEvent.tab()
+        await userEvent.click(screen.getByText('my-flag-key'))
+
+        expect(await screen.findByText('Click to copy')).toBeInTheDocument()
+        expect(screen.queryByText('Copied')).not.toBeInTheDocument()
     })
 
     test('does not copy a name that is not plain text', () => {
