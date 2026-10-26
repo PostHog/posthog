@@ -356,6 +356,8 @@ class TestValidateCredentials:
             ("bad_key", 401, None, _INVALID_KEY_BODY, False),
             # A 400 (the status users actually hit) is a deterministic client error, not transient.
             ("bad_request_at_create", 400, None, None, False),
+            # Payment required is a billing/plan problem, not a bad key — must not be accepted as valid.
+            ("payment_required_at_create", 402, None, None, False),
             ("missing_scope_at_create", 403, None, None, True),
             ("missing_scope_at_schema", 403, "history", None, False),
             ("missing_permission_401_at_create", 401, None, _MISSING_PERMISSION_BODY, True),
@@ -396,6 +398,15 @@ class TestValidateCredentials:
             ok, msg = validate_credentials("k")
         assert ok is False
         assert "Create a new key in your ElevenLabs account settings" in (msg or "")
+
+    def test_payment_required_message_points_to_billing_not_the_key(self) -> None:
+        # A 402 is a billing/plan problem, not a bad key, so it must not tell the user to rotate the
+        # key the way the 400/401 message above does.
+        with scripted_network([ScriptedResponse(status=402)]):
+            ok, msg = validate_credentials("k")
+        assert ok is False
+        assert "billing" in (msg or "").lower()
+        assert "Create a new key" not in (msg or "")
 
     def test_session_does_not_follow_redirects(self) -> None:
         # requests keeps the custom xi-api-key header across a cross-origin 3xx; following one would

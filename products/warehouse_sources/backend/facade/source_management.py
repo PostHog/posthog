@@ -55,6 +55,8 @@ _LAZY = {
     "OAuthMixin": "sources.common.mixins",
     "pinned_host_kwargs": "sources.common.mixins",
     "TemporaryHostResolutionError": "sources.common.mixins",
+    "libpq_tls_kwargs": "sources.common.tls",
+    "tls_options": "sources.common.tls",
     "SourceSchema": "sources.common.schema",
     "discover_trino_catalog": "sources.trino.trino",
     "build_default_schemas": "sources.common.schema",

@@ -8789,53 +8789,53 @@ snapshots:
     replay-tabs-collections--recordings-play-lists--light:
         hash: v1.k794b7964.6222abf98105cd0188d4cc9af5e440747293bad8393a5dd32379199e1c69aa0e.2T21X0LwwT672EPjH_o_c93FVUaCP_ouE0bFEXKpilA
     replay-tabs-home-failure--not-found--dark:
-        hash: v1.k794b7964.6167be3feb697f2f8f9a7fd88f131f0733f4aa96f1d47f96cb76287f9b0cd59f.jGlxN4d2NYw4Ie8e6uzlyz5bgDnGspGRJwzFg7PNFlc
+        hash: v1.k794b7964.302eb9c04317d3be0c61238d109c926938a52700c72fb9d20cfb858aaff2e772.BLyhmTRYcFYwXe5RsPygUm2K7_C5zSAduG195q8LFQg
     replay-tabs-home-failure--not-found--light:
-        hash: v1.k794b7964.06389b6f29b8bb82a1fe07101c89450c6eb74d0b808eeec9be9f4712393fdb82.Sx8sLpnBsL5bMq5K9BTFL6Iaw7BA8fYvneGedBGGyIA
+        hash: v1.k794b7964.d0daf28e4514f86abdaa99f1a91969610c3f88e62a9af10fbd5df88fc7fe9ae0.q_jAwIlsdyNshHxRa45soOXdCCyWPiubasBQ8Os60yw
     replay-tabs-home-filters-banner--event-match-scope-only-during-recording--dark:
-        hash: v1.k794b7964.df018683103544c5a85a34f92749ff03acd17613196a1c2777ba3d2d2d3a5a7f.84uu9OaI_vRH_KxT3XGQXiOoov4fSVz99utsPHM3-wU
+        hash: v1.k794b7964.dd2964a3e756dd0261aa83e0f7310ff687bb8583bdff44070a01e329c3feb5ee.cIa9kjO5Inh407IVQivla3swrEr1rZziIi_4YhXLzxs
     replay-tabs-home-filters-banner--event-match-scope-only-during-recording--light:
-        hash: v1.k794b7964.21fc5d39de98250c12193002cf27bb5605285abda6dd75c36ba85588a261890b.JXcTxjSlbVxUK4kW_Yizb2J1b25fb96KSQwhK_EbDVc
+        hash: v1.k794b7964.6f6389d482771217fa21dea2665bf2349f4274ffdcb2ff239f9c1f6fd18f731c.1KW-i3U5jzWzZug4oaY-Qi_dwjoJ6hhK3bQtCnaQjLk
     replay-tabs-home-filters-banner--event-match-scope-whole-session--dark:
-        hash: v1.k794b7964.73798013fd374e54d5ca5a2f64f67fc28a1926552b00c95f8505d3ba52836f61.yhdU28QFFxM0b83zDtv7rv3l9-N0rsWgRpjX0HWXaDU
+        hash: v1.k794b7964.522ca2d353a9622198f97c08ca27056538d980b489fc5677fa6726705c29db5a.5VxfB5UFxSCZ5DRxdr_xSXTKLxjGU16hfkCIjrj3ess
     replay-tabs-home-filters-banner--event-match-scope-whole-session--light:
-        hash: v1.k794b7964.9060841378b48ce1d78d91c11f46a23039e1fe979da7c4baf9674546aadc7829.Reqh39_C40Ma_-ff4_zt4uHIHBxyiHuioWrTnqcEqDU
+        hash: v1.k794b7964.42134a709a647667dfc0bc09025e744a1ed61dcec2966177445c3876d5fae7c5.WHaZQ1ueNT2unUD4yxQ4DX30erBaVO1yzy65GzElwd8
     replay-tabs-home-filters-banner--page-filter-nudge--dark:
-        hash: v1.k794b7964.e148ee5d1d4da9a46c4847ed8e9d485941d780185fb605e4416bf7f5d025e107.Avm5PStAWb6Xo9qM2clAnhaxZ12hNBMtUZBTA4VTK4k
+        hash: v1.k794b7964.db808bfce453fe6fe0ce6c442530168d0a232b35673e65cd61354e797d941a02.7tRlekjUhZUnKQ_KKSQa2M7FM2EqvsHV-r9W_VF4mGI
     replay-tabs-home-filters-banner--page-filter-nudge--light:
-        hash: v1.k794b7964.72da335c1ce7a27b725d68c6a6b48ca88afb0bc9333d6eb561e5142abf6d7add.4j-aY6Ypt0eaLThZ9AoAHmSQsv0ZLTk1lg7Py59Tdzo
+        hash: v1.k794b7964.e873dbbc71e9ef40babc3d4e4749fba5a3b21fa0e32149d5f9caac42c609c5d5.O7VY_rtgeSCxwSdy_iOBGvOpS2rSNWi12lpb_USXQ7Y
     replay-tabs-home-filters-banner--product-analytics-over-limit--dark:
         hash: v1.k794b7964.f9b691207903431e1fb01d91481fe9903baf64254ce7f8bc48bc55f88f3a121f.CVjgPjTOt8P1EjDNQMQ5T_ThMIEP2-5QzfnJ7dWaBKc
     replay-tabs-home-filters-banner--product-analytics-over-limit--light:
         hash: v1.k794b7964.de64cd78f8f6461e6db71b630ec3b5fc239643ced20bec50aec92d6c5f66d212.gI9R-kl-sdIvZY9haVtKn5SGlWJKraPHkyaFvLWow4E
     replay-tabs-home-filters-banner--product-analytics-under-limit--dark:
-        hash: v1.k794b7964.9665d70c6c9082e8fafa5c536134af0744bda8197f41e75a9a36255d6062f8fd.D4ZX5Uq6xuLT9PPLKoMkSs3NbdGiaHBMtYpTGlhrg2I
+        hash: v1.k794b7964.a5cdd99396658dc913f5abb4646687028e65407e4d962b9eb68893b5467560d6.Mgi3ulQYY34IebAwtjOaeUAw6ZMhQtE8gsKorkjIu74
     replay-tabs-home-filters-banner--product-analytics-under-limit--light:
-        hash: v1.k794b7964.c6b7910a17072d28fb37a7f7f7d524f79ce2c319f7c084293aa70ca02b5a0f67.Elo3brQqOr0FWbCHDgY0HuBEZ_pHkDByPkIvUUZ9dlw
+        hash: v1.k794b7964.23a4553f70ab341940a4b311195338bd2ee2568a33b3ec912bedae50ba196c01.tOLWQgPOna_Ul2cka3Pe0c8y3W8VSimcRq7MY3_6fPw
     replay-tabs-home-filters-banner--scanner-cross-sell--dark:
-        hash: v1.k794b7964.e1af7386a038da27c2d6767f322b87b192231916fa9ef8691bcd1f351976d12b.5QC27tNwioIJtcubDhZ7KzzKT2AnpsSrTwtnMhNOS-M
+        hash: v1.k794b7964.526550d3f475ebc70b5cca3160d7a5c94c5e25363ab4035590de24431b93065a.CkuW1p8le1hTzsKiBQQNTkq9dFPzCC7hDY5598shCEE
     replay-tabs-home-filters-banner--scanner-cross-sell--light:
-        hash: v1.k794b7964.3932b75bc53e8a49702ca363f9f74e41a9e9562a524e23d21861627c4ff786e6.B4HmVGtLBG6cqQzyOH2xyDGEcgpkB1Ak9K98Cf3bzGs
+        hash: v1.k794b7964.e450993871be830f7b006d44e458cb3ce4a8a4d16be457501210c404be53aa52.PRNFvZV3_zIDtlgwxYC-dBvs67whu67VQ_e_z6RdKNE
     replay-tabs-home-filters-banner--templates-tab--dark:
-        hash: v1.k794b7964.1379f23b984d5d83f6cdb90491c4506e579b6d750ffa801197e6475337460b2b.No8a0-i7FLEoY1gFSzS_Xc_U9ybwrDfgKm9EFEctvs4
+        hash: v1.k794b7964.7d6d49c411c6891c25de7aecc530c06b51718b740f35f855013985047aebd2b6.KhH4mG61G5uQDtwaeCQoLNiEgGEJsB0UQojy6XS1YJo
     replay-tabs-home-filters-banner--templates-tab--light:
-        hash: v1.k794b7964.c0f36a0ba2748cc10c080e41d41f6457f882a2cd506cb6bf8be761e495fd04d5.HBp_j7rphcobxL2VDwARJBD3qzVygUz6-mXjCiiucTs
+        hash: v1.k794b7964.2971745bb4db9b59b9dedf24921c62b61ccee8d5a2a85c91d0cf7acd7db42c80.0lliFM2dRqHQCYLwT3z0BLInPeVcHfz13lThHdx8dL4
     replay-tabs-home-success--filters-expanded--dark:
-        hash: v1.k794b7964.29a585124b2ce7e9f641e49a337e1b7295f822650a755c88d1ac8e7426f125ea.iqKSi-vTCxdmkCv7-wlC8VMyJ2S0Brs2JXNJls9YcG8
+        hash: v1.k794b7964.11150cad6dc684f97f7c813c63a408d028da5a2c219f41a188f9c66d1379dbc1.dzTvXzE1zThZJ41yMw_LWTjjK8Np2j-SZG0jNPdqqHc
     replay-tabs-home-success--filters-expanded--light:
-        hash: v1.k794b7964.b371483b824ade595b9bc8ab1bd12b748fc769ef255b0f716ef899b9f3d8262a.xrF9jc9cBq7ZKUHC6Efn-tLEri__lfwRuSA8dQdTJuk
+        hash: v1.k794b7964.0da4318182426e5ffb35d62764c803fd05d7ad49727f52bc81340032025f2f66.IHqOu8aRQ6DbBoGxxSIBTNgk0hPoJzMVvMSV6rNqaQU
     replay-tabs-home-success--filters-expanded-lots-of-results--dark:
-        hash: v1.k794b7964.456d842f2b896502bf32ff90e449c3e4a5b6cf1a3fdfd0b0a0a4c2e2fb72c0f6.F2cgSwRG7Eq8P4xe9pR25pM5mqe-R9f_QhIajejrkEY
+        hash: v1.k794b7964.263ae4d72a08816d427770f8f8c2f2107cc8f2c817d96e5a59e8c5fca05fc8a3.c5dbS8NiRnE-J7SX8SoSZS1qbeOoq4FY6tqlM79pnHg
     replay-tabs-home-success--filters-expanded-lots-of-results--light:
-        hash: v1.k794b7964.cdcf671adeff67bc8b85269db9381c472df55bf7cad0405496c0c0d1cf2ebefb.Yipv6UWRLsQ7AHuy9s4xGihuiNfBLbv5dEft0-f8VoQ
+        hash: v1.k794b7964.a2ad73835c8da36da8335ee1a5a38b59c815386e2a89266aa7f120436a5a83ab.UDVGd6f0FW-YvLLLtedcURYCb6x0xwI8_mQ0AP7n6Jo
     replay-tabs-home-success--filters-expanded-lots-of-results-narrow--dark:
-        hash: v1.k794b7964.05a3c405f82b0a18b608983a12353d85a0bd77ae2c0fc15ebdaa8d29ec3a132e.UPScT8ex_bmGhT-6jRRctAClX-JTvOzcKHXobwUuhSE
+        hash: v1.k794b7964.37675dec7c088901e8acc7bc159b56eec26155c193f07d2f1984cace5cb69a49.jKcKD4ByomxRvewddfcQstAvpOqfQMaDHGnKS48I1Lg
     replay-tabs-home-success--filters-expanded-lots-of-results-narrow--light:
-        hash: v1.k794b7964.0fad804f508b9845389f6aa1fe5f5bcb0bb54cc6eed107377885a1137002d5fe.6JQEfKNps8K9NNxu4ecjbODTObjrkEAM0q6qXQ5RjbQ
+        hash: v1.k794b7964.7e5d93d6446e0fce0f04fa64aebf08f9e496031c49bd1ac847b35baea3ed7bf6.0dlBaNL4P3jSz36hZxYyorjnU08kP-f429Cwafc0_Qs
     replay-tabs-home-success--recent-recordings--dark:
-        hash: v1.k794b7964.54c0efce0cfab2641b11fee8b0c9fc1cddd5c8fb2b6bc6d9212517c371dc7b6f.tkcnE_60nmKu8hRobF9liQ4VDWBkWlOpJ_VanylYEkc
+        hash: v1.k794b7964.181b88b21680b75a599b3a1765dbfe5fcf171853f8ae011a6461e4a0a1789bba.Oq_Dvjnqt2cSqjHv_o_ReNVY88pzBPT46Bbz1Pju0g8
     replay-tabs-home-success--recent-recordings--light:
-        hash: v1.k794b7964.0ea472d389efb07d9ffd28816ec706b403b9cf20636ca27008ea1d6c25f532f1.efcLcBdYxiMTnXbEi-45nq2gLf-gOm26znCVSgRDd6A
+        hash: v1.k794b7964.8d6dbd08c082759fad1506f5b972a562e4b3488cd0ff462b13c7b2a9c032d1b4.CObf9Ea5XxCYHHuPw1rL7Sw_TIEG7fXvZafg653dJoA
     replay-tabs-home-success--recent-recordings-empty--dark:
         hash: v1.k794b7964.b96eb8ff3becd42ef223773f142db0fb5a5c7d743adcce158cb164940f170c20.5aj7iROHwfdLWjLstJZEx3YzsXaFoHJbn4sok-n-0XM
     replay-tabs-home-success--recent-recordings-empty--light:
@@ -8845,9 +8845,9 @@ snapshots:
     replay-tabs-home-success--recordings-play-list-no-pinned-recordings--light:
         hash: v1.k794b7964.a0683ea0a59c86f2d0b3245db8fe807ae82271c393971cece0c7b9c58f0e2f10.UjlpwjlWZaZS9fN-ph4xozP-XM8jx4p4M3MsEYFJpMs
     replay-tabs-home-success--second-recording-in-list--dark:
-        hash: v1.k794b7964.3a6a64ef1599a6e9b5a1fa48df01190c9cd7acf774d12eb0fcfd47efec93878a.lAyqW_IDfebcx_I1w9ipkrDJ800SxYVYQ3wxOkPzndo
+        hash: v1.k794b7964.fe2c9b3f0d9d53c3c11414cffbd05edf9aaa13add32a0fcfa6bc8733ebf85ba2.2Hj3Zq1VAfEZ9FLper9Qb_VIiGLLsESrsqLaHXj5IOE
     replay-tabs-home-success--second-recording-in-list--light:
-        hash: v1.k794b7964.bf20756e686a2843da99512d5213338e2765f991f8d488b18a8fe5039996a826.hl5flWEmNvQ3CQYvKgrWs00zHkNupyJr7zfkPbxfQ8A
+        hash: v1.k794b7964.5b4ed5a0a35924db2c7858412c31c68ab88ebb292d124c8ee305438bb1591f4f.PjJ2oQIuMUmkW9EWtpaSaK4bEUpuh04mp51gtft_0Zg
     replay-vision-cited-markdown--hostile-links--dark:
         hash: v1.k794b7964.d98b1851e8c4c695b87856379b85fd225d554c843086706f8d51fe5c060ad2d9.Nu73wfxltRa0Loo3i2L0DYIY_5NgIZwuP5RMTMyQGts
     replay-vision-cited-markdown--hostile-links--light:
@@ -9496,6 +9496,10 @@ snapshots:
         hash: v1.k794b7964.6d632701e8ecef39a1b88e032e3486dab3b39e3a9c0dd915334a996d91dd5559.x-QiRfCcdfrPsmFpYo5FCYmT8PZYuEYeTZoodRBxgNw
     scenes-app-ai-observability-trace-view-node-detail--narrow--light:
         hash: v1.k794b7964.65f977cc28f26fea6c1ef77f35e0388c61126976e6830720ef6e6c9fab1ae804.W28SdeaY7mwSD5t87nNtphGqtrkYVuXgbvEBHk3NHXQ
+    scenes-app-ai-observability-trace-view-node-detail--narrow-with-actions--dark:
+        hash: v1.k794b7964.c62011759f829ddaff5697ca209d9ee36bfc44a01cdf76a0edcb8927db1b7dc6.KoLOpKLEhg-lB1gbqRKPHNQ1900LJ14-QMSlFLnPy4c
+    scenes-app-ai-observability-trace-view-node-detail--narrow-with-actions--light:
+        hash: v1.k794b7964.610caa00cc86458a38f61b15515a33c37e42b7c3cf642d017c7333759de967fb.upzVUxCi9gWHbnNyWVZTAOI4wUcWX6bjfeu2qLRfR8Q
     scenes-app-ai-observability-trace-view-node-detail--nothing-captured--dark:
         hash: v1.k794b7964.190b2c059d38d9a4716b35b1e9c40289f527206b095aa1751f36c57b1a08f83f.CYx8ZM77Xrh0mipyOxjxDW89lmpREnNVg_WJG6JB5pk
     scenes-app-ai-observability-trace-view-node-detail--nothing-captured--light:
@@ -10641,17 +10645,17 @@ snapshots:
     scenes-app-data-warehouse-sql-editor--bi-saved-insight--light:
         hash: v1.k794b7964.2c5f15b06d4347f767fc34bf934ea1bd53e988c443d528edb457795e778cc556.FcMHWv530RuOEcqg3G_bnos4zzZ4mku3Q9pdsK-VCXU
     scenes-app-data-warehouse-sql-editor--bi-source-preview-large-sample--dark:
-        hash: v1.k794b7964.5be150e822bb692b47b8f7d04846613a6a5d43759c289c35076fb5773481cac6.wsA7jkLolGQWEQjQP8D3xOjPCCpFbu0sdJvUwEfIrOw
+        hash: v1.k794b7964.0ed0cb3bd9b26b4a1f40f768c9e98293837944d66c6478f2a7fecce9809f7fbc.uqTpRZhKp00TK821I0X9H9VVi3feBkIYSQPw-rOXd7E
     scenes-app-data-warehouse-sql-editor--bi-source-preview-large-sample--light:
-        hash: v1.k794b7964.f9bdafe72c33b8454fe4d48e70433457801d2d198e398a25d58ff3926f4f29ab.VcdI3e-Cydfw21sTHkEAiZdXPeRVvBT6TBGUZbP5lTc
+        hash: v1.k794b7964.ddb42f5556e7e09b1219e54d68f83213e8737ebbde55266a4dd1427d9cab5326.S77Umy6YW9HB314IPWIm5yyYg_G0KpQKpBoG99A-iBE
     scenes-app-data-warehouse-sql-editor--bi-table-analysis--dark:
         hash: v1.k794b7964.13e469538d6b0f6d5fb6f5a1d3b0f7c93a08282d843f28e1b54670cc234f1ef3.0LLI_p2z10NDsCrEq3dnR0bM-utFqudI3A5jwdkcARI
     scenes-app-data-warehouse-sql-editor--bi-table-analysis--light:
         hash: v1.k794b7964.44d69a1bbaccaf0b36c54de60fe8da960486b037d9c463ebd792babe5c06e5e9.fxjYqqNq6B7MDjD9WUXXn2D6PCVSTqWdPMbdlAo44NA
     scenes-app-data-warehouse-sql-editor--bi-wide-transposed-results--dark:
-        hash: v1.k794b7964.149351e0c2ce9de8ced8adf4a1c2a990069579b37d826dd4a745d630ef2395e5.wA9l58Kdj1OH6f_5SRT-_guSbpryqUVzCZWDhaFNulw
+        hash: v1.k794b7964.6a420f7474558367a8c3e4ed5d3fa96f7d51edb3b4f7a6cac4e9af1b5cc0e531.Fcz42DazeV4XO1xHNi5h6puOzCUrftQY5jVIeXZut8k
     scenes-app-data-warehouse-sql-editor--bi-wide-transposed-results--light:
-        hash: v1.k794b7964.ac191f6f035db50e404e0a276d92a055e9a17990f20899ffd6558d2aa1b2c664.0ZOBH6x3bciLoDdJLpvR-Bm07GxBSjP9Mc7uZlBEpYc
+        hash: v1.k794b7964.ca232e5bde8705f79816e729e77216e37fec62eb32164484e2364620b0d86dde.8AHKAl3ynJlU82UXlaJAAgcZsHhGw5-O1ZkAC5XVugE
     scenes-app-data-warehouse-sql-editor--customer-images--dark:
         hash: v1.k794b7964.10b9dd73c78556d1b3990ff4ba8d0872e17f375ed655c487b3ca9ca8af21c665.K_W25GnvkQUo791SarbtGIBFaySZ0v_Ebd4cv6sJhsQ
     scenes-app-data-warehouse-sql-editor--customer-images--light:
@@ -11960,6 +11964,10 @@ snapshots:
         hash: v1.k794b7964.9c362d9b9c26bb883910cfbdd1836a4527c166f4c96a2f5360e69023c79d5f0e.DuYijIxQuSoZCwSuCLHfE5vpQ9S7-wEi7vbYSPvUoQY
     scenes-app-inbox-focused-setup--built-in-scouts--light:
         hash: v1.k794b7964.5218eb7e49c96084e51040039f1a1d65e8146a1c71fc41101537b3d743a9323c.BIPRFRy76xqqc4q0D41zmRuDqMJy4dpNwDZ-TU24b4Y
+    scenes-app-inbox-focused-setup--experiment-disabled-entry--dark:
+        hash: v1.k794b7964.6c70ca121885ddce07610304d817ad796012e50a59ad252d5e6579266cf4f16a._BaYx_Cdy8pSHQmYsZyPgK_7NpDEzi7z1lX7_7r1ECo
+    scenes-app-inbox-focused-setup--experiment-disabled-entry--light:
+        hash: v1.k794b7964.f1abd2d97a96ac5409cdd995fabc39d2f5a0a2207218ed0c6fe8a101fe112af4.0qy6zrp9xu1ndFM-fk2LlZLb67K0mBIagRMpm4MrXpo
     scenes-app-inbox-focused-setup--github--dark:
         hash: v1.k794b7964.2f22b978f644c1c0b4673abc1417da42588fb907d7839fcf0bf7a35980b2e8dc.yEa2Mh7klA-11G--wkqe5uconS0kX2dDS_rH0gxJRXM
     scenes-app-inbox-focused-setup--github--light:
@@ -11977,9 +11985,9 @@ snapshots:
     scenes-app-inbox-focused-setup--github-without-automatic-implementation--light:
         hash: v1.k794b7964.11facf4293ae6eace59b5d869c8f0ff6916040f90c969a15db0186b542ca2cb1.eoht0_hDv2jDlrJIx0Bup0fYp4lUmB8bJ37BK8ZAqtY
     scenes-app-inbox-focused-setup--manual-entry--dark:
-        hash: v1.k794b7964.ffef931600e70b99b707e8e5153406ed2489a138311b2373e5154d32952e3bc2.0nf9GadNMHxdAJLVVgXa5xYpJO0iy3OPG2E5a9s9JTU
+        hash: v1.k794b7964.6c70ca121885ddce07610304d817ad796012e50a59ad252d5e6579266cf4f16a.-9JOdwzXSCp_6MJk4ZD-9-XLW8YcUDPpzUMtxjjfCWs
     scenes-app-inbox-focused-setup--manual-entry--light:
-        hash: v1.k794b7964.9e8e10b45c5efcea55776381ec88184984060e6e8bb8996d3bda9e759353c6a4.FMN8bqvId-nhT5Jol9Rj7S94agjW1Je-jaeu6Vmhggg
+        hash: v1.k794b7964.f1abd2d97a96ac5409cdd995fabc39d2f5a0a2207218ed0c6fe8a101fe112af4.KxpmZUdWtyIHmUbHyo-iiWcR8tIkD9WDZxi2BECuViI
     scenes-app-inbox-focused-setup--narrow-signals--dark:
         hash: v1.k794b7964.f2687f1eeaf64c59623cc67601507d3602f74d6b691458f6f0b658445c19685f.gujM9C1Fm0DOLvHc36o1R7NhRLrqiUcz8aOSOCa8b8o
     scenes-app-inbox-focused-setup--narrow-signals--light:
@@ -12117,9 +12125,9 @@ snapshots:
     scenes-app-inbox-scene--empty-with-many-scouts--light:
         hash: v1.k794b7964.facecddc48f471398f32d48fed8287b91573105ddd2d2ce2adc18eaf649900e7.QVbf6XPS8aj7-Jrj-3T_o1fu7tZNl8ZCJqGw3yRl8Qw
     scenes-app-inbox-scene--focused-onboarding--dark:
-        hash: v1.k794b7964.4fcfaa0984e34489b28669ed5eb0edb6e97fc264d23ff773d1186ff3c34f57fd.GiD0odqQbMhT21w3-gYboiZG8Qq-It2y0yHpPdIA-zc
+        hash: v1.k794b7964.c9a8c502ba6cdc70ac335c4cb704c2b2f487b302bb0a9c9ecee0b0d80efe450c.5nsV4WOm_fjrbGvVv44HZEfgHJL3byPtSwwZ3YDIlt8
     scenes-app-inbox-scene--focused-onboarding--light:
-        hash: v1.k794b7964.3fd7edfc3a61559d26da40b6486b4d2f712db05fd5072cbc8332f57a74849aa8.9j0sGbHDpLsWr_Bt34mOIe_lp-l9PXoUsKbK8nZRWyE
+        hash: v1.k794b7964.3e78ccccf98ee9e524c1bd460956be3291c4c00c15064f7318b8fa270d47e881.XsQxa59uXcfjEOekG3uzpT6CCN4aSLxlAik5lQyKLFY
     scenes-app-inbox-scene--focused-onboarding-complete--dark:
         hash: v1.k794b7964.414a7eecf51038fad769cfe620b23bb48b6e3df4b00b6b6d53a6605c0f586514.sfr-mU-Cqlz1Z76x8U-c4jGYcc7oeT4ph0Y4wQIpGcs
     scenes-app-inbox-scene--focused-onboarding-complete--light:
@@ -12149,9 +12157,9 @@ snapshots:
     scenes-app-inbox-scene--scouts--light:
         hash: v1.k794b7964.751f7acf90211fb843c29021e4c5c07199a016d3758a98aebd030a2459e7e727.-dob_PqMSyNGS0sWCDRL7239l7w9pUTs5Oil7XD97cM
     scenes-app-inbox-scene--self-driving-onboarding--dark:
-        hash: v1.k794b7964.7c138b7c3b04457d678483199e387c9a6797ca50900ed05eba270099ffe0f49e.cAslMYO6RM6u1zEhNY5k-QZMghw16mfbi7qaJiyRepc
+        hash: v1.k794b7964.c9a8c502ba6cdc70ac335c4cb704c2b2f487b302bb0a9c9ecee0b0d80efe450c.mlOHMz_uc-DEqSmt2XhNjSz1LwfIVXqLhQ4njNIOUh8
     scenes-app-inbox-scene--self-driving-onboarding--light:
-        hash: v1.k794b7964.c275d6da929a341c281ac17ff3acd47f4b1fa16f30bdeae50e0ca028f1bdbacc.0ToliYIOVkbsvNIsw0HSIY2i-8iFr4TkpJ5KVtranr0
+        hash: v1.k794b7964.3e78ccccf98ee9e524c1bd460956be3291c4c00c15064f7318b8fa270d47e881.sUTDYLjeu3lJGnpqYDjUXZ8dcoao4jC0PSqgt3KwRnk
     scenes-app-inbox-scene--self-driving-paused--dark:
         hash: v1.k794b7964.d93230f18f04b762f3ae875c5a326911b98476668fa8cfd8e37894fe43ba1f1f._zlmaBrFV16p8GGadEQ1GL7s0r_HfNZZypbmh0fGYd4
     scenes-app-inbox-scene--self-driving-paused--light:
@@ -14849,13 +14857,13 @@ snapshots:
     scenes-app-replay-vision--usage-tab--light:
         hash: v1.k794b7964.43595c3fb6282a80ca8aee0346ecfef1fad1777b29589a3d22d49a2132bbcd43.wySv2DQ6AsDsfonNurSn167gw_V9XO8bshMw1dR8tpw
     scenes-app-replay-vision-observations-tab-in-the-player--scans-without-a-summary--dark:
-        hash: v1.k794b7964.03107afc7b548d7412b30290cb5223494b8aa5c9cdb03ac4381fb46fd11cc1fb.Fe3c2XsL2A6Mvt25AdUfKETfNw7jSN78TYnAfhOmjp4
+        hash: v1.k794b7964.987f71747ad1d76951d200d2f38391d1d0e0892341d37174e2b379da329aeb1c.HAACdn9FvY9JgEH-aFfIXsg5TOKOFZcBdwcFQhqg4YI
     scenes-app-replay-vision-observations-tab-in-the-player--scans-without-a-summary--light:
-        hash: v1.k794b7964.275b74a16c1c0c8efb33381afec218060e774a87b2cbec62b2a8e20eb4c9c663.0Mx9ezB_xjY2CoIFdHY76VD2K74UAykMZ0yf-m-vdvo
+        hash: v1.k794b7964.32eb4172ee1b8b1690a9ff53103d6ddc5bb42d0ff470b4ed6f077e4a366b3a45.72TcJgRHtYu4kse0aAICSEANcRwl0z5kr9G0ymTB3wc
     scenes-app-replay-vision-observations-tab-in-the-player--timeline-with-scans--dark:
-        hash: v1.k794b7964.b8ea356094f739294209f4eaa8d2303573d5f8cdf3bdaa8cff34886d8c17ab5d.PgwzFYhM38M-pq7LTnhRNA4t_fMAAeYXXW8digobnTo
+        hash: v1.k794b7964.2e9ab8ecd76da1d15d90ad9fd421f81d14a94dcdd55977538899b75b26c97263.IlOJc3FzOL42hG1HXzE0NKVAnHDLTz7nVtRaJgMN0AA
     scenes-app-replay-vision-observations-tab-in-the-player--timeline-with-scans--light:
-        hash: v1.k794b7964.91a8dbbe04c46bb4730525a1a4293fc61e4ff09742c6ed7a1612e4c49f5d876a.DBFSmYJYCQX95GG3FlTkpbzPxqDX1dkVYnBOJRp7xIU
+        hash: v1.k794b7964.146f4d3e88a1e9cd4f60f1ba7d78f15b43879bc8d1795d61127a437824cb4014.Vn3KcIPqH7nd0pYuDEcH-OJi4lAkKY-a6SQo160sI8Q
     scenes-app-replay-vision-observationthumbnail--frame--dark:
         hash: v1.k794b7964.25e0fc3a30206636572afe40dc1dece511909b329125acdd76d5cd6b70e4cebd.vUNWqzn2OcfR4oaaUWZaXz4aKxivNKx8scF34tw7JEE
     scenes-app-replay-vision-observationthumbnail--frame--light:

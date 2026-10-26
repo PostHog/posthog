@@ -2095,7 +2095,7 @@ describe('replayScannerLogic', () => {
 
         beforeEach(() => {
             teamSpy = jest.fn(() => [200, MOCK_DEFAULT_TEAM])
-            useMocks({ get: { '/api/environments/@current': teamSpy } })
+            useMocks({ get: { '/api/projects/:id': teamSpy } })
             teamLogic.mount()
         })
 
