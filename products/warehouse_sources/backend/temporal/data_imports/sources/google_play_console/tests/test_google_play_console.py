@@ -12,6 +12,7 @@ import structlog
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     DriveResult,
     RecordedRequest,
@@ -472,6 +473,31 @@ def test_metric_set_reraises_a_403_that_is_not_the_games_restriction() -> None:
     result = _run("slow_rendering_rate", [ScriptedResponse(status=403, body=b"The caller does not have permission")])
 
     assert isinstance(result.raised, requests.HTTPError)
+
+
+@pytest.mark.parametrize("status", [500, 503])
+def test_metric_set_server_error_stays_retryable_with_vendor_outage_copy(status: int) -> None:
+    with mock.patch(f"{MODULE}._today", return_value=TODAY):
+        result = _run(
+            "crash_rate",
+            [
+                ScriptedResponse(json=_freshness(dt.date(2024, 3, 2))),
+                ScriptedResponse(status=status, body=b'{"error": {"status": "INTERNAL"}}'),
+            ],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=dt.date(2024, 3, 1),
+        )
+
+    source = GooglePlayConsoleSource()
+    error = str(result.raised)
+    assert not error_message_matches(error, source.get_non_retryable_errors().keys())
+    assert error_message_matches(error, source.get_retryable_errors())
+    messages = [
+        message
+        for pattern, message in source.get_retry_exhausted_errors().items()
+        if error_message_matches(error, [pattern])
+    ]
+    assert messages and "on Google's side" in messages[0]
 
 
 def test_metric_set_query_follows_pagination_until_the_token_runs_out() -> None:

@@ -3,7 +3,8 @@
 pub mod manager;
 
 pub use cohort_core::filters::{
-    build_catalog_from_rows, load_realtime_cohorts, CohortRow, REALTIME_COHORTS_SQL,
+    build_catalog_from_rows, load_realtime_cohorts, load_realtime_cohorts_for_teams, CohortRow,
+    REALTIME_COHORTS_SQL,
 };
 pub use cohort_core::filters::{leaf_classifier, loader, reverse_index, tree};
 pub use cohort_core::filters::{

@@ -125,7 +125,6 @@ from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
-from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.modifiers import create_default_modifiers_for_user
 from posthog.hogql.printer import prepare_and_print_ast, to_printed_hogql
 from posthog.hogql.query import create_default_modifiers_for_team
@@ -157,7 +156,9 @@ from posthog.clickhouse.client.limit import (
     get_materialized_endpoints_rate_limiter,
 )
 from posthog.clickhouse.query_tagging import (
+    add_fallback_query_tags,
     get_query_tag_value,
+    get_query_tags,
     is_api_key_access_method,
     is_known_product_tag,
     tag_queries,
@@ -193,8 +194,6 @@ from posthog.models import Team, User
 from posthog.models.event.new_events_schema import (
     events_route_cache_modifiers,
     events_route_scope,
-    get_new_events_cluster_host,
-    new_events_cluster_host_scope,
     strip_events_route_modifiers,
     use_new_events_schema,
     with_pinned_events_route,
@@ -548,6 +547,15 @@ def _api_queries_budget_enforcement_enabled(team: Team) -> bool:
         return False
 
 
+def _budget_event_product(query: object | None = None) -> str | None:
+    """Resolve product fallbacks before execution without changing the live query tags."""
+    tags = get_query_tags().model_copy(deep=True)
+    if query is not None:
+        tags.query = query
+    add_fallback_query_tags(tags)
+    return str(tags.product) if tags.product else None
+
+
 def api_queries_budget_enforcement_enabled(team: Team) -> bool:
     """Whether the read-byte budget rejects API requests for this team.
 
@@ -581,7 +589,7 @@ def get_api_queries_budget_status(team: Team) -> Optional[BudgetStatus]:
         return None
 
 
-def enforce_api_queries_budget(team: Team) -> None:
+def enforce_api_queries_budget(team: Team, query: object | None = None) -> None:
     """Hourly read budget for api key queries. Observe-only until the org is flagged in;
     then an exhausted budget is a 429. The query that crosses the line still runs in full,
     since the budget is debited after the query and the next request is the one refused."""
@@ -606,7 +614,7 @@ def enforce_api_queries_budget(team: Team) -> None:
     if claim_limited_event(str(team.pk)):
         try:
             access_method = get_query_tag_value("access_method")
-            product = get_query_tag_value("product")
+            product = _budget_event_product(query)
             report_team_action(
                 team,
                 "api queries budget limited",
@@ -618,7 +626,7 @@ def enforce_api_queries_budget(team: Team) -> None:
                     "remaining_bytes": status.remaining_bytes,
                     "retry_after_seconds": status.retry_after_seconds,
                     "access_method": str(access_method) if access_method else None,
-                    "product": str(product) if product else None,
+                    "product": product,
                 },
             )
         except Exception as e:
@@ -1085,6 +1093,18 @@ def get_query_runner(
             user=user,
         )
 
+    if kind == "WebPageDirectoryQuery":
+        from products.web_analytics.backend.hogql_queries.web_page_directory import WebPageDirectoryQueryRunner
+
+        return WebPageDirectoryQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+            user=user,
+        )
+
     if kind == "WebVitalsPathBreakdownQuery":
         from products.web_analytics.backend.hogql_queries.web_vitals_path_breakdown import (
             WebVitalsPathBreakdownQueryRunner,
@@ -1184,6 +1204,18 @@ def get_query_runner(
         from products.error_tracking.backend.facade.queries import ErrorTrackingIssueCorrelationQueryRunner
 
         return ErrorTrackingIssueCorrelationQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+            user=user,
+        )
+
+    if kind == "ErrorTrackingIssueEventsQuery":
+        from products.error_tracking.backend.facade.queries import ErrorTrackingIssueEventsQueryRunner
+
+        return ErrorTrackingIssueEventsQueryRunner(
             query=query,
             team=team,
             timings=timings,
@@ -2437,7 +2469,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             query_duration_ms = round((perf_counter() - query_start_time) * 1000, 2)
             return query_result, query_duration_ms
 
-    @new_events_cluster_host_scope()
     @_pin_events_route
     def run(
         self,
@@ -2449,12 +2480,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         cache_age_seconds: Optional[int] = None,
         analytics_props: Optional[AnalyticsProps] = None,
     ) -> CR | CacheMissResponse | QueryStatusResponse:
-        if self.modifiers.useNewEventsCluster:
-            if not isinstance(self.query, HogQLQuery):
-                raise ExposedHogQLError("Native cluster comparisons currently support HogQLQuery only.")
-            if execution_mode != ExecutionMode.CALCULATE_BLOCKING_ALWAYS:
-                raise ExposedHogQLError("Native cluster comparisons require refresh=force_blocking and async=false.")
-
         # Set user for access control during query execution. Some subclasses
         # (e.g. QueryRunnerWithHogQLContext) construct user-dependent state in
         # __init__; let them refresh it now that we know the real user. Only on an
@@ -3149,7 +3174,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         return feature.get("limit") if feature else None
 
     def _enforce_api_queries_budget(self) -> None:
-        enforce_api_queries_budget(self.team)
+        enforce_api_queries_budget(self.team, self.query)
 
     @abstractmethod
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
@@ -3193,8 +3218,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             "week_start_day": self.team.week_start_day or WeekStartDay.SUNDAY,
             "version": 2,
         }
-        if self.modifiers.useNewEventsCluster:
-            payload["native_events_host"] = get_new_events_cluster_host()
 
         # Include property-level access control restrictions in the cache key so that
         # users with different property restrictions get separate cache entries.
@@ -3755,12 +3778,11 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
 
         # Non-real principals (service tokens, shared-link viewers) are scope-gated on system tables;
         # partition on the readable scopes so a narrower token can't be served a broader principal's
-        # cached result. Bypassed scopes are readable for them, and listing them as restricted would
-        # collide with users who are genuinely denied those resources.
+        # cached result. `queried_resources` already leaves out the scopes they bypass.
         if not isinstance(user, User):
             if queried_resources is None:
                 return ["*"]
-            restricted = queried_resources - user.readable_system_table_access_scopes() - self._bypassed_access_scopes
+            restricted = queried_resources - user.readable_system_table_access_scopes()
             return sorted(restricted) or None
 
         user_access_control = self.user_access_control

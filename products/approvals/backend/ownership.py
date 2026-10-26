@@ -1,4 +1,11 @@
+from collections.abc import Callable
 from typing import Optional
+
+from django.core.cache import cache
+
+import posthoganalytics
+
+from posthog.exceptions_capture import capture_exception
 
 # A recorded classification meaning "nothing owned this resource". It is distinct from NULL,
 # which means no classification was recorded at all: a request created before the column
@@ -16,3 +23,74 @@ def owner_kind_changed(recorded: Optional[str], current: Optional[str]) -> bool:
     if recorded is None or current is None:
         return False
     return recorded != current
+
+
+# Narrowing takes every product-owned flag out of `feature_flag.*` coverage, so it rolls out per
+# organization rather than all at once. Off, every family behaves as it did before narrowing:
+# `feature_flag.*` covers every flag and the owner-scoped families match nothing.
+SCOPE_BY_OWNER_FLAG = "approvals-scope-by-flag-owner"
+
+
+def scope_by_owner_state(organization) -> Optional[bool]:
+    """Whether this organization evaluates approval policies by flag owner, or None when unknown.
+
+    The flag is evaluated locally, and local evaluation answers None while the flag definitions
+    are unavailable. Reading that as off is not safe for an organization already rolled out: it
+    may have deleted a flag policy and kept the experiment policy, so the old scope would match
+    neither. The last answer the flag gave for the organization stands in until it answers again.
+    """
+    if organization is None:
+        return False
+    remembered_key = f"{SCOPE_BY_OWNER_FLAG}:{organization.id}"
+    resolved = posthoganalytics.feature_enabled(
+        SCOPE_BY_OWNER_FLAG,
+        f"org-{organization.id}",
+        groups={"organization": str(organization.id)},
+        group_properties={"organization": {"id": str(organization.id)}},
+        only_evaluate_locally=True,
+        send_feature_flag_events=False,
+    )
+    if resolved is None:
+        try:
+            return cache.get(remembered_key)
+        except Exception as e:
+            capture_exception(e)
+            return None
+    enabled = resolved is True
+    # The flag answered, so a cache failure must not fail the write that asked. The remembered
+    # answer only matters to a later read that the flag cannot answer.
+    try:
+        if cache.get(remembered_key) != enabled:
+            cache.set(remembered_key, enabled, timeout=None)
+    except Exception as e:
+        capture_exception(e)
+    return enabled
+
+
+def scope_by_owner_enabled(organization) -> bool:
+    """Whether this organization evaluates approval policies by which product owns the flag.
+
+    Unknown reads as off. That is the scope every organization had before narrowing, so it keeps
+    the coverage of every organization not rolled out.
+    """
+    return scope_by_owner_state(organization) is True
+
+
+def owner_in_scope(owner_scope: Optional[str], organization, derive_owner_kind: Callable[[], Optional[str]]) -> bool:
+    """Whether a family scoped to `owner_scope` governs this flag.
+
+    `owner_scope` is the product a family covers, or None for the family that covers the flags no
+    product owns. `derive_owner_kind` reports which product owns this flag, None when none does.
+    A reference is not ownership, so a flag a survey merely links to derives as unowned and stays
+    with the unowned family.
+
+    Before narrowing, the unowned family covers every flag and every owner-scoped family covers
+    none. That is what keeps this change inert until an organization is rolled out.
+
+    The owner arrives as a callable because deriving it reads every owning relation. An
+    organization that is not rolled out must not pay for a classification that cannot change
+    the answer.
+    """
+    if not scope_by_owner_enabled(organization):
+        return owner_scope is None
+    return derive_owner_kind() == owner_scope

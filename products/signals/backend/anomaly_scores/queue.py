@@ -1,8 +1,9 @@
 """Pick the watched insights that the next anomaly scoring tick scores.
 
-There is no stored state. One query per team reads the newest scored bucket of each series back
-from the `$anomaly_score` events. `selection.pick_order` then orders the due insights, and the tick
-picks from that order the insights whose queries fit the hourly budgets.
+One query per team reads the newest scored bucket of each series back from the `$anomaly_score`
+events. `selection.pick_order` then orders the due insights, and the tick picks from that order the
+insights whose queries fit the hourly budgets. With the train and score split on, `state.plan_run`
+makes each pick a train step or a score step, and each kind has its own budgets.
 """
 
 import datetime
@@ -11,6 +12,8 @@ from collections.abc import Callable, Collection
 from typing import Any, cast
 
 from django.core.cache import cache
+
+import structlog
 
 from posthog.schema import ChartDisplayType, IntervalType
 
@@ -21,6 +24,11 @@ from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
+from posthog.exceptions import (
+    ClickHouseEstimatedQueryExecutionTimeTooLong,
+    ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseQueryTimeOut,
+)
 from posthog.interval_specs import interval_spec
 from posthog.models import Team
 from posthog.tasks.alerts.utils import NON_TIME_SERIES_DISPLAY_TYPES
@@ -30,8 +38,8 @@ from products.product_analytics.backend.facade.api import (
     insights_including_soft_deleted_for_team,
     watched_trends_insights,
 )
-from products.signals.backend.anomaly_scores.config import AnomalyScoringConfig
-from products.signals.backend.anomaly_scores.scoring import bucket_end, query_cost
+from products.signals.backend.anomaly_scores.config import AnomalyScoringConfig, ScoringRun
+from products.signals.backend.anomaly_scores.scoring import bucket_end
 from products.signals.backend.anomaly_scores.selection import (
     Candidate,
     InsightUsage,
@@ -39,8 +47,11 @@ from products.signals.backend.anomaly_scores.selection import (
     insight_usage,
     pick_order,
 )
+from products.signals.backend.anomaly_scores.state import RunPlan, load_states, plan_run
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, list_limited_team_attributes
+
+logger = structlog.get_logger(__name__)
 
 SCORE_EVENT = "$anomaly_score"
 SOURCE_INSIGHT = "insight"
@@ -63,6 +74,13 @@ _CALENDAR_INTERVALS = {
     IntervalType.WEEK: CalendarInterval.WEEKLY,
     IntervalType.MONTH: CalendarInterval.MONTHLY,
 }
+# A scored-buckets query that hits a ClickHouse limit skips its team for the tick, so the other teams still get picks.
+# The cluster memory limit is a subclass of the query memory limit.
+_SCORED_BUCKETS_LIMIT_ERRORS = (
+    ClickHouseQueryTimeOut,
+    ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseEstimatedQueryExecutionTimeTooLong,
+)
 # The scorer rejects these, so selection leaves them out instead of picking them on every tick.
 _UNSCORED_DISPLAYS = sorted(
     display.value for display in {*NON_TIME_SERIES_DISPLAY_TYPES, ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE}
@@ -101,6 +119,8 @@ class InsightPick:
     # The ClickHouse queries this pick sends. Selection charges them to the hourly budgets, so two ticks
     # that overlap cannot spend the same budget.
     query_cost: int = 1
+    # None when the train and score split is off.
+    run: ScoringRun | None = None
 
 
 @frozen
@@ -146,11 +166,11 @@ def watched_insights(
     ]
 
 
-def scored_state_since(config: AnomalyScoringConfig, now: datetime.datetime) -> datetime.datetime:
-    """How far back the scored state reaches: one bucket more than the backfill cap of the longest interval."""
-    return min(
-        now - interval_spec(interval).period * (config.limits.max_backfill_buckets + 1) for interval in config.intervals
-    )
+def scored_state_since(
+    config: AnomalyScoringConfig, interval: IntervalType, now: datetime.datetime
+) -> datetime.datetime:
+    """How far back the scored state of an insight with this interval reaches: one bucket more than the backfill cap."""
+    return now - interval_spec(interval).period * (config.limits.max_backfill_buckets + 1)
 
 
 def _utc(value: datetime.datetime) -> datetime.datetime:
@@ -223,23 +243,46 @@ def _hour(now: datetime.datetime) -> str:
     return _utc(now).strftime("%Y%m%d%H")
 
 
-def _fleet_budget_key(now: datetime.datetime) -> str:
-    return f"signals:anomaly_scores:queries:{_hour(now)}"
+def budget_kind(run: ScoringRun | None) -> ScoringRun:
+    """The budgets a pick charges. Only a score step uses the score budgets."""
+    return ScoringRun.SCORE if run == ScoringRun.SCORE else ScoringRun.TRAIN
 
 
-def _project_budget_key(team_id: int, now: datetime.datetime) -> str:
-    return f"signals:anomaly_scores:queries:{_hour(now)}:team:{team_id}"
+def _budget_prefix(kind: ScoringRun) -> str:
+    # Train steps keep the key of the budgets from before the split, so turning the split on keeps the hour's spend.
+    return "signals:anomaly_scores:score_queries" if kind == ScoringRun.SCORE else "signals:anomaly_scores:queries"
 
 
-def remaining_budget(config: AnomalyScoringConfig, team_ids: Collection[int], now: datetime.datetime) -> QueryBudget:
-    project_keys = {team_id: _project_budget_key(team_id, now) for team_id in team_ids}
-    spent = cache.get_many([_fleet_budget_key(now), *project_keys.values()])
+def _fleet_budget_key(now: datetime.datetime, kind: ScoringRun = ScoringRun.TRAIN) -> str:
+    return f"{_budget_prefix(kind)}:{_hour(now)}"
+
+
+def _project_budget_key(team_id: int, now: datetime.datetime, kind: ScoringRun = ScoringRun.TRAIN) -> str:
+    return f"{_budget_prefix(kind)}:{_hour(now)}:team:{team_id}"
+
+
+def _fleet_cap(config: AnomalyScoringConfig, kind: ScoringRun) -> int:
+    return config.max_score_queries_per_hour if kind == ScoringRun.SCORE else config.max_queries_per_hour
+
+
+def _project_cap(config: AnomalyScoringConfig, kind: ScoringRun) -> int:
+    if kind == ScoringRun.SCORE:
+        return config.max_score_queries_per_project_per_hour
+    return config.max_queries_per_project_per_hour
+
+
+def remaining_budget(
+    config: AnomalyScoringConfig,
+    team_ids: Collection[int],
+    now: datetime.datetime,
+    kind: ScoringRun = ScoringRun.TRAIN,
+) -> QueryBudget:
+    fleet_key = _fleet_budget_key(now, kind)
+    project_keys = {team_id: _project_budget_key(team_id, now, kind) for team_id in team_ids}
+    spent = cache.get_many([fleet_key, *project_keys.values()])
     return QueryBudget(
-        fleet=config.max_queries_per_hour - spent.get(_fleet_budget_key(now), 0),
-        projects={
-            team_id: config.max_queries_per_project_per_hour - spent.get(key, 0)
-            for team_id, key in project_keys.items()
-        },
+        fleet=_fleet_cap(config, kind) - spent.get(fleet_key, 0),
+        projects={team_id: _project_cap(config, kind) - spent.get(key, 0) for team_id, key in project_keys.items()},
     )
 
 
@@ -253,12 +296,18 @@ def _reserve(key: str, queries: int, cap: int) -> bool:
     return False
 
 
-def reserve_queries(config: AnomalyScoringConfig, team_id: int, queries: int, now: datetime.datetime) -> bool:
-    """Charge ``queries`` to both hourly budgets, or to neither when one of them has too few left."""
-    fleet_key = _fleet_budget_key(now)
-    if not _reserve(fleet_key, queries, config.max_queries_per_hour):
+def reserve_queries(
+    config: AnomalyScoringConfig,
+    team_id: int,
+    queries: int,
+    now: datetime.datetime,
+    kind: ScoringRun = ScoringRun.TRAIN,
+) -> bool:
+    """Charge ``queries`` to both hourly budgets of ``kind``, or to neither when one of them has too few left."""
+    fleet_key = _fleet_budget_key(now, kind)
+    if not _reserve(fleet_key, queries, _fleet_cap(config, kind)):
         return False
-    if _reserve(_project_budget_key(team_id, now), queries, config.max_queries_per_project_per_hour):
+    if _reserve(_project_budget_key(team_id, now, kind), queries, _project_cap(config, kind)):
         return True
     cache.decr(fleet_key, queries)
     return False
@@ -267,47 +316,62 @@ def reserve_queries(config: AnomalyScoringConfig, team_id: int, queries: int, no
 def within_budget(
     order: list[int],
     team_ids: dict[int, int],
-    budget: QueryBudget,
+    budgets: dict[ScoringRun, QueryBudget],
     limit: int,
-    costs_for: Callable[[list[int]], dict[int, int]],
-    reserve: Callable[[int, int], bool],
-) -> tuple[dict[int, int], int]:
-    """The insights of ``order`` whose cost fits both budgets, up to ``limit``, with their costs, and the skip count.
+    plans_for: Callable[[list[int]], dict[int, RunPlan]],
+    reserve: Callable[[int, RunPlan], bool],
+) -> tuple[dict[int, RunPlan], int]:
+    """The insights of ``order`` whose cost fits both budgets of their kind, up to ``limit``, and the skip count.
 
     A pick that does not fit is skipped and the walk continues, so a large insight does not block smaller ones.
-    ``budget`` is a snapshot that skips most misses without a cache call. ``reserve`` charges a pick for real.
-    ``costs_for`` loads costs in batches of ``limit``, and only for insights that the snapshot can still fit.
+    ``budgets`` are snapshots that skip most misses without a cache call. ``reserve`` charges a pick for real.
+    ``plans_for`` loads plans in batches of ``limit``, and only for insights that a snapshot can still fit.
     """
-    fleet = budget.fleet
-    projects = dict(budget.projects)
-    picked: dict[int, int] = {}
+    fleets = {kind: budget.fleet for kind, budget in budgets.items()}
+    projects = {kind: dict(budget.projects) for kind, budget in budgets.items()}
+    picked: dict[int, RunPlan] = {}
     skipped = 0
     batch_size = max(1, limit)
     for start in range(0, len(order), batch_size):
         if len(picked) >= limit:
             break
         batch = order[start : start + batch_size]
-        affordable = [insight_id for insight_id in batch if fleet > 0 and projects.get(team_ids[insight_id], 0) > 0]
-        costs = costs_for(affordable) if affordable else {}
+        affordable = [
+            insight_id
+            for insight_id in batch
+            if any(fleets[kind] > 0 and projects[kind].get(team_ids[insight_id], 0) > 0 for kind in budgets)
+        ]
+        plans = plans_for(affordable) if affordable else {}
         for insight_id in batch:
             if len(picked) >= limit:
                 break
             team_id = team_ids[insight_id]
-            cost = costs.get(insight_id)
-            if cost is None or cost > fleet or cost > projects.get(team_id, 0) or not reserve(team_id, cost):
+            plan = plans.get(insight_id)
+            kind = budget_kind(plan.run if plan else None)
+            if (
+                plan is None
+                or kind not in budgets
+                or plan.queries > fleets[kind]
+                or plan.queries > projects[kind].get(team_id, 0)
+                or not reserve(team_id, plan)
+            ):
                 skipped += 1
                 continue
-            picked[insight_id] = cost
-            fleet -= cost
-            projects[team_id] -= cost
+            picked[insight_id] = plan
+            fleets[kind] -= plan.queries
+            projects[kind][team_id] -= plan.queries
     return picked, skipped
 
 
-def _query_costs(team: Team, insight_ids: list[int]) -> dict[int, int]:
+def _run_plans(
+    team: Team, insight_ids: list[int], config: AnomalyScoringConfig, now: datetime.datetime
+) -> dict[int, RunPlan]:
     insights = insights_including_soft_deleted_for_team(team_id=team.id, insight_ids=insight_ids)
-    costs = {insight.id: query_cost(insight, team) for insight in insights}
+    states = load_states(team, insights) if config.train_score_split else {}
+    plans = {insight.id: plan_run(insight, team, states.get(insight.id), config, now) for insight in insights}
     # An insight that no longer exists sends no query, but one query is the safe charge.
-    return {insight_id: costs.get(insight_id, 1) for insight_id in insight_ids}
+    missing = RunPlan(queries=1, run=ScoringRun.TRAIN if config.train_score_split else None)
+    return {insight_id: plans.get(insight_id, missing) for insight_id in insight_ids}
 
 
 def select_insights(
@@ -315,11 +379,27 @@ def select_insights(
 ) -> Selection:
     teams = {team.id: team for team in eligible_teams(config)}
     insights = watched_insights(list(teams), config.intervals, now)
-    since = scored_state_since(config, now)
     state: dict[int, dict[str, datetime.datetime]] = {}
-    for team_id in sorted({insight.team_id for insight in insights}):
-        team_insight_ids = {insight.insight_id for insight in insights if insight.team_id == team_id}
-        state.update(scored_buckets(teams[team_id], team_insight_ids, since, now))
+    failed_teams: set[int] = set()
+    # One query per team and interval, so a day or week insight does not read the months a month insight needs.
+    for team_id, interval in sorted({(insight.team_id, insight.interval) for insight in insights}):
+        if team_id in failed_teams:
+            continue
+        insight_ids = {
+            insight.insight_id for insight in insights if insight.team_id == team_id and insight.interval == interval
+        }
+        try:
+            state.update(scored_buckets(teams[team_id], insight_ids, scored_state_since(config, interval, now), now))
+        except _SCORED_BUCKETS_LIMIT_ERRORS as error:
+            logger.warning(
+                "anomaly_scoring_scored_buckets_failed",
+                team_id=team_id,
+                interval=interval.value,
+                error_class=type(error).__name__,
+            )
+            failed_teams.add(team_id)
+    # Without its scored state, every insight of the team looks never scored, so the team waits for a later tick.
+    insights = [insight for insight in insights if insight.team_id not in failed_teams]
 
     newest_buckets = {
         insight.insight_id: max(state[insight.insight_id].values()) if insight.insight_id in state else None
@@ -366,21 +446,22 @@ def select_insights(
     ]
     team_ids = {insight_id: due_by_id[insight_id].team_id for insight_id in order}
 
-    def costs_for(insight_ids: list[int]) -> dict[int, int]:
-        costs: dict[int, int] = {}
+    def plans_for(insight_ids: list[int]) -> dict[int, RunPlan]:
+        plans: dict[int, RunPlan] = {}
         for team_id in sorted({team_ids[insight_id] for insight_id in insight_ids}):
             team_batch = [insight_id for insight_id in insight_ids if team_ids[insight_id] == team_id]
-            costs.update(_query_costs(teams[team_id], team_batch))
-        return costs
+            plans.update(_run_plans(teams[team_id], team_batch, config, now))
+        return plans
 
-    # Read the budget before any cost, so a spent hour loads no insight.
+    kinds = [ScoringRun.TRAIN, ScoringRun.SCORE] if config.train_score_split else [ScoringRun.TRAIN]
+    # Read the budgets before any cost, so a spent hour loads no insight.
     picked, skipped = within_budget(
         order,
         team_ids,
-        remaining_budget(config, set(team_ids.values()), now),
+        {kind: remaining_budget(config, set(team_ids.values()), now, kind) for kind in kinds},
         limit,
-        costs_for,
-        reserve=lambda team_id, cost: reserve_queries(config, team_id, cost, now),
+        plans_for,
+        reserve=lambda team_id, plan: reserve_queries(config, team_id, plan.queries, now, budget_kind(plan.run)),
     )
     picks = [
         InsightPick(
@@ -388,8 +469,9 @@ def select_insights(
             insight_id=insight_id,
             scored_through=state.get(insight_id, {}),
             interval=due_by_id[insight_id].interval,
-            query_cost=cost,
+            query_cost=plan.queries,
+            run=plan.run,
         )
-        for insight_id, cost in picked.items()
+        for insight_id, plan in picked.items()
     ]
     return Selection(picks=picks, candidates=len(order), skipped_for_budget=skipped)

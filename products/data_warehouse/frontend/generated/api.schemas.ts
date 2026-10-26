@@ -3821,6 +3821,8 @@ export interface CredentialApi {
  * * `FileUpload` - FileUpload
  * * `Dripify` - Dripify
  * * `AwsS3Tables` - AwsS3Tables
+ * * `Beacons` - Beacons
+ * * `WooPayments` - WooPayments
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -5235,6 +5237,8 @@ export const ExternalDataSourceTypeEnumApi = {
     FileUpload: 'FileUpload',
     Dripify: 'Dripify',
     AwsS3Tables: 'AwsS3Tables',
+    Beacons: 'Beacons',
+    WooPayments: 'WooPayments',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {
@@ -5636,6 +5640,10 @@ export type DataModelingJobsListParams = {
      */
     offset?: number
     saved_query_id?: string
+    /**
+     * Comma-separated materialized view IDs.
+     */
+    saved_query_ids?: string[]
     /**
      * * `Cancelled` - Cancelled
      * * `Completed` - Completed

@@ -173,7 +173,7 @@ export async function trackToolCall(
         return
     }
     try {
-        const analyticsContext = await state.reqCtx.safelyGetAnalyticsContext(state.context)
+        const analyticsContext = state.analyticsContext ?? (await state.reqCtx.safelyGetAnalyticsContext(state.context))
         const requestContext = state.requestContext
         const sessionUuid = await state.reqCtx.getEffectiveSessionUuid(requestContext)
 
