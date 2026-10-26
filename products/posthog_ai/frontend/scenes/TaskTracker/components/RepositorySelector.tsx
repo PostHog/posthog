@@ -29,7 +29,7 @@ export interface RepositorySelectorProps {
     onPickerClose?: () => void
 }
 
-const githubAuthorizeUrl = api.integrations.authorizeUrl({ kind: 'github', next: urls.taskTracker() })
+export const githubAuthorizeUrl = api.integrations.authorizeUrl({ kind: 'github', next: urls.taskTracker() })
 
 /**
  * Compact repo/branch picker. With no GitHub integration it shows a single "Connect GitHub" chip;
