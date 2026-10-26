@@ -645,6 +645,7 @@ The other breakdowns use experiment fields. Item reads expose the resolved model
 Each point summarizes one experiment, scorer version, and breakdown value, with coverage and missing-result counts for that group.
 Unspecified values appear as **Not specified**. Different scorer versions, categories, and comparison periods remain separate.
 History pagination counts these groups when a breakdown is selected, so a page can contain multiple points from one experiment.
+Coverage aggregation includes only the page's experiment/breakdown groups, including their items without results.
 Pagination supports Unicode breakdown values up to the full 255-character identifier limit.
 The graph and table show the current page; partial history may omit other breakdown values.
 The breakdown is stored in the URL. Custom metadata breakdowns are not supported.

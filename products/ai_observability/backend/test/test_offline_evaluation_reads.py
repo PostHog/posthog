@@ -428,15 +428,22 @@ class TestOfflineEvaluationReads(TestCase):
     def test_model_breakdown_paginates_missing_and_named_models_without_duplicates(self) -> None:
         experiment = self._experiment()
         models = [None, "model-a", "model-b", "Not specified", "模" * 255, "😀" * 255, "😁" * 255]
-        for model in models:
-            self._result(self._item(experiment, model_version=model), self.numeric, 1.0)
+        for index, model in enumerate(models):
+            self._result(self._item(experiment, model_version=model, case_key="scored"), self.numeric, 1.0)
+            for missing in range(index + 1):
+                self._item(experiment, model_version=model, case_key=f"missing-{missing}")
         query = OfflineReadQuery(breakdown=OfflineHistoryBreakdown.MODEL, limit=1)
         values = []
         while True:
             page = self.service.scorer_history(self.numeric.definition_id, query)
             self.assertEqual(page.count, len(models))
             self.assertEqual(len(page.results), 1)
-            values.append(page.results[0].breakdown_value)
+            point = page.results[0]
+            values.append(point.breakdown_value)
+            missing_count = models.index(point.breakdown_value) + 1
+            self.assertEqual(point.summary.observed_item_count, missing_count + 1)
+            self.assertEqual(point.summary.distinct_case_count, missing_count + 1)
+            self.assertEqual(point.summary.missing_result_count, missing_count)
             if not page.next_cursor:
                 break
             serializer = OfflineScorerHistoryQuerySerializer(

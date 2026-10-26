@@ -641,10 +641,15 @@ class OfflineEvaluationReadService:
             )
         )
         sql, params = results.query.sql_with_params()
+        selected_item_groups = Q(pk__in=[])
+        for experiment_id, breakdown_value in sorted(
+            {(identity.experiment_id, identity.breakdown_value) for identity in identities}
+        ):
+            selected_item_groups |= Q(experiment_id=experiment_id, breakdown_value=breakdown_value)
         item_query = (
             self._items()
-            .filter(experiment_id__in={identity.experiment_id for identity in identities})
             .annotate(breakdown_value=self._breakdown_expression(breakdown, item_prefix=""))
+            .filter(selected_item_groups)
             .order_by()
             .values("experiment_id", "id", "case_key", "trial", "breakdown_value")
         )
