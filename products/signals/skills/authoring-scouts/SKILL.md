@@ -247,7 +247,7 @@ Note lifecycle stays with humans: scouts never delete notes, so retire acted-on 
 ## Workflow-triggered runs
 
 A workflow's "Run scout" step starts a run when an event fires, for example a new GitHub issue or a pull request.
-Every run's prompt names how it started in *Your run identity*: `triggered_by` is `schedule`, `manual`, `workflow`, or `check` (`experiment` on a private trial run).
+Every run's prompt names how it started in _Your run identity_: `triggered_by` is `schedule`, `manual`, `workflow`, or `check` (`experiment` on a private trial run).
 A workflow run also carries `trigger_workflow_id`, the id of the workflow that fired.
 Branch on that value in the body ("if `triggered_by` is `workflow` ...") rather than on whether a note is present.
 
