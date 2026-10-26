@@ -2,7 +2,7 @@ from typing import Any, Optional, cast
 from urllib.parse import quote
 
 from django.conf import settings
-from django.db import transaction
+from django.db import models, transaction
 from django.db.models import Q
 
 from drf_spectacular.utils import extend_schema, extend_schema_field
@@ -64,10 +64,21 @@ DESTINATION_INTEGRATION_KINDS: dict[str, tuple[str, ...]] = {
 # time a schema resolves to it, and every team has exactly one, so it is not user-managed.
 USER_CREATABLE_TYPES = frozenset(DESTINATION_INTEGRATION_KINDS)
 
+# Built from `Type`, so the values cannot drift from the model. django-stubs only types the
+# literal form of the functional API.
+UserCreatableDestinationType = models.TextChoices(  # type: ignore[call-overload]
+    "UserCreatableDestinationType",
+    [
+        (choice.name, (choice.value, choice.label))
+        for choice in ExternalDataDestination.Type
+        if choice in USER_CREATABLE_TYPES
+    ],
+)
+
 
 class DestinationConnectLinkQuerySerializer(serializers.Serializer):
     destination_type = serializers.ChoiceField(
-        choices=[choice for choice in ExternalDataDestination.Type.choices if choice[0] in USER_CREATABLE_TYPES],
+        choices=UserCreatableDestinationType.choices,
         help_text="The destination type to connect, e.g. 'Snowflake' or 'S3'.",
     )
     integration_kind = serializers.CharField(
