@@ -81,11 +81,17 @@ class StandingExclusions:
         self,
         *,
         team_id: int,
+        report_id: str,
+        repository_override: str | None,
+        versions: tuple[tuple[UUID, int], ...],
         exclusions: tuple[StandingExclusion, ...],
         repository: str | None,
         paths: tuple[str, ...],
     ) -> None:
         self.team_id = team_id
+        self.report_id = report_id
+        self.repository_override = repository_override
+        self.versions = versions
         self.exclusions = exclusions
         self.repository = repository
         self.paths = paths
@@ -97,6 +103,12 @@ class StandingExclusions:
         `repository` overrides the report's repository selection, for a caller that already knows
         the repository the work landed in.
         """
+        rows = list(
+            SignalReviewerExclusion.objects.for_team(team_id)
+            .filter(status=SignalReviewerExclusion.Status.ACTIVE)
+            .order_by("created_at", "id")
+        )
+        versions = tuple((row.id, row.revision) for row in rows)
         subjects = [
             (
                 str(row.id),
@@ -107,13 +119,20 @@ class StandingExclusions:
                 row.repository.strip().lower(),
                 _normalized_path(row.path_prefix),
             )
-            for row in SignalReviewerExclusion.objects.for_team(team_id)
-            .filter(status=SignalReviewerExclusion.Status.ACTIVE)
-            .order_by("created_at", "id")
+            for row in rows
         ]
         if not subjects:
-            return cls(team_id=team_id, exclusions=(), repository=None, paths=())
+            return cls(
+                team_id=team_id,
+                report_id=report_id,
+                repository_override=repository,
+                versions=versions,
+                exclusions=(),
+                repository=None,
+                paths=(),
+            )
         exclusions = cls._resolve_subjects(team_id, subjects)
+        repository_override = repository
         artefacts = SignalReportArtefact.objects.filter(team_id=team_id, report_id=report_id)
         if repository is None:
             selection = (
@@ -130,7 +149,29 @@ class StandingExclusions:
         # under the report lock, so skip it for every other report.
         if repository is not None and any(e.path_prefix and e.repository == repository for e in exclusions):
             paths = cls._read_paths(artefacts.filter(type=SignalReportArtefact.ArtefactType.SIGNAL_FINDING))
-        return cls(team_id=team_id, exclusions=exclusions, repository=repository, paths=paths)
+        return cls(
+            team_id=team_id,
+            report_id=report_id,
+            repository_override=repository_override,
+            versions=versions,
+            exclusions=exclusions,
+            repository=repository,
+            paths=paths,
+        )
+
+    def refreshed(self) -> StandingExclusions:
+        """These instructions when none changed since the load, otherwise a fresh load. One query when none changed."""
+        current = tuple(
+            SignalReviewerExclusion.objects.for_team(self.team_id)
+            .filter(status=SignalReviewerExclusion.Status.ACTIVE)
+            .order_by("created_at", "id")
+            .values_list("id", "revision")
+        )
+        if current == self.versions:
+            return self
+        return StandingExclusions.load(
+            team_id=self.team_id, report_id=self.report_id, repository=self.repository_override
+        )
 
     @staticmethod
     def _resolve_subjects(

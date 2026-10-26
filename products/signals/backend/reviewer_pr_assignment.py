@@ -817,9 +817,10 @@ def _assign_report_reviewers(
         if not current_application.allowed or current_application.previous != application.previous:
             return []
         current = ReviewerRules.read_for_report(team_id=team_id, report_id=report_id)
+        # An instruction saved during the GitHub calls must still stop the assignment.
         if (
             current.state != snapshot.state
-            or standing.allowed_logins(_report_assignee_logins(team, current)) != candidates
+            or standing.refreshed().allowed_logins(_report_assignee_logins(team, current)) != candidates
         ):
             return []
         if not (
@@ -912,9 +913,7 @@ def assign_reviewers_to_pull_request(*, team_id: int, report_id: str, pr_url: st
             snapshot = ReviewerRules.read_for_report(team_id=team_id, report_id=report_id)
             if snapshot.corrections.needs_review:
                 return assigned
-            reviewers = standing.allowed_logins(
-                _report_assignee_logins(Team.objects.get(id=team_id), snapshot, require_opt_in=False)
-            )
+            reviewers = _report_assignee_logins(Team.objects.get(id=team_id), snapshot, require_opt_in=False)
         except Exception:
             logger.exception(
                 "signals.reviewer_pr_assignment.reviewers_lookup_failed", team_id=team_id, report_id=report_id
@@ -924,13 +923,14 @@ def assign_reviewers_to_pull_request(*, team_id: int, report_id: str, pr_url: st
         if current_pr is None:
             return assigned
         pr = current_pr
+    # An instruction saved during the assignment calls must still stop the review request.
     _request_reviews(
         github,
         team_id=team_id,
         report_id=report_id,
         parsed=parsed,
         pr={**pr, "assignees": [*(pr.get("assignees") or []), *assigned]},
-        reviewers=reviewers,
+        reviewers=standing.refreshed().allowed_logins(reviewers),
     )
     return assigned
 
@@ -1022,10 +1022,12 @@ def _assign_one_dri(
     if not current_application.allowed or current_application.previous != application.previous:
         return []
     current = ReviewerRules.read_for_report(team_id=team_id, report_id=report_id)
+    # An instruction saved during the GitHub calls must still stop the assignment.
     if (
         current.state != snapshot.state
         or human_claimant_login(team_id=team_id, report_id=report_id) != claimant
-        or standing.allowed_logins(ranked_reviewer_logins(team_id=team_id, report_id=report_id)) != reviewers
+        or standing.refreshed().allowed_logins(ranked_reviewer_logins(team_id=team_id, report_id=report_id))
+        != reviewers
     ):
         return []
     return _apply_automatic_owners(

@@ -933,7 +933,7 @@ class TestDirectlyResponsibleIndividual:
 
     @pytest.mark.django_db
     @pytest.mark.parametrize(
-        "change", ["assigned", "unassigned", "closed", "history-unavailable", "report", "claimant"]
+        "change", ["assigned", "unassigned", "closed", "history-unavailable", "report", "claimant", "exclusion"]
     )
     def test_changes_during_github_checks_stop_dri_assignment(
         self, org_and_team: tuple[Organization, Team], change: str
@@ -956,6 +956,13 @@ class TestDirectlyResponsibleIndividual:
                 SignalReportArtefact.objects.create(team=team, report=report, type="suggested_reviewers", content="[]")
             elif change == "claimant":
                 self._claim(team, report, users, kind="user", login="bob")
+            elif change == "exclusion":
+                create_exclusion(
+                    team_id=team.id,
+                    actor_id=users["alice"].id,
+                    instruction="Off.",
+                    subject_user_uuid=users["alice"].uuid,
+                )
             return {"success": True, "assignable": True}
 
         github.is_assignable.side_effect = check
