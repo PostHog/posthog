@@ -43,13 +43,13 @@ class TestNotifyEmailSendingTierChanges(SimpleTestCase):
         [
             (
                 "rates_above_threshold",
-                TierDemotionEvidence(since=date(2026, 10, 15), sent=1890, complained=2, hard_bounced=1),
-                "Since October 15, this project sent 1,890 workflow emails and got 2 spam complaints and 1 hard bounce.",
+                TierDemotionEvidence(since=date(2026, 3, 2), sent=1240, complained=4, hard_bounced=1),
+                "Since March 2, this project sent 1,240 workflow emails and got 4 spam complaints and 1 hard bounce.",
             ),
             (
                 "rates_above_threshold",
-                TierDemotionEvidence(since=date(2026, 10, 15), sent=0, complained=3, hard_bounced=0),
-                "Since October 15, this project got 3 spam complaints and 0 hard bounces about workflow emails it sent before then.",
+                TierDemotionEvidence(since=date(2026, 3, 2), sent=0, complained=3, hard_bounced=0),
+                "Since March 2, this project got 3 spam complaints and 0 hard bounces about workflow emails it sent before then.",
             ),
             ("rates_above_threshold", None, DEFAULT_TIER_DEMOTION_CAUSE),
             ("workflow_auto_paused", None, "A workflow in this project was paused automatically"),
