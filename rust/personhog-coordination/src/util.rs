@@ -128,13 +128,13 @@ impl HeldKey<'_> {
 }
 
 /// Resolve once `key` is deleted or rewritten under a lease other than
-/// `lease_id`; `None` on cancellation. Etcd errors only retry, since the
-/// lease keepalive already covers an unreachable etcd.
+/// `lease_id`; `None` on cancellation. One watch stays open; a failed call or
+/// an ended watch re-reads after `retry_interval`.
 pub(crate) async fn await_held_key_lost(
     store: &PersonhogStore,
     key: HeldKey<'_>,
     lease_id: i64,
-    poll_interval: Duration,
+    retry_interval: Duration,
     cancel: &CancellationToken,
 ) -> Option<&'static str> {
     let lost = |how: &'static str| {
@@ -147,7 +147,7 @@ pub(crate) async fn await_held_key_lost(
         Some(how)
     };
     loop {
-        let next_look = tokio::time::Instant::now() + poll_interval;
+        let earliest_retry = tokio::time::Instant::now() + retry_interval;
         let read = tokio::select! {
             _ = cancel.cancelled() => return None,
             read = key.read(store) => read,
@@ -174,7 +174,6 @@ pub(crate) async fn await_held_key_lost(
             loop {
                 let message = tokio::select! {
                     _ = cancel.cancelled() => return None,
-                    _ = tokio::time::sleep_until(next_look) => break,
                     message = stream.message() => message,
                 };
                 let Ok(Some(response)) = message else { break };
@@ -195,7 +194,7 @@ pub(crate) async fn await_held_key_lost(
         }
         tokio::select! {
             _ = cancel.cancelled() => return None,
-            _ = tokio::time::sleep_until(next_look) => {}
+            _ = tokio::time::sleep_until(earliest_retry) => {}
         }
     }
 }

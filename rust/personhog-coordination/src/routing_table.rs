@@ -566,14 +566,14 @@ impl RoutingTable {
         {
             let store = Arc::clone(&self.store);
             let router_name = self.config.router_name.clone();
-            let poll_interval = self.config.heartbeat_interval;
+            let retry_interval = self.config.heartbeat_interval;
             let token = cancel.child_token();
             tasks.spawn(async move {
                 let lost = util::await_held_key_lost(
                     &store,
                     util::HeldKey::Router(&router_name),
                     lease_id,
-                    poll_interval,
+                    retry_interval,
                     &token,
                 )
                 .await;
