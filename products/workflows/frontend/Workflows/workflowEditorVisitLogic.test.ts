@@ -332,6 +332,24 @@ describe('workflowEditorVisitLogic', () => {
         ])
     })
 
+    it('reports the tile canvas as the layout when the person builds on it', async () => {
+        featureFlagLogic.actions.setFeatureFlags(
+            [FEATURE_FLAGS.WORKFLOWS_LINEAR_VIEW, FEATURE_FLAGS.WORKFLOWS_TILE_CANVAS],
+            { [FEATURE_FLAGS.WORKFLOWS_LINEAR_VIEW]: true, [FEATURE_FLAGS.WORKFLOWS_TILE_CANVAS]: true }
+        )
+        useMocks({ get: { [`/api/projects/:team_id/hog_flows/${SAVED_ID}/`]: { ...NEW_WORKFLOW, id: SAVED_ID } } })
+        const props = { id: SAVED_ID }
+        router.actions.push(urls.workflow(SAVED_ID, 'workflow'))
+        const visit = await openEditor(props)
+
+        visit.unmount()
+
+        expect(captured('workflow editor opened')).toEqual([expect.objectContaining({ editor_layout: 'canvas' })])
+        expect(captured('workflow editor left')).toEqual([
+            expect.objectContaining({ editor_layout: 'canvas', layout_switch_count: 0 }),
+        ])
+    })
+
     it('reports which kinds of steps the workflow holds and where it branches', async () => {
         const branched = {
             ...NEW_WORKFLOW,
