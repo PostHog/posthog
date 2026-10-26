@@ -6,7 +6,8 @@ from django.utils import timezone
 from temporalio import activity
 
 from posthog.constants import AvailableFeature
-from posthog.models.team import Team, TeamEventsRetentionSetting
+from posthog.models.organization_events_retention_setting import OrganizationEventsRetentionSetting
+from posthog.models.team import Team
 from posthog.models.team.event_retention import events_retention_target_months, parse_events_feature_to_months
 from posthog.ph_client import ph_scoped_capture
 from posthog.temporal.common.heartbeat import Heartbeater
@@ -35,7 +36,7 @@ def _capture_retention_changes(changes: list[dict]) -> None:
 async def sync_events_retention(input: SyncEventsRetentionInput) -> SyncEventsRetentionResult:
     """Reconcile every team's events retention window with its billing entitlement.
 
-    A team follows its entitlement unless a project admin chose a shorter window, which the entitlement then caps.
+    A team follows its entitlement unless an organization admin chose a shorter window, which the entitlement then caps.
     Teams with no entitlement default to 7 years, grandfathering existing paid teams.
     """
     async with Heartbeater():
@@ -59,9 +60,11 @@ async def sync_events_retention(input: SyncEventsRetentionInput) -> SyncEventsRe
             if not teams:
                 break
             last_pk = teams[-1].pk
-            chosen_months_by_team = {
-                setting.team_id: setting.retention_months
-                async for setting in TeamEventsRetentionSetting.objects.filter(team_id__in=[team.pk for team in teams])
+            chosen_months_by_organization = {
+                setting.organization_id: setting.retention_months
+                async for setting in OrganizationEventsRetentionSetting.objects.filter(
+                    organization_id__in={team.organization_id for team in teams}
+                )
             }
 
             team_ids_by_change: dict[tuple[int, int], list[int]] = {}
@@ -71,7 +74,8 @@ async def sync_events_retention(input: SyncEventsRetentionInput) -> SyncEventsRe
                     AvailableFeature.PRODUCT_ANALYTICS_DATA_RETENTION
                 )
                 target_months = events_retention_target_months(
-                    parse_events_feature_to_months(retention_feature), chosen_months_by_team.get(team.pk)
+                    parse_events_feature_to_months(retention_feature),
+                    chosen_months_by_organization.get(team.organization_id),
                 )
                 if team.event_retention_months != target_months:
                     changes.append(

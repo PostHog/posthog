@@ -46173,11 +46173,6 @@ export namespace Schemas {
          * @nullable
          */
       readonly retained_from: string | null;
-      /**
-         * The longest window the organization's plan allows, in months. Null while no retention window applies to the project.
-         * @nullable
-         */
-      readonly max_retention_months: number | null;
       /** Where the events retention policy is documented. */
       readonly docs_url: string;
     }
@@ -46199,17 +46194,6 @@ export namespace Schemas {
       Number60: 60,
       Number84: 84,
     } as const;
-
-    export interface EventsRetentionUpdate {
-      /** How many months of events to keep queryable. Must not be longer than the organization's plan allows.
-       *
-       * * `12` - 1 year
-       * * `24` - 2 years
-       * * `36` - 3 years
-       * * `60` - 5 years
-       * * `84` - 7 years */
-      retention_months: EventsRetentionWindowEnum;
-    }
 
     export interface ExcerptChoice {
       /**
@@ -74804,6 +74788,27 @@ export namespace Schemas {
       sso_enforcement?: string;
       /** @nullable */
       readonly scim_base_url: string | null;
+    }
+
+    export interface OrganizationEventsRetention {
+      /**
+         * The window an organization admin chose, in months. Null while the organization follows its plan.
+         * @nullable
+         */
+      readonly retention_months: number | null;
+      /** The longest window the organization's plan allows, in months. */
+      readonly max_retention_months: number;
+    }
+
+    export interface OrganizationEventsRetentionUpdate {
+      /** How many months of events every project in the organization keeps queryable. Must not be longer than the organization's plan allows.
+       *
+       * * `12` - 1 year
+       * * `24` - 2 years
+       * * `36` - 3 years
+       * * `60` - 5 years
+       * * `84` - 7 years */
+      retention_months: EventsRetentionWindowEnum;
     }
 
     export interface OrganizationFeatureFlagRow {

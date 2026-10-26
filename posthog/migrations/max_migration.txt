@@ -1,1 +1,1 @@
-1414_team_events_retention_setting
+1414_organization_events_retention_setting

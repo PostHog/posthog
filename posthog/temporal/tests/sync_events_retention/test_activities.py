@@ -10,7 +10,7 @@ from asgiref.sync import sync_to_async
 from temporalio.testing import ActivityEnvironment
 
 from posthog.models import Organization, Team
-from posthog.models.team import TeamEventsRetentionSetting
+from posthog.models.organization_events_retention_setting import OrganizationEventsRetentionSetting
 from posthog.temporal.sync_events_retention.activities import sync_events_retention
 from posthog.temporal.sync_events_retention.types import SyncEventsRetentionInput
 
@@ -71,7 +71,9 @@ async def test_applies_the_shorter_of_the_plan_and_the_chosen_window(
     team = await _team_with_features(
         [{"key": "product_analytics_data_retention", "limit": plan_years, "unit": "years"}], current_months=999
     )
-    await sync_to_async(TeamEventsRetentionSetting.objects.create)(team=team, retention_months=chosen_months)
+    await sync_to_async(OrganizationEventsRetentionSetting.objects.create)(
+        organization_id=team.organization_id, retention_months=chosen_months
+    )
 
     await ActivityEnvironment().run(sync_events_retention, SyncEventsRetentionInput(dry_run=False))
 

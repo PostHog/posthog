@@ -1378,13 +1378,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['url', 'regex', 'normalize', 'path analysis'],
             },
             {
-                id: 'events-retention',
-                // The component renders its own title, so the setting stays hidden until retention applies.
-                title: null,
-                component: <EventsRetentionSettings />,
-                keywords: ['events', 'retention', 'storage', 'years', 'history'],
-            },
-            {
                 id: 'human-friendly-comparison-periods',
                 title: 'Human friendly comparison periods',
                 description:
@@ -2311,6 +2304,13 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'When enabled, new projects will automatically have "Discard client IP data" turned on. This is recommended for GDPR compliance. Existing projects are not affected.',
                 component: <OrgIPAnonymizationDefault />,
                 keywords: ['ip', 'anonymize', 'gdpr', 'privacy', 'geolocation'],
+            },
+            {
+                id: 'organization-events-retention',
+                // The component renders its own title, so the setting stays hidden until retention applies.
+                title: null,
+                component: <EventsRetentionSettings />,
+                keywords: ['events', 'retention', 'storage', 'years', 'history'],
             },
             {
                 id: 'organization-member-notice',

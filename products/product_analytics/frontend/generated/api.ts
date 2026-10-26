@@ -21,7 +21,6 @@ import type {
     ElementsStatsRetrieveParams,
     ElementsValuesListParams,
     EventsRetentionApi,
-    EventsRetentionUpdateApi,
     InsightApi,
     InsightBulkDeleteRequestApi,
     InsightBulkDeleteResponseApi,
@@ -50,6 +49,8 @@ import type {
     InsightsTrendingRetrieveParams,
     InsightsUpdateParams,
     InsightsViewedCreateParams,
+    OrganizationEventsRetentionApi,
+    OrganizationEventsRetentionUpdateApi,
     PaginatedColumnConfigurationListApi,
     PaginatedElementListApi,
     PaginatedInsightListApi,
@@ -77,6 +78,45 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getOrganizationEventsRetentionRetrieveUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/events_retention_setting/`
+}
+
+/**
+ * Returns the events retention window an organization admin chose for every project in the organization, and the longest window the organization's plan allows.
+ * @summary Get the organization's events retention window
+ */
+export const organizationEventsRetentionRetrieve = async (
+    organizationId: string,
+    options?: RequestInit
+): Promise<OrganizationEventsRetentionApi> => {
+    return apiMutator<OrganizationEventsRetentionApi>(getOrganizationEventsRetentionRetrieveUrl(organizationId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getOrganizationEventsRetentionUpdateUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/events_retention_setting/`
+}
+
+/**
+ * Sets how far back events stay queryable in every project in the organization. The window can't be longer than the organization's plan allows, and it shortens if the plan later allows less. Organization admins only.
+ * @summary Set the organization's events retention window
+ */
+export const organizationEventsRetentionUpdate = async (
+    organizationId: string,
+    organizationEventsRetentionUpdateApi: OrganizationEventsRetentionUpdateApi,
+    options?: RequestInit
+): Promise<OrganizationEventsRetentionApi> => {
+    return apiMutator<OrganizationEventsRetentionApi>(getOrganizationEventsRetentionUpdateUrl(organizationId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(organizationEventsRetentionUpdateApi),
+    })
+}
 
 export const getColumnConfigurationsListUrl = (projectId: string, params?: ColumnConfigurationsListParams) => {
     const normalizedParams = new URLSearchParams()
@@ -354,7 +394,7 @@ export const getEventsRetentionRetrieveUrl = (projectId: string) => {
 }
 
 /**
- * Returns how far back events stay queryable for this project, and the longest window the organization's plan allows. All window fields are null while no retention window applies to the project.
+ * Returns how far back events stay queryable for this project. The window comes from the organization's plan and is read-only. Both window fields are null while no retention window applies to the project.
  * @summary Get the events retention window for a project
  */
 export const eventsRetentionRetrieve = async (
@@ -364,27 +404,6 @@ export const eventsRetentionRetrieve = async (
     return apiMutator<EventsRetentionApi>(getEventsRetentionRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
-    })
-}
-
-export const getEventsRetentionUpdateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/events_retention/`
-}
-
-/**
- * Sets how far back events stay queryable for this project. The window can't be longer than the organization's plan allows, and it shortens if the plan later allows less. Project admins only.
- * @summary Set the events retention window for a project
- */
-export const eventsRetentionUpdate = async (
-    projectId: string,
-    eventsRetentionUpdateApi: EventsRetentionUpdateApi,
-    options?: RequestInit
-): Promise<EventsRetentionApi> => {
-    return apiMutator<EventsRetentionApi>(getEventsRetentionUpdateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(eventsRetentionUpdateApi),
     })
 }
 

@@ -3,7 +3,6 @@ from typing import TYPE_CHECKING, Optional
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import F
 from django.utils import timezone
 
 import posthoganalytics
@@ -12,8 +11,8 @@ from dateutil.relativedelta import relativedelta
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
 from posthog.models.organization import ProductFeature
+from posthog.models.organization_events_retention_setting import OrganizationEventsRetentionSetting
 from posthog.models.team.team import Team
-from posthog.models.team.team_events_retention_setting import TeamEventsRetentionSetting
 
 if TYPE_CHECKING:
     from posthog.models.organization import Organization
@@ -112,39 +111,45 @@ def events_retention_target_months(organization_months: int, chosen_months: Opti
     return organization_months if chosen_months is None else min(organization_months, chosen_months)
 
 
+def organization_events_retention_choice(organization: "Organization") -> Optional[int]:
+    return (
+        OrganizationEventsRetentionSetting.objects.filter(organization=organization)
+        .values_list("retention_months", flat=True)
+        .first()
+    )
+
+
 def reconcile_organization_events_retention(organization: "Organization") -> int:
     """Align the org's teams with its entitlement-derived retention window; returns teams updated.
 
     Re-reads the persisted entitlement so overlapping billing syncs can't apply a stale in-memory snapshot.
     """
     organization.refresh_from_db(fields=["available_product_features"])
-    organization_months = organization_events_retention_months(organization)
-    rows = (
-        Team.objects.filter(organization=organization)
-        .annotate(chosen_months=F("events_retention_setting__retention_months"))
-        .values_list("id", "event_retention_months", "chosen_months")
+    # Teams are read before the choice, so a choice saved in between fails the compare-and-set below.
+    team_months = list(Team.objects.filter(organization=organization).values_list("id", "event_retention_months"))
+    target_months = events_retention_target_months(
+        organization_events_retention_months(organization), organization_events_retention_choice(organization)
     )
-    team_ids_by_change: dict[tuple[int, int], list[int]] = {}
-    for team_id, current_months, chosen_months in rows:
-        target_months = events_retention_target_months(organization_months, chosen_months)
+    team_ids_by_months: dict[int, list[int]] = {}
+    for team_id, current_months in team_months:
         if current_months != target_months:
-            team_ids_by_change.setdefault((current_months, target_months), []).append(team_id)
+            team_ids_by_months.setdefault(current_months, []).append(team_id)
     updated = 0
-    for (current_months, target_months), team_ids in team_ids_by_change.items():
-        # Only rows still at the value read above, so a window chosen in between is kept.
+    for current_months, team_ids in team_ids_by_months.items():
         updated += Team.objects.filter(pk__in=team_ids, event_retention_months=current_months).update(
             event_retention_months=target_months, updated_at=timezone.now()
         )
     return updated
 
 
-def choose_team_events_retention(team: Team, retention_months: int) -> int:
-    """Save the window a project admin chose and apply it to the team; returns the team's new window."""
-    target_months = events_retention_target_months(
-        organization_events_retention_months(team.organization), retention_months
-    )
+def choose_organization_events_retention(organization: "Organization", retention_months: int) -> int:
+    """Save the window an organization admin chose and apply it to every team; returns the teams' new window."""
+    target_months = events_retention_target_months(organization_events_retention_months(organization), retention_months)
     with transaction.atomic():
-        TeamEventsRetentionSetting.objects.update_or_create(team=team, defaults={"retention_months": retention_months})
-        Team.objects.filter(pk=team.pk).update(event_retention_months=target_months, updated_at=timezone.now())
-    team.event_retention_months = target_months
+        OrganizationEventsRetentionSetting.objects.update_or_create(
+            organization=organization, defaults={"retention_months": retention_months}
+        )
+        Team.objects.filter(organization=organization).exclude(event_retention_months=target_months).update(
+            event_retention_months=target_months, updated_at=timezone.now()
+        )
     return target_months

@@ -1346,6 +1346,7 @@ rules:
                               |OrganizationMemberNotificationLock
                               |OrganizationDomain
                               |OrganizationEventsRetentionConfig
+                              |OrganizationEventsRetentionSetting
                               |OrganizationFeatureFlagsConfig
                               |OrganizationIntegration
                               |OrganizationInvite
@@ -1429,6 +1430,7 @@ rules:
                         |OrganizationMemberNotificationLock
                         |OrganizationDomain
                         |OrganizationEventsRetentionConfig
+                        |OrganizationEventsRetentionSetting
                         |OrganizationFeatureFlagsConfig
                         |OrganizationIntegration
                         |OrganizationInvite
