@@ -34,6 +34,7 @@ from posthog.session_recordings.queries.test.session_replay_sql import produce_r
 from products.experiments.backend.models.experiment import Experiment
 from products.replay_vision.backend.api.scanners import (
     WATCH_FEED_CANDIDATE_CAP,
+    WATCH_FEED_PICKS_BUCKET_S,
     ReplayScannerSerializer,
     WatchFeedQuerySerializer,
 )
@@ -5198,6 +5199,34 @@ class TestWatchFeedAPI(_VisionAPITestCase):
         sessions = [item["observation"]["session_id"] for item in first["results"] + second["results"]]
         assert sessions == [f"hit-{i}" for i in range(6)]
         assert second["has_more"] is False
+
+    def test_a_later_loads_cached_picks_do_not_serve_an_earlier_loads_pages(self) -> None:
+        scanner = self._create_scanner(name="m")
+        bucket_start = datetime.fromtimestamp(
+            (int(timezone.now().timestamp()) // WATCH_FEED_PICKS_BUCKET_S - 1) * WATCH_FEED_PICKS_BUCKET_S, tz=UTC
+        )
+        earlier, later = bucket_start + timedelta(minutes=1), bucket_start + timedelta(minutes=5)
+        for index in range(12):
+            obs = self._succeeded_observation(scanner, f"row-{index}", 120 + index, self._monitor_result("no"))
+            # The top-scoring row completes between the two loads, so only the later load can rank it.
+            completed_at = bucket_start + timedelta(minutes=3) if index == 0 else bucket_start
+            ReplayObservation.objects.filter(id=obs.id).update(
+                completed_at=completed_at,
+                watch_rank={
+                    "category": "failure",
+                    "contrast": 1 - index / 20,
+                    "duplicate_of": None,
+                    "anchor_version": ANCHOR_VERSION,
+                },
+            )
+
+        def sessions(as_of: datetime) -> list[str]:
+            response = self.client.get(self.feed_url, {"limit": 20, "as_of": as_of.isoformat()}).json()
+            return [item["observation"]["session_id"] for item in response["results"]]
+
+        with patch("products.replay_vision.backend.api.scanners.watch_feed_ranker_variant", return_value="embedding"):
+            assert "row-0" in sessions(later)
+            assert "row-0" not in sessions(earlier)
 
     def test_embedding_picks_reach_past_the_recency_slice_and_count_hidden_duplicates(self) -> None:
         scanner = self._create_scanner(name="m")

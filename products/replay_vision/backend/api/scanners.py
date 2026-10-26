@@ -2784,9 +2784,10 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                 ).hexdigest()
             )
             cached = cache.get(picks_key)
-            if cached is not None:
+            # Picks ranked as of a later moment may hold rows this load's first page never saw, so they don't serve it.
+            if cached is not None and cached[0] <= as_of:
                 picked_as_of, candidate_rows = cached
-                # Another load in the bucket ranked these, so its views may be older than this one's.
+                # An earlier load in the bucket ranked these, so its views may be older than this one's.
                 if picked_as_of != as_of:
                     candidate_rows = refresh_feed_viewed(candidate_rows, viewer_id, as_of)
             else:
@@ -2800,7 +2801,8 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                     candidate_rows += select_embedding_filler(
                         walkable, allowed_ids, viewed, self.user_access_control, self.team_id, pick_roots
                     )
-                cache.set(picks_key, (as_of, candidate_rows), WATCH_FEED_PICKS_CACHE_TTL_S)
+                # The first load in the bucket keeps the entry, so concurrent loads never replace it with later picks.
+                cache.add(picks_key, (as_of, candidate_rows), WATCH_FEED_PICKS_CACHE_TTL_S)
         else:
             candidate_rows = select_watch_feed_candidates(
                 walkable, allowed_ids, viewed, self.user_access_control, self.team_id
