@@ -205,11 +205,11 @@ jobs:
                   # The default shell is `bash -e`, so without this psql's exit code hides a failed
                   # gunzip and a truncated dump commits as a half-primed schema.
                   set -o pipefail
+                  # The dump is schema-only. The migrate in the next step seeds the rows that
+                  # data migrations write, after it adds any column the dump predates.
                   prime() {
                       gunzip -c schema.sql.gz \
                           | psql -q -v ON_ERROR_STOP=1 --single-transaction test_posthog || return 1
-                      # The dump is schema-only, so rows written by data migrations are absent.
-                      python manage.py ensure_migration_defaults || return 1
                   }
                   if [ ! -f schema.sql.gz ]; then
                       echo "::notice::schema cache miss, so migrate runs from scratch"

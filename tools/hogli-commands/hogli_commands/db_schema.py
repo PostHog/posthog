@@ -247,8 +247,14 @@ def restore_schema_dump(
     target_db: str,
     recreate: bool,
     schema_path: Path = LOCAL_SCHEMA_PATH,
-    ensure_defaults: bool = True,
 ) -> None:
+    """Load a schema dump. The caller must run `migrate` next.
+
+    `migrate` applies the migrations the dump predates and then seeds the rows that data
+    migrations used to write (`ensure_migration_defaults`). Do not seed here: the seed writes
+    through the checkout's models, and a dump older than the checkout can lack their newest
+    columns, which fails the restore with `UndefinedColumn` and forces a full migrate.
+    """
     target_db = _validate_db_identifier(target_db)
     resolved_schema_path = _resolve_repo_path(schema_path)
     if not resolved_schema_path.is_file():
@@ -262,9 +268,6 @@ def restore_schema_dump(
     try:
         _run_psql_with_gzip_input(resolved_schema_path, target_db)
         _forget_product_app_migrations(target_db)
-
-        if ensure_defaults:
-            _ensure_migration_defaults(target_db)
     except Exception as exc:
         if recreate:
             try:
@@ -532,7 +535,7 @@ def restore_schema_if_fresh(*, target_db: str, mode: ArtifactMode) -> bool:
         click.echo(f"Database {target_db} is no longer empty; running migrations normally")
         return False
 
-    restore_schema_dump(target_db=target_db, recreate=True, ensure_defaults=True)
+    restore_schema_dump(target_db=target_db, recreate=True)
     return True
 
 
@@ -633,7 +636,7 @@ def db_download_schema(base_branch: str | None) -> None:
 
 def _recreate_test_db() -> None:
     try:
-        restore_schema_dump(target_db=os.environ.get("TARGET_DB", "test_posthog"), recreate=True, ensure_defaults=True)
+        restore_schema_dump(target_db=os.environ.get("TARGET_DB", "test_posthog"), recreate=True)
     except Exception as exc:
         raise click.ClickException(str(exc)) from exc
 
@@ -682,7 +685,7 @@ def db_restore_schema(yes: bool) -> None:
     try:
         download_latest_compatible_schema(base_branch=_effective_base_branch(None))
         _create_postgres_backup()
-        restore_schema_dump(target_db="posthog", recreate=False, ensure_defaults=False)
+        restore_schema_dump(target_db="posthog", recreate=False)
         _run([str(REPO_ROOT / "bin" / "migrate")])
         _ensure_migration_defaults("posthog")
     except Exception as exc:
