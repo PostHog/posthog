@@ -19,7 +19,7 @@ export function MetricOwnerSelect({
                 <LemonButton
                     type="tertiary"
                     size="small"
-                    noPadding
+                    className="-ml-2 -my-1.5"
                     loading={loading}
                     disabledReason={disabledReason}
                     data-attr="data-catalog-metric-owner-select"
