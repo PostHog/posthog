@@ -422,6 +422,50 @@ class TestIncrementalMaterialization:
         await database_sync_to_async(ajob.refresh_from_db)()
         assert ajob.full_refresh_reason == "definition changed"
 
+    async def test_a_failed_rebuild_is_not_followed_by_an_incremental_run(
+        self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag
+    ):
+        # A rebuild rewrites the table in place, so a failure after its first batch leaves a
+        # truncated table. The next run must rebuild it, not upsert its window onto what is left.
+        await _configure(asaved_query)
+        original_query = asaved_query.query
+        full_output = _batch([DAY1, DAY2, DAY3], [10, 20, 30])
+
+        def honouring_the_window(*args, **kwargs):
+            window = kwargs.get("window")
+
+            async def generator():
+                batch = full_output
+                if window is not None:
+                    keep = [day >= window.since for day in batch.column("day").to_pylist()]
+                    batch = batch.filter(pa.array(keep))
+                yield batch, [("day", "DateTime64(6, 'UTC')"), ("c", "Int64")]
+
+            return generator()
+
+        with _settings(bucket_name):
+            first = await _run(activity_environment, ateam, anode, ajob, adag, full_output)
+
+            asaved_query.query = {"query": "SELECT 2", "kind": "HogQLQuery"}
+            await database_sync_to_async(asaved_query.save)(update_fields=["query"])
+            with pytest.raises(IncrementalWriteError, match="does not identify a single row"):
+                await _run(activity_environment, ateam, anode, ajob, adag, _batch([DAY1], [10]), _batch([DAY1], [11]))
+
+            asaved_query.query = original_query
+            await database_sync_to_async(asaved_query.save)(update_fields=["query"])
+            with unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.materialize_view.hogql_table", honouring_the_window
+            ):
+                result = await activity_environment.run(
+                    materialize_view_activity,
+                    MaterializeViewInputs(
+                        team_id=ateam.pk, dag_id=str(adag.id), node_id=str(anode.id), job_id=str(ajob.id)
+                    ),
+                )
+
+        assert _rows(first.table_uri) == [(DAY1, 10), (DAY2, 20), (DAY3, 30)]
+        assert result.incremental is False
+
     async def test_a_zero_row_window_leaves_the_table_and_watermark_alone(
         self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag
     ):
