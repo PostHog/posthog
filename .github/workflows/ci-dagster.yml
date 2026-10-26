@@ -74,8 +74,8 @@ jobs:
     # actually import — prevents silent drift where a new import slips in
     # without a matching filter entry.
     validate-paths:
-        # posthog-private mirrors master, so it only needs CI on its own PRs.
-        if: github.repository != 'PostHog/posthog-private' || (github.event_name != 'push' && github.event_name != 'schedule')
+        # Push and schedule runs only belong in this repo. Mirrors run CI on their own PRs only.
+        if: github.repository == 'PostHog/posthog' || (github.event_name != 'push' && github.event_name != 'schedule')
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         name: Validate dagster path filter coverage
@@ -91,8 +91,8 @@ jobs:
     # Job to decide if we should run dagster ci
     # See .github/actions/paths-filter/README.md for filter semantics
     changes:
-        # posthog-private mirrors master, so it only needs CI on its own PRs.
-        if: github.repository != 'PostHog/posthog-private' || (github.event_name != 'push' && github.event_name != 'schedule')
+        # Push and schedule runs only belong in this repo. Mirrors run CI on their own PRs only.
+        if: github.repository == 'PostHog/posthog' || (github.event_name != 'push' && github.event_name != 'schedule')
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         name: Determine need to run dagster checks

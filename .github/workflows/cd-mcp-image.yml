@@ -32,9 +32,9 @@ on:
 jobs:
     build:
         name: Build and push container image
-        # posthog-private mirrors master, so it only needs CI on its own PRs.
+        # Push and schedule runs only belong in this repo. Mirrors run CI on their own PRs only.
         if: |
-            (github.repository != 'PostHog/posthog-private' || (github.event_name != 'push' && github.event_name != 'schedule')) && (
+            (github.repository == 'PostHog/posthog' || (github.event_name != 'push' && github.event_name != 'schedule')) && (
             github.repository_owner == 'PostHog' && (
                 github.event_name == 'push' ||
                 github.event_name == 'workflow_dispatch' ||
