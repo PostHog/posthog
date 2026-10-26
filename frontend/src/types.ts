@@ -2848,6 +2848,7 @@ export type DashboardTemplateStoredInsightTile = {
     layouts?: Record<DashboardLayoutSize, TileLayout> | Record<string, never>
     color?: InsightColor | null
     transparent_background?: boolean | null
+    group_key?: string | null
     filters?: Record<string, unknown>
 }
 
@@ -2858,6 +2859,7 @@ export type DashboardTemplateStoredTextTile = {
     layouts?: Record<DashboardLayoutSize, TileLayout> | Record<string, never>
     color?: InsightColor | null
     transparent_background?: boolean | null
+    group_key?: string | null
 }
 
 export type DashboardTemplateStoredButtonTile = {
@@ -2871,6 +2873,7 @@ export type DashboardTemplateStoredButtonTile = {
     layouts?: Record<DashboardLayoutSize, TileLayout> | Record<string, never>
     color?: InsightColor | null
     transparent_background?: boolean | null
+    group_key?: string | null
 }
 
 export type DashboardTemplateStoredWidgetTile = {
@@ -2880,6 +2883,7 @@ export type DashboardTemplateStoredWidgetTile = {
     layouts?: Record<DashboardLayoutSize, TileLayout> | Record<string, never>
     color?: InsightColor | null
     transparent_background?: boolean | null
+    group_key?: string | null
 }
 
 export type DashboardTemplateStoredTile =
@@ -2905,6 +2909,7 @@ export interface DashboardTemplateType {
     dashboard_filters?: DashboardFilter
     tiles: DashboardTemplateStoredTile[]
     variables?: DashboardTemplateVariableType[]
+    customization?: DashboardType['customization'] | null
     tags?: string[]
     image_url?: string
     scope?: DashboardTemplateScope

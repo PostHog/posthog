@@ -105,8 +105,6 @@ class InsightPick:
     query_cost: int = 1
     # None when the train and score split is off.
     run: ScoringRun | None = None
-    # Stored buckets that a score step fetches again.
-    refresh_buckets: int = 0
 
 
 @frozen
@@ -441,7 +439,6 @@ def select_insights(
             interval=due_by_id[insight_id].interval,
             query_cost=plan.queries,
             run=plan.run,
-            refresh_buckets=plan.refresh_buckets,
         )
         for insight_id, plan in picked.items()
     ]

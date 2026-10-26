@@ -20,13 +20,15 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.models import ActivityLog, FileSystemViewLog, Organization, Team, User
+from posthog.models.file_system.file_system_representation import FileSystemRepresentation
+from posthog.models.file_system.file_system_view_log import log_file_system_view
 
 from products.signals.backend.activity_summary import (
     schedule as tick_schedule,
     tick,
 )
 from products.signals.backend.activity_summary.computed import MAX_OWNED, MAX_WATCHED
-from products.signals.backend.activity_summary.config import ActivitySummaryConfig, parse_config
+from products.signals.backend.activity_summary.config import ActivitySummaryConfig, SourceWeights, parse_config
 from products.signals.backend.activity_summary.prompt import (
     MAX_HEADLINE_CHARS,
     MAX_LABEL_CHARS,
@@ -122,6 +124,10 @@ _CONFIG_CASES: list[tuple[str, Any, ActivitySummaryConfig]] = [
             "max_error_rate": 0,
             "self_driving_organization_percentage": 101,
             "deny_organization_ids": "org-b",
+            "source_weights": {"activity": -1, "tasks": 11, "new_views": True, "scene_views": "1"},
+            "min_score": 0,
+            "view_update_interval_hours": -5,
+            "cold_start_min_active_days": 2.5,
         },
         ActivitySummaryConfig(enabled=True, organization_ids=("org-a",), skip_team_ids=(3,)),
     ),
@@ -146,6 +152,10 @@ _CONFIG_CASES: list[tuple[str, Any, ActivitySummaryConfig]] = [
             "max_org_share": 0.3,
             "self_driving_organization_percentage": 12.5,
             "deny_organization_ids": ["org-b", 4],
+            "source_weights": {"new_views": 1, "repeat_view_days": 0.25},
+            "min_score": 4.5,
+            "view_update_interval_hours": 72,
+            "cold_start_min_active_days": 5,
         },
         ActivitySummaryConfig(
             enabled=True,
@@ -161,6 +171,10 @@ _CONFIG_CASES: list[tuple[str, Any, ActivitySummaryConfig]] = [
             max_org_share=0.3,
             self_driving_organization_percentage=12.5,
             deny_organization_ids=("org-b",),
+            source_weights=SourceWeights(new_views=1.0, repeat_view_days=0.25),
+            min_score=4.5,
+            view_update_interval_hours=72.0,
+            cold_start_min_active_days=5,
         ),
     ),
     (
@@ -281,7 +295,7 @@ class TestActivitySummaryQueue(BaseTest):
             self._changes(user, units, days_ago=0.5)
         self._changes(cold, 3, days_ago=0.5)
 
-        assert self._select(self._config(min_units=1, max_org_share=1.0)) == [
+        assert self._select(self._config(min_score=1, max_org_share=1.0)) == [
             (self.team.id, cold.id),
             (self.team.id, recent_busy.id),
             (self.team.id, old_quiet.id),
@@ -645,7 +659,7 @@ class TestActivitySummaryQueue(BaseTest):
             capture_events=True,
         )
         # The queue picks a pair with fewer rows than the update's `min_units`, so the update skips it.
-        config = self._config(min_units=1)
+        config = self._config(min_score=1)
         assert self._select(config) == [(self.team.id, self.user.id)]
 
         with (
@@ -692,18 +706,79 @@ class TestActivitySummaryQueue(BaseTest):
         assert self._select(seed=False) == []
         assert daily_usage(NOW) == DailyUsage(updates=1, cost_usd=0.25)
 
-    @parameterized.expand([("counted", True, 1), ("not counted", False, 0)])
-    def test_viewed_objects_make_a_pair_due_when_views_count(self, _name: str, count_views: bool, due: int) -> None:
-        for index in range(3):
-            FileSystemViewLog.objects.create(
-                team=self.team,
-                user=self.user,
-                type="insight",
-                ref=str(index),
-                viewed_at=NOW - datetime.timedelta(hours=index + 1),
-            )
+    def _view(self, ref: str, *days_ago: int, view_type: str = "insight") -> None:
+        days = sorted({(NOW - datetime.timedelta(days=ago)).date() for ago in days_ago})
+        FileSystemViewLog.objects.create(
+            team=self.team,
+            user=self.user,
+            type=view_type,
+            ref=ref,
+            viewed_at=NOW - datetime.timedelta(days=min(days_ago), hours=1),
+            view_days=days,
+        )
 
-        assert self._select(self._config(count_views=count_views)) == [(self.team.id, self.user.id)][:due]
+    @parameterized.expand(
+        [
+            ("known objects reopened every day", True, True, [("a", [5, 2, 1, 0]), ("b", [5, 2, 1, 0])], None),
+            ("known scenes reopened every day", True, True, [("scene:a", [5, 2, 1, 0])], None),
+            ("too few new objects", True, True, [(str(index), [1]) for index in range(5)], None),
+            ("enough new objects", True, True, [(str(index), [1]) for index in range(6)], "views"),
+            ("new objects when views do not count", False, True, [(str(index), [1]) for index in range(6)], None),
+            (
+                "no summary and views on three days",
+                True,
+                False,
+                [("a", [3]), ("b", [2]), ("c", [1])],
+                "cold_start_views",
+            ),
+            ("no summary and views on two days", True, False, [("a", [2]), ("b", [1, 2])], None),
+            ("no summary and views on three days when views do not count", False, False, [("a", [3, 2, 1])], None),
+        ]
+    )
+    def test_views_make_a_pair_due_by_weighted_score_or_on_active_days(
+        self,
+        _name: str,
+        count_views: bool,
+        summarized: bool,
+        views: list[tuple[str, list[int]]],
+        trigger: str | None,
+    ) -> None:
+        if summarized:
+            watermark = NOW - datetime.timedelta(days=4)
+            self._summary(self.user, generated_at=watermark, input_watermark=watermark)
+        for ref, days_ago in views:
+            name = ref.removeprefix("scene:")
+            self._view(name, *days_ago, view_type="scene" if ref.startswith("scene:") else "insight")
+        config = self._config(count_views=count_views)
+        self._seed(config)
+
+        selection = select_pairs(config, NOW, 10)
+
+        assert [(pair.user_id, pair.trigger) for pair in selection.pairs] == [(self.user.id, trigger)][: bool(trigger)]
+        assert selection.due_by_trigger == {
+            name: int(name == trigger) for name in ("activity", "views", "cold_start_views", "stale")
+        }
+
+    def test_the_feed_counts_one_repeat_day_for_many_reopens_of_a_known_object_in_a_day(self) -> None:
+        watermark = NOW - datetime.timedelta(days=2)
+        self._summary(self.user, generated_at=watermark, input_watermark=watermark)
+        insight = FileSystemRepresentation(
+            base_folder="Unfiled/Insights", type="insight", ref="1", name="Funnel", href="/insights/1", meta={}
+        )
+        log_file_system_view(
+            user=self.user, obj=insight, team_id=self.team.id, viewed_at=NOW - datetime.timedelta(days=3)
+        )
+        config = self._config(count_views=True, source_weights=SourceWeights(repeat_view_days=1.0))
+        feed_queue(config, NOW - datetime.timedelta(hours=3))
+        for hours_ago in (2.5, 2, 1.5, 1):
+            log_file_system_view(
+                user=self.user, obj=insight, team_id=self.team.id, viewed_at=NOW - datetime.timedelta(hours=hours_ago)
+            )
+            with patch("products.signals.backend.activity_summary.queue.list_user_task_times", return_value=[]):
+                feed_queue(config, NOW - datetime.timedelta(hours=hours_ago) + datetime.timedelta(minutes=10))
+
+        state = UserActivitySummaryQueueState.objects.for_team(self.team.id).get(user_id=self.user.id)
+        assert (state.pending_score, state.pending_view_score, state.view_active_days) == (1.0, 1.0, 2)
 
     def test_the_feed_reads_each_row_once_and_an_ok_update_clears_the_pending_units(self) -> None:
         config = self._config()
@@ -740,7 +815,10 @@ class TestActivitySummaryQueue(BaseTest):
             feed_queue(config, later)
         assert self._select(seed=False, now=later) == [(self.team.id, self.user.id)]
 
-    def test_an_ok_update_emits_the_embedding_and_an_event_without_the_summary(self) -> None:
+    @parameterized.expand([("activity", 24), ("views", 168), ("cold_start_views", 168), (None, 24)])
+    def test_an_ok_update_emits_the_embedding_and_an_event_without_the_summary(
+        self, trigger: str | None, wait_hours: int
+    ) -> None:
         self._changes(self.user, 3)
         capture = MagicMock()
         with (
@@ -756,14 +834,19 @@ class TestActivitySummaryQueue(BaseTest):
                     min_update_interval_hours=24,
                     emit_embeddings=True,
                     capture_events=True,
+                    trigger=trigger,
+                    view_update_interval_hours=168,
                 )
             )
 
         assert (result.status, result.called_model, result.new_summary) == ("ok", True, True)
+        stored = UserActivitySummary.objects.for_team(self.team.id).get(user_id=self.user.id)
+        assert stored.next_eligible_at == NOW + datetime.timedelta(hours=wait_hours)
         assert emit.call_args.kwargs["document_id"] == f"{self.user.id}:2026-10-19"
         assert emit.call_args.kwargs["content"] == "Builds the signup funnel.\nThemes: Signup funnel"
         event = capture.call_args.kwargs
         assert event["event"] == "activity summary generated"
+        assert event["properties"]["trigger"] == trigger
         assert "signup funnel" not in json.dumps(event["properties"]).lower()
 
 
@@ -790,7 +873,7 @@ async def test_an_update_keeps_an_operator_pause() -> None:
 def _plan(pairs: int, **overrides: Any) -> ActivitySummaryTickPlan:
     fields: dict[str, Any] = {
         "enabled": True,
-        "pairs": [ActivitySummaryPair(team_id=1, user_id=user_id) for user_id in range(pairs)],
+        "pairs": [ActivitySummaryPair(team_id=1, user_id=user_id, trigger="views") for user_id in range(pairs)],
         "candidates": pairs,
         "updates_left": 100,
         "cost_left_usd": 100.0,
@@ -804,6 +887,7 @@ def _plan(pairs: int, **overrides: Any) -> ActivitySummaryTickPlan:
         "max_error_rate": 0.5,
         "tiers": [ActivitySummaryTierStats(tier="paying", due_pairs=pairs)],
         "enrollment": EnrollmentCounts(qualifying_organizations=3, enrolled_organizations=2, enrolled_teams=4),
+        "due_by_trigger": {"activity": 1, "views": pairs - 1},
         "stop_reason": None,
     }
     return ActivitySummaryTickPlan(**{**fields, **overrides})
@@ -811,9 +895,10 @@ def _plan(pairs: int, **overrides: Any) -> ActivitySummaryTickPlan:
 
 async def _run_tick(
     plan: ActivitySummaryTickPlan, pair_cost: float | None, pair_status: str = "ok"
-) -> tuple[ActivitySummaryTickResult, int, list[ActivitySummaryTickResult]]:
+) -> tuple[ActivitySummaryTickResult, int, list[ActivitySummaryTickResult], list[ActivitySummaryPairInput]]:
     running = peak = 0
     captured: list[ActivitySummaryTickResult] = []
+    pair_inputs: list[ActivitySummaryPairInput] = []
 
     @activity.defn(name="plan_activity_summary_tick_activity")
     async def fake_plan(input: ActivitySummaryTickInput) -> ActivitySummaryTickPlan:
@@ -822,6 +907,7 @@ async def _run_tick(
     @activity.defn(name="update_activity_summary_pair_activity")
     async def fake_pair(input: ActivitySummaryPairInput) -> ActivitySummaryPairResult:
         nonlocal running, peak
+        pair_inputs.append(input)
         running += 1
         peak = max(peak, running)
         await asyncio.sleep(0.01)
@@ -848,7 +934,7 @@ async def _run_tick(
                 id=f"activity-summary-tick-{uuid.uuid4()}",
                 task_queue="activity-summary-tick-test",
             )
-    return result, peak, captured
+    return result, peak, captured, pair_inputs
 
 
 @pytest.mark.asyncio
@@ -871,9 +957,11 @@ async def test_the_tick_bounds_concurrency_and_stops_at_the_daily_caps_and_the_e
     stop_reason: str | None,
     builds: tuple[int, int],
 ) -> None:
-    result, peak, captured = await _run_tick(plan, pair_cost, pair_status)
+    result, peak, captured, pair_inputs = await _run_tick(plan, pair_cost, pair_status)
 
     assert peak <= plan.max_concurrency
+    assert {(pair.trigger, pair.view_update_interval_hours) for pair in pair_inputs} == {("views", 168.0)}
+    assert result.due_by_trigger == plan.due_by_trigger
     assert (result.picked, result.statuses, result.stop_reason) == (picked, {pair_status: picked}, stop_reason)
     assert result.tiers == plan.tiers
     assert (result.new_builds, result.refresh_builds) == builds
@@ -883,7 +971,7 @@ async def test_the_tick_bounds_concurrency_and_stops_at_the_daily_caps_and_the_e
 
 @pytest.mark.asyncio
 async def test_a_disabled_tick_runs_no_pair() -> None:
-    result, peak, captured = await _run_tick(_plan(0, enabled=False), 0.01)
+    result, peak, captured, _ = await _run_tick(_plan(0, enabled=False), 0.01)
 
     assert (result, peak, captured) == (ActivitySummaryTickResult(), 0, [])
 

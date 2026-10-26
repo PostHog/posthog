@@ -1736,7 +1736,7 @@ class PostgresSource(
     ) -> list[SourceSchema]:
         schemas = []
 
-        with self.with_ssh_tunnel(config, team_id) as (host, port):
+        with self.with_ssh_tunnel(config, team_id, POSTGRES_HOST_CHECK_SOURCE_TYPE) as (host, port):
             db_schemas = get_postgres_schemas(
                 host=host,
                 port=port,
@@ -2062,7 +2062,7 @@ class PostgresSource(
     def get_connection_metadata(
         self, config: PostgresSourceConfig, team_id: int, require_ssl: bool = False
     ) -> dict[str, object]:
-        with self.with_ssh_tunnel(config, team_id) as (host, port):
+        with self.with_ssh_tunnel(config, team_id, POSTGRES_HOST_CHECK_SOURCE_TYPE) as (host, port):
             return get_postgres_connection_metadata(
                 host=host,
                 port=port,
@@ -2095,7 +2095,7 @@ class PostgresSource(
             _connect_to_postgres,
         )
 
-        with self.with_ssh_tunnel(config, team_id) as (host, port):
+        with self.with_ssh_tunnel(config, team_id, POSTGRES_HOST_CHECK_SOURCE_TYPE) as (host, port):
             conn = _connect_to_postgres(
                 host=host,
                 port=port,
@@ -2291,7 +2291,7 @@ class PostgresSource(
             ForeignServerUnreachableError,
         )
 
-        ssh_tunnel = self.make_ssh_tunnel_func(config, inputs.team_id)
+        ssh_tunnel = self.make_ssh_tunnel_func(config, inputs.team_id, POSTGRES_HOST_CHECK_SOURCE_TYPE)
 
         # This reads sync metadata from PostHog's own database, not the customer's Postgres — a
         # transient failure reaching it (e.g. a DNS blip resolving our host) is a plain Django
