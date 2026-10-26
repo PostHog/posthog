@@ -13,6 +13,7 @@ from django.utils import timezone
 
 import dns.resolver
 from botocore.exceptions import ClientError, EndpointConnectionError
+from celery.exceptions import Retry
 from parameterized import param, parameterized
 from prometheus_client import REGISTRY
 from redis.exceptions import RedisError
@@ -519,11 +520,16 @@ class TestVerifiedSenderTakesWaitingWorkflowsLive(APIBaseTest):
                 raise OperationalError("connection lost")
             return real_lock(**kwargs)
 
-        with patch(
-            "products.workflows.backend.services.hog_flow_writes.lock_unverified_senders",
-            side_effect=connection_lost_on_the_second_workflow,
+        task_kwargs = {"team_id": self.team.id, "sender_ids": [sender.id]}
+        with (
+            patch(
+                "products.workflows.backend.services.hog_flow_writes.lock_unverified_senders",
+                side_effect=connection_lost_on_the_second_workflow,
+            ),
+            self.assertRaises(Retry),
         ):
-            enable_waiting_workflows_task.apply(kwargs={"team_id": self.team.id, "sender_ids": [sender.id]})
+            enable_waiting_workflows_task.apply(kwargs=task_kwargs)
+        enable_waiting_workflows_task.apply(kwargs=task_kwargs, retries=1)
 
         assert {self._workflow(flow_id)["status"] for flow_id in flow_ids} == {"active"}
         assert sorted(properties["workflow_id"] for _, _, properties in self._captured_events()) == sorted(flow_ids)
