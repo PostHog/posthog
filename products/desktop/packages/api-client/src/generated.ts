@@ -20772,6 +20772,17 @@ export namespace Schemas {
         | "remove"
         | "replace"
         | "confirm";
+    /**
+     * * `wrong_area` - Not their area
+     * * `owned_by_someone_else` - Someone else owns it
+     * * `unavailable` - Not available
+     * * `other` - Other
+     */
+    export type ReviewerRemovalReasonEnum =
+        | "wrong_area"
+        | "owned_by_someone_else"
+        | "unavailable"
+        | "other";
     export type ReviewerState = {
         /**
          * Current reviewer artefact ID, or null before the first list.
@@ -20859,6 +20870,8 @@ export namespace Schemas {
          */
         content: Array<SuggestedReviewerEntryWrite>;
         targets?: Array<SuggestedReviewerEntryWrite> | undefined;
+        removal_reason?: ReviewerRemovalReasonEnum | undefined;
+        removal_note?: string | undefined;
     };
     /**
      * Mixin for serializers to add user access control fields

@@ -346,8 +346,8 @@ tools:
             current list. For add or remove, pass the changed people in `targets` and the full list in `content` for
             compatibility with older servers. For replace or confirm, first read the report and pass
             `reviewer_assignment.state` as `expected_reviewers`. When you remove people, pass `removal_reason` when the
-            person said why, and `removal_note` for the area or context. Research reads both when it picks reviewers
-            for later reports. Prefer this over dismissing a report as `wrong_assignee`, which closes it for everyone.
+            person said why, and `removal_note` for the area or context. Research reads both when it picks reviewers for
+            later reports. Prefer this over dismissing a report as `wrong_assignee`, which closes it for everyone.
     inbox-reports-bulk-set-state:
         operation: signals_reports_bulk_state_create
         enabled: true
