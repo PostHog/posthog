@@ -4461,6 +4461,10 @@ export const workflowLogic = kea<workflowLogicType>([
             // second toast, and a second schedule write that can leave a duplicate schedule.
             const saveContext = (cache.saveContexts as SaveContext[] | undefined)?.shift()
             const isAutoSave = saveContext?.initiatedByAutoSave ?? values.isAutoSave
+            // Only a manual save writes the schedule, and only once the reload below confirms it.
+            // The reset at the end of this listener re-derives the schedule editor from the saved
+            // schedule, so every other save must put the user's unsaved edits back afterwards.
+            let wroteSchedule = false
 
             if (cache.enablingWorkflow && originalWorkflow.status === 'active') {
                 cache.enablingWorkflow = false
@@ -4500,6 +4504,7 @@ export const workflowLogic = kea<workflowLogicType>([
 
                         const schedules = await api.hogFlows.getHogFlowSchedules(workflowId)
                         actions.setSchedules(schedules)
+                        wroteSchedule = true
                     } catch (e) {
                         console.error('Failed to save schedule', e)
                         lemonToast.error('Workflow saved, but schedule could not be updated')
@@ -4589,7 +4594,7 @@ export const workflowLogic = kea<workflowLogicType>([
                 !!saveContext?.keepsFormEdits ||
                 (cache.saveEditVersion !== undefined && values.workflowEditVersion !== cache.saveEditVersion)
             const editsDuringSave = editedDuringSave ? pickWorkflowEdits(values.workflow) : null
-            const scheduleEdits: ScheduleEdits | null = saveContext?.keepsFormEdits
+            const scheduleEdits: ScheduleEdits | null = !wroteSchedule
                 ? {
                       scheduleState: values.scheduleState,
                       scheduleStartsAt: values.scheduleStartsAt,
