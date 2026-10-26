@@ -6,10 +6,11 @@
             "type": "number"
         },
         "person_ids": {
-            "description": "List of person UUIDs to add to the cohort",
+            "description": "Person UUIDs to add to the cohort (the `id` column of the persons table, not distinct IDs). At most 1000 per request.",
             "items": {
                 "type": "string"
             },
+            "maxItems": 1000,
             "type": "array"
         }
     },
