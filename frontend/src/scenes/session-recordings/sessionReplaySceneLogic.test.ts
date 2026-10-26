@@ -3,9 +3,6 @@ import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-
 import { initKeaTests } from '~/test/init'
 
 import { sessionRecordingsPlaylistLogic } from './playlist/sessionRecordingsPlaylistLogic'
@@ -31,33 +28,27 @@ describe('sessionReplaySceneLogic', () => {
     })
 
     describe('picks in the recordings list', () => {
-        const land = (path: string, flags: Record<string, string> = {}): void => {
+        const land = (path: string): void => {
             logic.unmount()
-            featureFlagLogic.actions.setFeatureFlags([], flags)
             router.actions.push(path)
             logic = sessionReplaySceneLogic()
             logic.mount()
         }
 
         it.each([
-            ['the current replay UI', {}, true],
-            ['the replay redesign', { [FEATURE_FLAGS.REPLAY_UI_REDESIGN_2026]: 'test' }, false],
-        ])('shows picks on %s: %p', (_, flags, expected) => {
-            land('/replay/home', flags)
-            expect(logic.values.picksInList).toBe(expected)
-        })
-
-        it('hides the picks when the organization has not approved AI data processing', () => {
+            [true, true],
+            [false, false],
+        ])('shows picks when the organization approved AI data processing: %p', (approved, expected) => {
             logic.unmount()
             playlistLogic.unmount()
             initKeaTests(true, undefined, undefined, {
                 ...MOCK_DEFAULT_ORGANIZATION,
-                is_ai_data_processing_approved: false,
+                is_ai_data_processing_approved: approved,
             })
             playlistLogic = sessionRecordingsPlaylistLogic(SCENE_PLAYLIST_LOGIC_PROPS)
             playlistLogic.mount()
             land('/replay/home')
-            expect(logic.values.picksInList).toBe(false)
+            expect(logic.values.picksInList).toBe(expected)
         })
 
         it.each([
