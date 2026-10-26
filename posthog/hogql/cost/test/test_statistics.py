@@ -4,6 +4,7 @@ from uuid import uuid4
 from posthog.test.base import ClickhouseTestMixin
 from unittest.mock import patch
 
+from django.core.cache import cache
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
@@ -16,6 +17,7 @@ from posthog.hogql.cost.statistics import (
 )
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_tagging import QueryTags, get_query_tags, tags_context
 from posthog.models.usage_report_events_preagg.sql import (
     DISTRIBUTED_USAGE_REPORT_EVENTS_PREAGG_TABLE_SQL,
     SHARDED_USAGE_REPORT_EVENTS_PREAGG_TABLE_SQL,
@@ -108,6 +110,62 @@ class TestClickHouseStatisticsProvider(ClickhouseTestMixin, SimpleTestCase):
         assert volume is not None
         assert volume.total == expected_total
 
+    def test_property_ndv_counts_distinct_event_property_values_for_the_team(self):
+        sync_execute(
+            "INSERT INTO property_values (team_id, property_type, property_key, property_value, property_count) VALUES "
+            f"({self.team_id}, 'event', 'plan', 'free', 3), "
+            f"({self.team_id}, 'event', 'plan', 'free', 4), "
+            f"({self.team_id}, 'event', 'plan', 'paid', 1), "
+            f"({self.team_id}, 'person', 'plan', 'enterprise', 1), "
+            f"({self.team_id + 1}, 'event', 'plan', 'trial', 1)"
+        )
+        provider = ClickHouseStatisticsProvider(today=TODAY)
+
+        assert provider.property_ndv(self.team_id, "plan") == 2
+        assert provider.property_ndv(self.team_id, "never_sent") is None
+
+    def test_table_rows_counts_the_teams_rows_once_a_day(self):
+        cache.delete(f"hogql_cost:table_rows:{self.team_id}:person")
+        sync_execute(
+            "INSERT INTO person (id, created_at, team_id, properties, is_identified, is_deleted, version) VALUES "
+            f"(generateUUIDv4(), now(), {self.team_id}, '{{}}', 0, 0, 0), "
+            f"(generateUUIDv4(), now(), {self.team_id}, '{{}}', 0, 0, 0), "
+            f"(generateUUIDv4(), now(), {self.team_id + 1}, '{{}}', 0, 0, 0)"
+        )
+
+        with patch("posthog.hogql.cost.statistics.sync_execute", wraps=sync_execute) as execute:
+            first = ClickHouseStatisticsProvider(today=TODAY).table_rows(self.team_id, "person")
+            # A second provider, as a later request would build, reads the shared cache instead of counting again.
+            second = ClickHouseStatisticsProvider(today=TODAY).table_rows(self.team_id, "person")
+
+        assert first == 2
+        assert second == 2
+        assert execute.call_count == 1
+
+    def test_daily_rows_averages_a_window_of_full_days_and_caches_it(self):
+        cache.delete(f"hogql_cost:daily_rows:{self.team_id}:raw_sessions_v3")
+        executed: list[tuple[str, dict]] = []
+
+        def count(sql: str, params: dict, **kwargs: object) -> list[tuple[int]]:
+            executed.append((sql, params))
+            return [(70,)]
+
+        with patch("posthog.hogql.cost.statistics.sync_execute", side_effect=count):
+            first = ClickHouseStatisticsProvider(today=TODAY).daily_rows(self.team_id, "raw_sessions_v3")
+            second = ClickHouseStatisticsProvider(today=TODAY).daily_rows(self.team_id, "raw_sessions_v3")
+
+        assert first == 10.0
+        assert second == 10.0
+        [(sql, params)] = executed
+        assert "raw_sessions_v3" in sql and "session_timestamp" in sql
+        assert params == {"team_id": self.team_id, "since": TODAY - timedelta(days=7), "today": TODAY}
+
+    def test_table_rows_refuses_a_table_it_does_not_count(self):
+        with patch("posthog.hogql.cost.statistics.sync_execute", wraps=sync_execute) as execute:
+            assert ClickHouseStatisticsProvider(today=TODAY).table_rows(self.team_id, "events") is None
+            assert ClickHouseStatisticsProvider(today=TODAY).daily_rows(self.team_id, "events") is None
+        execute.assert_not_called()
+
     def test_team_without_data_yields_none(self):
         assert ClickHouseStatisticsProvider(today=TODAY).event_volume(self.team_id) is None
 
@@ -123,5 +181,21 @@ class TestClickHouseStatisticsProvider(ClickhouseTestMixin, SimpleTestCase):
         assert execute.call_count == 1
 
     def test_clickhouse_failure_degrades_to_none(self):
-        with patch("posthog.hogql.cost.statistics.sync_execute", side_effect=RuntimeError("boom")):
-            assert ClickHouseStatisticsProvider(today=TODAY).event_volume(self.team_id) is None
+        lookup_tags: QueryTags | None = None
+
+        def fail_lookup(*args: object, **kwargs: object) -> None:
+            nonlocal lookup_tags
+            lookup_tags = get_query_tags()
+            raise RuntimeError("boom")
+
+        with tags_context(plan_fingerprint="caller", estimated_rows=100, estimated_bytes=200):
+            with patch("posthog.hogql.cost.statistics.sync_execute", side_effect=fail_lookup):
+                assert ClickHouseStatisticsProvider(today=TODAY).event_volume(self.team_id) is None
+            tags = get_query_tags()
+            assert tags.plan_fingerprint == "caller"
+            assert tags.estimated_rows == 100
+            assert tags.estimated_bytes == 200
+        assert lookup_tags is not None
+        assert lookup_tags.plan_fingerprint is None
+        assert lookup_tags.estimated_rows is None
+        assert lookup_tags.estimated_bytes is None

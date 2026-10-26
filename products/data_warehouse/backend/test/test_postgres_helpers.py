@@ -5,6 +5,9 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
+from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
+
+from products.data_warehouse.backend.facade.sources import DIRECT_ESTIMATED_ROW_COUNT_OPTION
 from products.data_warehouse.backend.postgres_helpers import get_postgres_source_location, reconcile_postgres_schemas
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.facade.source_management import (
@@ -129,3 +132,54 @@ class TestReconcilePostgresSchemasLockOrder(APIBaseTest):
             reconcile_postgres_schemas(source=source, source_schemas=source_schemas, team_id=self.team.pk)
 
         assert saved_names == ["table_a", "table_b"]
+
+
+class TestReconcilePostgresSchemasRowEstimate(APIBaseTest):
+    def test_direct_table_keeps_the_catalog_row_estimate_for_the_planner(self) -> None:
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={"host": "localhost", "port": 5432, "schema": "public"},
+        )
+        schema = ExternalDataSchema.objects.create(
+            team_id=self.team.pk, source_id=source.pk, name="orders", should_sync=True
+        )
+
+        reconcile_postgres_schemas(
+            source=source,
+            source_schemas=[
+                SourceSchema(
+                    name="orders",
+                    supports_incremental=False,
+                    supports_append=False,
+                    columns=[("id", "integer", False)],
+                    estimated_row_count=812_000,
+                )
+            ],
+            team_id=self.team.pk,
+        )
+
+        schema.refresh_from_db()
+        assert schema.table is not None
+        assert schema.table.options[DIRECT_ESTIMATED_ROW_COUNT_OPTION] == 812_000
+        definition = schema.table.hogql_definition()
+        assert isinstance(definition, DirectPostgresTable)
+        assert definition.estimated_row_count == 812_000
+
+        # A refresh whose discovery could not read the catalog keeps the last figure rather than dropping it.
+        reconcile_postgres_schemas(
+            source=source,
+            source_schemas=[
+                SourceSchema(
+                    name="orders", supports_incremental=False, supports_append=False, columns=[("id", "integer", False)]
+                )
+            ],
+            team_id=self.team.pk,
+        )
+        schema.table.refresh_from_db()
+        assert schema.table.options[DIRECT_ESTIMATED_ROW_COUNT_OPTION] == 812_000

@@ -2,6 +2,8 @@ import dataclasses
 from time import sleep
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, Optional, Union, cast
 
+from django.conf import settings as django_settings
+
 from opentelemetry import trace
 
 from posthog.schema import (
@@ -23,7 +25,9 @@ from posthog.hogql.constants import (
     get_default_hogql_global_settings,
     get_default_limit_for_context,
 )
+from posthog.hogql.cost.estimate import estimate_scan
 from posthog.hogql.cost.fingerprint import fingerprint_query
+from posthog.hogql.cost.statistics import ClickHouseStatisticsProvider, StatisticsProvider
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.direct_sql_table import DirectSQLTable
 from posthog.hogql.database.schema.duckdb_table_functions import (
@@ -121,6 +125,9 @@ class HogQLQueryExecutor:
     modifiers: Optional[HogQLQueryModifiers] = None
     limit_context: Optional[LimitContext] = LimitContext.QUERY
     timings: HogQLTimings = dataclasses.field(default_factory=HogQLTimings)
+    statistics_provider: StatisticsProvider = dataclasses.field(
+        default_factory=ClickHouseStatisticsProvider, repr=False
+    )
     pretty: Optional[bool] = True
     context: HogQLContext = dataclasses.field(default_factory=lambda: HogQLQueryExecutor.__uninitialized_context)
     hogql_context: Optional[HogQLContext] = None
@@ -647,6 +654,27 @@ class HogQLQueryExecutor:
         except Exception:
             return None
 
+    def _estimated_rows(self) -> int | None:
+        if not django_settings.HOGQL_SCAN_ESTIMATE_AT_EXECUTION:
+            return None
+        try:
+            with self.timings.measure("scan_estimate"):
+                context = self.hogql_context or self.context
+                if context.property_metadata is None and self.clickhouse_context is not None:
+                    # Printing already loaded the property definitions onto the ClickHouse context. Sharing
+                    # them keeps the estimator from repeating that Postgres read on every execution.
+                    context = dataclasses.replace(context, property_metadata=self.clickhouse_context.property_metadata)
+                resolved = resolve_types(clone_expr(self.select_query), context, dialect="clickhouse")
+                estimate = estimate_scan(resolved, context, self.statistics_provider)
+                # ``read_rows`` covers every table the query touched, so a total that leaves a table out would
+                # be scored against a number it never tried to predict.
+                if estimate is None or any(table.precision != "measured" for table in estimate.tables):
+                    return None
+                return estimate.rows
+        except Exception:
+            # Advisory statistics must not prevent an otherwise valid query from running.
+            return None
+
     @tracer.start_as_current_span("HogQLQueryExecutor._execute_direct_sql_query")
     def _execute_direct_sql_query(self, adapter: DirectSQLAdapter | None = None) -> None:
         assert self.direct_sql is not None
@@ -943,6 +971,7 @@ class HogQLQueryExecutor:
         clickhouse_context = self.clickhouse_context
         if clickhouse_context is None:
             raise ValueError("Cannot execute ClickHouse query: ClickHouse context was not prepared")
+        estimated_rows = self._estimated_rows()
         timings_dict = self.timings.to_dict()
         with self.timings.measure("clickhouse_execute"):
             with self.timings.measure("extract_hogql_features"):
@@ -958,6 +987,7 @@ class HogQLQueryExecutor:
                 hogql_features=hogql_features,
                 **self.context.read_tags(),
                 plan_fingerprint=plan_fingerprint,
+                estimated_rows=estimated_rows,
                 timings=timings_dict,
                 modifiers=(
                     {k: v for k, v in self.modifiers.model_dump().items() if v is not None} if self.modifiers else {}
@@ -1053,6 +1083,7 @@ class HogQLQueryExecutor:
                     hogql_ast=self.select_query,
                     prepared_ast=self.clickhouse_prepared_ast,
                     printed_sql=self.clickhouse_sql,
+                    statistics_provider=self.statistics_provider,
                 )
 
     @tracer.start_as_current_span("HogQLQueryExecutor.generate_clickhouse_sql")

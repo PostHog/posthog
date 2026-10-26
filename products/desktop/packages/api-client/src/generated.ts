@@ -4266,6 +4266,38 @@ export namespace Schemas {
          */
         type: string;
     };
+    export type ScanEstimatePrecision = "measured" | "size_only" | "unknown";
+    export type ScanEstimateSource =
+        | "events"
+        | "clickhouse"
+        | "warehouse"
+        | "direct"
+        | "static";
+    export type ScanEstimateTimeRange = "bounded" | "open";
+    export type TableScanEstimate = {
+        bytes?: (number | null) | undefined;
+        days?: (number | null) | undefined;
+        events?: (Array<string> | null) | undefined;
+        /**
+         * The table as the query names it.
+         */
+        name: string;
+        precision: ScanEstimatePrecision;
+        rows?: (number | null) | undefined;
+        source: ScanEstimateSource;
+        time_range?: (ScanEstimateTimeRange | null) | undefined;
+    };
+    export type ScanEstimate = {
+        /**
+         * Sum of the rows of every table entry that has one.
+         */
+        rows: number;
+        tables: Array<TableScanEstimate>;
+        /**
+         * True when the query reads at most `rows` of the tables that have a number: an indexed filter went unmodeled, or a table is known only by its size. False when every table is measured.
+         */
+        upper_bound: boolean;
+    };
     export type HogQLMetadataResponse = {
         ch_table_names?: (Array<string> | null) | undefined;
         errors: Array<HogQLNotice>;
@@ -4275,6 +4307,7 @@ export namespace Schemas {
         notices: Array<HogQLNotice>;
         output_columns?: (Array<HogQLMetadataColumn> | null) | undefined;
         query?: (string | null) | undefined;
+        scan_estimate?: (ScanEstimate | null) | undefined;
         table_names?: (Array<string> | null) | undefined;
         warnings: Array<HogQLNotice>;
     };
