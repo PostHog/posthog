@@ -129,17 +129,15 @@ function ClassifierTagsField({ scannerId }: { scannerId: string }): JSX.Element 
                 label={
                     <span className="flex w-full flex-wrap items-center justify-between gap-2">
                         Categories
-                        <span className="flex flex-wrap items-center gap-1">
-                            <LemonButton
-                                size="xsmall"
-                                type="secondary"
-                                disabledReason={hasTags ? undefined : 'No categories to clear'}
-                                onClick={() => clearClassifierTags()}
-                                data-attr="replay-vision-clear-categories"
-                            >
-                                Clear all
-                            </LemonButton>
-                        </span>
+                        <LemonButton
+                            size="xsmall"
+                            type="secondary"
+                            disabledReason={hasTags ? undefined : 'No categories to clear'}
+                            onClick={() => clearClassifierTags()}
+                            data-attr="replay-vision-clear-categories"
+                        >
+                            Clear all
+                        </LemonButton>
                     </span>
                 }
             >
