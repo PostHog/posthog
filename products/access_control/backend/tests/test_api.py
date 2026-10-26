@@ -133,12 +133,14 @@ class TestSetObjectAccessControl(BaseTest):
             assert self._other_user_level() == (level or "none")
         logs = list(
             ActivityLog.objects.filter(
-                team=self.team, scope="AccessControl", detail__name=f"dashboard {self.dashboard.id}"
+                team_id=self.team.id, scope="AccessControl", detail__name=f"dashboard {self.dashboard.id}"
             ).order_by("created_at")
         )
         assert [log.activity for log in logs] == ["created", "updated", "deleted"]
         assert len({log.item_id for log in logs}) == 1
-        assert logs[1].detail["changes"] == [
+        detail = logs[1].detail
+        assert detail is not None
+        assert detail["changes"] == [
             {
                 "type": "AccessControl",
                 "field": "access_level",

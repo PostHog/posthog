@@ -235,6 +235,7 @@ class CustomerTaskAPI(APIBaseTest):
             ("status", "status", True, True),
             ("account", "account", True, True),
             ("assign", "assign", True, True),
+            ("assign with existing access", "assign existing", True, True),
             ("unassign", "unassign", True, True),
             ("archive", "archive", True, True),
             ("restore", "restore", True, True),
@@ -245,9 +246,10 @@ class CustomerTaskAPI(APIBaseTest):
     def test_bulk_update_query_count_does_not_grow_with_batch_size(
         self, _name: str, action: str, different_accounts: bool, different_assignees: bool
     ) -> None:
-        self.organization.available_product_features.append(
-            {"name": AvailableFeature.ROLE_BASED_ACCESS, "key": AvailableFeature.ROLE_BASED_ACCESS}
-        )
+        self.organization.available_product_features = [
+            {"name": feature, "key": feature}
+            for feature in (AvailableFeature.ACCESS_CONTROL, AvailableFeature.ROLE_BASED_ACCESS)
+        ]
         self.organization.save(update_fields=["available_product_features"])
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save(update_fields=["level"])
@@ -255,7 +257,7 @@ class CustomerTaskAPI(APIBaseTest):
             [Account(team_id=self.team.id, name=f"Account {i}") for i in range(101 if different_accounts else 1)]
         )
         assignees = User.objects.bulk_create(
-            [User(email=f"assignee-{i}@example.com") for i in range(101 if different_assignees else 1)]
+            [User(email=f"assignee-{i}@example.com") for i in range(102 if different_assignees else 1)]
         )
         memberships = OrganizationMembership.objects.bulk_create(
             [OrganizationMembership(organization=self.organization, user=user) for user in assignees]
@@ -283,7 +285,7 @@ class CustomerTaskAPI(APIBaseTest):
                 for i in range(101)
             ]
         )
-        if action in ("assign", "unassign"):
+        if action in ("assign", "assign existing", "unassign"):
             AccessControl.objects.bulk_create(
                 [
                     AccessControl(
@@ -296,12 +298,25 @@ class CustomerTaskAPI(APIBaseTest):
                     for i, task in enumerate(tasks)
                 ]
             )
+        if action == "assign existing":
+            AccessControl.objects.bulk_create(
+                [
+                    AccessControl(
+                        team=self.team,
+                        resource="customer_task",
+                        resource_id=str(task.id),
+                        organization_member=memberships[-1],
+                        access_level="viewer",
+                    )
+                    for task in tasks
+                ]
+            )
         updates: dict[str, object]
         if action == "account":
             replacement = Account.objects.for_team(self.team.id).create(team_id=self.team.id, name="Replacement")
             updates = {"account_id": str(replacement.id)}
-        elif action == "assign":
-            updates = {"assigned_to_id": self.user.id}
+        elif action in ("assign", "assign existing"):
+            updates = {"assigned_to_id": assignees[-1].id}
         elif action == "unassign":
             updates = {"assigned_to_id": None}
         elif action in ("archive", "restore"):
@@ -325,19 +340,25 @@ class CustomerTaskAPI(APIBaseTest):
         for operation in ("SELECT", "INSERT", "UPDATE", "DELETE"):
             assert query_counts[1][operation] <= query_counts[0][operation] + 1, query_counts
         assert CustomerTaskActivity.objects.for_team(self.team.id).count() == (0 if action == "unchanged" else 101)
-        if action in ("assign", "unassign"):
+        if action in ("assign", "assign existing", "unassign"):
             assert not AccessControl.objects.filter(
                 team=self.team,
                 resource="customer_task",
-                organization_member_id__in=[member.id for member in memberships],
+                organization_member_id__in=[member.id for member in memberships[:-1]],
             ).exists()
             assert AccessControl.objects.filter(
-                team=self.team, resource="customer_task", organization_member=self.organization_membership
-            ).count() == (101 if action == "assign" else 0)
-            assert ActivityLog.objects.filter(team=self.team, scope="AccessControl", activity="deleted").count() == 101
-            assert ActivityLog.objects.filter(team=self.team, scope="AccessControl", activity="created").count() == (
-                101 if action == "assign" else 0
+                team=self.team, resource="customer_task", organization_member=memberships[-1]
+            ).count() == (0 if action == "unassign" else 101)
+            assert (
+                ActivityLog.objects.filter(team_id=self.team.id, scope="AccessControl", activity="deleted").count()
+                == 101
             )
+            assert ActivityLog.objects.filter(
+                team_id=self.team.id, scope="AccessControl", activity="created"
+            ).count() == (101 if action == "assign" else 0)
+            assert ActivityLog.objects.filter(
+                team_id=self.team.id, scope="AccessControl", activity="updated"
+            ).count() == (101 if action == "assign existing" else 0)
 
     @parameterized.expand(
         [
