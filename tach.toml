@@ -1080,6 +1080,8 @@ depends_on = [
     "products.annotations",
     # MCP connector calls made with the viewer's own installation (via the mcp_store facade).
     "products.mcp_store",
+    # ph.tools calls run on the PostHog MCP server as the viewer (via the webmcp facade).
+    "products.webmcp",
     # Object access checks on canvases served as contracts (via the access_control facade).
     "products.access_control",
 ]
@@ -1679,6 +1681,7 @@ depends_on = [
     "products.dashboards",
     "products.data_catalog",
     "products.error_tracking",
+    "products.experiments",
     "products.feature_flags",
     "products.product_analytics",
     "products.signals",

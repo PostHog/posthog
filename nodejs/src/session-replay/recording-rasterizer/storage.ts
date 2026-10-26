@@ -59,6 +59,7 @@ const FORMAT_META: Record<string, { ext: string; contentType: string }> = {
     webm: { ext: 'webm', contentType: 'video/webm' },
     gif: { ext: 'gif', contentType: 'image/gif' },
     png: { ext: 'png', contentType: 'image/png' },
+    webp: { ext: 'webp', contentType: 'image/webp' },
 }
 
 export async function uploadToS3(
@@ -66,7 +67,7 @@ export async function uploadToS3(
     bucket: string,
     keyPrefix: string,
     id: string,
-    format: 'mp4' | 'webm' | 'gif' | 'png' = 'mp4',
+    format: 'mp4' | 'webm' | 'gif' | 'png' | 'webp' = 'mp4',
     onProgress?: () => void
 ): Promise<string> {
     const { ext, contentType } = FORMAT_META[format] || FORMAT_META.mp4

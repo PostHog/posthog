@@ -3,6 +3,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
+import pytest
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
@@ -40,6 +41,7 @@ from products.signals.backend.anomaly_scores.scoring import (
     bucket_end,
     buckets_to_score,
     fetch_buckets,
+    history_buckets,
     query_cost,
     score_insight,
     score_series,
@@ -376,29 +378,46 @@ class TestScoreInsight(SimpleTestCase):
         assert runner.call_args.kwargs["query"].dateRange.date_from == "-90d"
 
     @parameterized.expand([(interval.value, interval) for interval in DEFAULT_PROFILE.intervals])
-    def test_a_train_step_fits_every_series_at_each_default_interval(self, _name: str, interval: IntervalType) -> None:
+    def test_a_train_step_scores_a_backfill_like_score_series_and_stores_the_newest_fit(
+        self, _name: str, interval: IntervalType
+    ) -> None:
         buckets = [datetime(2024, 1, 1, tzinfo=UTC)]
         while len(buckets) < 400:
             buckets.append(bucket_end(buckets[-1], interval))
+        rng = np.random.default_rng(5)
+        # The step size grows with the level, so one fit before the backfill goes stale over its buckets.
+        steps = np.linspace(1, 40, len(buckets)) * (1 + rng.normal(0, 0.3, size=len(buckets)))
+        values = list(1000 + np.cumsum(steps))
         result = {
             "action": {"order": 0},
             "label": "pageview",
             "breakdown_value": None,
             "days": [bucket.strftime("%Y-%m-%d %H:%M:%S") for bucket in buckets],
-            "data": list(np.random.default_rng(5).normal(100, 10, size=len(buckets))),
+            "data": values,
         }
+        now = bucket_end(buckets[-1], interval)
         with patch("products.signals.backend.anomaly_scores.scoring.TrendsQueryRunner") as runner:
             runner.return_value.run.return_value = MagicMock(results=[result])
             scores = score_insight(
                 _insight([EventsNode(event="$pageview")], interval=interval),
                 Team(timezone="UTC"),
-                now=bucket_end(buckets[-1], interval),
+                now=now,
                 split=SplitRun(),
             )
 
         assert scores.run == ScoringRun.TRAIN and scores.artifacts is not None
         assert set(scores.artifacts) == {series.series_key for series in scores.series} != set()
-        assert all(point.score is not None for point in scores.series[0].points)
+        scoring = DEFAULT_PROFILE.intervals[interval]
+        expected = score_series(values, buckets, scoring=scoring, interval=interval, now=now)
+        points = scores.series[0].points
+        assert len(points) == DEFAULT_LIMITS.max_backfill_buckets
+        assert all(point.score is not None for point in points)
+        assert [(point.bucket_start, point.flag) for point in points] == [
+            (point.bucket_start, point.flag) for point in expected
+        ]
+        assert [point.score for point in points] == pytest.approx([point.score for point in expected])
+        newest_window = np.array(values[len(values) - (history_buckets(scoring) - 1) :], dtype=float)
+        assert scores.artifacts[scores.series[0].series_key] == get_detector(scoring.detector).fit(newest_window)
 
 
 _IDENTITY = StateIdentity(interval=IntervalType.DAY, detector_version="v1", query_hash="q1")

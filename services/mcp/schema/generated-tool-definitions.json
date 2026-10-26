@@ -7902,7 +7902,7 @@
         }
     },
     "inbox-reports-list": {
-        "description": "List signal reports for the current project. A signal report is a cluster of related observations (signals) that PostHog has aggregated into a single issue or trend. Reports surface in the Inbox. Supports filtering by status (potential, candidate, in_progress, pending_input, ready, resolved, failed, suppressed), free-text search across title and summary, source_product (e.g. error_tracking, session_replay), suggested_reviewers, `unclaimed`, and `assignee=me`. Claimed reports remain actionable and visible; use `unclaimed=true` to pick work that has no owner and no draft, open, or unknown PR. Some statuses are hidden by default (currently suppressed); pass `include_all_statuses=true` to list reports in every status. Do this when deduplicating against the full inbox state, and read each row's `status` (plus `suppression_source`, `dismissal_reason`, and `dismissal_note` on suppressed rows) before acting. A suppressed row's `suppression_source` says whether someone dismissed it (`dismissed`) or a judge held it back before anyone saw it (`safety_judge`, `not_actionable`, `system`). For picking up work, filter to `ready` — earlier statuses are still moving through the pipeline, and `pending_input` reports are waiting on a human. Each report's full work log, including signal findings, judgments, and log entries, is readable via inbox-report-artefacts-list; read it before acting on a report. Results are paginated and ordered by '-is_suggested_reviewer,status,-updated_at' by default. To answer \"what should I look at next\", pass `view=actionable` with `use_priority_preference=true`, `sort=priority`, and `limit=10`: that returns ready, actionable reports that have no implementation PR yet, at or above the requesting user's personal PR-generation threshold, falling back to the project threshold. `use_priority_preference` selects which priorities to include, and does not order them, so pass `sort=priority` to put P0 first; the default ordering can put a recently updated P4 above an older P0. Without `limit` a page holds up to 100 reports, each with its summary. To answer \"what needs me\", pass `view=for_you` with `sort=priority`: that returns the open, actionable reports that wait for the requesting user's input, that they claimed, or that name them as a suggested reviewer, and `count` gives how many there are in total. The other views are `needs_input` (waiting on a human), `needs_decision` (failed reports, plus actionable ready or pending-input reports without an implementation PR), `monitoring` (an implementation PR is open), `resolved`, `dismissed` (suppressed by a person, an agent, a merge, or a closed PR), `held_back` (suppressed by a judge, with nobody's review yet), `not_actionable`, and `all`. Narrow by reviewer with `scope=for_me`, or `scope=teammate` plus `teammate_uuid`; the default `scope=entire_project` searches every report. `priority`, `source_product`, and `scout` each take a comma-separated list. To find the self-driving reports for one source record — e.g. what the inbox already investigated for a specific support ticket — pass that record's id as `source_id` together with exactly one `source_product` (for a support ticket: `source_product=conversations` and the ticket's UUID as `source_id`); add `include_all_statuses=true` to include dismissed ones. Each row includes typed impact metric metadata and any accessible cached snapshot, but omits live query definitions and comparisons. Queryless legacy or malformed metrics are always redacted. Listing reports does not execute metric queries. Each row's `ranking.predictions` carries the inbox ranking model's predicted probability and lift per outcome (`open`, `action`, `fix`). Lift 1.0 is an average report. A prediction is a forecast, not the report's state, and `status: unscored` is not a low score. Order with `ordering=-ranking_<outcome>`, filter with `ranking_min_lift` and `ranking_min_probability` (for example `fix:2`), and read inbox-ranking-outcomes-list for what each outcome means.",
+        "description": "List signal reports for the current project. A signal report is a cluster of related observations (signals) that PostHog has aggregated into a single issue or trend. Reports surface in the Inbox. Supports filtering by status (potential, candidate, in_progress, pending_input, ready, resolved, failed, suppressed), free-text search across title and summary, source_product (e.g. error_tracking, session_replay), suggested_reviewers, `unclaimed`, and `assignee=me`. Claimed reports remain actionable and visible; use `unclaimed=true` to pick work that has no owner and no draft, open, or unknown PR. Some statuses are hidden by default (currently suppressed); pass `include_all_statuses=true` to list reports in every status. Do this when deduplicating against the full inbox state, and read each row's `status` (plus `suppression_source`, `dismissal_reason`, and `dismissal_note` on suppressed rows) before acting. A suppressed row's `suppression_source` says whether someone dismissed it (`dismissed`) or a judge held it back before anyone saw it (`safety_judge`, `not_actionable`, `system`). For picking up work, filter to `ready` — earlier statuses are still moving through the pipeline, and `pending_input` reports are waiting on a human. Each report's full work log, including signal findings, judgments, and log entries, is readable via inbox-report-artefacts-list; read it before acting on a report. Results are paginated and ordered by '-is_suggested_reviewer,status,-updated_at' by default. To answer \"what should I look at next\", pass `view=actionable` with `use_priority_preference=true`, `sort=priority`, and `limit=10`: that returns ready, actionable reports that have no implementation PR yet, at or above the requesting user's personal PR-generation threshold, falling back to the project threshold. `use_priority_preference` selects which priorities to include, and does not order them, so pass `sort=priority` to put P0 first; the default ordering can put a recently updated P4 above an older P0. Without `limit` a page holds up to 100 reports, each with its summary. To answer \"what needs me\", pass `view=for_you` with `sort=priority`: that returns the open, actionable reports that wait for the requesting user's input, that they claimed, or that name them as a suggested reviewer, and `count` gives how many there are in total. The other views are `needs_input` (waiting on a human), `needs_decision` (failed reports, plus actionable ready or pending-input reports without an implementation PR), `monitoring` (an implementation PR is open), `resolved`, `dismissed` (suppressed by a person, an agent, a merge, or a closed PR), `held_back` (suppressed by a judge, with nobody's review yet), `not_actionable`, and `all`. Narrow by reviewer with `scope=for_me`, or `scope=teammate` plus `teammate_uuid`; the default `scope=entire_project` searches every report. `priority`, `source_product`, and `scout` each take a comma-separated list. To find the self-driving reports for one source record — e.g. what the inbox already investigated for a specific support ticket — pass that record's id as `source_id` together with exactly one `source_product` (for a support ticket: `source_product=conversations` and the ticket's UUID as `source_id`); add `include_all_statuses=true` to include dismissed ones. Each row includes typed impact metric metadata and any accessible cached snapshot, but omits live query definitions and comparisons. Queryless legacy or malformed metrics are always redacted. Listing reports does not execute metric queries. Each row's `ranking.predictions` carries the inbox ranking model's predicted probability and lift per outcome (`open`, `action`, `fix`), and `readable`. Lift 1.0 is an average report. `readable: false` means training could not measure that outcome, so rank and filter on it with caution. A prediction is a forecast, not the report's state, and `status: unscored` is not a low score. Order with `ordering=-ranking_<outcome>`, filter with `ranking_min_lift` and `ranking_min_probability` (for example `fix:2`), and read inbox-ranking-outcomes-list for what each outcome means.",
         "category": "Signals",
         "feature": "signals",
         "summary": "List signal reports",
@@ -8245,6 +8245,38 @@
             "openWorldHint": true,
             "readOnlyHint": true
         }
+    },
+    "integrations-email-status-retrieve": {
+        "description": "Get the setup progress of an email sender's domain by integration ID. Returns the overall status, the three setup steps, and every DNS record to publish with its current status (pending, found, verified). Poll it after adding DNS records until status is verified, waiting at least 10 seconds between calls. Pass refresh=true right after changing DNS to skip the 10 second cache. It does not change DNS or SES, and it does not mark the sender verified: once status is verified, call integrations-email-verify-create.",
+        "category": "Integrations",
+        "feature": "integrations",
+        "summary": "Get email sending domain status",
+        "title": "Get email sending domain status",
+        "required_scopes": ["integration:read"],
+        "api_operations": ["GET /api/projects/{project_id}/integrations/{id}/email/status/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "workflows-email-domain-agent-setup"
+    },
+    "integrations-email-verify-create": {
+        "description": "Record that an email sender's domain is verified, by integration ID, so its senders can send. Call it once integrations-email-status-retrieve reports status verified. It asks SES to check the domain again and returns status success when SES has verified it. Needs a project admin.",
+        "category": "Integrations",
+        "feature": "integrations",
+        "summary": "Verify email sending domain",
+        "title": "Verify email sending domain",
+        "required_scopes": ["integration:write"],
+        "api_operations": ["POST /api/projects/{project_id}/integrations/{id}/email/verify/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "workflows-email-domain-agent-setup"
     },
     "integrations-github-repos-retrieve": {
         "description": "List the repositories accessible to a GitHub integration (by integration ID). Serves the cached repository list from the GitHub App installation. Supports `search` (case-insensitive name match), `limit` (default 100, max 500), and `offset` query parameters. Returns repository id, name, and full_name (owner/repo), a has_more flag, a total count, and next_offset. When has_more is true, call again with `offset` set to next_offset to get the next page. Set `compact` to false only when you need the extra repository details. Use this to validate that a repository is accessible to the integration before referencing it (e.g. when creating a GitHub data warehouse source).",
@@ -10642,6 +10674,66 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        }
+    },
+    "message-categories-create": {
+        "description": "Create a message category, the topic a workflow message belongs to, such as a newsletter or product updates. Recipients can opt out of a marketing category, and sends skip the recipients who did. Use a transactional category for messages a recipient must get, such as receipts or password resets: those sends ignore opt-outs. Pass the returned id as message_category_id on a workflow email step, and set the step's message_category_type to the same category_type. The opt-out of messages step takes the id as its category_id input. Call message-categories-list first: the key must be unique in the project and can't change after creation.",
+        "category": "Messaging",
+        "feature": "messaging",
+        "summary": "Create a message category",
+        "title": "Create a message category",
+        "required_scopes": ["hog_flow:write"],
+        "api_operations": ["POST /api/projects/{project_id}/messaging_categories/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "message-categories-get": {
+        "description": "Get a message category by ID, with its key, name, descriptions, and category_type (marketing categories can be opted out of, transactional categories ignore opt-outs).",
+        "category": "Messaging",
+        "feature": "messaging",
+        "summary": "Get a message category",
+        "title": "Get a message category",
+        "required_scopes": ["hog_flow:read"],
+        "api_operations": ["GET /api/projects/{project_id}/messaging_categories/{id}/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "message-categories-list": {
+        "description": "List the project's message categories. Recipients can opt out of a marketing category, and transactional categories ignore opt-outs. Use a category's id as message_category_id on a workflow email step or as the category_id input of the opt-out of messages step, and its key as category_key in the opt-outs tools.",
+        "category": "Messaging",
+        "feature": "messaging",
+        "summary": "List message categories",
+        "title": "List message categories",
+        "required_scopes": ["hog_flow:read"],
+        "api_operations": ["GET /api/projects/{project_id}/messaging_categories/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "message-categories-update": {
+        "description": "Change a message category's name, description, public_description, or category_type. Only the fields you pass change, and the key can't change. Workflow steps keep the message_category_type they were saved with, so after a category_type change, update the message_category_type of the steps that use this category. A transactional send ignores opt-outs, so confirm a change to transactional with the user first.",
+        "category": "Messaging",
+        "feature": "messaging",
+        "summary": "Update a message category",
+        "title": "Update a message category",
+        "required_scopes": ["hog_flow:write"],
+        "api_operations": ["PATCH /api/projects/{project_id}/messaging_categories/{id}/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
         }
     },
     "metric-attribute-values-list": {

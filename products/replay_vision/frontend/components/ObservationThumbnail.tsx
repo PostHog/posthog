@@ -6,7 +6,7 @@ import { IconVideoCamera } from '@posthog/icons'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { getVisionObservationsThumbnailRetrieveUrl } from '../generated/api'
-import { ReplayObservationApi } from '../generated/api.schemas'
+import { ReplayObservationApi, VisionObservationsThumbnailRetrieveSize } from '../generated/api.schemas'
 
 interface ObservationThumbnailProps {
     observation: ReplayObservationApi
@@ -14,6 +14,8 @@ interface ObservationThumbnailProps {
     chapter?: number
     /** Sizing and shape come from the caller, since a table cell and a detail page want very different frames. */
     className?: string
+    /** `small` (up to 480px wide) for posters at most 240px wide, so it stays sharp at 2x. Defaults to `large`. */
+    size?: VisionObservationsThumbnailRetrieveSize
     children?: React.ReactNode
 }
 
@@ -24,6 +26,7 @@ export function ObservationThumbnail({
     observation,
     chapter,
     className,
+    size = VisionObservationsThumbnailRetrieveSize.Large,
     children,
 }: ObservationThumbnailProps): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
@@ -56,16 +59,9 @@ export function ObservationThumbnail({
     )
     const baseSrc =
         hasThumbnail && currentTeamId !== null && !failed
-            ? getVisionObservationsThumbnailRetrieveUrl(
-                  String(currentTeamId),
-                  observation.id,
-                  chapter === undefined ? undefined : { chapter }
-              )
+            ? getVisionObservationsThumbnailRetrieveUrl(String(currentTeamId), observation.id, { chapter, size })
             : undefined
-    const src =
-        baseSrc !== undefined && attempt > 0
-            ? `${baseSrc}${baseSrc.includes('?') ? '&' : '?'}retry=${attempt}`
-            : baseSrc
+    const src = baseSrc !== undefined && attempt > 0 ? `${baseSrc}&retry=${attempt}` : baseSrc
 
     const onError = (): void => {
         // One retry: the redirect target can blink, and the poster would stay blank for the whole mount.
