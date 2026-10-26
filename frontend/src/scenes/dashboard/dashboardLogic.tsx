@@ -1647,7 +1647,7 @@ export interface dashboardLogicMeta {
         widgetTiles: (tiles: DashboardTile[]) => DashboardTile[]
         tileGroupSectionsEnabled: (featureFlags: FeatureFlagsSet) => boolean
         tileGroupDisplay: (dashboard: DashboardType | null, placement: DashboardPlacement) => TileGroupDisplay
-        tileGroupKeys: (tileGroupSections: DashboardSection[], tileGroupDisplay: any) => Map<number, string>
+        tileGroupKeys: (tileGroupSections: DashboardSection[]) => Map<number, string>
         activeTileGroupTab: (
             tileGroupDisplay: any,
             tileGroupSections: DashboardSection[],
@@ -3759,14 +3759,17 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     ? 'tabs'
                     : 'sections',
         ],
-        /** The group each tile opens and closes with. In tabs, tiles outside any group form a tab of their own. */
+        /**
+         * The group each tile opens and closes with. Tiles outside any group share one key, so tiles that waited in a
+         * closed "Other tiles" tab still load after the dashboard switches to sections.
+         */
         tileGroupKeys: [
-            (s) => [s.tileGroupSections, s.tileGroupDisplay],
-            (tileGroupSections: DashboardSection[], tileGroupDisplay: TileGroupDisplay): Map<number, string> =>
+            (s) => [s.tileGroupSections],
+            (tileGroupSections: DashboardSection[]): Map<number, string> =>
                 new Map(
-                    tileGroupSections
-                        .filter((section) => section.kind === 'group' || tileGroupDisplay === 'tabs')
-                        .flatMap((section) => section.tiles.map((tile) => [tile.id, getSectionGroupKey(section)]))
+                    tileGroupSections.flatMap((section) =>
+                        section.tiles.map((tile) => [tile.id, getSectionGroupKey(section)])
+                    )
                 ),
         ],
         activeTileGroupTab: [
@@ -4288,7 +4291,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
     })),
-    subscriptions(({ actions, cache }) => ({
+    subscriptions(({ actions, values, cache }) => ({
+        // Every way a group opens ends here: a toggle, a tab click or link, a highlighted insight, or a display switch.
+        collapsedTileIds: (collapsedTileIds: Set<number>) => {
+            openTileGroupsWaiting(values.tileGroupKeys, collapsedTileIds, values.waitingTileRefresh).forEach(
+                (groupKey) => actions.refreshTileGroup(groupKey)
+            )
+        },
         nextAllowedDashboardRefresh: (deadline: Dayjs | null) => {
             cache.disposables.dispose('dashboardRefreshTimer')
             if (!deadline || !deadline.isAfter(now())) {
@@ -4429,7 +4438,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
             } else if (insightId !== values.revealedTileGroup?.insightId) {
                 // Once per link, so a later URL change does not reopen a group the viewer closed.
                 actions.setRevealedTileGroup({ insightId, groupKey })
-                actions.refreshTileGroup(groupKey)
             }
         },
         updateTileGroupSectionLayout: ({ layouts }) => {
@@ -5475,9 +5483,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 tile_count: values.tiles.filter((tile) => tile.group_key === groupKey).length,
             })
             dashboardTileGroupChoicesLogic.actions.setTileGroupCollapsed(props.id, groupKey, collapse)
-            if (!collapse) {
-                actions.refreshTileGroup(groupKey)
-            }
         },
         selectTileGroupTab: ({ sectionKey }) => {
             const section = values.tileGroupSections.find((section) => section.key === sectionKey)
@@ -5489,7 +5494,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 ungrouped: section.kind === 'tiles',
                 tile_count: section.tiles.length,
             })
-            actions.refreshTileGroup(getSectionGroupKey(section))
         },
         changeTileGroupDisplay: ({ groupDisplay }) => {
             actions.triggerDashboardUpdate({ group_display: groupDisplay })
@@ -6574,9 +6578,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
         '/dashboard/:id': (_params, searchParams, _hashParams, { method }) => {
             actions.revealHighlightedInsight()
-            if (method === 'POP' && values.activeTileGroupTab !== null) {
-                actions.refreshTileGroup(values.activeTileGroupTab)
-            }
             actions.setSubscriptionMode(false, undefined)
             actions.setTextTileId(null)
             actions.setButtonTileId(null)
