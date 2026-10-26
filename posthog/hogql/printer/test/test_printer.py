@@ -4062,6 +4062,9 @@ class TestPrinter(BaseTest):
     def test_table_top_level_settings_conflict_between_tables(self):
         db = Database()
         db.get_table("preaggregation_results").top_level_settings = HogQLQuerySettings(load_balancing="round_robin")
+        db.get_table("experiment_exposures_preaggregated").top_level_settings = HogQLQuerySettings(
+            load_balancing="in_order"
+        )
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=db)
         query_both = parse_select(
             "SELECT a.job_id, b.job_id "
