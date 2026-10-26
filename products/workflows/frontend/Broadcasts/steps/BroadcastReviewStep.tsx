@@ -1,7 +1,7 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 
 import { IconWarning } from '@posthog/icons'
-import { LemonButton, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonLabel, Spinner } from '@posthog/lemon-ui'
 
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
@@ -11,10 +11,13 @@ import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { AiEmailDraftStatus } from '../../MessageAudience/AiEmailDraftStatus'
 import { optOutCategoriesLogic } from '../../OptOuts/optOutCategoriesLogic'
 import { MissingRecipientEmailBanner } from '../../Workflows/hogflows/steps/components/MissingRecipientEmailBanner'
+import { RealtimeCohortCalculatingBanner } from '../../Workflows/hogflows/steps/components/RealtimeCohortCalculatingBanner'
+import { isRealtimeCohortCalculating } from '../../Workflows/hogflows/steps/realtimeCohortStatus'
 import { BroadcastAudienceCohorts } from '../audience/BroadcastAudienceCohorts'
 import { broadcastAudienceCohortsLogic } from '../audience/broadcastAudienceCohortsLogic'
 import { BroadcastEmailPreview } from '../BroadcastEmailPreview'
 import { BroadcastWizardStep, SENDERS_LOAD_FAILED_ERROR, broadcastWizardLogic } from '../broadcastWizardLogic'
+import { BroadcastReviewTestEmail } from './BroadcastReviewTestEmail'
 
 function ReviewRow({
     label,
@@ -75,11 +78,13 @@ export function BroadcastReviewStep(): JSX.Element {
         emailSettings,
         missingRecipientEmail,
         aiEmailDraftStatus,
+        email,
+        launching,
     } = useValues(broadcastWizardLogic)
     const { categories } = useValues(optOutCategoriesLogic())
     const category = categories.find((item) => item.id === emailSettings.messageCategoryId)
     const { props } = useMountedLogic(broadcastWizardLogic)
-    const { openInWorkflowEditor } = useActions(broadcastWizardLogic)
+    const { openInWorkflowEditor, setEmail } = useActions(broadcastWizardLogic)
     const { nonCohortAudience } = useValues(broadcastAudienceCohortsLogic(props))
     const { integrationsLoading } = useValues(integrationsLogic)
     const { loadIntegrations } = useActions(integrationsLogic)
@@ -106,11 +111,13 @@ export function BroadcastReviewStep(): JSX.Element {
                 <p className="m-0 text-secondary">Check everything before sending. Emails can't be unsent.</p>
             </div>
 
+            <BroadcastReviewTestEmail />
+
             <div className="flex flex-col gap-3 rounded-lg border border-border bg-surface-primary p-4">
                 <ReviewRow label="Recipients" step="recipients">
                     {blastRadiusLoading ? (
                         <Spinner />
-                    ) : blastRadius ? (
+                    ) : isRealtimeCohortCalculating(blastRadius?.realtime_cohort) ? null : blastRadius ? (
                         <span>
                             Approximately {humanFriendlyNumber(blastRadius.affected)} of{' '}
                             {humanFriendlyNumber(blastRadius.total)} people
@@ -118,6 +125,7 @@ export function BroadcastReviewStep(): JSX.Element {
                     ) : (
                         <span className="text-warning">Couldn't estimate the audience size</span>
                     )}
+                    <RealtimeCohortCalculatingBanner status={blastRadius?.realtime_cohort} />
                     {audienceProperties.length > 0 ? (
                         <div className="flex flex-col gap-2">
                             {nonCohortAudience.length > 0 ? (
@@ -157,7 +165,38 @@ export function BroadcastReviewStep(): JSX.Element {
                     )}
                     {emailSettings.utmTagsEnabled && <div className="text-xs text-secondary">Links get UTM tags.</div>}
                     {aiEmailDraftStatus ? <AiEmailDraftStatus {...aiEmailDraftStatus} /> : null}
-                    <BroadcastEmailPreview />
+                    <div className="@container">
+                        <div className="grid grid-cols-1 gap-2 @lg:grid-cols-2">
+                            <div className="flex flex-col gap-1">
+                                <LemonLabel htmlFor="broadcast-review-subject">Subject</LemonLabel>
+                                <LemonInput
+                                    id="broadcast-review-subject"
+                                    value={email.subject ?? ''}
+                                    onChange={(subject) => setEmail({ ...email, subject })}
+                                    placeholder="Add a subject"
+                                    disabledReason={launching ? 'Sending the broadcast' : undefined}
+                                    data-attr="broadcast-review-subject"
+                                />
+                            </div>
+                            <div className="flex flex-col gap-1">
+                                <LemonLabel
+                                    htmlFor="broadcast-review-preheader"
+                                    info="The preview text inboxes show next to the subject."
+                                >
+                                    Preheader
+                                </LemonLabel>
+                                <LemonInput
+                                    id="broadcast-review-preheader"
+                                    value={email.preheader ?? ''}
+                                    onChange={(preheader) => setEmail({ ...email, preheader })}
+                                    placeholder="Optional"
+                                    disabledReason={launching ? 'Sending the broadcast' : undefined}
+                                    data-attr="broadcast-review-preheader"
+                                />
+                            </div>
+                        </div>
+                    </div>
+                    <BroadcastEmailPreview showTestButton={false} />
                 </ReviewRow>
 
                 <ReviewRow label="Schedule" step="schedule">

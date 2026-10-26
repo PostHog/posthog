@@ -8,6 +8,7 @@ import pytest
 
 from temporalio import activity
 from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
+from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
@@ -34,15 +35,19 @@ def _message(
     *,
     event_id: str | None = None,
     untagged: bool = False,
+    untagged_question: bool = False,
     text: str = "fix the bug",
 ) -> PostHogCodeSlackMentionWorkflowInputs:
+    # A top-level post is its own thread root.
+    thread_ts = ts if untagged_question else "100.0"
     return PostHogCodeSlackMentionWorkflowInputs(
-        event={"channel": "C1", "ts": ts, "thread_ts": "100.0", "user": "U1", "text": text},
+        event={"channel": "C1", "ts": ts, "thread_ts": thread_ts, "user": "U1", "text": text},
         integration_id=1,
         slack_team_id="T1",
         slack_event_id=event_id,
         user_id=42,
         untagged_followup=untagged,
+        untagged_question=untagged_question,
     )
 
 
@@ -98,6 +103,11 @@ class _Recorder:
         self.picker_workflow_id: str | None = None
         # True holds untagged replies back on the thread creator's `ask` mode.
         self.awaiting_confirmation = False
+        # True makes discovery report that the team is out of AI credits.
+        self.discover_usage_limited = False
+        self.untagged_question_verdict: bool | Literal["raise"] = True
+        # True holds an untagged question back on a private offer.
+        self.untagged_question_awaiting_confirmation = False
 
 
 def _fake_activities(rec: _Recorder) -> list:
@@ -125,6 +135,16 @@ def _fake_activities(rec: _Recorder) -> list:
         slack_user_id: str,
     ) -> bool:
         return rec.awaiting_confirmation
+
+    @activity.defn(name="classify_untagged_question_activity")
+    async def classify_untagged_question(inputs: PostHogCodeSlackMentionWorkflowInputs) -> bool:
+        if rec.untagged_question_verdict == "raise":
+            raise ApplicationError("classifier down", non_retryable=True)
+        return rec.untagged_question_verdict
+
+    @activity.defn(name="request_untagged_question_confirmation_activity")
+    async def request_untagged_question_confirmation(inputs: PostHogCodeSlackMentionWorkflowInputs) -> bool:
+        return rec.untagged_question_awaiting_confirmation
 
     @activity.defn(name="forward_posthog_code_followup_activity")
     async def forward(
@@ -191,7 +211,9 @@ def _fake_activities(rec: _Recorder) -> list:
         thread_messages: list[SlackThreadMessage],
         user_id: int,
     ) -> SlackRepoSelectionOutcome:
-        return SlackRepoSelectionOutcome(status="failed", repository=None, reason="agent crashed")
+        return SlackRepoSelectionOutcome(
+            status="failed", repository=None, reason="agent crashed", usage_limited=rec.discover_usage_limited
+        )
 
     @activity.defn(name="post_posthog_code_repo_picker_activity")
     async def post_picker(
@@ -284,6 +306,8 @@ def _fake_activities(rec: _Recorder) -> list:
         classify_followup,
         request_confirmation,
         has_task,
+        classify_untagged_question,
+        request_untagged_question_confirmation,
         forward,
         collect,
         cascade,
@@ -595,6 +619,21 @@ async def test_repo_picker_signal_resolves_and_queue_continues():
 
 
 @pytest.mark.asyncio
+async def test_usage_limited_discovery_ends_without_a_picker_or_a_task():
+    rec = _Recorder()
+    rec.cascade_modes["1.1"] = "agent_needed"
+    rec.discover_usage_limited = True
+
+    async with _Harness(rec) as h:
+        handle = await _signal_with_start(h.env, h.task_queue, f"wf-{uuid.uuid4()}", _message("1.1"))
+        await asyncio.wait_for(handle.result(), timeout=30)
+
+    assert not rec.picker_posted.is_set()
+    assert rec.created == []
+    assert rec.internal_errors == []
+
+
+@pytest.mark.asyncio
 async def test_hung_child_times_out_and_queue_continues(monkeypatch):
     # A child that never finishes used to stall the conversation forever: the queue
     # awaits it serially, so every later message in the thread sat behind it with no
@@ -616,8 +655,7 @@ async def test_hung_child_times_out_and_queue_continues(monkeypatch):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("carried_key_prefix", ["slack-app-mention-processing-", "posthog-code-mention-"])
-async def test_continue_as_new_carry_over_processes_pending_and_dedups_seen(carried_key_prefix: str):
+async def test_continue_as_new_carry_over_processes_pending_and_dedups_seen():
     rec = _Recorder()
     pending = _message("1.1", event_id="Ev-pending")
     already_seen = _message("1.2", event_id="Ev-seen")
@@ -632,10 +670,7 @@ async def test_continue_as_new_carry_over_processes_pending_and_dedups_seen(carr
             SlackAppMentionWorkflow.run,
             SlackAppMentionWorkflowInputs(
                 pending_messages=[pending],
-                processed_event_keys=[
-                    carried_key_prefix
-                    + derive_mention_workflow_id(already_seen).removeprefix("slack-app-mention-processing-")
-                ],
+                processed_event_keys=[derive_mention_workflow_id(already_seen)],
             ),
             id=f"wf-{uuid.uuid4()}",
             task_queue=h.task_queue,
@@ -661,3 +696,33 @@ async def test_deleted_trigger_message_creates_no_task_and_says_nothing():
 
     assert rec.created == []
     assert rec.internal_errors == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "verdict,awaiting_confirmation,expect_created",
+    [
+        # Nobody asked, so a failure says nothing in the channel either.
+        ("raise", False, False),
+        (False, False, False),
+        (True, True, False),
+        (True, False, True),
+    ],
+)
+async def test_untagged_question_stays_silent_until_its_mode_lets_it_answer(
+    verdict, awaiting_confirmation, expect_created
+):
+    rec = _Recorder()
+    rec.untagged_question_verdict = verdict
+    rec.untagged_question_awaiting_confirmation = awaiting_confirmation
+
+    async with _Harness(rec) as h:
+        handle = await _signal_with_start(
+            h.env, h.task_queue, f"wf-{uuid.uuid4()}", _message("1.1", untagged_question=True)
+        )
+        await asyncio.wait_for(handle.result(), timeout=30)
+
+    assert rec.internal_errors == []
+    assert rec.queued_marked == []
+    assert rec.processing_marked == []
+    assert bool(rec.created) is expect_created

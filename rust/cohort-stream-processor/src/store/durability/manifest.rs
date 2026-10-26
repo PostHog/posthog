@@ -6,7 +6,12 @@
 //!
 //! The positions are the consumer groups' committed offsets, read from the broker just before the
 //! checkpoint. Every commit follows a WAL fsync, so the checkpoint holds at least the state up to
-//! them, and replay from them re-folds only what per-key `AppliedOffsets` already skips.
+//! them, and replay from them re-folds only what per-key `AppliedOffsets` already skips. That
+//! holds only for this pod's own commits, so a manifest is built only from positions no other split
+//! stamped.
+//!
+//! The manifest records the split it was captured under. A restore accepts it on any pod whose
+//! partitions that split covers: its own lineage, or during a reshard its parent's.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -15,8 +20,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use super::format_version;
-use super::lineage::PodOrdinal;
-use crate::partitions::{InputPositions, InputTopic, ResumeOffset};
+use crate::partitions::{InputTopic, OwnedPositions, PartitionOwnership, ResumeOffset};
 
 /// Filename of the offset manifest, written as a sibling of the RocksDB checkpoint files and tracked
 /// by the planner like any other file, so it rides the S3 upload/restore.
@@ -24,7 +28,7 @@ pub const MANIFEST_FILENAME: &str = "offsets.json";
 
 /// Current on-disk shape version. Decode refuses any other, so a restore can tell a manifest written
 /// by another build from a corrupt one.
-pub const MANIFEST_VERSION: u32 = 2;
+pub const MANIFEST_VERSION: u32 = 3;
 
 /// Fields are private: the only constructors are [`Self::capture`] and decoding, and both refuse a
 /// slice that lacks a position on any input.
@@ -32,7 +36,7 @@ pub const MANIFEST_VERSION: u32 = 2;
 #[serde(try_from = "ManifestWire", into = "ManifestWire")]
 pub struct OffsetManifest {
     captured_at: DateTime<Utc>,
-    ordinal: PodOrdinal,
+    split: PartitionOwnership,
     inputs: BTreeSet<InputTopic>,
     slices: BTreeMap<u16, BTreeMap<InputTopic, ResumeOffset>>,
 }
@@ -57,7 +61,7 @@ pub enum ManifestError {
 struct ManifestWire {
     version: u32,
     captured_at: DateTime<Utc>,
-    ordinal: PodOrdinal,
+    split: PartitionOwnership,
     inputs: BTreeSet<InputTopic>,
     slices: BTreeMap<u16, BTreeMap<InputTopic, ResumeOffset>>,
 }
@@ -84,7 +88,7 @@ impl TryFrom<ManifestWire> for OffsetManifest {
         }
         Ok(Self {
             captured_at: wire.captured_at,
-            ordinal: wire.ordinal,
+            split: wire.split,
             inputs: wire.inputs,
             slices: wire.slices,
         })
@@ -96,7 +100,7 @@ impl From<OffsetManifest> for ManifestWire {
         Self {
             version: MANIFEST_VERSION,
             captured_at: manifest.captured_at,
-            ordinal: manifest.ordinal,
+            split: manifest.split,
             inputs: manifest.inputs,
             slices: manifest.slices,
         }
@@ -104,17 +108,17 @@ impl From<OffsetManifest> for ManifestWire {
 }
 
 impl OffsetManifest {
-    /// Record `positions` for every owned slice. Refuses an owned slice missing from any input's
-    /// positions, and an empty `owned`.
+    /// Record `positions` for every owned slice, under the split that read them. Refuses an owned
+    /// slice missing from any input's positions, and an empty `owned`.
     pub fn capture(
-        ordinal: PodOrdinal,
         owned: &BTreeSet<u16>,
-        positions: Vec<InputPositions>,
+        positions: OwnedPositions,
     ) -> Result<Self, ManifestError> {
         let slices = owned
             .iter()
             .map(|&partition| {
                 let offsets = positions
+                    .inputs()
                     .iter()
                     .filter_map(|input| {
                         let offset = input.offsets().get(&partition)?;
@@ -127,8 +131,9 @@ impl OffsetManifest {
         ManifestWire {
             version: MANIFEST_VERSION,
             captured_at: Utc::now(),
-            ordinal,
+            split: positions.split(),
             inputs: positions
+                .inputs()
                 .iter()
                 .map(|input| input.topic().clone())
                 .collect(),
@@ -165,8 +170,8 @@ impl OffsetManifest {
         self.captured_at
     }
 
-    pub fn ordinal(&self) -> PodOrdinal {
-        self.ordinal
+    pub fn split(&self) -> PartitionOwnership {
+        self.split
     }
 
     pub fn inputs(&self) -> &BTreeSet<InputTopic> {
@@ -185,8 +190,14 @@ mod tests {
     use serde_json::json;
     use tempfile::TempDir;
 
+    use crate::partitions::InputPositions;
+
     const EVENTS: &str = "cohort_stream_events";
     const MERGES: &str = "person_merge_events";
+
+    fn owned(inputs: Vec<InputPositions>) -> OwnedPositions {
+        OwnedPositions::for_test(PartitionOwnership::single(4), inputs)
+    }
 
     fn positions(topic: &str, offsets: &[(u16, i64)]) -> InputPositions {
         InputPositions::new(
@@ -200,20 +211,20 @@ mod tests {
 
     #[test]
     fn capture_round_trips_and_refuses_an_owned_slice_one_input_lacks() {
-        let owned = BTreeSet::from([0, 3]);
+        let slices = BTreeSet::from([0, 3]);
         let manifest = OffsetManifest::capture(
-            PodOrdinal::STANDALONE,
-            &owned,
-            vec![
+            &slices,
+            owned(vec![
                 positions(EVENTS, &[(0, 100), (3, 250)]),
                 positions(MERGES, &[(0, 0), (3, 7)]),
-            ],
+            ]),
         )
         .unwrap();
         let dir = TempDir::new().unwrap();
         manifest.write_to_dir(dir.path()).unwrap();
         let loaded = OffsetManifest::load_from_dir(dir.path()).unwrap();
         assert_eq!(loaded, manifest);
+        assert_eq!(loaded.split(), PartitionOwnership::single(4));
         assert_eq!(
             loaded.slice(3).unwrap()[&InputTopic::new(MERGES)],
             ResumeOffset::try_from(7).unwrap(),
@@ -221,12 +232,11 @@ mod tests {
         assert_eq!(loaded.slice(1), None);
 
         let err = OffsetManifest::capture(
-            PodOrdinal::STANDALONE,
-            &owned,
-            vec![
+            &slices,
+            owned(vec![
                 positions(EVENTS, &[(0, 100), (3, 250)]),
                 positions(MERGES, &[(0, 0)]),
-            ],
+            ]),
         )
         .unwrap_err();
         assert!(
@@ -234,27 +244,33 @@ mod tests {
             "{err:?}",
         );
         assert!(matches!(
-            OffsetManifest::capture(
-                PodOrdinal::STANDALONE,
-                &BTreeSet::new(),
-                vec![positions(EVENTS, &[])]
-            ),
+            OffsetManifest::capture(&BTreeSet::new(), owned(vec![positions(EVENTS, &[])])),
             Err(ManifestError::Empty),
         ));
     }
 
     #[test]
-    fn decode_refuses_another_format_an_incomplete_slice_a_negative_offset_and_no_slices() {
-        let wire = |version: u32, slices: serde_json::Value| {
+    fn decode_refuses_another_format_an_invalid_split_an_incomplete_slice_a_negative_offset_and_no_slices(
+    ) {
+        let split = json!({ "pods": 2, "ordinal": 1, "partitions": 4 });
+        let wire = |version: u32, split: &serde_json::Value, slices: serde_json::Value| {
             json!({
                 "version": version,
                 "captured_at": "2026-10-09T16:00:00Z",
-                "ordinal": 0,
+                "split": split,
                 "inputs": [EVENTS, MERGES],
                 "slices": slices,
             })
             .to_string()
         };
+        let format_two = json!({
+            "version": 2,
+            "captured_at": "2026-10-09T16:00:00Z",
+            "ordinal": 0,
+            "inputs": [EVENTS, MERGES],
+            "slices": { "0": { EVENTS: 1, MERGES: 2 } },
+        })
+        .to_string();
         let format_one = json!({
             "version": 1,
             "captured_at": "2026-10-09T16:00:00Z",
@@ -262,24 +278,45 @@ mod tests {
         })
         .to_string();
 
-        assert!(OffsetManifest::decode(
-            wire(2, json!({ "0": { EVENTS: 1, MERGES: 2 } })).as_bytes()
-        )
-        .is_ok());
+        let slice = || json!({ "1": { EVENTS: 1, MERGES: 2 } });
+
+        let decoded =
+            OffsetManifest::decode(wire(3, &split, slice()).as_bytes()).expect("format 3 decodes");
+        assert_eq!(
+            decoded.split(),
+            PartitionOwnership::new(
+                std::num::NonZeroU16::new(2).unwrap(),
+                crate::store::durability::PodOrdinal::from(1),
+                4
+            )
+            .unwrap(),
+        );
+        for (format, found) in [(&format_one, 1), (&format_two, 2)] {
+            assert!(
+                matches!(
+                    OffsetManifest::decode(format.as_bytes()),
+                    Err(ManifestError::UnsupportedFormat { found: f }) if f == found,
+                ),
+                "format {found}",
+            );
+        }
+        let uneven = json!({ "pods": 3, "ordinal": 0, "partitions": 4 });
         assert!(matches!(
-            OffsetManifest::decode(format_one.as_bytes()),
-            Err(ManifestError::UnsupportedFormat { found: 1 }),
-        ));
-        assert!(matches!(
-            OffsetManifest::decode(wire(2, json!({ "0": { EVENTS: 1 } })).as_bytes()),
-            Err(ManifestError::Incomplete { partition: 0, .. }),
-        ));
-        assert!(matches!(
-            OffsetManifest::decode(wire(2, json!({ "0": { EVENTS: -1, MERGES: 2 } })).as_bytes()),
+            OffsetManifest::decode(wire(3, &uneven, slice()).as_bytes()),
             Err(ManifestError::Decode(_)),
         ));
         assert!(matches!(
-            OffsetManifest::decode(wire(2, json!({})).as_bytes()),
+            OffsetManifest::decode(wire(3, &split, json!({ "1": { EVENTS: 1 } })).as_bytes()),
+            Err(ManifestError::Incomplete { partition: 1, .. }),
+        ));
+        assert!(matches!(
+            OffsetManifest::decode(
+                wire(3, &split, json!({ "1": { EVENTS: -1, MERGES: 2 } })).as_bytes()
+            ),
+            Err(ManifestError::Decode(_)),
+        ));
+        assert!(matches!(
+            OffsetManifest::decode(wire(3, &split, json!({})).as_bytes()),
             Err(ManifestError::Empty),
         ));
     }

@@ -176,7 +176,11 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                         containerClassName="max-w-none p-1"
                     >
                         <div className="relative">
-                            <ObservationThumbnail observation={obs} className="w-40 @7xl/observations:w-52" />
+                            <ObservationThumbnail
+                                observation={obs}
+                                className="w-40 @7xl/observations:w-52"
+                                size="small"
+                            />
                             {!obs.viewed && <UnviewedObservationTag className="absolute top-1 left-1" />}
                         </div>
                     </Tooltip>

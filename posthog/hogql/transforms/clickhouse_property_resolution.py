@@ -52,6 +52,7 @@ from posthog.hogql.type_system import (
     ComparisonCompatibility,
     comparison_compatibility,
     constant_type_from_runtime_type,
+    convert_literal_to_runtime_type,
     parse_sql_runtime_type,
     runtime_type_from_constant_type,
 )
@@ -2043,6 +2044,27 @@ class ClickHousePropertyResolver(CloningVisitor):
             source=source,
         )
 
+    def _numeric_property_to_compare_as_text(self, expr: ast.Expr, values: list[str]) -> _OptimizableProperty | None:
+        """A Numeric JSON property compared to non-numeric text, read as text the way the legacy table compares it.
+
+        A property definition keeps the type of the first value seen, so a Numeric key can still hold text that a
+        Float64 read never matches.
+        """
+        single = self._single_key_property(expr)
+        if single is None:
+            return None
+        field_type, property_name = single
+        property_type = ast.PropertyType(field_type=field_type, chain=[property_name])
+        semantic_type = runtime_type_from_constant_type(property_type.resolve_constant_type(self.context))
+        if semantic_type.family != "float":
+            return None
+        if all(convert_literal_to_runtime_type(value, semantic_type) is not None for value in values):
+            return None
+        source = resolve_materialized_property_source(field_type, property_name, self.context)
+        if source is None or not _is_dynamic_json_source(source):
+            return None
+        return _OptimizableProperty(field_type=field_type, key=property_name, source=source)
+
     def _materialized_property_for_op(self, expr: ast.Expr) -> _OptimizableProperty | None:
         """A single-key materialized-column property (any resolved type), for IN comparisons that don't need a string."""
         single = self._single_key_property(expr)
@@ -2417,7 +2439,9 @@ class ClickHousePropertyResolver(CloningVisitor):
             return None
         if self._is_boolean_conversion(property_expr):
             return None
-        prop = self._materialized_string_property(property_expr, allow_dynamic_json=True)
+        prop = self._materialized_string_property(
+            property_expr, allow_dynamic_json=True
+        ) or self._numeric_property_to_compare_as_text(property_expr, values)
         if prop is None or prop.source.kind != "json_subcolumn":
             return None
 

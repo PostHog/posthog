@@ -133,6 +133,11 @@ export function TrainingRunRow({
                                 <span>· {KICKOFF_REASON[run.kickoff_reason].label}</span>
                             </Tooltip>
                         )}
+                        {run.agent_model_label && (
+                            <Tooltip title="The model the research agent ran on">
+                                <span>· {run.agent_model_label}</span>
+                            </Tooltip>
+                        )}
                         {run.task_url && (
                             <Link
                                 to={run.task_url}

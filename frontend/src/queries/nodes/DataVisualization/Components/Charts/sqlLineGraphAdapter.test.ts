@@ -13,7 +13,7 @@ import { ChartSettings, GoalLine } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
 import { AxisSeries, AxisSeriesSettings } from '../../dataVisualizationLogic'
-import { AxisBreakdownSeries } from '../seriesBreakdownLogic'
+import { AxisBreakdownSeries, EmptyBreakdownSeries } from '../seriesBreakdownLogic'
 import { SqlChartProps } from './SqlChart'
 import {
     AREA_FILL_OPACITY,
@@ -34,6 +34,7 @@ import {
     hasAxisTickFormatting,
     hasMixedSeriesTypes,
     seriesDisplayType,
+    sqlChartData,
     sqlChartKind,
 } from './sqlLineGraphAdapter'
 
@@ -308,6 +309,39 @@ describe('sqlLineGraphAdapter', () => {
 
         it('is false at or below the cap', () => {
             expect(exceedsMaxSeries([ySeries('a', [1])], undefined)).toBe(false)
+        })
+    })
+
+    describe('sqlChartData', () => {
+        const xData = (data: string[]): AxisSeries<string> => ({
+            column: { name: 'week', type: { name: 'DATE', isNumerical: false }, label: 'week', dataIndex: 0 },
+            data,
+        })
+
+        it('sums rows that share an x value so they do not overlap in one slot', () => {
+            const result = sqlChartData(
+                EmptyBreakdownSeries,
+                xData(['2026-10-05', '2026-10-05', '2026-10-12', '2026-10-12']),
+                [ySeries('rows_written', [100, 300, null, 400])],
+                ChartDisplayType.ActionsBar
+            )
+            expect(result.xData?.data).toEqual(['2026-10-05', '2026-10-12'])
+            expect(result.yData.map((series) => series.data)).toEqual([[400, 400]])
+        })
+
+        it('keeps the data unchanged when x values are unique', () => {
+            const x = xData(['2026-10-05', '2026-10-12'])
+            const yData = [ySeries('rows_written', [100, 300])]
+            expect(sqlChartData(EmptyBreakdownSeries, x, yData, ChartDisplayType.ActionsBar)).toEqual({
+                xData: x,
+                yData,
+            })
+        })
+
+        it('keeps one bar per row on a bar value chart', () => {
+            const x = xData(['a', 'a'])
+            const yData = [ySeries('count', [1, 2])]
+            expect(sqlChartData(EmptyBreakdownSeries, x, yData, ChartDisplayType.ActionsBarValue).xData).toBe(x)
         })
     })
 

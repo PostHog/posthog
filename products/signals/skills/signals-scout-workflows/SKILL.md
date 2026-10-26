@@ -61,11 +61,15 @@ Never suggest against a workflow that is not on this list — the API refuses it
   A step whose suggestion was `applied` already got its change: let that version collect its own feedback before suggesting again, and read its outcome first.
   A step whose suggestion was `rejected` is a human saying no: do not re-file the same idea in different words.
   Read its `rejection_reason` when there is one. It says why, and a reason about what the step is for rules out every change aimed at the same metric on that step, not only the one rejected.
+  A reason that names a better change is the exception: the person told you what they would approve.
+  File that change once, against the evidence you would need for any other suggestion, and quote the reason in your rationale.
   A rejected suggestion stays rejected however many times the workflow is published since: `is_stale` reads against the version live now, not against the version the person was looking at, so it cannot tell you the idea went unjudged.
 
 ### Read the numbers
 
 Per workflow, `workflows-version-stats` with `version=<the workflow's current version>`, `breakdown_by=name`, and `instance_id` set to the email step you are reading.
+Set `after` and `before` to the UTC start and end of the closed days you read, such as `after=2026-10-08T00:00:00Z` and `before=2026-10-15T00:00:00Z`, and sum the days from `after` up to the day before `before`.
+A relative `after=-7d` starts at this hour seven days ago in the project's timezone, so its first day is partial and your numbers will not match the window you file.
 `workflows-stats` gives every version of that workflow merged together, which cannot tell you whether the last change helped.
 The metrics that matter:
 
@@ -88,6 +92,10 @@ So end the read before now, and check the version's age before you trust it:
   `updated_at` on the workflow is not this: any draft edit bumps it.
   Write `immature:<workflow>:<step>` to the scratchpad with the version and move on; a later run reads the same version with its feedback in.
 - If a version's sends sit almost entirely in the last day of the window, treat the rate as immature for the same reason, even when the version itself is older.
+- A workflow that sends in batches, such as a weekly digest, keeps one version across many batches, so a version read mixes the newest batch with the earlier ones.
+  Read it by day and judge one batch at a time: take the latest batch that is at least 48 hours old, and read from its send day up to the day before the next batch went out.
+  Opens of earlier batches that arrive inside that window are a small share once those batches are a week old, so the rate is readable.
+  Do not wait for the newest batch to settle when an older one already has.
 
 Per-version reads are what make this checkable: `workflows-version-stats` with `version=<n>` returns only what that version sent, so a version published two weeks ago is a settled cohort even though the workflow as a whole is still sending.
 
@@ -117,6 +125,12 @@ File a suggestion through `workflows-suggest` when, and only when, all of these 
 - You can state the change as a concrete edit, not advice.
   "Shorten the subject" is advice.
   The new subject line is a change.
+- The change fits the people who get this step.
+  Read the trigger and the steps before it: a recipient has already done what the trigger event says, so copy that asks them to do it again is wrong.
+  A workflow triggered by a started trial does not need "Start your trial"; it needs a way to the next step of that trial.
+- A new call to action names what its link opens.
+  Read the link before you rename the button.
+  If the link does not lead where the new words promise, the change is incomplete, so name the destination as part of it or do not file.
 
 Send the version you read as `base_version`, and in `actions` only the steps you change, each carrying its `id` and only the fields you change: a new subject line is `{"id": "<step>", "config": {"inputs": {"email": {"value": {"subject": "..."}}}}}` and nothing more.
 Everything you leave out stays as it is, in the step and in the rest of the workflow, so a step someone edits while your suggestion waits is not reverted by approving it.
@@ -124,6 +138,12 @@ Approving is refused only when someone moved one of the very fields you change, 
 Carry evidence that a person can judge without re-deriving it: the metric, its current value, the target, the window, `n` (the tracked sends behind the rate), the click rate over that same denominator, and the counter-metrics with their own denominators.
 A subject line that lifts opens without lifting clicks moved attention, not behaviour, and whoever reads the outcome later should be able to see that.
 A rate without `n` is refused at create, and rightly.
+
+Write the rationale for the person who owns the workflow, not for a reviewer of your run.
+Keep it to four short sentences: what the step's numbers show, what you change, and why that change should move them.
+The evidence panel already shows the rate, `n`, the window and the counter-metrics, so do not repeat timestamps or restate every number.
+Never name your own mechanics: not the scout, not your review target or sample floor, not the scratchpad, not tool names.
+"Opens are 8% on 210 sends. The subject does not say what the email offers. Naming the offer lets people see why to open it." is the whole rationale.
 
 The panel reads your evidence back by name, and the API refuses anything it cannot read, so send these keys:
 
@@ -134,7 +154,7 @@ The panel reads your evidence back by name, and the API refuses anything it cann
   "unit": "rate",
   "target_value": 0.2,
   "n": 208,
-  "window": "-7d",
+  "window": "2026-10-08T00:00:00Z/2026-10-15T00:00:00Z",
   "click_through": 0.0192,
   "guardrails": [
     { "metric": "email_bounced", "value": 0.0, "n": 208, "unit": "rate" },
@@ -145,6 +165,9 @@ The panel reads your evidence back by name, and the API refuses anything it cann
 
 `metric`, `current_value`, `unit`, `n` and `guardrails` are required, and every guardrail needs its own `unit`.
 Rates are fractions, never strings: `0.0865`, not `"8.65%"`.
+`window` is the interval you read, as `start/end` in UTC, the same closed days your numbers come from.
+PostHog reads that interval back when you file and shows its own numbers next to yours.
+A relative window such as `-7d` reaches up to now, so it counts sends you left out and the page tells the person your numbers are wrong.
 `unit` is `rate` or `count`, and it is not decoration: a value of 1.0 is either every message or one of them, and the panel shows a count of 1 as `1` only because you said so.
 A number under a key of your own naming (`current_open_rate`) is refused, because a person would otherwise read a well-evidenced suggestion as having no evidence at all.
 

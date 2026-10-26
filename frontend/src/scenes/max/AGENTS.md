@@ -26,6 +26,11 @@ Per-concern mapping, `langgraph` (LEGACY, frozen) → `sandbox` (NEW, build here
 New behavior — new tools, new context types, new UI affordances — goes on the **sandbox** path. The LangGraph runtime is slated for removal once sandbox reaches parity; keeping its surface from growing makes the eventual deletion a clean removal rather than an untangling.
 
 - ✅ Bugfixes that keep existing LangGraph conversations working.
+- ✅ The quill skin of the LangGraph thread and composer behind `phai-quill` or `today-rail-nav`: `Thread.tsx`, `QuillQuestionInput.tsx`,
+  the `Quill*` siblings in `components/` and `messages/quill/` fork only the view, and share behavior through `useQuestionInput`,
+  `useModeSelector`, `useAnswerRating` and the surface's shared presenters.
+  A message presenter that has both skins switches on `useQuillThread()` at its top, like `PlanningAnswer`, and keeps its quill body in `messages/quill/`.
+  Code outside the thread (the composer, `Intro`, the suggestion badges) has no thread context, so it switches on `useThreadSkin()` from `api/logics`, which reads the flags. It stays out of `api/primitives` because the homepage composer loads eagerly.
 - ❌ Net-new capability on the LangGraph path.
 - ❌ New fields on `MaxUIContext` for a sandbox feature — use `AttachedContext` instead.
 - ❌ No new MaxTools.
@@ -62,7 +67,7 @@ recordings, notebook, query) live in `products/posthog_ai/frontend/components/to
 and replay vision own their widget families under their respective `products/<product>/frontend` directories.
 Error tracking contributes a declaration list to the central manifest, so its cards render on the sandbox path too.
 Replay vision has no declaration yet, so its scan widget renders only on the LangGraph path until one is added.
-Max's LangGraph path consumes the heavier ones (`VisualizationWidget` / `RecordingsWidget`) through `api/primitives`,
+Max's LangGraph path consumes the heavier ones (`VisualizationWidget` / `RecordingsWidget`) through `api/dataWidgets`,
 and error-tracking and replay-vision widgets directly from their owning products.
 
 ## 5. Where do I add X?

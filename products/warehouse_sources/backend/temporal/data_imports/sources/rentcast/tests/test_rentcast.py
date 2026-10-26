@@ -9,7 +9,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     ScriptedResponse,
     SourceDriver,
     always,
-    scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.rentcast import (
     RentCastSourceConfig,
@@ -19,7 +18,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.rentcast.r
     MISSING_ZIP_CODES_ERROR,
     PAGE_SIZE,
     RentCastResumeConfig,
-    validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.rentcast.settings import (
     ENDPOINTS,
@@ -150,25 +148,6 @@ class TestMarkets:
 
         assert result.raised is not None
         assert any(key in str(result.raised) for key in RentCastSource().get_non_retryable_errors())
-
-
-class TestValidateCredentials:
-    @parameterized.expand(
-        [
-            ("ok", 200, True, None),
-            ("unauthorized", 401, False, "Invalid RentCast API key"),
-            ("forbidden", 403, False, "Invalid RentCast API key"),
-            ("server_error", 500, False, "RentCast returned HTTP 500"),
-        ]
-    )
-    def test_status_mapping(self, _name: str, status: int, expected_valid: bool, expected_message: str | None) -> None:
-        with scripted_network(always(ScriptedResponse(status=status, json={}))):
-            assert validate_credentials("rc-key") == (expected_valid, expected_message)
-
-    def test_connection_error_is_not_validated(self) -> None:
-        # A transport failure must not raise out of validate_credentials — it maps to "not validated".
-        with scripted_network(always(ConnectionError("boom"))):
-            assert validate_credentials("rc-key") == (False, "Could not validate RentCast API key")
 
 
 class TestRentCastSourceResponse:

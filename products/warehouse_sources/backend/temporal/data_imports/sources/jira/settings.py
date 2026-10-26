@@ -18,6 +18,12 @@ DEFAULT_PAGE_SIZE = 100
 AGILE_PAGE_SIZE = 50
 # Both ``/worklog/updated`` and ``/worklog/list`` cap a page at 1000 worklogs.
 WORKLOG_PAGE_SIZE = 1000
+# ``/changelog/bulkfetch`` takes at most 1000 issue ids per request.
+CHANGELOG_PAGE_SIZE = 1000
+# ``/group/member`` caps a page at 50; ``/group/bulk`` defaults to 50 and documents no maximum.
+GROUP_PAGE_SIZE = 50
+# ``/project/{id}/version`` defaults to 50 and documents no maximum.
+VERSION_PAGE_SIZE = 50
 
 
 @dataclass(frozen=True)
@@ -50,10 +56,10 @@ def _datetime_field(name: str) -> IncrementalField:
 
 
 # Endpoint catalog. Jira Cloud REST API v3 (https://developer.atlassian.com/cloud/jira/platform/rest/v3/).
-# We deliberately exclude the per-issue fan-out streams (comments, votes, watchers, remote links,
-# properties, transitions) — each requires one HTTP request per issue and degrades badly on large
-# instances. Worklogs avoid that through the instance-wide ``/worklog/updated`` feed. Issues carry the
-# bulk of the useful data and sync incrementally.
+# We deliberately exclude the per-issue fan-out streams (votes, watchers, remote links, properties,
+# transitions) — each requires one HTTP request per issue and degrades badly on large instances.
+# Worklogs, changelogs and comments avoid that by reading through instance-wide or bulk endpoints.
+# Issues carry the bulk of the useful data and sync incrementally.
 JIRA_ENDPOINTS: dict[str, JiraEndpointConfig] = {
     "issues": JiraEndpointConfig(
         name="issues",
@@ -176,6 +182,73 @@ JIRA_ENDPOINTS: dict[str, JiraEndpointConfig] = {
         primary_key=["sprint_id", "issue_id"],
         pagination="custom",
         data_key="issues",
+    ),
+    "issue_changelogs": JiraEndpointConfig(
+        name="issue_changelogs",
+        # Issue ids come from the enhanced JQL search, then their changelogs are read in bulk with
+        # ``POST /changelog/bulkfetch``, which avoids one request per issue.
+        path="/rest/api/3/changelog/bulkfetch",
+        primary_key=["issue_id", "id"],
+        pagination="custom",
+        supports_incremental=True,
+        partition_key="created",
+        incremental_fields=[_datetime_field("created")],
+        page_size=CHANGELOG_PAGE_SIZE,
+    ),
+    "issue_comments": JiraEndpointConfig(
+        name="issue_comments",
+        # Comments ride along on the enhanced JQL search (``fields=comment``). Only an issue whose
+        # embedded list is truncated is read again through ``/issue/{id}/comment``.
+        path="/rest/api/3/search/jql",
+        primary_key=["id"],
+        pagination="custom",
+        data_key="issues",
+        supports_incremental=True,
+        partition_key="created",
+        incremental_fields=[_datetime_field("updated"), _datetime_field("created")],
+    ),
+    "groups": JiraEndpointConfig(
+        name="groups",
+        path="/rest/api/3/group/bulk",
+        primary_key=["groupId"],
+        pagination="offset",
+        data_key="values",
+        page_size=GROUP_PAGE_SIZE,
+    ),
+    "group_members": JiraEndpointConfig(
+        name="group_members",
+        path="/rest/api/3/group/member?groupId={groupId}",
+        primary_key=["group_id", "accountId"],
+        pagination="offset",
+        data_key="values",
+        page_size=GROUP_PAGE_SIZE,
+        fanout=DependentEndpointConfig(
+            parent_name="groups",
+            resolve_param="groupId",
+            resolve_field="groupId",
+            include_from_parent=["groupId", "name"],
+            parent_field_renames={"groupId": "group_id", "name": "group_name"},
+            child_params={"includeInactiveUsers": "true"},
+            # A group deleted after the listing answers 404.
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
+    ),
+    "versions": JiraEndpointConfig(
+        name="versions",
+        # The paginated listing; ``/project/{id}/versions`` returns every version in one response.
+        path="/rest/api/3/project/{projectId}/version",
+        primary_key=["id"],
+        pagination="offset",
+        data_key="values",
+        page_size=VERSION_PAGE_SIZE,
+        fanout=DependentEndpointConfig(
+            parent_name="projects",
+            resolve_param="projectId",
+            resolve_field="id",
+            include_from_parent=[],
+            # A project deleted after the listing answers 404.
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
     ),
 }
 

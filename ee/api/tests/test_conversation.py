@@ -7,10 +7,11 @@ from unittest.mock import AsyncMock, patch
 
 from django.db import connection
 from django.http import StreamingHttpResponse
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
+from parameterized import parameterized
 from rest_framework import status
 from rest_framework.exceptions import Throttled
 from rest_framework.test import APIRequestFactory
@@ -39,7 +40,7 @@ from products.posthog_ai.backend.message_routing import SandboxRouteResult
 from products.posthog_ai.backend.models.assistant import Conversation
 from products.tasks.backend.models import Channel, Task, TaskRun
 
-from ee.api.conversation import ConversationViewSet
+from ee.api.conversation import ConversationViewSet, MessageSerializer, QueueMessageSerializer
 
 
 async def _async_generator():
@@ -68,7 +69,6 @@ class TestConversation(APIBaseTest):
             subscription_level=MaxBillingContextSubscriptionLevel.PAID,
             billing_plan="paid",
             has_active_subscription=True,
-            is_deactivated=False,
             billing_period=MaxBillingContextBillingPeriod(
                 current_period_start=str(datetime.date(2023, 1, 1)),
                 current_period_end=str(datetime.date(2023, 1, 31)),
@@ -2116,3 +2116,18 @@ class TestConversationCreateRuntime(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
         m_routing.assert_not_called()
+
+
+class TestRetiredUIContextFields(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("message", MessageSerializer, {"conversation": str(uuid.uuid4()), "trace_id": str(uuid.uuid4())}),
+            ("queue_message", QueueMessageSerializer, {}),
+        ]
+    )
+    def test_voice_mode_from_stale_frontend_is_dropped(self, _name, serializer_class, extra_data):
+        ui_context = {"voice_mode": False, "form_answers": {"question": "answer"}}
+        serializer = serializer_class(data={"content": "test query", "ui_context": ui_context, **extra_data})
+
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertEqual(serializer.validated_data["ui_context"], {"form_answers": {"question": "answer"}})

@@ -1,3 +1,4 @@
+import { importProjectHomepage } from 'scenes/project-homepage/importProjectHomepage'
 import { preloadedScenes } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 
@@ -68,6 +69,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.OAuthAuthorize]: () => import('./oauth/OAuthAuthorize'),
     [Scene.Onboarding]: () => import('./onboarding/Onboarding'),
     [Scene.OnboardingCoupon]: () => import('./onboarding/coupon/OnboardingCouponRedemption'),
+    [Scene.OnboardingWelcome]: () => import('./onboarding/welcome/OnboardingWelcome'),
     [Scene.OrganizationCreateFirst]: () => import('./organization/Create'),
     [Scene.OrganizationCreationConfirm]: () => import('./organization/ConfirmOrganization/ConfirmOrganization'),
     [Scene.PasswordResetComplete]: () => import('./authentication/password-reset/PasswordResetComplete'),
@@ -77,10 +79,11 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.TwoFactorReset]: () => import('./authentication/two-factor-reset/TwoFactorReset'),
     [Scene.PreflightCheck]: () => import('./PreflightCheck/PreflightCheck'),
     [Scene.ProjectCreateFirst]: () => import('./project/Create'),
-    [Scene.ProjectHomepage]: () => import('./project-homepage/ProjectHomepage'),
+    [Scene.ProjectHomepage]: importProjectHomepage,
     [Scene.Library]: () => import('./library/Library'),
-    [Scene.Views]: () => import('./views/Views'),
-    [Scene.ViewsNew]: () => import('./views/NewView'),
+    [Scene.AnalyticsList]: () => import('./analytics/AnalyticsList'),
+    [Scene.AnalyticsSpaces]: () => import('./analytics/AnalyticsSpaces'),
+    [Scene.AnalyticsProductHome]: () => import('./analytics/AnalyticsProductHome'),
     [Scene.Tools]: () => import('./tools/Tools'),
     [Scene.PropertyDefinitionEdit]: () => import('./data-management/definition/DefinitionEdit'),
     [Scene.PropertyDefinition]: () => import('./data-management/definition/DefinitionView'),

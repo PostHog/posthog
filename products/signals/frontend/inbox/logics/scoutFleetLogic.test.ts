@@ -5,6 +5,7 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api-error'
+import { FIRST_REPORT_SCOUT_NAME } from 'lib/constants'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -178,6 +179,20 @@ describe('scoutFleetLogic', () => {
 
     afterEach(() => {
         logic?.unmount()
+    })
+
+    it.each([false, true])('keeps the first-report scout out of the normal UI unless staff=%s', async (isStaff) => {
+        userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, is_staff: isStaff })
+        const firstReport = { ...BASE_CONFIG, id: 'first-report', skill_name: FIRST_REPORT_SCOUT_NAME }
+        const configs = [BASE_CONFIG, firstReport]
+        mockSignalsScoutConfigList.mockResolvedValue(configs)
+        mockSignalsScoutConfigSync.mockResolvedValue(configs)
+        const expected = isStaff ? configs : [BASE_CONFIG]
+
+        await expectLogic(logic, () => logic.actions.loadScoutConfigs()).toFinishAllListeners()
+        expect(logic.values.scoutConfigs).toEqual(expected)
+        await expectLogic(logic, () => logic.actions.syncScoutFleet()).toFinishAllListeners()
+        expect(logic.values.scoutConfigs).toEqual(expected)
     })
 
     it('queues updates for a scout while its previous update is in flight', async () => {
@@ -580,14 +595,14 @@ describe('scoutFleetLogic', () => {
 
     // The whole point of materializing on open: a project the coordinator never reached has no
     // configs at all, and the roster has no other way to get any.
-    it('fills an empty roster from the fleet the sync materializes', async () => {
+    it.each(['roster', 'onboarding'] as const)('fills an empty fleet for %s', async (surface) => {
         mockSignalsScoutConfigSync.mockResolvedValue([BASE_CONFIG])
         logic.actions.loadScoutConfigsSuccess([])
 
-        logic.actions.materializeScoutFleet()
+        logic.actions.materializeScoutFleet(surface)
 
         await expectLogic(logic).toDispatchActions(['syncScoutFleetSuccess'])
-        expect(mockSignalsScoutConfigSync).toHaveBeenCalledWith(String(MOCK_TEAM_ID), { surface: 'roster' })
+        expect(mockSignalsScoutConfigSync).toHaveBeenCalledWith(String(MOCK_TEAM_ID), { surface })
         expect(logic.values.scoutConfigs).toEqual([BASE_CONFIG])
         expect(logic.values.scoutFleetSynced).toBe(true)
         expect(logic.values.scoutFleetSyncOutcome).toBe('synced')

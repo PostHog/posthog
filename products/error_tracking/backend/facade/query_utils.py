@@ -10,6 +10,8 @@ from posthog.hogql.escape_sql import escape_hogql_string
 from posthog.dataclasses import frozen
 from posthog.utils import relative_date_parse
 
+from products.error_tracking.backend.facade.contracts import IssueTrendDirection
+
 MAX_NORMALIZED_TEXT_CHARS = 1000
 MAX_STACK_FRAMES = 50
 # The issue detail tool returns the full description, so list rows keep only a preview.
@@ -51,7 +53,8 @@ def normalize_volume_resolution(volume_resolution: int) -> int:
     return max(volume_resolution, 1)
 
 
-CONTEXT_EVENT_SELECTS = ["properties.$exception_list", "properties.$exception_releases"]
+CONTEXT_EVENT_SELECTS = ["properties.$exception_list", "properties.$exception_release"]
+RELEASE_EVENT_SELECTS = ["properties.$exception_release"]
 DEFAULT_EVENT_CONTEXT_INCLUDES = ["exception", "environment", "navigation", "correlation"]
 EVENT_CONTEXT_PROPERTY_SELECTS = {
     "exception": [
@@ -75,7 +78,7 @@ EVENT_CONTEXT_PROPERTY_SELECTS = {
         "properties.$app_version",
         "properties.$device_type",
     ],
-    "release": ["properties.$exception_releases"],
+    "release": ["properties.$exception_release"],
     "navigation": ["properties.$current_url", "properties.$screen_name", "properties.$referrer"],
     "correlation": [
         "properties.$session_id",
@@ -157,21 +160,19 @@ def add_event_filter(filters: list[dict[str, object]], key: str, operator: str, 
 
 def add_release_filter(filters: list[dict[str, object]], release: str) -> None:
     escaped_release = escape_hogql_string(release)
-    releases_json = "ifNull(nullIf(JSONExtractRaw(properties, '$exception_releases'), ''), '{}')"
     filters.append(
         {
             "type": "hogql",
-            "key": f"position(toString(properties.$exception_releases), {escaped_release}) > 0",
+            "key": f"position(toString(properties.$exception_release), {escaped_release}) > 0",
         }
     )
     filters.append(
         {
             "type": "hogql",
             "key": (
-                f"arrayExists(r -> (r.1 = {escaped_release} "
-                f"OR JSONExtractString(r.2, 'version') = {escaped_release} "
-                f"OR JSONExtractString(JSONExtractRaw(r.2, 'metadata'), 'git', 'commit_id') = {escaped_release}), "
-                f"JSONExtractKeysAndValuesRaw({releases_json}))"
+                f"{escaped_release} IN (toString(properties.$exception_release.id), "
+                "toString(properties.$exception_release.version), "
+                "toString(properties.$exception_release.metadata.git.commit_id))"
             ),
         }
     )
@@ -368,7 +369,7 @@ def normalize_error_property(
 ) -> object:
     if name == "$exception_list":
         return normalize_exception_list(value, include_stacktrace, only_app_frames, include_code_variables)
-    if name in {"$exception_releases", "$cymbal_errors"}:
+    if name in {"$exception_release", "$cymbal_errors"}:
         return parse_jsonish(value)
     if name == "$exception_handled" and isinstance(value, str) and value.lower() in {"true", "false"}:
         return value.lower() == "true"
@@ -502,14 +503,8 @@ def build_top_in_app_frame(issue: dict[str, object], event_properties: dict[str,
     )
 
 
-def extract_latest_release(event_properties: dict[str, object]) -> dict[str, object]:
-    releases = event_properties.get("$exception_releases")
-    release_values = (
-        releases if isinstance(releases, list) else list(releases.values()) if isinstance(releases, dict) else []
-    )
-    records = [record for value in release_values if (record := as_record(value)) is not None]
-    records.sort(key=lambda record: str(record.get("timestamp") or record.get("created_at") or ""), reverse=True)
-    release = records[0] if records else None
+def extract_release(event_properties: dict[str, object]) -> dict[str, object]:
+    release = as_record(event_properties.get("$exception_release"))
     if release is None:
         return {}
     metadata = as_record(release.get("metadata"))
@@ -518,11 +513,41 @@ def extract_latest_release(event_properties: dict[str, object]) -> dict[str, obj
         {
             "version": release.get("version"),
             "project": release.get("project"),
-            "timestamp": release.get("timestamp") or release.get("created_at"),
+            "timestamp": release.get("timestamp"),
             "commit_id": git.get("commit_id") if git else None,
             "branch": git.get("branch") if git else None,
             "repo_name": git.get("repo_name") if git else None,
         }
+    )
+
+
+# A late event can carry a timestamp before first_seen, but no first event is after it.
+FIRST_EVENT_LOOKBACK = timedelta(days=1)
+# EventsQuery bounds are exclusive, so the window ends just after first_seen.
+FIRST_EVENT_LOOKAHEAD = timedelta(seconds=1)
+
+
+def parse_timestamp(value: object) -> datetime | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+@frozen
+class EventWindow:
+    after: str
+    before: str
+
+
+def first_event_window(first_seen: datetime | None) -> EventWindow | None:
+    if first_seen is None:
+        return None
+    return EventWindow(
+        after=(first_seen - FIRST_EVENT_LOOKBACK).isoformat(),
+        before=(first_seen + FIRST_EVENT_LOOKAHEAD).isoformat(),
     )
 
 
@@ -624,29 +649,77 @@ def build_impact(issue: dict[str, object]) -> dict[str, object]:
     )
 
 
-def build_sparkline(issue: dict[str, object]) -> list[float] | None:
+def volume_bucket_records(issue: dict[str, object]) -> list[dict[str, object]]:
+    aggregations = as_record(issue.get("aggregations")) or {}
+    volume_buckets = aggregations.get("volume_buckets")
+    if not isinstance(volume_buckets, list):
+        return []
+    return [record for bucket in volume_buckets if (record := as_record(bucket)) is not None]
+
+
+def build_sparkline(issue: dict[str, object], volume_resolution: int) -> list[float] | None:
     aggregations = as_record(issue.get("aggregations")) or {}
     volume_range = aggregations.get("volumeRange")
+    values: list[float] = []
     if isinstance(volume_range, list):
-        numeric_values: list[float] = []
         for value in volume_range:
             numeric_value = to_number(value)
             if numeric_value is None:
                 return None
-            numeric_values.append(numeric_value)
-        return numeric_values
-    volume_buckets = aggregations.get("volume_buckets")
-    if isinstance(volume_buckets, list):
-        numeric_values = []
-        for bucket in volume_buckets:
-            record = as_record(bucket)
-            if record is None:
-                continue
-            value = to_number(record.get("value"))
-            if value is not None:
-                numeric_values.append(value)
-        return numeric_values or None
-    return None
+            values.append(numeric_value)
+    else:
+        values = [
+            value for record in volume_bucket_records(issue) if (value := to_number(record.get("value"))) is not None
+        ]
+    if len(values) == volume_resolution * 2:
+        # trend_volume_resolution doubled the count, so add each pair of buckets back together.
+        values = [first + second for first, second in zip(values[::2], values[1::2])]
+    return values or None
+
+
+# The fewest volume buckets that split the date range into two halves.
+TREND_VOLUME_RESOLUTION = 2
+TREND_CHANGE_FRACTION = 0.25
+
+
+def trend_volume_resolution(volume_resolution: int) -> int:
+    # An odd count has no bucket edge at the midpoint of the date range.
+    return volume_resolution * 2 if volume_resolution % 2 else volume_resolution
+
+
+def trend_direction(
+    previous: int, current: int, first_seen: datetime | None, current_from: object
+) -> IssueTrendDirection:
+    current_from_at = parse_timestamp(current_from)
+    if previous == 0 and current > 0 and first_seen and current_from_at and first_seen >= current_from_at:
+        return IssueTrendDirection.NEW
+    change = current - previous
+    if change and abs(change) >= previous * TREND_CHANGE_FRACTION:
+        return IssueTrendDirection.INCREASING if change > 0 else IssueTrendDirection.DECREASING
+    return IssueTrendDirection.STABLE
+
+
+def build_trend(issue: dict[str, object], first_seen: datetime | None) -> dict[str, object] | None:
+    buckets = volume_bucket_records(issue)
+    half = len(buckets) // 2
+    if half == 0:
+        return None
+    # With an odd bucket count the middle bucket is left out, so both halves cover the same time.
+    previous_buckets, current_buckets = buckets[:half], buckets[-half:]
+    previous = int(sum(to_number(bucket.get("value")) or 0 for bucket in previous_buckets))
+    current = int(sum(to_number(bucket.get("value")) or 0 for bucket in current_buckets))
+    current_from = current_buckets[0].get("label")
+    return compact_dict(
+        {
+            "direction": trend_direction(previous, current, first_seen, current_from).value,
+            "current_occurrences": current,
+            "previous_occurrences": previous,
+            "change_percent": round((current - previous) / previous * 100) if previous else None,
+            "previous_from": previous_buckets[0].get("label"),
+            "previous_to": buckets[half].get("label"),
+            "current_from": current_from,
+        }
+    )
 
 
 def build_issue_where(issue_id: str) -> list[str]:

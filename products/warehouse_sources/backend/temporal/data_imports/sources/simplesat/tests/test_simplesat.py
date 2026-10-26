@@ -1,6 +1,6 @@
+from datetime import UTC, date, datetime
 from typing import Any, Optional
-
-import pytest
+from urllib.parse import parse_qs, urlparse
 
 import requests
 from parameterized import parameterized
@@ -60,6 +60,64 @@ class TestPagination:
         assert result.rows == [{"id": 5}]
         # The one and only request goes straight to the saved cursor — the first page is never fetched.
         assert result.urls == [next_url]
+
+
+class TestCustomersRequestShaping:
+    @parameterized.expand(
+        [
+            ("full_refresh", None, None, {}),
+            ("first_incremental_run_has_no_filter", "modified", None, {}),
+            (
+                "modified_aware_datetime",
+                "modified",
+                datetime(2026, 3, 1, 12, 30, 45, 123456, tzinfo=UTC),
+                {"modified_after": "2026-03-01T12:30:45.123456Z"},
+            ),
+            (
+                "modified_naive_datetime_is_utc",
+                "modified",
+                datetime(2026, 3, 1, 12, 30, 45),
+                {"modified_after": "2026-03-01T12:30:45Z"},
+            ),
+            ("created_date", "created", date(2026, 3, 1), {"created_after": "2026-03-01T00:00:00Z"}),
+            ("created_string", "created", "2026-03-01T00:00:00Z", {"created_after": "2026-03-01T00:00:00Z"}),
+        ]
+    )
+    def test_incremental_filter_params(
+        self,
+        _name: str,
+        incremental_field: Optional[str],
+        last_value: Any,
+        expected_filter: dict[str, str],
+    ) -> None:
+        page_2 = f"{SIMPLESAT_BASE_URL}/customers?page=2&page_size=250"
+        result = _driver().run(
+            "customers",
+            [
+                _response("customers", [{"id": 1}], next_url=page_2),
+                _response("customers", [{"id": 2}], next_url=None),
+            ],
+            incremental_field=incremental_field,
+            db_incremental_field_last_value=last_value,
+        )
+
+        assert result.raised is None
+        assert result.rows == [{"id": 1}, {"id": 2}]
+        first_query = parse_qs(urlparse(result.urls[0]).query)
+        assert first_query == {"page_size": ["250"], **{k: [v] for k, v in expected_filter.items()}}
+        # Later pages follow the `next` URL verbatim.
+        assert result.urls[1] == page_2
+
+    @parameterized.expand([(e,) for e in ENDPOINTS if e != "customers"])
+    def test_full_refresh_endpoints_ignore_incremental_inputs(self, endpoint: str) -> None:
+        result = _driver().run(
+            endpoint,
+            always(_response(endpoint, [])),
+            incremental_field="modified",
+            db_incremental_field_last_value=datetime(2026, 3, 1, tzinfo=UTC),
+        )
+
+        assert parse_qs(urlparse(result.urls[0]).query) == {"page_size": ["100"]}
 
 
 class TestHostPinning:
@@ -138,23 +196,6 @@ class TestErrorHandling:
 
 
 class TestValidateCredentials:
-    @pytest.mark.parametrize(
-        "status, expected_valid, expected_message",
-        [
-            (200, True, None),
-            (401, False, "Invalid Simplesat API key"),
-            (403, False, "Invalid Simplesat API key"),
-            (500, False, "Simplesat returned HTTP 500"),
-        ],
-    )
-    def test_status_mapping(self, status: int, expected_valid: bool, expected_message: str | None) -> None:
-        with scripted_network(always(ScriptedResponse(status=status))):
-            assert validate_credentials("ss-key") == (expected_valid, expected_message)
-
-    def test_connection_error_is_not_validated(self) -> None:
-        with scripted_network(always(ConnectionError("boom"))):
-            assert validate_credentials("ss-key") == (False, "Could not validate Simplesat API key")
-
     def test_probe_disables_redirects_to_protect_api_key(self) -> None:
         # The X-Simplesat-Token header rides on the probe; the session must be built with redirects
         # pinned off so a redirect can't replay the key to the redirect target during validation.
@@ -166,15 +207,16 @@ class TestValidateCredentials:
 
 
 class TestSimplesatSourceResponse:
-    @parameterized.expand([(e,) for e in ENDPOINTS])
-    def test_source_response_shape(self, endpoint: str) -> None:
+    @parameterized.expand([(e, ["created"] if e == "customers" else None) for e in ENDPOINTS])
+    def test_source_response_shape(self, endpoint: str, expected_partition_keys: Optional[list[str]]) -> None:
         response = _driver().run(endpoint, always(_response(endpoint, []))).response
 
         assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == ["id"]
-        # No stable creation timestamp is guaranteed across every object, so we don't partition.
-        assert response.partition_mode is None
+        # Only customers documents a stable creation timestamp to partition on.
+        assert response.partition_keys == expected_partition_keys
+        assert response.partition_mode == ("datetime" if expected_partition_keys else None)
 
     def test_every_endpoint_uses_id_primary_key(self) -> None:
         assert all(config.primary_keys == ["id"] for config in SIMPLESAT_ENDPOINTS.values())

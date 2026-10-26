@@ -1,3 +1,4 @@
+from products.workflows.backend.tasks.batch_jobs import resume_batch_jobs_waiting_for_realtime_cohort
 from products.workflows.backend.tasks.email_sender_verification import (
     refresh_new_email_senders,
     refresh_settled_email_senders,
@@ -12,6 +13,7 @@ from products.workflows.backend.tasks.ses_tenant_state import reconcile_ses_tena
 from products.workflows.backend.tasks.workflow_email_health import sweep_workflow_email_deliverability
 
 __all__ = [
+    "resume_batch_jobs_waiting_for_realtime_cohort",
     "poll_ses_account_enforcement",
     "poll_ses_reputation_findings",
     "recompute_workflows_email_sending_tiers",

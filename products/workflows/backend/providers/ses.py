@@ -2,13 +2,15 @@ import re
 import logging
 from collections import defaultdict
 from collections.abc import Iterable, Iterator, Mapping, Sequence
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from functools import cached_property
 from itertools import batched
 from time import monotonic, sleep
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from django.conf import settings
+from django.core.cache import cache
 
 import boto3
 import dns.name
@@ -18,12 +20,23 @@ from botocore.exceptions import BotoCoreError, ClientError
 from rest_framework import exceptions
 
 from posthog.dataclasses import frozen
+from posthog.exceptions_capture import capture_exception
 
 from products.workflows.backend.facade.contracts import (
+    EmailDomainCheck,
     EmailDomainDnsRecord,
+    EmailDomainStatusRecord,
     EmailDomainVerification,
     EmailDomainVerificationStatus,
+    EmailProviderUnavailableError,
 )
+from products.workflows.backend.facade.enums import (
+    EmailDomainSetupRecordKind,
+    EmailDomainSetupRecordStatus,
+    EmailDomainSetupStatus,
+)
+from products.workflows.backend.services.email_domain_dns import find_published_records
+from products.workflows.backend.services.email_domain_status import build_email_domain_check, build_email_domain_records
 
 if TYPE_CHECKING:
     from types_boto3_ses.client import SESClient
@@ -32,6 +45,9 @@ if TYPE_CHECKING:
     from types_boto3_sesv2.type_defs import RecommendationTypeDef
 
 logger = logging.getLogger(__name__)
+
+AWS_ACCOUNT_ID_CACHE_KEY = "workflows:ses:aws_account_id"
+AWS_ACCOUNT_ID_CACHE_SECONDS = 24 * 60 * 60
 
 # DELIVERY_COMPLAINT is the complaint denominator rather than SEND, because AWS defines it as
 # deliveries excluding recipients at ISPs it has no feedback-loop agreement with.
@@ -76,6 +92,8 @@ RECOMMENDATIONS_PAGE_SIZE = 100
 # The account findings walk runs in a background task, so it can wait out SES throttling. Adaptive
 # mode adds a client-side rate limiter that slows the following pages after a throttle response.
 RECOMMENDATIONS_RETRY_CONFIG = Config(retries={"mode": "adaptive", "max_attempts": 8})
+# The status endpoint is polled and holds a request worker, so its reads fail fast and the next poll retries.
+STATUS_READ_CONFIG = Config(connect_timeout=2, read_timeout=5, retries={"mode": "standard", "max_attempts": 2})
 
 IDENTITY_ATTRIBUTES_BATCH_SIZE = 100
 READ_MIN_INTERVAL_SECONDS = 2
@@ -313,11 +331,103 @@ def _other_provider_row(isps: Sequence[str], series: IspMetricSeries) -> IspSend
     )
 
 
+_LegacyRecordPurpose = Literal["verification", "dkim", "mail_from", "dmarc"]
+_LegacyRecordType = Literal["TXT", "CNAME", "MX"]
+
+_LEGACY_RECORD_PURPOSES: dict[EmailDomainSetupRecordKind, _LegacyRecordPurpose] = {
+    EmailDomainSetupRecordKind.VERIFICATION: "verification",
+    EmailDomainSetupRecordKind.SPF: "verification",
+    EmailDomainSetupRecordKind.DKIM: "dkim",
+    EmailDomainSetupRecordKind.MAIL_FROM_MX: "mail_from",
+    EmailDomainSetupRecordKind.MAIL_FROM_SPF: "mail_from",
+    EmailDomainSetupRecordKind.DMARC: "dmarc",
+}
+
+
+def _legacy_dns_record(record: EmailDomainStatusRecord) -> EmailDomainDnsRecord:
+    legacy: EmailDomainDnsRecord = {
+        "type": _LEGACY_RECORD_PURPOSES[record.kind],
+        "recordType": cast(_LegacyRecordType, record.type.value),
+        "recordHostname": "@" if record.kind == EmailDomainSetupRecordKind.SPF else record.hostname,
+        "recordValue": record.value,
+        "status": "pending",
+    }
+    if record.priority is not None:
+        legacy["priority"] = record.priority
+    return legacy
+
+
+_UNKNOWN = "Unknown"
+
+
+@frozen
+class _SESIdentityState:
+    """The SES v1 identity attributes. A status is "Unknown" when SES has no attribute for the domain."""
+
+    verification_status: str
+    verification_token: str | None
+    dkim_status: str
+    dkim_tokens: tuple[str, ...]
+    mail_from_status: str
+    mail_from_domain: str | None
+
+    # SES keeps one MAIL FROM domain per identity, and senders on the same domain can ask for
+    # different ones. The status SES reports belongs to whichever was set last.
+    def for_mail_from_domain(self, mail_from_domain: str) -> "_SESIdentityState":
+        if self.mail_from_domain == mail_from_domain:
+            return self
+        return replace(self, mail_from_status=_UNKNOWN)
+
+    @property
+    def statuses(self) -> frozenset[str]:
+        return frozenset((self.verification_status, self.dkim_status, self.mail_from_status))
+
+    def is_ready(self, *, dmarc_published: bool) -> bool:
+        return dmarc_published and all(status == "Success" for status in self.statuses)
+
+    def setup_status(self, *, is_ready: bool) -> EmailDomainSetupStatus:
+        if is_ready:
+            return EmailDomainSetupStatus.VERIFIED
+        if "Failed" in self.statuses:
+            return EmailDomainSetupStatus.FAILED
+        if "TemporaryFailure" in self.statuses:
+            return EmailDomainSetupStatus.TEMPORARY_FAILURE
+        return EmailDomainSetupStatus.PENDING
+
+    def record_status(self, record: EmailDomainStatusRecord, *, published: bool) -> EmailDomainSetupRecordStatus:
+        if self._is_verified(record.kind, published=published):
+            return EmailDomainSetupRecordStatus.VERIFIED
+        return EmailDomainSetupRecordStatus.FOUND if published else EmailDomainSetupRecordStatus.PENDING
+
+    def _is_verified(self, kind: EmailDomainSetupRecordKind, *, published: bool) -> bool:
+        match kind:
+            case EmailDomainSetupRecordKind.VERIFICATION:
+                return self.verification_status == "Success"
+            case EmailDomainSetupRecordKind.DKIM:
+                return self.dkim_status == "Success"
+            case EmailDomainSetupRecordKind.MAIL_FROM_MX:
+                return self.mail_from_status == "Success"
+            # SES checks only the MX record of the MAIL FROM domain, so its success says nothing about the SPF record.
+            case EmailDomainSetupRecordKind.MAIL_FROM_SPF:
+                return published and self.mail_from_status == "Success"
+            case EmailDomainSetupRecordKind.DMARC:
+                return published
+            case _:
+                return False
+
+
+# Throttling is SES pacing a busy account. The next poll retries it, so reporting it adds only noise.
+def _is_throttling(error: Exception) -> bool:
+    return isinstance(error, ClientError) and error.response["Error"]["Code"] in ("Throttling", "ThrottlingException")
+
+
 class SESProvider:
     ses_client: "SESClient"
     ses_v2_client: "SESV2Client"
     ses_v2_metrics_client: "SESV2Client"
     ses_v2_recommendations_client: "SESV2Client"
+    ses_status_client: "SESClient"
+    ses_v2_status_client: "SESV2Client"
 
     def __init__(self, client_config: Config | None = None, read_interval_seconds: float = 0.0):
         self._read_interval_seconds = read_interval_seconds
@@ -327,7 +437,7 @@ class SESProvider:
             aws_access_key_id=settings.SES_ACCESS_KEY_ID,
             aws_secret_access_key=settings.SES_SECRET_ACCESS_KEY,
             region_name=settings.SES_REGION,
-            config=client_config,
+            config=client_config or STATUS_READ_CONFIG,
         )
         self.ses_client = boto3.client(
             "ses",
@@ -355,6 +465,20 @@ class SESProvider:
                 read_timeout=METRIC_READ_TIMEOUT_SECONDS,
                 retries={"max_attempts": 1},
             ),
+        )
+        self.ses_status_client = boto3.client(
+            "ses",
+            aws_access_key_id=settings.SES_ACCESS_KEY_ID,
+            aws_secret_access_key=settings.SES_SECRET_ACCESS_KEY,
+            region_name=settings.SES_REGION,
+            config=STATUS_READ_CONFIG,
+        )
+        self.ses_v2_status_client = boto3.client(
+            "sesv2",
+            aws_access_key_id=settings.SES_ACCESS_KEY_ID,
+            aws_secret_access_key=settings.SES_SECRET_ACCESS_KEY,
+            region_name=settings.SES_REGION,
+            config=STATUS_READ_CONFIG,
         )
         self.ses_v2_recommendations_client = boto3.client(
             "sesv2",
@@ -483,9 +607,22 @@ class SESProvider:
             return "identity"
         return "account"
 
+    # The cache only saves an STS call, so a cache outage falls back to STS instead of failing SES calls.
     @cached_property
     def _aws_account_id(self) -> str:
-        return self.sts_client.get_caller_identity()["Account"]
+        try:
+            cached: str | None = cache.get(AWS_ACCOUNT_ID_CACHE_KEY)
+        except Exception:
+            logger.warning("Could not read the cached AWS account id", exc_info=True)
+            cached = None
+        if cached is not None:
+            return cached
+        account_id = self.sts_client.get_caller_identity()["Account"]
+        try:
+            cache.set(AWS_ACCOUNT_ID_CACHE_KEY, account_id, AWS_ACCOUNT_ID_CACHE_SECONDS)
+        except Exception:
+            logger.warning("Could not cache the AWS account id", exc_info=True)
+        return account_id
 
     def _identity_arn(self, domain: str) -> str:
         return f"arn:aws:ses:{settings.SES_REGION}:{self._aws_account_id}:identity/{domain}"
@@ -500,10 +637,10 @@ class SESProvider:
             if e.response["Error"]["Code"] != "AlreadyExistsException":
                 raise
 
-    def _list_identity_tenants(self, domain: str) -> set[str]:
+    def _list_identity_tenants(self, domain: str, client: "SESV2Client | None" = None) -> set[str]:
         self._pace_read("resource_tenants")
         try:
-            resp = self.ses_v2_client.list_resource_tenants(ResourceArn=self._identity_arn(domain))
+            resp = (client or self.ses_v2_client).list_resource_tenants(ResourceArn=self._identity_arn(domain))
         except ClientError as e:
             if e.response["Error"]["Code"] == "NotFoundException":
                 return set()
@@ -622,77 +759,24 @@ class SESProvider:
         dkim_tokens: Sequence[str] = (),
         identity_status: SESIdentityStatus | None = None,
     ) -> EmailDomainVerification:
-        dns_records: list[EmailDomainDnsRecord] = []
-        if verification_token:
-            dns_records.append(
-                {
-                    "type": "verification",
-                    "recordType": "TXT",
-                    "recordHostname": f"_amazonses.{domain}",
-                    "recordValue": verification_token,
-                    "status": "pending",
-                }
+        # DMARC is in the list too: AWS SES has no method to check its presence, so we do a direct
+        # DNS lookup further below and include the result in the overall status.
+        dns_records = [
+            _legacy_dns_record(record)
+            for record in build_email_domain_records(
+                domain=domain,
+                mail_from_subdomain=mail_from_subdomain,
+                verification_token=verification_token,
+                dkim_tokens=dkim_tokens,
+                ses_region=self._ses_region,
             )
+        ]
 
-        for t in dkim_tokens:
-            dns_records.append(
-                {
-                    "type": "dkim",
-                    "recordType": "CNAME",
-                    "recordHostname": f"{t}._domainkey.{domain}",
-                    "recordValue": f"{t}.dkim.amazonses.com",
-                    "status": "pending",
-                }
-            )
-
-        dns_records.append(
-            {
-                "type": "verification",
-                "recordType": "TXT",
-                "recordHostname": "@",
-                "recordValue": "v=spf1 include:amazonses.com ~all",
-                "status": "pending",
-            }
-        )
-
-        ses_region = getattr(settings, "SES_REGION", "us-east-1")
-
-        dns_records.append(
-            {
-                "type": "mail_from",
-                "recordType": "MX",
-                "recordHostname": f"{mail_from_subdomain}.{domain}",
-                "recordValue": f"feedback-smtp.{ses_region}.amazonses.com",
-                "priority": 10,
-                "status": "pending",
-            }
-        )
-        dns_records.append(
-            {
-                "type": "mail_from",
-                "recordType": "TXT",
-                "recordHostname": f"{mail_from_subdomain}.{domain}",
-                "recordValue": "v=spf1 include:amazonses.com ~all",
-                "status": "pending",
-            }
-        )
-
-        # DMARC — AWS SES has no method to check its presence, so we do a direct DNS
-        # lookup further below and include the result in the overall status.
-        dns_records.append(
-            {
-                "type": "dmarc",
-                "recordType": "TXT",
-                "recordHostname": f"_dmarc.{domain}",
-                "recordValue": "v=DMARC1; p=none;",
-                "status": "pending",
-            }
-        )
-
+        mail_from_domain = f"{mail_from_subdomain}.{domain}"
         status = identity_status or self.get_identity_statuses([domain])[domain]
         verification_status = status.verification
         dkim_status = status.dkim
-        mail_from_status = status.mail_from_status_for(f"{mail_from_subdomain}.{domain}")
+        mail_from_status = status.mail_from_status_for(mail_from_domain)
 
         # DMARC: check via direct DNS lookup since AWS SES doesn't track it
         dmarc_status = "Pending"
@@ -712,26 +796,17 @@ class SESProvider:
         except Exception:
             logger.exception("Unexpected error during DMARC lookup for %s", domain)
 
-        all_statuses = [verification_status, dkim_status, mail_from_status]
-
         # Normalize overall status
         overall: EmailDomainVerificationStatus
-        if (
-            verification_status == "Success"
-            and dkim_status == "Success"
-            and mail_from_status == "Success"
-            and dmarc_status == "Success"
-        ):
+        if status.is_ready_for(mail_from_domain) and dmarc_status == "Success":
             overall = "success"
-        elif "Failed" in all_statuses:
+        elif "Failed" in (verification_status, dkim_status, mail_from_status):
             overall = "failed"
         else:
             overall = "pending"
 
-        if overall == "success":
-            expected_tenant = self._tenant_name_for_team(team_id)
-            if expected_tenant not in self._list_identity_tenants(domain):
-                overall = "pending"
+        if overall == "success" and not self._is_associated_with_team(domain, team_id):
+            overall = "pending"
 
         # Upgrade per-record statuses if SES reports success
         # - Domain verification TXT is considered verified when VerificationStatus == Success
@@ -780,6 +855,69 @@ class SESProvider:
             "status": overall,
             "dnsRecords": dns_records,
         }
+
+    def get_email_domain_status(self, domain: str, mail_from_subdomain: str, team_id: int) -> EmailDomainCheck:
+        try:
+            return self._check_email_domain(domain, mail_from_subdomain=mail_from_subdomain, team_id=team_id)
+        except (ClientError, BotoCoreError) as error:
+            if not _is_throttling(error):
+                capture_exception(error, {"domain": domain, "team_id": team_id})
+            raise EmailProviderUnavailableError(f"Could not read the SES state of {domain}") from error
+
+    def _check_email_domain(self, domain: str, *, mail_from_subdomain: str, team_id: int) -> EmailDomainCheck:
+        identity = self._read_identity_state(domain, self.ses_status_client).for_mail_from_domain(
+            f"{mail_from_subdomain}.{domain}"
+        )
+        if identity.verification_token is None:
+            return build_email_domain_check(provider_status=EmailDomainSetupStatus.NOT_STARTED, records=())
+
+        records = build_email_domain_records(
+            domain=domain,
+            mail_from_subdomain=mail_from_subdomain,
+            verification_token=identity.verification_token,
+            dkim_tokens=identity.dkim_tokens,
+            ses_region=self._ses_region,
+        )
+        published = find_published_records(domain, records)
+        dmarc_published = any(record.kind == EmailDomainSetupRecordKind.DMARC for record in published.records)
+        is_ready = (
+            identity.is_ready(dmarc_published=dmarc_published)
+            and published.every_lookup_answered
+            and self._is_associated_with_team(domain, team_id, self.ses_v2_status_client)
+        )
+        return build_email_domain_check(
+            provider_status=identity.setup_status(is_ready=is_ready),
+            records=[
+                replace(record, status=identity.record_status(record, published=record in published.records))
+                for record in records
+            ],
+            every_dns_lookup_answered=published.every_lookup_answered,
+        )
+
+    @property
+    def _ses_region(self) -> str:
+        return getattr(settings, "SES_REGION", "us-east-1")
+
+    def _is_associated_with_team(self, domain: str, team_id: int, client: "SESV2Client | None" = None) -> bool:
+        return self._tenant_name_for_team(team_id) in self._list_identity_tenants(domain, client)
+
+    def _read_identity_state(self, domain: str, client: "SESClient | None" = None) -> "_SESIdentityState":
+        ses = client or self.ses_client
+        id_for_domain = ses.get_identity_verification_attributes(Identities=[domain])["VerificationAttributes"].get(
+            domain
+        )
+        dkim_for_domain = ses.get_identity_dkim_attributes(Identities=[domain])["DkimAttributes"].get(domain)
+        mail_from_for_domain = ses.get_identity_mail_from_domain_attributes(Identities=[domain])[
+            "MailFromDomainAttributes"
+        ].get(domain)
+        return _SESIdentityState(
+            verification_status=id_for_domain["VerificationStatus"] if id_for_domain else _UNKNOWN,
+            verification_token=id_for_domain.get("VerificationToken") if id_for_domain else None,
+            dkim_status=dkim_for_domain["DkimVerificationStatus"] if dkim_for_domain else _UNKNOWN,
+            dkim_tokens=tuple(dkim_for_domain.get("DkimTokens", [])) if dkim_for_domain else (),
+            mail_from_status=mail_from_for_domain["MailFromDomainStatus"] if mail_from_for_domain else _UNKNOWN,
+            mail_from_domain=mail_from_for_domain.get("MailFromDomain") if mail_from_for_domain else None,
+        )
 
     def get_identity_statuses(self, domains: Sequence[str]) -> dict[str, SESIdentityStatus]:
         statuses = dict.fromkeys(domains, SESIdentityStatus())

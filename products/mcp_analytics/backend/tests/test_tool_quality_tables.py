@@ -380,6 +380,31 @@ class TestMCPToolQualityDailyStatsQueryRunner(_MCPAnalyticsTeamScopedTestMixin, 
 
         assert sum(r.calls for r in rows) == 2
 
+    def test_returns_the_latency_spread_for_box_plots(self) -> None:
+        for duration_ms in [100, 200, 300, 400, 500]:
+            _emit(self.team, duration_ms=duration_ms)
+        flush_persons_and_events()
+
+        runner = MCPToolQualityDailyStatsQueryRunner(
+            query=MCPToolQualityDailyStatsQuery(dateRange=DateRange(date_from="-7d")),
+            team=self.team,
+        )
+        [row] = runner.calculate().results
+
+        assert (row.min, row.p25, row.p50, row.mean, row.p75, row.max) == (100, 200, 300, 300, 400, 500)
+
+    def test_returns_none_for_latency_spread_when_durations_are_missing(self) -> None:
+        _emit(self.team, duration_ms=None)
+        flush_persons_and_events()
+
+        runner = MCPToolQualityDailyStatsQueryRunner(
+            query=MCPToolQualityDailyStatsQuery(dateRange=DateRange(date_from="-7d")),
+            team=self.team,
+        )
+        [row] = runner.calculate().results
+
+        assert (row.min, row.p25, row.mean, row.p75, row.max) == (None, None, None, None, None)
+
 
 class TestMCPToolCategoryCountsQueryRunner(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
     def test_counts_per_category_including_uncategorized(self) -> None:

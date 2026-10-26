@@ -149,5 +149,5 @@ class FirstPromoterSource(ResumableSource[FirstPromoterSourceConfig, FirstPromot
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
         )

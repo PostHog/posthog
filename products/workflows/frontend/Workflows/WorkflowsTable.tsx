@@ -15,6 +15,7 @@ import {
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AppMetricsSparkline } from 'lib/components/AppMetrics/AppMetricsSparkline'
 import { MemberSelect } from 'lib/components/MemberSelect'
+import { TagSelect } from 'lib/components/TagSelect'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -24,6 +25,7 @@ import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
@@ -45,6 +47,7 @@ import {
     workflowsLogic,
 } from './workflowsLogic'
 import { WorkflowStepMatches } from './WorkflowStepMatches'
+import { WorkflowTagsCell } from './WorkflowTagsCell'
 import { hasMessagingAction } from './workflowTypeFilters'
 
 const STATUS_CONFIG: Record<string, { label: string; type: 'success' | 'default' | 'muted' }> = {
@@ -129,6 +132,8 @@ export function WorkflowsTable(): JSX.Element {
         selectedArchivedWorkflowIds,
         allArchivedSelected,
         selectedArchivedCount,
+        localWorkflowTags,
+        tags: allTags,
     } = useValues(logic)
     // Only an unfiltered Automations tab is truly empty. With a search or filter, the plain message fits.
     const showAutomationEmptyState =
@@ -136,7 +141,8 @@ export function WorkflowsTable(): JSX.Element {
         !filters.search &&
         filters.createdBy === null &&
         filters.status === 'all' &&
-        filters.triggerType === 'all'
+        filters.triggerType === 'all' &&
+        filters.tags.length === 0
     const {
         loadWorkflows,
         toggleWorkflowStatus,
@@ -150,6 +156,9 @@ export function WorkflowsTable(): JSX.Element {
         toggleArchivedWorkflowSelection,
         selectAllArchivedWorkflows,
         clearArchivedWorkflowSelection,
+        updateWorkflowTags,
+        setTagsFilter,
+        loadTagsIfNeeded,
     } = useActions(logic)
 
     useOnMountEffect(() => {
@@ -159,6 +168,7 @@ export function WorkflowsTable(): JSX.Element {
             id: 'new',
         })
         newWorkflowLogic?.unmount()
+        loadTagsIfNeeded()
 
         // Since logic isn't getting unmounted when navigating away from this scene, we need to reload workflows
         // when the component re-mounts
@@ -166,6 +176,12 @@ export function WorkflowsTable(): JSX.Element {
     })
 
     const isArchived = filters.status === 'archived'
+
+    const filterByTag = (tag: string): void => {
+        if (!filters.tags.includes(tag)) {
+            setTagsFilter([...filters.tags, tag], 'tag_click')
+        }
+    }
 
     const columns: LemonTableColumns<HogFlow> = [
         ...(isArchived
@@ -198,7 +214,7 @@ export function WorkflowsTable(): JSX.Element {
             render: (_, item) => {
                 const stepMatches = findMatchingWorkflowSteps(item, filters.search)
                 return (
-                    <>
+                    <div className="min-w-48">
                         {item.status === 'archived' ? (
                             <Tooltip title="Restore this workflow to make changes">
                                 <span className="font-semibold text-sm text-muted">{item.name}</span>
@@ -237,7 +253,31 @@ export function WorkflowsTable(): JSX.Element {
                             />
                         )}
                         {stepMatches.length > 0 && <WorkflowStepMatches workflow={item} matches={stepMatches} />}
-                    </>
+                    </div>
+                )
+            },
+        },
+        {
+            title: 'Tags',
+            key: 'tags',
+            render: (_, item) => {
+                const tags = localWorkflowTags[item.id] ?? item.tags ?? []
+                const canEdit =
+                    item.status !== 'archived' &&
+                    (!item.user_access_level ||
+                        accessLevelSatisfied(
+                            AccessControlResourceType.Workflow,
+                            item.user_access_level,
+                            AccessControlLevel.Editor
+                        ))
+                return (
+                    <WorkflowTagsCell
+                        tags={tags}
+                        tagsAvailable={allTags.filter((tag) => !tags.includes(tag))}
+                        canEdit={canEdit}
+                        onChange={(newTags) => updateWorkflowTags(item, newTags)}
+                        onTagClick={filterByTag}
+                    />
                 )
             },
         },
@@ -466,6 +506,16 @@ export function WorkflowsTable(): JSX.Element {
                             value={filters.createdBy}
                             onChange={(user) => setFilters({ createdBy: user?.uuid || null })}
                         />
+                        <span className="ml-1">
+                            <b>Tags</b>
+                        </span>
+                        <TagSelect
+                            size="small"
+                            defaultLabel="Any tags"
+                            value={filters.tags}
+                            onChange={(tags) => setTagsFilter(tags, 'filter')}
+                            listDataAttr="workflows-tags-filter-list"
+                        />
                     </div>
                 </div>
 
@@ -484,6 +534,7 @@ export function WorkflowsTable(): JSX.Element {
                     dataSource={workflows.results}
                     loading={workflowsLoading}
                     rowKey="id"
+                    rowClassName="group"
                     columns={columns}
                     defaultSorting={{ columnKey: 'updatedAt', order: 1 }}
                     pagination={pagination}

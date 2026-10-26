@@ -48,7 +48,7 @@ class LinearbSource(ResumableSource[LinearbSourceConfig, LinearbResumeConfig]):
             name=ExternalDataSourceType.LINEARB,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="LinearB",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your LinearB API key to pull your engineering intelligence and DORA metrics into the PostHog Data warehouse.
 
 Generate an API token from **Settings → API Tokens** in your [LinearB account](https://app.linearb.io/). The token grants access to your organization's teams, users, services, deployments, incidents, and computed metrics.

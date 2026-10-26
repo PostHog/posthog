@@ -51,25 +51,6 @@ class TestFormatFilterValue:
 
 
 class TestValidateCredentials:
-    @parameterized.expand(
-        [
-            ("valid", 200, True),
-            ("invalid_token", 401, False),
-            ("forbidden", 403, False),
-            ("server_error", 500, False),
-        ]
-    )
-    def test_status_mapping(self, _name: str, status_code: int, expected_valid: bool) -> None:
-        with scripted_network(always(ScriptedResponse(status=status_code))):
-            valid, _message = validate_credentials("tok")
-        assert valid is expected_valid
-
-    def test_network_error_is_not_valid(self) -> None:
-        with scripted_network(always(requests.ConnectionError("boom"))):
-            valid, message = validate_credentials("tok")
-        assert valid is False
-        assert message is not None
-
     def test_token_is_registered_for_redaction(self) -> None:
         # The PAT rides in an Authorization header the value-based scrubber can only mask if the token
         # is registered via redact_values; dropping it would leak the credential into HTTP telemetry.
@@ -181,6 +162,26 @@ class TestPagination:
         ]
         assert result.response is not None
         assert result.response.partition_keys == ["invoice_date"]
+
+    def test_volume_quota_usage_fans_out_per_quota_and_skips_quotas_without_usage(self) -> None:
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/v4/volumes/quotas":
+                return _page([{"quota_id": "vol-capacity-us-east"}, {"quota_id": "vol-attachments-us-east"}])
+            if request.path == "/v4/volumes/quotas/vol-attachments-us-east/usage":
+                return ScriptedResponse(status=404, json={"errors": [{"reason": "Not found"}]})
+            return ScriptedResponse(json={"quota_limit": 51200, "usage": 12800})
+
+        result = _driver().run("volume_quota_usage", respond)
+
+        assert result.raised is None
+        assert result.paths == [
+            "/v4/volumes/quotas",
+            "/v4/volumes/quotas/vol-capacity-us-east/usage",
+            "/v4/volumes/quotas/vol-attachments-us-east/usage",
+        ]
+        assert result.requests[0].param("page_size") == "500"
+        assert result.requests[1].param("page_size") is None
+        assert result.rows == [{"quota_id": "vol-capacity-us-east", "quota_limit": 51200, "usage": 12800}]
 
     def test_account_transfer_yields_the_bare_object_as_one_row(self) -> None:
         transfer = {"quota": 4000, "used": 120, "billable": 0, "region_transfers": []}

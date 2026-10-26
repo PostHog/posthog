@@ -90,6 +90,31 @@ export default meta
 type Story = StoryObj<typeof OfflineExperimentContent>
 
 export const AllScorers: Story = {}
+export const ShortNames: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team/ai_observability/offline_experiments/:id/scorer_summaries/': {
+                    count: detailSummaries.length,
+                    next_cursor: null,
+                    results: detailSummaries.map((summary, index) => ({
+                        ...summary,
+                        scorer: {
+                            ...summary.scorer,
+                            name:
+                                [
+                                    'Checks whether the answer addresses every part of the question',
+                                    'Checks whether claims are supported by the reference material',
+                                    'Response time including tool execution',
+                                ][index] || summary.scorer.name,
+                            short_name: ['Answer quality', 'Groundedness'][index] || '',
+                        },
+                    })),
+                },
+            },
+        }),
+    ],
+}
 export const Narrow: Story = {
     decorators: [
         (Story) => (
