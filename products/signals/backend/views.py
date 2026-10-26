@@ -5684,7 +5684,14 @@ def decline_suggested_review(
                 edit=ReviewerEdit(action="add"),
                 reevaluate_autostart=False,
             )
-        removed = remove_suggested_reviewer(team=team, report_id=report_id, user=user, request=request)
+        scoped_team_ids = get_authenticator_scoped_team_ids(request.successful_authenticator)
+        removed = remove_suggested_reviewer(
+            team=team,
+            report_id=report_id,
+            user=user,
+            scoped_team_ids=tuple(scoped_team_ids) if scoped_team_ids is not None else None,
+            was_impersonated=is_impersonated_session(request),
+        )
     if replacement_user_uuid or not removed:
         return DeclinedReview(removed=removed, research=ReviewerRepick.NOT_NEEDED)
     remaining = SignalReportArtefact.latest_content(team_id=team.id, report_id=report_id, model=SuggestedReviewers)
