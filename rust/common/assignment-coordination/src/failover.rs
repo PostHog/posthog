@@ -22,12 +22,27 @@ pub fn is_member_level(err: &etcd_client::Error) -> bool {
     match err {
         etcd_client::Error::GRpcStatus(status) => {
             matches!(status.code(), Code::Unavailable | Code::DeadlineExceeded)
-                || std::error::Error::source(status)
-                    .is_some_and(|source| source.is::<tonic::transport::Error>())
+                || raised_by_connection(status)
         }
         etcd_client::Error::TransportError(_) | etcd_client::Error::IoError(_) => true,
         _ => false,
     }
+}
+
+/// Whether the client raised this status for a failed connection or HTTP/2
+/// stream, whatever its code, rather than etcd sending it.
+fn raised_by_connection(status: &tonic::Status) -> bool {
+    let mut source = std::error::Error::source(status);
+    while let Some(err) = source {
+        if err.is::<tonic::transport::Error>()
+            || err.is::<h2::Error>()
+            || err.is::<std::io::Error>()
+        {
+            return true;
+        }
+        source = err.source();
+    }
+    false
 }
 
 struct State {
@@ -258,7 +273,14 @@ mod tests {
         assert!(is_member_level(&etcd_client::Error::IoError(
             std::io::Error::from(std::io::ErrorKind::ConnectionReset)
         )));
+        let broken_stream =
+            tonic::Status::from_error(Box::new(h2::Error::from(h2::Reason::STREAM_CLOSED)));
+        assert_eq!(broken_stream.code(), Code::Unknown);
+        assert!(is_member_level(&etcd_client::Error::GRpcStatus(
+            broken_stream
+        )));
         for code in [
+            Code::Unknown,
             Code::ResourceExhausted,
             Code::FailedPrecondition,
             Code::NotFound,
