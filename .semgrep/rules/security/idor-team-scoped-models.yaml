@@ -75,6 +75,8 @@ rules:
                               |AgentArtifact
                               |AgentIdentityCredential
                               |AgentIdentityLinkState
+                              |AgentOperation
+                              |AgentOperationReply
                               |AgentPeerMessage
                               |AgentRevision
                               |AgentSandboxInstance
@@ -562,6 +564,8 @@ rules:
                         |AgentArtifact
                         |AgentIdentityCredential
                         |AgentIdentityLinkState
+                        |AgentOperation
+                        |AgentOperationReply
                         |AgentPeerMessage
                         |AgentRevision
                         |AgentSandboxInstance
