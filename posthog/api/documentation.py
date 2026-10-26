@@ -513,6 +513,16 @@ class FeatureFlagFilterPropertyCohortInSchemaSerializer(_FeatureFlagFilterProper
         required=True,
         help_text="Cohort comparison value (single or list, depending on usage).",
     )
+    cohort_deleted = serializers.BooleanField(
+        required=False,
+        help_text="Set to true in responses when the cohort is deleted or does not exist. "
+        "The flag cannot evaluate this condition. Ignored on write.",
+    )
+    cohort_missing = serializers.BooleanField(
+        required=False,
+        help_text="Set to true in responses when no cohort with this id exists in the project, so it cannot be "
+        "restored. `cohort_deleted` is also true. Absent for a soft-deleted cohort. Ignored on write.",
+    )
 
 
 class FeatureFlagFilterPropertyFlagEvaluatesSchemaSerializer(_FeatureFlagFilterPropertyBaseSerializer):
@@ -854,7 +864,13 @@ def preprocess_exclude_path_format(endpoints, **kwargs):
         is_env_duplicate = env_suffix is not None and (env_suffix, method) in projects_suffixes
 
         org_suffix = _extract_root_suffix(_ORG_PREFIX_RE, path)
-        is_org_duplicate = org_suffix is not None and (org_suffix, method) in projects_suffixes
+        # Sharing a suffix usually means one resource served at both levels. A viewset whose organization
+        # paths are a different resource opts out with `schema_org_paths_are_not_duplicates = True`.
+        is_org_duplicate = (
+            org_suffix is not None
+            and (org_suffix, method) in projects_suffixes
+            and not getattr(callback.cls, "schema_org_paths_are_not_duplicates", False)
+        )
 
         if is_env_duplicate:
             path = _ENVIRONMENTS_PREFIX_RE.sub("/api/environments/{environment_id}/", path, count=1)

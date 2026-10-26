@@ -9,13 +9,10 @@ from posthog.utils import get_instance_region
 
 from products.tasks.backend.constants import (
     AGENT_OTEL_TELEMETRY_STATE_KEY,
-    AGENT_RUN_OTEL_TELEMETRY_FEATURE_FLAG,
     DEV_STACK_IMAGE_BAKE_FEATURE_FLAG,
     MCP_EXEC_SKILLS_FEATURE_FLAG,
+    OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAGS,
     PI_CLOUD_RUNTIME_FEATURE_FLAG,
-    WORKFLOW_DISPATCH_ASYNC_FEATURE_FLAG,
-    WORKFLOW_DISPATCH_RESTART_FEATURE_FLAG,
-    WORKFLOW_DISPATCH_SHADOW_FEATURE_FLAG,
     get_required_model_flag,
 )
 
@@ -25,52 +22,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-NATIVE_STEERING_SIGNALS_FEATURE_FLAG = "tasks-native-steering-signals"
-NATIVE_STEERING_SIGNALS_DISTINCT_ID = "tasks-native-steering-signals"
-
 DEV_STACK_IMAGE_BAKE_DISTINCT_ID = "tasks-dev-stack-image-bake"
-WORKFLOW_DISPATCH_SHADOW_DISTINCT_ID = "tasks-workflow-dispatch-shadow"
-
-
-def is_workflow_dispatch_shadow_enabled() -> bool:
-    try:
-        return bool(
-            posthoganalytics.feature_enabled(
-                WORKFLOW_DISPATCH_SHADOW_FEATURE_FLAG,
-                distinct_id=WORKFLOW_DISPATCH_SHADOW_DISTINCT_ID,
-                person_properties={"region": get_instance_region() or "DEV"},
-                only_evaluate_locally=True,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception:
-        logger.exception("workflow_dispatch_shadow_flag_check_failed")
-        return False
-
-
-def _is_workflow_dispatch_org_flag_enabled(flag: str, organization_id: str, distinct_id: str) -> bool:
-    try:
-        return bool(
-            posthoganalytics.feature_enabled(
-                flag,
-                distinct_id=distinct_id,
-                groups={"organization": organization_id},
-                group_properties={"organization": {"id": organization_id}},
-                only_evaluate_locally=True,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception:
-        logger.exception("workflow_dispatch_org_flag_check_failed", extra={"flag": flag})
-        return False
-
-
-def is_workflow_dispatch_async_enabled(organization_id: str, distinct_id: str) -> bool:
-    return _is_workflow_dispatch_org_flag_enabled(WORKFLOW_DISPATCH_ASYNC_FEATURE_FLAG, organization_id, distinct_id)
-
-
-def is_workflow_dispatch_restart_enabled(organization_id: str, distinct_id: str) -> bool:
-    return _is_workflow_dispatch_org_flag_enabled(WORKFLOW_DISPATCH_RESTART_FEATURE_FLAG, organization_id, distinct_id)
 
 
 def is_task_run_stream_presence_gated(origin_product: str) -> bool:
@@ -120,30 +72,17 @@ def is_dev_stack_image_bake_enabled() -> bool:
         return False
 
 
-def is_native_steering_signals_enabled() -> bool:
-    if settings.DEBUG:
-        return True
+def own_subscription_cloud_enabled(adapter: str, *, distinct_id: str | None, organization_id: str) -> bool:
+    """Whether a cloud run may bill to its owner's plan for this adapter; fail-closed when evaluation fails.
 
-    try:
-        return bool(
-            posthoganalytics.feature_enabled(
-                NATIVE_STEERING_SIGNALS_FEATURE_FLAG,
-                distinct_id=NATIVE_STEERING_SIGNALS_DISTINCT_ID,
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception:
-        logger.exception("native_steering_signals_feature_flag_check_failed")
+    `distinct_id` is the plan owner's, not the id of whoever started the run.
+    """
+    if not distinct_id:
         return False
-
-
-def is_agent_otel_telemetry_enabled(*, distinct_id: str, organization_id: str) -> bool:
-    """Org-gated rollout of agent-run OTel telemetry; fail-closed when evaluation fails."""
     try:
         return bool(
             posthoganalytics.feature_enabled(
-                AGENT_RUN_OTEL_TELEMETRY_FEATURE_FLAG,
+                OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAGS[adapter],
                 distinct_id=distinct_id,
                 groups={"organization": organization_id},
                 group_properties={"organization": {"id": organization_id}},
@@ -152,7 +91,7 @@ def is_agent_otel_telemetry_enabled(*, distinct_id: str, organization_id: str) -
             )
         )
     except Exception:
-        logger.exception("agent_otel_telemetry_flag_check_failed")
+        logger.exception("own_subscription_cloud_flag_check_failed", extra={"adapter": adapter})
         return False
 
 
@@ -184,7 +123,7 @@ def get_model_access_error(model: str | None, *, distinct_id: str | None) -> str
 
     Fail-closed on purpose. Only a model the catalog gives an `access_flag` reaches an evaluation at all,
     so an evaluation outage withholds a preview model from everyone rather than opening it to
-    everyone — the opposite trade to the telemetry flags above, because this one decides spend.
+    everyone, because this flag decides spend.
     """
     flag_key = get_required_model_flag(model)
     if flag_key is None:
@@ -213,11 +152,7 @@ def get_model_access_error(model: str | None, *, distinct_id: str | None) -> str
 
 
 def agent_otel_telemetry_enabled_for_state(state: dict | None) -> bool:
-    """Per-run telemetry decision, read from the flag value stamped into run state at dispatch.
-
-    DEBUG bypasses the flag: the analytics SDK is disabled in local dev, where the
-    telemetry env settings / mirror settings are themselves the opt-in.
-    """
+    """DEBUG skips the stamp because in local dev the telemetry and mirror settings are the opt-in."""
     if settings.DEBUG:
         return True
     return (state or {}).get(AGENT_OTEL_TELEMETRY_STATE_KEY) is True

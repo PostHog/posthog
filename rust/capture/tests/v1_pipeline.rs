@@ -1,17 +1,12 @@
 mod common;
 
-use std::sync::Arc;
-
-use rdkafka::error::RDKafkaErrorCode;
 use rstest::rstest;
 use uuid::Uuid;
 
+use capture::sinks::producer::MockKafkaProducer;
 use capture::v1::analytics::process::process_batch;
 use capture::v1::analytics::response::BatchResponse;
 use capture::v1::analytics::types::{Batch, EventResult};
-use capture::v1::sinks::kafka::mock::MockProducer;
-use capture::v1::sinks::kafka::producer::ProduceError;
-use capture::v1::sinks::SinkName;
 use capture::v1::test_utils::{self, batch_payload, valid_event, TestStateBuilder};
 use capture::v1::Error;
 
@@ -58,10 +53,9 @@ async fn event_type_routes_to_destination(#[case] event_name: &str, #[case] expe
     assert_eq!(resp.entries().len(), 1);
     assert_eq!(resp.entries()[0].1.result, EventResult::Ok);
 
-    ts.mock_producer.with_records(|records| {
-        assert_eq!(records.len(), 1, "expected exactly 1 Kafka record");
-        assert_eq!(records[0].topic, expected_topic);
-    });
+    let records = ts.mock_producer.get_records();
+    assert_eq!(records.len(), 1, "expected exactly 1 Kafka record");
+    assert_eq!(&*records[0].topic, expected_topic);
 }
 
 // -------------------------------------------------------------------------
@@ -89,21 +83,8 @@ async fn mixed_batch_all_ok() {
 }
 
 #[tokio::test]
-async fn sink_ack_error_causes_retry() {
-    let mut manager = lifecycle::Manager::builder("test_ack_err")
-        .with_trap_signals(false)
-        .with_prestop_check(false)
-        .build();
-    let handle = manager.register("test_ack_err", lifecycle::ComponentOptions::new());
-    handle.report_healthy();
-    let _monitor = manager.monitor_background();
-
-    let producer =
-        Arc::new(
-            MockProducer::new(SinkName::Msk, handle).with_ack_error(|| ProduceError::Kafka {
-                code: RDKafkaErrorCode::BrokerNotAvailable,
-            }),
-        );
+async fn sink_ack_error_retries_only_that_event() {
+    let producer = MockKafkaProducer::new_failing_ack_at(1);
 
     let events = vec![event_with_name("$pageview"), event_with_name("$identify")];
     let payload = batch_payload(&events);
@@ -115,11 +96,13 @@ async fn sink_ack_error_causes_retry() {
     .await
     .expect("batch should succeed");
 
-    assert_eq!(resp.entries().len(), 2);
+    let results: Vec<EventResult> = resp
+        .entries()
+        .iter()
+        .map(|(_, status)| status.result)
+        .collect();
     assert!(resp.has_retry);
-    for (_, status) in resp.entries() {
-        assert_eq!(status.result, EventResult::Retry);
-    }
+    assert_eq!(results, vec![EventResult::Ok, EventResult::Retry]);
 }
 
 #[tokio::test]
@@ -177,13 +160,12 @@ async fn historical_rerouting() {
     assert_eq!(resp.entries().len(), 1);
     assert_eq!(resp.entries()[0].1.result, EventResult::Ok);
 
-    ts.mock_producer.with_records(|records| {
-        assert_eq!(records.len(), 1);
-        assert_eq!(
-            records[0].topic, "events_hist",
-            "old event should route to historical topic"
-        );
-    });
+    let records = ts.mock_producer.get_records();
+    assert_eq!(records.len(), 1);
+    assert_eq!(
+        &*records[0].topic, "events_hist",
+        "old event should route to historical topic"
+    );
 }
 
 // -------------------------------------------------------------------------
@@ -265,23 +247,23 @@ async fn empty_batch_error() {
 }
 
 #[tokio::test]
-async fn duplicate_uuid_error() {
-    let shared_uuid = Uuid::new_v4().to_string();
-    let mut e1 = valid_event();
-    e1.uuid = shared_uuid.clone();
-    let mut e2 = valid_event();
-    e2.event = "$identify".to_string();
-    e2.uuid = shared_uuid;
+async fn duplicate_uuid_keeps_and_publishes_only_the_first_copy() {
+    let first = event_with_name("$pageview");
+    let mut copy = event_with_name("$exception");
+    copy.uuid = first.uuid.clone();
+    let payload = batch_payload(&[first, copy]);
 
-    let payload = batch_payload(&[e1, e2]);
+    let (result, ts) = run_batch_with_state(&payload, TestStateBuilder::new()).await;
 
-    let err = run_batch(&payload, TestStateBuilder::new())
-        .await
-        .expect_err("duplicate uuid should fail");
-
-    assert!(
-        matches!(err, Error::DuplicateEventUuid(_)),
-        "expected DuplicateEventUuid, got: {err:?}"
+    let resp = result.expect("a duplicate uuid no longer rejects the request");
+    assert_eq!(resp.entries().len(), 1);
+    assert_eq!(resp.entries()[0].1.result, EventResult::Ok);
+    assert_eq!(resp.entries()[0].1.duplicates_dropped, 1);
+    let records = ts.mock_producer.get_records();
+    assert_eq!(records.len(), 1, "only the first copy is published");
+    assert_eq!(
+        &*records[0].topic, "events_main",
+        "the $exception copy was dropped"
     );
 }
 

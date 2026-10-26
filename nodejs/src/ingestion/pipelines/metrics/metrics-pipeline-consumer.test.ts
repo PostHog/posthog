@@ -28,7 +28,7 @@ jest.mock('./services/metrics-rate-limiter.service', () => ({
 describe('MetricsPipelineConsumer', () => {
     const team = createTestTeam({ id: 1, api_token: 'token-a' })
     let outputs: ReturnType<typeof createMockIngestionOutputs>
-    let teamManager: { getTeam: jest.Mock; getTeamByToken: jest.Mock }
+    let teamManager: { getTeam: jest.Mock; getTeamByToken: jest.Mock; setTeamsIngestedData: jest.Mock }
     let consumer: MetricsPipelineConsumer
 
     const message: Message = {
@@ -43,7 +43,11 @@ describe('MetricsPipelineConsumer', () => {
 
     beforeEach(() => {
         outputs = createMockIngestionOutputs()
-        teamManager = { getTeam: jest.fn(), getTeamByToken: jest.fn().mockResolvedValue(team) }
+        teamManager = {
+            getTeam: jest.fn(),
+            getTeamByToken: jest.fn().mockResolvedValue(team),
+            setTeamsIngestedData: jest.fn().mockResolvedValue(undefined),
+        }
         consumer = new MetricsPipelineConsumer(getDefaultMetricsIngestionConsumerConfig(), {
             teamManager,
             quotaLimiting: { isTeamTokenQuotaLimited: jest.fn().mockResolvedValue(false) },
@@ -63,11 +67,13 @@ describe('MetricsPipelineConsumer', () => {
         expect(settled).toBe(false)
 
         expect(outputs.queueMessages).not.toHaveBeenCalled()
+        expect(teamManager.setTeamsIngestedData).not.toHaveBeenCalled()
 
         ack()
         await backgroundTask
         expect(outputs.produce).toHaveBeenCalledTimes(1)
         expect(outputs.queueMessages).toHaveBeenCalled()
+        expect(teamManager.setTeamsIngestedData).toHaveBeenCalledWith([team.id])
     })
 
     it('runs on consumer-v2, which stores no offsets when the background task rejects', () => {

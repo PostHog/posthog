@@ -23,13 +23,18 @@ import {
 } from '../../types'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../../utils/hog-function-filtering'
 import { createInvocationResult } from '../../utils/invocation-utils'
-import { CohortMembershipRepository } from '../cohorts/cohort-membership-repository'
+import {
+    COHORT_MEMBERSHIP_CHANGED_EVENT,
+    COHORT_MEMBERSHIP_VERSION_PROPERTY,
+    CohortMembershipRepository,
+    StoredCohortMembership,
+} from '../cohorts/cohort-membership-repository'
 import { HogExecutorExecuteAsyncOptions } from '../hog-executor-async.service'
 import { EmailValidationService } from '../messaging/email-validation.service'
 import { RecipientPreferencesService } from '../messaging/recipient-preferences.service'
 import { CdpUsageReporterService } from '../usage/cdp-usage-reporter.service'
 import { ActionHandler } from './actions/action.interface'
-import { ConditionalBranchHandler } from './actions/conditional_branch'
+import { ConditionalBranchHandler, counterHogflowCohortLookupFailure } from './actions/conditional_branch'
 import { DelayHandler } from './actions/delay'
 import { ExitHandler } from './actions/exit.handler'
 import { HogFunctionHandler } from './actions/hog_function'
@@ -39,6 +44,7 @@ import { WaitUntilTimeWindowHandler } from './actions/wait_until_time_window'
 import { buildConversionWatcher } from './conversion-watcher'
 import { HogFlowDuplicateObserverService } from './hogflow-duplicate-observer.service'
 import { HogFlowFunctionsService } from './hogflow-functions.service'
+import { hasSensitiveEmailStep } from './hogflow-sensitivity'
 import {
     WorkflowChangedError,
     actionIdForLogging,
@@ -62,6 +68,11 @@ const counterRedirectTargetMissing = new Counter({
     name: 'cdp_hogflow_redirect_target_missing',
     help: 'A redirect map entry pointed at an action missing from the live graph',
 })
+
+const TRIGGER_MISMATCH_EXITS: ReadonlySet<string> = new Set([
+    'exit_on_trigger_not_matched',
+    'exit_on_trigger_not_matched_or_conversion',
+])
 
 export function createHogFlowInvocation(
     globals: HogFunctionInvocationGlobals,
@@ -94,6 +105,7 @@ export function createHogFlowInvocation(
             // manager may be serving a newer version. A message step re-pins this to the version
             // that actually sent (see HogFunctionHandler); until then this is the best answer.
             flowVersion: hogFlow.version,
+            ...(hasSensitiveEmailStep(hogFlow) ? { sensitive: true } : {}),
         },
         teamId: hogFlow.team_id,
         // The version lives on `state.flowVersion` rather than here — functionId is the cyclotron
@@ -112,6 +124,7 @@ export class HogFlowExecutorService {
     private readonly actionHandlers: Record<HogFlowAction['type'], ActionHandler>
     private readonly duplicateObserver: HogFlowDuplicateObserverService | null
     private readonly hogFlowFunctionsService: HogFlowFunctionsService
+    private readonly cohortMembershipRepository: CohortMembershipRepository
 
     constructor(
         hogFlowFunctionsService: HogFlowFunctionsService,
@@ -124,6 +137,7 @@ export class HogFlowExecutorService {
         options: { awaitedStepsEnabled?: boolean } = {}
     ) {
         this.hogFlowFunctionsService = hogFlowFunctionsService
+        this.cohortMembershipRepository = cohortMembershipRepository
         this.duplicateObserver = duplicateObserver ?? null
         const hogFunctionHandler = new HogFunctionHandler(
             hogFlowFunctionsService,
@@ -197,6 +211,15 @@ export class HogFlowExecutorService {
         // with the given globals — the executor's job is just to evaluate filter bytecode.
         for (const hogFlow of hogFlows) {
             const trigger = hogFlow.trigger
+
+            if (trigger.type === 'cohort') {
+                // A cohort trigger has no filters to evaluate: eligibility already matched the membership change.
+                const invocation = createHogFlowInvocation(triggerGlobals, hogFlow, filterGlobals)
+                // A membership change carries no distinct_id, so the worker loads the person by id.
+                invocation.state.personId = triggerGlobals.person?.id
+                invocations.push(invocation)
+                continue
+            }
 
             // Defensive: only the trigger types that carry `filters` make it through eligibility.
             // isRowScopedTrigger covers internal-event too, alongside the two warehouse types.
@@ -432,10 +455,79 @@ export class HogFlowExecutorService {
                         lastExecutedAction ? actionIdForLogging(lastExecutedAction) : lastExecutedActionId
                     } could not work out the date to wait for`,
                 })
+            } else if (result.invocation.state.currentAction?.cohortLookupFailed) {
+                // The default continue edge of a conditional branch is the path for people outside the
+                // cohort, so carrying on would route this person on a lookup that never answered.
+                shouldAbortAfterError = true
+                logs.push({
+                    level: 'info',
+                    timestamp: DateTime.now(),
+                    message: `Workflow is aborting because ${
+                        lastExecutedAction ? actionIdForLogging(lastExecutedAction) : lastExecutedActionId
+                    } could not look up cohort membership`,
+                })
             }
         }
 
         return finishedWithoutError || delayScheduled || shouldAbortAfterError
+    }
+
+    /**
+     * Whether the person still matches a cohort trigger: in the cohort for an "entered" trigger, out of it
+     * for a "left" one. Undefined when there is no trustworthy answer, which leaves the run alone.
+     *
+     * The membership writer and the trigger consumer read each change independently, so the table can still
+     * hold the state from before the change that started this run. A read counts only once the table has
+     * caught up with that change.
+     */
+    private async matchesCohortTrigger(
+        invocation: CyclotronJobInvocationHogFlow,
+        trigger: { cohort_id: number; transition: 'entered' | 'left' }
+    ): Promise<boolean | undefined> {
+        const personUuid = invocation.person?.id ?? invocation.state.personId
+        if (!personUuid) {
+            return undefined
+        }
+        const enrolledBy = invocation.state.event?.properties
+        // Only the change that enrolled the run can still be pending in the table. A run enrolled by another
+        // cohort or transition, because the trigger changed while it was parked, has nothing to wait for.
+        const enrolledByThisTrigger =
+            invocation.state.event?.event === COHORT_MEMBERSHIP_CHANGED_EVENT &&
+            enrolledBy?.cohort_id === trigger.cohort_id &&
+            enrolledBy?.status === trigger.transition
+        const triggerVersion = enrolledByThisTrigger ? enrolledBy?.[COHORT_MEMBERSHIP_VERSION_PROPERTY] : undefined
+        let membership: StoredCohortMembership | null
+        try {
+            membership = await this.cohortMembershipRepository.getCohortMembership(
+                invocation.hogFlow.team_id,
+                personUuid,
+                trigger.cohort_id,
+                typeof triggerVersion === 'string' ? triggerVersion : undefined
+            )
+        } catch (error) {
+            // No answer is not "no longer in the cohort", so the run carries on and the next wake checks again.
+            counterHogflowCohortLookupFailure.labels({ outcome: 'exit_check_skipped' }).inc()
+            logger.warn('HogFlowExecutorService: cohort membership lookup failed during the exit check', {
+                hogFlowId: invocation.hogFlow.id,
+                error: String(error),
+            })
+            return undefined
+        }
+
+        const inCohort = membership?.inCohort ?? null
+        const rowMatches = trigger.transition === 'entered' ? inCohort === true : inCohort === false
+        // The row's version stamp shows whether the writer has applied the change that started this run.
+        // Without a stamp, only a read that matches the trigger shows it, because the change flips the state.
+        const caughtUp =
+            !enrolledByThisTrigger ||
+            invocation.state.cohortTriggerConfirmed === true ||
+            (membership?.caughtUp ?? rowMatches)
+        if (!caughtUp) {
+            return undefined
+        }
+        invocation.state.cohortTriggerConfirmed = true
+        // Once the table has caught up, a missing row means out of the cohort.
+        return trigger.transition === 'entered' ? inCohort === true : inCohort !== true
     }
 
     private async shouldExitEarly(
@@ -458,6 +550,9 @@ export class HogFlowExecutorService {
                 caller: 'hogflow_exit_condition',
             })
             triggerMatch = filterResult.match
+        }
+        if (hogFlow.trigger.type === 'cohort' && TRIGGER_MISMATCH_EXITS.has(hogFlow.exit_condition)) {
+            triggerMatch = await this.matchesCohortTrigger(invocation, hogFlow.trigger)
         }
         if (hogFlow.conversion?.filters?.length && person) {
             if (hogFlow.conversion.bytecode?.length) {
@@ -514,6 +609,11 @@ export class HogFlowExecutorService {
                             : `[Person:${invocation.person?.id ?? 'unknown'}|${invocation.person?.name ?? 'unknown'}] matches conversion filters`
                 }
                 break
+        }
+
+        if (shouldExit && hogFlow.trigger.type === 'cohort' && triggerMatch === false) {
+            const movement = hogFlow.trigger.transition === 'entered' ? 'left' : 'rejoined'
+            exitReason = `[Person:${invocation.person?.id ?? 'unknown'}|${invocation.person?.name ?? 'unknown'}] ${movement} cohort ${hogFlow.trigger.cohort_id}`
         }
 
         if (shouldExit) {
@@ -773,10 +873,15 @@ export class HogFlowExecutorService {
         try {
             const { invocation } = result
             // A delay that could not work out when to continue must never fall through, whatever on_error
-            // says: the next step would run immediately, which is what the wait exists to prevent. Bailing
-            // here also keeps the flag readable by shouldEndHogFlowExecution, since goToNextAction would
-            // replace currentAction with a fresh entry and drop it.
-            if (invocation.state.currentAction?.delayUntilUnresolved) {
+            // says: the next step would run immediately, which is what the wait exists to prevent. A cohort
+            // lookup that failed on every attempt must not fall through either, because the continue edge
+            // treats the person as outside the cohort. Bailing here also keeps the flag readable by
+            // shouldEndHogFlowExecution, since goToNextAction would replace currentAction with a fresh
+            // entry and drop it.
+            if (
+                invocation.state.currentAction?.delayUntilUnresolved ||
+                invocation.state.currentAction?.cohortLookupFailed
+            ) {
                 return
             }
             const currentAction = ensureCurrentAction(invocation)
@@ -993,7 +1098,8 @@ export class HogFlowExecutorService {
 
     private logExecutionErrorInfo(
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>,
-        error: Error
+        // executeCurrentAction stores the message string, not the Error, on result.error.
+        error: unknown
     ): string {
         const invocation = result.invocation
         const currentActionId = invocation.state.currentAction?.id
@@ -1004,6 +1110,7 @@ export class HogFlowExecutorService {
             ? `. This workflow was triggered by [Event:${invocation.state.event?.uuid}|${invocation.state.event?.event?.replaceAll('|', '')}|${invocation.state.event?.timestamp}]`
             : ''
 
-        return `Workflow encountered an error: ${error.message} at ${currentAction ? actionIdForLogging(currentAction) : 'unknown action'}${triggeredByEvent}`
+        const message = error instanceof Error ? error.message : String(error)
+        return `Workflow encountered an error: ${message} at ${currentAction ? actionIdForLogging(currentAction) : 'unknown action'}${triggeredByEvent}`
     }
 }

@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -32,13 +33,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gologin.go
 from products.warehouse_sources.backend.temporal.data_imports.sources.gologin.settings import (
     AUTH_ERROR,
     ENDPOINTS,
+    INCREMENTAL_FIELDS,
     PERMISSION_ERROR,
+    WORKSPACE_ENDPOINTS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class GoLoginSource(ResumableSource[GoLoginSourceConfig, GoLoginResumeConfig]):
+    codebase_detection = detect(env=("^(GO_LOGIN|GOLOGIN)_",), npm=("gologin",), pypi=("gologin",))
+
     lists_tables_without_credentials = True
     api_docs_url = "https://api.gologin.com/docs"
 
@@ -61,7 +66,9 @@ class GoLoginSource(ResumableSource[GoLoginSourceConfig, GoLoginResumeConfig]):
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, {}, names)
+        return build_endpoint_schemas(
+            [*ENDPOINTS, *WORKSPACE_ENDPOINTS], INCREMENTAL_FIELDS, names, merge_only=INCREMENTAL_FIELDS.keys()
+        )
 
     def validate_credentials(
         self,
@@ -82,7 +89,13 @@ class GoLoginSource(ResumableSource[GoLoginSourceConfig, GoLoginResumeConfig]):
         inputs: SourceInputs,
     ) -> SourceResponse:
         return gologin_source(
-            config.api_key, inputs.schema_name, inputs.team_id, inputs.job_id, resumable_source_manager
+            config.api_key,
+            inputs.schema_name,
+            inputs.team_id,
+            inputs.job_id,
+            resumable_source_manager,
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value,
         )
 
     @property
@@ -93,7 +106,7 @@ class GoLoginSource(ResumableSource[GoLoginSourceConfig, GoLoginResumeConfig]):
             label="GoLogin",
             iconPath="/static/services/gologin.png",
             caption="Find your GoLogin API key in Settings > API.",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

@@ -103,12 +103,12 @@ export const getProductEventFilterOptions = (contextId: HogFunctionConfiguration
                     value: '$batch_export_run_failed',
                 },
             ]
-        case 'data-warehouse-alerts':
+        case 'replay-vision-requests':
             return [
-                { label: 'Sync failed', value: '$data_warehouse_sync_failed' },
-                { label: 'Sync recovered', value: '$data_warehouse_sync_recovered' },
-                { label: 'Sync completed', value: '$data_warehouse_sync_completed' },
-                { label: 'Billing limit reached', value: '$data_warehouse_billing_limit_reached' },
+                {
+                    label: 'Replay vision request completed',
+                    value: '$replay_vision_request_completed',
+                },
             ]
         default:
             return [

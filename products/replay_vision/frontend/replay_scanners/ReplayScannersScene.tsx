@@ -1,23 +1,27 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 
+import * as explorerPng from '@posthog/brand/hoggies/png/explorer'
 import { IconRefresh, IconSearch } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
     LemonDivider,
     LemonInput,
-    LemonSwitch,
     LemonTable,
     LemonTabs,
-    LemonTag,
     Link,
     Spinner,
     Tooltip,
 } from '@posthog/lemon-ui'
+import { PostHogCaptureOnViewed } from '@posthog/react'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { lemonBannerLogic } from 'lib/lemon-ui/LemonBanner/lemonBannerLogic'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -40,14 +44,20 @@ import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { ObservationSearch } from '../search/ObservationSearch'
 import { getReplayVisionDeleteDisabledReason, getReplayVisionEditDisabledReason } from '../utils/accessControl'
 import { creditsToUsd, formatCreditCount } from '../utils/credits'
+import { quotaBannerState } from '../utils/quotaProjection'
 import { CreateScannerButton } from './components/CreateScannerButton'
+import { QuillCreateScannerButton } from './components/QuillCreateScannerButton'
+import { ScannerStatusLabel } from './components/ScannerStatusLabel'
 import { VisionMetrics } from './components/VisionMetrics'
 import { VisionUsageTab } from './components/VisionUsageTab'
 import { WatchFeedTab } from './components/WatchFeedTab'
 import { ReplayScannerTab } from './replayScannerSceneLogic'
 import { type ScannersSorting, SCANNERS_PAGE_SIZE, replayScannersLogic } from './replayScannersLogic'
-import { LIMIT_REACHED_TOOLTIP } from './scannerCopy'
+import { limitReachedTooltip } from './scannerCopy'
+import { scannerStatus } from './scannerStatus'
 import { ENABLED_OPTIONS, EnabledFilter, scannerTypeOptions, ScannerType, ReplayScanner } from './types'
+
+const HedgehogExplorer = pngHoggie(explorerPng)
 
 function ScannerRowActions({ scanner }: { scanner: ReplayScanner }): JSX.Element {
     const { deletingIds } = useValues(replayScannersLogic)
@@ -111,6 +121,45 @@ function ScannerRowActions({ scanner }: { scanner: ReplayScanner }): JSX.Element
     )
 }
 
+// Pinned: a localStorage key. Renaming it shows the banner again to everyone who closed it.
+const FIELD_GUIDE_DISMISS_KEY = 'replay-vision-field-guide-callout'
+
+function FieldGuideBanner(): JSX.Element | null {
+    const { isDismissed } = useValues(lemonBannerLogic({ dismissKey: FIELD_GUIDE_DISMISS_KEY }))
+
+    // A dismissed LemonBanner renders null but the viewed tracker would still fire, skewing impressions
+    if (isDismissed) {
+        return null
+    }
+
+    return (
+        <PostHogCaptureOnViewed name="replay-vision-field-guide-banner-shown">
+            <LemonBanner
+                type="info"
+                dismissKey={FIELD_GUIDE_DISMISS_KEY}
+                onClose={() => posthog.capture('replay-vision-field-guide-banner-dismissed')}
+                // Negative margins let the hog overflow the banner edges without making the banner taller.
+                // z-10 draws it over the border of a banner above. It hides in a narrow banner to keep the text width.
+                icon={
+                    <HedgehogExplorer className="hidden @lg:block pointer-events-none relative z-10 w-36 h-36 -mt-16 -mb-14 shrink-0" />
+                }
+            >
+                <p>
+                    <span className="font-semibold">Meet the 10 species living in your replays.</span> A naturalist's{' '}
+                    <Link
+                        to="https://posthog.com/field-guide"
+                        target="_blank"
+                        data-attr="replay-vision-field-guide-banner-link"
+                    >
+                        field guide
+                    </Link>{' '}
+                    to the rage-clickers, tab-hoppers, and other wild users you'll spot in user recordings.
+                </p>
+            </LemonBanner>
+        </PostHogCaptureOnViewed>
+    )
+}
+
 const KNOWN_TABS: string[] = ['watch', 'scanners', ReplayScannerTab.Search, 'usage']
 const DEFAULT_TAB = 'watch'
 
@@ -128,7 +177,6 @@ export function ReplayScannersScene(): JSX.Element {
         scannersPage,
         scannersTotal,
         scannersSort,
-        togglingIds,
         search,
         enabledFilter,
         scannerTypeFilter,
@@ -140,11 +188,13 @@ export function ReplayScannersScene(): JSX.Element {
         scannerStats,
         scannerStatsLoading,
     } = useValues(replayScannersLogic)
-    const { loadScanners, toggleScannerEnabled, setScannersFilters, clearFilters } = useActions(replayScannersLogic)
+    const { loadScanners, setScannersFilters, clearFilters } = useActions(replayScannersLogic)
     const { push } = useActions(router)
     const { searchParams } = useValues(router)
-    const { showUsd } = useValues(visionQuotaLogic)
+    const { showUsd, quota } = useValues(visionQuotaLogic)
+    const quotaExhausted = quotaBannerState(quota).kind === 'exhausted'
     const { featureFlags } = useValues(featureFlagLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const activeTab = KNOWN_TABS.includes(searchParams.tab) ? searchParams.tab : DEFAULT_TAB
 
     const columns: LemonTableColumns<ReplayScanner> = [
@@ -167,31 +217,23 @@ export function ReplayScannersScene(): JSX.Element {
         {
             title: 'Status',
             key: 'enabled',
-            render: (_, scanner) => (
-                <div className="flex items-center gap-2">
-                    <LemonSwitch
-                        checked={scanner.enabled}
-                        onChange={() => toggleScannerEnabled(scanner.id)}
-                        disabledReason={
-                            togglingIds.includes(scanner.id)
-                                ? 'Updating…'
-                                : getReplayVisionEditDisabledReason(scanner.user_access_level)
-                        }
-                        size="small"
-                        data-attr="vision-scanner-toggle-enabled"
-                        data-ph-capture-attribute-scanner-type={scanner.scanner_type}
-                        data-ph-capture-attribute-will-be-enabled={!scanner.enabled}
-                    />
-                    <span className={`inline-block min-w-[4.5rem] ${scanner.enabled ? 'text-success' : 'text-muted'}`}>
-                        {scanner.enabled ? 'Enabled' : 'Disabled'}
-                    </span>
-                    {scanner.limit_reached && (
-                        <Tooltip title={LIMIT_REACHED_TOOLTIP}>
-                            <LemonTag type="danger">Limit reached</LemonTag>
-                        </Tooltip>
-                    )}
-                </div>
-            ),
+            render: (_, scanner) => {
+                const status = scannerStatus(scanner, { quotaExhausted, drought: null })
+                const tooltip =
+                    status.kind === 'limit_reached'
+                        ? limitReachedTooltip(scanner)
+                        : status.kind === 'quota_exhausted'
+                          ? "Your organization's Replay Vision credits are used up for this billing period."
+                          : null
+                return (
+                    <Tooltip title={tooltip}>
+                        {/* The tooltip attaches its trigger to a DOM element, which the label component is not. */}
+                        <span>
+                            <ScannerStatusLabel status={status} className="whitespace-nowrap" />
+                        </span>
+                    </Tooltip>
+                )
+            },
             sorter: true,
         },
         {
@@ -263,29 +305,32 @@ export function ReplayScannersScene(): JSX.Element {
                 actions={
                     <>
                         <ReplayVisionFeedbackButton />
-                        <CreateScannerButton acceptedLabel="New scanner" dataAttr="vision-scanner-create" />
+                        {todayRailNav ? (
+                            <QuillCreateScannerButton acceptedLabel="New scanner" dataAttr="vision-scanner-create" />
+                        ) : (
+                            <CreateScannerButton acceptedLabel="New scanner" dataAttr="vision-scanner-create" />
+                        )}
                     </>
                 }
             />
 
             <IngestionLimitBanner />
 
-            {(scannerStats?.total ?? 0) - (scannerStats?.enabled ?? 0) > 0 && (
-                <LemonBanner type="warning" dismissKey="replay-vision-launch-beta-scanners">
-                    Replay vision is out of beta and scans now use billed credits. Your scanners were turned off for the
-                    launch, so re-enable the ones you want to keep running. See{' '}
-                    <VisionDocsLink page="quota-and-limits" dataAttr="vision-docs-link-launch-banner">
-                        how credits are priced
-                    </VisionDocsLink>{' '}
-                    in the docs, or check the Usage tab for current spend.
-                </LemonBanner>
-            )}
+            <FieldGuideBanner />
 
             <LemonTabs
                 activeKey={activeTab}
                 onChange={(tab) => push(urls.replayVision(), tab === DEFAULT_TAB ? {} : { tab })}
                 tabs={[
-                    { key: 'watch', label: 'What to watch', content: <></> },
+                    {
+                        key: 'watch',
+                        // The new name ships with the embedding ranker, so it stays off the arms it does not describe.
+                        label:
+                            featureFlags[FEATURE_FLAGS.VISION_WATCH_FEED_RANKER] === 'embedding'
+                                ? 'Highlights'
+                                : 'What to watch',
+                        content: <></>,
+                    },
                     { key: 'scanners', label: 'Scanners', content: <></> },
                     { key: ReplayScannerTab.Search, label: 'Search', content: <></> },
                     { key: 'usage', label: 'Usage', content: <></> },

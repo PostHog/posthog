@@ -49,6 +49,11 @@ class TaggableModel:
 
 
 TAGGABLE_MODELS: tuple[TaggableModel, ...] = (
+    TaggableModel(model_label="ai_observability.Dataset", legacy_field="ai_dataset", object_field=OBJECT_UUID),
+    TaggableModel(model_label="ai_observability.ScoreDefinition", legacy_field="ai_scorer", object_field=OBJECT_UUID),
+    TaggableModel(
+        model_label="ai_observability.OfflineExperiment", legacy_field="offline_experiment", object_field=OBJECT_UUID
+    ),
     TaggableModel(model_label="dashboards.Dashboard", legacy_field="dashboard", object_field=OBJECT_ID),
     TaggableModel(model_label="product_analytics.Insight", legacy_field="insight", object_field=OBJECT_ID),
     TaggableModel(
@@ -71,6 +76,8 @@ TAGGABLE_MODELS: tuple[TaggableModel, ...] = (
     TaggableModel(model_label="posthog.Project", legacy_field="project", object_field=OBJECT_ID),
     TaggableModel(model_label="experiments.Experiment", legacy_field="experiment", object_field=OBJECT_ID),
     TaggableModel(model_label="tasks.Task", legacy_field="task", object_field=OBJECT_UUID),
+    TaggableModel(model_label="workflows.HogFlow", legacy_field="hog_flow", object_field=OBJECT_UUID),
+    TaggableModel(model_label="messaging.MessageTemplate", legacy_field="message_template", object_field=OBJECT_UUID),
 )
 
 _BY_LABEL: dict[str, TaggableModel] = {entry.model_label: entry for entry in TAGGABLE_MODELS}

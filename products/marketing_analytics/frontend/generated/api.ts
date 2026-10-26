@@ -14,6 +14,8 @@ import type {
     ConversionGoalWriteApi,
     ConversionGoalWriteResponseApi,
     ConversionGoalsListResponseApi,
+    ConversionRecommendationStartApi,
+    ConversionRecommendationStateApi,
     ConversionRecordingsRequestApi,
     ConversionRecordingsResponseApi,
     DataSourceHealthResponseApi,
@@ -142,6 +144,49 @@ export const marketingAnalyticsConversionGoalsCreateCreate = async (
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(conversionGoalWriteApi),
     })
+}
+
+export const getMarketingAnalyticsConversionRecommendationsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/marketing_analytics/conversion_recommendations/`
+}
+
+/**
+ * @summary Read persisted conversion recommendations
+ */
+export const marketingAnalyticsConversionRecommendationsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ConversionRecommendationStateApi> => {
+    return apiMutator<ConversionRecommendationStateApi>(
+        getMarketingAnalyticsConversionRecommendationsRetrieveUrl(projectId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getMarketingAnalyticsConversionRecommendationsStartCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/marketing_analytics/conversion_recommendations/start/`
+}
+
+/**
+ * @summary Start a conversion recommendation analysis
+ */
+export const marketingAnalyticsConversionRecommendationsStartCreate = async (
+    projectId: string,
+    conversionRecommendationStartApi?: ConversionRecommendationStartApi,
+    options?: RequestInit
+): Promise<ConversionRecommendationStateApi> => {
+    return apiMutator<ConversionRecommendationStateApi>(
+        getMarketingAnalyticsConversionRecommendationsStartCreateUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(conversionRecommendationStartApi),
+        }
+    )
 }
 
 export const getMarketingAnalyticsConversionRecordingsListUrl = (projectId: string) => {

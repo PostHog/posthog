@@ -82,6 +82,15 @@ const SELF_MANAGED_KEYWORDS = [
     'own storage',
 ]
 
+// A "Coming soon" tile for a service we already connect under another tile is a dead end: the user
+// registers interest and leaves without the connector that works today. Each key is hidden while
+// its value is in the catalog and connectable.
+const LIVE_ALTERNATIVE_TO_COMING_SOON: Partial<Record<string, string>> = {
+    [ExternalDataSourceTypeEnumApi.MicrosoftAdvertising]: ExternalDataSourceTypeEnumApi.BingAds,
+    // The managed Amazon S3 source is flag-gated, but the self-managed S3 connector links a bucket.
+    [ExternalDataSourceTypeEnumApi.AmazonS3]: 'aws',
+}
+
 // "Request a data warehouse source" survey. We render our own modal and submit the answer
 // directly as a `survey sent` event rather than using the posthog-js survey popover.
 export const SOURCE_REQUEST_SURVEY_ID = '0190ff15-5032-0000-722a-e13933c140ac'
@@ -124,7 +133,7 @@ const EVENT_SOURCE_CATALOG_ITEMS: CatalogItem[] = [
         category: 'Engineering & monitoring',
         keywords: ['webhook', 'webhooks', 'http', 'https', 'endpoint', 'events', 'incoming', 'custom', 'real time'],
         status: 'stable',
-        releaseStatus: 'alpha',
+        releaseStatus: 'beta',
         url: urls.hogFunctionNew('template-source-webhook'),
     },
     {
@@ -135,7 +144,7 @@ const EVENT_SOURCE_CATALOG_ITEMS: CatalogItem[] = [
         category: 'Engineering & monitoring',
         keywords: ['pixel', 'tracking pixel', 'image', 'gif', 'email', 'open tracking', 'beacon', 'events'],
         status: 'stable',
-        releaseStatus: 'alpha',
+        releaseStatus: 'beta',
         url: urls.hogFunctionNew('template-source-webhook-pixel'),
     },
 ]
@@ -159,6 +168,7 @@ export interface sourceCatalogLogicValues {
     catalogFuse: Fuse
     catalogItems: CatalogItem[]
     categoriesWithCounts: CatalogCategory[]
+    customSourceItem: CatalogItem | null
     filteredItems: CatalogItem[]
     hasCrossCategoryMatches: boolean
     registeredInterestSources: string[]
@@ -226,6 +236,7 @@ export interface sourceCatalogLogicMeta {
             selectedCategory: SourceCategoryFilter
         ) => CatalogItem[]
         hasCrossCategoryMatches: (catalogFuse: Fuse, search: string, selectedCategory: SourceCategoryFilter) => boolean
+        customSourceItem: (catalogItems: CatalogItem[]) => CatalogItem | null
     }
 }
 
@@ -371,7 +382,7 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
                         const featureFlagRaw = featureFlags[connector.featureFlag as FeatureFlagKey]
                         const featureFlagValue: boolean | undefined = featureFlagDefined ? !!featureFlagRaw : undefined
                         const { status } = getSourceDisplayStatus(!!connector.unreleasedSource, featureFlagValue)
-                        // Only surface alpha/beta while the source is actually connectable.
+                        // Only surface beta while the source is actually connectable.
                         const releaseStatus =
                             status === 'stable' && connector.releaseStatus && connector.releaseStatus !== 'ga'
                                 ? connector.releaseStatus
@@ -437,7 +448,14 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
                 const eventSources =
                     !allowedSources && featureFlags[FEATURE_FLAGS.CDP_HOG_SOURCES] ? EVENT_SOURCE_CATALOG_ITEMS : []
 
-                return [...managed, ...selfManaged, ...fileUpload, ...eventSources]
+                const items = [...managed, ...selfManaged, ...fileUpload, ...eventSources]
+                const connectableNames = new Set(
+                    items.filter((item) => item.status !== 'coming_soon').map((item) => item.name)
+                )
+                return items.filter((item) => {
+                    const liveAlternative = LIVE_ALTERNATIVE_TO_COMING_SOON[item.name]
+                    return !(item.status === 'coming_soon' && liveAlternative && connectableNames.has(liveAlternative))
+                })
             },
             // featureFlags is a broad dependency that changes identity on every flag refresh;
             // keeping the previous array when the derived catalog is unchanged stops the Fuse
@@ -550,6 +568,16 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
                     (item) => item.status !== 'coming_soon' && !matchesCategory(item, selectedCategory)
                 )
             },
+        ],
+
+        // A search that finds nothing is usually for a tool we have no connector for. Any tool with
+        // a REST API can still connect through the Custom REST source, so the empty state offers it.
+        customSourceItem: [
+            (s) => [s.catalogItems],
+            (catalogItems: CatalogItem[]): CatalogItem | null =>
+                catalogItems.find(
+                    (item) => item.name === ExternalDataSourceTypeEnumApi.Custom && item.status !== 'coming_soon'
+                ) ?? null,
         ],
     }),
     listeners(({ values, actions }) => ({

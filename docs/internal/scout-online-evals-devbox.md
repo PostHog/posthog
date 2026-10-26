@@ -9,7 +9,7 @@ Follow the existing [devbox setup](../../.agents/skills/setting-up-devbox/SKILL.
 - Use a staff user with membership in project 2 and permission to edit the source skill.
 - Choose a scout with a reviewed, saved rubric and report tools (`emit_report` or `edit_report`). The trial setup screen explains unsupported configurations.
 - Start MCP, Temporal and Docker sandboxes alongside the normal stack. Complete local OAuth setup (`setup_tasks_oauth`) and Temporal search-attribute registration.
-- Use the [Go AI gateway](https://github.com/PostHog/ai-gateway), with credentials for the scout models and the judge model, currently `gpt-6-astra`.
+- Use the [Go AI gateway](https://github.com/PostHog/ai-gateway), with credentials for the scout models and the judge model, currently `gpt-6.1-sol` with `xhigh` reasoning effort.
 - Preserve the synthetic dataset and set a test budget: scouts and judging make paid model calls. Keep credentials and downloaded reports outside Git.
 
 ## Configuration
@@ -68,12 +68,16 @@ Trial scout deadlines include five minutes for startup and log reads, plus time 
 
 Trial plans and evaluation documents keep one complete adopted reference each and exclude suggestion-generation history. The judge reads that same adopted reference from its evidence attachment.
 
-Suggestion generation captures the complete scout instructions and reference files for judging, while keeping the generator's prompt bounded. If an older saved reference is incomplete, generate suggestions again, review and use the new reference, then save. You can keep your existing criteria.
+Suggestion generation captures the complete scout instructions and reference files, attaches them to its sandbox, and uses read-only MCP tools to inspect relevant past runs, reports and live project data. It can read the files in sections instead of relying on shortened prompt excerpts. Past behavior informs suggestions but does not change the scout's assignment. A new scout can receive suggestions without run history, and unavailable evidence is noted in the summary. Generation does not change project data or saved criteria; review and save the suggestions you want.
+
+If an older saved reference is incomplete, generate suggestions again, review and use the new reference, then save. You can keep your existing criteria.
 The generator flags unresolved conflicts in the source instructions in its summary instead of choosing a stricter rule. Wording updates to shared defaults affect unsaved rubrics only; saved criteria stay fixed.
 
 Variants and retries share a saved copy of the project's scout memory, notes and recent scout runs. This starting context lives in private object storage and can exceed the 16 MiB limit on launch settings without being shortened.
 
 Each trial scout stores its own memory changes and reports in a separate `trial_state` field on its Signals scout-run record. The small trial marker stays in metadata so ordinary history queries can exclude trials without reading their documents. Tasks run state contains execution settings and token bindings, not trial documents. Signals verifies the sandbox token belongs to that exact run before serving private context. Tasks grants the restricted scout credential only the necessary log, summary and lifecycle writes for its own run; it cannot change another task or steer a trial. Ordinary scout responses omit the private state.
+
+If a trial's scout worker fails or is cancelled, Signals asks Tasks to stop that exact run. Failed runs remain excluded while cleanup proceeds. A failure in the overall comparison does not cancel otherwise healthy scouts.
 
 Trial scouts can use `created_after`, `priority`, `actionability`, and `already_addressed` on `inbox-reports-list`. Report edits, including priority and actionability changes, stay private to the individual run and appear in its subsequent reads; they never modify shared reports or another trial run. Ordering by ranking scores is refused explicitly because private report edits have not been ranked.
 
@@ -89,7 +93,7 @@ The judge has no live project tools, external MCP connections or repository cred
 
 The judge saves one JSON verdict per rubric check through Tasks' existing structured-output support. Signals checks that same Task until it finishes, then validates its quotes against the original saved files. New evaluations use saved scout identifiers to recheck current permissions on every status poll without downloading the full starting context again; preparation and report finalization still validate that context. Worker restarts resume result collection without starting another judge. If result collection remains unavailable, the evaluation fails without freezing an incomplete report; resuming the same evaluation reuses its Tasks and saved judgments.
 
-The judge first checks whether each criterion applies, including allowed exceptions and optional work. The required skill and project-profile startup reads are distinguished from the investigation itself; incidental metadata in those responses does not by itself prove unrelated investigation. Required step order is checked against the execution timeline; doing both steps in the wrong order does not satisfy it. Unresolved conflicting instructions give an unknown verdict unless another clear violation already fails that criterion. Judge prompt versions are fixed per trial: after a version changes, unfinished trials using the older judge require a new trial. Resuming an outdated trial is rejected before more paid runs start. Completed reports stay readable.
+The judge first checks whether each criterion applies, including allowed exceptions and optional work. The required skill and project-profile startup reads are distinguished from the investigation itself; incidental metadata in those responses does not by itself prove unrelated investigation. Required step order is checked against the execution timeline; doing both steps in the wrong order does not satisfy it. Unresolved conflicting instructions give an unknown verdict unless another clear violation already fails that criterion. Judge versions cover the model, reasoning effort and prompt. After a version changes, unfinished trials using the older judge require a new trial. Resuming an outdated trial is rejected before more paid runs start. Completed reports stay readable.
 
 Unavailable or ambiguous evidence gives an unknown verdict. A required action proved missing from a complete record fails; missing thoughts alone never prove an omission. Citation checks accept decoded JSON string fields in tool responses. A judge failure is shown separately from a failed rubric check. Each judge has a 30-minute deadline measured from its original Task run creation; retries do not reset it. Up to three collectors run at once, but judge Tasks can briefly overlap beyond that after a delayed start or collection failure. Saved results never rerun the judge when viewed.
 

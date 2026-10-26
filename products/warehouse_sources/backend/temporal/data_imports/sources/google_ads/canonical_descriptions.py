@@ -67,6 +67,24 @@ def _overview_stats_columns(**overrides: str) -> dict[str, str]:
 
 
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
+    "change_event": {
+        "description": "Account configuration changes with their old and new field values. The API returns only the last 30 days; incremental sync retains imported history.",
+        "docs_url": "https://developers.google.com/google-ads/api/docs/change-event",
+        "columns": {
+            "customer_id": _IDS["customer_id"],
+            "customer_time_zone": "The account time zone used by change_event_change_date_time.",
+            "change_event_resource_name": "Unique change event resource name, including the account ID.",
+            "change_event_change_date_time": "Time of the change in the Google Ads account time zone, without an offset.",
+            "change_event_change_resource_type": "Type of resource that changed.",
+            "change_event_change_resource_name": "Resource name of the object that changed.",
+            "change_event_resource_change_operation": "Whether the change created, updated, or removed the object.",
+            "change_event_client_type": "Client used to make the change, such as the web client or API.",
+            "change_event_user_email": "Email of the user who made the change, when Google exposes it.",
+            "change_event_changed_fields": "Field mask identifying the fields that changed.",
+            "change_event_old_resource": "JSON representation of the changed resource before the change.",
+            "change_event_new_resource": "JSON representation of the changed resource after the change.",
+        },
+    },
     "ad": {
         "description": "An ad within an ad group (ad_group_ad), including its creative content and status.",
         "docs_url": "https://developers.google.com/google-ads/api/fields/v17/ad_group_ad",
@@ -129,6 +147,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             **_IDS,
             "campaign_name": "Name of the campaign.",
             "campaign_status": "Status of the campaign (enabled, paused, or removed).",
+            "campaign_labels": "Resource names of labels attached to the campaign.",
             "campaign_serving_status": "Whether the campaign is currently able to serve ads.",
             "campaign_advertising_channel_type": "Primary serving target (e.g. search, display, shopping, video).",
             "campaign_advertising_channel_sub_type": "More specific serving target within the channel type.",
@@ -157,6 +176,20 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             metrics_average_cpv="Average cost-per-view of a video ad, in micros.",
             metrics_video_view_rate="Video views divided by video ad impressions.",
         ),
+    },
+    "campaign_impression_share_stats": {
+        "description": "Daily campaign impression share for Search and Display, without click-type segmentation.",
+        "docs_url": "https://developers.google.com/google-ads/api/fields/v25/campaign",
+        "columns": {
+            "customer_id": "The Google Ads customer (account) ID.",
+            "campaign_id": "The campaign ID the metrics belong to.",
+            "campaign_name": "Name of the campaign.",
+            "campaign_advertising_channel_type": "Primary serving target of the campaign.",
+            "segments_date": "The date the metrics are reported for.",
+            "metrics_impressions": "Number of impressions.",
+            "metrics_search_impression_share": "Share of eligible Search Network impressions received. Values below 0.1 are reported as 0.0999.",
+            "metrics_content_impression_share": "Share of eligible Display Network impressions received. Values below 0.1 are reported as 0.0999.",
+        },
     },
     "keyword": {
         "description": "A keyword criterion (keyword_view) — a search term that triggers an ad, with its bid and quality.",
@@ -332,6 +365,21 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "segments_date": "The date the metrics are reported for.",
         },
     },
+    "performance_max_search_term_stats": {
+        "description": "Daily performance for the search terms that triggered Performance Max campaigns (campaign_search_term_view).",
+        "docs_url": "https://developers.google.com/google-ads/api/fields/v25/campaign_search_term_view",
+        "columns": {
+            "customer_id": _IDS["customer_id"],
+            "campaign_id": _IDS["campaign_id"],
+            "campaign_search_term_view_search_term": "The search query a user entered that triggered a Performance Max ad.",
+            "metrics_clicks": _METRICS["metrics_clicks"],
+            "metrics_impressions": _METRICS["metrics_impressions"],
+            "metrics_cost_micros": _METRICS["metrics_cost_micros"],
+            "metrics_conversions": _METRICS["metrics_conversions"],
+            "metrics_conversions_value": _METRICS["metrics_conversions_value"],
+            "segments_date": _SEGMENTS["segments_date"],
+        },
+    },
     "geographic_stats": {
         "description": "Daily performance broken out by user geographic location (geographic_view).",
         "docs_url": "https://developers.google.com/google-ads/api/fields/v17/geographic_view",
@@ -473,6 +521,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "customer_id": "The Google Ads customer (account) ID the label belongs to.",
             "label_id": "Unique ID of the label.",
             "label_name": "Name of the label.",
+            "label_resource_name": "Resource name of the label, as referenced by campaign_labels.",
             "label_status": "Status of the label (enabled or removed).",
             "label_text_label_background_color": "Background color of the label, in hex format.",
             "label_text_label_description": "Short description of the label.",

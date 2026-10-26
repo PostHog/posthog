@@ -4,10 +4,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
+from posthog.egress.limiter.policies import Priority
 from posthog.models.repo_routing_rule import RepoRoutingRule
 
 from products.tasks.backend.logic.repo_selection.agent import (
     PINNED_REPOSITORY_REASON,
+    RepoSelectionUsageLimitError,
     _build_repo_selection_prompt,
     _routing_rules_block,
     _salvage_repo_selection,
@@ -113,6 +115,7 @@ def test_select_repository_renders_team_rules_and_visibility_into_prompt() -> No
             1,
             "which repo?",
             origin_product=Task.OriginProduct.SLACK,
+            priority=Priority.NORMAL,
             github=github,
             candidate_repos=["acme/a", "acme/b"],
         )
@@ -200,11 +203,41 @@ def test_select_repository_salvages_an_unreadable_end_turn() -> None:
             1,
             "which repo?",
             origin_product=Task.OriginProduct.SLACK,
+            priority=Priority.NORMAL,
             github=github,
             candidate_repos=["acme/a", "acme/b"],
         )
 
     assert selected.repository == "acme/b"
+
+
+def test_select_repository_reports_a_usage_limit_refusal() -> None:
+    github = MagicMock()
+    github.list_all_cached_repositories.return_value = [{"full_name": "acme/a"}, {"full_name": "acme/b"}]
+
+    async def start(**kwargs):
+        # The runner swallows a raising fallback and raises its own parse error instead.
+        with pytest.raises(ValueError):
+            kwargs["fallback_from_text"]("API Error: 402 Your team has used its monthly PostHog AI credits.")
+        raise ValueError("No JSON in initial turn")
+
+    with (
+        patch(f"{_AGENT}.GitHubRepositoryFullCache") as cache,
+        patch(f"{_AGENT}._list_eligible_full_names", return_value={"acme/a", "acme/b"}),
+        patch(f"{_AGENT}._routing_rules_block", return_value=None),
+        patch(f"{_AGENT}.MultiTurnSession.start", AsyncMock(side_effect=start)),
+        pytest.raises(RepoSelectionUsageLimitError),
+    ):
+        cache.return_value.sync_full_cache = AsyncMock()
+        async_to_sync(select_repository)(
+            1,
+            1,
+            "which repo?",
+            origin_product=Task.OriginProduct.SLACK,
+            priority=Priority.NORMAL,
+            github=github,
+            candidate_repos=["acme/a", "acme/b"],
+        )
 
 
 @pytest.mark.parametrize(
@@ -227,6 +260,7 @@ def test_pinned_repository_answers_without_running_the_agent(pinned: str, expect
             1,
             "which repo?",
             origin_product=Task.OriginProduct.SLACK,
+            priority=Priority.NORMAL,
             github=github,
             candidate_repos=["acme/a", "acme/b"],
             pinned_repository=pinned,
@@ -254,6 +288,7 @@ def test_pinned_repository_beats_the_single_candidate_shortcut() -> None:
             1,
             "which repo?",
             origin_product=Task.OriginProduct.SLACK,
+            priority=Priority.NORMAL,
             github=github,
             candidate_repos=["acme/a"],
             pinned_repository="acme/b",

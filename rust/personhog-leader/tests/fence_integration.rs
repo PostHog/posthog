@@ -10,8 +10,8 @@ use std::time::Duration;
 use dashmap::DashMap;
 
 use common::{
-    create_leader_client, create_test_kafka, seed_person, test_cached_person, test_recovery,
-    unique_team_id, NUM_PARTITIONS,
+    create_leader_client, create_test_kafka, seed_person, served_captures, test_cached_person,
+    test_recovery, unique_team_id, NUM_PARTITIONS,
 };
 use personhog_common::partitioning::partition_for_person;
 use personhog_leader::cache::{
@@ -89,13 +89,14 @@ struct FenceHarness {
     dirty_index: Arc<DirtyIndex>,
     locks: Arc<DashMap<PersonCacheKey, Arc<tokio::sync::Mutex<()>>>>,
     fences: FenceMap,
+    captures: personhog_leader::coordination::ChangelogCaptures,
     _cancel: CancellationToken,
     /// Kept alive so the topic outlives the test that reads it.
     topic: common::TestTopic,
 }
 
 async fn start_fence_harness(mut seed: CachedPerson, fallback: Option<PgFallback>) -> FenceHarness {
-    let (mock_cluster, kafka_producer) = create_test_kafka().await;
+    let mock_cluster = create_test_kafka().await;
     let bootstrap = mock_cluster.bootstrap_servers();
 
     // Every harness gets its own team, so concurrent tests — and leftover
@@ -114,16 +115,17 @@ async fn start_fence_harness(mut seed: CachedPerson, fallback: Option<PgFallback
     let fences: FenceMap = Arc::new(DashMap::new());
     // Recovery consumes the same topic so a post-death cache miss can
     // recover the death document.
+    let captures = served_captures(&mock_cluster.topic, NUM_PARTITIONS);
     let service = PersonHogLeaderService::new(
         Arc::clone(&cache),
         fallback,
         Arc::clone(&locks),
         Arc::clone(&inflight),
-        NUM_PARTITIONS,
+        Arc::clone(&captures),
         Arc::clone(&dirty_index),
-        test_recovery(&mock_cluster.topic, &bootstrap),
+        test_recovery(&bootstrap),
         PropertySizeLimits::new(655360, 524288),
-        WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
+        WarningsProducer::disabled(),
         Arc::clone(&fences),
         common::fenced_producers_acquired(&mock_cluster.topic, NUM_PARTITIONS as i32).await,
         common::live_authority(),
@@ -161,6 +163,7 @@ async fn start_fence_harness(mut seed: CachedPerson, fallback: Option<PgFallback
         dirty_index,
         locks,
         fences,
+        captures,
         _cancel: cancel,
         topic: mock_cluster,
     }
@@ -594,7 +597,10 @@ async fn a_revival_is_served_once_the_death_documents_mark_settles() {
         .dirty_index
         .get(&key)
         .expect("the release marks the death record");
-    let (pruned, exhausted) = harness.dirty_index.prune_chunk(partition, mark.offset + 1);
+    let (pruned, exhausted) =
+        harness
+            .dirty_index
+            .prune_chunk(partition, &mark.stream, mark.offset + 1);
     assert!(exhausted);
     assert_eq!(pruned.death_marks.len(), 1);
     drop_settled_death_documents(&harness.cache, &harness.locks, &pruned.death_marks).await;
@@ -1416,7 +1422,7 @@ async fn the_takeover_scan_rebuilds_exactly_the_partitions_live_fences() {
         );
     }
 
-    let dropped = drop_partition_fences(&fences, partition_a, NUM_PARTITIONS);
+    let dropped = drop_partition_fences(&fences, partition_a, NUM_PARTITIONS, |_| false);
     assert!(dropped >= 1);
     assert!(
         fences.get(&key(fenced_a)).is_none(),
@@ -1440,17 +1446,17 @@ async fn at_capacity_new_fences_shed_but_reseals_succeed() {
 
     let team_id = unique_team_id();
     let cache = Arc::new(PartitionedCache::new(1 << 20));
-    let (_mock_cluster, kafka_producer) = create_test_kafka().await;
+    let _mock_cluster = create_test_kafka().await;
     let service = PersonHogLeaderService::new(
         Arc::clone(&cache),
         None,
         Arc::new(DashMap::new()),
         Arc::new(InflightTracker::new()),
-        NUM_PARTITIONS,
+        served_captures(&_mock_cluster.topic, NUM_PARTITIONS),
         Arc::new(DirtyIndex::new(1_000_000)),
-        test_recovery(&_mock_cluster.topic, &_mock_cluster.bootstrap_servers()),
+        test_recovery(&_mock_cluster.bootstrap_servers()),
         PropertySizeLimits::new(655360, 524288),
-        WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
+        WarningsProducer::disabled(),
         Arc::new(DashMap::new()),
         common::fenced_producers_acquired(&_mock_cluster.topic, NUM_PARTITIONS as i32).await,
         common::live_authority(),
@@ -2859,6 +2865,7 @@ async fn a_batched_fence_with_a_person_off_the_routed_partition_is_refused_whole
         ))
         .await
         .expect_err("a batch with a person off the routed partition is refused");
+    // A final answer, not a routing bounce: the caller falls back to single calls.
     assert_eq!(status.code(), Code::InvalidArgument);
     assert!(status.metadata().get(FENCED_METADATA_KEY).is_none());
 
@@ -2880,6 +2887,30 @@ async fn a_batched_fence_with_a_person_off_the_routed_partition_is_refused_whole
         ))
         .await
         .expect("the foreign person carries no fence from the refused batch");
+}
+
+/// A batch routed to a partition this pod no longer serves is a routing bounce,
+/// not a bad request, so the router retries it toward the owner.
+#[tokio::test]
+async fn a_batch_for_a_released_partition_is_a_routing_bounce() {
+    let mut harness = start_fence_harness(test_cached_person(), None).await;
+    let (foreign_id, foreign_partition) = person_on_other_partition(&harness);
+    harness.captures.remove(&foreign_partition);
+
+    let status = harness
+        .client
+        .fence_persons(with_partition(
+            FencePersonsRequest {
+                team_id: harness.team_id,
+                op_id: Uuid::now_v7().to_string(),
+                op_type: LifecycleOpType::Delete.into(),
+                person_ids: vec![foreign_id],
+            },
+            foreign_partition,
+        ))
+        .await
+        .expect_err("this pod does not serve the partition");
+    assert_eq!(status.code(), Code::FailedPrecondition);
 }
 
 /// One `ReleaseFences` call closes every fence of an op on the routed

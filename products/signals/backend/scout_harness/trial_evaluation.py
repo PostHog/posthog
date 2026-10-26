@@ -63,7 +63,7 @@ from products.signals.backend.trial_judging import JUDGE_PROMPT_VERSION as JUDGE
 from products.tasks.backend.facade.api import get_task_run_log_size, get_task_run_log_urls, read_task_run_log_content
 
 MAX_EVALUATION_BYTES = MAX_TRIAL_RUNS * 512 * 1024
-JUDGE_MODEL = "gpt-6-astra"
+JUDGE_MODEL = "gpt-6.1-sol"
 _Document = TypeVar("_Document", bound=BaseModel)
 
 
@@ -445,9 +445,10 @@ def _run_evidence(
         raise TrialEvaluationNotReady("Every selected trial must have a known terminal state before scoring.")
     if run is not None:
         run.task_run.refresh_from_db(fields=["status", "state", "error_message"])
-        if run.task_run.status not in {"completed", "failed", "cancelled"}:
-            raise TrialEvaluationNotReady("Every selected trial task must finish before scoring.")
         if status == "completed":
+            # A failed controller can leave its task active, but excluded runs need no evidence freeze.
+            if run.task_run.status not in {"completed", "failed", "cancelled"}:
+                raise TrialEvaluationNotReady("Every selected trial task must finish before scoring.")
             status = run.task_run.status
     exclusion_reason = None
     if status != "completed":

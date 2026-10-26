@@ -11,7 +11,11 @@
         },
         "purpose": {
             "description": "The library to list, e.g. \"email\". Required.",
-            "enum": ["canvas", "email"],
+            "enum": ["canvas", "email", "experiment"],
+            "type": "string"
+        },
+        "search": {
+            "description": "Only list images whose name contains this text, ignoring case.",
             "type": "string"
         }
     },

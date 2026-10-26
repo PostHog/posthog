@@ -11,12 +11,19 @@ import { EmailInvocationFixture, EmailServiceFixture, createMessageAssetsService
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { SesEmailRequest } from '~/tests/helpers/ses'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
+import { INVALID_TEAM_ID_KEYS } from '~/tests/helpers/team'
 
 import { Hub, Team } from '../../../types'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
 import { selectEmailSenderIntegrationId } from './email-sender-selection'
-import { EmailService, parseAddressList, sanitizeEmailSubject, teamEmailCapBuckets } from './email.service'
+import {
+    EmailService,
+    formatMailbox,
+    parseAddressList,
+    sanitizeEmailSubject,
+    teamEmailCapBuckets,
+} from './email.service'
 import { MailDevAPI } from './helpers/maildev'
 
 class ThrottlingException extends Error {
@@ -47,6 +54,24 @@ describe('sanitizeEmailSubject', () => {
         ['preserves email-typical special chars', 'Re: Your order #1234 — 50% off!', 'Re: Your order #1234 — 50% off!'],
     ])('%s', (_name, input, expected) => {
         expect(sanitizeEmailSubject(input)).toEqual(expected)
+    })
+})
+
+describe('formatMailbox', () => {
+    it.each([
+        ['no name', undefined, 'a@example.com'],
+        ['an empty name', '  ', 'a@example.com'],
+        ['a plain name', 'Dry Run', '"Dry Run" <a@example.com>'],
+        ['an apostrophe and ampersand', "O'Brien & Co", `"O'Brien & Co" <a@example.com>`],
+        ['a double quote', 'The "Real" Dry', '"The \\"Real\\" Dry" <a@example.com>'],
+        ['a backslash', 'Dry\\Run', '"Dry\\\\Run" <a@example.com>'],
+        [
+            'a line break that would start a header',
+            'Dry\r\nBcc: x@example.com',
+            '"DryBcc: x@example.com" <a@example.com>',
+        ],
+    ])('formats %s', (_name, name, expected) => {
+        expect(formatMailbox(name, 'a@example.com')).toEqual(expected)
     })
 })
 
@@ -728,7 +753,7 @@ describe('EmailService', () => {
             const emails = await mailDevAPI.getEmails()
             expect(emails).toHaveLength(1)
             expect(emails[0].html).toMatch(
-                /^<body>Hi! <a href="http:\/\/localhost:8010\/public\/m\/redirect\?ph_id=[A-Za-z0-9._-]+&target=https%3A%2F%2Fexample\.com">Click me<\/a><img src="http:\/\/localhost:8010\/public\/m\/pixel\?ph_id=[A-Za-z0-9._-]+" style="display: none;" \/><\/body>$/
+                /^<body>Hi! <a href="http:\/\/localhost:8010\/public\/m\/redirect\?ph_id=[A-Za-z0-9._-]+&ph_sig=[A-Za-z0-9_-]+&target=https%3A%2F%2Fexample\.com">Click me<\/a><img src="http:\/\/localhost:8010\/public\/m\/pixel\?ph_id=[A-Za-z0-9._-]+" style="display: none;" \/><\/body>$/
             )
         })
     })
@@ -765,8 +790,18 @@ describe('EmailService', () => {
             )
         })
 
-        it('should send an email if verified', async () => {
-            invocation.hogFunction.metadata = { message_category_type: 'transactional' }
+        it.each([
+            ['an ordinary template', {}, [{ Name: 'ph_id', Value: expect.stringMatching(/^[A-Za-z0-9_-]+$/) }]],
+            [
+                'a sensitive template',
+                { sensitive: true },
+                [
+                    { Name: 'ph_id', Value: expect.stringMatching(/^[A-Za-z0-9_-]+$/) },
+                    { Name: 'ph_sensitive', Value: 'true' },
+                ],
+            ],
+        ])('should send an email if verified, for %s', async (_name, extraMetadata, expectedTags) => {
+            invocation.hogFunction.metadata = { message_category_type: 'transactional', ...extraMetadata }
             sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
             const result = await service.executeSendEmail(invocation)
             expect(result.error).toBeUndefined()
@@ -784,7 +819,7 @@ describe('EmailService', () => {
                     },
                 },
                 Destination: { ToAddresses: ['"Test User" <test@example.com>'] },
-                EmailTags: [{ Name: 'ph_id', Value: expect.stringMatching(/^[A-Za-z0-9_-]+$/) }],
+                EmailTags: expectedTags,
                 FeedbackForwardingEmailAddress: 'test@posthog-test.com',
                 FromEmailAddress: '"Test User" <test@posthog-test.com>',
             })
@@ -823,6 +858,28 @@ describe('EmailService', () => {
                 expect(sendEmailSpy).toHaveBeenCalledTimes(1)
                 expect(result.metrics.map((m) => m.metric_name)).toContain('email_sent')
             })
+        })
+
+        // A person without an email property renders an empty `to`. Counting that as email_failed
+        // lets one project's data trip the platform send failure rate alert.
+        it.each([
+            ['an empty string', ''],
+            ['only whitespace', '   '],
+            ['no value', undefined],
+        ])('skips the send without SES or email_failed when the recipient is %s', async (_label, email) => {
+            invocation.queueParameters = createEmailParams({
+                from: { integrationId: 1 },
+                to: { email: email as string, name: 'Test User' },
+            })
+            sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+
+            const result = await service.executeSendEmail(invocation)
+
+            expect(sendEmailSpy).not.toHaveBeenCalled()
+            expect(result.error).toBeUndefined()
+            expect(result.metrics.map((m) => m.metric_name)).toEqual(['email_missing_recipient'])
+            expect(result.skipped).toBe(true)
+            expect(invocation.state.vmState?.stack).toEqual([{ success: false }])
         })
 
         describe('SES tenant attribution', () => {
@@ -977,6 +1034,23 @@ describe('EmailService', () => {
                 }, 3000)
             })
 
+            // The suspension check fails open. A load that throws would therefore let a suspended team send.
+            it.each(INVALID_TEAM_ID_KEYS)(
+                'keeps a suspended team blocked when invalid team id %p shares its config load',
+                async (key) => {
+                    await suspendTeam()
+                    const configService = new TeamWorkflowsConfigService(hub.postgres, hub.pubSub)
+
+                    const [suspension, invalidTeamConfig] = await Promise.all([
+                        configService.getEmailSendingSuspension(team.id),
+                        configService.get(key as unknown as number),
+                    ])
+
+                    expect(suspension).toEqual('staff')
+                    expect(invalidTeamConfig).toMatchObject({ email_sending_suspended: false })
+                }
+            )
+
             it('fails open when the suspension lookup errors', async () => {
                 // The suspension check is the first config read, so later reads still use the real loader.
                 jest.spyOn(services.workflowsConfig, 'get').mockRejectedValueOnce(new Error('pg down'))
@@ -1079,6 +1153,30 @@ describe('EmailService', () => {
         })
 
         it.each([
+            ['uses the sender default when the step has none', undefined, ['support@posthog-test.com']],
+            ['uses the sender default when the step has no parsed addresses', ' , ', ['support@posthog-test.com']],
+            ['keeps the step reply-to over the sender default', 'step@example.com', ['step@example.com']],
+        ])('%s', async (_, replyTo, expected) => {
+            await insertIntegration(hub.postgres, team.id, {
+                id: getIntegrationId(2),
+                kind: 'email',
+                config: {
+                    email: 'sender@posthog-test.com',
+                    name: 'Test User',
+                    domain: 'posthog-test.com',
+                    verified: true,
+                    provider: 'ses',
+                    reply_to: 'support@posthog-test.com',
+                },
+            })
+            sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+            invocation.queueParameters = createEmailParams({ from: { integrationId: 2 }, replyTo })
+            const result = await service.executeSendEmail(invocation)
+            expect(result.error).toBeUndefined()
+            expect(new SesEmailRequest(sendEmailSpy).input.ReplyToAddresses).toEqual(expected)
+        })
+
+        it.each([
             ['text only', { html: '', text: 'Hello, this is a plain text email.' }, ['Text']],
             ['html only, no text', { html: '<p>Hello</p>', text: undefined }, ['Html']],
             ['html only, empty text', { html: '<p>Hello</p>', text: '' }, ['Html']],
@@ -1106,22 +1204,26 @@ describe('EmailService', () => {
             const result = await service.executeSendEmail(invocation)
             expect(result.error).toBeUndefined()
             const sentCommand = new SesEmailRequest(sendEmailSpy)
-            const htmlData = sentCommand.html
-            expect(htmlData).not.toContain('<tbody><span')
+            expect(sentCommand.html).not.toContain('mso-hide:all')
         })
 
-        it('should include preheader at top of HTML if in params', async () => {
+        it.each([
+            [
+                'a document',
+                '<html><body class="email"><table><tbody><tr><td>Hi</td></tr></tbody></table></body></html>',
+                /^<html><body class="email"><span style=".*">This is a preview text<\/span><table>/,
+            ],
+            ['a fragment without tbody', '<p>Hi</p>', /^<span style=".*">This is a preview text<\/span><p>Hi<\/p>$/],
+        ])('should include preheader at the start of the body of %s', async (_name, html, expected) => {
             sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
             invocation.queueParameters = createEmailParams({
                 from: { integrationId: 1 },
-                html: '<tbody>Test email content</tbody>',
+                html,
                 preheader: 'This is a preview text',
             })
             const result = await service.executeSendEmail(invocation)
             expect(result.error).toBeUndefined()
-            const sentCommand = new SesEmailRequest(sendEmailSpy)
-            const htmlData = sentCommand.html
-            expect(htmlData).toMatch(/<tbody><span style=".*">This is a preview text<\/span>/)
+            expect(new SesEmailRequest(sendEmailSpy).html).toMatch(expected)
         })
 
         it('should include unsubscribe headers for non-transactional emails', async () => {
@@ -1398,25 +1500,32 @@ describe('EmailService', () => {
             expect(result.error).toMatchInlineSnapshot(`"Failed to send email via SES: No messageId returned from SES"`)
         })
 
-        it('should capture a $workflows_email_sent PostHog event on success', async () => {
-            jest.spyOn(services.workflowsConfig, 'shouldCaptureEngagementEvents').mockResolvedValue(true)
-            sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
-            const result = await service.executeSendEmail(invocation)
-            expect(result.error).toBeUndefined()
-            expect(result.capturedPostHogEvents).toHaveLength(1)
-            expect(result.capturedPostHogEvents[0]).toMatchObject({
-                team_id: team.id,
-                distinct_id: 'distinct_id',
-                event: '$workflows_email_sent',
-                properties: {
-                    $workflow_id: invocation.functionId,
-                    $workflow_action_id: invocation.state.actionId,
-                    $email_to: 'test@example.com',
-                    $email_subject: 'Test Subject',
-                    $email_tracking_enabled: true,
-                },
-            })
-        })
+        it.each([
+            ['an ordinary template', {}, 'Test Subject'],
+            ['a sensitive template', { sensitive: true }, undefined],
+        ])(
+            'should capture a $workflows_email_sent PostHog event on success, for %s',
+            async (_name, extraMetadata, subject) => {
+                jest.spyOn(services.workflowsConfig, 'shouldCaptureEngagementEvents').mockResolvedValue(true)
+                invocation.hogFunction.metadata = { ...invocation.hogFunction.metadata, ...extraMetadata }
+                sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+                const result = await service.executeSendEmail(invocation)
+                expect(result.error).toBeUndefined()
+                expect(result.capturedPostHogEvents).toHaveLength(1)
+                expect(result.capturedPostHogEvents[0]).toMatchObject({
+                    team_id: team.id,
+                    distinct_id: 'distinct_id',
+                    event: '$workflows_email_sent',
+                    properties: {
+                        $workflow_id: invocation.functionId,
+                        $workflow_action_id: invocation.state.actionId,
+                        $email_to: 'test@example.com',
+                        $email_tracking_enabled: true,
+                    },
+                })
+                expect(result.capturedPostHogEvents[0].properties.$email_subject).toEqual(subject)
+            }
+        )
 
         it('does not capture a PostHog event when engagement capture is disabled for the team', async () => {
             sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })

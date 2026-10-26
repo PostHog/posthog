@@ -119,6 +119,8 @@ export const ExperimentSchema = z.object({
             minimum_detectable_effect: z.number().nullish(),
             recommended_running_time: z.number().nullish(),
             recommended_sample_size: z.number().nullish(),
+            variant_notes: z.record(z.string(), z.string()).nullish(),
+            variant_screenshot_media_ids: z.record(z.string(), z.union([z.string(), z.array(z.string())])).nullish(),
         })
         .nullish(),
     start_date: z.string().nullish(),
@@ -252,7 +254,7 @@ function toMetricSummary(
  *
  * A PostHog server that predates the field, such as an older self-hosted instance, omits it. For that
  * server this function applies the overrides itself. It copies the rules of
- * `resolve_saved_metric_definition` in products/experiments/backend/metric_resolution.py as those
+ * `apply_saved_metric_overrides` in products/experiments/backend/metric_resolution.py as those
  * servers run them. A server that serves `effective_query` never reaches that code, so a later change
  * to the backend rules does not need a change here.
  */

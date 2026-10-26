@@ -1,6 +1,6 @@
-"""Feature-flag gates for this product, and the read of an organization's flag_evaluations mode.
-The module stays light so core code can import it without pulling the facade's heavier logic
-surface onto its import path.
+"""The read of an organization's flag_evaluations mode, the gates built on it, and whether a team has an active
+flag. The module stays light so core code can import it without pulling the facade's heavier logic surface onto
+its import path.
 """
 
 from typing import TYPE_CHECKING
@@ -9,15 +9,22 @@ from uuid import UUID
 from django.conf import settings
 
 from posthog.models.instance_setting import get_instance_setting
-from posthog.ph_client import feature_enabled_or_false
 
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
 
-FLAG_EVALUATIONS_HOGQL_TABLE_FEATURE_FLAG = "flag-evaluations-hogql-table"
+
+def has_active_flags(team: "Team") -> bool:
+    """Whether the team has an active flag. Remote config sends this as `hasFeatureFlags`, and posthog-js requests
+    flags on page load only when it is true. Without an active flag, a browser records no flag call until something
+    else loads flags, for example `identify`."""
+    # `team=`, not `team_id=`: the flag manager rewrites `team_id=` to the project's root team, which changes the
+    # answer for an environment team and costs a join.
+    return FeatureFlag.objects.filter(team=team, active=True).exists()
 
 
 def get_organization_flag_evaluations_mode(organization_id: UUID) -> int:
@@ -55,30 +62,13 @@ def hides_flag_calls_from_query_builders(organization_id: UUID) -> bool:
 def is_flag_evaluations_table_enabled(team: "Team") -> bool:
     """Gate every surface that exposes `posthog.flag_evaluations` through here.
 
-    Reads true when the flag_evaluations mode of the team's organization reads that table, or when the
-    flag-evaluations-hogql-table flag is on for the team's organization. A self-hosted production
-    instance has neither by default and reads false. Local dev and end-to-end tests are the
-    exception and read true.
+    Reads true when the flag_evaluations mode of the team's organization reads that table. A self-hosted
+    production instance reads false by default. Local dev and end-to-end tests are the exception and read true.
     """
-    # The flag is evaluated against PostHog's own analytics project, which a local or end-to-end
-    # environment has no membership in. Evaluating it there would hide the table from both, so
-    # return True to keep it visible in dev and E2E.
+    # Local and E2E organizations start on EVENTS because FLAG_EVALUATIONS_NEW_ORG_MODE defaults to 0.
+    # Returning True keeps the table queryable there without setting a mode first.
     if settings.DEBUG or settings.E2E_TESTING:
         return True
-    flag_enabled = feature_enabled_or_false(
-        FLAG_EVALUATIONS_HOGQL_TABLE_FEATURE_FLAG,
-        str(team.organization_id),
-        groups={"organization": str(team.organization_id)},
-        group_properties={"organization": {"id": str(team.organization_id)}},
-        # The HogQL database is built on the query hot path, and a local-evaluation miss otherwise
-        # blocks it on a synchronous request to /flags. Failing closed hides the table instead.
-        # This constrains how the flag may be configured: target organizations by the id sent
-        # above, because a condition on any property not sent here cannot evaluate locally and so
-        # reads false for everyone.
-        only_evaluate_locally=True,
-        send_feature_flag_events=False,
-    )
-    # The flag evaluates in memory, so it goes first and a flagged organization skips the query.
-    # The Usage tab reads flag_evaluations for any mode above EVENTS, and its query fails when the
-    # table is missing from the catalog, so the mode alone has to be enough.
-    return flag_enabled or get_organization_flag_evaluations_mode(team.organization_id) != FlagEvaluationsMode.EVENTS
+    # The Usage tab reads flag_evaluations for any mode above EVENTS. Its query fails when the table
+    # is missing from the catalog.
+    return get_organization_flag_evaluations_mode(team.organization_id) != FlagEvaluationsMode.EVENTS

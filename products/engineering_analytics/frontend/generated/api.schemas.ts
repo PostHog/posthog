@@ -152,7 +152,7 @@ export const FrictionGroupEnumApi = {
 } as const
 
 export interface FrictionGroupShareApi {
-    /** ci (red CI and CI waits), review (waiting for the first approval), queue (merge-queue time and kickouts), or rework (own failures and extra pushes).
+    /** ci (red CI and CI waits), review (waiting for the first approval), queue (merge-queue time and failed queue attempts), or rework (own failures and extra pushes).
      *
      * * `ci` - CI
      * * `review` - Review
@@ -1491,7 +1491,7 @@ export interface PullRequestFrictionBreakdownApi {
      */
     queue_seconds: number | null
     /**
-     * Times the merge queue removed the pull request. Null without queue data.
+     * Merge queue attempts where at least one workflow run failed. A failed check the queue does not require leaves the pull request in the queue, so this is an upper bound on the times the queue removed it. Null when the pull request never entered the merge queue.
      * @nullable
      */
     kickout_count: number | null
@@ -1935,6 +1935,20 @@ export interface ReadyToMergeBucketApi {
     p50_seconds: number | null
 }
 
+export interface RevertShareBucketApi {
+    /** Bucket start, aligned to revert_share_series_granularity (top of hour, midnight, or Monday). Keyed on the revert's own merge time. */
+    bucket_start: string
+    /** PRs merged in this bucket, all authors and bots included. */
+    merged_pr_count: number
+    /** Of those, PRs whose title names a revert: GitHub's 'Revert "..."' or a conventional-commit 'revert: ...' / 'revert(scope): ...' title. */
+    reverting_pr_count: number
+    /**
+     * reverting_pr_count divided by merged_pr_count. Null when nothing merged in the bucket.
+     * @nullable
+     */
+    revert_share: number | null
+}
+
 export interface RepoOverviewApi {
     /** CI cost per merged PR across the window, oldest first, zero-filled, bucketed by cost_series_granularity. Empty when the job-level source isn't synced or include_series=false. */
     cost_series: CostPerMergeBucketApi[]
@@ -1948,6 +1962,8 @@ export interface RepoOverviewApi {
     delivery_pipeline: DeliveryPipelineApi
     /** Median cycle time (p50 per-PR ready_to_merge_seconds, bots/drafts excluded) per bucket across the window, oldest first, bucketed by ready_to_merge_series_granularity. Empty buckets carry null; the whole series is empty when the issue-events table isn't synced or include_series=false, so fall back to open_to_merge_series. */
     ready_to_merge_series: ReadyToMergeBucketApi[]
+    /** Reverting merges over all merges (all authors, bots included) per bucket across the window, oldest first, zero-filled, bucketed by revert_share_series_granularity. Empty buckets carry a null share; the whole series is empty when include_series=false. */
+    revert_share_series: RevertShareBucketApi[]
     /** Workflow runs started in the window, all branches and workflows. */
     run_count: number
     /** Same count over the equal-length window immediately before date_from: the delta baseline. */
@@ -1970,6 +1986,20 @@ export interface RepoOverviewApi {
     merged_pr_count: number
     /** Merged-PR count over the previous window. */
     merged_pr_count_prev: number
+    /** PRs merged in the window whose title names a revert: GitHub's 'Revert "..."' or a conventional-commit 'revert: ...' / 'revert(scope): ...' title. Counts the revert when it merges, not the change it undid, which may have merged in an earlier window. Same population as merged_pr_count. */
+    reverting_pr_count: number
+    /** Reverting-PR count over the previous window. */
+    reverting_pr_count_prev: number
+    /**
+     * reverting_pr_count divided by merged_pr_count: the share of merges that undid an earlier merge. The guardrail to watch when review requirements are loosened. Null when nothing merged.
+     * @nullable
+     */
+    revert_share: number | null
+    /**
+     * The same share over the previous window. Null when nothing merged.
+     * @nullable
+     */
+    revert_share_prev: number | null
     /**
      * Median merged_at - created_at over PRs merged in the window, bots and drafts excluded. Coarse by design: draft and ready-for-review time are fused. Null when nothing merged.
      * @nullable
@@ -2030,6 +2060,16 @@ export interface RepoOverviewApi {
      * @nullable
      */
     merge_queue_billable_minutes_prev: number | null
+    /**
+     * Slice of billable_minutes from jobs that ran on the Depot CI engine; null when the job-level source isn't synced.
+     * @nullable
+     */
+    depot_ci_billable_minutes: number | null
+    /**
+     * Depot CI billable minutes over the previous window; null when the job-level source isn't synced.
+     * @nullable
+     */
+    depot_ci_billable_minutes_prev: number | null
     /** PRs merged in the window with at least one corroborated merge-queue gate run: the population behind every merge_queue_* landing stat. All authors, bots included. */
     merge_queue_merged_pr_count: number
     /** Queue-landed merges over the previous window. */
@@ -2150,6 +2190,8 @@ export interface RepoOverviewApi {
     open_to_merge_series_granularity: string
     /** Bucket width of the ready_to_merge_series trend: 'hour', 'day', or 'week'. */
     ready_to_merge_series_granularity: string
+    /** Bucket width of the revert_share_series trend: 'hour', 'day', or 'week'. */
+    revert_share_series_granularity: string
 }
 
 export interface WorkflowRunActivityPointApi {
@@ -3283,6 +3325,10 @@ export type EngineeringAnalyticsTeamCiActivityParams = {
      */
     owner_team: string
     /**
+     * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
+     */
+    repo?: string
+    /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
     source_id?: string
@@ -3314,6 +3360,10 @@ export type EngineeringAnalyticsTeamCiHealthParams = {
      */
     owner_team?: string
     /**
+     * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
+     */
+    repo?: string
+    /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
     source_id?: string
@@ -3332,6 +3382,10 @@ export type EngineeringAnalyticsTeamMergeTrendParams = {
      * Team slug to scope to (as returned by team_ci_health), matched against the GitHub org team slug of the source's team_members snapshot. The literal 'unowned' names an ownership gap, not an org team, and has no merge trend.
      */
     owner_team: string
+    /**
+     * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
+     */
+    repo?: string
     /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */

@@ -79,12 +79,14 @@ export { Heatmap } from './charts/Heatmap/Heatmap'
 export type {
     HeatmapBrushData,
     HeatmapCellDatum,
+    HeatmapCellStyle,
     HeatmapConfig,
     HeatmapProps,
     HeatmapRowMeta,
     HeatmapTooltipContext,
 } from './charts/Heatmap/Heatmap'
 export type { HeatmapColorScale } from './charts/Heatmap/heatmap-layout'
+export type { HeatmapCellLabelFormatter } from './charts/Heatmap/HeatmapCellLabels'
 
 // Slope chart
 export { SlopeChart } from './charts/SlopeChart/SlopeChart'
@@ -116,6 +118,12 @@ export type { RadialSlicePayload } from './core/hooks/useRadialInteraction'
 // Proportion bar
 export { ProportionBar } from './charts/ProportionBar/ProportionBar'
 export type { ProportionBarConfig, ProportionBarProps } from './charts/ProportionBar/ProportionBar'
+
+// Bar list
+export { BarList } from './charts/BarList/BarList'
+export type { BarListConfig, BarListProps } from './charts/BarList/BarList'
+export { StackedBarList } from './charts/BarList/StackedBarList'
+export type { StackedBarListConfig, StackedBarListProps } from './charts/BarList/StackedBarList'
 
 // Sankey
 export { SankeyChart } from './charts/SankeyChart/SankeyChart'
@@ -195,6 +203,10 @@ export { DEFAULT_Y_AXIS_ID, resolveAxisLines } from './core/types'
 export { themeDefaultsFromCssVars, themeFromCssVars, useChartTheme, DEFAULT_CHART_COLORS } from './core/theme'
 export { applyChartDefaults, DEFAULT_CHART_CONFIG } from './core/chart-config'
 export type { ThemeFromCssOptions } from './core/theme'
+
+// Grid and axis lines, for chart types built on the Chart core
+export { drawAxes, drawGrid, resolveAxisLineColor } from './core/canvas-renderer'
+export type { DrawAxesOptions, DrawGridOptions } from './core/canvas-renderer'
 
 // Built-in tooltip (for reference or extension)
 export { DefaultTooltip, type DefaultTooltipProps } from './overlays/DefaultTooltip'

@@ -48,11 +48,17 @@ class TestIsStatementTimeout(SimpleTestCase):
 
 
 class TestBoundedStatementTimeout(TestCase):
-    def test_a_statement_over_the_cap_is_cancelled_and_reported_as_a_timeout(self) -> None:
-        alias = read_aliases([Team])[0]
+    @parameterized.expand(
+        [
+            ("aliases_from_the_router", {"models": [Team]}),
+            ("an_alias_the_caller_pins", {"aliases": ["default"]}),
+        ]
+    )
+    def test_a_statement_over_the_cap_is_cancelled_and_reported_as_a_timeout(self, _name, target) -> None:
+        alias = target.get("aliases", read_aliases([Team]))[0]
 
         with self.assertRaises(OperationalError) as raised:
-            with bounded_statement_timeout(50, models=[Team]):
+            with bounded_statement_timeout(50, **target):
                 with connections[alias].cursor() as cursor:
                     cursor.execute("SELECT pg_sleep(5)")
 

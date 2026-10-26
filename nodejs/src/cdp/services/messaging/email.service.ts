@@ -30,6 +30,7 @@ import {
 } from './email-tracking.service'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
 import { maybeAddPreheaderToEmail } from './helpers/preheader'
+import { SES_SENSITIVE_TAG } from './helpers/ses'
 import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME } from './helpers/tracking-code'
 import { addUtmTagsToEmail, renderUtmOverrides, resolveUtmTags } from './helpers/utm'
 import { MessageAssetsService } from './message-assets.service'
@@ -171,6 +172,14 @@ const FROM_OVERRIDE_EMAIL_REGEX = /^[^\s@"<>,;]+@[^\s@"<>,;]+\.[^\s@"<>,;]+$/
 // terminate the quoted phrase or start the address part, plus control characters.
 function sanitizeFromName(name: string): string {
     return name.replace(/[\x00-\x1F\x7F"<>\\]/g, '').trim()
+}
+
+// A display name can come from Liquid output, so it may hold quotes, backslashes or line breaks.
+// Escape it as an RFC 5322 quoted string and drop control characters, which also stops a templated
+// name from injecting a header.
+export function formatMailbox(name: string | undefined, email: string): string {
+    const cleaned = (name ?? '').replace(/[\x00-\x1F\x7F]/g, '').trim()
+    return cleaned ? `"${cleaned.replace(/[\\"]/g, '\\$&')}" <${email}>` : email
 }
 
 export function parseAddressList(value?: string): string[] | undefined {
@@ -354,6 +363,30 @@ export class EmailService {
 
             const from = this.resolveFromSender(integration, params.from, addLog)
 
+            // An empty `to` comes from the customer's data (a person without an email property, or no
+            // person at all), not from a fault in the send path. SES rejects it as an invalid address,
+            // so record a skip with its own metric instead of an `email_failed`. Otherwise one project
+            // with bad data inflates the platform send failure rate.
+            if (!params.to?.email?.trim()) {
+                addLog(
+                    'warn',
+                    'Skipping send: the recipient has no email address. Add a filter so only people with an email address reach this step.'
+                )
+                if (!isTest) {
+                    result.metrics.push({
+                        team_id: invocation.teamId,
+                        app_source_id: invocation.parentRunId ?? invocation.functionId,
+                        instance_id: invocation.state.actionId || invocation.id,
+                        metric_kind: 'email',
+                        metric_name: 'email_missing_recipient',
+                        count: 1,
+                    })
+                }
+                result.skipped = true
+                result.invocation.state.vmState?.stack.push({ success: false })
+                return result
+            }
+
             // Single choke point for the suppression check — every send path lands here regardless
             // of whether the invocation came from a workflow action or an email destination hog
             // function. Checking here means callers can't bypass it by taking a different upstream
@@ -413,12 +446,18 @@ export class EmailService {
                 return result
             }
 
+            // A reply-to set on the email step wins over the sender's default.
+            const paramsWithReplyTo =
+                parseAddressList(params.replyTo) || !integration.config.reply_to
+                    ? params
+                    : { ...params, replyTo: integration.config.reply_to }
+
             // Tagged before click tracking wraps the links, so the tags land on the destination URL.
             const metadata = invocation.hogFunction.metadata
             const sendParams =
                 metadata?.utm_tags_enabled === true && params.html
                     ? {
-                          ...params,
+                          ...paramsWithReplyTo,
                           html: addUtmTagsToEmail(
                               params.html,
                               resolveUtmTags(
@@ -438,7 +477,7 @@ export class EmailService {
                               this.siteUrl
                           ),
                       }
-                    : params
+                    : paramsWithReplyTo
 
             switch (integration.config.provider ?? 'ses') {
                 case 'maildev':
@@ -562,7 +601,8 @@ export class EmailService {
                     $workflow_id: invocation.functionId,
                     $workflow_action_id: invocation.state.actionId,
                     $email_to: params.to.email,
-                    $email_subject: params.subject,
+                    // A sensitive template's subject can carry a login code, so its events leave it out.
+                    ...(invocation.hogFunction?.metadata?.sensitive === true ? {} : { $email_subject: params.subject }),
                     // Always set, never conditional: an untracked send can never produce a
                     // `$workflows_email_opened` or `$workflows_email_link_clicked`, so without this
                     // dimension on the send there is no way to build an open rate in an insight that
@@ -755,8 +795,8 @@ export class EmailService {
     ): Promise<void> {
         // This can timeout but there is no native timeout so we do our own one
         const mailOptions: SendMailOptions = {
-            from: from.name ? `"${from.name}" <${from.email}>` : from.email,
-            to: params.to.name ? `"${params.to.name}" <${params.to.email}>` : params.to.email,
+            from: formatMailbox(from.name, from.email),
+            to: formatMailbox(params.to.name, params.to.email),
             subject: sanitizeEmailSubject(params.subject),
             ...(params.text ? { text: params.text } : {}),
             headers: { [AUTO_SUBMITTED_HEADER.Name!]: AUTO_SUBMITTED_HEADER.Value! },
@@ -771,12 +811,16 @@ export class EmailService {
 
         const ccAddresses = parseAddressList(params.cc)
         const bccAddresses = parseAddressList(params.bcc)
+        const replyToAddresses = parseAddressList(params.replyTo)
 
         if (ccAddresses) {
             mailOptions.cc = ccAddresses
         }
         if (bccAddresses) {
             mailOptions.bcc = bccAddresses
+        }
+        if (replyToAddresses) {
+            mailOptions.replyTo = replyToAddresses
         }
 
         const response = await mailDevTransport!.sendMail(mailOptions)
@@ -830,9 +874,9 @@ export class EmailService {
             : {}
 
         const sendEmailParams: SendEmailCommandInput = {
-            FromEmailAddress: from.name ? `"${from.name}" <${from.email}>` : from.email,
+            FromEmailAddress: formatMailbox(from.name, from.email),
             Destination: {
-                ToAddresses: [params.to.name ? `"${params.to.name}" <${params.to.email}>` : params.to.email],
+                ToAddresses: [formatMailbox(params.to.name, params.to.email)],
             },
             Content: {
                 Simple: {
@@ -849,7 +893,12 @@ export class EmailService {
             ConfigurationSetName: this.resolveConfigurationSetName(trackingEnabled, result.invocation),
             // Short unsigned tag kept as a backwards-compat carrier for in-flight messages and
             // environments where the configuration set isn't yet emitting original headers.
-            EmailTags: [{ Name: 'ph_id', Value: shortTrackingCode }],
+            EmailTags: [
+                { Name: 'ph_id', Value: shortTrackingCode },
+                ...(result.invocation.hogFunction?.metadata?.sensitive === true
+                    ? [{ Name: SES_SENSITIVE_TAG, Value: 'true' }]
+                    : []),
+            ],
             FeedbackForwardingEmailAddress: from.email,
         }
 

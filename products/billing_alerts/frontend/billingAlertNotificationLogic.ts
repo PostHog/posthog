@@ -9,14 +9,15 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import type { IntegrationType, OrganizationType } from '~/types'
 
-import { billingAlertsLogic } from './billingAlertsLogic'
-import { billingAlertRequestError, destinationKey } from './billingAlertUtils'
-import { billingAlertsDestinationsDeleteCreate } from './generated/api'
+import { billingAlertsDestinationsDeleteCreate } from 'products/billing/frontend/generated/api'
 import type {
     BillingAlertConfigurationApi,
     BillingAlertDestinationCreateDataApi,
     BillingAlertDestinationSummaryApi,
-} from './generated/api.schemas'
+} from 'products/billing/frontend/generated/api.schemas'
+
+import { billingAlertsLogic } from './billingAlertsLogic'
+import { billingAlertRequestError, destinationKey } from './billingAlertUtils'
 
 export type BillingAlertNotificationType = 'slack' | 'teams' | 'webhook'
 

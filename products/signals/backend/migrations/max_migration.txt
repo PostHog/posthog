@@ -1,1 +1,1 @@
-0172_signalscoutconfig_precheck_disabled
+0202_useractivitysummaryqueuestate_pending_score

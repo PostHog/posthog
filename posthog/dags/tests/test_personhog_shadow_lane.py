@@ -1,6 +1,8 @@
 import uuid
 from collections.abc import Callable
 from concurrent.futures import Future
+from contextlib import nullcontext
+from functools import partial
 from types import SimpleNamespace
 
 import pytest
@@ -11,17 +13,22 @@ import psycopg2.extras
 from confluent_kafka import KafkaError, KafkaException
 from parameterized import parameterized
 
+from posthog.dags.personhog_shadow_drift import ShadowLaneStopConfig, stop_shadow_lane
 from posthog.dags.personhog_shadow_lane import (
     GROUP_ID_NOT_FOUND,
     NON_EMPTY_GROUP,
+    SHADOW_CONSUMER_DEPLOYMENT,
     SHADOW_CONSUMER_GROUP,
     SHADOW_KAFKA_BOOTSTRAP_ENV_VAR,
+    SHADOW_PROCESSOR_DEPLOYMENT,
     ShadowLaneStartConfig,
     _reset_consumer_offsets,
     _reset_shadow_state,
+    processor_ramp,
     read_shadow_write_counter,
     require_shadow_dsn,
     shadow_kafka_admin,
+    start_shadow_lane,
     wait_for_deployments,
     wait_for_quiescence,
 )
@@ -113,6 +120,165 @@ class TestWaitForDeployments:
             settles_on_check, is_settled, timeout_seconds=timeout_seconds, sleep=lambda _seconds: None
         )
         assert pending == expected_pending
+
+
+class TestProcessorRamp:
+    @parameterized.expand(
+        [
+            ("from_zero", 0, 256, 64, [64, 128, 192, 256]),
+            ("partial_last_step", 0, 150, 64, [64, 128, 150]),
+            ("holds_at_current_before_stepping", 200, 512, 128, [200, 328, 456, 512]),
+            ("target_below_one_step", 0, 8, 64, [8]),
+            ("scale_down_is_direct", 512, 256, 64, [256]),
+        ]
+    )
+    def test_steps(self, _name: str, current: int, target: int, step: int, expected: list[int]) -> None:
+        assert processor_ramp(current, target, step) == expected
+
+
+class _ScalingAppsApi:
+    def __init__(self, ready_cap: int | None = None, processor_replicas: int = 0) -> None:
+        self.replicas = {SHADOW_PROCESSOR_DEPLOYMENT: processor_replicas, SHADOW_CONSUMER_DEPLOYMENT: 0}
+        self.ready_cap = ready_cap
+        self.scales: list[tuple[str, int]] = []
+
+    def read_namespaced_deployment(self, name: str, namespace: str) -> SimpleNamespace:
+        desired = self.replicas[name]
+        ready = desired if self.ready_cap is None else min(desired, self.ready_cap)
+        return SimpleNamespace(spec=SimpleNamespace(replicas=desired), status=SimpleNamespace(ready_replicas=ready))
+
+    def patch_namespaced_deployment_scale(self, name: str, namespace: str, body: dict) -> None:
+        self.replicas[name] = body["spec"]["replicas"]
+        self.scales.append((name, self.replicas[name]))
+
+
+class _FakeClock:
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def monotonic(self) -> float:
+        return self.now
+
+    def time(self) -> float:
+        return self.now
+
+    def sleep(self, seconds: float) -> None:
+        self.now += seconds
+
+
+@pytest.fixture
+def scaling_apps(monkeypatch: pytest.MonkeyPatch) -> Callable[..., _ScalingAppsApi]:
+    def install(**kwargs: int) -> _ScalingAppsApi:
+        apps = _ScalingAppsApi(**kwargs)
+        clock = _FakeClock()
+        monkeypatch.setattr("posthog.dags.personhog_shadow_lane.apps_api", lambda: apps)
+        monkeypatch.setattr("posthog.dags.personhog_shadow_lane.pushed_metrics_registry", lambda _job: nullcontext())
+        monkeypatch.setattr("posthog.dags.personhog_shadow_lane.time", clock)
+        monkeypatch.setattr(
+            "posthog.dags.personhog_shadow_lane.wait_for_deployments",
+            partial(wait_for_deployments, sleep=clock.sleep),
+        )
+        return apps
+
+    return install
+
+
+def test_start_steps_processors_up_before_any_consumer(scaling_apps: Callable[..., _ScalingAppsApi]) -> None:
+    apps = scaling_apps()
+    config = ShadowLaneStartConfig(processor_replicas=150, processor_step_replicas=64, consumer_replicas=4)
+
+    start_shadow_lane(dagster.build_op_context(), config)
+
+    assert apps.scales == [
+        (SHADOW_PROCESSOR_DEPLOYMENT, 64),
+        (SHADOW_PROCESSOR_DEPLOYMENT, 128),
+        (SHADOW_PROCESSOR_DEPLOYMENT, 150),
+        (SHADOW_CONSUMER_DEPLOYMENT, 4),
+    ]
+
+
+@pytest.mark.parametrize("processor_replicas", [0, 64], ids=["fresh_start", "retry_with_pods_still_pending"])
+def test_start_leaves_consumers_down_while_a_processor_step_is_unready(
+    scaling_apps: Callable[..., _ScalingAppsApi], processor_replicas: int
+) -> None:
+    apps = scaling_apps(ready_cap=0, processor_replicas=processor_replicas)
+    config = ShadowLaneStartConfig(processor_replicas=150, consumer_replicas=4, ready_timeout_seconds=60)
+
+    with pytest.raises(dagster.Failure, match="did not reach 64 ready replicas"):
+        start_shadow_lane(dagster.build_op_context(), config)
+
+    assert apps.scales == [(SHADOW_PROCESSOR_DEPLOYMENT, 64)]
+
+
+class _StoppingAppsApi:
+    """A deployment scaled to zero keeps one pod for `linger_polls` pod-count polls, as a draining pod does."""
+
+    def __init__(self, linger_polls: int) -> None:
+        self.replicas = {SHADOW_CONSUMER_DEPLOYMENT: 4, SHADOW_PROCESSOR_DEPLOYMENT: 150}
+        self.linger = dict.fromkeys(self.replicas, 0)
+        self.linger_polls = linger_polls
+        self.scales: list[tuple[str, int]] = []
+        self.consumer_pods_at_scale: list[int] = []
+
+    def pods(self, name: str) -> int:
+        if self.replicas[name] > 0:
+            return self.replicas[name]
+        return 1 if self.linger[name] > 0 else 0
+
+    def pod_count(self, name: str) -> int:
+        count = self.pods(name)
+        if self.replicas[name] == 0 and self.linger[name] > 0:
+            self.linger[name] -= 1
+        return count
+
+    def patch_namespaced_deployment_scale(self, name: str, namespace: str, body: dict) -> None:
+        self.consumer_pods_at_scale.append(self.pods(SHADOW_CONSUMER_DEPLOYMENT))
+        self.replicas[name] = body["spec"]["replicas"]
+        self.linger[name] = self.linger_polls
+        self.scales.append((name, self.replicas[name]))
+
+
+@pytest.fixture
+def stopping_apps(monkeypatch: pytest.MonkeyPatch) -> Callable[..., _StoppingAppsApi]:
+    def install(linger_polls: int) -> _StoppingAppsApi:
+        apps = _StoppingAppsApi(linger_polls)
+        clock = _FakeClock()
+        monkeypatch.setattr("posthog.dags.personhog_shadow_lane.time", clock)
+        monkeypatch.setattr("posthog.dags.personhog_shadow_drift.apps_api", lambda: apps)
+        monkeypatch.setattr(
+            "posthog.dags.personhog_shadow_drift.deployment_pod_count",
+            lambda _apps, _namespace, name: apps.pod_count(name),
+        )
+        monkeypatch.setattr(
+            "posthog.dags.personhog_shadow_drift.wait_for_deployments",
+            partial(wait_for_deployments, sleep=clock.sleep),
+        )
+        return apps
+
+    return install
+
+
+def test_stop_scales_processors_only_after_the_consumer_pods_are_gone(
+    stopping_apps: Callable[..., _StoppingAppsApi],
+) -> None:
+    apps = stopping_apps(linger_polls=2)
+
+    # Each deployment drains in 20 s of polls, within its own 30 s budget; together they would exceed one.
+    stop_shadow_lane(dagster.build_op_context(), ShadowLaneStopConfig(stop_timeout_seconds=30))
+
+    assert apps.scales == [(SHADOW_CONSUMER_DEPLOYMENT, 0), (SHADOW_PROCESSOR_DEPLOYMENT, 0)]
+    assert apps.consumer_pods_at_scale == [4, 0]
+
+
+def test_stop_leaves_processors_up_while_a_consumer_pod_lingers(
+    stopping_apps: Callable[..., _StoppingAppsApi],
+) -> None:
+    apps = stopping_apps(linger_polls=100)
+
+    with pytest.raises(dagster.Failure, match="Pods still running"):
+        stop_shadow_lane(dagster.build_op_context(), ShadowLaneStopConfig(stop_timeout_seconds=30))
+
+    assert apps.scales == [(SHADOW_CONSUMER_DEPLOYMENT, 0)]
 
 
 class _FakeAppsApi:

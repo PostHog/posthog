@@ -52,7 +52,8 @@ from products.signals.backend.scout_harness.trial_state import (
 from products.signals.backend.scout_report.persistence import MAX_REPORT_SIGNALS, set_scout_report_inferred_repository
 from products.signals.backend.suggested_reviewer_index import report_ids_naming_reviewers
 from products.signals.backend.temporal.report_safety_judge import SafetyJudgeResponse
-from products.signals.backend.test.test_scout_harness_api import _make_run
+from products.signals.backend.test.test_scout_harness_api import _authenticate_as_scout, _make_run
+from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.models import TaskRun
 
 
@@ -294,11 +295,17 @@ class TestScoutTrialReportCapture(APIBaseTest):
         report_id = self._emit()
         assert self._emit(title="Retried wording") == report_id
         assert self.judge.call_count == 1
+        created = self.store.get_report(report_id)
+        assert created is not None
+        assert created.document["summary_lead"] == "The synthetic checkout handler returns an incorrect total."
+        revised_summary = (
+            "A **revised** synthetic [explanation](https://example.com/details).\n\n## Detail\nMore context."
+        )
         result = edit_report_sync(
             team=self.team,
             author=ScoutRunReportAuthor(run=self.scout_run),
             report_id=report_id,
-            summary="A revised synthetic explanation.",
+            summary=revised_summary,
             append_note="A second fixture confirms it.",
             append_evidence=[
                 ReportEvidence(description="The second fixture also returns 12.", source_id="second-observation")
@@ -315,7 +322,8 @@ class TestScoutTrialReportCapture(APIBaseTest):
         assert result.decision_fields_set == ("actionability", "priority")
         draft = self.store.get_report(report_id)
         assert draft is not None
-        assert draft.document["summary"] == "A revised synthetic explanation."
+        assert draft.document["summary"] == revised_summary
+        assert draft.document["summary_lead"] == "A revised synthetic explanation."
         assert draft.document["priority"] == "P1"
         assert draft.document["actionability"] == "requires_human_input"
         assert draft.document["already_addressed"] is True
@@ -398,6 +406,7 @@ class TestScoutTrialReportCapture(APIBaseTest):
             author=ScoutRunReportAuthor(run=self.scout_run),
             report_id=str(original.id),
             title="Privately revised title",
+            summary="Privately **revised** summary.\n\n## Detail\nPrivate supporting detail.",
             append_note="Private supporting note",
             actionability="requires_human_input",
             actionability_explanation="The fixture needs an owner to choose the expected total.",
@@ -408,12 +417,14 @@ class TestScoutTrialReportCapture(APIBaseTest):
 
         original.refresh_from_db()
         assert original.title == "Existing synthetic report"
+        assert original.summary == "Existing synthetic summary"
         assert original.latest_actionability == "immediately_actionable"
         assert original.latest_already_addressed is False
         assert original.artefacts.count() == 2
         draft = self.store.get_report(str(original.id))
         assert draft is not None
         assert draft.document["title"] == "Privately revised title"
+        assert draft.document["summary_lead"] == "Privately revised summary."
         assert draft.document["priority"] == "P1"
         assert draft.document["actionability"] == "requires_human_input"
         assert draft.document["already_addressed"] is True
@@ -725,6 +736,51 @@ class TestScoutTrialReportCapture(APIBaseTest):
         assert report is not None
         assert report.operator_metadata["skipped_automatic_repository_selection"] is True
 
+    @parameterized.expand(
+        [(action, state) for action in ("emit-report", "edit-report") for state in ("invalid", "completed")]
+    )
+    def test_report_api_rejects_unwritable_trial_without_changing_captured_reports(
+        self, action: str, state: str
+    ) -> None:
+        report_id = self._emit()
+        LLMSkill.objects.create(
+            team=self.team,
+            name=self.scout_run.skill_name,
+            version=self.scout_run.skill_version,
+            body="Inspect the synthetic checkout fixture.",
+            allowed_tools=["emit_report", "edit_report"],
+        )
+        _authenticate_as_scout(self, scopes="signals_scout_experiment", sandbox_task_id=self.scout_run.task_run.task_id)
+        if state == "invalid":
+            expected_reason = "The synthetic trial was invalidated."
+            self.store.invalidate(expected_reason)
+        else:
+            expected_reason = "Reports can only be authored on in-progress runs"
+            self.scout_run.task_run.status = "completed"
+            self.scout_run.task_run.save(update_fields=["status"])
+        before = self.store.export()
+        payload = (
+            {
+                "title": "Another synthetic checkout issue",
+                "summary": "The synthetic fixture returns an unexpected total.",
+                "evidence": [{"description": "The second fixture returns 9 instead of 8.", "source_id": "fixture-two"}],
+                "actionability": "immediately_actionable",
+                "actionability_explanation": "Correct the synthetic fixture calculation.",
+                "repository": "NO_REPO",
+            }
+            if action == "emit-report"
+            else {"report_id": report_id, "append_note": "This synthetic note must not persist."}
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/signals/scout/runs/{self.scout_run.id}/{action}/", payload, format="json"
+        )
+
+        assert response.status_code == 400, response.data
+        assert expected_reason in response.json()["detail"]
+        assert self.store.export() == before
+        assert not SignalReport.objects.filter(team=self.team).exists()
+
     @parameterized.expand([("title", " "), ("summary", ""), ("append_note", " ")])
     def test_invalid_edits_fail_before_judging(self, field: str, value: str) -> None:
         report_id = self._emit()
@@ -805,6 +861,7 @@ class TestScoutTrialReportCapture(APIBaseTest):
             evidence = self.client.get(f"{base}{report_id}/signals/")
             assert evidence.status_code == 200
             assert evidence.json()["signals"][0]["source_id"] == "synthetic-observation"
+            assert evidence.json()["signals"][0]["spend_accounting_failed_stages"] == []
             artefacts = self.client.get(f"{base}{report_id}/artefacts/")
             assert artefacts.status_code == 200
             assert artefacts.json()["count"] == detail.json()["artefact_count"]

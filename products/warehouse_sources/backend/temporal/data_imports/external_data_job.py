@@ -31,11 +31,8 @@ from posthog.usage_ingestion.client import UsageRecord, areport_usage
 from posthog.utils import get_machine_id
 
 from products.data_warehouse.backend.facade.api import (
-    SyncAlertEvent,
-    SyncAlertKind,
     a_unpause_external_data_schedule,
     create_warehouse_templates_for_source,
-    emit_sync_alert,
     update_external_job_status,
 )
 from products.managed_warehouse.backend.facade.temporal import (
@@ -53,6 +50,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     MISSING_PRIMARY_KEY_DISABLED_MESSAGE,
     UNSUPPORTED_SYNC_TYPE_DISABLED_MESSAGE,
     UNSUPPORTED_SYNC_TYPE_ERROR,
+    WORKER_RESTART_ERROR_MESSAGE,
     ExternalDataSchema,
     update_should_sync,
 )
@@ -265,6 +263,17 @@ TRANSIENT_SOURCE_CONNECTION_MESSAGE = (
     "reachable and doesn't drop idle connections; the next sync runs on schedule."
 )
 
+# libpq prefixes a failure with "connection to server at <host>, port <port> failed:" only while it
+# sets the connection up. A drop there never reached an idle connection, so the generic copy points
+# the customer at the wrong cause. A server that accepts the TCP connection and then closes it
+# during startup is usually down, or an allowlist in front of it rejects PostHog's addresses.
+LIBPQ_CONNECT_FAILURE_MARKER = "connection to server at"
+
+TRANSIENT_CONNECT_DROPPED_MESSAGE = (
+    "Your database closed the connection while PostHog was connecting. Check that it's running and "
+    "allows PostHog's IP addresses; the next sync runs on schedule."
+)
+
 TRANSIENT_POOLER_MESSAGE = (
     "Your database's connection pooler couldn't reach your database and refused the connection. "
     "Check that the database is running; the next sync runs on schedule."
@@ -385,16 +394,17 @@ CANCELLED_RUN_MESSAGE = (
     "it or the source is paused. It will run again on its next schedule."
 )
 
-WORKER_RESTART_ERROR_MESSAGE = (
-    "This sync run was interrupted too many times by restarts on PostHog's side, so it did not finish. "
-    "It will run again automatically. No action is needed."
-)
-
 TRANSIENT_SOURCE_ERROR_MESSAGE = (
     "The source's API kept returning temporary errors, such as rate limits or server errors, so this "
     "sync run did not finish. This is usually a short problem on the source's side. The sync will run "
     "again on its next schedule."
 )
+
+# The marker hand-rolled source transports raise once their own backoff on a 429 or 5xx runs out:
+# "<Vendor> API error (retryable): status=<code>, url=<url>". Unlike `RESTClientRetryableError`
+# it reaches the finalizer as plain message text, which carries the vendor URL and, for a
+# self-hosted source, the customer's own host.
+RETRYABLE_STATUS_ERROR_MARKER = "(retryable): status="
 
 
 def _customer_facing_error(cause: BaseException | None) -> str:
@@ -459,7 +469,7 @@ def _transient_error_message(internal_error: str) -> str | None:
 
     First match wins, mirroring how the non-retryable path picks its friendly message.
     """
-    return next(
+    message = next(
         (
             message
             for pattern, message in Transient_Error_Messages.items()
@@ -467,6 +477,11 @@ def _transient_error_message(internal_error: str) -> str | None:
         ),
         None,
     )
+    if message == TRANSIENT_SOURCE_CONNECTION_MESSAGE and error_message_matches(
+        internal_error, [LIBPQ_CONNECT_FAILURE_MARKER]
+    ):
+        return TRANSIENT_CONNECT_DROPPED_MESSAGE
+    return message
 
 
 def _fail_stale_running_schema(
@@ -642,13 +657,23 @@ async def _update_job_status(inputs: UpdateExternalDataJobStatusInputs, logger: 
             # consulted first; the source's own exhaustion messages cover the classes it does not
             # name. Retryability is untouched: the schema is not disabled and the next scheduled
             # run still tries.
-            transient_message = _transient_error_message(internal_error_normalized) or next(
-                (
-                    message
-                    for error, message in source_cls.get_retry_exhausted_errors().items()
-                    if error_message_matches(internal_error_normalized, [error])
-                ),
-                None,
+            # The retryable-status marker comes last, so a source that names its own vendor in
+            # `get_retry_exhausted_errors` keeps that copy.
+            transient_message = (
+                _transient_error_message(internal_error_normalized)
+                or next(
+                    (
+                        message
+                        for error, message in source_cls.get_retry_exhausted_errors().items()
+                        if error_message_matches(internal_error_normalized, [error])
+                    ),
+                    None,
+                )
+                or (
+                    TRANSIENT_SOURCE_ERROR_MESSAGE
+                    if error_message_matches(internal_error_normalized, [RETRYABLE_STATUS_ERROR_MARKER])
+                    else None
+                )
             )
             if transient_message is not None:
                 inputs.latest_error = transient_message
@@ -669,18 +694,6 @@ async def _update_job_status(inputs: UpdateExternalDataJobStatusInputs, logger: 
         team_id=inputs.team_id,
         counts_as_source_failure=counts_as_source_failure,
     )
-
-    if has_non_retryable_error:
-        # A non-retryable failure does not count toward the failure streak, so the status write
-        # above sends no failed alert for it. The schema stops syncing until a person turns it back
-        # on, which is the failure a destination most needs to hear about.
-        await database_sync_to_async_pool(emit_sync_alert)(
-            team_id=inputs.team_id,
-            schema_id=inputs.schema_id,
-            event=SyncAlertEvent.FAILED,
-            kind=SyncAlertKind.SCHEMA_PAUSED,
-            job_id=job_id,
-        )
 
     if inputs.internal_error and source is not None:
         # This activity runs once the workflow has given up, so every error reaching here has
@@ -905,7 +918,12 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 delay = min(IMPORT_HANDOFF_FIRST_DELAY * 2 ** min(early_handoffs, 10), IMPORT_HANDOFF_MAX_DELAY)
                 workflow.logger.info(
                     "Import handed off by a worker that is shutting down, running it again",
-                    extra={"handoffs": handoffs, "delay_seconds": delay.total_seconds()},
+                    extra={
+                        "handoffs": handoffs,
+                        "delay_seconds": delay.total_seconds(),
+                        "handoff_made_progress": pipeline_result.get("handoff_made_progress"),
+                        "handoff_reason": pipeline_result.get("handoff_reason"),
+                    },
                 )
                 await workflow.sleep(delay)
         finally:

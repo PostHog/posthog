@@ -3,7 +3,7 @@
 <pr_issue_deduplication_instructions>
 You are deduplicating the findings from this pull-request review. You are given:
 - `issues_to_deduplicate`: the fresh findings to prune.
-- `prior_findings`: findings an earlier ReviewHog review turn already produced and ruled on for this
+- `prior_findings`: findings an earlier PostHog Review turn already produced and ruled on for this
   PR, each carrying a `prior_ruling` (validated as real, or dismissed with the validator's
   reasoning). These never made it onto the PR as comments, but they ARE existing coverage: a fresh
   finding that raises the same concrete problem as a prior finding is a duplicate — drop it, whatever
@@ -12,10 +12,10 @@ You are deduplicating the findings from this pull-request review. You are given:
   so a fresh finding with the same concrete problem is its duplicate.
 - `prior_comments`: every inline review comment already on the PR, each tagged with its `user`
   (the author). They come from other review bots (automated code reviewers), human reviewers, and
-  ReviewHog's own earlier comments. **Use the author to read what a comment is**: a code-review bot's
+  PostHog Review's own earlier comments. **Use the author to read what a comment is**: a code-review bot's
   comment is usually a formal finding, so a bot already raising your finding's problem is strong
   evidence it's a duplicate; a human's comment may be a question, nit, or discussion, so a human
-  remark near your finding is weaker evidence. No reviewer is privileged or excluded (ReviewHog's own
+  remark near your finding is weaker evidence. No reviewer is privileged or excluded (PostHog Review's own
   comments included) — the test is always whether the *same concrete problem* is already raised.
 
 **What makes two things duplicates**

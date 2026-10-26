@@ -29,7 +29,7 @@ export function ExperimentRemainingTime({
     if (isCalculating) {
         content = <span className="text-secondary">Calculating…</span>
     } else if (days === null) {
-        content = <span className="text-secondary">{launched ? 'Duration pending' : 'Duration not estimated'}</span>
+        content = <span className="text-secondary">{launched ? 'Duration pending' : 'No duration estimate'}</span>
     } else if (isComplete) {
         content = (
             <span className="flex items-center gap-1">

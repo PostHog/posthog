@@ -23,9 +23,9 @@ bar), so switching the flag switches the whole ranking, not one component of it.
 
 import json
 import math
-from collections.abc import Collection
+from collections.abc import Callable, Collection
 from datetime import UTC, datetime, timedelta
-from time import perf_counter
+from time import monotonic, perf_counter
 from typing import Any, Literal
 from uuid import UUID, uuid4
 
@@ -51,12 +51,12 @@ from products.ml_inference.backend.facade.contracts import (
     NoulAnswer,
 )
 from products.ml_inference.backend.facade.enums import DecisionQuestionType
-from products.replay_vision.backend.watch_feed import NOTABLE_MIN_SCORE, WatchFeedEntry, _trim_filler
+from products.replay_vision.backend.watch_feed import NOTABLE_MIN_SCORE, WatchFeedEntry, finish_feed
 
 logger = structlog.get_logger(__name__)
 
 WATCH_FEED_RANKER_FLAG = "vision-watch-feed-ranker"
-RankerMode = Literal["weighted-score", "jev-shadow", "jev"]
+RankerMode = Literal["weighted-score", "jev-shadow", "jev", "embedding"]
 # The JevK5 build PostHog hosts on the AI gateway, which is the only backend the ml_inference
 # facade reaches. The vendor (typesafe.ai) is not approved for customer data, and observation prose
 # is customer data, so never point this at a vendor model id.
@@ -88,17 +88,54 @@ JEV_SEEN_PENALTY = 0.3
 # bar empties the tier. Recalibrate from the judged event's watchability quantiles and top_scored
 # sample, and bump the cache version below with any change here.
 JEV_WATCHABLE_MIN = 0.3
-# One incident can put many near-identical watchable sessions on one scanner, and a pure probability
-# sort would fill the top of the feed with them. Hold each scanner to this share of the evidence
-# tier as it is placed (same intent as WATCH_FEED_MAX_SIGNAL_SHARE in the weighted ranker), with a
-# floor so a short feed is not over-constrained; the overflow trails the tier instead of leaving it.
-JEV_MAX_SCANNER_SHARE = 0.4
-_SCANNER_SPREAD_FLOOR = 3
 # Observations per Jev request: the request carries the chunk as shared state and one question per
-# observation, so the facade's per-request question cap is the most context one judgment can get. A
-# judgment is therefore relative to its chunk, not to the whole window at once.
-WINDOW_CHUNK_SIZE = MAX_QUESTIONS_PER_REQUEST
-# Per-entry prose caps, so a 24-entry chunk state stays small and per-chunk latency predictable
+# observation, so a judgment is relative to its chunk, not to the whole window at once. Half the
+# facade's per-request question cap: a request's prompt grows with its state, and a full 32-entry
+# state was larger than the decision service admits in flight on one host, so while it ran that host
+# refused every other product's requests.
+WINDOW_CHUNK_SIZE = MAX_QUESTIONS_PER_REQUEST // 2
+# About how many estimated prompt tokens one request may carry. A decision-service host admits
+# 12,000 prompt tokens in flight and refuses callers past that, so a ~10k request fills most of a
+# host by itself and the refusals land on whichever product calls next. Half the admission budget
+# leaves room beside our request. Estimated at ~4 JSON characters per token; the judged event's
+# input_tokens carries the measured sizes to calibrate against.
+REQUEST_TOKEN_TARGET = 5_000
+
+
+def _text_tokens(text: str) -> int:
+    """Estimated prompt tokens of a piece of request text."""
+    return max(1, len(text) // 4)
+
+
+def _entry_tokens(entry: dict[str, Any]) -> int:
+    """Estimated prompt tokens one state entry adds to a request."""
+    return _text_tokens(json.dumps(entry, separators=(",", ":")))
+
+
+def _pack_chunks(
+    entries: list[tuple[str, dict[str, Any]]], tokens_per_question: int
+) -> list[tuple[list[tuple[str, dict[str, Any]]], int]]:
+    """Entries packed into request-sized chunks, each returned with its entries' token estimate: at
+    most WINDOW_CHUNK_SIZE questions and about REQUEST_TOKEN_TARGET estimated tokens each — counting
+    the question each entry brings, since its instructions ride along per question — so no request
+    can fill a decision-service host by itself however verbose the entries run. An entry over the
+    target alone still ships, alone."""
+    chunks: list[tuple[list[tuple[str, dict[str, Any]]], int]] = []
+    current: list[tuple[str, dict[str, Any]]] = []
+    current_tokens = 0
+    for entry_id, entry in entries:
+        tokens = _entry_tokens(entry) + tokens_per_question
+        if current and (len(current) >= WINDOW_CHUNK_SIZE or current_tokens + tokens > REQUEST_TOKEN_TARGET):
+            chunks.append((current, current_tokens))
+            current, current_tokens = [], 0
+        current.append((entry_id, entry))
+        current_tokens += tokens
+    if current:
+        chunks.append((current, current_tokens))
+    return chunks
+
+
+# Per-entry prose caps, so a chunk state stays small and per-chunk latency predictable
 # whatever the scanner's configured summary length.
 _MAX_TITLE_CHARS = 300
 _MAX_PROSE_CHARS = 1500
@@ -189,10 +226,21 @@ _REASON_INSTRUCTIONS = (
     "user experienced."
 )
 
+# What one question adds to a request beyond its state entry: the window instructions ride along
+# per yes/no question, and the reason instructions plus the whole criteria list per CHOICE question.
+# Per-request sizes grow with question count because of these, so packing and pacing count them.
+_WINDOW_QUESTION_TOKENS = _text_tokens(_WINDOW_INSTRUCTIONS)
+_REASON_QUESTION_TOKENS = _text_tokens(_REASON_INSTRUCTIONS) + _text_tokens(json.dumps(_WATCH_REASON_CRITERIA))
+
 _CALLS = Counter(
     "replay_vision_jev_watch_rank_calls",
     "Jev watch rank chunk requests by outcome.",
     ["outcome"],
+)
+_REQUESTS = Counter(
+    "replay_vision_jev_watch_rank_requests_total",
+    "Ranking requests by kind and HTTP status; non-HTTP failures use unknown",
+    ["kind", "status"],
 )
 _LATENCY = Histogram(
     "replay_vision_jev_watch_rank_latency_seconds",
@@ -214,9 +262,8 @@ def watch_feed_ranker_variant(team_id: int, team_uuid: UUID | str) -> str | None
 
     Keyed on the project's uuid: both regions evaluate this one flag, and team ids repeat between
     them. A region without the decision service has no sweep to fill the cache, so its teams take
-    no part rather than land on an empty `jev` feed. Any flag failure also reads as None."""
-    if not decision_api.decisions_available_here():
-        return None
+    no part in the Jev arms rather than land on an empty `jev` feed. The embedding arm needs no
+    decision service. Any flag failure also reads as None."""
     value = get_feature_flag_or_none(
         WATCH_FEED_RANKER_FLAG,
         # Only a person-property condition reads the distinct id; a project-aggregated flag buckets
@@ -226,11 +273,17 @@ def watch_feed_ranker_variant(team_id: int, team_uuid: UUID | str) -> str | None
         group_properties={"project": {"id": team_id, "uuid": str(team_uuid)}},
         send_feature_flag_events=False,
     )
-    return value if isinstance(value, str) else None
+    if not isinstance(value, str):
+        return None
+    if value in ("jev", "jev-shadow") and not decision_api.decisions_available_here():
+        return None
+    return value
 
 
 def ranker_mode(variant: str | None) -> RankerMode:
-    """The ranker a flag variant selects. Any variant but the two Jev arms is the default arm."""
+    """The ranker a flag variant selects. Any variant but the Jev and embedding arms is the default arm."""
+    if variant == "embedding":
+        return "embedding"
     if variant == "jev-shadow":
         return "jev-shadow"
     if variant == "jev":
@@ -263,6 +316,7 @@ class WindowJudgment:
     # chunk alike and must not park rows as judged-with-no-score.
     batch_failed_ids: tuple[str, ...]
     model: str | None
+    # Chunks the window actually sent (or tried to); chunks cut off by stop_after are not counted.
     chunks: int
     failed_chunks: int
     # Failed chunks keyed by exception class name. The Prometheus counter carries the same
@@ -272,8 +326,12 @@ class WindowJudgment:
     # The gateway rate-limited a request, so the window stopped there. The rows it did not reach
     # retry free on the next sweep.
     rate_limited: bool
+    # The window hit the caller's stop_after deadline and left chunks unsent; their rows retry
+    # on the next sweep.
+    stopped_early: bool
     input_tokens: int
     estimated_cost_usd: float
+    estimated_prompt_tokens: int = 0
 
 
 def _is_rate_limited(error: Exception) -> bool:
@@ -401,7 +459,12 @@ def _pick_watch_reasons(
 
 
 def judge_scanner_window(
-    team_id: int, scanner_id: UUID, rows: list[dict[str, Any]], context_rows: list[dict[str, Any]] | None = None
+    team_id: int,
+    scanner_id: UUID,
+    rows: list[dict[str, Any]],
+    context_rows: list[dict[str, Any]] | None = None,
+    pace: Callable[[int], None] | None = None,
+    stop_after: float | None = None,
 ) -> WindowJudgment:
     """Ask Jev which of these observations are worth watching, one probability per row.
 
@@ -409,13 +472,19 @@ def judge_scanner_window(
     rows enter the request state without questions, so a small batch of new rows is still judged
     against the scanner's routine. Fail-soft per chunk: a failed chunk loses its rows' judgments
     and counts as failed, and the other chunks still land, so one bad request never empties a
-    scanner's cache entry.
+    scanner's cache entry. `pace` is called with each request's estimated prompt tokens before it
+    is sent, so a caller can spread its requests at a steady token rate; it may block. Chunks are
+    not started past `stop_after` (a time.monotonic deadline): their rows stay unjudged and retry
+    on the next sweep, so a paced window cannot run away past the caller's time budget.
     """
     entries = [(str(row["id"]), entry) for row in rows if (entry := _window_entry(row)) is not None]
     entry_ids = {entry_id for entry_id, _ in entries}
     skipped_no_prose = tuple(str(row["id"]) for row in rows if str(row["id"]) not in entry_ids)
     context = [entry for row in context_rows or [] if (entry := _window_entry(row)) is not None]
-    chunks = [entries[start : start + WINDOW_CHUNK_SIZE] for start in range(0, len(entries), WINDOW_CHUNK_SIZE)]
+    # Packed with the larger reason-question overhead: the reason pick resends the chunk's state
+    # with a criteria-bearing question per watchable row, so only a chunk sized for the all-watchable
+    # case keeps both requests under the target.
+    chunks = _pack_chunks(entries, max(_WINDOW_QUESTION_TOKENS, _REASON_QUESTION_TOKENS))
     # One trace per window run, so a window's chunks group in AI observability without merging runs.
     trace_id = str(uuid4())
     probabilities: dict[str, float] = {}
@@ -428,6 +497,7 @@ def judge_scanner_window(
     rate_limited = False
     input_tokens = 0
     estimated_cost = 0.0
+    estimated_prompt_tokens = 0
 
     def charge(result: Any) -> None:
         nonlocal input_tokens, estimated_cost
@@ -437,14 +507,49 @@ def judge_scanner_window(
         _INPUT_TOKENS.inc(result.input_tokens)
         _ESTIMATED_COST.inc(chunk_cost)
 
-    for chunk in chunks:
-        # The state holds at most WINDOW_CHUNK_SIZE entries, so context only pads short chunks.
-        chunk_context = context[: WINDOW_CHUNK_SIZE - len(chunk)]
+    context_with_tokens = [(entry, _entry_tokens(entry)) for entry in context]
+    chunks_started = 0
+    stopped_early = False
+
+    def out_of_time() -> bool:
+        # Checked after each pace() too: the pacing sleep can carry the clock across the deadline,
+        # and a request started past it would overshoot the caller's budget by its whole timeout.
+        nonlocal stopped_early
+        if stop_after is not None and monotonic() > stop_after:
+            # Like rows cut off by the caller's time budget: unjudged, free to retry next sweep.
+            stopped_early = True
+        return stopped_early
+
+    for chunk, packed_tokens in chunks:
+        if out_of_time():
+            break
+        # Context pads only the room the chunk leaves, by question count and by token budget, so a
+        # padded request stays no larger than a full one.
+        budget = REQUEST_TOKEN_TARGET - packed_tokens
+        chunk_context: list[dict[str, Any]] = []
+        context_tokens = 0
+        for context_entry, tokens in context_with_tokens:
+            if len(chunk) + len(chunk_context) >= WINDOW_CHUNK_SIZE or tokens > budget:
+                break
+            chunk_context.append(context_entry)
+            budget -= tokens
+            context_tokens += tokens
+        state_tokens = (
+            packed_tokens - len(chunk) * max(_WINDOW_QUESTION_TOKENS, _REASON_QUESTION_TOKENS) + context_tokens
+        )
+        if pace is not None:
+            pace(state_tokens + len(chunk) * _WINDOW_QUESTION_TOKENS)
+        if out_of_time():
+            break
+        chunks_started += 1
+        estimated_prompt_tokens += state_tokens + len(chunk) * _WINDOW_QUESTION_TOKENS
         started = perf_counter()
         try:
             chunk_probabilities, result = _judge_chunk(team_id, trace_id, chunk, chunk_context)
         except Exception as error:
             _LATENCY.observe(perf_counter() - started)
+            status = str(error.status_code) if isinstance(error, DecisionGatewayError) else "unknown"
+            _REQUESTS.labels("judgment", status).inc()
             error_type = type(error).__name__
             _CALLS.labels(error_type).inc()
             failed_chunks += 1
@@ -471,13 +576,22 @@ def judge_scanner_window(
             continue
         _LATENCY.observe(perf_counter() - started)
         _CALLS.labels("ok").inc()
+        _REQUESTS.labels("judgment", "200").inc()
         probabilities.update(chunk_probabilities)
         model = result.model
         charge(result)
         watchable_ids = {oid for oid, probability in chunk_probabilities.items() if probability >= JEV_WATCHABLE_MIN}
         if not watchable_ids:
             continue
+        if pace is not None:
+            # The reason pick resends the same state, with one criteria-bearing question per
+            # watchable row — usually a few, so this toll is usually smaller than the judgment's.
+            pace(state_tokens + len(watchable_ids) * _REASON_QUESTION_TOKENS)
+        if out_of_time():
+            # The judgments above still land; only the reasons are left off, as on a failed pick.
+            break
         started = perf_counter()
+        estimated_prompt_tokens += state_tokens + len(watchable_ids) * _REASON_QUESTION_TOKENS
         try:
             chunk_reasons, reason_result = _pick_watch_reasons(team_id, trace_id, chunk, chunk_context, watchable_ids)
         except Exception as error:
@@ -485,6 +599,8 @@ def judge_scanner_window(
             # not retried: the rows are judged, and the feed shows them without a reason.
             _LATENCY.observe(perf_counter() - started)
             _CALLS.labels(f"reason_{type(error).__name__}").inc()
+            status = str(error.status_code) if isinstance(error, DecisionGatewayError) else "unknown"
+            _REQUESTS.labels("reason", status).inc()
             failed_reason_chunks += 1
             logger.warning(
                 "Jev watch reason chunk failed",
@@ -498,6 +614,7 @@ def judge_scanner_window(
             continue
         _LATENCY.observe(perf_counter() - started)
         _CALLS.labels("reason_ok").inc()
+        _REQUESTS.labels("reason", "200").inc()
         reasons.update(chunk_reasons)
         charge(reason_result)
     return WindowJudgment(
@@ -507,12 +624,14 @@ def judge_scanner_window(
         skipped_no_prose=skipped_no_prose,
         batch_failed_ids=tuple(batch_failed_ids),
         model=model,
-        chunks=len(chunks),
+        chunks=chunks_started,
         failed_chunks=failed_chunks,
         chunk_error_types=chunk_error_types,
         rate_limited=rate_limited,
+        stopped_early=stopped_early,
         input_tokens=input_tokens,
         estimated_cost_usd=estimated_cost,
+        estimated_prompt_tokens=estimated_prompt_tokens,
     )
 
 
@@ -698,26 +817,6 @@ def _scan_notability_reason(row: dict[str, Any]) -> str | None:
     return reason if isinstance(reason, str) and reason.strip() else None
 
 
-def _spread_scanners(ordered: list[tuple[Any, WatchFeedEntry]]) -> list[WatchFeedEntry]:
-    """Hold each scanner to JEV_MAX_SCANNER_SHARE of the evidence tier as it is placed.
-
-    Checked per place rather than over the whole list because the view slices the head: a feed of 5
-    obeys the same share as a feed of 50. Overflow trails the tier in probability order — reordering
-    for breadth is the job here, shortening the feed is not.
-    """
-    placed: list[WatchFeedEntry] = []
-    deferred: list[WatchFeedEntry] = []
-    counts: dict[Any, int] = {}
-    for scanner_id, entry in ordered:
-        allowed = max(_SCANNER_SPREAD_FLOOR, math.ceil(JEV_MAX_SCANNER_SHARE * (len(placed) + 1)))
-        if counts.get(scanner_id, 0) >= allowed:
-            deferred.append(entry)
-        else:
-            counts[scanner_id] = counts.get(scanner_id, 0) + 1
-            placed.append(entry)
-    return placed + deferred
-
-
 def rank_watch_feed_by_jev(
     rows: list[dict[str, Any]], probabilities: dict[str, float], reasons: dict[str, str] | None = None
 ) -> list[WatchFeedEntry]:
@@ -734,7 +833,7 @@ def rank_watch_feed_by_jev(
     of them.
     """
     watchable: list[tuple[float, Any, Any, WatchFeedEntry]] = []
-    filler: list[tuple[bool, Any, WatchFeedEntry]] = []
+    filler_rows: list[dict[str, Any]] = []
     for row in rows:
         probability = probabilities.get(str(row["id"]))
         viewed = bool(row.get("feed_viewed"))
@@ -751,11 +850,5 @@ def rank_watch_feed_by_jev(
                 (probability - (JEV_SEEN_PENALTY if viewed else 0.0), row["created_at"], row.get("scanner_id"), entry)
             )
         else:
-            entry = WatchFeedEntry(observation_id=row["id"], reason={"kind": "recent" if viewed else "unviewed_recent"})
-            filler.append((not viewed, row["created_at"], entry))
-    watchable.sort(key=lambda item: (item[0], item[1]), reverse=True)
-    filler.sort(key=lambda item: (item[0], item[1]), reverse=True)
-    return _trim_filler(
-        _spread_scanners([(scanner_id, entry) for _, _, scanner_id, entry in watchable])
-        + [entry for *_, entry in filler]
-    )
+            filler_rows.append(row)
+    return finish_feed(watchable, filler_rows)
