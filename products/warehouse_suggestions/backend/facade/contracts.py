@@ -10,6 +10,8 @@ from .enums import (
     WarehouseSuggestionAssetOutcome,
     WarehouseSuggestionDismissalReason,
     WarehouseSuggestionKind,
+    WarehouseSuggestionRefreshIntervalBasis,
+    WarehouseSuggestionRefreshMode,
     WarehouseSuggestionStatus,
     WarehouseSuggestionSubjectKind,
 )
@@ -53,9 +55,25 @@ class MaterializePayload:
     freshness_after_seconds: int
     live_sources: tuple[SourceRef, ...]
     unknown_sources: tuple[SourceRef, ...]
+    refresh_mode: WarehouseSuggestionRefreshMode = WarehouseSuggestionRefreshMode.FULL
+    incremental_key: str | None = None
+    unique_key: tuple[str, ...] = ()
+    lookback_seconds: int = 0
+    refresh_interval_basis: WarehouseSuggestionRefreshIntervalBasis | None = None
 
 
-SuggestionPayload = CertifyPayload | DeprecatePayload | MaterializePayload
+@frozen
+class UnmaterializePayload:
+    subject_name: str
+    refresh_seconds_per_month: float
+    refresh_bytes_per_month: float
+    live_seconds_per_month: float
+    live_bytes_per_month: float
+    read_seconds: float
+    query_fingerprint: str
+
+
+SuggestionPayload = CertifyPayload | DeprecatePayload | MaterializePayload | UnmaterializePayload
 
 
 @frozen
@@ -76,9 +94,14 @@ class MaterializeSuggestionPayload:
     freshness_after_seconds: int
     live_sources: VisibleSources
     unknown_sources: VisibleSources
+    refresh_mode: WarehouseSuggestionRefreshMode = WarehouseSuggestionRefreshMode.FULL
+    incremental_key: str | None = None
+    unique_key: tuple[str, ...] = ()
+    lookback_seconds: int = 0
+    refresh_interval_basis: WarehouseSuggestionRefreshIntervalBasis | None = None
 
 
-SuggestionPayloadView = CertifyPayload | DeprecatePayload | MaterializeSuggestionPayload
+SuggestionPayloadView = CertifyPayload | DeprecatePayload | MaterializeSuggestionPayload | UnmaterializePayload
 
 
 @frozen
@@ -125,21 +148,47 @@ class Suggestion:
     dismissal_note: str | None
     created_asset: dict[str, Any] | None
     asset_outcome: WarehouseSuggestionAssetOutcome | None
+    realized_seconds_saved_per_month: float | None
+    realized_bytes_saved_per_month: float | None
     can_act: bool
+    subject_source_id: UUID | None = None
+    subject_schema_id: UUID | None = None
 
 
 @frozen
 class CertificationAsset:
     certification_id: str
+    stopped_materialization: bool = False
 
 
 @frozen
 class MaterializationAsset:
     saved_query_id: str
     refresh_interval_seconds: int
+    refresh_mode: WarehouseSuggestionRefreshMode
+    incremental_key: str | None
+    unique_key: tuple[str, ...]
+    lookback_seconds: int
 
 
-CreatedAsset = CertificationAsset | MaterializationAsset
+@frozen
+class AcceptOptions:
+    """Payload values a person chose instead of the suggested ones. None keeps the suggested value."""
+
+    refresh_interval_seconds: int | None = None
+    refresh_mode: WarehouseSuggestionRefreshMode | None = None
+    incremental_key: str | None = None
+    unique_key: tuple[str, ...] | None = None
+    lookback_seconds: int | None = None
+    keep_materialized: bool | None = None
+
+
+@frozen
+class UnmaterializationAsset:
+    saved_query_id: str
+
+
+CreatedAsset = CertificationAsset | MaterializationAsset | UnmaterializationAsset
 
 
 @frozen
@@ -194,7 +243,13 @@ class SubjectAlreadyCertifiedError(Exception):
         self.subject_kind = subject_kind
 
 
-class RefreshIntervalRefusedError(Exception):
+class AcceptOptionRefusedError(Exception):
+    def __init__(self, field: str, message: str) -> None:
+        super().__init__(message)
+        self.field = field
+
+
+class SuggestionOutdatedError(Exception):
     pass
 
 

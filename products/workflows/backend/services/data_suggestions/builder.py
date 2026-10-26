@@ -8,7 +8,7 @@ from posthog.dataclasses import frozen
 
 from products.messaging.backend.facade.api import EmailTemplateContent
 from products.workflows.backend.facade.contracts import MissingInput
-from products.workflows.backend.services.data_suggestions.email_design import EmailCopy, render_email
+from products.workflows.backend.services.data_suggestions.email_design import EmailCopy, render_email, with_variables
 from products.workflows.backend.services.data_suggestions.planner import (
     MAX_PLANNED_STEPS,
     Channel,
@@ -23,6 +23,11 @@ logger = structlog.get_logger(__name__)
 _TEMPLATE_TAGS = re.compile(r"\{\{.*?\}\}|\{%.*?%\}|\{[^{}]*\}", re.DOTALL)
 _EXIT_ID = "exit_node"
 _DEFAULT_MAX_WAIT = "3d"
+_REPEAT_ENTRY_SECONDS = 7 * 24 * 60 * 60
+# Above this many trigger events a week, a first send would hit the team's email limits and its sender reputation,
+# so the draft starts on a random sample that brings the volume down to about this level.
+_SAMPLE_ABOVE_WEEKLY_EVENTS = 50_000
+_SAMPLE_ID = "action_sample"
 
 
 @frozen
@@ -41,6 +46,8 @@ class BuildContext:
     sender: EmailSender | None
     slack_integration_id: int | None
     once_per_person: bool = False
+    event_properties: frozenset[str] = frozenset()
+    weekly_count: int = 0
 
 
 @frozen
@@ -78,8 +85,11 @@ def build_workflow(idea: WorkflowIdea, plan: PlannedWorkflow, context: BuildCont
     links: dict[str, list[_Link]] = {}
     for step in steps:
         step_links = _links(step)
-        if step_links is None or any(link.target is not None and link.target not in steps_by_id for link in step_links):
-            _log_rejection("step links to an unknown step", step_id=step.id, step_type=step.type)
+        unknown = [
+            link.target for link in step_links or [] if link.target is not None and link.target not in steps_by_id
+        ]
+        if step_links is None or unknown:
+            _log_rejection("step links to an unknown step", step_id=step.id, step_type=step.type, targets=unknown)
             return None
         links[step.id] = step_links
     if not _is_acyclic_and_connected(plan.first_step, links):
@@ -94,6 +104,14 @@ def build_workflow(idea: WorkflowIdea, plan: PlannedWorkflow, context: BuildCont
         {"id": "trigger_node", "name": "Trigger", "description": "", "type": "trigger", "config": trigger_config}
     ]
     edges: list[dict[str, Any]] = [{"from": "trigger_node", "to": action_ids[plan.first_step], "type": "continue"}]
+    if context.weekly_count > _SAMPLE_ABOVE_WEEKLY_EVENTS:
+        actions.append(_sample_action(context.weekly_count))
+        edges = [
+            {"from": "trigger_node", "to": _SAMPLE_ID, "type": "continue"},
+            {"from": _SAMPLE_ID, "to": action_ids[plan.first_step], "type": "branch", "index": 0},
+            {"from": _SAMPLE_ID, "to": _EXIT_ID, "type": "branch", "index": 1},
+            {"from": _SAMPLE_ID, "to": _EXIT_ID, "type": "continue"},
+        ]
     uses_saved_template = False
     for step in steps:
         action = _build_step(step, action_ids[step.id], context)
@@ -127,14 +145,30 @@ def build_workflow(idea: WorkflowIdea, plan: PlannedWorkflow, context: BuildCont
             "edges": edges,
             "conversion": {"filters": [], "window_minutes": None},
             "exit_condition": "exit_only_at_end",
-            # A person who repeats a welcome or onboarding event would otherwise start the whole sequence again.
-            **(
-                {"trigger_masking": {"hash": "{person.id}", "ttl": None, "threshold": None}}
-                if context.once_per_person
-                else {}
-            ),
+            # A person who repeats the trigger event would otherwise start the sequence again and get every email again.
+            "trigger_masking": {
+                "hash": "{person.id}",
+                "ttl": None if context.once_per_person else _REPEAT_ENTRY_SECONDS,
+                "threshold": None,
+            },
         },
     )
+
+
+def _sample_action(weekly_count: int) -> dict[str, Any]:
+    share = max(1, _SAMPLE_ABOVE_WEEKLY_EVENTS * 100 // weekly_count)
+    return {
+        "id": _SAMPLE_ID,
+        "name": "Start with a sample",
+        "description": f"Sends to {share}% of people first. Raise it once the first emails land well.",
+        "type": "random_cohort_branch",
+        "config": {
+            "cohorts": [
+                {"percentage": share, "name": "Gets the workflow"},
+                {"percentage": 100 - share, "name": "Skipped for now"},
+            ]
+        },
+    }
 
 
 def _log_rejection(reason: str, **details: Any) -> None:
@@ -323,10 +357,12 @@ def _build_email_step(step: PlannedStep, action_id: str, context: BuildContext) 
                 subject=clean_copy(step.email_subject),
                 heading=clean_copy(step.email_heading),
                 paragraphs=tuple(clean_copy(paragraph) for paragraph in step.email_paragraphs[:3]),
+                variables=context.event_properties,
             )
         )
         body = {"subject": rendered.subject, "html": rendered.html, "text": rendered.text, "design": rendered.design}
-        name = rendered.subject
+        # The step name is cut to fit the canvas, so it takes the fallback words rather than a Liquid tag.
+        name = with_variables(clean_copy(step.email_subject), frozenset())
 
     sender = context.sender
     return {

@@ -11,6 +11,7 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldSelectConfigOption,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.appdynamics.appdynamics import (
+    OAUTH_FAILED_MESSAGE,
     AppdynamicsAuth,
     AppdynamicsResumeConfig,
     appdynamics_source,
@@ -76,7 +77,7 @@ class AppdynamicsSource(ResumableSource[AppdynamicsSourceConfig, AppdynamicsResu
             name=ExternalDataSourceType.APPDYNAMICS,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Splunk AppDynamics (Cisco)",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["appdynamics", "cisco", "splunk", "apm"],
             caption="""Sync your Splunk AppDynamics (Cisco) APM data (applications, business transactions, tiers, nodes, backends, events, transaction snapshots, health rules, health rule violations, anomalies, metric paths, metric time series, and monitored database servers) into the PostHog Data warehouse.
 
@@ -193,7 +194,7 @@ You can create an API client in your controller under **Administration → API C
         return {
             "401 Client Error": "Your AppDynamics credentials are invalid or expired. Please update your credentials and reconnect.",
             "403 Client Error": "Your AppDynamics user or API client is missing read access to application data. Grant the required roles and try again.",
-            "AppDynamics OAuth token request failed": "Your AppDynamics API client credentials were rejected. Check your API client name, client secret, and account name, then reconnect.",
+            OAUTH_FAILED_MESSAGE: "Your AppDynamics API client credentials were rejected. Check your API client name, client secret, and account name, then reconnect.",
             "Too many metric paths configured": None,
             "Too many event types configured": None,
             "Too many AppDynamics applications": None,

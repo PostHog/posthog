@@ -199,7 +199,10 @@ class OfflineExperimentViewSet(OfflineExperimentReadViewSet):
     def create(self, request: TypedRequest[ExperimentSubmission], **kwargs: object) -> Response:
         receipt = OfflineExperimentService(
             team_id=self.team_id, user_access_control=self._reference_access_control()
-        ).create(request.validated_data)
+        ).create(
+            request.validated_data,
+            created_by_id=None if is_service_auth(request) else request.user.pk,
+        )
         return _experiment_response(receipt, status=201 if receipt.created else 200)
 
     def _experiment_id(self) -> UUID:

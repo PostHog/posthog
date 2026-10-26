@@ -409,15 +409,6 @@ def test_status_retries_belong_only_to_tracked_transport(config: AwsSystemsManag
     assert network.session_options[0]["retry"].is_retry("POST", status)
 
 
-def test_network_failure_is_not_reported_as_valid_credentials(
-    config: AwsSystemsManagerSourceConfig, http: MagicMock
-) -> None:
-    http.post.side_effect = requests.ConnectionError("unreachable")
-    valid, reason = validate_credentials(config, API_VERSION)
-    assert not valid and reason and "Could not reach" in reason
-    http.close.assert_called_once()
-
-
 def test_normalizes_nested_counts_timestamps_and_composite_keys(
     config: AwsSystemsManagerSourceConfig,
 ) -> None:

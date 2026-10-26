@@ -6,7 +6,7 @@ import base64
 import logging
 import dataclasses
 from collections import Counter, defaultdict
-from collections.abc import Callable, Iterable, Iterator, Sequence
+from collections.abc import Callable, Collection, Iterable, Iterator, Sequence
 from datetime import datetime, timedelta
 from typing import Any, Literal, Optional, TypedDict, Union
 
@@ -132,6 +132,9 @@ BILLABLE_EVENT_EXCLUDED_EVENTS = [
     # artifact of using the product rather than customer instrumentation.
     LLM_PROMPT_FETCHED_EVENT,
     *CONVERSATIONS_EVENTS,
+    # Written by self-driving anomaly scoring, not sent by the customer.
+    "$anomaly_score",
+    "$anomaly_score_shadow",
 ]
 
 
@@ -2087,6 +2090,23 @@ def get_signals_credited_refund_credits_for_org(
     return credited_refund_credits_for_org(organization_id, begin, end)
 
 
+def get_self_driving_credits_used_in_period_for_orgs(
+    organization_ids: Collection[str], begin: datetime, end: datetime
+) -> dict[str, int]:
+    """Live self-driving credits used in `[begin, end)` for each org, from one read. Orgs with no usage are absent."""
+    if not organization_ids:
+        return {}
+    rows = get_signals_billing_credits_by_team(begin, end, organization_ids=list(organization_ids))
+    if not rows:
+        return {}
+    team_orgs = dict(Team.objects.filter(id__in=[team_id for team_id, _ in rows]).values_list("id", "organization_id"))
+    totals: dict[str, int] = defaultdict(int)
+    for team_id, credits in rows:
+        if (organization_id := team_orgs.get(team_id)) is not None:
+            totals[str(organization_id)] += credits
+    return dict(totals)
+
+
 def get_self_driving_credits_used_in_period_for_org(
     organization_id: str | uuid.UUID, begin: datetime, end: datetime
 ) -> int:
@@ -3297,6 +3317,7 @@ def iter_billable_teams(
     team_fields: Sequence[str],
     organization_fields: Sequence[str],
     organization_ids: Sequence[str] | None = None,
+    buffer_teams: bool = False,
 ) -> Iterator[Team]:
     # Page organizations to avoid repeating their wide columns on every team or retaining them all.
     # Keyset pagination bounds the organization query even when PgBouncer disables server-side cursors.
@@ -3317,7 +3338,9 @@ def iter_billable_teams(
             .only(*team_fields, "organization_id")
             .order_by("organization_id", "id")
         )
-        for team in teams.iterator(chunk_size=2_000):
+        # Callers that reconnect between writes must not leave a read cursor open across yields.
+        team_iterator = iter(teams) if buffer_teams else teams.iterator(chunk_size=2_000)
+        for team in team_iterator:
             if team.id in yielded_team_ids:
                 continue
             yielded_team_ids.add(team.id)

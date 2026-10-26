@@ -60,7 +60,7 @@ class PlivoSource(ResumableSource[PlivoSourceConfig, PlivoResumeConfig]):
             name=ExternalDataSourceType.PLIVO,
             category=DataWarehouseSourceCategory.COMMUNICATION,
             label="Plivo",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["sms", "voice", "cpaas"],
             caption=(
                 "Enter your Plivo Auth ID and Auth Token to sync your SMS message and voice call "

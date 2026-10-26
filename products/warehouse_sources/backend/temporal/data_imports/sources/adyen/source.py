@@ -195,7 +195,7 @@ class AdyenSource(ResumableSource[AdyenSourceConfig, AdyenResumeConfig]):
             caption=CAPTION,
             docsUrl="https://posthog.com/docs/cdp/sources/adyen",
             iconPath="/static/services/adyen.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

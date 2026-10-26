@@ -13,7 +13,7 @@ export function WorkflowOverviewFeedback(): JSX.Element {
             surface="workflow_overview_tab"
             dismissKey="workflow-overview-feature-preview"
             prompt="We're trying out an overview for workflows. Is it useful?"
-            modalTitle="Help shape the workflow overview"
+            feedbackTitle="Help shape the workflow overview"
             feedbackPlaceholder="Tell us what's useful, what's missing, or what you'd change"
             className=""
             data-attr="workflow-overview-feature-preview"

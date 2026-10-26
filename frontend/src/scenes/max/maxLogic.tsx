@@ -27,7 +27,12 @@ import {
     SidePanelTab,
 } from '~/types'
 
-import { type ComposerSeed, composerSeedLogic, runnerPanelLogic } from 'products/posthog_ai/frontend/api/logics'
+import {
+    type ComposerSeed,
+    composerSeedLogic,
+    runnerPanelLogic,
+    taskLogic,
+} from 'products/posthog_ai/frontend/api/logics'
 import { REPORT_AI_PANEL } from 'products/signals/frontend/inbox/inboxTaskKickoffLogic'
 import { SCOUT_AI_PANEL } from 'products/signals/frontend/inbox/logics/scoutAiLogic'
 
@@ -383,7 +388,8 @@ export interface maxLogicMeta {
             chatTitle: string | null,
             conversationHistoryVisible: boolean,
             searchParams: Record<string, any>,
-            activeStreamingThreads: number
+            activeStreamingThreads: number,
+            arg: string | null
         ) => Breadcrumb[]
     }
 }
@@ -693,16 +699,24 @@ export const maxLogic = kea<maxLogicType>([
                 s.conversationHistoryVisible,
                 s.searchParams,
                 s.activeStreamingThreads,
+                (state): string | null => {
+                    const taskId = s.searchParams(state).task
+                    return typeof taskId === 'string'
+                        ? taskLogic.findMounted({ taskId })?.selectors.task(state)?.title || null
+                        : null
+                },
             ],
             (
                 conversationId: string | null,
                 chatTitle: string | null,
                 conversationHistoryVisible: boolean,
                 searchParams: Record<string, any>,
-                activeStreamingThreads: number
+                activeStreamingThreads: number,
+                taskTitle: string | null
             ): Breadcrumb[] => {
                 const isStreaming = activeStreamingThreads > 0
-                const hasConversationBreadcrumb = !conversationHistoryVisible && conversationId
+                const historyVisible = conversationHistoryVisible && !taskTitle
+                const hasConversationBreadcrumb = !historyVisible && (conversationId || taskTitle)
                 return [
                     {
                         key: Scene.Max,
@@ -710,7 +724,7 @@ export const maxLogic = kea<maxLogicType>([
                         path: urls.ai(),
                         iconType: 'chat',
                     },
-                    ...(conversationHistoryVisible || searchParams.from === 'history'
+                    ...(historyVisible || searchParams.from === 'history'
                         ? [
                               {
                                   key: Scene.Max,
@@ -724,8 +738,10 @@ export const maxLogic = kea<maxLogicType>([
                         ? [
                               {
                                   key: Scene.Max,
-                                  name: chatTitle || 'Chat',
-                                  path: urls.ai(conversationId),
+                                  name: taskTitle || chatTitle || 'Chat',
+                                  path: taskTitle
+                                      ? urls.aiTask(searchParams.task)
+                                      : urls.ai(conversationId ?? undefined),
                                   iconType: isStreaming ? ('loading' as const) : ('chat' as const),
                               },
                           ]

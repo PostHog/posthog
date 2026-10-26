@@ -23,7 +23,7 @@ with workflow.unsafe.imports_passed_through():
 
 WORKFLOW_NAME = "billing-alert-platform-evaluate"
 
-# One billing service call per organization in the batch, so the budget covers several calls.
+# A batch key is one team, so a batch makes one billing service call and the budget covers a slow one.
 EVALUATE_START_TO_CLOSE = dt.timedelta(seconds=60)
 EVALUATE_SCHEDULE_TO_CLOSE = EVALUATE_START_TO_CLOSE + dt.timedelta(seconds=20)
 RECORD_START_TO_CLOSE = dt.timedelta(seconds=8)

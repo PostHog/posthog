@@ -60,7 +60,7 @@ class KajabiSource(ResumableSource[KajabiSourceConfig, KajabiResumeConfig]):
             label="Kajabi",
             iconPath="/static/services/kajabi.png",
             docsUrl="https://posthog.com/docs/cdp/sources/kajabi",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="Create a User API Key in Kajabi's Public API settings. Give it read access to the selected tables.",
             fields=cast(
                 list[FieldType],

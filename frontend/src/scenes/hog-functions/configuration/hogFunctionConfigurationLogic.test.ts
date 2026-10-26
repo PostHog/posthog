@@ -1,13 +1,29 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { ApiError } from 'lib/api-error'
+import { teamLogic } from 'scenes/teamLogic'
 
+import { FlagEvaluationsModeEnumApi } from '~/generated/core/api.schemas'
+import { performQuery } from '~/queries/query'
+import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { CyclotronJobFiltersType, HogFunctionTemplateType, HogFunctionType } from '~/types'
+import {
+    CyclotronJobFilterEvents,
+    CyclotronJobFiltersType,
+    FilterLogicalOperator,
+    HogFunctionTemplateType,
+    HogFunctionType,
+    PropertyFilterType,
+    PropertyOperator,
+} from '~/types'
 
+import { FLAG_CALLS_NOT_LOADABLE } from '../filters/flagCallsMatching'
+import { performWideEventsQueryInTwoPhases } from '../sampleEventsQuery'
 import { hogFunctionConfigurationLogic, sanitizeInputs } from './hogFunctionConfigurationLogic'
 
 jest.mock('lib/api', () => ({
@@ -18,6 +34,16 @@ jest.mock('lib/api', () => ({
         update: jest.fn(),
         create: jest.fn(),
     },
+}))
+
+jest.mock('~/queries/query', () => ({
+    ...jest.requireActual('~/queries/query'),
+    performQuery: jest.fn(),
+}))
+
+jest.mock('../sampleEventsQuery', () => ({
+    ...jest.requireActual('../sampleEventsQuery'),
+    performWideEventsQueryInTwoPhases: jest.fn(),
 }))
 
 // the mock api object
@@ -294,6 +320,170 @@ describe('hogFunctionConfigurationLogic', () => {
         })
     })
 
+    describe('mapping preview filters', () => {
+        beforeEach(() => {
+            initKeaTests()
+        })
+
+        it('combines mapping matchers with global properties and ignores unsupported global matchers', async () => {
+            const globalFilters: CyclotronJobFiltersType = {
+                events: [{ id: '$pageview', name: '$pageview', type: 'events' }],
+                actions: [{ id: '99', name: 'Globally configured action', type: 'actions' }],
+                properties: [{ type: PropertyFilterType.HogQL, key: "properties.plan = 'paid'" }],
+            }
+            mockApi.getTemplate.mockResolvedValue({
+                ...HOG_TEMPLATE,
+                filters: globalFilters,
+                mapping_templates: [
+                    {
+                        name: 'Purchase',
+                        include_by_default: true,
+                        filters: { actions: [{ id: '42', name: 'Purchased', type: 'actions' }] },
+                    },
+                    {
+                        name: 'Signup',
+                        include_by_default: true,
+                        filters: { events: [{ id: 'signed up', name: 'signed up', type: 'events' }] },
+                    },
+                ],
+            })
+            logic = hogFunctionConfigurationLogic({ templateId: 'test' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadTemplateSuccess'])
+
+            expect(logic.values.matchingFilters).toEqual({
+                type: FilterLogicalOperator.And,
+                values: [
+                    {
+                        type: FilterLogicalOperator.Or,
+                        values: [
+                            {
+                                type: FilterLogicalOperator.And,
+                                values: [{ type: PropertyFilterType.HogQL, key: "event = 'signed up'" }],
+                            },
+                            {
+                                type: FilterLogicalOperator.And,
+                                values: [{ type: PropertyFilterType.HogQL, key: 'matchesAction(42)' }],
+                            },
+                        ],
+                    },
+                    {
+                        type: FilterLogicalOperator.And,
+                        values: [{ type: PropertyFilterType.HogQL, key: "properties.plan = 'paid'" }],
+                    },
+                ],
+            })
+            expect(logic.values.configuration.filters).toEqual(globalFilters)
+        })
+
+        it('matches every event for an all-events mapping', async () => {
+            mockApi.getTemplate.mockResolvedValue({
+                ...HOG_TEMPLATE,
+                mapping_templates: [
+                    {
+                        name: 'All events',
+                        include_by_default: true,
+                        use_all_events_by_default: true,
+                    },
+                ],
+            })
+            logic = hogFunctionConfigurationLogic({ templateId: 'all-events' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadTemplateSuccess'])
+
+            expect(logic.values.matchingFilters).toEqual({
+                type: FilterLogicalOperator.And,
+                values: [
+                    {
+                        type: FilterLogicalOperator.Or,
+                        values: [
+                            {
+                                type: FilterLogicalOperator.And,
+                                values: [{ type: PropertyFilterType.HogQL, key: 'true' }],
+                            },
+                        ],
+                    },
+                ],
+            })
+        })
+
+        it('matches every event when a mapping has no event or action matchers', async () => {
+            mockApi.getTemplate.mockResolvedValue({
+                ...HOG_TEMPLATE,
+                mapping_templates: [
+                    {
+                        name: 'Mapping with removed matchers',
+                        include_by_default: true,
+                        filters: {},
+                    },
+                ],
+            })
+            logic = hogFunctionConfigurationLogic({ templateId: 'removed-matchers' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadTemplateSuccess'])
+
+            expect(logic.values.matchingFilters).toEqual({
+                type: FilterLogicalOperator.And,
+                values: [
+                    {
+                        type: FilterLogicalOperator.Or,
+                        values: [
+                            {
+                                type: FilterLogicalOperator.And,
+                                values: [{ type: PropertyFilterType.HogQL, key: 'true' }],
+                            },
+                        ],
+                    },
+                ],
+            })
+        })
+
+        it('matches every event across mixed mappings while preserving global properties', async () => {
+            const globalProperties: NonNullable<CyclotronJobFiltersType['properties']> = [
+                { type: PropertyFilterType.HogQL, key: "properties.plan = 'paid'" },
+            ]
+            mockApi.getTemplate.mockResolvedValue({
+                ...HOG_TEMPLATE,
+                filters: { properties: globalProperties },
+                mapping_templates: [
+                    {
+                        name: 'Signup',
+                        include_by_default: true,
+                        filters: { events: [{ id: 'signed up', name: 'signed up', type: 'events' }] },
+                    },
+                    {
+                        name: 'All events',
+                        include_by_default: true,
+                        use_all_events_by_default: true,
+                    },
+                ],
+            })
+            logic = hogFunctionConfigurationLogic({ templateId: 'mixed-mappings' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadTemplateSuccess'])
+
+            expect(logic.values.matchingFilters).toEqual({
+                type: FilterLogicalOperator.And,
+                values: [
+                    {
+                        type: FilterLogicalOperator.Or,
+                        values: [
+                            {
+                                type: FilterLogicalOperator.And,
+                                values: [{ type: PropertyFilterType.HogQL, key: 'true' }],
+                            },
+                        ],
+                    },
+                    {
+                        type: FilterLogicalOperator.And,
+                        values: globalProperties,
+                    },
+                ],
+            })
+            expect(logic.values.baseEventsQuery?.fixedProperties).toEqual([logic.values.matchingFilters])
+        })
+    })
+
     describe('loading a missing function', () => {
         beforeEach(() => {
             initKeaTests()
@@ -347,6 +537,130 @@ describe('hogFunctionConfigurationLogic', () => {
 
             expect(logic.values.configurationErrors.filters).toBe('You must choose a filter')
             expect(mockApi.update).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('a destination on feature flag calls', () => {
+        const FLAG_CALLED: CyclotronJobFilterEvents = {
+            id: '$feature_flag_called',
+            name: '$feature_flag_called',
+            type: 'events',
+            order: 0,
+            properties: [
+                {
+                    key: '$feature_flag',
+                    value: 'my-flag',
+                    operator: PropertyOperator.Exact,
+                    type: PropertyFilterType.Event,
+                },
+            ],
+        }
+        const PAGEVIEW: CyclotronJobFilterEvents = { id: '$pageview', name: '$pageview', type: 'events', order: 1 }
+        const NO_MATCH_IN_30_DAYS =
+            'No events match these filters in the last 30 days. Showing an example $pageview event instead.'
+
+        function mountOnMode(
+            mode: FlagEvaluationsModeEnumApi,
+            events: CyclotronJobFilterEvents[] = [FLAG_CALLED]
+        ): void {
+            mockApi.getTemplate.mockReturnValue(Promise.resolve({ ...HOG_TEMPLATE, filters: { events } }))
+            teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, flag_evaluations_mode: mode })
+            logic = hogFunctionConfigurationLogic({ templateId: 'test' })
+            logic.mount()
+        }
+
+        beforeEach(() => {
+            initKeaTests()
+            ;(performQuery as jest.Mock).mockReset()
+            ;(performQuery as jest.Mock).mockImplementation(async (query) =>
+                query.kind === NodeKind.EventsQuery
+                    ? {
+                          results: [
+                              ['2026-10-16', 700],
+                              ['2026-10-17', 3],
+                          ],
+                      }
+                    : {
+                          results: [
+                              {
+                                  data: [0, 500, 0],
+                                  count: 500,
+                                  labels: ['15-Oct-2026', '16-Oct-2026', '17-Oct-2026'],
+                                  days: ['2026-10-15', '2026-10-16', '2026-10-17'],
+                              },
+                          ],
+                      }
+            )
+            ;(performWideEventsQueryInTwoPhases as jest.Mock).mockReset()
+            ;(performWideEventsQueryInTwoPhases as jest.Mock).mockResolvedValue({ results: [] })
+        })
+
+        // Mode 1 still writes flag calls to events, so only mode 2 adds the flag_evaluations count.
+        it.each([
+            ['events', FlagEvaluationsModeEnumApi.Number0, 500, [0, 0, 0], undefined],
+            ['read flag evaluations', FlagEvaluationsModeEnumApi.Number1, 500, [0, 0, 0], undefined],
+            [
+                'flag evaluations only',
+                FlagEvaluationsModeEnumApi.Number2,
+                1203,
+                [0, 200, 0],
+                'person_id_no_override_properties_on_events',
+            ],
+        ])(
+            'estimates the calls it would receive on the %s mode',
+            async (_name, mode, count, highVolume, flagCallsPersonsMode) => {
+                mountOnMode(mode)
+                await expectLogic(logic).toDispatchActions(['loadTemplateSuccess', 'sparklineQueryChangedSuccess'])
+
+                expect(logic.values.sparkline?.count).toEqual(count)
+                expect(logic.values.sparkline?.data.find(({ name }) => name === 'High volume')?.values).toEqual(
+                    highVolume
+                )
+                const flagCallsQuery = (performQuery as jest.Mock).mock.calls
+                    .map(([query]) => query)
+                    .find((query) => query.kind === NodeKind.EventsQuery)
+                expect(flagCallsQuery?.modifiers?.personsOnEventsMode).toBe(flagCallsPersonsMode)
+            }
+        )
+
+        it.each([
+            [
+                'events mode',
+                FlagEvaluationsModeEnumApi.Number0,
+                [FLAG_CALLED],
+                NO_MATCH_IN_30_DAYS,
+                '$pageview',
+                undefined,
+            ],
+            // The example flag call names the flag that the destination filters on, so a test run passes the filters.
+            [
+                'flag evaluations only mode',
+                FlagEvaluationsModeEnumApi.Number2,
+                [FLAG_CALLED],
+                `${FLAG_CALLS_NOT_LOADABLE} Showing an example $feature_flag_called event instead.`,
+                '$feature_flag_called',
+                'my-flag',
+            ],
+            // A pageview can still match, so the notice about flag calls does not apply.
+            [
+                'flag evaluations only mode with a pageview matcher',
+                FlagEvaluationsModeEnumApi.Number2,
+                [FLAG_CALLED, PAGEVIEW],
+                NO_MATCH_IN_30_DAYS,
+                '$pageview',
+                undefined,
+            ],
+        ])('explains a missing test event on the %s', async (_name, mode, events, message, exampleEvent, flagKey) => {
+            mountOnMode(mode, events)
+            await expectLogic(logic).toDispatchActions(['loadTemplateSuccess'])
+
+            await expectLogic(logic, () => {
+                logic.actions.loadSampleGlobals()
+            }).toDispatchActions(['loadSampleGlobalsSuccess'])
+
+            expect(logic.values.sampleGlobalsError).toEqual(message)
+            expect(logic.values.sampleGlobals?.event.event).toEqual(exampleEvent)
+            expect(logic.values.sampleGlobals?.event.properties.$feature_flag).toEqual(flagKey)
         })
     })
 })

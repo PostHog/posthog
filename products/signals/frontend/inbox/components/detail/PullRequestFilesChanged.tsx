@@ -26,7 +26,7 @@ function summarizeDiffFiles(diff: string, cacheKey: string): DiffFileSummary[] |
 /**
  * "Files changed" tab body: a sticky file tree beside the stacked per-file diffs. The tree follows the
  * file at the top of the viewport as the page scrolls, and clicking a row scrolls its diff into view.
- * The diff itself is `PullRequestDiffPanel`, shared with the legacy tab, so nothing about loading,
+ * The diff itself is `PullRequestDiffPanel`, so nothing about loading,
  * inline comments, or the unified/split toggle lives here.
  */
 export function PullRequestFilesChanged({

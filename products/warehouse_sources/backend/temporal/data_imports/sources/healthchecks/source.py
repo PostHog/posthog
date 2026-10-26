@@ -72,7 +72,7 @@ Create a project-scoped API key under **Project settings > API Access**. A read-
 Leave the base URL blank for Healthchecks.io Cloud, or set it to your instance URL for a self-hosted deployment.""",
             iconPath="/static/services/healthchecks.png",
             docsUrl="https://posthog.com/docs/cdp/sources/healthchecks",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

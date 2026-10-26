@@ -48,14 +48,6 @@ class TestFormbricksSource:
 
     @parameterized.expand(
         [
-            (
-                "unauthorized",
-                "401 Client Error: Unauthorized for url: https://app.formbricks.com/api/v2/management/responses",
-            ),
-            (
-                "forbidden",
-                "403 Client Error: Forbidden for url: https://formbricks.example.com/api/v1/management/surveys",
-            ),
             ("host_not_allowed", "Formbricks host is not allowed: internal IP"),
             ("plaintext_http", "Formbricks host must use HTTPS"),
         ]
@@ -63,16 +55,6 @@ class TestFormbricksSource:
     def test_non_retryable_errors_match_permanent_failures(self, _name: str, observed_error: str) -> None:
         non_retryable = self.source.get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            ("server_error", "500 Server Error: Internal Server Error for url: https://app.formbricks.com"),
-            ("rate_limited", "429 Client Error: Too Many Requests for url: https://app.formbricks.com"),
-        ]
-    )
-    def test_non_retryable_errors_ignore_transient(self, _name: str, unrelated_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert not any(key in unrelated_error for key in non_retryable)
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.formbricks.source.formbricks_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:

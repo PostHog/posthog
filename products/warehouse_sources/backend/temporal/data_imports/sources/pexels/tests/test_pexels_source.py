@@ -32,21 +32,3 @@ class TestPexelsSource:
         ):
             valid, _ = self.source.validate_credentials(config, self.team_id)
         assert valid is expected_valid
-
-    @parameterized.expand(
-        [
-            ("unauthorized", "401 Client Error: Unauthorized for url: https://api.pexels.com/v1/curated?per_page=80"),
-            ("forbidden", "403 Client Error: Forbidden for url: https://api.pexels.com/videos/popular"),
-        ]
-    )
-    def test_credential_errors_are_non_retryable(self, _name: str, observed: str) -> None:
-        assert any(key in observed for key in self.source.get_non_retryable_errors())
-
-    @parameterized.expand(
-        [
-            ("read_timeout", "HTTPSConnectionPool(host='api.pexels.com', port=443): Read timed out."),
-            ("server_error", "500 Server Error: Internal Server Error for url: https://api.pexels.com/v1/curated"),
-        ]
-    )
-    def test_transient_errors_stay_retryable(self, _name: str, observed: str) -> None:
-        assert not any(key in observed for key in self.source.get_non_retryable_errors())

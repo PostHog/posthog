@@ -7,11 +7,11 @@ import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentP
 import { urls } from 'scenes/urls'
 
 import { Composer } from 'products/posthog_ai/frontend/api/composer'
+import { useThreadSkin } from 'products/posthog_ai/frontend/api/logics'
 import {
     DEFAULT_SUGGESTIONS_DATA,
     type SuggestionItem,
     Suggestions,
-    useThreadSkin,
     Welcome,
 } from 'products/posthog_ai/frontend/api/primitives'
 import { modelCatalogueLogic } from 'products/posthog_ai/frontend/logics/modelCatalogueLogic'
@@ -48,6 +48,7 @@ import { QuillComposerSendButton } from '../../../components/quill/QuillComposer
 import { QuillOnboardingReplayButton } from '../../../components/quill/QuillOnboardingReplayButton'
 import { taskTrackerSceneLogic } from '../taskTrackerSceneLogic'
 import { RepositorySelector } from './RepositorySelector'
+import { TaskComposerEnvironmentSelect } from './TaskComposerEnvironmentSelect'
 
 export interface TaskComposerProps {
     /** `inline` drops the welcome header and the full-height centering, for a composer placed inside a host page. */
@@ -229,10 +230,13 @@ export function TaskComposer({
                     {/* Repo/branch picker sits 8px above the input it configures. */}
                     <div className="w-full flex flex-col gap-2">
                         {!composerOverride?.hideRepositorySelector && (
-                            <RepositorySelector
-                                value={newTaskData.repositoryConfig}
-                                onChange={(config) => setNewTaskData({ repositoryConfig: config })}
-                            />
+                            <div className="flex min-w-0 flex-wrap items-center gap-1">
+                                {skin === 'quill' && <TaskComposerEnvironmentSelect />}
+                                <RepositorySelector
+                                    value={newTaskData.repositoryConfig}
+                                    onChange={(config) => setNewTaskData({ repositoryConfig: config })}
+                                />
+                            </div>
                         )}
                         <ComposerModeShortcut
                             onCycle={() => pickPermissionMode(cycleMode(composerAdapter, newTaskData.permissionMode))}

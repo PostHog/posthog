@@ -326,6 +326,41 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
                 _pr_row(81, "dependabot[bot]", "closed", 0, _ago(4), merged_at=_ago(3), head_sha="sha81"),
                 # merged before the window (and before its prev twin): in neither count
                 _pr_row(82, "alice", "closed", 0, _ago(120), merged_at=_ago(90), head_sha="sha82"),
+                # the two revert title shapes, merged in window: both count as reverting merges. Each
+                # opens 8 days before it merges, like PR 80, so the open-to-merge median stays put.
+                _pr_row(
+                    83,
+                    "alice",
+                    "closed",
+                    0,
+                    _ago(10),
+                    merged_at=_ago(2),
+                    head_sha="sha83",
+                    title='Revert "PR 80 (#80)"',
+                ),
+                _pr_row(
+                    84,
+                    "bob",
+                    "closed",
+                    0,
+                    _ago(10),
+                    merged_at=_ago(2),
+                    head_sha="sha84",
+                    title="revert(ci)!: drop the gate",
+                ),
+                # mentions a revert without being one: an unanchored match would count it
+                _pr_row(
+                    85,
+                    "bob",
+                    "closed",
+                    0,
+                    _ago(10),
+                    merged_at=_ago(2),
+                    head_sha="sha85",
+                    title="fix: Revert-safe cache",
+                ),
+                # a revert merged in the previous window, so the prev twin carries a share too
+                _pr_row(86, "bob", "closed", 0, _ago(50), merged_at=_ago(45), head_sha="sha86", title="revert: PR 70"),
             ],
         )
         self._create_table(
@@ -359,8 +394,12 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         with mock.patch.object(Database, "create_for", wraps=Database.create_for) as build_catalog:
             overview = api.get_repo_overview(team=self.team, include_series=False)
         assert build_catalog.call_count == 1  # one catalog for every query of the request
-        assert overview.merged_pr_count == 2  # 80 and 81; 82 merged long before the window
-        assert overview.merged_pr_count_prev == 0
+        assert overview.merged_pr_count == 5  # 80, 81, 83, 84, 85; 82 merged long before the window
+        assert overview.merged_pr_count_prev == 1  # 86
+        assert overview.reverting_pr_count == 2  # 83 and 84; 85 only mentions a revert
+        assert overview.revert_share == pytest.approx(2 / 5)
+        assert overview.reverting_pr_count_prev == 1
+        assert overview.revert_share_prev == pytest.approx(1.0)
         assert overview.median_open_to_merge_seconds == pytest.approx(8 * 86400)  # bot PR 81 excluded
         assert overview.run_count == 11
         assert overview.success_rate == pytest.approx(4 / 7)  # 4 successes of 7 conclusive runs
@@ -368,7 +407,7 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         assert overview.billable_minutes == pytest.approx(7.0)  # two 120s jobs and one 180s Depot CI attempt
         # 4 min x $0.004 x 2 (4-core) on GitHub Actions, plus 3 min x $0.004 on the default Depot CI sandbox
         assert overview.estimated_cost_usd == pytest.approx(0.044)
-        assert overview.cost_per_merge_usd == pytest.approx(0.022)  # the window's cost over its 2 merges
+        assert overview.cost_per_merge_usd == pytest.approx(0.044 / 5)  # the window's cost over its 5 merges
         assert overview.merge_queue_billable_minutes == pytest.approx(2.0)  # only the trunk-merge/** job
         assert overview.merge_queue_billable_minutes_prev is None  # no prev-window jobs, like billable_minutes_prev
         assert overview.depot_ci_billable_minutes == pytest.approx(3.0)  # only the Depot CI attempt
@@ -379,9 +418,10 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         assert overview.success_rate_series == []
         assert overview.open_to_merge_series == []
         assert overview.ready_to_merge_series == []
+        assert overview.revert_share_series == []
         assert overview.cost_series_granularity == "day"  # the grain the series would have used
         # No gate runs synced: the gate legs read unobserved, never zero.
-        assert overview.delivery_pipeline.merged_pr_count == 1
+        assert overview.delivery_pipeline.merged_pr_count == 4  # the human merges: 80, 83, 84, 85
         assert all(leg.median_seconds is None for leg in overview.delivery_pipeline.stages)
 
         with_series = api.get_repo_overview(team=self.team)
@@ -390,6 +430,17 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
             bucket.success_rate for bucket in with_series.success_rate_series if bucket.success_rate is not None
         ]
         assert observed_pass_rates == [pytest.approx(4 / 7)]
+        # Oldest first: the bot's merge day (0 of 1), then the day 80 and the reverts landed (2 of 4).
+        observed_revert_buckets = [
+            (bucket.merged_pr_count, bucket.reverting_pr_count, bucket.revert_share)
+            for bucket in with_series.revert_share_series
+            if bucket.merged_pr_count > 0
+        ]
+        assert observed_revert_buckets == [(1, 0, 0.0), (4, 2, 0.5)]
+        # A day with no merges is a gap, never a false 0% share.
+        assert all(
+            bucket.revert_share is None for bucket in with_series.revert_share_series if bucket.merged_pr_count == 0
+        )
 
     def test_time_to_green_measures_push_rounds_not_runs(self) -> None:
         # A per-run median would read this fixture as ~5 min. The round definition asks a different

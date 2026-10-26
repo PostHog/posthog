@@ -19,6 +19,7 @@ from hogli_commands.preflight_checks import (
     check_merge_queue_lane,
     check_semgrep_devex,
     check_snapshot_baselines,
+    check_stack_depth,
 )
 
 MANIFEST = """version: 1
@@ -39,6 +40,18 @@ MANIFEST_B_REHASHED = MANIFEST.replace("v1.bbb", "v1.ddd")
 
 def _scope(changed: list[str]) -> Scope:
     return Scope(files=changed, changed=changed, merge_base="abc123", committed_only=True)
+
+
+class TestStackDepth:
+    @pytest.mark.parametrize(
+        "stdout,returncode,expected",
+        [(json.dumps({"status": "fail", "detail": "six open layers"}), 1, "fail"), ("not json", 1, "skipped")],
+    )
+    def test_uses_the_shared_checker_verdict(self, stdout: str, returncode: int, expected: str) -> None:
+        result = subprocess.CompletedProcess([], returncode, stdout=stdout)
+        with patch("hogli_commands.preflight_checks.subprocess.run", return_value=result):
+            status, _ = check_stack_depth()
+        assert status == expected
 
 
 def _git_show(blobs: dict[str, bytes]) -> Callable[..., bytes | None]:
@@ -303,7 +316,7 @@ class TestSemgrepDevex:
             assert mock_popen.call_args.kwargs["start_new_session"] is True
 
 
-WORKFLOW = ".github/workflows/ci-backend.yml"
+WORKFLOW = ".github/workflows/ci-python.yml"
 PRODUCT_FILE = "products/x/backend/api.py"
 EVERY_LANE = ["fe:core", "py:core", "rust:core"]
 

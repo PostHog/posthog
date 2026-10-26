@@ -4,10 +4,11 @@ import inspect
 import logging
 import importlib
 from collections.abc import Callable, Coroutine, Iterator, Sequence
-from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
 from typing import TYPE_CHECKING, Any
+
+from posthog.dataclasses import frozen
 
 from .requirements import SuiteKind
 
@@ -37,7 +38,7 @@ cover a whole conversation. ``_collect_suites`` copies the marker onto every
 suite function of the module so lifecycle can read it off the suite."""
 
 
-@dataclass(frozen=True)
+@frozen
 class EvalSuite:
     domain: str
     """Directory the suite lives in, e.g. ``experiments`` for a sandboxed suite or

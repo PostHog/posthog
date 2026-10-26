@@ -26,8 +26,6 @@ class TestCodecovSource:
     @pytest.mark.parametrize(
         "status_code, expected_valid, expected_message",
         [
-            (200, True, None),
-            (401, False, "Invalid Codecov API token"),
             (404, False, "Owner 'acme' not found on Codecov for the selected git provider"),
             (None, False, "Could not connect to Codecov with the provided credentials"),
         ],

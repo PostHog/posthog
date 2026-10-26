@@ -12,6 +12,8 @@ interface TodayPaneRowProps {
     variant?: 'default' | 'destructive'
     /** A control that sits on the row's right edge and shows on hover, outside the row's own link. */
     action?: JSX.Element | null
+    /** Keeps the action shown without a hover, for a state the row must always show, like a star. */
+    actionVisible?: boolean
     dataAttr?: string
 }
 
@@ -24,6 +26,7 @@ export function TodayPaneRow({
     active = false,
     variant,
     action,
+    actionVisible = false,
     dataAttr,
 }: TodayPaneRowProps): JSX.Element {
     return (
@@ -38,7 +41,11 @@ export function TodayPaneRow({
                 className={cn(action && 'pr-8')}
             >
                 {icon && (
-                    <span className="flex size-4 shrink-0 items-center justify-center [&_svg]:size-4" aria-hidden>
+                    <span
+                        className="flex size-4 shrink-0 items-center justify-center [&_svg]:size-4"
+                        data-keep-color
+                        aria-hidden
+                    >
                         {icon}
                     </span>
                 )}
@@ -56,7 +63,12 @@ export function TodayPaneRow({
                 )}
             </TodayPaneOption>
             {action && (
-                <span className="absolute right-1 flex items-center opacity-0 transition-opacity group-hover/row:opacity-100 group-focus-within/row:opacity-100">
+                <span
+                    className={cn(
+                        'absolute right-1 flex items-center transition-opacity',
+                        !actionVisible && 'opacity-0 group-hover/row:opacity-100 group-focus-within/row:opacity-100'
+                    )}
+                >
                     {action}
                 </span>
             )}

@@ -21,14 +21,7 @@ import { ExperimentsConfig } from 'scenes/settings/environment/experimentsConfig
 import { urls } from 'scenes/urls'
 
 import { CurrencyCode } from '~/queries/schema/schema-general'
-import {
-    ActivityScope,
-    CorrelationConfigType,
-    GroupType,
-    PathCleaningFilter,
-    TeamSurveyConfigType,
-    TeamType,
-} from '~/types'
+import { ActivityScope, GroupType, PathCleaningFilter, TeamSurveyConfigType, TeamType } from '~/types'
 
 import { ThemeName } from '../dataThemeLogic'
 import { coreEventsConfigurationDescriber } from './core_events_config/coreEventsConfigurationDescriber'
@@ -175,7 +168,11 @@ function createExperimentsDefaultHandler(fieldName: string, format: (value: unkn
 }
 
 const TEAM_PROPERTIES_MAPPING: Record<
-    keyof TeamType | keyof ExperimentsConfig | 'heatmaps_screenshot_allowed_hostnames' | 'conversations_signing_secret',
+    | keyof TeamType
+    | keyof ExperimentsConfig
+    | 'heatmaps_screenshot_allowed_hostnames'
+    | 'conversations_signing_secret'
+    | 'conversations_signing_secret_previous',
     (change: ActivityChange) => ChangeMapping | null
 > = {
     // API-related tokens
@@ -186,6 +183,14 @@ const TEAM_PROPERTIES_MAPPING: Record<
         'generated',
         'rotated'
     ),
+    conversations_signing_secret_previous: (change) => {
+        if (change.action !== 'deleted') {
+            return null
+        }
+        return {
+            description: [<>Expired the previous Conversations identity verification secret</>],
+        }
+    },
     heatmaps_screenshot_secret: createApiTokenHandler('heatmap screenshot value', 'generated', 'rotated'),
     heatmaps_screenshot_allowed_hostnames: createArrayChangeHandler('approved screenshot hostnames'),
     secret_api_token_backup: (change) => {
@@ -730,53 +735,6 @@ const TEAM_PROPERTIES_MAPPING: Record<
                 </>,
             ],
         }
-    },
-    correlation_config: (change) => {
-        const before = change.before as CorrelationConfigType
-        const after = change.after as CorrelationConfigType
-
-        const descriptions = []
-
-        const sameArray = (a: string[], b: string[]): boolean => {
-            if (a.length !== b.length) {
-                return false
-            }
-            return a.every((x) => b.includes(x)) && b.every((x) => a.includes(x))
-        }
-
-        if (
-            after.excluded_person_property_names &&
-            !sameArray(before.excluded_person_property_names || [], after.excluded_person_property_names)
-        ) {
-            descriptions.push(
-                <>
-                    set <em>excluded person properties</em> to{' '}
-                    <code>{after.excluded_person_property_names.join(', ')}</code>
-                </>
-            )
-        }
-
-        if (
-            after.excluded_event_property_names &&
-            !sameArray(before.excluded_event_property_names || [], after.excluded_event_property_names)
-        ) {
-            descriptions.push(
-                <>
-                    set <em>excluded event properties</em> to{' '}
-                    <code>{after.excluded_event_property_names.join(', ')}</code>
-                </>
-            )
-        }
-
-        if (after.excluded_event_names && !sameArray(before.excluded_event_names || [], after.excluded_event_names)) {
-            descriptions.push(
-                <>
-                    set <em>excluded event names</em> to <code>{after.excluded_event_names.join(', ')}</code>
-                </>
-            )
-        }
-
-        return { description: descriptions }
     },
 
     // Complex configs that require a custom describer

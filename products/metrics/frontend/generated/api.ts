@@ -106,7 +106,8 @@ export const getMetricsAttributeValuesRetrieveUrl = (
 
 /**
  * Observed values for one metric attribute key, most frequent first.
- * Backs the filter bar's value autocomplete.
+ * Backs the filter bar's value autocomplete. `metricName` limits choices
+ * to one metric.
  */
 export const metricsAttributeValuesRetrieve = async (
     projectId: string,
@@ -365,6 +366,24 @@ export const metricsDashboardTemplatesPreviewCreate = async (
     options?: RequestInit
 ): Promise<MetricsCreatedDashboardApi> => {
     return apiMutator<MetricsCreatedDashboardApi>(getMetricsDashboardTemplatesPreviewCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getMetricsDashboardTemplatesRegenerateCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/metrics/dashboard_templates/${id}/regenerate/`
+}
+
+/**
+ * Discard the panels and the preview of a generated template, and generate it again from its metrics.
+ */
+export const metricsDashboardTemplatesRegenerateCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<MetricsDashboardTemplateApi> => {
+    return apiMutator<MetricsDashboardTemplateApi>(getMetricsDashboardTemplatesRegenerateCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
     })

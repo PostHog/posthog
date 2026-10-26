@@ -1,5 +1,6 @@
 import { MakeLogicType, actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { combineUrl, router } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -7,12 +8,14 @@ import api from 'lib/api'
 import { ApiConfig } from 'lib/api'
 import type { PaginatedResponse } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { buildUserScopedPersistenceConfig } from 'lib/logic/persistence'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { productEnablementCreate } from '~/generated/core/api'
-import { ExternalDataSource, ExternalDataSourceSchema, TeamPublicType, TeamType } from '~/types'
+import { ExternalDataSource, ExternalDataSourceSchema, IntegrationType, TeamPublicType, TeamType } from '~/types'
 
 import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics/sourcesDataLogic'
 import {
@@ -25,18 +28,39 @@ import { eventDefinitionsList } from 'products/event_definitions/frontend/genera
 import { visionScannersList, visionScannersPartialUpdate } from 'products/replay_vision/frontend/generated/api'
 import type { ReplayScannerApi } from 'products/replay_vision/frontend/generated/api.schemas'
 import { SignalSourceProduct, SignalSourceType } from 'products/signals/frontend/inbox/types'
+import { externalDataSchemasPartialUpdate } from 'products/warehouse_sources/frontend/generated/api'
 import { ExternalDataSourceTypeEnumApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
-import type { SignalSourceTypeApi, SignalSourceConfigSourceTypeEnumApi } from '../generated/api.schemas'
-import type { AgentRosterSource } from './components/config/agentRosterMeta'
+import { signalsOnboardingList } from '../generated/api'
+import type {
+    InboxOnboardingStateApi,
+    SignalSourceTypeApi,
+    SignalSourceConfigSourceTypeEnumApi,
+} from '../generated/api.schemas'
 import {
+    AGENT_ROSTER_GROUPS,
+    AgentRosterDefinition,
+    AgentRosterGroup,
+    AgentRosterSource,
+} from './components/config/agentRosterMeta'
+import { EXTERNAL_SIGNAL_SOURCES, ExternalSignalSource, isExternalSignalSource } from './externalSignalSources'
+import {
+    SignalSourceCatalogOrigin,
     SignalSourceToggleFailureReason,
+    captureSignalSourceCatalogOpened,
+    captureSignalSourceCatalogSourceSelected,
     captureSignalSourceConfigsLoadFailed,
     captureSignalSourceConnected,
     captureSignalSourceDisabled,
     captureSignalSourceToggleFailed,
 } from './inboxAnalytics'
-import { SOURCE_STEERING_KEY, SignalSourceConfig, ToggleSignalSourceParams } from './types'
+import {
+    MAX_SOURCE_RECOMMENDATIONS,
+    SourceRecommendation,
+    SourceRecommendationInput,
+    recommendSources,
+} from './sourceRecommendations'
+import { SOURCE_STEERING_KEY, SignalSourceConfig, SignalSourceConfigStatus, ToggleSignalSourceParams } from './types'
 
 /** product_enablement recipe names for products that back a signal source. */
 export type SourceProductEnablement = 'session_replay' | 'error_tracking' | 'conversations'
@@ -79,7 +103,57 @@ function inheritedErrorTrackingConfig(configs: SignalSourceConfig[]): Record<str
 }
 
 /** Warehouse-backed signal sources, keyed by roster source id. */
-export type WarehouseBackedSource = 'github' | 'linear' | 'zendesk' | 'pganalyze' | 'engineering_analytics'
+export type WarehouseBackedSource = ExternalSignalSource | 'engineering_analytics'
+
+export const SOURCE_RECOMMENDATIONS_DISMISSAL_STORAGE_KEY = 'inbox-source-recommendations-dismissed'
+
+const PINNED_SOURCE_ORDER: Partial<Record<AgentRosterSource, number>> = {
+    github: 0,
+    linear: 1,
+    zendesk: 2,
+    sentry: 3,
+    jira: 4,
+}
+
+/** Catalog categories in the order the definitions list them, so the catalog reads like the registry. */
+const CATALOG_CATEGORY_ORDER: readonly string[] = Array.from(
+    new Set(
+        AGENT_ROSTER_GROUPS.filter((group) => group.id === 'external')
+            .flatMap((group) => group.agents)
+            .map((agent) => agent.category)
+            .filter((category): category is string => !!category)
+    )
+)
+
+function compareExternalAgents(a: AgentRosterDefinition, b: AgentRosterDefinition): number {
+    return (
+        (PINNED_SOURCE_ORDER[a.source] ?? Number.MAX_SAFE_INTEGER) -
+            (PINNED_SOURCE_ORDER[b.source] ?? Number.MAX_SAFE_INTEGER) || a.label.localeCompare(b.label)
+    )
+}
+
+export interface SourceCatalogItem {
+    agent: AgentRosterDefinition
+    /** The warehouse already syncs this tool, so turning it on needs no connect form. */
+    connected: boolean
+    enabled: boolean
+    syncFailed: boolean
+    loading: boolean
+    blockedReason?: string
+}
+
+export interface SourceCatalogGroup {
+    category: string
+    items: SourceCatalogItem[]
+}
+
+export interface ExternalSignalSourceState {
+    config: SignalSourceConfig | null
+    connected: boolean
+    loading: boolean
+    requiresSetup: boolean
+    blockedReason?: string
+}
 
 /** Why the Linear teams picker is open: enabling the source (its save turns it on) or editing the filter. */
 export interface LinearTeamsPickerState {
@@ -101,54 +175,30 @@ type WarehouseSourceCompletion =
  * tables its signals read (pre-selected in the wizard and forced to sync), and what enabling means
  * once connected. Keyed by signal source, not warehouse product — GitHub backs more than one source.
  */
-export const WAREHOUSE_SOURCE_SETUP: Record<
-    WarehouseBackedSource,
-    {
-        dwSourceType: ExternalDataSourceTypeEnumApi
-        requiredTables: string[]
-        completion: WarehouseSourceCompletion
-    }
-> = {
-    github: {
-        dwSourceType: 'Github',
-        requiredTables: ['issues'],
-        completion: {
-            kind: 'source_config',
-            sourceProduct: SignalSourceProduct.Github,
-            sourceType: SignalSourceType.Issue,
-            enableErrorMessage: 'Failed to enable GitHub Issues',
-        },
-    },
-    linear: {
-        dwSourceType: 'Linear',
-        requiredTables: ['issues'],
-        completion: {
-            kind: 'source_config',
-            sourceProduct: SignalSourceProduct.Linear,
-            sourceType: SignalSourceType.Issue,
-            enableErrorMessage: 'Failed to enable Linear Issues',
-        },
-    },
-    zendesk: {
-        dwSourceType: 'Zendesk',
-        requiredTables: ['tickets'],
-        completion: {
-            kind: 'source_config',
-            sourceProduct: SignalSourceProduct.Zendesk,
-            sourceType: SignalSourceType.Ticket,
-            enableErrorMessage: 'Failed to enable Zendesk Tickets',
-        },
-    },
-    pganalyze: {
-        dwSourceType: 'PgAnalyze',
-        requiredTables: ['issues', 'servers'],
-        completion: {
-            kind: 'source_config',
-            sourceProduct: SignalSourceProduct.Pganalyze,
-            sourceType: SignalSourceType.Issue,
-            enableErrorMessage: 'Failed to enable pganalyze',
-        },
-    },
+interface WarehouseSourceSetup {
+    dwSourceType: ExternalDataSourceTypeEnumApi
+    requiredTables: string[]
+    requiredTableSyncType?: 'full_refresh'
+    completion: WarehouseSourceCompletion
+}
+
+export const WAREHOUSE_SOURCE_SETUP: Record<WarehouseBackedSource, WarehouseSourceSetup> = {
+    ...(Object.fromEntries(
+        EXTERNAL_SIGNAL_SOURCES.map((source): [ExternalSignalSource, WarehouseSourceSetup] => [
+            source.source,
+            {
+                dwSourceType: source.dwSourceType,
+                requiredTables: [...source.requiredTables],
+                requiredTableSyncType: 'requiredTableSyncType' in source ? source.requiredTableSyncType : undefined,
+                completion: {
+                    kind: 'source_config',
+                    sourceProduct: source.source,
+                    sourceType: source.sourceType,
+                    enableErrorMessage: `Failed to enable ${source.label}`,
+                },
+            },
+        ])
+    ) as Record<ExternalSignalSource, WarehouseSourceSetup>),
     engineering_analytics: {
         dwSourceType: 'Github',
         requiredTables: ['workflow_runs', 'pull_requests', 'workflow_jobs'],
@@ -232,14 +282,18 @@ function toggleSourceConfigState(
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface signalSourcesLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
+    integrations: IntegrationType[] | null // integrationsLogic
+    integrationsLoading: boolean // integrationsLogic
     dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null // sourcesDataLogic
     dataWarehouseSourcesLoading: boolean // sourcesDataLogic
+    sourcesLoadError: boolean // sourcesDataLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     anomalyInvestigationConfig: SignalSourceConfig | null
     ciSignalsConfig: CISignalsConfigApi | null
     ciSignalsConfigLoading: boolean
     ciSignalsIsFullyEnabled: boolean
     conversationsConfig: SignalSourceConfig | null
+    dataSourceSetupOAuthRedirectUrl: string | undefined
     dataSourceSetupSource: WarehouseBackedSource | null
     enabledSourcesCount: number
     enablingProduct: SourceProductEnablement | null
@@ -251,6 +305,9 @@ export interface signalSourcesLogicValues {
         sourceType: SignalSourceType
     }[]
     evalReportsConfig: SignalSourceConfig | null
+    externalAgents: AgentRosterDefinition[]
+    externalSourceCount: number
+    externalSourceStates: Record<ExternalSignalSource, ExternalSignalSourceState>
     githubIssuesConfig: SignalSourceConfig | null
     hasEmittingScanner: boolean | null
     hasNoSources: boolean
@@ -267,17 +324,31 @@ export interface signalSourcesLogicValues {
     isZendeskTicketsToggling: boolean
     linearIssuesConfig: SignalSourceConfig | null
     linearTeamsPicker: LinearTeamsPickerState | null
+    onboardingState: InboxOnboardingStateApi | null
+    onboardingStateLoading: boolean
     pgAnalyzeIssuesConfig: SignalSourceConfig | null
     productDataEvents: Set<string> | null
     productDataEventsFailed: boolean
     productDataEventsLoading: boolean
     productStatusBySource: Partial<Record<AgentRosterSource, SourceProductStatus>>
+    recommendedSources: SourceRecommendation[]
+    rosterGroups: AgentRosterGroup[]
     scannerInventoryKnown: boolean
+    sourceCatalog: SourceCatalogGroup[]
+    sourceCatalogOpen: boolean
+    sourceCategory: string
+    sourceCategoryOptions: {
+        label: string
+        value: string
+    }[]
     sourceConfigs: SignalSourceConfig[] | null
     sourceConfigsLoadFailed: boolean
     sourceConfigsLoading: boolean
+    sourceRecommendationsDismissal: string[] | null
+    sourceSearchQuery: string
     sourcesModalOpen: boolean
     togglingSourceKeys: Set<string>
+    visibleSourceRecommendations: SourceRecommendation[]
     visionScanners: ReplayScannerApi[] | null
     visionScannersLoading: boolean
     zendeskTicketsConfig: SignalSourceConfig | null
@@ -294,6 +365,9 @@ export interface signalSourcesLogicActions {
     closeLinearTeamsPicker: () => {
         value: true
     }
+    closeSourceCatalog: () => {
+        value: true
+    }
     closeSourcesModal: () => {
         value: true
     }
@@ -304,6 +378,9 @@ export interface signalSourcesLogicActions {
         enablement: SourceProductEnablement
     }
     enableSourceProductComplete: () => {
+        value: true
+    }
+    hideSourceRecommendations: () => {
         value: true
     }
     initiateDataWarehouseSourceToggle: (source: WarehouseBackedSource) => {
@@ -322,6 +399,21 @@ export interface signalSourcesLogicActions {
         payload?: any
     ) => {
         ciSignalsConfig: CISignalsConfigApi
+        payload?: any
+    }
+    loadOnboardingState: () => any
+    loadOnboardingStateFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadOnboardingStateSuccess: (
+        onboardingState: InboxOnboardingStateApi,
+        payload?: any
+    ) => {
+        onboardingState: InboxOnboardingStateApi
         payload?: any
     }
     loadProductDataEvents: () => any
@@ -376,11 +468,21 @@ export interface signalSourcesLogicActions {
         source: WarehouseBackedSource
     }
     openLinearTeamsPicker: (state: LinearTeamsPickerState) => LinearTeamsPickerState
+    openSourceCatalog: () => {
+        value: true
+    }
     openSourcesModal: () => {
         value: true
     }
     replaceSourceConfig: (config: SignalSourceConfig) => {
         config: SignalSourceConfig
+    }
+    selectCatalogSource: (
+        source: WarehouseBackedSource,
+        origin: SignalSourceCatalogOrigin
+    ) => {
+        origin: SignalSourceCatalogOrigin
+        source: WarehouseBackedSource
     }
     setAllScannerSignals: (enabled: boolean) => {
         enabled: boolean
@@ -415,6 +517,15 @@ export interface signalSourcesLogicActions {
     }
     setScannerInventoryKnown: (known: boolean) => {
         known: boolean
+    }
+    setSourceCategory: (category: string) => {
+        category: string
+    }
+    setSourceRecommendationsDismissed: (syncedSources: string[]) => {
+        syncedSources: string[]
+    }
+    setSourceSearchQuery: (query: string) => {
+        query: string
     }
     startDataWarehouseSourceToggle: (source: WarehouseBackedSource) => {
         source: WarehouseBackedSource
@@ -479,6 +590,352 @@ export interface signalSourcesLogicActions {
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface signalSourcesLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
+        dataSourceSetupOAuthRedirectUrl: (
+            dataSourceSetupSource: WarehouseBackedSource | null,
+            location: {
+                hash: string
+                pathname: string
+                search: string
+            },
+            searchParams: Record<string, any>,
+            hashParams: Record<string, any>
+        ) => string | undefined
+        externalSourceStates: (
+            sourceConfigs: SignalSourceConfig[] | null,
+            dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null,
+            sourcesLoadError: boolean,
+            togglingSourceKeys: Set<string>
+        ) => Record<ExternalSignalSource, ExternalSignalSourceState>
+        externalAgents: (featureFlags: FeatureFlagsSet) => AgentRosterDefinition[]
+        externalSourceCount: (externalAgents: AgentRosterDefinition[]) => number
+        sourceCatalog: (
+            externalAgents: AgentRosterDefinition[],
+            sourceSearchQuery: string,
+            sourceCategory: string,
+            externalSourceStates: Record<
+                | 'aha'
+                | 'appfigures'
+                | 'appfollow'
+                | 'appsignal'
+                | 'asana'
+                | 'asknicely'
+                | 'aws_guardduty'
+                | 'aws_inspector'
+                | 'aws_security_hub'
+                | 'azure_application_insights'
+                | 'azure_devops'
+                | 'bettermode'
+                | 'betterstack'
+                | 'bigeye'
+                | 'bugsnag'
+                | 'canny'
+                | 'checkly'
+                | 'cronitor'
+                | 'cursor'
+                | 'decagon'
+                | 'discourse'
+                | 'dixa'
+                | 'dynamics365'
+                | 'dynatrace'
+                | 'featurebase'
+                | 'firehydrant'
+                | 'formbricks'
+                | 'freshdesk'
+                | 'freshservice'
+                | 'frill'
+                | 'front'
+                | 'gainsight_px'
+                | 'gitea'
+                | 'github'
+                | 'gitlab'
+                | 'google_play_console'
+                | 'google_search_console'
+                | 'gorgias'
+                | 'grafana_irm'
+                | 'helpscout'
+                | 'honeybadger'
+                | 'hubspot'
+                | 'incident_io'
+                | 'instatus'
+                | 'intercom'
+                | 'jira'
+                | 'judgeme_reviews'
+                | 'kustomer'
+                | 'lacework'
+                | 'langsmith'
+                | 'linear'
+                | 'microsoft_defender_cloud_apps'
+                | 'mintlify'
+                | 'monday'
+                | 'monte_carlo'
+                | 'okendo'
+                | 'opsgenie'
+                | 'orca_security'
+                | 'pagerduty'
+                | 'pganalyze'
+                | 'plain'
+                | 'plane'
+                | 'productboard'
+                | 'qualtrics'
+                | 'rapid7_insightvm'
+                | 'raygun'
+                | 'retently'
+                | 'roark'
+                | 'rollbar'
+                | 'semgrep'
+                | 'sentry'
+                | 'servicenow'
+                | 'shortcut'
+                | 'sleekplan'
+                | 'snyk'
+                | 'solarwinds_service_desk'
+                | 'sonarqube'
+                | 'sprig'
+                | 'squadcast'
+                | 'statuspage'
+                | 'surveymonkey'
+                | 'surveysparrow'
+                | 'survicate'
+                | 'tenable_vulnerability_management'
+                | 'trigger_dev'
+                | 'trustpilot'
+                | 'typeform'
+                | 'usersnap'
+                | 'uservoice'
+                | 'vitally'
+                | 'xmatters'
+                | 'zendesk'
+                | 'zoho_crm',
+                ExternalSignalSourceState
+            >,
+            ciSignalsConfig: CISignalsConfigApi | null,
+            ciSignalsIsFullyEnabled: boolean,
+            isCiSignalsToggling: boolean,
+            sourceConfigs: SignalSourceConfig[] | null,
+            sourceConfigsLoading: boolean
+        ) => SourceCatalogGroup[]
+        sourceCategoryOptions: (externalAgents: AgentRosterDefinition[]) => {
+            label: string
+            value: string
+        }[]
+        rosterGroups: (
+            featureFlags: FeatureFlagsSet,
+            externalAgents: AgentRosterDefinition[],
+            externalSourceStates: Record<
+                | 'aha'
+                | 'appfigures'
+                | 'appfollow'
+                | 'appsignal'
+                | 'asana'
+                | 'asknicely'
+                | 'aws_guardduty'
+                | 'aws_inspector'
+                | 'aws_security_hub'
+                | 'azure_application_insights'
+                | 'azure_devops'
+                | 'bettermode'
+                | 'betterstack'
+                | 'bigeye'
+                | 'bugsnag'
+                | 'canny'
+                | 'checkly'
+                | 'cronitor'
+                | 'cursor'
+                | 'decagon'
+                | 'discourse'
+                | 'dixa'
+                | 'dynamics365'
+                | 'dynatrace'
+                | 'featurebase'
+                | 'firehydrant'
+                | 'formbricks'
+                | 'freshdesk'
+                | 'freshservice'
+                | 'frill'
+                | 'front'
+                | 'gainsight_px'
+                | 'gitea'
+                | 'github'
+                | 'gitlab'
+                | 'google_play_console'
+                | 'google_search_console'
+                | 'gorgias'
+                | 'grafana_irm'
+                | 'helpscout'
+                | 'honeybadger'
+                | 'hubspot'
+                | 'incident_io'
+                | 'instatus'
+                | 'intercom'
+                | 'jira'
+                | 'judgeme_reviews'
+                | 'kustomer'
+                | 'lacework'
+                | 'langsmith'
+                | 'linear'
+                | 'microsoft_defender_cloud_apps'
+                | 'mintlify'
+                | 'monday'
+                | 'monte_carlo'
+                | 'okendo'
+                | 'opsgenie'
+                | 'orca_security'
+                | 'pagerduty'
+                | 'pganalyze'
+                | 'plain'
+                | 'plane'
+                | 'productboard'
+                | 'qualtrics'
+                | 'rapid7_insightvm'
+                | 'raygun'
+                | 'retently'
+                | 'roark'
+                | 'rollbar'
+                | 'semgrep'
+                | 'sentry'
+                | 'servicenow'
+                | 'shortcut'
+                | 'sleekplan'
+                | 'snyk'
+                | 'solarwinds_service_desk'
+                | 'sonarqube'
+                | 'sprig'
+                | 'squadcast'
+                | 'statuspage'
+                | 'surveymonkey'
+                | 'surveysparrow'
+                | 'survicate'
+                | 'tenable_vulnerability_management'
+                | 'trigger_dev'
+                | 'trustpilot'
+                | 'typeform'
+                | 'usersnap'
+                | 'uservoice'
+                | 'vitally'
+                | 'xmatters'
+                | 'zendesk'
+                | 'zoho_crm',
+                ExternalSignalSourceState
+            >,
+            ciSignalsConfig: CISignalsConfigApi | null
+        ) => AgentRosterGroup[]
+        recommendedSources: (
+            externalAgents: AgentRosterDefinition[],
+            externalSourceStates: Record<
+                | 'aha'
+                | 'appfigures'
+                | 'appfollow'
+                | 'appsignal'
+                | 'asana'
+                | 'asknicely'
+                | 'aws_guardduty'
+                | 'aws_inspector'
+                | 'aws_security_hub'
+                | 'azure_application_insights'
+                | 'azure_devops'
+                | 'bettermode'
+                | 'betterstack'
+                | 'bigeye'
+                | 'bugsnag'
+                | 'canny'
+                | 'checkly'
+                | 'cronitor'
+                | 'cursor'
+                | 'decagon'
+                | 'discourse'
+                | 'dixa'
+                | 'dynamics365'
+                | 'dynatrace'
+                | 'featurebase'
+                | 'firehydrant'
+                | 'formbricks'
+                | 'freshdesk'
+                | 'freshservice'
+                | 'frill'
+                | 'front'
+                | 'gainsight_px'
+                | 'gitea'
+                | 'github'
+                | 'gitlab'
+                | 'google_play_console'
+                | 'google_search_console'
+                | 'gorgias'
+                | 'grafana_irm'
+                | 'helpscout'
+                | 'honeybadger'
+                | 'hubspot'
+                | 'incident_io'
+                | 'instatus'
+                | 'intercom'
+                | 'jira'
+                | 'judgeme_reviews'
+                | 'kustomer'
+                | 'lacework'
+                | 'langsmith'
+                | 'linear'
+                | 'microsoft_defender_cloud_apps'
+                | 'mintlify'
+                | 'monday'
+                | 'monte_carlo'
+                | 'okendo'
+                | 'opsgenie'
+                | 'orca_security'
+                | 'pagerduty'
+                | 'pganalyze'
+                | 'plain'
+                | 'plane'
+                | 'productboard'
+                | 'qualtrics'
+                | 'rapid7_insightvm'
+                | 'raygun'
+                | 'retently'
+                | 'roark'
+                | 'rollbar'
+                | 'semgrep'
+                | 'sentry'
+                | 'servicenow'
+                | 'shortcut'
+                | 'sleekplan'
+                | 'snyk'
+                | 'solarwinds_service_desk'
+                | 'sonarqube'
+                | 'sprig'
+                | 'squadcast'
+                | 'statuspage'
+                | 'surveymonkey'
+                | 'surveysparrow'
+                | 'survicate'
+                | 'tenable_vulnerability_management'
+                | 'trigger_dev'
+                | 'trustpilot'
+                | 'typeform'
+                | 'usersnap'
+                | 'uservoice'
+                | 'vitally'
+                | 'xmatters'
+                | 'zendesk'
+                | 'zoho_crm',
+                ExternalSignalSourceState
+            >,
+            ciSignalsConfig: CISignalsConfigApi | null,
+            ciSignalsIsFullyEnabled: boolean,
+            integrations: IntegrationType[] | null,
+            integrationsLoading: boolean,
+            sourceConfigs: SignalSourceConfig[] | null,
+            dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null,
+            sourcesLoadError: boolean,
+            errorTrackingTypeStates: {
+                enabled: boolean
+                sourceType: SignalSourceType
+            }[],
+            conversationsConfig: SignalSourceConfig | null,
+            onboardingState: InboxOnboardingStateApi | null,
+            onboardingStateLoading: boolean
+        ) => SourceRecommendation[]
+        visibleSourceRecommendations: (
+            recommendedSources: SourceRecommendation[],
+            sourceRecommendationsDismissal: string[] | null
+        ) => SourceRecommendation[]
         githubIssuesConfig: (sourceConfigs: SignalSourceConfig[] | null) => SignalSourceConfig | null
         linearIssuesConfig: (sourceConfigs: SignalSourceConfig[] | null) => SignalSourceConfig | null
         zendeskTicketsConfig: (sourceConfigs: SignalSourceConfig[] | null) => SignalSourceConfig | null
@@ -530,17 +987,29 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
     connect(() => ({
         values: [
             sourcesDataLogic,
-            ['dataWarehouseSources', 'dataWarehouseSourcesLoading'],
+            ['dataWarehouseSources', 'dataWarehouseSourcesLoading', 'sourcesLoadError'],
             featureFlagLogic,
             ['featureFlags'],
             teamLogic,
             ['currentTeam'],
+            integrationsLogic,
+            ['integrations', 'integrationsLoading'],
         ],
         actions: [sourcesDataLogic, ['loadSources']],
     })),
 
     actions({
         setScannerInventoryKnown: (known: boolean) => ({ known }),
+        setSourceSearchQuery: (query: string) => ({ query }),
+        setSourceCategory: (category: string) => ({ category }),
+        openSourceCatalog: true,
+        closeSourceCatalog: true,
+        selectCatalogSource: (source: WarehouseBackedSource, origin: SignalSourceCatalogOrigin) => ({
+            source,
+            origin,
+        }),
+        hideSourceRecommendations: true,
+        setSourceRecommendationsDismissed: (syncedSources: string[]) => ({ syncedSources }),
         openSourcesModal: true,
         closeSourcesModal: true,
         initiateDataWarehouseSourceToggle: (source: WarehouseBackedSource) => ({ source }),
@@ -586,6 +1055,15 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
             {
                 loadCiSignalsConfig: async (): Promise<CISignalsConfigApi> =>
                     engineeringAnalyticsCiSignalsConfigRetrieve(String(teamLogic.values.currentTeamId)),
+            },
+        ],
+        // Read here rather than from inboxSetupLogic: that logic depends on this one and drags the whole
+        // setup flow in with it, and the recommendations only need the completion time.
+        onboardingState: [
+            null as InboxOnboardingStateApi | null,
+            {
+                loadOnboardingState: async (): Promise<InboxOnboardingStateApi> =>
+                    signalsOnboardingList(String(ApiConfig.getCurrentProjectId())),
             },
         ],
         productDataEvents: [
@@ -668,11 +1146,31 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
         ],
     })),
 
-    reducers({
+    reducers(() => ({
         scannerInventoryKnown: [false, { setScannerInventoryKnown: (_, { known }) => known }],
         errorTrackingHasIssues: [
             null as boolean | null,
             { setErrorTrackingHasIssues: (_, { hasIssues }) => hasIssues },
+        ],
+        sourceSearchQuery: ['', { setSourceSearchQuery: (_, { query }) => query, closeSourceCatalog: () => '' }],
+        sourceCategory: ['', { setSourceCategory: (_, { category }) => category, closeSourceCatalog: () => '' }],
+        // The connect form is a step inside the catalog, so resuming one after OAuth reopens the catalog
+        // around it. The Linear teams picker is a modal of its own, so the catalog yields to it.
+        sourceCatalogOpen: [
+            false,
+            {
+                openSourceCatalog: () => true,
+                openDataSourceSetup: () => true,
+                closeSourceCatalog: () => false,
+                openLinearTeamsPicker: () => false,
+                closeSourcesModal: () => false,
+            },
+        ],
+        // Remember existing synced sources so only a new connection can undo a dismissal.
+        sourceRecommendationsDismissal: [
+            null as string[] | null,
+            { ...buildUserScopedPersistenceConfig(), storageKey: SOURCE_RECOMMENDATIONS_DISMISSAL_STORAGE_KEY },
+            { setSourceRecommendationsDismissed: (_, { syncedSources }) => syncedSources },
         ],
         sourcesModalOpen: [
             false,
@@ -686,6 +1184,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
             {
                 openDataSourceSetup: (_, { source }) => source,
                 closeDataSourceSetup: () => null,
+                closeSourceCatalog: () => null,
                 closeSourcesModal: () => null,
             },
         ],
@@ -792,9 +1291,261 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 },
             },
         ],
-    }),
+    })),
 
     selectors({
+        dataSourceSetupOAuthRedirectUrl: [
+            (s) => [
+                s.dataSourceSetupSource,
+                router.selectors.location,
+                router.selectors.searchParams,
+                router.selectors.hashParams,
+            ],
+            (
+                source: WarehouseBackedSource | null,
+                location: ReturnType<typeof router.selectors.location>,
+                searchParams: Record<string, unknown>,
+                hashParams: Record<string, unknown>
+            ): string | undefined =>
+                source
+                    ? combineUrl(
+                          location.pathname,
+                          { ...searchParams, setup: 'signal-sources', signal_source: source },
+                          hashParams
+                      ).url
+                    : undefined,
+        ],
+        externalSourceStates: [
+            (s) => [s.sourceConfigs, s.dataWarehouseSources, s.sourcesLoadError, s.togglingSourceKeys],
+            (
+                sourceConfigs: SignalSourceConfig[] | null,
+                warehouseSources: PaginatedResponse<ExternalDataSource> | null,
+                warehouseError: boolean,
+                togglingKeys: Set<string>
+            ): Record<ExternalSignalSource, ExternalSignalSourceState> =>
+                Object.fromEntries(
+                    EXTERNAL_SIGNAL_SOURCES.map((source) => {
+                        const config =
+                            sourceConfigs?.find(
+                                (row) => row.source_product === source.source && row.source_type === source.sourceType
+                            ) ?? null
+                        const connected =
+                            warehouseSources?.results.some(
+                                (connection) => connection.source_type === source.dwSourceType
+                            ) ?? false
+                        return [
+                            source.source,
+                            {
+                                config,
+                                connected,
+                                loading:
+                                    togglingKeys.has(`${source.source}_${source.sourceType}`) ||
+                                    (warehouseSources === null && !warehouseError),
+                                requiresSetup: warehouseSources !== null && !connected && !config?.enabled,
+                                blockedReason:
+                                    warehouseSources === null && warehouseError
+                                        ? "Couldn't load connections. Select Retry above to try again."
+                                        : undefined,
+                            },
+                        ]
+                    })
+                ) as Record<ExternalSignalSource, ExternalSignalSourceState>,
+        ],
+        externalAgents: [
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): AgentRosterDefinition[] =>
+                AGENT_ROSTER_GROUPS.filter((group) => group.id === 'external')
+                    .flatMap((group) => group.agents)
+                    .filter((agent) => !agent.flag || featureFlags[agent.flag])
+                    .sort(compareExternalAgents),
+        ],
+        externalSourceCount: [(s) => [s.externalAgents], (agents: AgentRosterDefinition[]): number => agents.length],
+        sourceCatalog: [
+            (s) => [
+                s.externalAgents,
+                s.sourceSearchQuery,
+                s.sourceCategory,
+                s.externalSourceStates,
+                s.ciSignalsConfig,
+                s.ciSignalsIsFullyEnabled,
+                s.isCiSignalsToggling,
+                s.sourceConfigs,
+                s.sourceConfigsLoading,
+            ],
+            (
+                agents: AgentRosterDefinition[],
+                query: string,
+                category: string,
+                externalStates: Record<ExternalSignalSource, ExternalSignalSourceState>,
+                ciConfig: CISignalsConfigApi | null,
+                ciEnabled: boolean,
+                ciToggling: boolean,
+                sourceConfigs: SignalSourceConfig[] | null,
+                sourceConfigsLoading: boolean
+            ): SourceCatalogGroup[] => {
+                const needle = query.trim().toLowerCase()
+                // Without the config rows a synced tool reads as never turned on, and a click would
+                // create a row that may already exist, so every tile that writes one waits.
+                const configsBlockedReason =
+                    sourceConfigs !== null
+                        ? undefined
+                        : sourceConfigsLoading
+                          ? 'Loading your signal sources'
+                          : "Couldn't load your signal sources. Close this and select Retry."
+                const items = agents
+                    .filter(
+                        (agent) =>
+                            (!category || agent.category === category) &&
+                            `${agent.label} ${agent.category ?? ''} ${agent.watches}`.toLowerCase().includes(needle)
+                    )
+                    .map((agent): SourceCatalogItem => {
+                        if (isExternalSignalSource(agent.source)) {
+                            const state = externalStates[agent.source]
+                            return {
+                                agent,
+                                connected: state.connected,
+                                enabled: !!state.config?.enabled,
+                                syncFailed: state.config?.status === SignalSourceConfigStatus.FAILED,
+                                loading: state.loading,
+                                blockedReason: state.blockedReason ?? configsBlockedReason,
+                            }
+                        }
+                        return {
+                            agent,
+                            connected: !!ciConfig?.configured,
+                            enabled: ciEnabled,
+                            syncFailed: ciConfig?.sync_status === 'failed',
+                            loading: ciToggling,
+                        }
+                    })
+                return CATALOG_CATEGORY_ORDER.map((groupCategory) => ({
+                    category: groupCategory,
+                    items: items.filter((item) => item.agent.category === groupCategory),
+                })).filter((group) => group.items.length > 0)
+            },
+        ],
+        sourceCategoryOptions: [
+            (s) => [s.externalAgents],
+            (agents: AgentRosterDefinition[]): { label: string; value: string }[] => [
+                { label: 'All categories', value: '' },
+                ...CATALOG_CATEGORY_ORDER.filter((category) => agents.some((agent) => agent.category === category)).map(
+                    (category) => ({ label: category, value: category })
+                ),
+            ],
+        ],
+        rosterGroups: [
+            (s) => [s.featureFlags, s.externalAgents, s.externalSourceStates, s.ciSignalsConfig],
+            (
+                featureFlags: FeatureFlagsSet,
+                externalAgents: AgentRosterDefinition[],
+                externalStates: Record<ExternalSignalSource, ExternalSignalSourceState>,
+                ciConfig: CISignalsConfigApi | null
+            ): AgentRosterGroup[] =>
+                AGENT_ROSTER_GROUPS.map((group) => ({
+                    ...group,
+                    agents:
+                        group.id === 'external'
+                            ? externalAgents.filter((agent) =>
+                                  isExternalSignalSource(agent.source)
+                                      ? externalStates[agent.source].connected ||
+                                        !!externalStates[agent.source].config?.enabled
+                                      : !!ciConfig?.configured
+                              )
+                            : group.agents.filter((agent) => !agent.flag || featureFlags[agent.flag]),
+                })),
+        ],
+        // A recommendation built before configs, connections, and integrations finish loading can
+        // tell someone to connect a tool they already use.
+        recommendedSources: [
+            (s) => [
+                s.externalAgents,
+                s.externalSourceStates,
+                s.ciSignalsConfig,
+                s.ciSignalsIsFullyEnabled,
+                s.integrations,
+                s.integrationsLoading,
+                s.sourceConfigs,
+                s.dataWarehouseSources,
+                s.sourcesLoadError,
+                s.errorTrackingTypeStates,
+                s.conversationsConfig,
+                s.onboardingState,
+                s.onboardingStateLoading,
+            ],
+            (
+                agents: AgentRosterDefinition[],
+                externalStates: Record<ExternalSignalSource, ExternalSignalSourceState>,
+                ciConfig: CISignalsConfigApi | null,
+                ciEnabled: boolean,
+                integrations: IntegrationType[] | null,
+                integrationsLoading: boolean,
+                sourceConfigs: SignalSourceConfig[] | null,
+                dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null,
+                sourcesLoadError: boolean,
+                errorTrackingTypeStates: { enabled: boolean; sourceType: SignalSourceType }[],
+                conversationsConfig: SignalSourceConfig | null,
+                onboardingState: InboxOnboardingStateApi | null,
+                onboardingStateLoading: boolean
+            ): SourceRecommendation[] => {
+                if (
+                    sourceConfigs === null ||
+                    (integrations === null && integrationsLoading) ||
+                    (dataWarehouseSources === null && !sourcesLoadError) ||
+                    (onboardingState === null && onboardingStateLoading)
+                ) {
+                    return []
+                }
+                const completedChoices = onboardingState?.completed_at ? (onboardingState.draft?.sources ?? []) : []
+                const declinedInOnboarding = (source: WarehouseBackedSource): boolean => {
+                    const choices = completedChoices.filter((choice) => choice.source_product === source)
+                    return choices.length > 0 && choices.every((choice) => !choice.enabled)
+                }
+                const states: SourceRecommendationInput[] = [
+                    {
+                        source: 'error_tracking',
+                        connected: false,
+                        enabled: errorTrackingTypeStates.some(({ enabled }) => enabled),
+                    },
+                    { source: 'conversations', connected: false, enabled: !!conversationsConfig?.enabled },
+                    ...agents.map((agent): SourceRecommendationInput => {
+                        if (isExternalSignalSource(agent.source)) {
+                            const state = externalStates[agent.source]
+                            return {
+                                source: agent.source,
+                                connected: state.connected,
+                                enabled: !!state.config?.enabled,
+                                declinedInOnboarding: state.connected && declinedInOnboarding(agent.source),
+                            }
+                        }
+                        return {
+                            source: agent.source,
+                            connected: !!ciConfig?.configured,
+                            enabled: ciEnabled,
+                            declinedInOnboarding:
+                                !!ciConfig?.configured && declinedInOnboarding(agent.source as WarehouseBackedSource),
+                        }
+                    }),
+                ]
+                return recommendSources(
+                    agents,
+                    states,
+                    (integrations ?? []).map((integration) => integration.kind)
+                )
+            },
+        ],
+        // Hidden means hidden, except for a tool synced after the person hid the strip: a fresh
+        // warehouse connection is the strongest hint the strip ever has.
+        visibleSourceRecommendations: [
+            (s) => [s.recommendedSources, s.sourceRecommendationsDismissal],
+            (recommendations: SourceRecommendation[], dismissal: string[] | null): SourceRecommendation[] =>
+                (dismissal === null
+                    ? recommendations
+                    : recommendations.filter(
+                          (recommendation) =>
+                              recommendation.reason === 'synced' && !dismissal.includes(recommendation.agent.source)
+                      )
+                ).slice(0, MAX_SOURCE_RECOMMENDATIONS),
+        ],
         githubIssuesConfig: [
             (s) => [s.sourceConfigs],
             (sourceConfigs: SignalSourceConfig[] | null): SignalSourceConfig | null =>
@@ -1073,8 +1824,8 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
     listeners(({ actions, values }) => {
         // Cached list is null for a beat after mount (loadSources is debounced), so a toggle click
         // can beat it and misread it as "no source connected", opening the connect form and
-        // duplicating a source. Fetch once as a fallback; on failure return empty so the caller
-        // opens the connect form rather than hanging.
+        // duplicating a source. A failed lookup leaves connectivity unknown, so it must not open
+        // another connection form.
         async function currentWarehouseSources(): Promise<ExternalDataSource[]> {
             if (values.dataWarehouseSources !== null) {
                 return values.dataWarehouseSources.results
@@ -1082,7 +1833,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
             try {
                 return (await api.externalDataSources.list()).results
             } catch {
-                return []
+                throw new Error("Couldn't load your connections. Retry before connecting a new source.")
             }
         }
 
@@ -1091,17 +1842,31 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
         async function ensureRequiredTableSyncing(
             sources: ExternalDataSource[],
             dwSourceType: string,
-            tableName: string
+            tableName: string,
+            fullRefresh: boolean = false
         ): Promise<void> {
             const matchesTable = (schema: ExternalDataSourceSchema): boolean =>
                 schema.name === tableName || schema.name.endsWith(`.${tableName}`)
-            const schemas = sources
+            const matchingSchemas = sources
                 .filter((source: ExternalDataSource) => source.source_type === dwSourceType)
                 .flatMap((source: ExternalDataSource) => source.schemas ?? [])
-                .filter((schema: ExternalDataSourceSchema) => matchesTable(schema) && !schema.should_sync)
+                .filter(matchesTable)
+            if (matchingSchemas.length === 0) {
+                throw new Error(
+                    dwSourceType === 'GoogleSearchConsole'
+                        ? 'This connection is missing web search data. Add the Web search type to your Google Search Console connection in Data warehouse, then try again.'
+                        : `Required table not found: ${tableName}. Update this connection in Data warehouse, then try again.`
+                )
+            }
+            const schemas = matchingSchemas.filter(
+                (schema) => !schema.should_sync || (fullRefresh && schema.sync_type !== 'full_refresh')
+            )
             await Promise.all(
                 schemas.map((schema: ExternalDataSourceSchema) =>
-                    api.externalDataSchemas.update(schema.id, { should_sync: true })
+                    externalDataSchemasPartialUpdate(String(ApiConfig.getCurrentProjectId()), schema.id, {
+                        should_sync: true,
+                        ...(fullRefresh ? { sync_type: 'full_refresh' } : {}),
+                    })
                 )
             )
         }
@@ -1118,7 +1883,57 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
             actions.loadSourceConfigs()
         }
 
+        function forgetResumedSetup(): void {
+            const { signal_source: source, ...searchParams } = router.values.searchParams
+            if (source !== undefined) {
+                router.actions.replace(router.values.location.pathname, searchParams, router.values.hashParams)
+            }
+        }
+
         return {
+            closeDataSourceSetup: forgetResumedSetup,
+            closeSourceCatalog: forgetResumedSetup,
+            openSourceCatalog: () => {
+                captureSignalSourceCatalogOpened({
+                    recommendationCount: values.visibleSourceRecommendations.length,
+                    connectedCount: values.rosterGroups.find((group) => group.id === 'external')?.agents.length ?? 0,
+                })
+            },
+            hideSourceRecommendations: () => {
+                actions.setSourceRecommendationsDismissed(
+                    values.recommendedSources
+                        .filter((recommendation) => recommendation.reason === 'synced')
+                        .map((recommendation) => recommendation.agent.source)
+                )
+            },
+            selectCatalogSource: ({ source, origin }) => {
+                const reason = values.recommendedSources.find(
+                    (recommendation) => recommendation.agent.source === source
+                )?.reason
+                captureSignalSourceCatalogSourceSelected({ source, origin, reason: reason ?? null })
+                if (isExternalSignalSource(source)) {
+                    actions.initiateDataWarehouseSourceToggle(source)
+                } else {
+                    actions.toggleCiSignals()
+                }
+            },
+            // A source that turned on from the catalog shows up in the roster, so the catalog gets out of
+            // the way. A connect form stays: its own completion closes the catalog below.
+            toggleSignalSourceSuccess: ({ params }) => {
+                if (params.enabled && values.sourceCatalogOpen && values.dataSourceSetupSource === null) {
+                    actions.closeSourceCatalog()
+                }
+            },
+            loadCiSignalsConfigSuccess: ({ ciSignalsConfig }) => {
+                if (ciSignalsConfig.enabled && values.sourceCatalogOpen && values.dataSourceSetupSource === null) {
+                    actions.closeSourceCatalog()
+                }
+            },
+            loadSourceConfigs: () => {
+                if (!values.onboardingStateLoading) {
+                    actions.loadOnboardingState()
+                }
+            },
             loadSourceConfigsFailure: ({ error, errorObject }) => {
                 captureSignalSourceConfigsLoadFailed(errorObject?.detail || error || 'Failed to load signal sources')
             },
@@ -1131,7 +1946,8 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 actions.loadSources()
             },
             initiateDataWarehouseSourceToggle: async ({ source }) => {
-                const { dwSourceType, requiredTables, completion } = WAREHOUSE_SOURCE_SETUP[source]
+                const { dwSourceType, requiredTables, requiredTableSyncType, completion } =
+                    WAREHOUSE_SOURCE_SETUP[source]
                 const toggleKey = getWarehouseSourceToggleKey(source)
                 if (
                     completion.kind !== 'source_config' ||
@@ -1153,7 +1969,12 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                             return
                         }
                         for (const table of requiredTables) {
-                            await ensureRequiredTableSyncing(sources, dwSourceType, table)
+                            await ensureRequiredTableSyncing(
+                                sources,
+                                dwSourceType,
+                                table,
+                                requiredTableSyncType === 'full_refresh'
+                            )
                         }
                     }
                     const currentConfig = getWarehouseSourceConfig(values, source)
@@ -1177,7 +1998,8 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
             },
             onDataSourceSetupComplete: () => {
                 const source = values.dataSourceSetupSource
-                actions.closeDataSourceSetup()
+                actions.closeSourceCatalog()
+                actions.loadSources()
                 if (source === null) {
                     return
                 }
@@ -1500,6 +2322,14 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
 
     events(({ actions, values }) => ({
         afterMount: () => {
+            const source = router.values.searchParams.signal_source
+            if (
+                router.values.searchParams.setup === 'signal-sources' &&
+                typeof source === 'string' &&
+                isExternalSignalSource(source)
+            ) {
+                actions.openDataSourceSetup(source)
+            }
             if (values.featureFlags[FEATURE_FLAGS.PRODUCT_AUTONOMY]) {
                 // The condition allows us to safely mount this logic for user without the product autonomy feature flag
                 // without needlessly loading the source configs

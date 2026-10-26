@@ -10,7 +10,7 @@ import django_filters
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import OpenApiResponse, PolymorphicProxySerializer, extend_schema, extend_schema_field
 from pydantic import ValidationError
-from rest_framework import serializers, status, viewsets
+from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
@@ -189,6 +189,14 @@ class TaggerBaseWriteSerializer(serializers.ModelSerializer):
         ]
 
     def validate(self, data: dict[str, Any]) -> dict[str, Any]:
+        if self.instance is not None and not self.instance.enabled and data.get("enabled") is True:
+            raise serializers.ValidationError(
+                {
+                    "enabled": "Taggers are deprecated, so a switched-off tagger can't be turned back on. "
+                    "Create an evaluation with a categorical output instead."
+                }
+            )
+
         tagger_type = data.get("tagger_type", self.instance.tagger_type if self.instance else TaggerType.LLM)
         tagger_config = data.get("tagger_config")
 
@@ -256,24 +264,6 @@ class TaggerBaseWriteSerializer(serializers.ModelSerializer):
         model_config.save()
         return model_config
 
-    def create(self, validated_data: dict[str, Any]) -> Tagger:
-        request = self.context["request"]
-        team = self.context["get_team"]()
-        validated_data["team"] = team
-        validated_data["created_by"] = request.user
-
-        model_config_data = validated_data.pop("model_configuration", None)
-
-        # Wrap in a transaction so the model_configuration row and the tagger row
-        # land together — otherwise a Hog bytecode compile error on the tagger save
-        # would leave an orphaned LLMModelConfiguration row behind.
-        with transaction.atomic():
-            if model_config_data:
-                validated_data["model_configuration"] = self._create_or_update_model_configuration(
-                    model_config_data, team.id
-                )
-            return super().create(validated_data)
-
     def update(self, instance: Tagger, validated_data: dict[str, Any]) -> Tagger:
         model_config_data = validated_data.pop("model_configuration", None)
 
@@ -286,13 +276,6 @@ class TaggerBaseWriteSerializer(serializers.ModelSerializer):
                 )
 
             return super().update(instance, validated_data)
-
-
-class TaggerCreateSerializer(TaggerBaseWriteSerializer):
-    def to_internal_value(self, data: Any) -> dict[str, Any]:
-        if isinstance(data, dict) and "deleted" in data:
-            raise serializers.ValidationError({"deleted": "This field cannot be set when creating a tagger."})
-        return super().to_internal_value(data)
 
 
 class TaggerUpdateSerializer(TaggerBaseWriteSerializer):
@@ -407,7 +390,16 @@ class TestHogTaggerResponseSerializer(serializers.Serializer):
     )
 
 
-class TaggerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
+# Taggers are deprecated in favor of categorical evaluations, so the viewset has no create action.
+class TaggerViewSet(
+    TeamAndOrgViewSetMixin,
+    AccessControlViewSetMixin,
+    ForbidDestroyModel,
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.UpdateModelMixin,
+    viewsets.GenericViewSet,
+):
     scope_object = "tagger"
     permission_classes = [IsAuthenticated, AccessControlPermission, PostHogFeatureFlagPermission]
     posthog_feature_flag = "llm-analytics-tags"
@@ -417,8 +409,6 @@ class TaggerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDes
     filterset_class = TaggerFilter
 
     def get_serializer_class(self) -> type[BaseSerializer[Any]]:
-        if self.action == "create":
-            return TaggerCreateSerializer
         if self.action in ("update", "partial_update"):
             return TaggerUpdateSerializer
         return super().get_serializer_class()
@@ -433,30 +423,6 @@ class TaggerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDes
             queryset = queryset.filter(deleted=False)
 
         return queryset
-
-    def perform_create(self, serializer: BaseSerializer[Any]) -> None:
-        instance = serializer.save()
-
-        conditions = instance.conditions or []
-        tagger_config = instance.tagger_config or {}
-        tag_count = len(tagger_config.get("tags", []))
-
-        report_user_action(
-            self.request.user,
-            "llma tagger created",
-            {
-                "tagger_id": str(instance.id),
-                "tagger_name": instance.name,
-                "tag_count": tag_count,
-                "has_description": bool(instance.description),
-                "enabled": instance.enabled,
-                "condition_count": len(conditions),
-                "has_rollout_percentage": any(c.get("rollout_percentage", 100) < 100 for c in conditions),
-                "prompt_length": len(tagger_config.get("prompt", "")),
-            },
-            team=self.team,
-            request=self.request,
-        )
 
     def perform_update(self, serializer: BaseSerializer[Any]) -> None:
         instance_before = cast(Tagger, serializer.instance)
@@ -510,18 +476,6 @@ class TaggerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDes
     @monitor(feature=Feature.QUERY, endpoint="llma_taggers_retrieve", method="GET")
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         return super().retrieve(request, *args, **kwargs)
-
-    @extend_schema(request=TaggerCreateSerializer, responses={201: OpenApiResponse(response=TaggerSerializer)})
-    @llma_track_latency("llma_taggers_create")
-    @monitor(feature=Feature.QUERY, endpoint="llma_taggers_create", method="POST")
-    def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        self.perform_create(serializer)
-        instance = cast(Tagger, serializer.instance)
-        response_data = self._serialize_saved_tagger(instance)
-        headers = self.get_success_headers(response_data)
-        return Response(response_data, status=status.HTTP_201_CREATED, headers=headers)
 
     @extend_schema(request=TaggerUpdateSerializer, responses={200: OpenApiResponse(response=TaggerSerializer)})
     @llma_track_latency("llma_taggers_update")

@@ -3,11 +3,12 @@ from typing import Any, Literal
 
 from posthog.dataclasses import frozen
 
-from products.warehouse_sources.backend.types import IncrementalField
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
+from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
-# Where an endpoint's rows live: directly on the account, under one workspace, or under one
-# project. Anything but "account" is fanned out over the parents discovered at sync time.
-EndpointScope = Literal["account", "workspace", "project"]
+# Where an endpoint's rows live: directly on the account, under one workspace, one project, or one
+# project security scan. Anything but "account" is fanned out over the parents discovered at sync time.
+EndpointScope = Literal["account", "workspace", "project", "scan"]
 
 LOVABLE_API_BASE_URL = "https://api.lovable.dev"
 
@@ -18,6 +19,9 @@ LOVABLE_API_VERSION_V1 = "v1"
 LOVABLE_API_VERSION_2026_09_11 = "2026-09-11"
 
 LOVABLE_URL_VERSION_SEGMENT = "v1"
+
+# Analytics endpoints reject a date range longer than 365 days.
+ANALYTICS_MAX_RANGE_DAYS = 365
 
 
 @frozen
@@ -35,6 +39,11 @@ class LovableEndpointConfig:
     # Lowest Lovable plan that may call the endpoint. Below it the API answers 402, so this is the
     # reason surfaced per table in the schema picker rather than a sync that can only ever fail.
     minimum_plan: str | None = None
+    # The endpoint returns one unpaginated `time_series` object over a required date range instead
+    # of a cursor page of rows.
+    time_series: bool = False
+    # Lovable answers 404 for an unpublished project, so only published projects are fanned out.
+    published_projects_only: bool = False
 
 
 LOVABLE_ENDPOINTS: dict[str, LovableEndpointConfig] = {
@@ -131,6 +140,43 @@ LOVABLE_ENDPOINTS_2026_09_11: dict[str, LovableEndpointConfig] = {
         minimum_plan="Business",
     ),
     "ProjectPiiLabels": LOVABLE_ENDPOINTS["ProjectPiiLabels"],
+    "WorkspaceGroups": LovableEndpointConfig(
+        name="WorkspaceGroups",
+        path="/workspaces/{workspace_id}/groups",
+        scope="workspace",
+        primary_keys=["workspace_id", "id"],
+        partition_key="created_at",
+        minimum_plan="Business",
+    ),
+    "ProjectSecurityScanFindings": LovableEndpointConfig(
+        name="ProjectSecurityScanFindings",
+        path="/projects/{project_id}/security-scans/{scan_id}/findings",
+        scope="scan",
+        # Each scan is a full snapshot that repeats findings carried over from earlier scans under
+        # the same finding id, so the scan id is part of the key.
+        primary_keys=["project_id", "scan_id", "id"],
+        partition_key="created_at",
+        minimum_plan="Business",
+    ),
+    "ProjectAnalytics": LovableEndpointConfig(
+        name="ProjectAnalytics",
+        path="/projects/{project_id}/analytics",
+        scope="project",
+        primary_keys=["project_id", "timestamp"],
+        partition_key="timestamp",
+        minimum_plan="Business",
+        time_series=True,
+        published_projects_only=True,
+    ),
+    "WorkspaceAnalytics": LovableEndpointConfig(
+        name="WorkspaceAnalytics",
+        path="/workspaces/{workspace_id}/analytics",
+        scope="workspace",
+        primary_keys=["workspace_id", "timestamp"],
+        partition_key="timestamp",
+        minimum_plan="Business",
+        time_series=True,
+    ),
 }
 
 
@@ -164,6 +210,12 @@ def version_config(api_version: str) -> LovableVersionConfig:
         raise ValueError(f"Unsupported Lovable API version: {api_version!r}") from e
 
 
-# Every list endpoint paginates by opaque cursor with no timestamp filter, so none of these
-# tables can sync incrementally. A run either walks the collection or it skips rows.
-INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {}
+# Every list endpoint paginates by opaque cursor with no timestamp filter, so none of those tables
+# can sync incrementally. Only the analytics endpoints take a server-side `starts_at`.
+INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
+    "ProjectAnalytics": [incremental_field("timestamp", IncrementalFieldType.DateTime)],
+    "WorkspaceAnalytics": [incremental_field("timestamp", IncrementalFieldType.DateTime)],
+}
+
+# An incremental analytics run reads the watermark day again, so append would duplicate that bucket.
+MERGE_ONLY_ENDPOINTS = frozenset(INCREMENTAL_FIELDS)

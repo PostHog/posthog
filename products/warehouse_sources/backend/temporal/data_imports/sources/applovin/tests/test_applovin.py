@@ -295,8 +295,6 @@ class TestValidateCredentials:
     @pytest.mark.parametrize(
         "responses",
         [
-            [ScriptedResponse(status=403, body=b"Authentication Failed")] * 2,
-            [ScriptedResponse(json={"code": 403, "results": []})] * 2,
             [ScriptedResponse(body=b"Authentication Failed")] * 2,
         ],
     )

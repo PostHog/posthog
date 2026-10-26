@@ -45,6 +45,18 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "docs_url": "https://docs.x.com/x-ads-api/campaign-management/reference#media-creatives",
         "columns": {"id": "Media creative identifier.", "line_item_id": "Line item that promotes the creative."},
     },
+    "lead_forms": {
+        "description": "A native lead form that Lead Gen ads attach to a card to collect leads.",
+        "docs_url": "https://docs.x.com/x-ads-api/lead-generation/reference#lead-forms",
+        "columns": {
+            "id": "Lead form identifier (UUID).",
+            "name": "Form name.",
+            "purpose": "What the collected leads are used for.",
+            "fields": "Fields the lead fills in, each with a key such as EMAIL and whether it is optional.",
+            "privacy_policy": "Privacy policy URL and company name of the advertiser collecting the leads.",
+            "deleted": "Whether the lead form has been archived.",
+        },
+    },
     **{
         table: {
             "description": f"Daily unsegmented X advertising metrics for a {entity}, separated by placement.",

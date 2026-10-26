@@ -48,7 +48,7 @@ class SkioSource(ResumableSource[SkioSourceConfig, SkioResumeConfig]):
             name=ExternalDataSourceType.SKIO,
             category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             label="Skio",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Skio API token to pull your Skio subscription data into the PostHog Data warehouse.
 
 You can generate an API token in your Skio dashboard: click **API** in the left navigation bar, set a name, and generate the token.

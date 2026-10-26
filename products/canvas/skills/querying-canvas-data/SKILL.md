@@ -260,6 +260,35 @@ canvas) differ in payload shape, auth, and behavior. Invoking looks like:
 const { result } = await ph.actions.invoke('tasks.create', { title, description })
 ```
 
+## PostHog MCP tools — ph.tools
+
+`ph.tools` runs a PostHog MCP tool as the viewer, with the viewer's own permissions. The tool runs
+on the PostHog MCP server, so its input is the same input you pass when you call that tool
+yourself. Use it when a board needs a control that a PostHog MCP tool already covers, such as
+the rollout of a feature flag.
+
+- Declare every tool in `capabilities.posthog.tools`. Only an allowlist of tools is available to
+  canvases. The `tools` list of the `canvases-actions-retrieve` tool names them, with
+  `read_only` and `destructive` for each one. Read a tool's input schema with `info <tool>`.
+- `ph.tools.read(tool, args)` takes read-only tools only. It can run on load or render.
+- `ph.tools.call(tool, args)` changes data. Call it only from a click. The host shows the viewer
+  the tool and its arguments and asks them to confirm, and it rejects calls made on load or render.
+- Both return the tool's JSON result, and throw with the tool's error message when it fails.
+  Render that message, and disable the button while the call is in flight.
+
+A feature flag write needs the flag's current `version`. Read it, write with it, and keep the
+version the write returns. On a version conflict, read the flag again before the next write:
+
+```tsx
+const flag = await ph.tools.read('feature-flag-get-definition', { id: flagId })
+const updated = await ph.tools.call('feature-flag-set-release-condition-rollout', {
+  id: flagId,
+  condition_index: 0,
+  rollout_percentage: 25,
+  version: flag.version,
+})
+```
+
 ## Live third-party data — ph.connectors
 
 `ph.connectors.call(provider, tool, args, { refresh? })` reads data from a third-party service

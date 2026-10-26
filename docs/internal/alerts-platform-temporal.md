@@ -155,6 +155,9 @@ Registration never deletes a schedule, so the rollout above deletes the old ID b
 One tick is one `alerts-platform-orchestrate` execution. It takes an `OrchestrateInputs`; the schedule passes `{}` and every field defaults.
 The first run records the tick cutoff (the scheduled start time, or the workflow start time for manual runs) and a deadline 45 seconds after the run started.
 Discovery runs once per tick. The loop then starts one `alerts-platform-source-dispatch` child per source with demand, ID `{tick_id}-{source}-p{page}`, on the orchestration queue.
+The tick does not record inventory. A separate schedule, `alerts-platform-record-inventory-schedule`, starts the `alerts-platform-record-inventory` workflow every 5 minutes on the orchestration queue at the lowest Temporal priority.
+It counts configurations and alerts for every source in two queries, each with a 500 ms statement timeout, and pushes the `alerts_platform_configurations` and `alerts_platform_alerts` gauges to the PushGateway under the `alerts_platform_inventory` job.
+The push replaces the job's group, so the region holds one series per label set. A failed count is logged and the next run tries again.
 Dispatchers are part of the tick: the orchestrator awaits each dispatcher's report and keeps the default `TERMINATE` close policy on that edge.
 They run on the tick's own fleet because the tick awaits them. On the evaluation queue, an evaluation fleet with no free slots
 leaves the dispatcher unpicked, and the tick waits on a report that cannot arrive. A dispatcher starts no activities,
@@ -296,6 +299,9 @@ so the machine reads what it read when both shared one field.
 
 A configuration's `snooze_until` mutes every instance, and an instance's own `snooze_until` mutes one group.
 The check input and the read API show each instance the later of the two.
+`POST /api/projects/:id/platform_alerts/:id/snooze_group/` sets or clears an instance's snooze on a grouped alert the platform owns.
+Unlike a snooze of the whole alert, it leaves the group's firing open and the schedule alone, so the group's incident edges still go out.
+`record_outcomes` reads each instance's mute again when it writes a verdict, so a check that was already running when a snooze landed records its fire or resolve as muted instead of announcing it.
 
 A configuration's `grouping` holds `max_instances` (100 by default), the most instance rows it keeps.
 A source calls `check.admit(keys)` with its groups in priority order: a group that already has an instance is always admitted, so it can resolve, and new groups fill the remaining room front first.
@@ -508,7 +514,12 @@ Insight alerts are copied the same way:
 python manage.py backfill_platform_insight_alert_configurations
 ```
 
-It copies threshold alerts on a 15-minute or slower cadence only, and skips detector alerts and the real-time cadence.
+It copies every insight alert, on every cadence.
+A real-time check gets production's real-time budget: a 7-minute evaluation with one retry inside it.
+An AI detector check runs on the AI queue, whose worker holds the model credentials, with production's retries: a check whose model call reaches no verdict is retried, and only its last attempt records the error.
+Every other check gets one 12-minute attempt.
+An AI detector check calls the model on both stacks while both run, and each call is billed to the project, so copy AI detector alerts only for internal projects until the insight cutover.
+The AI queue's worker needs `CLICKHOUSE_ALERTS_PLATFORM_INSIGHT_USER` and its token file too, or those checks query as the worker's own ClickHouse user.
 Run it only after the evaluation worker's chart sets `CLICKHOUSE_ALERTS_PLATFORM_INSIGHT_USER` and its token file.
 Insight checks tag their queries with `ClickHouseUser.ALERTS_PLATFORM_INSIGHT`, a user of their own, so the parallel run never takes from the per-user budget of the user that production insight alerts query as.
 Without that env the tag resolves to the worker's default user, which other workloads on the same servers already push against its concurrent query limit.

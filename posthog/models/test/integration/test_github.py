@@ -12,13 +12,24 @@ from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, call, patch
 
 from django.core.cache import cache
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
+import jwt
 import requests
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 
+from posthog.credentials_service.test.test_settings_fallback import (
+    FLAG,
+    POST,
+    SERVICE_SETTINGS,
+    _FakeResponse,
+    _keys_asked_for,
+    _steady,
+)
 from posthog.egress.github.transport import (
     GitHubEgressBudgetExhausted,
     GitHubRateLimitError,
@@ -32,6 +43,7 @@ from posthog.models.github_integration_base import (
     GITHUB_REPOSITORY_CACHE_TTL_SECONDS,
     GitHubIntegrationBase,
     PullRequestRef,
+    github_app_jwt_credentials,
 )
 from posthog.models.integration import (
     GitHubInstallationAccessFetchError,
@@ -220,6 +232,43 @@ class TestPullRequestCommentMarker(SimpleTestCase):
         ]
         with patch.object(github, "_installation_authenticated_get_pages", return_value=([response], True)):
             assert github.get_pull_request_merge_queue_state("example/repo", 1) == MergeQueueState.TESTING
+
+
+@override_settings(**SERVICE_SETTINGS)
+class TestGitHubAppJwtCredentials(SimpleTestCase):
+    def setUp(self) -> None:
+        for patcher in (patch(FLAG, return_value=True), patch("posthog.cache_utils.TEST", False)):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        github_app_jwt_credentials.clear_cache()
+        self.addCleanup(github_app_jwt_credentials.clear_cache)
+
+    def test_app_requests_sign_with_one_cached_service_read(self) -> None:
+        private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        pem = private_key.private_bytes(
+            serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()
+        ).decode()
+        response = _FakeResponse(
+            {
+                "secrets": {"GITHUB_APP_CLIENT_ID": _steady("Iv-from-service"), "GITHUB_APP_PRIVATE_KEY": _steady(pem)},
+                "missing": [],
+            }
+        )
+
+        with (
+            patch(POST, return_value=response) as post,
+            patch("posthog.models.github_integration_base.github_request") as github_request,
+        ):
+            for _ in range(3):
+                GitHubIntegrationBase.app_request("app")
+
+        assert post.call_count == 1
+        assert _keys_asked_for(post.call_args.kwargs["headers"]["Authorization"]) == [
+            "GITHUB_APP_CLIENT_ID",
+            "GITHUB_APP_PRIVATE_KEY",
+        ]
+        app_jwt = github_request.call_args.kwargs["headers"]["Authorization"].removeprefix("Bearer ")
+        assert jwt.decode(app_jwt, private_key.public_key(), algorithms=["RS256"])["iss"] == "Iv-from-service"
 
 
 class TestGitHubIntegrationModel(BaseTest):
@@ -1144,7 +1193,7 @@ class TestGitHubIntegrationModel(BaseTest):
         assert mock_post.call_args.args[0] == "https://api.github.com/repos/PostHog/posthog/issues/123/comments"
         assert mock_post.call_args.kwargs["json_body"] == {"body": "hello"}
 
-    def test_get_pull_request_includes_requested_reviewers(self):
+    def test_get_pull_request_includes_requested_reviewers_and_teams(self):
         integration = self.create_integration(
             config={"account": {"name": "PostHog"}}, sensitive_config={"access_token": "ACCESS_TOKEN"}
         )
@@ -1154,6 +1203,7 @@ class TestGitHubIntegrationModel(BaseTest):
             "number": 123,
             "assignees": [{"login": "alice"}],
             "requested_reviewers": [{"login": "bob"}],
+            "requested_teams": [{"slug": "team-signals"}],
         }
 
         with patch.object(github, "_installation_authenticated_get", return_value=mock_response):
@@ -1161,6 +1211,36 @@ class TestGitHubIntegrationModel(BaseTest):
 
         assert result["assignees"] == ["alice"]
         assert result["requested_reviewers"] == ["bob"]
+        assert result["requested_teams"] == ["team-signals"]
+
+    @parameterized.expand(
+        [
+            (
+                "removed_on_later_page",
+                True,
+                [{"event": "review_request_removed", "requested_reviewer": {"login": "Alice"}}],
+                {"alice"},
+            ),
+            ("team_removal", True, [{"event": "review_request_removed", "requested_team": {"slug": "owners"}}], set()),
+            ("incomplete_history", False, [], None),
+            ("invalid_history", True, {"message": "Moved"}, None),
+        ]
+    )
+    def test_removed_reviewers_require_complete_history(
+        self, _name: str, complete: bool, last_page: object, expected: set[str] | None
+    ) -> None:
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
+        first = MagicMock(status_code=200)
+        first.links = {"next": {"url": "https://api.github.com/repos/PostHog/posthog/issues/123/timeline?page=2"}}
+        first.json.return_value = [{"event": "review_requested", "requested_reviewer": {"login": "bob"}}]
+        second = MagicMock(status_code=200) if complete else None
+        if second is not None:
+            second.links = {}
+            second.json.return_value = last_page
+        with patch.object(github, "_installation_authenticated_get", side_effect=[first, second]) as mock_get:
+            assert github.get_removed_pull_request_reviewers("PostHog/posthog", 123) == expected
+        assert mock_get.call_args_list[0].args[0] == "https://api.github.com/repos/PostHog/posthog/issues/123/timeline"
 
     def test_list_submitted_pull_request_reviewers_reads_every_page(self):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
@@ -1217,6 +1297,19 @@ class TestGitHubIntegrationModel(BaseTest):
         # Assignees go through the issues endpoint, not /pulls.
         assert mock_post.call_args.args[0] == "https://api.github.com/repos/PostHog/posthog/issues/123/assignees"
         assert mock_post.call_args.kwargs["json_body"] == {"assignees": ["alice", "outsider"]}
+
+    def test_remove_pull_request_assignees_deletes_from_issues_endpoint(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
+        response = MagicMock(status_code=200)
+        response.json.return_value = {"assignees": [{"login": "bob"}]}
+
+        with patch.object(github, "_installation_authenticated_delete", return_value=response) as mock_delete:
+            result = github.remove_pull_request_assignees("PostHog/posthog", 123, ["alice"])
+
+        assert result == {"success": True, "assignees": ["bob"]}
+        assert mock_delete.call_args.args[0] == "https://api.github.com/repos/PostHog/posthog/issues/123/assignees"
+        assert mock_delete.call_args.kwargs["json_body"] == {"assignees": ["alice"]}
 
     @parameterized.expand(
         [

@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     MicrosoftClaritySourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.microsoft_clarity.microsoft_clarity import (
+    CLARITY_UNREACHABLE_ERROR,
     INSIGHTS_PATH,
     validate_credentials,
 )
@@ -31,7 +32,7 @@ def _driver() -> SourceDriver:
 class TestValidateCredentials:
     @parameterized.expand(
         [
-            ("ok", 200, [], True, None),
+            ("ok", 200, [], True, None, {}),
             (
                 "unauthorized",
                 401,
@@ -39,6 +40,7 @@ class TestValidateCredentials:
                 False,
                 "Your Microsoft Clarity API token is invalid or expired. Generate a new token in Clarity "
                 "under Settings -> Data Export and reconnect.",
+                {},
             ),
             (
                 "forbidden",
@@ -47,8 +49,10 @@ class TestValidateCredentials:
                 False,
                 "Your Microsoft Clarity API token isn't authorized for this project. Generate one in the "
                 "Clarity project you want to sync, under Settings -> Data Export, then reconnect.",
+                {},
             ),
-            ("quota_exceeded_still_valid", 429, None, True, None),
+            ("quota_exceeded_still_valid", 429, None, True, None, {"Retry-After": "3600"}),
+            ("server_error", 503, None, False, CLARITY_UNREACHABLE_ERROR, {"Retry-After": "120"}),
             (
                 "unexpected_status",
                 400,
@@ -56,6 +60,7 @@ class TestValidateCredentials:
                 False,
                 "Microsoft Clarity rejected the connection check. Confirm the token is still listed in Clarity "
                 "under Settings -> Data Export, then reconnect.",
+                {},
             ),
         ]
     )
@@ -66,14 +71,15 @@ class TestValidateCredentials:
         json_body: Any,
         expected_valid: bool,
         expected_error: str | None,
+        headers: dict[str, str],
     ) -> None:
-        answer = ScriptedResponse(status=status, json=json_body)
-        script = always(answer) if status == 429 else [answer]
-        with scripted_network(script) as network:
+        with scripted_network(always(ScriptedResponse(status=status, json=json_body, headers=headers))) as network:
             valid, error = validate_credentials("token")
 
         assert valid is expected_valid
         assert error == expected_error
+        assert len(network.requests_log) == 1
+        assert network.elapsed == 0
         assert {request.path for request in network.requests_log} == {INSIGHTS_PATH}
         assert {request.param("numOfDays") for request in network.requests_log} == {"1"}
         assert {request.headers["authorization"] for request in network.requests_log} == {"Bearer token"}
@@ -84,7 +90,7 @@ class TestValidateCredentials:
             valid, error = validate_credentials("token")
 
         assert valid is False
-        assert error == "Could not reach Microsoft Clarity. Please try again."
+        assert error == CLARITY_UNREACHABLE_ERROR
         assert {request.path for request in network.requests_log} == {INSIGHTS_PATH}
 
 

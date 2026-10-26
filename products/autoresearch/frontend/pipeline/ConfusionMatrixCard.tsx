@@ -58,9 +58,12 @@ export function ConfusionMatrixCard(): JSX.Element {
                 <LemonSegmentedButton
                     size="small"
                     value={accuracyCutoff}
-                    onChange={setAccuracyCutoff}
-                    options={ACCURACY_CUTOFFS.map(({ key, label }) => ({ value: key, label }))}
-                    data-attr="autoresearch-model-accuracy-cutoff"
+                    onChange={(cutoff) => setAccuracyCutoff(cutoff, 'flagged')}
+                    options={ACCURACY_CUTOFFS.map(({ key, label }) => ({
+                        value: key,
+                        label,
+                        'data-attr': `autoresearch-model-accuracy-cutoff-${key}`,
+                    }))}
                 />
             }
         >

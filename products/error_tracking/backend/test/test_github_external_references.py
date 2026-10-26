@@ -114,7 +114,7 @@ class TestErrorTrackingGitHubWebhook(SimpleTestCase):
         ]
     )
     @patch("products.error_tracking.backend.tasks.github.process_github_external_reference.delay")
-    @patch("posthog.ingress.github.provider.get_instance_setting", return_value="webhook-secret")
+    @patch("posthog.credentials_service.instance_settings.get_instance_setting", return_value="webhook-secret")
     def test_verified_delivery_enqueues_supported_events(
         self,
         _name: str,

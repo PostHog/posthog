@@ -1008,7 +1008,6 @@ describe('PostHog filesystem projection', () => {
             name: 'Original',
             nested: { enabled: false },
             readonly_field: 'from API',
-            restriction_level: 0,
             ...(['experiment', 'feature_flag'].includes(type) ? { version: 7 } : {}),
         }
         jest.mocked(apiMutator).mockResolvedValue(original)

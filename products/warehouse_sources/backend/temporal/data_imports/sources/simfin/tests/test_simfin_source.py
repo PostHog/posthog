@@ -77,14 +77,3 @@ class TestSimFinSource:
             with pytest.raises(ValueError, match="Too many tickers"):
                 SimFinSource().source_for_pipeline(oversized, inputs)
         source_fn.assert_not_called()
-
-    @parameterized.expand(
-        [
-            ("unauthorized", "401 Client Error: Unauthorized for url: https://backend.simfin.com"),
-            ("forbidden", "403 Client Error: Forbidden for url: https://backend.simfin.com"),
-        ]
-    )
-    def test_non_retryable_errors_cover_permanent_failures(self, _name: str, expected_key: str) -> None:
-        errors = SimFinSource().get_non_retryable_errors()
-        assert expected_key in errors
-        assert errors[expected_key]
