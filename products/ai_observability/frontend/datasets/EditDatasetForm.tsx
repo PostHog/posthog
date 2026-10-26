@@ -27,6 +27,7 @@ export function EditDatasetForm(): JSX.Element {
                 <LemonField name="description" label="Description" showOptional>
                     <LemonTextArea
                         className="ph-ignore-input"
+                        data-attr="dataset-description"
                         placeholder="Describe what this dataset contains"
                         value={datasetForm.description}
                         onChange={(value) => setDatasetFormValue('description', value)}

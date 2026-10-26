@@ -11,6 +11,7 @@ from django.db.models import Max
 
 import posthoganalytics
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 
@@ -123,6 +124,12 @@ class DatasetItemMutationResult:
     item: DatasetItem
     version: DatasetItemVersion
     created: bool = True
+
+
+@frozen
+class DatasetMutationResult:
+    dataset: Dataset
+    changed_fields: tuple[str, ...] = ()
 
 
 def _json_size(value: JSONValue | dict[str, JSONValue], *, field: str, limit: int) -> None:
@@ -486,7 +493,7 @@ def update_dataset(
     name: str | _Unset = UNSET,
     description: str | _Unset = UNSET,
     metadata: dict[str, JSONValue] | _Unset = UNSET,
-) -> Dataset:
+) -> DatasetMutationResult:
     dataset = _lock_dataset(team_id=team_id, dataset_id=dataset_id)
     if dataset.archived:
         raise DatasetMutationConflict(
@@ -503,14 +510,21 @@ def update_dataset(
         metadata=next_metadata,
     )
 
+    changed_fields: list[str] = []
     update_fields = ["updated_at"]
     if not isinstance(name, _Unset):
+        if dataset.name != normalized_name:
+            changed_fields.append("name")
         dataset.name = normalized_name
         update_fields.append("name")
     if not isinstance(description, _Unset):
+        if dataset.description != description:
+            changed_fields.append("description")
         dataset.description = description
         update_fields.append("description")
     if not isinstance(metadata, _Unset):
+        if not _json_values_equal(dataset.metadata, metadata):
+            changed_fields.append("metadata")
         dataset.metadata = metadata
         update_fields.append("metadata")
     try:
@@ -520,27 +534,27 @@ def update_dataset(
             code="dataset_name_conflict",
             detail="A dataset with this name already exists.",
         ) from error
-    return dataset
+    return DatasetMutationResult(dataset=dataset, changed_fields=tuple(changed_fields))
 
 
 @transaction.atomic
-def archive_dataset(*, team_id: int, dataset_id: UUID) -> Dataset:
+def archive_dataset(*, team_id: int, dataset_id: UUID) -> DatasetMutationResult:
     dataset = _lock_dataset(team_id=team_id, dataset_id=dataset_id)
     if dataset.archived:
-        return dataset
+        return DatasetMutationResult(dataset=dataset)
     dataset.archived = True
     dataset.save(update_fields=["archived", "updated_at"])
-    return dataset
+    return DatasetMutationResult(dataset=dataset, changed_fields=("archived",))
 
 
 @transaction.atomic
-def restore_dataset(*, team_id: int, dataset_id: UUID) -> Dataset:
+def restore_dataset(*, team_id: int, dataset_id: UUID) -> DatasetMutationResult:
     dataset = _lock_dataset(team_id=team_id, dataset_id=dataset_id)
     if not dataset.archived:
-        return dataset
+        return DatasetMutationResult(dataset=dataset)
     dataset.archived = False
     dataset.save(update_fields=["archived", "updated_at"])
-    return dataset
+    return DatasetMutationResult(dataset=dataset, changed_fields=("archived",))
 
 
 @transaction.atomic
