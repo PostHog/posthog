@@ -37,6 +37,13 @@ class MonitoringWindowClosed(Exception):
 def measure_monitoring_check(check: SignalReportCheck, *, now: datetime, deadline: float) -> CheckObservation:
     start = check.report.monitoring_started_at
     assert start is not None
+    if not SignalReport.objects.filter(
+        id=check.report_id,
+        team_id=check.team_id,
+        status=SignalReport.Status.MONITORING,
+        monitoring_started_at=start,
+    ).exists() or not team_report_monitoring_enabled(check.team_id):
+        raise MonitoringWindowClosed
     end = monitoring_window_end(start, check.soak_minutes)
     if now >= end:
         raise MonitoringWindowClosed

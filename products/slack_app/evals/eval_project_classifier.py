@@ -45,7 +45,7 @@ from posthog.models.team.team import Team
 from products.posthog_ai.eval_harness.config import BaseEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.harness.requirements import SuiteKind
-from products.posthog_ai.eval_harness.one_shot import OneShotPublicEval
+from products.posthog_ai.eval_harness.one_shot import OneShotEval
 from products.slack_app.backend.temporal.activities import classifiers
 from products.slack_app.evals.offline_config import offline_suite
 from products.slack_app.evals.scorers import PROJECT_ROUTE_KEY, NoUnaskedProjectSwitch, ProjectRouteMatch
@@ -530,7 +530,7 @@ async def eval_project_classifier(ctx: EvalContext) -> None:
             "last_message": f"{classifier_model}: {chosen.team.name if chosen else None}",
         }
 
-    await OneShotPublicEval(
+    await OneShotEval(
         experiment_name="slack-app-project-classifier",
         offline_suite=offline_suite(
             "slack_app/eval_project_classifier::eval_project_classifier",

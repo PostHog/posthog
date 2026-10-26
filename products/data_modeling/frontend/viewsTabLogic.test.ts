@@ -12,8 +12,15 @@ import { lineageDataLogic } from 'products/data_modeling/frontend/lineage/lineag
 
 import { PAGE_SIZE, viewsTabLogic } from './viewsTabLogic'
 
-function buildView(id: string, isMaterialized: boolean): Record<string, unknown> {
-    return { id, name: id, columns: [], is_materialized: isMaterialized, created_at: '2024-01-01T00:00:00Z' }
+function buildView(id: string, isMaterialized: boolean, status?: string): Record<string, unknown> {
+    return {
+        id,
+        name: id,
+        columns: [],
+        is_materialized: isMaterialized,
+        status,
+        created_at: '2024-01-01T00:00:00Z',
+    }
 }
 
 describe('viewsTabLogic', () => {
@@ -23,7 +30,9 @@ describe('viewsTabLogic', () => {
     beforeEach(async () => {
         runHistoryRequests = []
         const views = [
-            ...Array.from({ length: PAGE_SIZE + 1 }, (_, i) => buildView(`mat-${i}`, true)),
+            ...Array.from({ length: PAGE_SIZE + 1 }, (_, i) =>
+                buildView(`mat-${i}`, true, i === 1 ? 'Running' : i === 10 ? 'Failed' : 'Completed')
+            ),
             buildView('plain-a', false),
             buildView('plain-b', false),
         ]
@@ -63,12 +72,68 @@ describe('viewsTabLogic', () => {
         expect(logic.values.filteredViews.map((view) => view.id)).toEqual(['plain-a', 'plain-b'])
     })
 
-    it('search and type filter compose', async () => {
+    it('search, status, and type filters compose', async () => {
         logic.actions.setTypeFilter('materialized')
-        logic.actions.setSearchTerm('mat-1')
+        logic.actions.setSearchTerm('mat-1 status:failed')
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(logic.values.filteredViews.map((view) => view.id)).toEqual(['mat-1', 'mat-10'])
+        expect(logic.values.filteredViews.map((view) => view.id)).toEqual(['mat-10'])
+    })
+
+    it.each([
+        ['a materialize', 'plain-a', true],
+        ['an unmaterialize', 'mat-0', false],
+    ])('shows the new materialization after %s suggestion is accepted', async (_kind, viewId, isMaterialized) => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/warehouse_saved_queries/': {
+                    count: 1,
+                    results: [buildView(viewId, isMaterialized, isMaterialized ? 'Completed' : undefined)],
+                },
+            },
+        })
+
+        logic.actions.suggestionAccepted(viewId, isMaterialized)
+        await expectLogic(dataWarehouseViewsLogic).toFinishAllListeners()
+        logic.actions.setTypeFilter(isMaterialized ? 'materialized' : 'view')
+
+        expect(logic.values.filteredViews.map((view) => view.id)).toEqual([viewId])
+    })
+
+    it.each([
+        ['a materialize', 'view' as const, false],
+        ['an unmaterialize', 'materialized' as const, true],
+    ])(
+        'moves back to the last page when %s empties the filtered page',
+        async (_kind, typeFilter, startsMaterialized) => {
+            const views = Array.from({ length: PAGE_SIZE + 1 }, (_, i) => buildView(`v-${i}`, startsMaterialized))
+            useMocks({
+                get: { '/api/projects/:team_id/warehouse_saved_queries/': { count: views.length, results: views } },
+            })
+            dataWarehouseViewsLogic.actions.loadDataWarehouseSavedQueries()
+            await expectLogic(dataWarehouseViewsLogic).toFinishAllListeners()
+            logic.actions.setTypeFilter(typeFilter)
+            logic.actions.setPage(2)
+            const flipped = views.map((view, i) => (i === PAGE_SIZE ? buildView(`v-${i}`, !startsMaterialized) : view))
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/warehouse_saved_queries/': { count: flipped.length, results: flipped },
+                },
+            })
+
+            logic.actions.suggestionAccepted(`v-${PAGE_SIZE}`, !startsMaterialized)
+            await expectLogic(dataWarehouseViewsLogic).toFinishAllListeners()
+
+            expect(logic.values.currentPage).toEqual(1)
+            expect(logic.values.visibleViews).toHaveLength(PAGE_SIZE)
+        }
+    )
+
+    it('keeps polling an accepted materialize until the view reports it is materialized', async () => {
+        logic.actions.suggestionAccepted('plain-a', true)
+        await expectLogic(dataWarehouseViewsLogic).toFinishAllListeners()
+
+        expect(dataWarehouseViewsLogic.values.materializingViewIds).toEqual(['plain-a'])
     })
 
     it('keeps name matches visible while lineage data reloads', () => {

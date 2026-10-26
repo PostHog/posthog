@@ -218,7 +218,7 @@ Change `COHORT_POD_COUNT` only after every pod runs a build with stamps.
 With durable restore enabled, the pod also refuses to start without checkpoints, because each parent deletes the slices it gives away and its child would start without them.
 
 - A pod whose ordinal is below the old count is a parent.
-  It reopens its store, and boot deletes the slices it gave away.
+  It reopens its store, and boot deletes the slices it gave away and drops their files.
 - Every other pod is a child, and takes its partitions over from the parent at its ordinal modulo the old count.
   It waits, with the `parent_running` reason, until the parent has stamped a partition under the new split.
   It then deletes a live store that holds no pending restore, and restores the newest checkpoint in the parent's S3 lineage that covers it, counted in `checkpoint_restore_total{source="parent_s3"}`.
@@ -227,16 +227,20 @@ With durable restore enabled, the pod also refuses to start without checkpoints,
 
 To reshard:
 
-1. Scale the processor to 0, and wait until every pod has stopped after its final checkpoint.
+1. On each parent, run `kill -USR1 1` from a shell in the pod, and wait for `checkpoint uploaded to S3` with `trigger` `requested`.
+   If a warning with that `trigger` comes instead, the upload failed, so send the signal again.
+   Within a minute or two, scale the processor to 0, and wait until every pod has stopped.
+   A stop's final checkpoint stays local, so each child replays only what its parent processed after that upload.
 2. Set `COHORT_POD_COUNT` to the new count, `COHORT_RESHARD_FROM_POD_COUNT` to the old count, and the replicas to the new count.
 3. Check `owned_partitions` on each pod, `ownership_fence_blocked` at 0, and one `parent_s3` restore for each child.
 4. Remove `COHORT_RESHARD_FROM_POD_COUNT` in a later change, and before any offset reset of the events group.
    While it is set, a reset that clears the stamp from every events partition of a child makes the child take its partitions over again and delete its store.
 
-If step 1 is skipped, each child waits until its parent restarts, and the old split keeps every partition until then.
-Deleting the parent pods moves the reshard on.
+Scaling to 0 is required.
+The StatefulSet updates from the highest ordinal and waits for each pod to turn ready, and a child is not ready while it waits for its parent, so a reshard applied in one edit deadlocks.
 After its takeover, a child searches only its own lineage.
 So a child that loses its volume before its first upload finishes creates its store behind the coverage fence, even though its parent's checkpoint still covers it.
+That upload waits until the child is ready and has compacted the partitions it does not own.
 
 ### Lowering the pod count
 
@@ -261,7 +265,7 @@ At boot the processor:
    A checkpoint restore that cannot finish blocks here and retries, as [a blocked restore](state-store-and-durability.md#a-blocked-restore) describes.
    A store written under a split that does not cover the pod's refuses to open, as [ownership](#ownership-and-the-single-pod-deployment) explains,
 7. stamps every owned partition on every input group, and reads the stamps back,
-8. starts the timer loops and the events consumer, and starts the followers and the checkpoint loop once the catalog has loaded and boot recovery has ended.
+8. starts the timer loops and the events consumer, starts the followers once the catalog has loaded and boot recovery has ended, and takes the first checkpoint once the pod is ready.
 
 By default the store is wiped at boot, so there is nothing to recover, and the events consumer dispatches from its first poll.
 
@@ -298,9 +302,10 @@ They commit only for the partitions recorded at the drain.
 A follower that waits longer than 35 seconds commits for the partitions it owned when shutdown began.
 
 With checkpoints enabled, a final checkpoint follows once every consumer and follower has finished.
-It captures positions for the partitions recorded at the drain and uploads within `CHECKPOINT_FINAL_UPLOAD_TIMEOUT_SECS` of the drain, after shutdown cancels any periodic upload in flight.
-A plan that would upload in full stays local, because it cannot finish in that budget, and the next start uploads in full anyway.
+It captures positions for the partitions recorded at the drain, after shutdown cancels any upload in flight.
+It stays local, and the next start's first upload covers what changed since the last upload.
 It is skipped when boot never ended or the drain never finished, because positions are not settled then.
+The binary must run as PID 1, from an exec-form command, so that SIGTERM and SIGUSR1 reach it.
 
 The events consumer gets 30 seconds to drain, each follower 45 seconds, and the final checkpoint 60 seconds after them, inside the process's 110-second ceiling.
 Kubernetes kills the pod when its termination grace period ends, and that period also covers the chart's 5-second preStop sleep before the shutdown starts.

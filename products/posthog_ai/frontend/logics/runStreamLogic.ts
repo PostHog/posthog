@@ -1236,6 +1236,30 @@ function isAgentMessageEntry(entry: StoredLogEntry): boolean {
     )
 }
 
+const KEPT_TOOL_RESPONSE_FIELDS = ['decisionReason', 'message'] as const
+
+export function reduceToolResponseCopy(entry: StoredLogEntry): void {
+    const update = entry.notification.params?.update
+    const meta = isRecord(update) ? update._meta : undefined
+    const claudeCode = isRecord(meta) ? meta.claudeCode : undefined
+    if (!isRecord(claudeCode) || !('toolResponse' in claudeCode)) {
+        return
+    }
+    const toolResponse = claudeCode.toolResponse
+    const kept = Object.fromEntries(
+        isRecord(toolResponse)
+            ? KEPT_TOOL_RESPONSE_FIELDS.flatMap((key) =>
+                  typeof toolResponse[key] === 'string' ? [[key, toolResponse[key]]] : []
+              )
+            : []
+    )
+    if (Object.keys(kept).length > 0) {
+        claudeCode.toolResponse = kept
+    } else {
+        delete claudeCode.toolResponse
+    }
+}
+
 function persistedHumanText(entry: StoredLogEntry): string | null {
     if (entry.notification.method === '_posthog/user_message') {
         return unwrapUserMessageContent(extractUserMessageText(entry.notification.params?.content))
@@ -1539,7 +1563,7 @@ export function readFullThread(
     if (!logic || !cursor || cursor.offset === 0 || !taskId || projectId == null) {
         return null
     }
-    return api.tasks.runs.getLogPage(taskId, cursor.runId, { projectId }).then((page) => {
+    return api.tasks.runs.getLogPage(taskId, cursor.runId, { projectId, view: 'thread' }).then((page) => {
         const history = normalizeHistory(page.entries, cursor.runId, logic.values.isBootstrapResumeRun)
         const tail = logic.values.log.entries.filter(({ source }) => source !== 'replay')
         const folded = foldLogToThread(reconcileRunLog(history, tail, []).entries, {
@@ -2649,6 +2673,7 @@ export interface runStreamLogicValues {
     turnComplete: boolean
     turnSuggestion: TurnSuggestion | null
     turnSuggestionAcceptedHere: number | null
+    turnSuggestionExpandedHere: number | null
     turnSuggestionLedger: TurnSuggestionLedger | null
     turnSuggestionOutcomesHere: Record<number, string>
     turnSuggestionsMuted: boolean
@@ -2799,6 +2824,9 @@ export interface runStreamLogicActions {
         value: true
     }
     markTurnSuggestionAccepted: (turnIndex: number) => {
+        turnIndex: number
+    }
+    markTurnSuggestionExpanded: (turnIndex: number) => {
         turnIndex: number
     }
     mergeRunArtifacts: (partial: Partial<RunArtifacts>) => {
@@ -3234,6 +3262,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
         /** Records an outcome this tab sent to the server, so the card closes before the frame echoes back. */
         recordTurnSuggestionOutcome: (turnIndex: number, outcome: string) => ({ turnIndex, outcome }),
         markTurnSuggestionAccepted: (turnIndex: number) => ({ turnIndex }),
+        markTurnSuggestionExpanded: (turnIndex: number) => ({ turnIndex }),
         /**
          * Reopens the turn for a follow-up that started outside this composer, such as one sent from Slack
          * or from another tab. Dispatched from a user turn seen on the wire, and from the agent's first
@@ -3657,6 +3686,15 @@ export const runStreamLogic = kea<runStreamLogicType>([
             null as number | null,
             {
                 markTurnSuggestionAccepted: (_, { turnIndex }) => turnIndex,
+                reset: () => null,
+            },
+        ],
+        // The card's own logic unmounts when the virtualized thread recycles its row, so the open state lives here
+        // to keep an opened card open after the reader scrolls away and back.
+        turnSuggestionExpandedHere: [
+            null as number | null,
+            {
+                markTurnSuggestionExpanded: (_, { turnIndex }) => turnIndex,
                 reset: () => null,
             },
         ],
@@ -4152,6 +4190,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
             api.tasks.runs.getLogPage(session.taskId, session.runId, {
                 signal,
                 projectId: session.projectId,
+                view: 'thread',
                 ...(values.pagedHistory ? { tailBytes: HISTORY_TAIL_BYTES, start } : {}),
             })
         const stopHistoryPaging = (): void => {
@@ -4999,6 +5038,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
                             ...parsed,
                             source_run_id: parsed.source_run_id ?? (id?.startsWith('log-') ? backlogRunId : runId),
                         }
+                        reduceToolResponseCopy(entry)
                         const backlogIndex = id?.startsWith('log-') ? Number(id.slice('log-'.length)) : NaN
                         if (Number.isSafeInteger(backlogIndex)) {
                             backlogIndexes.set(entry, backlogIndex)
@@ -5777,6 +5817,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
                         projectId,
                         tailBytes: HISTORY_PAGE_BYTES,
                         before: cursor.offset,
+                        view: 'thread',
                     })
                     const current = owned()
                     if (!current) {

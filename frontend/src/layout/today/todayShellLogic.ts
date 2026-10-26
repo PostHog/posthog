@@ -18,7 +18,6 @@ import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { getNavProductPages, navProductHrefForPath } from '~/layout/panel-layout/navbar/tabs/navProductItems'
 import { FileSystemImport } from '~/queries/schema/schema-general'
 
-import { TODAY_PANES } from './todayRailItems'
 import { todaySceneTabsLogic } from './todaySceneTabsLogic'
 import { WarehouseItem, isWarehousePath, visibleWarehouseItems, warehouseItemForLocation } from './todayWarehouseItems'
 
@@ -48,9 +47,23 @@ export function clampSidebarWidth(width: number | null): number {
     )
 }
 
+/** The task composer runs on the sandbox, so the legacy view starts a chat on `/ai` instead. */
+export function todayNewChatUrl(effectivePhaiView: PhaiViewMode): string {
+    return effectivePhaiView === 'new' ? urls.taskNewSession() : urls.ai()
+}
+
+/** The page a rail pick opens. Without one, a pick only opens the sidebar and the open page stays. */
+const RAIL_PANE_HOMES: Partial<Record<TodayRailPane, (effectivePhaiView: PhaiViewMode) => string>> = {
+    home: () => urls.projectHomepage(),
+    spaces: todayNewChatUrl,
+    analytics: () => urls.analyticsProductHome(),
+    warehouse: () => urls.warehouse(),
+    settings: () => urls.settings('project'),
+}
+
 /** The page a rail pane opens, or undefined when the pane only opens the sidebar. */
 export function railPaneHref(pane: TodayRailPane, effectivePhaiView: PhaiViewMode): string | undefined {
-    return TODAY_PANES[pane].home?.(effectivePhaiView)
+    return RAIL_PANE_HOMES[pane]?.(effectivePhaiView)
 }
 
 const PHONE_PAGE_LIMIT = 50

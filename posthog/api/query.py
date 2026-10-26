@@ -106,6 +106,7 @@ tracer = trace.get_tracer(__name__)
 # exception embeds an internal Redis key + task id, so we log that for debugging and surface this
 # friendly message instead of leaking implementation details into the UI.
 CONCURRENCY_LIMIT_USER_MESSAGE = "Too many queries are running right now — please try again in a moment."
+CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS = 5
 MANAGED_WAREHOUSE_QUERY_UNAVAILABLE_MESSAGE = (
     "This managed warehouse connection is no longer available. Select a source and run the query again."
 )
@@ -213,6 +214,7 @@ _QUERY_KIND_SCOPES: dict[str, list[str]] = {
     "AccountsTableQuery": ["query:read", "account:read"],
     "ErrorTrackingFingerprintProjectionQuery": ["query:read", "error_tracking:read"],
     "ErrorTrackingReleasesQuery": ["query:read", "error_tracking:read"],
+    "ErrorTrackingIssueEventsQuery": ["query:read", "error_tracking:read"],
     "MetricsQuery": ["metrics:read"],
     "MetricsHistogramQuery": ["metrics:read"],
     # Both scopes listed: this result replaces the view's default query:read
@@ -293,7 +295,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     def _raise_concurrency_throttled(self, exc: ConcurrencyLimitExceeded) -> NoReturn:
         # Log the raw detail (Redis key + task id) for Loki, but surface a clean message to the user.
         logger.warning("query_concurrency_limit_exceeded", detail=str(exc))
-        raise Throttled(detail=CONCURRENCY_LIMIT_USER_MESSAGE)
+        raise Throttled(wait=CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS, detail=CONCURRENCY_LIMIT_USER_MESSAGE)
 
     @extend_schema(
         request=QueryRequest,

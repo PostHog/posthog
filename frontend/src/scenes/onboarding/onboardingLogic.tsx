@@ -12,7 +12,11 @@ import { isKeyOf } from 'lib/utils/guards'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { getRelativeNextPath } from 'lib/utils/url'
 import { billingLogic } from 'scenes/billing/billingLogic'
-import { reportOnboardingCompleted, reportOnboardingStarted } from 'scenes/onboarding/onboardingUsage'
+import {
+    reportOnboardingCompleted,
+    reportOnboardingStarted,
+    reportOnboardingStepSkipped,
+} from 'scenes/onboarding/onboardingUsage'
 import { availableOnboardingProducts } from 'scenes/onboarding/shared/utils'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -878,10 +882,21 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 }
             } catch {
                 lemonToast.error("Couldn't save onboarding progress. Please try again.")
+            } finally {
+                actions.setIsCompleting(false)
             }
         },
         skipSimpleOnboarding: async () => {
-            if (values.isSkippingOnboarding) {
+            if (values.isSkippingOnboarding || values.isCompleting) {
+                return
+            }
+            if (values.currentStepKey === OnboardingStepKey.INVITE_TEAMMATES && !values.hasNextStep) {
+                reportOnboardingStepSkipped(
+                    OnboardingStepKey.INVITE_TEAMMATES,
+                    'simple',
+                    values.productKey ?? undefined
+                )
+                actions.completeOnboarding()
                 return
             }
             actions.setIsSkippingOnboarding(true)

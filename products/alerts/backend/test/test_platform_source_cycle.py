@@ -25,6 +25,7 @@ from posthog.temporal.alerts.admission import inflight_alert_ids, release_evalua
 from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.dispatcher import PerSeriesEvaluation, SeriesEvaluation
 from products.alerts.backend.judge.contract import (
+    LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
     LLM_DETECTOR_UNAVAILABLE_MESSAGE,
     LLMDetectorMisconfiguredError,
     LLMDetectorUnavailableError,
@@ -36,6 +37,8 @@ from products.alerts.backend.platform_source_cycle import (
     CAPACITY_REJECTED,
     INFLIGHT_KEY,
     MAX_BREACH_CHARS,
+    MAX_DETECTOR_POINTS,
+    MAX_RATIONALE_CHARS,
     evaluate_insight_check,
     plan_insight_batch,
     readmit_retried_check,
@@ -225,6 +228,60 @@ class TestPlatformInsightEvaluation(APIBaseTest):
 
     @parameterized.expand(
         [
+            (
+                "quiet_ai_check",
+                {"type": "llm"},
+                AlertEvaluationResult(
+                    value=50.0,
+                    breaches=[],
+                    interval="day",
+                    triggered_metadata={"detector_type": "llm", "rationale": "x" * 5000, "kind": "none"},
+                ),
+                {
+                    "interval": "day",
+                    "triggered_metadata": {
+                        "detector_type": "llm",
+                        "rationale": "x" * (MAX_RATIONALE_CHARS - 1) + "…",
+                        "kind": "none",
+                    },
+                },
+            ),
+            (
+                "firing_statistical_check",
+                {"type": "zscore"},
+                AlertEvaluationResult(
+                    value=150.0,
+                    breaches=["Anomaly detected"],
+                    anomaly_scores=[0.1] * 30,
+                    triggered_points=[89],
+                    triggered_dates=["2026-09-15"],
+                    interval="day",
+                    triggered_metadata={"detector_type": "zscore", "series_index": 0},
+                ),
+                {
+                    "breaches": ["Anomaly detected"],
+                    "anomaly_scores": [0.1] * MAX_DETECTOR_POINTS,
+                    "triggered_points": [89],
+                    "triggered_dates": ["2026-09-15"],
+                    "interval": "day",
+                    "triggered_metadata": {"detector_type": "zscore", "series_index": 0},
+                },
+            ),
+        ]
+    )
+    def test_every_detector_check_records_what_production_keeps_on_its_check(
+        self, _name: str, detector_config: dict[str, Any], result: AlertEvaluationResult, expected: dict[str, Any]
+    ) -> None:
+        alert = self._alert(detector_config=detector_config)
+        configuration = self._copy(alert)
+
+        outcome, _ = self._evaluate(configuration, result=result, uses_llm_detector=detector_config["type"] == "llm")
+
+        assert outcome is not None
+        assert {key: outcome.groups[0].source_detail.get(key) for key in expected} == expected
+
+    @parameterized.expand(
+        [
             ("renamed", {"name": "Signups dropped"}, ("Signups dropped", 60 * 24, "day", None)),
             # A skipped check advances by the copy's schedule, so it must refresh the copy first.
             (
@@ -290,6 +347,10 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             ("hourly_quiet_hours", AlertCalculationInterval.HOURLY, 60, None, ("16:00", "17:00"), None),
             ("daily_quiet_hours", AlertCalculationInterval.DAILY, 60 * 24, "day", ("00:30", "02:00"), None),
             ("hourly_start_time", AlertCalculationInterval.HOURLY, 60, None, None, "09:20"),
+            # Real time steps from the previous due time, seconds and all, rather than from a grid.
+            ("real_time", AlertCalculationInterval.REAL_TIME, 2, None, None, None, timedelta(seconds=90)),
+            ("real_time_quiet_hours", AlertCalculationInterval.REAL_TIME, 2, None, ("15:31", "16:30"), None),
+            ("real_time_start_time", AlertCalculationInterval.REAL_TIME, 2, None, None, "09:20", timedelta(seconds=90)),
         ]
     )
     def test_a_copy_is_next_due_when_the_production_alert_is(
@@ -300,13 +361,17 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         unit: str | None,
         quiet: tuple[str, str] | None,
         start_time: str | None,
+        overdue: timedelta = timedelta(minutes=1),
     ) -> None:
         # A half-hour timezone, where the local hour starts at :30 UTC.
         self.team.timezone = "Asia/Kolkata"
         self.team.save()
         restriction = {"blocked_windows": [{"start": quiet[0], "end": quiet[1]}]} if quiet else None
         alert = self._alert(
-            calculation_interval=interval, schedule_restriction=restriction, schedule_start_time=start_time
+            calculation_interval=interval,
+            schedule_restriction=restriction,
+            schedule_start_time=start_time,
+            next_check_at=CUTOFF - overdue,
         )
         configuration = self._copy(
             alert,
@@ -314,6 +379,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             recurrence_unit=unit,
             schedule_restriction=restriction,
             anchor_time=start_time,
+            next_check_at=CUTOFF - overdue,
         )
 
         with time_machine.travel(CUTOFF, tick=False):
@@ -507,6 +573,8 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             LLM_DETECTOR_UNAVAILABLE_MESSAGE,
             False,
         )
+        # History shows this reason by its code, as it does for the alert's own checks.
+        assert outcome.failure.source_detail["error_code"] == LLM_DETECTOR_UNAVAILABLE_ERROR_CODE
 
     @override_settings(ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS=1)
     def test_a_retry_stops_the_timed_out_query_and_runs_only_inside_the_pool(self) -> None:

@@ -1,6 +1,6 @@
 import './TodayShell.scss'
 
-import { useActions, useMountedLogic, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { Suspense, useEffect, useRef } from 'react'
 
 import { Skeleton, ToastProvider } from '@posthog/quill'
@@ -15,8 +15,8 @@ import { lazyWithRetry } from 'lib/utils/retryImport'
 
 import { QuillSceneHeader } from '~/layout/scenes/components/QuillSceneHeader'
 
-import { todayPanelChatSessionLogic } from './todayPanelChatSessionLogic'
 import { TodayPhoneHeader } from './TodayPhoneHeader'
+import { TodayPreviewCardProvider } from './TodayPreviewCardProvider'
 import { TodayRail } from './TodayRail'
 import { TODAY_PANES } from './todayRailItems'
 import { TODAY_RAIL_WIDTH, TODAY_SIDEBAR_CLOSE_THRESHOLD, clampSidebarWidth, todayShellLogic } from './todayShellLogic'
@@ -52,7 +52,6 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
         sidebarInContent,
         currentWarehouseItem,
     } = useValues(todayShellLogic)
-    useMountedLogic(todayPanelChatSessionLogic)
     const { setMobileSidebarOpen, setSidebarOpen, setSidebarWidth, toggleSidebar } = useActions(todayShellLogic)
     useShortcut({
         name: 'ToggleLeftNav',
@@ -103,7 +102,9 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
             {activePane === 'home' ? null : activePane === 'spaces' ? (
                 <TodaySpacesPane />
             ) : activePane === 'analytics' ? (
-                <TodayAnalyticsSidebar />
+                <TodayPreviewCardProvider disabled={phoneLayout}>
+                    <TodayAnalyticsSidebar />
+                </TodayPreviewCardProvider>
             ) : activePane === 'warehouse' ? (
                 <TodayWarehouseTabsPane />
             ) : activePane === 'settings' ? (

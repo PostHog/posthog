@@ -141,6 +141,10 @@ To also sync these tables, additionally grant the scope listed next to each:
         return {
             f"401 Client Error: Unauthorized for url: {GONG_BASE_URL}": "Your Gong access key or secret is invalid. Please generate new credentials and reconnect.",
             f"403 Client Error: Forbidden for url: {GONG_BASE_URL}": "Your Gong credentials do not have the required permissions. Please check the granted scopes and try again.",
+            # Gong rejects this request outright (not the empty-window 404 the endpoint otherwise
+            # expects) when the account's Call Library feature isn't enabled — every retry replays
+            # the same unfiltered request and fails identically.
+            f"400 Client Error: Bad Request for url: {GONG_BASE_URL}/v2/library/folders": "Your Gong account doesn't have the Call Library feature enabled, so library folders can't be listed. Disable the library_folders and library_folder_calls tables, or contact Gong to enable Call Library access, then try again.",
         }
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[GongResumeConfig]:
