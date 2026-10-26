@@ -11,10 +11,12 @@ from posthog.schema import IntervalType
 from products.signals.backend.anomaly_scores.selection import (
     Candidate,
     InsightUsage,
+    ScoreCandidate,
     SelectionConfig,
     Weighting,
     parse_selection_config,
     pick_order,
+    score_order,
     staleness,
 )
 
@@ -115,6 +117,20 @@ class TestPickOrder(SimpleTestCase):
         )
 
         assert staleness(candidate, now=datetime(2026, 10, 14, 12, tzinfo=UTC), max_staleness=MAX_STALENESS) == expected
+
+
+class TestScoreOrder(SimpleTestCase):
+    def test_the_most_overdue_buckets_go_first_whatever_the_interval(self) -> None:
+        candidates = [
+            # The oldest scored bucket, but only 1 completed bucket after it.
+            ScoreCandidate(insight_id=1, interval=IntervalType.DAY, scored_through=datetime(2026, 10, 13, tzinfo=UTC)),
+            ScoreCandidate(insight_id=2, interval=IntervalType.HOUR, scored_through=TICK - timedelta(hours=6)),
+            ScoreCandidate(insight_id=3, interval=IntervalType.HOUR, scored_through=TICK - timedelta(hours=3)),
+            # Nothing completed after it.
+            ScoreCandidate(insight_id=4, interval=IntervalType.HOUR, scored_through=TICK - timedelta(hours=1)),
+        ]
+
+        assert score_order(candidates, now=TICK, max_staleness=MAX_STALENESS) == [2, 3, 1]
 
 
 class TestParseSelectionConfig(SimpleTestCase):
