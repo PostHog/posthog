@@ -101,7 +101,9 @@ class TestObservationThumbnail(_VisionAPITestCase):
             response = self.client.get(self._url(), {} if size is None else {"size": size})
 
         assert response.status_code == 200
-        assert serve.call_args.kwargs["asset"].pk == (small.pk if expected == "small" else large.pk)
+        expected_asset = small if expected == "small" else large
+        assert expected_asset is not None
+        assert serve.call_args.kwargs["asset"].pk == expected_asset.pk
 
     def test_a_chapter_frame_is_served_only_for_its_chapter(self) -> None:
         self._add_thumbnail(rendered=True, kind=ReplayObservationMedia.Kind.CHAPTER, position=1)

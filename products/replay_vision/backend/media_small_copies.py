@@ -27,10 +27,11 @@ SMALL_COPY_WIDTH_PX = 480
 
 def shrink_png(content: bytes) -> bytes:
     """Scale a PNG to the small copy's width with an even height, and never upscale."""
-    with Image.open(io.BytesIO(content)) as image:
-        if image.width > SMALL_COPY_WIDTH_PX:
-            height = max(2, round(image.height * SMALL_COPY_WIDTH_PX / image.width / 2) * 2)
-            image = image.resize((SMALL_COPY_WIDTH_PX, height), Image.Resampling.LANCZOS)
+    with Image.open(io.BytesIO(content)) as source:
+        image: Image.Image = source
+        if source.width > SMALL_COPY_WIDTH_PX:
+            height = max(2, round(source.height * SMALL_COPY_WIDTH_PX / source.width / 2) * 2)
+            image = source.resize((SMALL_COPY_WIDTH_PX, height), Image.Resampling.LANCZOS)
         out = io.BytesIO()
         image.save(out, format="PNG")
     return out.getvalue()
@@ -112,9 +113,10 @@ def _add_small_copy(team_id: int, media: ReplayObservationMedia) -> bool:
             .select_related("small_asset")
             .first()
         )
-        if locked is None or locked.small_asset is not None:
+        linked = locked.small_asset if locked is not None else None
+        if locked is None or linked is not None:
             # Gone, or linked by another writer: the object is ours alone unless that writer stored the same key.
-            if locked is None or locked.small_asset.content_location != small_location:
+            if linked is None or linked.content_location != small_location:
                 object_storage.delete(small_location)
             return False
         small = ExportedAsset.objects.create(

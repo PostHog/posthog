@@ -106,7 +106,7 @@ class TestBackfillSmallCopies(BaseTest):
         assert again.candidates == 0
         assert write.call_count == 1
         small_location, small_bytes = write.call_args.args
-        assert small_location == servable.asset.content_location.removesuffix(".png") + "-small.png"
+        assert small_location == (servable.asset.content_location or "").removesuffix(".png") + "-small.png"
         with Image.open(io.BytesIO(small_bytes)) as image:
             assert image.width == 480
 
@@ -114,11 +114,11 @@ class TestBackfillSmallCopies(BaseTest):
         assert servable.small_asset is not None
         assert servable.small_asset.content_location == small_location
         assert servable.small_asset.expires_after == servable.asset.expires_after
-        assert servable.small_asset.export_context["media_size"] == "small"
+        assert (servable.small_asset.export_context or {})["media_size"] == "small"
 
     def test_a_copy_written_while_its_observation_is_deleted_is_removed(self) -> None:
         media = self._media(0)
-        small_location = media.asset.content_location.removesuffix(".png") + "-small.png"
+        small_location = (media.asset.content_location or "").removesuffix(".png") + "-small.png"
 
         with (
             patch(
