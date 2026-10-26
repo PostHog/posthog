@@ -74,6 +74,11 @@ def is_inbox_ranking_registered() -> bool:
     return settings.CLOUD_DEPLOYMENT != "EU"
 
 
+def is_inbox_ranking_mirror_registered() -> bool:
+    """EU trains nothing, but it builds its own project vectors from its own report embeddings."""
+    return settings.CLOUD_DEPLOYMENT == "EU"
+
+
 def dataset_unconfigured() -> bool:
     # On Cloud the dataset must never fall back to the shared object-storage bucket: assets skip
     # until the dedicated bucket is provisioned. Local dev falls back to the object-storage service.

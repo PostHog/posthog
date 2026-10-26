@@ -6,6 +6,7 @@ from parameterized import parameterized
 from requests import HTTPError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
     ScriptedResponse,
     SourceDriver,
     scripted_network,
@@ -201,3 +202,67 @@ class TestSourceResponse:
         assert result.response.primary_keys == ["id"]
         assert result.response.partition_mode is None
         assert result.response.partition_keys is None
+
+
+_LEADS_QUERY = {"include_unassigned": ("true",)}
+
+
+class TestFanout:
+    @parameterized.expand(
+        [
+            ("lead_action_histories", "/api/v2/leads", _LEADS_QUERY, "/api/v2/leads/{id}/action_histories", {}, True),
+            ("lead_comments", "/api/v2/leads", _LEADS_QUERY, "/api/v2/leads/{id}/comments", {}, False),
+            ("follow_ups", "/api/v2/users", {}, "/api/v2/follow_ups", {"status": ("todo,standby,done",)}, False),
+        ]
+    )
+    def test_child_requests_per_parent(
+        self,
+        endpoint: str,
+        parent_path: str,
+        parent_query: dict[str, tuple[str, ...]],
+        child_path: str,
+        child_query: dict[str, tuple[str, ...]],
+        child_paginated: bool,
+    ) -> None:
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == parent_path:
+                return ScriptedResponse(json=_page(2, 1))
+            if "/leads/2/" in request.path or request.query.get("user_id") == ("2",):
+                # A parent deleted between the listing and the child fetch must not fail the sync.
+                return ScriptedResponse(status=404, json={"error": "record_not_found"})
+            return ScriptedResponse(json=[{"id": 10, "lead_id": 1, "created_at": "2026-01-01T00:00:00.000Z"}])
+
+        result = _driver().run(endpoint, respond)
+
+        assert result.raised is None
+        assert [r["id"] for r in result.rows] == [10]
+        assert result.rows[0]["lead_id"] == 1
+        parent_requests = [r for r in result.requests if r.path == parent_path]
+        for key, value in parent_query.items():
+            assert parent_requests[0].query[key] == value
+        child_requests = [r for r in result.requests if r.path != parent_path]
+        assert len(child_requests) == 2
+        for request in child_requests:
+            for key, value in child_query.items():
+                assert request.query[key] == value
+            # Unpaginated endpoints document no limit/offset, so they must not be sent.
+            assert ("limit" in request.query) is child_paginated
+        if endpoint == "follow_ups":
+            assert [r.query["user_id"] for r in child_requests] == [("1",), ("2",)]
+        else:
+            assert [r.path for r in child_requests] == [child_path.format(id=1), child_path.format(id=2)]
+
+    def test_action_histories_walk_every_page_of_a_lead(self) -> None:
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/api/v2/leads":
+                return ScriptedResponse(json=_page(1, 7))
+            offset = int(request.query.get("offset", ("0",))[0])
+            return ScriptedResponse(json=_page(PAGE_SIZE if offset == 0 else 3, offset + 1))
+
+        result = _driver().run("lead_action_histories", respond)
+
+        assert result.raised is None
+        assert len(result.rows) == PAGE_SIZE + 3
+        assert {r["lead_id"] for r in result.rows} == {7}
+        assert result.response is not None
+        assert result.response.primary_keys == ["lead_id", "id"]

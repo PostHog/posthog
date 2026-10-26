@@ -265,6 +265,16 @@ class MetricNameConflictSerializer(serializers.Serializer):
     )
 
 
+@extend_schema_serializer(component_name="DataCatalogMetricApproveRequest")
+class MetricApproveRequestSerializer(serializers.Serializer):
+    """Input for approving one metric."""
+
+    expected_updated_at = serializers.DateTimeField(
+        required=False,
+        help_text="The metric's `updated_at` as last seen by the approver. When the metric changed since then, the API returns 409 and leaves it proposed. Omit to approve the current version.",
+    )
+
+
 @extend_schema_serializer(component_name="DataCatalogMetricBulkNamesRequest")
 class MetricBulkNamesRequestSerializer(serializers.Serializer):
     """Input for the bulk metric actions: the metric names to act on."""

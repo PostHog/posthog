@@ -24,6 +24,7 @@ from products.signals.backend.facade.onboarding import (
     InboxOnboarding,
     InboxOnboardingValidationError,
     can_create_onboarding_scout,
+    onboarding_first_report_statuses,
     onboarding_priorities,
     onboarding_source_products,
     onboarding_source_types,
@@ -99,7 +100,7 @@ class InboxOnboardingJobStatus(models.TextChoices):
 
 class InboxOnboardingJobsSerializer(serializers.Serializer):
     scout = serializers.ChoiceField(
-        choices=InboxOnboardingJobStatus.choices, help_text="Dispatch status of the first general scout run."
+        choices=InboxOnboardingJobStatus.choices, help_text="Dispatch status of the first-report scout run."
     )
     recommendations = serializers.ChoiceField(
         choices=InboxOnboardingJobStatus.choices, help_text="Dispatch status of personalized scout recommendations."
@@ -107,7 +108,43 @@ class InboxOnboardingJobsSerializer(serializers.Serializer):
 
 
 @extend_schema_serializer(many=False)
+class FirstReportStateSerializer(serializers.Serializer):
+    scout_run_id = serializers.UUIDField(
+        required=False, help_text="Scout run ID for inspecting the investigation through the scout API."
+    )
+    task_id = serializers.UUIDField(
+        required=False, help_text="Task ID for following the investigation's live activity."
+    )
+    task_run_id = serializers.UUIDField(
+        required=False, help_text="Task run ID for following the investigation's live activity."
+    )
+    started_at = serializers.DateTimeField(required=False, help_text="When the investigation's task run started.")
+    status = serializers.ChoiceField(
+        choices=onboarding_first_report_statuses(), help_text="Progress of the first investigation."
+    )
+    report_id = serializers.UUIDField(
+        required=False, help_text="The first useful report produced by the investigation."
+    )
+    checked_products = serializers.ListField(
+        child=serializers.CharField(), required=False, help_text="Products checked during the investigation."
+    )
+    missing_data = serializers.ListField(
+        child=serializers.CharField(), required=False, help_text="Data or history needed for a reliable finding."
+    )
+
+
+@extend_schema_serializer(many=False)
 class InboxOnboardingStateSerializer(serializers.Serializer):
+    first_report_completion_notification = serializers.BooleanField(
+        required=False,
+        help_text="Whether the current user can receive an in-app notification when this investigation finishes.",
+    )
+    first_report_notification_email = serializers.EmailField(
+        required=False,
+        allow_null=True,
+        help_text="The current user's email when enrolled for a first-report notification.",
+    )
+    first_report = FirstReportStateSerializer(required=False, allow_null=True, help_text="First investigation outcome.")
     jobs = InboxOnboardingJobsSerializer(required=False, help_text="Background work started by quick activation.")
     draft = InboxOnboardingDraftSerializer(allow_null=True, help_text="Saved setup choices, without activating them.")
     completed_at = serializers.DateTimeField(allow_null=True, help_text="When verified setup completed.")

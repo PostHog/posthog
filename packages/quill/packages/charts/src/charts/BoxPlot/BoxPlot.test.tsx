@@ -2,7 +2,7 @@ import { waitFor } from '@testing-library/react'
 
 import type { ChartTheme } from '../../core/types'
 import { renderHogChart, waitForHogChartTooltip } from '../../testing'
-import { BoxPlot, type BoxPlotClickData } from './BoxPlot'
+import { BoxPlot, type BoxPlotClickData, type BoxPlotConfig } from './BoxPlot'
 import type { BoxPlotDatum, BoxPlotSeries } from './types'
 
 const THEME: ChartTheme = {
@@ -78,6 +78,20 @@ describe('BoxPlot', () => {
         const maxTick = Math.max(...nums.filter((n) => Number.isFinite(n)))
         expect(maxTick).toBeGreaterThanOrEqual(130)
         expect(maxTick).toBeLessThan(1000)
+    })
+
+    it.each([
+        { name: 'above the upper whisker', override: { mean: 700, whiskerMax: 100 }, expectTick: 700 },
+        { name: 'below the lower whisker', override: { mean: -50, whiskerMin: 10 }, expectTick: -50 },
+    ])('keeps a mean $name inside the y-axis', ({ override, expectTick }) => {
+        const series: BoxPlotSeries[] = [{ key: 'a', label: 'A', data: [datum(override)] }]
+        const { chart } = renderHogChart(<BoxPlot series={series} labels={['Mon']} theme={THEME} />)
+        const nums = chart
+            .yTicks()
+            .map((t) => parseFloat(t.replace(/[^\d.-]/g, '')))
+            .filter((n) => Number.isFinite(n))
+        expect(Math.max(...nums)).toBeGreaterThanOrEqual(Math.max(expectTick, 0))
+        expect(Math.min(...nums)).toBeLessThanOrEqual(Math.min(expectTick, 0))
     })
 
     it('allocates left margin wide enough for the whisker-derived y ticks (not just medians)', () => {
@@ -235,19 +249,47 @@ describe('BoxPlot', () => {
                     ['Min', '1'],
                 ],
             },
-        ])('$name', async ({ override, rows }) => {
-            const series: BoxPlotSeries[] = [{ key: 'a', label: 'A-label', data: [datum(override), datum(), datum()] }]
-            const { chart } = renderHogChart(<BoxPlot series={series} labels={LABELS} theme={THEME} />, {
-                nativeTooltip: true,
-            })
-            chart.hoverAtIndex(0)
-            const tooltipEl = await waitForHogChartTooltip()
-            const rendered = Array.from(tooltipEl.querySelectorAll('tr')).map((tr) => [
-                (tr.firstElementChild as HTMLElement).textContent!.trim(),
-                (tr.lastElementChild as HTMLElement).textContent!.trim(),
-            ])
-            expect(rendered).toEqual(rows)
-        })
+            {
+                name: 'formats every row with the tooltip value formatter',
+                override: { min: 1, p25: 20, median: 30, mean: 40, p75: 50, max: 90, whiskerMax: 80 },
+                config: { tooltip: { valueFormatter: (v: number) => `${v}ms` } },
+                rows: [
+                    ['Max', '90ms'],
+                    ['Upper whisker', '80ms'],
+                    ['75th percentile', '50ms'],
+                    ['Median', '30ms'],
+                    ['Mean', '40ms'],
+                    ['25th percentile', '20ms'],
+                    ['Min', '1ms'],
+                ],
+            },
+        ])(
+            '$name',
+            async ({
+                override,
+                rows,
+                config,
+            }: {
+                override: Partial<BoxPlotDatum>
+                rows: string[][]
+                config?: BoxPlotConfig
+            }) => {
+                const series: BoxPlotSeries[] = [
+                    { key: 'a', label: 'A-label', data: [datum(override), datum(), datum()] },
+                ]
+                const { chart } = renderHogChart(
+                    <BoxPlot series={series} labels={LABELS} theme={THEME} config={config} />,
+                    { nativeTooltip: true }
+                )
+                chart.hoverAtIndex(0)
+                const tooltipEl = await waitForHogChartTooltip()
+                const rendered = Array.from(tooltipEl.querySelectorAll('tr')).map((tr) => [
+                    (tr.firstElementChild as HTMLElement).textContent!.trim(),
+                    (tr.lastElementChild as HTMLElement).textContent!.trim(),
+                ])
+                expect(rendered).toEqual(rows)
+            }
+        )
 
         it('renders the values in the canonical row order', async () => {
             const { chart } = renderHogChart(<BoxPlot series={SINGLE_SERIES} labels={LABELS} theme={THEME} />, {

@@ -145,7 +145,7 @@ impl<'a> Evaluation<'a> {
     }
 }
 
-/// The parts of an [`Evaluation`] the v3 record reads, owned so they outlive the configuration.
+/// The parts of an [`Evaluation`] the v4 record reads, owned so they outlive the configuration.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EvaluationDetail {
     pub code: &'static str,

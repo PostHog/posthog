@@ -41,6 +41,12 @@ from products.slack_app.backend.feature_flags import (
 )
 from products.slack_app.backend.logic.feature_tips.features import SlackFeature
 from products.slack_app.backend.logic.feature_tips.state import record_feature_used
+from products.slack_app.backend.logic.interview_recruitment import (
+    INVITE_MESSAGE,
+    book_button,
+    invite_section,
+    is_recruiting,
+)
 from products.slack_app.backend.models import (
     ChannelWelcomeMode,
     SlackSettings,
@@ -473,6 +479,7 @@ def render_home_view(
     thread_join_mode: ThreadJoinMode | None = None,
     has_project_access: bool = True,
     account_settings_url: str | None = None,
+    interview_invite: dict | None = None,
 ) -> dict:
     """Render the Block Kit payload for `views.publish` on the App Home tab."""
 
@@ -543,6 +550,13 @@ def render_home_view(
     if (account_state and account_state.enabled) or github_state is not None:
         blocks.append({"type": "divider"})
         blocks.extend(_linked_accounts_section_blocks(account_state, github_state))
+
+    # Section 6a — interview invitation. `interview_invite` is the section block, present only
+    # for a viewer the recruitment flag selects.
+    if interview_invite is not None:
+        blocks.append({"type": "divider"})
+        blocks.append(_section_title("💬 Talk to the team"))
+        blocks.append(interview_invite)
 
     # Section 7 — your tasks: a quiet list of tasks the calling user
     # started via @PostHog mentions, so they can see status without
@@ -2307,6 +2321,7 @@ def _build_home_view(
         has_project_access=bool(accessible),
         # The same settings page the GitHub card deep-links to.
         account_settings_url=github_state.settings_url,
+        interview_invite=_resolve_interview_invite(integration, slack_user_id, home_user),
     )
     return _HomeRender(
         view=view,
@@ -2314,6 +2329,17 @@ def _build_home_view(
         account_state=account_state,
         has_project_access=bool(accessible),
     )
+
+
+def _resolve_interview_invite(integration: Integration, slack_user_id: str, home_user: User | None) -> dict | None:
+    """The invitation section for a viewer the recruitment flag selects. Best-effort, like every card."""
+    try:
+        if not is_recruiting(integration, slack_user_id, home_user):
+            return None
+    except Exception:
+        logger.warning("slack_app_home_interview_invite_failed", exc_info=True)
+        return None
+    return invite_section(INVITE_MESSAGE, book_button(integration.id, "home"))
 
 
 def _republish_home(
