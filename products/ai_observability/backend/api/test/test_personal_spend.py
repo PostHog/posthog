@@ -239,19 +239,20 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
         tool: str | None = "Bash",
         trace_id: str = "trace-1",
         cost: float | None = 1.5,
-        input_tokens: int = 100000,
+        input_tokens: int | None = 100000,
         output_tokens: int = 500,
         event_name: str = "$ai_generation",
         timestamp: datetime | None = None,
         extra_props: dict | None = None,
     ) -> None:
         props: dict = {
-            "$ai_input_tokens": input_tokens,
             "$ai_output_tokens": output_tokens,
             "$ai_model": model,
             "$ai_trace_id": trace_id,
             "ai_product": ai_product,
         }
+        if input_tokens is not None:
+            props["$ai_input_tokens"] = input_tokens
         if cost is not None:
             props["$ai_total_cost_usd"] = cost
         if tool is not None:
@@ -494,8 +495,24 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
         assert by_day["truncated"] is False
         # Ordered by day ascending, not by cost.
         assert by_day["items"] == [
-            {"day": "2026-06-13", "event_count": 2, "cost_usd": 1.5, "input_tokens": 150, "output_tokens": 15},
-            {"day": "2026-06-15", "event_count": 1, "cost_usd": 2.0, "input_tokens": 200, "output_tokens": 20},
+            {
+                "day": "2026-06-13",
+                "event_count": 2,
+                "cost_usd": 1.5,
+                "input_tokens": 150,
+                "output_tokens": 15,
+                "cache_read_input_tokens": 0,
+                "cache_creation_input_tokens": 0,
+            },
+            {
+                "day": "2026-06-15",
+                "event_count": 1,
+                "cost_usd": 2.0,
+                "input_tokens": 200,
+                "output_tokens": 20,
+                "cache_read_input_tokens": 0,
+                "cache_creation_input_tokens": 0,
+            },
         ]
         assert response.json()["by_day_model"] == [
             {
@@ -505,6 +522,8 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
                 "input_tokens": 150,
                 "output_tokens": 15,
                 "generation_count": 2,
+                "cache_read_input_tokens": 0,
+                "cache_creation_input_tokens": 0,
             },
             {
                 "day": "2026-06-15",
@@ -513,8 +532,81 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
                 "input_tokens": 200,
                 "output_tokens": 20,
                 "generation_count": 1,
+                "cache_read_input_tokens": 0,
+                "cache_creation_input_tokens": 0,
             },
         ]
+
+    @parameterized.expand(
+        [
+            (
+                "inclusive_without_flag",
+                1000,
+                {"$ai_cache_read_input_tokens": 600, "$ai_cache_creation_input_tokens": 100},
+                (300, 600, 100),
+            ),
+            ("inclusive_cache_read_only", 1000, {"$ai_cache_read_input_tokens": 600}, (400, 600, 0)),
+            (
+                "inclusive_flag_false",
+                700,
+                {"$ai_cache_reporting_exclusive": False, "$ai_cache_read_input_tokens": 600},
+                (100, 600, 0),
+            ),
+            (
+                "exclusive_flag_true",
+                100,
+                {
+                    "$ai_cache_reporting_exclusive": True,
+                    "$ai_cache_read_input_tokens": 600,
+                    "$ai_cache_creation_input_tokens": 50,
+                },
+                (100, 600, 50),
+            ),
+            (
+                "exclusive_flag_cache_write_only",
+                100,
+                {"$ai_cache_reporting_exclusive": True, "$ai_cache_creation_input_tokens": 300},
+                (100, 0, 300),
+            ),
+            (
+                "gateway_input_above_cache",
+                1000,
+                {"$ai_gateway": True, "$ai_cache_read_input_tokens": 200},
+                (1000, 200, 0),
+            ),
+            (
+                "gateway_cache_read_without_input",
+                None,
+                {"$ai_gateway": True, "$ai_cache_read_input_tokens": 500},
+                (0, 500, 0),
+            ),
+            (
+                "unflagged_input_below_cache",
+                100,
+                {"$ai_cache_read_input_tokens": 600, "$ai_cache_creation_input_tokens": 50},
+                (100, 600, 50),
+            ),
+            ("no_cache", 100, {}, (100, 0, 0)),
+        ]
+    )
+    def test_input_tokens_exclude_cache(
+        self, _label: str, input_tokens: int | None, extra_props: dict, expected: tuple[int, int, int]
+    ) -> None:
+        self._create_generation(
+            input_tokens=input_tokens,
+            output_tokens=10,
+            timestamp=datetime(2026, 6, 15, 12, 0, tzinfo=UTC),
+            extra_props=extra_props,
+        )
+        flush_persons_and_events()
+
+        body = self.client.get(f"{ENDPOINT}?{PRODUCT_QS}&date_from=2026-06-15&date_to=2026-06-16").json()
+        for row in (body["by_day"]["items"][0], body["by_day_model"][0], body["by_model"]["items"][0]):
+            assert (
+                row["input_tokens"],
+                row["cache_read_input_tokens"],
+                row["cache_creation_input_tokens"],
+            ) == expected
 
     def test_by_day_model_does_not_include_another_team(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="Other team")
@@ -780,6 +872,8 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
                 "cost_usd": 1.5,
                 "input_tokens": 200000,
                 "output_tokens": 1000,
+                "cache_read_input_tokens": 0,
+                "cache_creation_input_tokens": 0,
             },
             {
                 "day": "2026-06-15",
@@ -787,6 +881,8 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
                 "cost_usd": 0.0,
                 "input_tokens": 100000,
                 "output_tokens": 500,
+                "cache_read_input_tokens": 0,
+                "cache_creation_input_tokens": 0,
             },
         ]
 

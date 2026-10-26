@@ -37,7 +37,7 @@ from rest_framework.response import Response
 from posthog.schema import HogQLQueryModifiers
 
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.auth import (
@@ -80,6 +80,16 @@ CACHE_TIMEOUT_SECONDS = 300
 CACHE_VERSION = "v2"
 
 UTC = ZoneInfo("UTC")
+
+_UNCACHED_INPUT_HELP = (
+    "Uncached prompt tokens. Events that count cache inside `$ai_input_tokens` have their cache reads and "
+    "writes subtracted, so `input_tokens`, `cache_read_input_tokens` and `cache_creation_input_tokens` add up "
+    "to the full prompt without double counting. An event counts cache separately when "
+    "`$ai_cache_reporting_exclusive` is true, when it came through the AI gateway, or when its input is "
+    "smaller than its cache counts."
+)
+_CACHE_READ_HELP = "Sum of `$ai_cache_read_input_tokens` (prompt tokens served from cache)."
+_CACHE_CREATION_HELP = "Sum of `$ai_cache_creation_input_tokens` (prompt tokens written to cache)."
 
 
 def _internal_team_id() -> int:
@@ -275,8 +285,10 @@ class _ModelBreakdownRowSerializer(serializers.Serializer):
     model = serializers.CharField(allow_null=True, help_text="Value of the `$ai_model` property.")
     generation_count = serializers.IntegerField(help_text="Number of $ai_generation + $ai_embedding events.")
     cost_usd = serializers.FloatField(help_text="Total cost in USD for this model.")
-    input_tokens = serializers.IntegerField(help_text="Sum of `$ai_input_tokens` for this model.")
+    input_tokens = serializers.IntegerField(help_text=f"{_UNCACHED_INPUT_HELP} For this model.")
     output_tokens = serializers.IntegerField(help_text="Sum of `$ai_output_tokens` for this model.")
+    cache_read_input_tokens = serializers.IntegerField(help_text=f"{_CACHE_READ_HELP} For this model.")
+    cache_creation_input_tokens = serializers.IntegerField(help_text=f"{_CACHE_CREATION_HELP} For this model.")
 
 
 class _DayBreakdownRowSerializer(serializers.Serializer):
@@ -285,8 +297,14 @@ class _DayBreakdownRowSerializer(serializers.Serializer):
         help_text="Number of $ai_generation + $ai_embedding events on this day for the scoped product."
     )
     cost_usd = serializers.FloatField(help_text="Total cost in USD on this day for the scoped product.")
-    input_tokens = serializers.IntegerField(help_text="Sum of `$ai_input_tokens` on this day for the scoped product.")
+    input_tokens = serializers.IntegerField(help_text=f"{_UNCACHED_INPUT_HELP} On this day for the scoped product.")
     output_tokens = serializers.IntegerField(help_text="Sum of `$ai_output_tokens` on this day for the scoped product.")
+    cache_read_input_tokens = serializers.IntegerField(
+        help_text=f"{_CACHE_READ_HELP} On this day for the scoped product."
+    )
+    cache_creation_input_tokens = serializers.IntegerField(
+        help_text=f"{_CACHE_CREATION_HELP} On this day for the scoped product."
+    )
 
 
 class _DayModelBreakdownRowSerializer(serializers.Serializer):
@@ -299,8 +317,12 @@ class _DayModelBreakdownRowSerializer(serializers.Serializer):
         ),
     )
     cost_usd = serializers.FloatField(help_text="Total cost in USD for this model on this day.")
-    input_tokens = serializers.IntegerField(help_text="Sum of `$ai_input_tokens` for this model on this day.")
+    input_tokens = serializers.IntegerField(help_text=f"{_UNCACHED_INPUT_HELP} For this model on this day.")
     output_tokens = serializers.IntegerField(help_text="Sum of `$ai_output_tokens` for this model on this day.")
+    cache_read_input_tokens = serializers.IntegerField(help_text=f"{_CACHE_READ_HELP} For this model on this day.")
+    cache_creation_input_tokens = serializers.IntegerField(
+        help_text=f"{_CACHE_CREATION_HELP} For this model on this day."
+    )
     generation_count = serializers.IntegerField(
         help_text="Number of $ai_generation + $ai_embedding events for this model on this day."
     )
@@ -552,6 +574,23 @@ def _product_filter(product: str) -> ast.Expr:
     return _ai_product_eq(product)
 
 
+_INPUT_TOKENS = "coalesce(toFloat(properties.$ai_input_tokens), 0)"
+_CACHE_TOKENS = (
+    "coalesce(toFloat(properties.$ai_cache_read_input_tokens), 0)"
+    " + coalesce(toFloat(properties.$ai_cache_creation_input_tokens), 0)"
+)
+_CACHE_EXCLUSIVE = (
+    "toString(properties.$ai_cache_reporting_exclusive) = 'true'"
+    " OR (isNull(properties.$ai_cache_reporting_exclusive)"
+    f" AND (toString(properties.$ai_gateway) = 'true' OR {_INPUT_TOKENS} < {_CACHE_TOKENS}))"
+)
+_UNCACHED_INPUT_TOKENS = f"if({_CACHE_EXCLUSIVE}, {_INPUT_TOKENS}, greatest({_INPUT_TOKENS} - ({_CACHE_TOKENS}), 0))"
+
+
+def _uncached_input_tokens() -> ast.Expr:
+    return parse_expr(_UNCACHED_INPUT_TOKENS)
+
+
 def _truncate(rows: list[dict[str, Any]], limit: int) -> dict[str, Any]:
     """Trim a `limit + 1` row fetch back down to `limit` rows and set the `truncated` flag."""
     return {"items": rows[:limit], "truncated": len(rows) > limit}
@@ -698,8 +737,10 @@ def _fetch_by_model(
             properties.$ai_model AS model,
             count() AS generation_count,
             round(sum(toFloat(properties.$ai_total_cost_usd)), 6) AS cost_usd,
-            sum(toFloat(properties.$ai_input_tokens)) AS input_tokens,
-            sum(toFloat(properties.$ai_output_tokens)) AS output_tokens
+            sum({input_tokens}) AS input_tokens,
+            sum(toFloat(properties.$ai_output_tokens)) AS output_tokens,
+            sum(toFloat(properties.$ai_cache_read_input_tokens)) AS cache_read_input_tokens,
+            sum(toFloat(properties.$ai_cache_creation_input_tokens)) AS cache_creation_input_tokens
         FROM events
         WHERE {event_in}
             AND {product_filter}
@@ -718,6 +759,7 @@ def _fetch_by_model(
             "email_filter": _email_filter(email),
             "timestamp_filter": _timestamp_filter(from_dt, to_dt),
             "limit": ast.Constant(value=limit + 1),
+            "input_tokens": _uncached_input_tokens(),
         },
         team=team,
         query_type="PersonalSpendByModel",
@@ -729,6 +771,8 @@ def _fetch_by_model(
             "cost_usd": float(row[2] or 0.0),
             "input_tokens": int(row[3] or 0),
             "output_tokens": int(row[4] or 0),
+            "cache_read_input_tokens": int(row[5] or 0),
+            "cache_creation_input_tokens": int(row[6] or 0),
         }
         for row in (result.results or [])
     ]
@@ -748,8 +792,10 @@ def _fetch_by_day(
             toDate(timestamp) AS day,
             count() AS event_count,
             round(sum(toFloat(properties.$ai_total_cost_usd)), 6) AS cost_usd,
-            sum(toFloat(properties.$ai_input_tokens)) AS input_tokens,
-            sum(toFloat(properties.$ai_output_tokens)) AS output_tokens
+            sum({input_tokens}) AS input_tokens,
+            sum(toFloat(properties.$ai_output_tokens)) AS output_tokens,
+            sum(toFloat(properties.$ai_cache_read_input_tokens)) AS cache_read_input_tokens,
+            sum(toFloat(properties.$ai_cache_creation_input_tokens)) AS cache_creation_input_tokens
         FROM events
         WHERE {event_in}
             AND {product_filter}
@@ -770,6 +816,7 @@ def _fetch_by_day(
             # Not the request `limit`: truncating a time series by cost makes no sense, and the
             # window cap already bounds the row count. +1 is the truncation probe row.
             "limit": ast.Constant(value=BY_DAY_MAX_ROWS + 1),
+            "input_tokens": _uncached_input_tokens(),
         },
         team=team,
         # HogQL wraps `timestamp` in the team's configurable timezone by default, which would
@@ -784,6 +831,8 @@ def _fetch_by_day(
             "cost_usd": float(row[2] or 0.0),
             "input_tokens": int(row[3] or 0),
             "output_tokens": int(row[4] or 0),
+            "cache_read_input_tokens": int(row[5] or 0),
+            "cache_creation_input_tokens": int(row[6] or 0),
         }
         for row in (result.results or [])
     ]
@@ -834,9 +883,11 @@ def _fetch_by_day_model(
             toDate(timestamp) AS day,
             {model_expression} AS model,
             round(sum(toFloat(properties.$ai_total_cost_usd)), 6) AS cost_usd,
-            sum(toFloat(properties.$ai_input_tokens)) AS input_tokens,
+            sum({{input_tokens}}) AS input_tokens,
             sum(toFloat(properties.$ai_output_tokens)) AS output_tokens,
-            count() AS generation_count
+            count() AS generation_count,
+            sum(toFloat(properties.$ai_cache_read_input_tokens)) AS cache_read_input_tokens,
+            sum(toFloat(properties.$ai_cache_creation_input_tokens)) AS cache_creation_input_tokens
         FROM events
         WHERE {{event_in}}
             AND {{product_filter}}
@@ -853,6 +904,7 @@ def _fetch_by_day_model(
         "email_filter": _email_filter(email),
         "timestamp_filter": _timestamp_filter(from_dt, to_dt),
         "limit": ast.Constant(value=BY_DAY_MODEL_MAX_ROWS),
+        "input_tokens": _uncached_input_tokens(),
     }
     if top_models:
         placeholders["top_models"] = ast.Tuple(exprs=[ast.Constant(value=model) for model in top_models])
@@ -872,6 +924,8 @@ def _fetch_by_day_model(
             "input_tokens": int(row[3] or 0),
             "output_tokens": int(row[4] or 0),
             "generation_count": int(row[5] or 0),
+            "cache_read_input_tokens": int(row[6] or 0),
+            "cache_creation_input_tokens": int(row[7] or 0),
         }
         for row in (result.results or [])
     ]
