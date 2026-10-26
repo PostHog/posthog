@@ -21,10 +21,11 @@ filters:
     experimentsRecalculationActivity:
         - 'products/experiments/backend/**'
         - 'products/experiments/stats/**'
+        - 'posthog/hogql*/**'
+        - 'posthog/clickhouse/**'
         - 'posthog/temporal/common/**'
         - 'posthog/management/commands/start_temporal_worker.py'
         - 'posthog/settings/temporal.py'
-        - 'posthog/clickhouse/migrations/**'
         - pyproject.toml
         - uv.lock
         - bin/temporal-django-worker
@@ -37,4 +38,4 @@ images:
             experiments-recalculation-activity:
                 repository: posthog-temporal-workers/experiments-recalculation-activity
                 filter: experimentsRecalculationActivity
-                bootstrapPolicyDigest: 8a33aecc46c1d5795efa9d385c2ecb81c7df0e5d1d8bf2fd63100229ff8375d1
+                bootstrapPolicyDigest: 888b34ce50bec1c78cdd2550f40fbc2dce8b3576716da71b042f92ecc83d17b2
