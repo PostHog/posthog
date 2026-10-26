@@ -25,7 +25,7 @@ def _model_reply(text: str) -> Message:
 
 def _gateway_client(reply: Message) -> MagicMock:
     client = MagicMock()
-    client.messages.create.return_value = reply
+    client.with_options.return_value.__enter__.return_value.messages.create.return_value = reply
     return client
 
 
@@ -99,7 +99,9 @@ class TestRerankChunks(BaseTest):
             "ai_feature": "bk_retrieval_rerank",
             "surface": "support",
         }
-        assert client.messages.create.call_args.kwargs["extra_headers"] == {
+        assert client.with_options.return_value.__enter__.return_value.messages.create.call_args.kwargs[
+            "extra_headers"
+        ] == {
             "X-PostHog-Billable": "false",
             "X-PostHog-Privacy-Mode": "true",
         }

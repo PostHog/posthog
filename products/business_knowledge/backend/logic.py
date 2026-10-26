@@ -2953,8 +2953,8 @@ def rerank_chunks(
             team_id=team.id,
             properties={"ai_feature": llm_telemetry.RETRIEVAL_RERANK_FEATURE, "surface": trace.surface},
         )
-        with client:
-            response = client.messages.create(
+        with client.with_options(max_retries=3) as bounded:
+            response = bounded.messages.create(
                 model=BK_RERANK_MODEL,
                 max_tokens=1024,
                 system=_RERANK_SYSTEM_PROMPT,
