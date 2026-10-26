@@ -6,7 +6,7 @@ import { IconVideoCamera } from '@posthog/icons'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { getVisionObservationsThumbnailRetrieveUrl } from '../generated/api'
-import { ReplayObservationApi } from '../generated/api.schemas'
+import { ReplayObservationApi, VisionObservationsThumbnailRetrieveSize } from '../generated/api.schemas'
 
 interface ObservationThumbnailProps {
     observation: ReplayObservationApi
@@ -54,18 +54,18 @@ export function ObservationThumbnail({
     const hasThumbnail = (observation.media ?? []).some((entry) =>
         chapter === undefined ? entry.kind === 'thumbnail' : entry.kind === 'chapter' && entry.position === chapter
     )
-    const baseSrc =
-        hasThumbnail && currentTeamId !== null && !failed
-            ? getVisionObservationsThumbnailRetrieveUrl(
-                  String(currentTeamId),
-                  observation.id,
-                  chapter === undefined ? undefined : { chapter }
-              )
-            : undefined
-    const src =
-        baseSrc !== undefined && attempt > 0
-            ? `${baseSrc}${baseSrc.includes('?') ? '&' : '?'}retry=${attempt}`
-            : baseSrc
+    const urlFor = (size: VisionObservationsThumbnailRetrieveSize): string | undefined => {
+        if (!hasThumbnail || currentTeamId === null || failed) {
+            return undefined
+        }
+        const url = getVisionObservationsThumbnailRetrieveUrl(String(currentTeamId), observation.id, {
+            ...(chapter === undefined ? {} : { chapter }),
+            size,
+        })
+        return attempt > 0 ? `${url}&retry=${attempt}` : url
+    }
+    const src = urlFor(VisionObservationsThumbnailRetrieveSize.Large)
+    const smallSrc = urlFor(VisionObservationsThumbnailRetrieveSize.Small)
 
     const onError = (): void => {
         // One retry: the redirect target can blink, and the poster would stay blank for the whole mount.
@@ -81,6 +81,9 @@ export function ObservationThumbnail({
             {src && (
                 <img
                     src={src}
+                    // `auto` picks a copy from the rendered width, and a browser without it falls back to the large one.
+                    srcSet={`${smallSrc} 480w, ${src} 1280w`}
+                    sizes="auto, 100vw"
                     alt=""
                     className="absolute inset-0 size-full object-cover"
                     loading="lazy"

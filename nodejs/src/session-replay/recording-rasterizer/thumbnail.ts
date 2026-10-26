@@ -249,6 +249,23 @@ async function cutFrame(source: FrameSource, videoTimeS: number, outputPath: str
     return stat.size
 }
 
+/** Scale an extracted frame down for list views, or return null on failure, since the large frame still serves. */
+async function shrinkFrame(inputPath: string, width: number, outputPath: string): Promise<number | null> {
+    try {
+        await execFileAsync(
+            'ffmpeg',
+            ['-nostdin', '-loglevel', 'error', '-i', inputPath, '-vf', `scale='min(${width},iw)':-2`, '-y', outputPath],
+            { timeout: FFMPEG_TIMEOUT_MS }
+        )
+    } catch (err) {
+        const stderr = (err as { stderr?: string })?.stderr?.slice(0, 500) ?? ''
+        log.warn({ err: (err as Error)?.message, stderr }, 'small frame extraction failed')
+        return null
+    }
+    const stat = await fs.stat(outputPath).catch(() => null)
+    return stat && stat.size > 0 ? stat.size : null
+}
+
 /**
  * Cut frames from an already-rendered analysis MP4 and store each as a PNG, downloading the video once.
  *
@@ -263,6 +280,7 @@ export async function extractThumbnails(input: ExtractThumbnailsInput): Promise<
         videoTimeS: Math.max(0, toFiniteNumber(frame.video_time_s, 'video_time_s')),
         required: frame.required ?? false,
     }))
+    const smallWidth = input.small_width ? Math.max(1, Math.floor(input.small_width)) : null
     return withFrameSource(input, async (source) => {
         const extracted: ExtractThumbnailsOutput['frames'] = []
         for (const frame of frames) {
@@ -279,7 +297,21 @@ export async function extractThumbnails(input: ExtractThumbnailsInput): Promise<
                 throw err
             }
             const s3Uri = await uploadToS3(outputPath, input.s3_bucket, input.s3_key_prefix, frame.id, 'png')
-            extracted.push({ id: frame.id, s3_uri: s3Uri, file_size_bytes: fileSizeBytes })
+            let smallS3Uri: string | undefined
+            if (smallWidth !== null) {
+                const smallId = `${frame.id}-small`
+                const smallPath = path.join(source.workDir, `${smallId}.png`)
+                if ((await shrinkFrame(outputPath, smallWidth, smallPath)) !== null) {
+                    smallS3Uri = await uploadToS3(smallPath, input.s3_bucket, input.s3_key_prefix, smallId, 'png')
+                }
+                await fs.rm(smallPath, { force: true })
+            }
+            extracted.push({
+                id: frame.id,
+                s3_uri: s3Uri,
+                file_size_bytes: fileSizeBytes,
+                ...(smallS3Uri ? { small_s3_uri: smallS3Uri } : {}),
+            })
             await fs.rm(outputPath, { force: true })
         }
         return { frames: extracted }
