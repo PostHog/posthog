@@ -1,5 +1,4 @@
 import { WizardRunApi, WizardRunStageEnumApi } from './generated/api.schemas'
-import { wizardRunErrorDetails } from './runs/wizardRunErrorCatalog'
 
 export const MAX_RENDERED_WIZARD_DIFF_BYTES = 2 * 1024 * 1024
 // Byte size does not bound DOM nodes: many short lines can pass the byte cap and still stall the page.
@@ -131,33 +130,4 @@ export function formatArtifactSize(sizeBytes: number): string {
         return `${(sizeBytes / 1024).toFixed(1)} KB`
     }
     return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`
-}
-
-export function wizardRunCurrentState(run: WizardRunApi): string {
-    if (run.status === 'completed') {
-        return 'Completed successfully'
-    }
-    if (run.status === 'failed') {
-        return wizardRunErrorDetails(run.error_code, run.error_message).title
-    }
-    if (run.status === 'cancelled') {
-        return 'Run canceled'
-    }
-
-    switch (run.stage) {
-        case WizardRunStageEnumApi.Dispatching:
-            return 'Starting the Wizard Worker'
-        case WizardRunStageEnumApi.Provisioning:
-            return 'Provisioning the Wizard Worker'
-        case WizardRunStageEnumApi.PreparingWorkspace:
-            return 'Preparing the repository'
-        case WizardRunStageEnumApi.ExecutingWizard:
-            return run.program.name.endsWith('audit')
-                ? `Running the ${run.program.name}`
-                : `Running ${run.program.name}`
-        case WizardRunStageEnumApi.CreatingArtifacts:
-            return 'Creating run artifacts'
-        default:
-            return run.status === 'running' ? 'Running the Wizard' : 'Starting the Wizard run'
-    }
 }
