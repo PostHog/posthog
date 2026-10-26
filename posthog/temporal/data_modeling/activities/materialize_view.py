@@ -396,7 +396,9 @@ def get_aws_storage_options() -> dict[str, str]:
 
 def _combine_batches(batches: list[pa.RecordBatch]) -> pa.RecordBatch:
     if len(batches) == 1:
-        return batches[0]
+        # A batch read from the IPC stream is a zero-copy view that is only 8-byte aligned, and
+        # delta-rs panics on a Decimal128 buffer that is not 16-byte aligned. The copy realigns it.
+        return batches[0].copy_to(pa.default_cpu_memory_manager())
 
     table = pa.Table.from_batches(batches)
     table = table.combine_chunks()
