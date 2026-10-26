@@ -29,8 +29,9 @@ import pyarrow.compute as pc
 
 # Exact duplicate detection has to remember every distinct key a run has produced. The cap bounds
 # that state so a huge materialization cannot OOM the worker; hitting it fails the run loudly
-# rather than quietly skipping verification.
-MAX_UNIQUE_KEY_CHECK_BYTES = 256 * 1024 * 1024
+# rather than quietly skipping verification. Peak memory of the check is about this state plus one
+# batch, and a worker runs many activities at once, so the cap has to stay a small share of a pod.
+MAX_UNIQUE_KEY_CHECK_BYTES = 1024 * 1024 * 1024
 
 
 class IncrementalWriteError(Exception):
@@ -103,12 +104,19 @@ class UniqueKeyTracker:
     it into an update, silently — so the distinct keys seen so far are carried across ``check``
     calls. Only the key columns of the group_by output are retained, so memory grows with distinct
     keys, not rows, and the byte cap turns "too big to verify" into a loud failure.
+
+    Each call groups only the new batch, then probes the stored keys with a hash join whose build
+    side is that small grouped batch. The stored keys are kept as a list of per-batch chunks and are
+    never merged into one buffer or inserted into a hash table again. Each call only looks them up in
+    the batch's small table, which is much cheaper than regrouping everything seen so far.
     """
 
     def __init__(self, unique_key: tuple[str, ...], max_bytes: int = MAX_UNIQUE_KEY_CHECK_BYTES) -> None:
         self._columns = list(unique_key)
         self._max_bytes = max_bytes
-        self._seen: pa.Table | None = None
+        self._seen_chunks: list[pa.Table] = []
+        self._seen_bytes = 0
+        self._seen_rows = 0
 
     def check(self, batch: pa.RecordBatch) -> None:
         """Fail if ``batch`` has a missing, null, or duplicate key — including a key already seen
@@ -123,23 +131,31 @@ class UniqueKeyTracker:
         assert_no_null_keys(batch, tuple(self._columns))
 
         keys = pa.Table.from_batches([batch]).select(self._columns)
-        combined = keys if self._seen is None else pa.concat_tables([self._seen, keys])
-        grouped = combined.group_by(self._columns).aggregate([([], "count_all")])
-        if grouped.num_rows != combined.num_rows:
-            worst = pc.max(grouped.column("count_all")).as_py()
+        grouped = keys.group_by(self._columns).aggregate([([], "count_all")])
+        worst = pc.max(grouped.column("count_all")).as_py() if grouped.num_rows != keys.num_rows else 1
+        if self._seen_chunks:
+            # Acero builds the hash table on the right input, so the grouped batch goes on the right
+            # and the stored keys are only streamed through it. Every stored key is distinct, so a
+            # key found there occurs once more than its count in this batch.
+            already_seen = pa.concat_tables(self._seen_chunks).join(grouped, keys=self._columns, join_type="right semi")
+            if already_seen.num_rows:
+                worst = max(worst, pc.max(already_seen.column("count_all")).as_py() + 1)
+        if worst > 1:
             raise IncrementalWriteError(
                 f"The unique key ({', '.join(self._columns)}) does not identify a single row: one key "
                 f"appears {worst} times in this run's result. Add the columns that tell those rows apart."
             )
 
-        seen = grouped.select(self._columns)
-        if seen.nbytes > self._max_bytes:
+        distinct = grouped.select(self._columns).combine_chunks()
+        self._seen_bytes += distinct.nbytes
+        self._seen_rows += distinct.num_rows
+        if self._seen_bytes > self._max_bytes:
             raise IncrementalWriteError(
-                f"This query returns too many unique keys to verify ({seen.num_rows} so far). "
+                f"This query returns too many unique keys to verify ({self._seen_rows} so far). "
                 f"Reduce the rows the query returns, or turn off incremental materialization for "
                 f"this view to fall back to a full refresh."
             )
-        self._seen = seen
+        self._seen_chunks.append(distinct)
 
 
 def max_of(batch: pa.RecordBatch, column: str, running: Any = None) -> Any:
