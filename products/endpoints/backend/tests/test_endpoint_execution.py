@@ -235,11 +235,13 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("concurrency", ConcurrencyLimitExceeded("too many"), "concurrency"),
-            ("read_budget", APIQueriesBudgetExceeded(wait=120), "read_budget"),
+            ("concurrency", ConcurrencyLimitExceeded("too many"), "concurrency", "5"),
+            ("read_budget", APIQueriesBudgetExceeded(wait=120), "read_budget", "120"),
         ]
     )
-    def test_query_refusal_records_reason_and_sends_one_event_per_window(self, _name, error, expected_reason):
+    def test_query_refusal_records_reason_and_sends_one_event_per_window(
+        self, _name, error, expected_reason, expected_retry_after
+    ):
         cache.clear()
         endpoint = create_endpoint_with_version(
             name=f"refused_{expected_reason}",
@@ -259,6 +261,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             for _ in range(2):
                 response = self.client.post(url, {}, format="json")
                 self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+                self.assertEqual(response["Retry-After"], expected_retry_after)
 
         self.assertEqual(REGISTRY.get_sample_value("posthog_endpoint_rate_limited_total", labels), before + 2)
         events = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "endpoint rate limited"]
