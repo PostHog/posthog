@@ -26,9 +26,11 @@ from products.cdp.backend.services.invocation_replay import (
     claim_replay,
     execute_replay,
     get_replay_state,
+    mark_replay_failed,
     plan_replay,
     release_replay_claim,
     replay_cache,
+    start_claimed_send,
 )
 from products.cdp.backend.tasks.invocation_replay import run_invocation_replay
 
@@ -386,6 +388,13 @@ class TestInvocationReplay(ClickhouseTestMixin, APIBaseTest):
         _insert(_function(self.team, "template-google-ads"), [_row("a1", "failed"), _recovered()])
         criteria = _criteria()
         plan = plan_replay(criteria)
+        with time_machine.travel("2026-10-23T07:00:00Z", tick=False):
+            planning = claim_replay(plan, actor="first")
+            assert planning
+        with time_machine.travel("2026-10-23T07:20:00Z", tick=False):
+            assert start_claimed_send(plan.fingerprint, planning)
+            assert not release_replay_claim(plan.fingerprint, actor="staff")
+            mark_replay_failed(plan.fingerprint, "test reset")
         with time_machine.travel("2026-10-23T08:00:00Z", tick=False):
             stalled = claim_replay(plan, actor="first")
             assert stalled
@@ -468,14 +477,19 @@ class TestReplayAdmin(ClickhouseTestMixin, APIBaseTest):
         assert status.context["state"]["status"] == "queued"
 
     @patch("products.cdp.backend.admin.hog_function_admin.run_invocation_replay")
-    def test_send_can_be_retried_when_the_task_cannot_be_queued(self, task: MagicMock) -> None:
+    def test_a_send_whose_task_may_have_been_queued_stays_blocked_until_released(self, task: MagicMock) -> None:
         task.delay.side_effect = [ConnectionError("broker down"), None]
         fingerprint = self._fingerprint()
         send = {**self.form, "action": "execute", "fingerprint": fingerprint, "confirm_count": "2"}
 
         first = self.admin_client.post(self.url, send)
-        assert self.admin_client.get(first["Location"]).context["state"]["status"] == "failed"
+        status = self.admin_client.get(first["Location"])
+        assert (status.context["state"]["status"], status.context["can_release"]) == ("failed", True)
 
+        self.admin_client.post(self.url, send)
+        assert task.delay.call_count == 1
+
+        self.admin_client.post(first["Location"], {"action": "release"})
         self.admin_client.post(self.url, send)
         assert task.delay.call_count == 2
 

@@ -22,7 +22,7 @@ from products.cdp.backend.services.invocation_replay import (
     can_release_replay,
     claim_replay,
     get_replay_state,
-    mark_replay_failed,
+    mark_replay_dispatch_unknown,
     plan_replay,
     release_replay_claim,
 )
@@ -290,7 +290,7 @@ class HogFunctionAdmin(admin.ModelAdmin):
                 run_invocation_replay.delay(plan.criteria.to_payload(), plan.fingerprint, actor, claimed)
             except Exception as error:
                 capture_exception(error)
-                mark_replay_failed(plan.fingerprint, "The replay task could not be queued, so nothing was sent.")
+                mark_replay_dispatch_unknown(plan.fingerprint)
         return redirect("admin:cdp-replay-failed-invocations-status", fingerprint=plan.fingerprint)
 
     def replay_status_view(self, request: HttpRequest, fingerprint: str) -> HttpResponse:

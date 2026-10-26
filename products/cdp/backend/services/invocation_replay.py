@@ -609,8 +609,9 @@ def claim_replay(plan: ReplayPlan, *, actor: str) -> str | None:
 
     Raises ReplayOverlapError when another recent plan reserved one of the same destinations.
     """
+    fingerprint = plan.fingerprint
     claim = uuid.uuid4().hex
-    if not replay_cache.add(_claim_key(plan.fingerprint), claim, timeout=REPLAY_STATE_TTL_SECONDS):
+    if not replay_cache.add(_claim_key(fingerprint), claim, timeout=REPLAY_STATE_TTL_SECONDS):
         return None
     # Two plans from different filters can share runs. Their rerun jobs would then
     # queue those runs twice, because the rerun worker does not reserve a run before
@@ -622,7 +623,7 @@ def claim_replay(plan: ReplayPlan, *, actor: str) -> str | None:
     try:
         for function in plan.replayable_functions:
             if not replay_cache.add(
-                _function_reservation_key(function.function_id), plan.fingerprint, timeout=REPLAY_STATE_TTL_SECONDS
+                _function_reservation_key(function.function_id), fingerprint, timeout=REPLAY_STATE_TTL_SECONDS
             ):
                 raise ReplayOverlapError(
                     f"Another replay still holds destination {function.function_id}. "
@@ -630,7 +631,7 @@ def claim_replay(plan: ReplayPlan, *, actor: str) -> str | None:
                 )
             reserved.append(function.function_id)
         replay_cache.set(
-            _state_key(plan.fingerprint),
+            _state_key(fingerprint),
             {
                 "status": "queued",
                 "actor": actor,
@@ -644,8 +645,8 @@ def claim_replay(plan: ReplayPlan, *, actor: str) -> str | None:
         )
     except BaseException:
         # Without a state record staff cannot release these keys, so a failed claim must not keep them.
-        _release_functions(plan.fingerprint, reserved)
-        _release_claim(plan.fingerprint)
+        _release_functions(fingerprint, reserved)
+        _release_claim(fingerprint)
         raise
     return claim
 
@@ -658,7 +659,11 @@ def start_claimed_send(fingerprint: str, claim: str) -> bool:
     """
     if replay_cache.get(_claim_key(fingerprint)) != claim:
         return False
-    return bool(replay_cache.add(f"{_claim_key(fingerprint)}:started:{claim}", 1, timeout=REPLAY_STATE_TTL_SECONDS))
+    if not replay_cache.add(f"{_claim_key(fingerprint)}:started:{claim}", 1, timeout=REPLAY_STATE_TTL_SECONDS):
+        return False
+    # Planning again can take a minute. A queued state with an old timestamp would offer staff the stalled release meanwhile.
+    _save_state(fingerprint, status="running")
+    return True
 
 
 def _release_claim(fingerprint: str) -> None:
@@ -732,6 +737,16 @@ def mark_replay_failed(fingerprint: str, reason: str) -> None:
     _save_state(fingerprint, status="failed", detail=reason)
     _release_everything(fingerprint)
 
+
+def mark_replay_dispatch_unknown(fingerprint: str) -> None:
+    """The task may have been queued although queueing raised, so the plan stays blocked until staff release it."""
+    _save_state(fingerprint, status="failed", detail=_DISPATCH_UNKNOWN_DETAIL)
+
+
+_DISPATCH_UNKNOWN_DETAIL = (
+    "Queueing the replay task failed, but the task may still run, so this plan stays blocked. "
+    "Check the runs on the destinations first. Then allow a resend if nothing was queued."
+)
 
 _UNCERTAIN_DETAIL = (
     "Some requests ended without a clear answer and may still have queued their runs, so this plan stays blocked. "
