@@ -26,11 +26,11 @@ class OnfleetEndpointConfig:
 # Onfleet timestamps are UNIX epoch **milliseconds** stored as integers, so candidate incremental
 # fields are integers even though the UI presents them as datetimes.
 #
-# Only `/tasks/all` exposes a server-side time filter (`from`/`to`, epoch ms). `from` filters on a
+# `/tasks/all` exposes a server-side time filter (`from`/`to`, epoch ms). `from` filters on a
 # task's creation time (completion time for tasks in the `completed` state) and results are always
 # sorted ascending by creation time, so incremental sync anchors on `timeCreated`. `/routePlans`
-# filters on creation time only, so an incremental sync would never see an older route plan change
-# state; it stays full refresh like every other endpoint.
+# filters on creation time too (`createdTimeFrom`/`createdTimeTo`). Every other endpoint returns a
+# bare array with no time filter and no pagination, so those are full refresh.
 #
 # Partitioning is intentionally left off: the datetime partitioner interprets an integer partition
 # key as epoch *seconds*, which would misbucket Onfleet's epoch-*millisecond* timestamps.
@@ -53,6 +53,14 @@ ONFLEET_ENDPOINTS: dict[str, OnfleetEndpointConfig] = {
         name="route_plans",
         path="/routePlans",
         created_time_windowed=True,
+        incremental_fields=[
+            {
+                "label": "timeCreated",
+                "type": IncrementalFieldType.DateTime,
+                "field": "timeCreated",
+                "field_type": IncrementalFieldType.Integer,
+            },
+        ],
     ),
     "workers": OnfleetEndpointConfig(name="workers", path="/workers"),
     "teams": OnfleetEndpointConfig(name="teams", path="/teams"),

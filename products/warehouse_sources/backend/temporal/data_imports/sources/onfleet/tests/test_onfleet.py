@@ -139,22 +139,24 @@ class TestRoutePlans:
         assert result.rows == []
 
     @pytest.mark.parametrize(
-        "resume_state, expected_from, expected_to",
+        "inputs, resume_state, expected_from, expected_to",
         [
-            (None, "0", "2000"),
-            (OnfleetResumeConfig(from_ms=1000, window_ms=500), "1000", "1500"),
+            ({}, None, "0", "2000"),
+            ({"incremental_field": "timeCreated", "db_incremental_field_last_value": 1200}, None, "1200", "2000"),
+            ({}, OnfleetResumeConfig(from_ms=1000, window_ms=500), "1000", "1500"),
         ],
     )
     def test_first_window(
         self,
         monkeypatch: pytest.MonkeyPatch,
+        inputs: dict[str, Any],
         resume_state: OnfleetResumeConfig | None,
         expected_from: str,
         expected_to: str,
     ) -> None:
         monkeypatch.setattr(onfleet_module, "_now_ms", lambda: 2000)
 
-        result = _driver().run("route_plans", always(ScriptedResponse(json=[])), resume_state=resume_state)
+        result = _driver().run("route_plans", always(ScriptedResponse(json=[])), resume_state=resume_state, **inputs)
 
         assert result.raised is None
         assert result.paths[0] == "/api/v2/routePlans"
