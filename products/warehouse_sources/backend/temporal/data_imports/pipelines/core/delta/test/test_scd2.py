@@ -44,6 +44,8 @@ class TestScd2Write:
                     "_ph_valid_from": pa.array([at] * len(ids), type=_TS_TYPE),
                     "_ph_valid_to": pa.array([None] * len(ids), type=_TS_TYPE),
                     "_ph_history_partition": pa.array(["current"] * len(ids)),
+                    # A source column under the merge's own closing-month name must not collide with it.
+                    "_ph_closing_partition": pa.array(["source value"] * len(ids)),
                 }
             )
 

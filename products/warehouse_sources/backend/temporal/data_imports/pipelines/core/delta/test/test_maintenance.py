@@ -1488,9 +1488,23 @@ class TestVacuumOnARealTable:
 
 
 class TestCompactHistoryCurrentPartition:
-    @parameterized.expand([("below_the_threshold", 4, False), ("above_the_threshold", 12, True)])
+    @parameterized.expand(
+        [
+            ("below_the_threshold", 4, _DEFAULT_PLAN, False),
+            ("above_the_threshold", 12, _DEFAULT_PLAN, True),
+            # Every file is larger than the planned bin, so a compaction would remove none of them.
+            (
+                "planned_bin_smaller_than_the_files",
+                12,
+                CompactionPlan(target_size=1, max_concurrent_tasks=1, compression_ratio=1.0, slot_budget_mb=1.0),
+                False,
+            ),
+        ]
+    )
     @pytest.mark.asyncio
-    async def test_compacts_the_current_partition_only(self, _name: str, current_files: int, compacted: bool):
+    async def test_compacts_the_current_partition_only(
+        self, _name: str, current_files: int, plan: CompactionPlan, compacted: bool
+    ):
         # The month partitions keep 12 small files each, so a filter that missed them would compact them too.
         with tempfile.TemporaryDirectory() as path:
             for partition, count in (("current", current_files), ("2026-01", 12)):
@@ -1502,7 +1516,7 @@ class TestCompactHistoryCurrentPartition:
                         partition_by=["_ph_history_partition"],
                     )
             maintenance = _make_maintenance(deltalake.DeltaTable(path))
-            with patch.object(maintenance, "_plan_compaction", AsyncMock(return_value=_DEFAULT_PLAN)):
+            with patch.object(maintenance, "_plan_compaction", AsyncMock(return_value=plan)):
                 ran = await maintenance.compact_history_current_partition("_ph_history_partition", "current")
 
             files = deltalake.DeltaTable(path).file_uris()

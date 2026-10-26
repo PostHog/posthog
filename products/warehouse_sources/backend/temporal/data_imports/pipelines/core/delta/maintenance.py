@@ -1000,7 +1000,14 @@ class DeltaMaintenance:
                 DEFAULT_COMPACT_REMOVABLE_FILES_PER_PARTITION_THRESHOLD
             ):
                 return False
-            return await self._compact(table, partitions=[current_partition], partition_column=partition_column)
+            # The memory plan can shrink the bin below the table's target, and a smaller bin can merge
+            # fewer files. Without the recheck every sync would plan a compaction that removes nothing.
+            plan = await self._plan_compaction(table)
+            if plan.target_size is None or removable_file_count(sizes, plan.target_size) < (
+                DEFAULT_COMPACT_REMOVABLE_FILES_PER_PARTITION_THRESHOLD
+            ):
+                return False
+            return await self._compact(table, plan, partitions=[current_partition], partition_column=partition_column)
         except Exception as e:
             await self._log_maintenance_failure(e, step="compact_history_current_partition")
             return False

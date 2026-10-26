@@ -109,6 +109,9 @@ class Scd2DeltaWriter:
                 if self._partitioned(existing_delta_table):
                     # Open rows only sit in the current partition, so the merge reads and rewrites no other.
                     predicate_parts.append(f"target.{self._partition_column} = '{self._current_partition}'")
+                    # The merge reads only the keys and `valid_from`, and a source column cannot then
+                    # collide with the closing month.
+                    first_per_pk = first_per_pk.select([*normalized_pks, self._valid_from_column])
                     first_per_pk = first_per_pk.append_column(
                         _CLOSING_PARTITION, pc.strftime(first_per_pk.column(self._valid_from_column), format="%Y-%m")
                     )
