@@ -1531,6 +1531,14 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
                 auth.parse_relay_state("https://idp.hogflix.io/launch"), {"idp": "https://idp.hogflix.io/launch"}
             )
 
+    def test_relay_state_parses_when_the_cached_value_is_not_json(self):
+        # A relay state outlives its cache entry and arrives back as a bare UUID, which is not JSON.
+        # Anything unreadable there must fall through to the base parser instead of raising.
+        auth = object.__new__(MultitenantSAMLAuth)
+        key = "0b5f9c4e-2f1f-4b1d-9d3e-6f1c2a4b5c6d"
+        get_client().setex(f"saml_relay_state:{key}", 60, "not json")
+        self.assertEqual(auth.parse_relay_state(key), {"idp": key})
+
     @time_machine.travel("2021-08-25T22:09:14.252Z", tick=False)  # Ensures the SAML timestamp validation passes
     def test_saml_login_accepts_a_json_relay_state_from_a_login_started_before_a_deploy(self):
         # A login started on the previous release comes back with the JSON RelayState that release

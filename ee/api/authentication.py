@@ -117,7 +117,10 @@ def _load_saml_relay_state(key: str) -> dict[str, Any] | None:
         return None
     if not raw:
         return None
-    state = json.loads(raw)
+    try:
+        state = json.loads(raw)
+    except ValueError:
+        return None
     return state if isinstance(state, dict) else None
 
 
