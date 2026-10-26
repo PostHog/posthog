@@ -101,7 +101,6 @@ def _list_params(
     config: HelpScoutEndpointConfig,
     use_v3_route: bool,
     should_use_incremental_field: bool,
-    incremental_field: Optional[str],
     db_incremental_field_last_value: Any,
 ) -> dict[str, Any]:
     if use_v3_route:
@@ -114,10 +113,10 @@ def _list_params(
         return {}
 
     if should_use_incremental_field and config.updated_since_param and db_incremental_field_last_value is not None:
-        sort_field = incremental_field or config.default_incremental_field or "modifiedAt"
         return {
             config.updated_since_param: _format_since(db_incremental_field_last_value),
-            "sortField": sort_field,
+            # `modifiedSince` filters on `modifiedAt`, which is a valid sort but not a returned field.
+            "sortField": "modifiedAt",
             "sortOrder": "asc",
         }
 
@@ -178,7 +177,6 @@ def _top_level_resource(
     job_id: str,
     resumable_source_manager: ResumableSourceManager[HelpScoutResumeConfig],
     should_use_incremental_field: bool,
-    incremental_field: Optional[str],
     db_incremental_field_last_value: Any,
 ) -> Resource:
     rest_config: RESTAPIConfig = {
@@ -194,7 +192,6 @@ def _top_level_resource(
                             config,
                             use_v3_route,
                             should_use_incremental_field,
-                            incremental_field,
                             db_incremental_field_last_value,
                         ),
                     },
@@ -281,7 +278,6 @@ def helpscout_source(
     resumable_source_manager: ResumableSourceManager[HelpScoutResumeConfig],
     api_version: str,
     should_use_incremental_field: bool = False,
-    incremental_field: Optional[str] = None,
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = HELP_SCOUT_ENDPOINTS[endpoint]
@@ -301,7 +297,6 @@ def helpscout_source(
             job_id,
             resumable_source_manager,
             should_use_incremental_field,
-            incremental_field,
             db_incremental_field_last_value,
         )
 
