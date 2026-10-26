@@ -77,7 +77,7 @@ export interface ComposerModelEffortPickersProps {
     lockedRuntimeAdapter?: string | null
     /** The selection shown is the resolved default (user/project preference), not an explicit pick for
      * this run — the lemon model trigger renders a "Default ·" prefix so that's visible at a glance. The quill
-     * trigger reads "Default", and the open menu shows the model and effort it resolves to. */
+     * trigger shows only the model, like PostHog Desktop. */
     isDefaultSelection?: boolean
     /** Clears the explicit pick so the run falls back to the resolved default. Omit on a surface with no
      * configured default and the reset row falls back to the ladder's balanced notch. */
@@ -283,12 +283,8 @@ export function ComposerModelEffortPickers({
                 render={
                     <Button variant={chrome.triggerVariant} size="sm" aria-label="Model and reasoning">
                         {chrome.modelIcon && <IconBrain className="shrink-0 text-muted-foreground" />}
-                        {isDefaultSelection
-                            ? chrome.defaultPrefix
-                                ? `Default · ${modelLabel}`
-                                : 'Default'
-                            : modelLabel}
-                        {effortOptions.length > 0 && !(isDefaultSelection && !chrome.defaultPrefix) && (
+                        {isDefaultSelection && chrome.defaultPrefix ? `Default · ${modelLabel}` : modelLabel}
+                        {effortOptions.length > 0 && (
                             <span className="text-muted @max-[400px]/composer:hidden">
                                 {getEffortLabel(selectedEffort)}
                             </span>
@@ -418,8 +414,7 @@ export function ComposerModelEffortPickers({
                     <>
                         {isDefaultSelection && !chrome.defaultPrefix && (
                             <div className="px-2 pt-1.5 pb-1 text-xs text-muted" data-attr="composer-default-selection">
-                                Default: {modelLabel}
-                                {effortOptions.length > 0 && `, ${getEffortLabel(selectedEffort)}`}
+                                Using your default
                             </div>
                         )}
                         <ComposerReasoningSlider

@@ -18,7 +18,7 @@ import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { useComposerFilePicker } from '../../../components/composer/useComposerFilePicker'
-import { githubAuthorizeUrl } from './RepositorySelector'
+import { githubAuthorizeUrl } from './githubAuthorizeUrl'
 
 export interface TaskComposerAddMenuProps {
     attachmentsKey: string

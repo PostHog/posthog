@@ -49,6 +49,7 @@ import { QuillComposerLayout } from '../../../components/quill/QuillComposerLayo
 import { QuillComposerSendButton } from '../../../components/quill/QuillComposerSendButton'
 import { QuillOnboardingReplayButton } from '../../../components/quill/QuillOnboardingReplayButton'
 import { taskTrackerSceneLogic } from '../taskTrackerSceneLogic'
+import { QuillRepositoryChip } from './QuillRepositoryChip'
 import { RepositorySelector } from './RepositorySelector'
 import { TaskComposerAddMenu } from './TaskComposerAddMenu'
 import { TaskComposerEnvironmentSelect } from './TaskComposerEnvironmentSelect'
@@ -270,9 +271,8 @@ export function TaskComposer({
                                     chips={
                                         <>
                                             {showRepositoryChip && (
-                                                <RepositorySelector
+                                                <QuillRepositoryChip
                                                     value={newTaskData.repositoryConfig}
-                                                    variant="quill"
                                                     autoOpen={repositoryRequested}
                                                     onChange={(config) => {
                                                         if (
