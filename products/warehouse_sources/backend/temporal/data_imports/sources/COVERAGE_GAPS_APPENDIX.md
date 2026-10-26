@@ -8751,11 +8751,11 @@ Today (20): `authors`, `awards`, `continents`, `countries`, `domains`, `fields`,
 
 Diffed against: <https://help.openalex.org/api/endpoints.md>
 
-- [ ] `Study Designs (GET /study-designs)` — resolve study design IDs on works and compare evidence types (high)
-- [ ] `Indexes (GET /indexes)` — resolve indexed_in values on works and compare coverage across bibliographic indexes (high)
-- [ ] `Source Lists (GET /source-lists)` — resolve listed_in IDs on sources for journal quality and coverage analysis (high)
+- [x] `Study Designs (GET /study-designs)` — resolve study design IDs on works and compare evidence types (high)
+- [x] `Indexes (GET /indexes)` — resolve indexed_in values on works and compare coverage across bibliographic indexes (high)
+- [x] `Source Lists (GET /source-lists)` — resolve listed_in IDs on sources for journal quality and coverage analysis (high)
 - [ ] `Collections and Members (GET /collections; GET /collections/{id}/members)` — track research portfolios and collection membership across works, authors, and journals (medium)
-- [ ] `Locations (GET /locations)` — analyze each harvested copy and its metadata beyond the locations embedded in works (medium)
+- [x] `Locations (GET /locations)` — analyze each harvested copy and its metadata beyond the locations embedded in works (medium)
 
 Note: Parsed the current endpoint index and entity references, including the collections member endpoint. Existing works already contain locations and affiliation strings; dedicated locations expose additional metadata. Collection members need requests for each collection. Excluded deprecated concepts, autocomplete, text tagging, saved searches, and correction workflows.
 
