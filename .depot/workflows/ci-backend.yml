@@ -3605,9 +3605,10 @@ jobs:
                       SELECTED_SPLIT=()
                       if [[ "${{ matrix.concurrency }}" -gt 1 ]]; then
                           plan="${RUNNER_TEMP:-/tmp}/selected-split-plan.json"
+                          # Under set +e a planner failure would read as an empty shard and pass.
                           # shellcheck disable=SC2086
                           targets=$(python .github/scripts/plan_selected_shard.py --durations .test_durations \
-                              --splits "${{ matrix.concurrency }}" --group "${{ matrix.group }}" --plan-out "$plan" $targets)
+                              --splits "${{ matrix.concurrency }}" --group "${{ matrix.group }}" --plan-out "$plan" $targets) || exit 1
                           if [[ -z "$targets" ]]; then
                               echo "No selected files for this shard"
                               exit 0
