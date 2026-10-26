@@ -15,7 +15,7 @@ from products.error_tracking.backend.indexed_embedding import (
     ModelTableDefinitions,
 )
 
-MIGRATION_0360 = "posthog.clickhouse.migrations.0360_embedding_model_small_256"
+MIGRATION_0361 = "posthog.clickhouse.migrations.0361_embedding_model_small_256"
 
 
 def _migration_statements(module_name: str, cloud_deployment: str) -> list[str]:
@@ -100,8 +100,8 @@ class TestMigrationReplay:
         assert all("text_embedding_3_small_256" not in sql for sql in statements)
 
     @parameterized.expand(["", "US", "EU", "DEV"])
-    def test_migration_0360_replaces_the_union_view_without_dropping_it(self, cloud_deployment):
-        statements = _migration_statements(MIGRATION_0360, cloud_deployment)
+    def test_migration_0361_replaces_the_union_view_without_dropping_it(self, cloud_deployment):
+        statements = _migration_statements(MIGRATION_0361, cloud_deployment)
         assert not any(re.search(r"DROP VIEW", sql) for sql in statements)
         view_sql = [sql for sql in statements if "posthog_document_embeddings_union_view" in sql]
         assert len(view_sql) == 1
@@ -117,10 +117,10 @@ class TestMigrationReplay:
             ("dev", "DEV", "kafka_posthog_document_embeddings_ws", True),
         ]
     )
-    def test_migration_0360_resumes_the_buffer_from_the_active_kafka_source(
+    def test_migration_0361_resumes_the_buffer_from_the_active_kafka_source(
         self, _name, cloud_deployment, kafka_source, warpstream_consumer_paused
     ):
-        statements = _migration_statements(MIGRATION_0360, cloud_deployment)
+        statements = _migration_statements(MIGRATION_0361, cloud_deployment)
         model_mv_positions = [
             position
             for position, sql in enumerate(statements)

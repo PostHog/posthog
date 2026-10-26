@@ -161,7 +161,9 @@ from posthog.clickhouse.client.limit import (
     get_materialized_endpoints_rate_limiter,
 )
 from posthog.clickhouse.query_tagging import (
+    add_fallback_query_tags,
     get_query_tag_value,
+    get_query_tags,
     is_api_key_access_method,
     is_known_product_tag,
     tag_queries,
@@ -528,6 +530,12 @@ def shared_insights_execution_mode(execution_mode: ExecutionMode) -> SharedExecu
     )
 
 
+def _organization_plan(team: Team) -> str:
+    if team.organization.has_active_subscription is None:
+        return "unknown"
+    return "paid" if team.organization.has_active_subscription else "free"
+
+
 def _api_queries_budget_enforcement_enabled(team: Team) -> bool:
     org_id = str(team.organization_id)
     try:
@@ -536,6 +544,7 @@ def _api_queries_budget_enforcement_enabled(team: Team) -> bool:
                 API_QUERIES_BUDGET_ENFORCEMENT_FLAG,
                 org_id,
                 groups={"organization": org_id},
+                person_properties={"organization_plan": _organization_plan(team)},
                 group_properties={"organization": {"id": org_id}},
                 only_evaluate_locally=False,
                 send_feature_flag_events=False,
@@ -543,6 +552,15 @@ def _api_queries_budget_enforcement_enabled(team: Team) -> bool:
         )
     except Exception:
         return False
+
+
+def _budget_event_product(query: object | None = None) -> str | None:
+    """Resolve product fallbacks before execution without changing the live query tags."""
+    tags = get_query_tags().model_copy(deep=True)
+    if query is not None:
+        tags.query = query
+    add_fallback_query_tags(tags)
+    return str(tags.product) if tags.product else None
 
 
 def api_queries_budget_enforcement_enabled(team: Team) -> bool:
@@ -578,7 +596,7 @@ def get_api_queries_budget_status(team: Team) -> Optional[BudgetStatus]:
         return None
 
 
-def enforce_api_queries_budget(team: Team) -> None:
+def enforce_api_queries_budget(team: Team, query: object | None = None) -> None:
     """Hourly read budget for api key queries. Observe-only until the org is flagged in;
     then an exhausted budget is a 429. The query that crosses the line still runs in full,
     since the budget is debited after the query and the next request is the one refused."""
@@ -603,18 +621,19 @@ def enforce_api_queries_budget(team: Team) -> None:
     if claim_limited_event(str(team.pk)):
         try:
             access_method = get_query_tag_value("access_method")
-            product = get_query_tag_value("product")
+            product = _budget_event_product(query)
             report_team_action(
                 team,
                 "api queries budget limited",
                 {
                     "outcome": outcome,
                     "team_id": team.pk,
+                    "organization_plan": _organization_plan(team),
                     "bytes_per_hour": status.spec.bytes_per_hour,
                     "remaining_bytes": status.remaining_bytes,
                     "retry_after_seconds": status.retry_after_seconds,
                     "access_method": str(access_method) if access_method else None,
-                    "product": str(product) if product else None,
+                    "product": product,
                 },
             )
         except Exception as e:
@@ -1085,6 +1104,18 @@ def get_query_runner(
             user=user,
         )
 
+    if kind == "WebPageDirectoryQuery":
+        from products.web_analytics.backend.hogql_queries.web_page_directory import WebPageDirectoryQueryRunner
+
+        return WebPageDirectoryQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+            user=user,
+        )
+
     if kind == "WebVitalsPathBreakdownQuery":
         from products.web_analytics.backend.hogql_queries.web_vitals_path_breakdown import (
             WebVitalsPathBreakdownQueryRunner,
@@ -1184,6 +1215,18 @@ def get_query_runner(
         from products.error_tracking.backend.facade.queries import ErrorTrackingIssueCorrelationQueryRunner
 
         return ErrorTrackingIssueCorrelationQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+            user=user,
+        )
+
+    if kind == "ErrorTrackingIssueEventsQuery":
+        from products.error_tracking.backend.facade.queries import ErrorTrackingIssueEventsQueryRunner
+
+        return ErrorTrackingIssueEventsQueryRunner(
             query=query,
             team=team,
             timings=timings,
@@ -2305,6 +2348,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             )
 
         if isinstance(cached_response, CachedResponse):
+            self._fill_cached_result_order(cached_response)
             # Apply current query's custom_name values to cached response
             # (custom_name is excluded from cache key, so cached values may be stale)
             cached_response, custom_names_modified = self.apply_series_custom_names(cached_response)
@@ -3192,7 +3236,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         return feature.get("limit") if feature else None
 
     def _enforce_api_queries_budget(self) -> None:
-        enforce_api_queries_budget(self.team)
+        enforce_api_queries_budget(self.team, self.query)
 
     @abstractmethod
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
@@ -3337,6 +3381,24 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         elif isinstance(self.query, FunnelsQuery):
             return self._apply_funnels_custom_names(cached_response)
         return cached_response, False
+
+    def _fill_cached_result_order(self, cached_response: CR) -> None:
+        """Copy `action.order` to the top level of cached trends, stickiness and lifecycle rows that lack it.
+
+        Stickiness, lifecycle and calendar heatmap rows cached before those runners emitted a top-level `order`
+        carry it only on `action`, and readers take a row's series from the top-level `order`.
+        """
+        if not isinstance(self.query, TrendsQuery | StickinessQuery | LifecycleQuery):
+            return
+        results = getattr(cached_response, "results", None)
+        if not isinstance(results, list):
+            return
+        for result in results:
+            if not isinstance(result, dict) or "order" in result:
+                continue
+            action = result.get("action")
+            if isinstance(action, dict) and isinstance(action.get("order"), int):
+                result["order"] = action["order"]
 
     def _apply_trends_custom_names(self, cached_response: CR) -> tuple[CR, bool]:
         """Apply custom_name values to TrendsQuery results (nested under action)."""
@@ -3780,12 +3842,11 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
 
         # Non-real principals (service tokens, shared-link viewers) are scope-gated on system tables;
         # partition on the readable scopes so a narrower token can't be served a broader principal's
-        # cached result. Bypassed scopes are readable for them, and listing them as restricted would
-        # collide with users who are genuinely denied those resources.
+        # cached result. `queried_resources` already leaves out the scopes they bypass.
         if not isinstance(user, User):
             if queried_resources is None:
                 return ["*"]
-            restricted = queried_resources - user.readable_system_table_access_scopes() - self._bypassed_access_scopes
+            restricted = queried_resources - user.readable_system_table_access_scopes()
             return sorted(restricted) or None
 
         user_access_control = self.user_access_control

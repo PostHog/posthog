@@ -18,18 +18,19 @@ The AI detector makes a charged model call on every check, so most of these rule
 - The per-project cap is `max_llm_alerts_per_team` in the flag payload. It counts only enabled AI alerts, and it is checked only on a write that adds one, so lowering it never blocks an edit.
 - Simulate with the AI detector is a charged call. It needs `alert:write` and is throttled per project.
 
-### The score is confidence, not probability
+### One question per check
 
-- The model returns confidence in its own verdict. It is not calibrated and is not comparable with a statistical detector's score.
-- The stored anomaly score is `confidence` for an anomaly verdict and `1 - confidence` for an all-clear. The check also stores the verdict, and history classification reads the verdict, not the score.
-- Label the number "model confidence" or "Anomaly confidence" in copy. Never call it a probability.
+- Every check asks the model one question: is the latest point anomalous, given its history? The verdict is the fire decision. There is no score, no confidence, and no threshold.
+- The lookback follows the insight interval (`llm_detector_lookback`). The config has no window.
+- The prompt marks the points that earlier AI checks of the alert fired on, with each check's rationale. Errored and statistical checks are left out. The verdict memo key covers these flags.
+- Simulate makes one live check of the latest point. It never scans the history.
 
 ### Evaluation
 
 - A check that cannot reach a verdict records an error. It never returns "no anomaly", because an alert that silently stops firing looks healthy.
-- A live check fires only when the model flags the latest point. A series with fewer than five points is never sent to the model.
+- A series with fewer than five points is never sent to the model.
 - Every detector check stores `detector_type`, `insight_id` and `series_index` as provenance, so an investigation reads the check the way it was produced after the alert changes.
-- Metric metadata in the prompt is escaped and marked as data.
+- Metric metadata and earlier rationales in the prompt are escaped and marked as data.
 
 ### Where the code lives
 

@@ -50,6 +50,8 @@ with workflow.unsafe.imports_passed_through():
         TickPage,
     )
     from products.alerts_platform.backend.logic.demand import discover_demand
+    from products.alerts_platform.backend.logic.inventory import count_inventory
+    from products.alerts_platform.backend.temporal.inventory_metrics import push_inventory
     from products.alerts_platform.backend.temporal.postgres import check_postgres_connection
     from products.alerts_platform.backend.temporal.sources import SOURCE_BINDINGS, discovery_limits
 
@@ -106,6 +108,19 @@ async def alerts_platform_discover_demand_activity(inputs: DemandDiscoveryInputs
         if omitted:
             safe_record(increment_discovery_omitted, source.value, omitted)
     return demand
+
+
+@activity.defn
+async def alerts_platform_record_inventory_activity() -> None:
+    """A failed count is logged rather than raised, so a slow count never reads as a failed workflow."""
+    now = dt.datetime.now(dt.UTC)
+    try:
+        inventories = await database_sync_to_async_pool(count_inventory)(now)
+    except Exception as error:
+        await LOGGER.awarning("alerts_platform_inventory_failed", error=str(error))
+        return
+    # A failed push is logged and captured inside `push_registry`, never raised.
+    await asyncio.to_thread(push_inventory, inventories)
 
 
 @activity.defn
@@ -393,6 +408,20 @@ class AlertsPlatformSourceDispatchWorkflow(PostHogWorkflow):
         )
 
 
+@workflow.defn(name="alerts-platform-record-inventory")
+class AlertsPlatformRecordInventoryWorkflow(PostHogWorkflow):
+    inputs_cls = AlertsPlatformInputs
+    inputs_optional = True
+
+    @workflow.run
+    async def run(self, inputs: AlertsPlatformInputs) -> None:
+        await workflow.execute_activity(
+            alerts_platform_record_inventory_activity,
+            start_to_close_timeout=dt.timedelta(seconds=20),
+            retry_policy=RetryPolicy(maximum_attempts=1),
+        )
+
+
 def _should_continue_as_new() -> bool:
     return workflow.info().is_continue_as_new_suggested()
 
@@ -525,8 +554,12 @@ class AlertsPlatformOrchestrateWorkflow(PostHogWorkflow):
 SHARED_ORCHESTRATION_WORKFLOWS: list[type[PostHogWorkflow]] = [
     AlertsPlatformOrchestrateWorkflow,
     AlertsPlatformSourceDispatchWorkflow,
+    AlertsPlatformRecordInventoryWorkflow,
 ]
-SHARED_ORCHESTRATION_ACTIVITIES: list[Callable[..., object]] = [alerts_platform_discover_demand_activity]
+SHARED_ORCHESTRATION_ACTIVITIES: list[Callable[..., object]] = [
+    alerts_platform_discover_demand_activity,
+    alerts_platform_record_inventory_activity,
+]
 EVALUATION_WORKFLOWS: list[type[PostHogWorkflow]] = [AlertsPlatformEvaluateWorkflow]
 EVALUATION_ACTIVITIES: list[Callable[..., object]] = [
     alerts_platform_probe_postgres_activity,
