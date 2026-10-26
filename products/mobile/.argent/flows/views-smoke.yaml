@@ -8,7 +8,7 @@ steps:
 
     - echo: On sign-in. Tap Try the demo. Expect the inbox
     - tap: { id: try-demo }
-    - await: { visible: { id: inbox-refresh } }
+    - await: { visible: { id: inbox-screen } }
     - await: { idle: true }
 
     - echo: On the inbox. Open Views from the bottom bar. Expect the pinned list
@@ -131,7 +131,7 @@ steps:
     - scroll-to: { target: { id: chart-demo-tile-9-cell-3-2 } }
     - tap: { id: chart-demo-tile-9-cell-3-2 }
     - await: { visible: { id: chart-demo-tile-9-callout } }
-    - assert: { text: { in: { id: chart-demo-tile-9-callout }, contains: Sep 13 cohort } }
+    - assert: { text: { in: { id: chart-demo-tile-9-callout }, contains: 'Week 2: 36%, 163 of 458 people' } }
     - await: { idle: true }
 
     - echo: Go back. Expect Views
@@ -155,7 +155,7 @@ steps:
 
     - echo: On Views. Go to Home from the bottom bar. Expect the inbox
     - tap: { id: inbox-nav-home }
-    - await: { visible: { id: inbox-refresh } }
+    - await: { visible: { id: inbox-screen } }
     - await: { idle: true }
 
     - echo: On the inbox. Open the menu. Expect Settings in it
@@ -165,6 +165,7 @@ steps:
 
     - echo: Menu open. Open Settings. Expect Exit demo
     - tap: { id: nav-settings }
+    - scroll-to: { target: { id: settings-exit-demo } }
     - await: { visible: { id: settings-exit-demo } }
     - await: { idle: true }
 

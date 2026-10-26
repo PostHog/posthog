@@ -77,11 +77,11 @@ The flow:
 8. goes Home and taps **Exit demo** in Settings.
 
 It starts and ends on the sign-in screen with demo mode off, so you can run it again right away.
-Every step uses the app's `testID`s, except the scrim tap, which uses the scrim's "Close" label.
+Actions use the app's `testID`s, except the hand-off sheet drag, which starts on its "Choose an agent" header.
 
 ### Set up once
 
-1. Install Argent: `npm install -g @swmansion/argent`.
+1. Install the same Argent version as CI: `npm install -g @swmansion/argent@0.30.1`.
 2. Install ffmpeg if you want screen recordings: `brew install ffmpeg`.
 3. Install Xcode with an iOS simulator runtime, and CocoaPods.
 
@@ -111,6 +111,37 @@ If more than one simulator is booted, add `--device <udid>` (see `xcrun simctl l
 
 Two `idle` steps can warn that a small part of the screen was still changing, such as the text caret.
 The step after each one waits for a stable element, so these warnings are expected.
+
+### Advisory CI demo flows
+
+Mobile CI runs both `demo-smoke` and `views-smoke` when mobile source changes. The simulator job is advisory;
+its result does not gate a release. It uses a bundled Release app with no Metro connection. Argent reads the
+native view hierarchy, so the flows do not need a development build or its overlays.
+
+The build disables analytics and over-the-air updates. The runner creates a temporary iPhone 17 Pro simulator,
+installs the app again before each flow, and deletes the simulator on success, failure, or interruption.
+Only demo fixtures are used; no PostHog account, API key, Expo token, or Apple signing credentials are needed.
+Both flows run even when the first fails. JSON reports, failed-step screenshots, and build logs are uploaded
+as the `mobile-argent` workflow artifact.
+
+To run the same checks locally, install the app dependencies, CocoaPods, and Xcode 26.6 with the iOS 26.5 runtime,
+then run from `products/mobile`. A dedicated Argent install keeps the runner separate from an editor's server:
+
+```sh
+DO_NOT_TRACK=1 npm install --prefix /tmp/mobile-argent-tools --no-audit --no-fund @swmansion/argent@0.30.1
+export PATH="/tmp/mobile-argent-tools/node_modules/.bin:$PATH"
+bash scripts/ci-argent-build.sh /tmp/mobile-argent-build /tmp/mobile-argent-artifacts
+bash scripts/ci-argent.sh \
+    /tmp/mobile-argent-build/Build/Products/Release-iphonesimulator/PostHog.app \
+    /tmp/mobile-argent-artifacts
+```
+
+The build regenerates the ignored `ios/` project, so run it in a disposable checkout if you have manual native edits.
+To select another installed simulator runtime, set
+`ARGENT_IOS_RUNTIME` to its identifier from `xcrun simctl list runtimes`, for example
+`com.apple.CoreSimulator.SimRuntime.iOS-27-0`. Simulator-only builds do not sign or publish anything.
+Argent's [e2e reference](https://docs.swmansion.com/argent/docs/reference/e2e-yaml/) documents the native
+selectors and the `--output` reports. The older `argent flow` command remains an alias for `argent e2e`.
 
 ### Record a video
 

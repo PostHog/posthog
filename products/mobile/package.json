@@ -18,12 +18,15 @@
         "build:dev:android": "sh scripts/eas-build.sh --profile development --platform android",
         "build:preview": "sh scripts/eas-build.sh --profile preview --platform ios",
         "build:preview:android": "sh scripts/eas-build.sh --profile preview --platform android",
-        "build:production": "sh scripts/eas-build.sh --profile production --platform ios",
-        "build:production:android": "sh scripts/eas-build.sh --profile production --platform android",
-        "submit:ios": "eas submit --profile production --platform ios",
-        "submit:android": "eas submit --profile production --platform android",
-        "update:preview": "APP_VARIANT=preview eas update --channel preview --environment preview --auto",
-        "update:production": "APP_VARIANT=production EXPO_PUBLIC_SIGNUP_LINK=0 eas update --channel production --environment production --auto"
+        "build:production": "node scripts/releases/release.mjs hosted-only",
+        "build:production:android": "node scripts/releases/release.mjs hosted-only",
+        "submit:ios": "node scripts/releases/release.mjs hosted-only",
+        "submit:android": "node scripts/releases/release.mjs hosted-only",
+        "update:preview": "node scripts/releases/release.mjs hosted-only",
+        "update:production": "node scripts/releases/release.mjs hosted-only",
+        "release:request": "node scripts/releases/release.mjs request",
+        "release:check": "node scripts/releases/release.mjs check",
+        "release:test": "node --test scripts/releases/*.test.mjs"
     },
     "expo": {
         "autolinking": {

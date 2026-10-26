@@ -3,6 +3,92 @@
 How to build the app with EAS, install it on test devices, and ship it to TestFlight, the Play internal track and the stores.
 Over-the-air JavaScript updates are in [OTA.md](OTA.md). The CI workflows are in [CI.md](CI.md).
 
+## Request a hosted release
+
+Production releases run in GitHub Actions after a release request merges to `master`.
+Add the request to the same PR as the app changes. Do not publish production builds or updates from a local checkout.
+The implementation includes no active request, so merging the release tooling alone publishes nothing.
+
+From `products/mobile`, choose one:
+
+```sh
+# First hosted release: raise version in app.config.ts above 1.3.0 first.
+pnpm release:request native --id native-140 --initial --notes "Describe the changes testers should verify."
+
+# Later native release: raise version again; name the last completed request.
+pnpm release:request native --id native-150 --previous native-140 --notes "Describe the native changes."
+
+# JavaScript/assets only: keep the installed native runtime version.
+pnpm release:request ota --id chart-legend-fix --previous native-150 --notes "Fix the chart legend."
+
+pnpm release:check
+pnpm release:test
+```
+
+Commit the generated `releases/requests/<id>.json` with the source changes. Review its kind, version, predecessor and release notes.
+IDs use lowercase letters, digits and hyphens. Requests are append-only: never edit, rename or delete one after merging it.
+Only one new request may appear in a master push. `previousRelease` names the last completed request, including OTA requests. A corrective request can explicitly follow that receipt when an earlier request failed before publication; the failed manifest remains historical and inert.
+The template at `releases/request.json.example` is inert and may also be copied and filled in manually.
+Release notes and receipts are public; keep customer data, credentials and private operational details out of them.
+
+`native` produces both production binaries, waits for both builds to finish, then submits those exact build IDs to TestFlight and Play internal testing.
+It never selects `--latest`. The job waits for EAS submission to finish; Apple can still need processing time before TestFlight makes the build available.
+Public App Store review and Play production promotion remain manual after testing.
+
+`ota` requires a successful hosted native release first. The request version must match the current app version and that native receipt's runtime.
+The workflow compares Expo fingerprints for both platforms against the recorded native baseline.
+Native build results must also provide matching EAS fingerprints before either binary is submitted.
+A new native dependency, native configuration change, widget/plugin change or other fingerprint difference blocks OTA and requires a native request with a higher app version.
+Remote EAS variables that affect native configuration must stay stable for a runtime; change them only with a new native release.
+The first hosted native release must raise `version` above the existing `1.3.0` baseline in `releases/config.json`.
+This deliberately establishes new binaries and a verified baseline instead of guessing compatibility with older manually built apps.
+
+### What runs after merge
+
+1. `Mobile Release` checks the exact master push diff. It selects only the newly added request, rather than sweeping historical requests.
+2. The reusable `Mobile CI` runs typecheck, lint, Jest, release metadata validation and release policy tests on that exact commit. Native UI smoke remains advisory.
+3. The publisher enters the `mobile-production` GitHub environment, loads the EAS `production` environment, fixes `APP_VARIANT=production` and disables the signup link.
+4. Before contacting EAS to build or publish, it creates a durable draft GitHub receipt at `mobile-release/<id>`. This claims the request so an interrupted retry cannot duplicate a release.
+5. A `mobile-staging` deployment records the stage. Native requests build production binaries; OTA requests publish to an unlinked `mobile-staging-<id>` EAS branch.
+6. Native requests submit the completed binaries. OTA requests republish the exact staged group to the production channel; they do not rebuild the bundle during promotion.
+7. The receipt records the source commit, request, staging deployment, build IDs or update groups, and the native runtime/fingerprints. It becomes a GitHub prerelease, and the dedicated annotated `mobile-production` tag points at the completed source.
+
+The workflow runs only on trusted master pushes in `PostHog/posthog`. Pull requests have no publishing step or Expo token.
+Development/preview builds remain manually available through `Mobile Build`; production is handled by release requests.
+The package's old production build, submit and update commands stop with a hosted-release instruction.
+
+### One-time hosted release setup
+
+Keep the EAS credentials and store setup below. Also:
+
+- Create the `mobile-production` GitHub environment, restrict deployments to `master`, and make `EXPO_TOKEN` available there (or retain the existing repository secret).
+  No manual reviewer gate is required by this workflow; environment protection settings can add one if the team wants it.
+- Permit the workflow's `GITHUB_TOKEN` to create releases/tags and deployment records. The workflow requests only contents and deployments write access in its publishing job.
+- Keep production build-time variables readable as Plain text or Sensitive. The publisher audits both project variables and linked account variables before claiming a request; any Secret value blocks the release because it cannot be included in the compatibility check. Signing/submission keys belong in EAS credentials, not these variables.
+- Set `GOOGLE_SERVICES_JSON` to a **Sensitive file** variable. The publisher reads its base64 file content through the authenticated Expo API, writes an ignored file with owner-only permissions, and uses it during fingerprinting and configuration. Neither contents nor other variable values appear in receipts or artifacts. Secret files, unreadable file values and other file-variable names fail closed before an EAS build or OTA publish. Native EAS fingerprint results must match these materialized inputs.
+- The native environment is audited and fingerprinted again after staging. A change to variable names, types or contents blocks production publication, including removed values. Snapshot hashes stay in memory. Variables that overwrite GitHub identity, credentials or the runner command environment are rejected before any values are applied; the script imports the audited environment itself.
+- Complete the initial Play Console app/signing/internal-tester setup before requesting the first Android submission. Confirm the production iOS App Store Connect record and stored API key.
+- Stop using the older Desktop Mobile Build/Promote workflows for this iOS store identity. The release request flow does not retire those separate workflows.
+
+### Receipts, ordering and retries
+
+The workflow run and `mobile-production` deployment report its outcome. The `mobile-staging` deployment records the build/update staging outcome.
+The GitHub prerelease `mobile-release/<id>` contains a machine-readable JSON receipt; the Actions run also retains a receipt artifact, including a claimed receipt if publishing fails.
+A completed request rerun does not repeat EAS publication. If only the production pointer update failed, rerunning repairs it without resubmitting.
+
+GitHub keeps at most one pending job in a concurrency group. When several requests merge quickly, a newer pending job can replace an older one.
+The predecessor check prevents the newer request from skipping it: it fails before claiming or publishing, with the missing predecessor named in its request.
+Rerun the original predecessor workflow, then rerun its successor. Keep one release outstanding at a time for the simplest operation.
+No run automatically changes its checkout to a newer master commit.
+
+If a request has a draft/claimed receipt, **do not delete it and blindly rerun**. A timeout may have happened after EAS accepted an upload or submission.
+Use its source commit, run URL, staged build IDs/group and EAS message (`mobile-release:<id>@<commit>`) to reconcile both platforms in EAS and the stores.
+If nothing reached EAS, an operator may remove the draft receipt and rerun the original workflow.
+If publication happened, repair that receipt and production pointer from the verified EAS results, without resubmitting; retain the claim until reconciliation is complete.
+A partially submitted native release needs operator recovery of the unfinished platform using its recorded build ID, rather than a new automatic build.
+A corrective request may follow the last completed receipt only when the failed request was never claimed. Any sibling request with a receipt blocks that correction until its publication or production pointer has been reconciled.
+These recovery operations require release access and are exceptional; routine publication stays in GitHub Actions.
+
 ## Store records this app uses
 
 This app replaces the existing "PostHog" iOS app and uses a new Google Play app record.
@@ -49,10 +135,10 @@ Profiles are in `eas.json`. Each profile has its own update channel and EAS envi
 | --- | --- | --- | --- | --- |
 | `development` | Ad hoc (iOS), APK (Android) | Developers, with Metro for live reload | `development` | `pnpm build:dev`, `pnpm build:dev:android` |
 | `preview` | Ad hoc (iOS), APK (Android) | Internal testers on registered devices | `preview` | `pnpm build:preview`, `pnpm build:preview:android` |
-| `production` | App Store (iOS), app bundle (Android) | TestFlight, Play internal track, then the stores | `production` | `pnpm build:production`, `pnpm build:production:android` |
+| `production` | App Store (iOS), app bundle (Android) | TestFlight, Play internal track, then the stores | `production` | Merged `native` release request |
 
 `appVersionSource` is `remote`, so EAS stores the iOS build number and the Android version code.
-Production builds raise them automatically (`autoIncrement`).
+Production builds raise them automatically (`autoIncrement`); the public app/runtime version still needs a deliberate bump in each native release PR.
 Check the current values with `eas build:version:get`.
 
 The `pnpm build:*` scripts run `scripts/eas-build.sh`.
@@ -476,19 +562,9 @@ The store listing and other setup tasks can be completed before expanding beyond
 See [Google Play internal testing](https://support.google.com/googleplay/android-developer/answer/9845334)
 and [Expo manual submission](https://docs.expo.dev/submit/android-manual/).
 
-From your machine:
-
-```sh
-pnpm build:production                 # iOS
-pnpm submit:ios --latest              # to App Store Connect, then TestFlight
-pnpm build:production:android
-pnpm submit:android --latest          # to the Play internal track
-```
-
-Pass `--latest` without a `--` before it. pnpm forwards a `--` to `eas`, which then reads `--latest` as an argument instead of a flag.
-
-From CI: run the "Mobile Build" workflow from `master` with profile `production`, platform `all`, and submit checked.
-EAS submits each build when it finishes. Follow progress on the EAS project page.
+Add a `native` release request to the app PR as described above. Once it merges and the hosted checks pass,
+`Mobile Release` builds both platforms and waits for submission to TestFlight and the Play internal track.
+Use the receipt's exact build IDs to follow progress in EAS and the stores.
 
 After the iOS upload, App Store Connect processes the build for 5 to 30 minutes before it shows in TestFlight.
 
@@ -497,7 +573,7 @@ After the iOS upload, App Store Connect processes the build for 5 to 30 minutes 
 1. Test the TestFlight build and the Play internal build.
 2. In App Store Connect, add the build to a new version, write the release notes, and submit it for review.
 3. In the Play Console, promote the internal release to production.
-4. Raise `version` in `app.config.ts` after the release, so the next native build gets a new version and runtime version.
+4. Keep the released version while shipping compatible OTA fixes. Raise `version` in the PR for the next native release, so that request establishes a new runtime.
 
 ## Before you share a build
 

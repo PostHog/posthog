@@ -24,21 +24,17 @@ still use the previous startup-only flow: one cold start downloads it and a late
 ## Channels
 
 Each build profile in `eas.json` sets a channel, and the build listens to that channel for life.
-Each channel points at the EAS branch with the same name.
+Channels are managed by EAS. Production updates are promoted by the hosted release workflow.
 
-| Profile | Channel | Branch | Publish with |
-| --- | --- | --- | --- |
-| `development` | `development` | `development` | Not used. Development builds load from Metro. |
-| `preview` | `preview` | `preview` | `pnpm update:preview` |
-| `production` | `production` | `production` | `pnpm update:production` |
+| Profile | Channel | Distribution |
+| --- | --- | --- |
+| `development` | `development` | Metro; OTA is not used. |
+| `preview` | `preview` | Internal builds from Mobile Build. |
+| `production` | `production` | Hosted `ota` release requests. |
 
-Both update scripts pass `--environment`, so the bundle gets the same `EXPO_PUBLIC_*` values as the builds on that channel.
-Expo SDK 55 and later require it.
+TestFlight and public-store builds share the production channel. An OTA can reach both when their runtime versions match; TestFlight is not a separate OTA audience.
 
-The `env` block of a build profile in `eas.json` applies to builds only, not to `eas update`.
-So the update scripts set the same values themselves: `APP_VARIANT` on both, and `EXPO_PUBLIC_SIGNUP_LINK=0` on production.
-If you run `eas update` by hand, set them the same way.
-The app reads its variant from its bundle id first, so an update with the wrong `APP_VARIANT` cannot make a store build look internal, but the sign-up link follows the update.
+The workflow loads the EAS production environment and explicitly sets `APP_VARIANT=production` and `EXPO_PUBLIC_SIGNUP_LINK=0`. The `env` block of an EAS build profile applies only to builds, so OTA publication sets the same values itself.
 
 Do not run `pnpm update`. That is pnpm's own command, and it upgrades dependencies.
 
@@ -47,55 +43,38 @@ Do not run `pnpm update`. That is pnpm's own command, and it upgrades dependenci
 `app.config.ts` sets `runtimeVersion.policy` to `appVersion`, so the runtime version equals `version` (now `1.3.0`).
 An update reaches only the builds with the same runtime version.
 
-The policy does not detect native changes. You must raise `version` when a change needs native code, for example:
+The device's `appVersion` policy does not detect native changes. The hosted release workflow additionally compares Expo native fingerprints for both platforms against the last successful native release. You must raise `version` and request a native release when a change needs native code, for example:
 
 - a new or upgraded package with native code (most `expo-*` and `react-native-*` packages),
 - a new or changed config plugin, or a change to `ios`, `android` or `plugins` in `app.config.ts`,
 - an Expo SDK upgrade.
 
-Then make new builds. If you publish such a change as an update to the old runtime version, the app can crash on start.
-If you are not sure, check whether `npx expo prebuild --clean` produces a different `ios/` or `android/` folder.
+An incompatible OTA request fails before publication. The first hosted release must be native to establish this compatibility baseline; the implementation PR contains no request and publishes nothing.
 
 ## Ship a JavaScript-only fix
 
-1. Commit the fix. `--auto` uses the last commit message as the update message.
-2. Publish to preview and test it on a preview build:
+1. Keep `version` unchanged for a JavaScript/assets-only fix. Find the preceding completed request in the latest mobile release receipt.
+2. Prepare a request locally; this command only writes a file:
 
    ```sh
    cd products/mobile
-   pnpm update:preview
+   pnpm release:request ota --id fix-chat-layout --previous <completed-request-id> --notes "Fix the chat layout"
    ```
 
-   Open the app on an Inbox, Chats or Views tab with no keyboard open. Once a check has downloaded the update,
+3. Include the request and fix in a PR. On merge to `master`, Mobile Release runs the required checks, verifies native compatibility, stages the update on an unlinked EAS branch, and promotes that exact group to production. Local `update:production` and `update:preview` commands no longer publish.
+4. Verify the completed receipt and device behavior. Open the app on an Inbox, Chats or Views tab with no keyboard open. Once a check has downloaded the update,
    background the app for at least five minutes and return. Settings in an internal build shows the new update id.
    Checks are throttled to once per 15 minutes, so a return immediately after publishing may not fetch it yet.
    Also verify that returning to an open chat preserves the draft and defers the reload, and that an offline launch
    opens normally. To test the first OTA that adds this behavior, use the previous two-cold-start flow once.
 
-3. Publish the same commit to production:
-
-   ```sh
-   pnpm update:production
-   ```
-
-   To limit the risk, start with part of the users and raise it later:
-
-   ```sh
-   pnpm update:production --rollout-percentage 10
-   eas update:edit <update group id> --rollout-percentage 100    # when the update looks healthy
-   ```
+The workflow publishes to the full compatible production audience. Staged percentage rollouts are not exposed by the request schema yet.
 
 ## Roll back
 
-Find the last good update group on the branch, then publish it again as the newest update:
+For a normal rollback, revert the faulty JavaScript change in a new PR and add an `ota` request following the last completed release. Do not edit an old request or move the production pointer manually. The same tests and compatibility checks apply.
 
-```sh
-eas update:list --branch production
-eas update:republish --group <update group id>
-```
-
-To send devices back to the JavaScript inside their build, use `eas update:roll-back-to-embedded --branch production`.
-`eas update:rollback` asks which of the two you want.
+If publication stopped after claiming a request, follow the reconciliation procedure in [RELEASING.md](RELEASING.md) before requesting another release. Do not rerun a local EAS publish command to work around the receipt.
 
 A rollback follows the same download and safe-return policy as an update. A cold start can also apply a staged rollback.
 

@@ -8,7 +8,7 @@ steps:
 
     - echo: On sign-in. Tap Try the demo. Expect the inbox
     - tap: { id: try-demo }
-    - await: { visible: { id: inbox-refresh } }
+    - await: { visible: { id: inbox-screen } }
     - await: { idle: true }
 
     - echo: On the inbox. Open Report load time. Expect its report screen
@@ -21,8 +21,8 @@ steps:
     - await: { visible: { id: handoff-agent-posthog } }
     - await: { idle: true }
 
-    - echo: Hand-off sheet open. Tap the scrim (label Close) to close it. Expect the sheet to go
-    - tap: { text: Close }
+    - echo: Hand-off sheet open. Drag its header down to close it. Expect the sheet to go
+    - swipe: { from: { text: Choose an agent }, direction: down }
     - await: { hidden: { id: handoff-agent-posthog } }
 
     - echo: Back on the report. Open Resolve. Expect the resolve sheet
@@ -34,7 +34,7 @@ steps:
     - tap: { id: resolve-sheet-reason-fixed_outside_posthog }
     - tap: { id: resolve-sheet-confirm }
     - await: { hidden: { id: resolve-sheet-confirm } }
-    - await: { visible: { id: inbox-refresh } }
+    - await: { visible: { id: inbox-screen } }
     - await: { idle: true }
     - await: { hidden: { id: inbox-row-demo-report-load-time } }
 
@@ -77,7 +77,7 @@ steps:
 
     - echo: On the report. Go back. Expect the inbox
     - tap: { id: report-back }
-    - await: { visible: { id: inbox-refresh } }
+    - await: { visible: { id: inbox-screen } }
     - await: { idle: true }
 
     - echo: On the inbox. Open Chats from the bottom bar. Expect the chats list
@@ -110,7 +110,7 @@ steps:
 
     - echo: On Chats. Go to Home from the bottom bar. Expect the inbox
     - tap: { id: inbox-nav-home }
-    - await: { visible: { id: inbox-refresh } }
+    - await: { visible: { id: inbox-screen } }
     - await: { idle: true }
 
     - echo: On the inbox. Open the menu. Expect Settings in it
@@ -120,6 +120,7 @@ steps:
 
     - echo: Menu open. Open Settings. Expect Exit demo
     - tap: { id: nav-settings }
+    - scroll-to: { target: { id: settings-exit-demo } }
     - await: { visible: { id: settings-exit-demo } }
     - await: { idle: true }
 

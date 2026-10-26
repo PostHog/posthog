@@ -1,10 +1,16 @@
 name: Mobile CI
 
-# Typecheck, lint and unit tests for the PostHog mobile app (products/mobile).
+# Typecheck, lint, unit tests and advisory native demo flows for the mobile app.
 # The app is its own pnpm workspace with its own lockfile, so this workflow never
 # installs the repo root workspace.
 
 on:
+    workflow_call:
+        inputs:
+            release_validation:
+                description: 'Run required release checks without the advisory simulator job'
+                type: boolean
+                default: false
     # Trigger paths keep the workflow inert on every PR that does not touch the app.
     # Markdown is excluded because no check here reads it.
     pull_request:
@@ -23,13 +29,41 @@ on:
             - '.github/workflows/mobile-ci.yml'
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    # A release caller has its own concurrency group; do not cancel or wait on it.
+    group: mobile-ci-${{ github.workflow }}-${{ github.head_ref || github.ref }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
     contents: read
 
 jobs:
+    changes:
+        name: Detect mobile changes
+        if: inputs.release_validation != true
+        # A change-detection outage must not make the advisory smoke check blocking.
+        continue-on-error: true
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        permissions:
+            contents: read
+            pull-requests: read
+        outputs:
+            mobile: ${{ steps.filter.outputs.mobile }}
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  persist-credentials: false
+                  sparse-checkout: .github/actions/paths-filter
+                  sparse-checkout-cone-mode: false
+            - uses: ./.github/actions/paths-filter
+              id: filter
+              with:
+                  base: ${{ github.event.before || github.event.repository.default_branch }}
+                  filters: |
+                      mobile:
+                          - 'products/mobile/**'
+                          - '!products/mobile/**/*.md'
+
     check:
         name: Typecheck, lint and test
         runs-on: depot-ubuntu-24.04
@@ -101,3 +135,110 @@ jobs:
 
             - name: Test
               run: pnpm test --ci
+
+            # Workflow changes also reach branches that have not rebased onto the
+            # release tooling yet. Those branches still run the existing checks.
+            - name: Fetch release validation base
+              if: hashFiles('products/mobile/scripts/releases/release.mjs') != '' && (github.event.pull_request.base.sha != '' || github.event.before != '')
+              env:
+                  MOBILE_RELEASE_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+              run: git fetch --no-tags --depth=1 --filter=blob:none origin "$MOBILE_RELEASE_BASE"
+
+            - name: Validate release requests
+              if: hashFiles('products/mobile/scripts/releases/release.mjs') != ''
+              env:
+                  MOBILE_RELEASE_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+              run: pnpm release:check
+
+            - name: Test release policy
+              if: hashFiles('products/mobile/scripts/releases/release.mjs') != ''
+              run: pnpm release:test
+
+    argent:
+        name: Argent demo flows (optional)
+        needs: changes
+        if: needs.changes.outputs.mobile == 'true'
+        # Advisory while we establish native-runner reliability. This job is not
+        # part of the release gate or a required branch-protection check.
+        continue-on-error: true
+        runs-on: macos-26
+        timeout-minutes: 45
+        defaults:
+            run:
+                working-directory: products/mobile
+        env:
+            CI: '1'
+            DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+            EXPO_NO_DOTENV: '1'
+            EXPO_NO_TELEMETRY: '1'
+            DO_NOT_TRACK: '1'
+            EXPO_PUBLIC_POSTHOG_KEY: ''
+            APP_VARIANT: production
+            EXPO_PUBLIC_SIGNUP_LINK: '0'
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  persist-credentials: false
+                  sparse-checkout: products/mobile
+                  sparse-checkout-cone-mode: false
+
+            - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+              with:
+                  package_json_file: products/mobile/package.json
+              env:
+                  NPM_CONFIG_FETCH_TIMEOUT: 45000
+                  NPM_CONFIG_FETCH_RETRIES: 2
+                  NPM_CONFIG_AUDIT: 'false'
+                  NPM_CONFIG_FUND: 'false'
+
+            - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+              with:
+                  node-version-file: products/mobile/.node-version
+                  token: ${{ github.token }}
+
+            - name: Get pnpm store path
+              id: pnpm-store
+              run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+            - name: Restore pnpm store
+              id: pnpm-cache
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ${{ steps.pnpm-store.outputs.path }}
+                  key: mobile-pnpm-${{ runner.os }}-${{ hashFiles('products/mobile/pnpm-lock.yaml') }}
+                  restore-keys: mobile-pnpm-${{ runner.os }}-
+
+            - name: Install dependencies
+              run: pnpm install --frozen-lockfile
+
+            - name: Save pnpm store
+              if: github.ref == 'refs/heads/master' && steps.pnpm-cache.outputs.cache-hit != 'true'
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ${{ steps.pnpm-store.outputs.path }}
+                  key: mobile-pnpm-${{ runner.os }}-${{ hashFiles('products/mobile/pnpm-lock.yaml') }}
+
+            - name: Install Argent
+              run: |
+                  npm install --prefix "$RUNNER_TEMP/mobile-argent-tools" --no-audit --no-fund @swmansion/argent@0.30.1
+                  echo "$RUNNER_TEMP/mobile-argent-tools/node_modules/.bin" >> "$GITHUB_PATH"
+
+            - name: Build bundled simulator app
+              if: hashFiles('products/mobile/scripts/ci-argent-build.sh') != ''
+              run: bash scripts/ci-argent-build.sh "$RUNNER_TEMP/mobile-argent-build" "$RUNNER_TEMP/mobile-argent-artifacts"
+
+            - name: Run demo flows
+              if: hashFiles('products/mobile/scripts/ci-argent.sh') != ''
+              run: |
+                  bash scripts/ci-argent.sh \
+                      "$RUNNER_TEMP/mobile-argent-build/Build/Products/Release-iphonesimulator/PostHog.app" \
+                      "$RUNNER_TEMP/mobile-argent-artifacts"
+
+            - name: Upload flow results
+              if: ${{ !cancelled() }}
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: mobile-argent-${{ github.run_id }}-${{ github.run_attempt }}
+                  path: ${{ runner.temp }}/mobile-argent-artifacts
+                  if-no-files-found: ignore
+                  retention-days: 7

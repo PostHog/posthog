@@ -1,10 +1,10 @@
 # CI
 
-Two GitHub Actions workflows cover the app. Both work inside `products/mobile` and never install the repo root workspace.
+Three GitHub Actions workflows cover the app. They install the independent `products/mobile` workspace.
 
 ## Mobile CI
 
-`.github/workflows/mobile-ci.yml` runs on pull requests and on pushes to `master` that change `products/mobile/**`, the Signals generated API schemas, or the workflow file.
+`.github/workflows/mobile-ci.yml` runs on pull requests and on pushes to `master` that change `products/mobile/**` or the workflow file.
 Markdown changes alone do not start it.
 
 One job runs these steps, the same commands you run locally:
@@ -14,13 +14,15 @@ pnpm install --frozen-lockfile
 pnpm typecheck
 pnpm lint
 pnpm test --ci
+pnpm release:check
+pnpm release:test
 ```
 
 Write `pnpm test --ci`, not `pnpm test -- --ci`. pnpm forwards the `--`, and Jest then reads `--ci` as a test path pattern.
 
 Details:
 
-- The checkout includes `products/signals/frontend/generated/api.schemas.ts` for the PR checks response type. It is a type-only import, so native builds still upload only `products/mobile`.
+- The checkout includes the mobile app and its existing generated Signals API types. Keep new runtime dependencies inside the mobile workspace.
 - pnpm comes from `packageManager` in `products/mobile/package.json`, not from the repo root.
 - Node comes from `products/mobile/.node-version`. Keep it equal to the repo's `.nvmrc` and to `node` in `eas.json`.
 - The pnpm store cache is keyed on `products/mobile/pnpm-lock.yaml`. Pull requests only restore it. Pushes to `master` save it.
@@ -30,24 +32,46 @@ Details:
   A required check must report on every pull request, so making it required needs a `changes` job instead of trigger paths.
   See `/authoring-ci-workflows`.
 
+### Argent demo flows (optional)
+
+A separate macOS job runs `demo-smoke` and `views-smoke` only when mobile source/configuration files change.
+Changing the workflow alone does not start the simulator job. It is advisory (`continue-on-error`) and must not be made a required branch-protection check yet.
+
+The job uses Xcode 26.6 on `macos-26`, builds a bundled Release simulator app, and runs pinned Argent 0.30.1 on a fresh simulator. Each flow gets a fresh installation and enters **Try the demo**. Analytics, OTA downloads and tool telemetry are disabled; no account or project credentials are supplied. Failure artifacts include build logs, flow results and screenshots, retained for seven days.
+
+See [TESTING.md](TESTING.md#advisory-ci-demo-flows) for the same commands locally. Native build time is separate from flow execution time.
+
+The release workflow calls Mobile CI with `release_validation: true`. That runs the required checks above without repeating the advisory simulator job. A smoke failure therefore does not block a merge or a release while this job is optional.
+
 ## Mobile Build
 
 `.github/workflows/mobile-build.yml` queues an EAS build. It runs only when someone starts it from the Actions tab.
 
 | Input | Values | Default |
 | --- | --- | --- |
-| `profile` | `development`, `preview`, `production` | `preview` |
+| `profile` | `development`, `preview` | `preview` |
 | `platform` | `all`, `ios`, `android` | `all` |
-| `submit` | Submit to TestFlight and the Play internal track when the build finishes | off |
 
 - The job runs `scripts/eas-build.sh` with `--no-wait`, so it ends once EAS has the upload. Follow the build on the EAS project page.
-- `submit` works only for the `production` profile and only from `master`. Other combinations fail before any upload.
-- With `submit`, EAS submits each build after it finishes (`--auto-submit`).
+- This workflow makes internal builds only. Store submission is owned by Mobile Release.
 - The build message is `<branch>@<commit>`, because EAS cannot read git when it uploads only this directory.
 - eas-cli is pinned in the workflow. Raise it on purpose, after reading its changelog.
-- It needs the `EXPO_TOKEN` repository secret. Store keys stay on EAS.
+- It needs an `EXPO_TOKEN` Actions secret available to the repository. Store keys stay on EAS.
 
-No workflow publishes over-the-air updates. Publish them from your machine, see [OTA.md](OTA.md).
+## Mobile Release
+
+`.github/workflows/mobile-release.yml` starts when a push to `master` adds a release request under `products/mobile/releases/requests/`. A normal app merge without a request does not publish anything. PR runs never publish.
+
+The request selects `native` or `ota`, names the app/runtime version, describes the changes, and identifies the preceding completed release. Requests are append-only; each release push adds exactly one. Use `pnpm release:request` to prepare the file, then include it in the app PR. See [RELEASING.md](RELEASING.md) for commands and first-release setup.
+
+After the required checks pass, the hosted publish job uses the exact tested commit:
+
+- **Native:** verify a higher app/runtime version, build both platforms, wait for successful builds, and submit those exact build IDs to TestFlight and Play internal testing. Public-store promotion remains manual.
+- **OTA:** verify the runtime and native fingerprints against the last completed native release, upload to an unlinked staging branch, and promote that exact update group to the production channel.
+
+The `mobile-production` environment and Expo credentials govern publication. A durable release receipt prevents a completed request from publishing twice. Interrupted publication requires reconciliation rather than blindly retrying; the request's predecessor prevents a later release from silently overtaking a missing one. See the release guide for recovery.
+
+Production build/submit/OTA package commands now direct developers to this request flow. No active release request is included with the automation itself.
 
 ## Check workflow changes
 
@@ -55,5 +79,5 @@ From the main checkout:
 
 ```sh
 hogli lint:workflows
-actionlint -config-file .github/actionlint.yaml .github/workflows/mobile-ci.yml .github/workflows/mobile-build.yml
+actionlint -config-file .github/actionlint.yaml .github/workflows/mobile-ci.yml .github/workflows/mobile-build.yml .github/workflows/mobile-release.yml
 ```
