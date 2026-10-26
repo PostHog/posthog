@@ -930,20 +930,58 @@ describe('cohortEditLogic', () => {
     })
 
     it.each([
-        { key: '$browser', operator: PropertyOperator.IContains, value: 'Chrome', label: 'contains' },
-        { key: '$browser', operator: PropertyOperator.StartsWith, value: 'Chr', label: 'starts with' },
-        { key: 'birth_date', operator: PropertyOperator.IsSet, value: null, label: 'is set' },
-        { key: 'birth_date', operator: PropertyOperator.IsNotSet, value: null, label: 'is not set' },
+        {
+            key: '$browser',
+            propertyType: PropertyType.String,
+            operator: PropertyOperator.StartsWith,
+            value: 'Chr',
+            label: 'starts with',
+        },
+        {
+            key: '$browser',
+            propertyType: PropertyType.String,
+            operator: PropertyOperator.NotStartsWith,
+            value: 'Chr',
+            label: 'does not start with',
+        },
+        {
+            key: '$browser',
+            propertyType: PropertyType.String,
+            operator: PropertyOperator.EndsWith,
+            value: 'ome',
+            label: 'ends with',
+        },
+        {
+            key: '$browser',
+            propertyType: PropertyType.String,
+            operator: PropertyOperator.NotEndsWith,
+            value: 'ome',
+            label: 'does not end with',
+        },
+        {
+            key: 'birth_date',
+            propertyType: PropertyType.DateTime,
+            operator: PropertyOperator.IsSet,
+            value: null,
+            label: 'is set',
+        },
+        {
+            key: 'birth_date',
+            propertyType: PropertyType.DateTime,
+            operator: PropertyOperator.IsNotSet,
+            value: null,
+            label: 'is not set',
+        },
     ])(
         'prefills a recent person filter with $operator during cohort creation',
-        async ({ key, operator, value, label }) => {
+        async ({ key, propertyType, operator, value, label }) => {
             const definitions = propertyDefinitionsModel.build()
             definitions.mount()
             definitions.actions.updatePropertyDefinitions({
                 [`person/${key}`]: {
                     id: key,
                     name: key,
-                    property_type: key === 'birth_date' ? PropertyType.DateTime : PropertyType.String,
+                    property_type: propertyType,
                 },
             })
             const recentFilters = recentTaxonomicFiltersLogic.build()

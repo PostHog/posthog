@@ -44,6 +44,7 @@ import {
     createCohortDataNodeLogicKey,
     createCohortFormData,
     isCohortCriteriaGroup,
+    isPersonOperatorShown,
     validateGroup,
 } from 'scenes/cohorts/cohortUtils'
 import { teamLogic } from 'scenes/teamLogic'
@@ -1184,12 +1185,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             const isDateTime = propDef?.property_type === PropertyType.DateTime
             const currentOperator = criteria.operator as PropertyOperator | undefined
 
-            if (
-                isDateTime &&
-                (!currentOperator || !isOperatorDate(currentOperator)) &&
-                newCriteria.operator !== PropertyOperator.IsSet &&
-                newCriteria.operator !== PropertyOperator.IsNotSet
-            ) {
+            if (isDateTime && (!currentOperator || !isPersonOperatorShown(currentOperator, PropertyType.DateTime))) {
                 actions.setCriteria({ operator: PropertyOperator.IsDateExact }, groupIndex, criteriaIndex)
             } else if (!isDateTime && currentOperator && isOperatorDate(currentOperator)) {
                 actions.setCriteria({ operator: PropertyOperator.Exact }, groupIndex, criteriaIndex)
