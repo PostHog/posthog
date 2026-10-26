@@ -127,4 +127,4 @@ class TestComputeRowHashes:
             }
         )
 
-        assert compute_row_hashes(row).to_pylist() == [bytes.fromhex("6eb5b7f8889929f8ef9b3525a2839006")]
+        assert compute_row_hashes(row).to_pylist() == [bytes.fromhex("6eb5b7f8889929f8")]

@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 # hash, so a reader can tell an old hash apart from a current one and recompute it instead of
 # reading every row as changed.
 ROW_HASH_VERSION = 1
-ROW_HASH_TYPE = pa.binary(16)
+ROW_HASH_TYPE = pa.binary(8)
 
 _FIELD_SEPARATOR = b"\x1f"
 _BINARY = pa.large_binary()
@@ -24,7 +24,7 @@ _HASH_SLICE_ROWS = 65_536
 
 
 def compute_row_hashes(table: pa.Table, exclude_columns: Collection[str] = ()) -> pa.Array:
-    """One 16-byte MD5 content hash per row of `table`, under `ROW_HASH_VERSION`.
+    """One 8-byte content hash per row of `table`, under `ROW_HASH_VERSION`: the first half of its MD5.
 
     The hash covers the non-null values of every column outside `exclude_columns`. It does not
     depend on column order, on a numeric, decimal or temporal column changing width or unit, or on
@@ -32,7 +32,8 @@ def compute_row_hashes(table: pa.Table, exclude_columns: Collection[str] = ()) -
     Values inside nested columns are not normalized beyond key order.
 
     MD5 is a fixed algorithm, so a stored hash stays comparable after a library upgrade. It is not
-    used for security here.
+    used for security here. A row is only ever compared with the previous version of its own key,
+    so 8 bytes keep a false match negligible while halving the column that every lookup reads.
     """
     import duckdb  # noqa: PLC0415 — keeps duckdb off the import path of every pipeline that loads the writer
 
@@ -62,7 +63,7 @@ def _slice_digests(connection: "duckdb.DuckDBPyConnection", rows: pa.Table, hash
 
     connection.register("payloads", pa.table({"payload": payloads}))
     try:
-        digests = connection.sql("SELECT unhex(md5(payload)) AS digest FROM payloads").to_arrow_table()
+        digests = connection.sql("SELECT unhex(left(md5(payload), 16)) AS digest FROM payloads").to_arrow_table()
     finally:
         connection.unregister("payloads")
     return digests.column("digest").combine_chunks().cast(ROW_HASH_TYPE)

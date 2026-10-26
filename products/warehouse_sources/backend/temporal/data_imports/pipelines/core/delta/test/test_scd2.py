@@ -265,7 +265,7 @@ class TestScd2SkipUnchanged:
         [
             ("written_without_a_hash", None),
             # The stored bytes are wrong on purpose: only the version tells the writer not to trust them.
-            ("hashed_under_another_version", b"\x00" * 16),
+            ("hashed_under_another_version", b"\x00" * 8),
         ]
     )
     @pytest.mark.asyncio
@@ -278,7 +278,7 @@ class TestScd2SkipUnchanged:
             ts2 = datetime(2026, 2, 1, tzinfo=UTC)
             seed = _history_batch([("a", "free", 1, ts1), ("b", "free", 1, ts1)])
             if stored_hash is not None:
-                seed = seed.append_column("row_hash", pa.array([stored_hash, stored_hash], type=pa.binary(16)))
+                seed = seed.append_column("row_hash", pa.array([stored_hash, stored_hash], type=pa.binary(8)))
                 seed = seed.append_column("row_hash_version", pa.array([0, 0], type=pa.int16()))
             deltalake.write_deltalake(delta_path, seed)
 
