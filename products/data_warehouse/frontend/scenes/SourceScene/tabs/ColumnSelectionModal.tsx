@@ -120,10 +120,6 @@ function useColumnSelection(
             next.delete(name)
         }
         commit(next)
-        // A column that no longer syncs has nothing to mask.
-        if (!checked && masked.has(name)) {
-            commitMasked(name, false)
-        }
     }
 
     const commitMasked = (name: string, shouldMask: boolean): void => {

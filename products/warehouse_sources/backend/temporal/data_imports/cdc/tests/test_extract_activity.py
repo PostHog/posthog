@@ -1460,6 +1460,17 @@ class TestPKColumnLoading:
         with pytest.raises(CDCMaskedKeyError):
             act._load_pk_columns()
 
+    def test_a_mask_on_a_stored_cursor_column_still_masks_it(self):
+        # CDC reads no cursor, so a stale incremental_field must not keep its column in plaintext.
+        schema = _make_schema("cdc_test.orders")
+        schema.masked_columns = ["Updated_At"]
+        schema.incremental_field = "updated_at"
+        act = self._activity([schema], queried_pks={"cdc_test": {"orders": ["id"]}})
+
+        act._load_pk_columns()
+
+        assert act.masked_columns_by_table == {"cdc_test.orders": {"updated_at"}}
+
     def test_stored_keys_are_not_requeried(self):
         schema = _make_schema("cdc_test.orders")
         schema.sync_type_config["primary_key_columns"] = ["id"]

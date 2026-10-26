@@ -781,10 +781,10 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         help_text=(
             "Names of source columns whose values are replaced with a deterministic one-way digest at "
             "sync time, for sensitive data such as passwords or PII. `null` (default) masks nothing. "
-            "Primary-key columns and the active incremental field can't be masked, and direct query "
+            "Primary-key, partition and incremental columns can't be masked, and direct query "
             "sources don't support masking. Any change to this list starts a full resync of the table "
-            "(CDC tables take a new snapshot). A synced webhook table can't change its masked columns, "
-            "because its data can't be fetched again."
+            "(CDC tables take a new snapshot), or stages it until syncing is turned on. A synced "
+            "webhook table can't change its masked columns, because its data can't be fetched again."
         ),
     )
     row_filters = RowFiltersField(

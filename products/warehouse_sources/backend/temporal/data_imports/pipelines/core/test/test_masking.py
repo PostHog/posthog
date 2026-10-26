@@ -13,7 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.mas
     mask_table_columns,
     mask_table_if_configured,
     mask_value,
-    resolve_masked_columns,
+    protected_masked_columns,
 )
 from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
 
@@ -55,23 +55,18 @@ class TestMaskValue:
                     mask_value(1, "secret")
 
 
-class TestResolveMaskedColumns:
+class TestProtectedMaskedColumns:
     @parameterized.expand(
         [
-            ("drops_key_and_cursor", ["a", "b", "c"], ["a"], "b", {"c"}),
-            ("folds_case_before_matching_the_key", ["ID", "Email"], ["id"], None, {"email"}),
-            ("unset", None, ["id"], None, set()),
+            ("key_and_cursor", ["a", "b", "c"], ["a", "b", None], ["a", "b"]),
+            ("folds_case_before_matching", ["ID", "Email"], ["id"], ["id"]),
+            ("unset", None, ["id"], []),
         ]
     )
-    def test_resolve(
-        self,
-        _name: str,
-        masked: list[str] | None,
-        primary_keys: list[str],
-        incremental_field: str | None,
-        expected: set[str],
+    def test_protected(
+        self, _name: str, masked: list[str] | None, protected: list[str | None], expected: list[str]
     ) -> None:
-        assert resolve_masked_columns(masked, primary_keys, incremental_field) == expected
+        assert protected_masked_columns(masked, protected) == expected
 
 
 class TestAmbiguousMaskedColumns:
@@ -97,15 +92,6 @@ class TestMaskTableColumns:
         assert table.column("visits").to_pylist() == [mask_value(3, 7), mask_value(3, 8)]
         assert table.schema.field("visits").type == pa.string()
         assert table.column("id").to_pylist() == [1, 2]
-
-    def test_key_and_cursor_are_never_masked(self) -> None:
-        table = mask_table_columns(
-            self._table(), ["id", "visits", "email"], team_id=3, primary_keys=["id"], incremental_field="visits"
-        )
-
-        assert table.column("id").to_pylist() == [1, 2]
-        assert table.column("visits").to_pylist() == [7, 8]
-        assert table.column("email").to_pylist() == [mask_value(3, "a@example.com"), None]
 
 
 class TestMaskTableIfConfigured:

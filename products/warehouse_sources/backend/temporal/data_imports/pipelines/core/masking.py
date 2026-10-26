@@ -17,6 +17,9 @@ keep the old one. Every table with masked columns therefore needs a full resync 
 
 Masking does not reach data derived before the mask was set. A materialized view built earlier
 keeps its plaintext copy until it is materialized again.
+
+A webhook delivery lands in S3 as a raw parquet file before any sync reads it, so a masked column
+stays there in plaintext until the next sync hashes the batch and deletes the file.
 """
 
 from __future__ import annotations
@@ -90,33 +93,19 @@ def ambiguous_masked_columns(masked_columns: list[str], source_columns: Iterable
     return [column for column in masked_columns if counts.get(fold_column_name(column), 0) > 1]
 
 
-def resolve_masked_columns(
-    masked_columns: list[str] | None,
-    primary_keys: list[str] | None = None,
-    incremental_field: str | None = None,
-) -> set[str]:
-    """Folded names to mask, without the primary key and the incremental field.
+def protected_masked_columns(masked_columns: list[str] | None, protected_columns: Iterable[str | None]) -> list[str]:
+    """Folded masked names that are also a key, partition or cursor column. Callers fail on any.
 
-    A hashed merge key breaks merges and a hashed cursor is not orderable, so those never mask.
+    A hashed merge key breaks merges and a hashed cursor is not orderable. Skipping the mask instead
+    would sync the column in plaintext.
     """
-    if not masked_columns:
-        return set()
-    protected = {fold_column_name(column) for column in (primary_keys or [])}
-    if incremental_field:
-        protected.add(fold_column_name(incremental_field))
-    return {fold_column_name(column) for column in masked_columns} - protected
+    protected = {fold_column_name(column) for column in protected_columns if column}
+    return sorted({fold_column_name(column) for column in masked_columns or []} & protected)
 
 
-def mask_table_columns(
-    table: pa.Table,
-    masked_columns: list[str] | None,
-    *,
-    team_id: int,
-    primary_keys: list[str] | None = None,
-    incremental_field: str | None = None,
-) -> pa.Table:
+def mask_table_columns(table: pa.Table, masked_columns: list[str] | None, *, team_id: int) -> pa.Table:
     """Replace each masked column with string digests. Names match by their folded form, normalized or not."""
-    masked = resolve_masked_columns(masked_columns, primary_keys, incremental_field)
+    masked = {fold_column_name(column) for column in masked_columns or []}
     if not masked:
         return table
     base = _mask_base(team_id, get_masking_key())
@@ -163,19 +152,10 @@ async def mask_table_if_configured(
         *(schema.partitioning_keys_override or []),
         *([resource.replace_scope.column] if resource.replace_scope else []),
     ]
-    configured = {fold_column_name(column) for column in schema.masked_columns}
-    effective = resolve_masked_columns(schema.masked_columns, key_columns, schema.incremental_field)
-    protected = configured - effective
+    protected = protected_masked_columns(schema.masked_columns, [*key_columns, schema.incremental_field])
     if protected:
         raise NonRetryableException(
-            f"Cannot mask key, partition or incremental columns {sorted(protected)}. "
+            f"Cannot mask key, partition or incremental columns {protected}. "
             "Remove them from masked_columns to sync this table."
         )
-    return await asyncio.to_thread(
-        mask_table_columns,
-        table,
-        schema.masked_columns,
-        team_id=schema.team_id,
-        primary_keys=key_columns,
-        incremental_field=schema.incremental_field,
-    )
+    return await asyncio.to_thread(mask_table_columns, table, schema.masked_columns, team_id=schema.team_id)

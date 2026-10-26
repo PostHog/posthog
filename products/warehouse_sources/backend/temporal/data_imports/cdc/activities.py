@@ -94,7 +94,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.mas
     fold_column_name,
     get_masking_key,
     mask_value,
-    resolve_masked_columns,
+    protected_masked_columns,
 )
 from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.create_job_model import (
@@ -634,17 +634,12 @@ class CDCExtractActivity:
         if not (isinstance(schema.masked_columns, list) and schema.masked_columns):
             self.masked_columns_by_table.pop(schema.name, None)
             return
-        primary_keys = self.pk_columns_by_table.get(schema.name, [])
-        masked = resolve_masked_columns(schema.masked_columns, primary_keys, schema.incremental_field)
         # The API checks a mask against the stored key, but a table saved without one gets
         # its key from the catalog above. Fail before any change of the table is read.
-        masked_keys = sorted(
-            {fold_column_name(column) for column in schema.masked_columns}
-            & {fold_column_name(column) for column in primary_keys}
-        )
+        masked_keys = protected_masked_columns(schema.masked_columns, self.pk_columns_by_table.get(schema.name, []))
         if masked_keys:
             raise CDCMaskedKeyError(f"Table {schema.name} masks its primary-key columns {masked_keys}")
-        self.masked_columns_by_table[schema.name] = masked
+        self.masked_columns_by_table[schema.name] = {fold_column_name(column) for column in schema.masked_columns}
 
     def _query_pk_columns(self, table_names: list[str]) -> dict[str, list[str]]:
         """Look up primary keys in the source catalog, keyed back on `ExternalDataSchema.name`.
