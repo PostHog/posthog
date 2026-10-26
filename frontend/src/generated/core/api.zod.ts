@@ -646,6 +646,234 @@ export const OrganizationsProjectsRotateSecretTokenPartialUpdateBody = /* @__PUR
     .record(zod.string(), zod.unknown())
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
+export const ssfConfigurationPartialUpdateBodyEventTypesMax = 4
+
+export const SsfConfigurationPartialUpdateBody = /* @__PURE__ */ zod.object({
+    enabled: zod
+        .boolean()
+        .optional()
+        .describe('Enable SSF for this organization. Connections and streams remain organization-scoped.'),
+    event_types: zod
+        .array(
+            zod
+                .enum([
+                    'https://schemas.openid.net/secevent/caep/event-type/session-revoked',
+                    'https://schemas.openid.net/secevent/risc/event-type/account-enabled',
+                    'https://schemas.openid.net/secevent/risc/event-type/account-disabled',
+                    'https://schemas.openid.net/secevent/risc/event-type/credential-compromise',
+                ])
+                .describe(
+                    '\* `https:\/\/schemas.openid.net\/secevent\/caep\/event-type\/session-revoked` - Session revoked (CAEP)\n\* `https:\/\/schemas.openid.net\/secevent\/risc\/event-type\/account-enabled` - Account enabled (RISC)\n\* `https:\/\/schemas.openid.net\/secevent\/risc\/event-type\/account-disabled` - Account disabled (RISC)\n\* `https:\/\/schemas.openid.net\/secevent\/risc\/event-type\/credential-compromise` - Credential compromise (RISC)'
+                )
+        )
+        .max(ssfConfigurationPartialUpdateBodyEventTypesMax)
+        .optional()
+        .describe(
+            'Preset security event types allowed for outgoing producers. Custom event types are not accepted. SSF control events are always supported.'
+        ),
+})
+
+export const ssfConnectionsCreateBodyNameMax = 200
+
+export const ssfConnectionsCreateBodyIssuerOneMax = 2048
+
+export const ssfConnectionsCreateBodyIssuerTwoMax = 0
+
+export const ssfConnectionsCreateBodyAudienceMax = 512
+
+export const ssfConnectionsCreateBodyRemoteTokenMax = 4096
+
+export const ssfConnectionsCreateBodyRemoteTokenRegExp = new RegExp('^[A-Za-z0-9\\-._~+\/]+=\*$')
+
+export const SsfConnectionsCreateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(ssfConnectionsCreateBodyNameMax).describe('Human-readable connection name.'),
+    direction: zod
+        .enum(['incoming', 'outgoing'])
+        .describe('\* `incoming` - Incoming\n\* `outgoing` - Outgoing')
+        .describe(
+            'Incoming receives events from a transmitter; outgoing grants an external receiver access to PostHog streams.\n\n\* `incoming` - Incoming\n\* `outgoing` - Outgoing'
+        ),
+    enabled: zod
+        .boolean()
+        .optional()
+        .describe('Allow this connection to send or receive events when organization SSF is enabled.'),
+    issuer: zod
+        .union([
+            zod.url().max(ssfConnectionsCreateBodyIssuerOneMax),
+            zod.string().max(ssfConnectionsCreateBodyIssuerTwoMax),
+        ])
+        .optional()
+        .describe("Incoming transmitter's exact HTTPS issuer. Its SSF metadata and JWKS are discovered automatically."),
+    audience: zod
+        .string()
+        .max(ssfConnectionsCreateBodyAudienceMax)
+        .optional()
+        .describe(
+            'Optional agreed receiver audience. Outgoing connections get a unique audience when omitted. Incoming connections can restrict the audience assigned by their transmitter.'
+        ),
+    remote_token: zod
+        .string()
+        .max(ssfConnectionsCreateBodyRemoteTokenMax)
+        .regex(ssfConnectionsCreateBodyRemoteTokenRegExp)
+        .optional()
+        .describe('Transmitter API bearer token, without the Bearer prefix. Stored encrypted and never returned.'),
+})
+
+export const ssfConnectionsPartialUpdateBodyNameMax = 200
+
+export const ssfConnectionsPartialUpdateBodyIssuerOneMax = 2048
+
+export const ssfConnectionsPartialUpdateBodyIssuerTwoMax = 0
+
+export const ssfConnectionsPartialUpdateBodyAudienceMax = 512
+
+export const ssfConnectionsPartialUpdateBodyRemoteTokenMax = 4096
+
+export const ssfConnectionsPartialUpdateBodyRemoteTokenRegExp = new RegExp('^[A-Za-z0-9\\-._~+\/]+=\*$')
+
+export const SsfConnectionsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(ssfConnectionsPartialUpdateBodyNameMax)
+        .optional()
+        .describe('Human-readable connection name.'),
+    direction: zod
+        .enum(['incoming', 'outgoing'])
+        .describe('\* `incoming` - Incoming\n\* `outgoing` - Outgoing')
+        .optional()
+        .describe(
+            'Incoming receives events from a transmitter; outgoing grants an external receiver access to PostHog streams.\n\n\* `incoming` - Incoming\n\* `outgoing` - Outgoing'
+        ),
+    enabled: zod
+        .boolean()
+        .optional()
+        .describe('Allow this connection to send or receive events when organization SSF is enabled.'),
+    issuer: zod
+        .union([
+            zod.url().max(ssfConnectionsPartialUpdateBodyIssuerOneMax),
+            zod.string().max(ssfConnectionsPartialUpdateBodyIssuerTwoMax),
+        ])
+        .optional()
+        .describe("Incoming transmitter's exact HTTPS issuer. Its SSF metadata and JWKS are discovered automatically."),
+    audience: zod
+        .string()
+        .max(ssfConnectionsPartialUpdateBodyAudienceMax)
+        .optional()
+        .describe(
+            'Optional agreed receiver audience. Outgoing connections get a unique audience when omitted. Incoming connections can restrict the audience assigned by their transmitter.'
+        ),
+    remote_token: zod
+        .string()
+        .max(ssfConnectionsPartialUpdateBodyRemoteTokenMax)
+        .regex(ssfConnectionsPartialUpdateBodyRemoteTokenRegExp)
+        .optional()
+        .describe('Transmitter API bearer token, without the Bearer prefix. Stored encrypted and never returned.'),
+})
+
+export const ssfStreamsCreateBodyDescriptionDefault = ``
+export const ssfStreamsCreateBodyDescriptionMax = 1024
+
+export const ssfStreamsCreateBodyEventsRequestedMax = 6
+
+export const SsfStreamsCreateBody = /* @__PURE__ */ zod.object({
+    connection: zod.uuid().describe('Connection in the organization that owns this stream.'),
+    description: zod
+        .string()
+        .max(ssfStreamsCreateBodyDescriptionMax)
+        .default(ssfStreamsCreateBodyDescriptionDefault)
+        .describe('Human-readable stream description.'),
+    events_requested: zod
+        .array(
+            zod
+                .enum([
+                    'https://schemas.openid.net/secevent/ssf/event-type/verification',
+                    'https://schemas.openid.net/secevent/ssf/event-type/stream-updated',
+                    'https://schemas.openid.net/secevent/caep/event-type/session-revoked',
+                    'https://schemas.openid.net/secevent/risc/event-type/account-enabled',
+                    'https://schemas.openid.net/secevent/risc/event-type/account-disabled',
+                    'https://schemas.openid.net/secevent/risc/event-type/credential-compromise',
+                ])
+                .describe(
+                    '\* `https:\/\/schemas.openid.net\/secevent\/ssf\/event-type\/verification` - Verification\n\* `https:\/\/schemas.openid.net\/secevent\/ssf\/event-type\/stream-updated` - Stream updated\n\* `https:\/\/schemas.openid.net\/secevent\/caep\/event-type\/session-revoked` - Session revoked (CAEP)\n\* `https:\/\/schemas.openid.net\/secevent\/risc\/event-type\/account-enabled` - Account enabled (RISC)\n\* `https:\/\/schemas.openid.net\/secevent\/risc\/event-type\/account-disabled` - Account disabled (RISC)\n\* `https:\/\/schemas.openid.net\/secevent\/risc\/event-type\/credential-compromise` - Credential compromise (RISC)'
+                )
+        )
+        .max(ssfStreamsCreateBodyEventsRequestedMax)
+        .default([
+            `https://schemas.openid.net/secevent/ssf/event-type/verification`,
+            `https://schemas.openid.net/secevent/ssf/event-type/stream-updated`,
+        ])
+        .describe('Requested preset event type URIs. Leave unset to request SSF control events for setup.'),
+})
+
+export const ssfStreamsPartialUpdateBodyDescriptionMax = 1024
+
+export const ssfStreamsPartialUpdateBodyEventsRequestedMax = 6
+
+export const SsfStreamsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    description: zod
+        .string()
+        .max(ssfStreamsPartialUpdateBodyDescriptionMax)
+        .optional()
+        .describe('Updated stream description.'),
+    events_requested: zod
+        .array(
+            zod
+                .enum([
+                    'https://schemas.openid.net/secevent/ssf/event-type/verification',
+                    'https://schemas.openid.net/secevent/ssf/event-type/stream-updated',
+                    'https://schemas.openid.net/secevent/caep/event-type/session-revoked',
+                    'https://schemas.openid.net/secevent/risc/event-type/account-enabled',
+                    'https://schemas.openid.net/secevent/risc/event-type/account-disabled',
+                    'https://schemas.openid.net/secevent/risc/event-type/credential-compromise',
+                ])
+                .describe(
+                    '\* `https:\/\/schemas.openid.net\/secevent\/ssf\/event-type\/verification` - Verification\n\* `https:\/\/schemas.openid.net\/secevent\/ssf\/event-type\/stream-updated` - Stream updated\n\* `https:\/\/schemas.openid.net\/secevent\/caep\/event-type\/session-revoked` - Session revoked (CAEP)\n\* `https:\/\/schemas.openid.net\/secevent\/risc\/event-type\/account-enabled` - Account enabled (RISC)\n\* `https:\/\/schemas.openid.net\/secevent\/risc\/event-type\/account-disabled` - Account disabled (RISC)\n\* `https:\/\/schemas.openid.net\/secevent\/risc\/event-type\/credential-compromise` - Credential compromise (RISC)'
+                )
+        )
+        .max(ssfStreamsPartialUpdateBodyEventsRequestedMax)
+        .optional()
+        .describe('Updated preset event type URIs. SSF control events are supported automatically.'),
+})
+
+export const SsfStreamsAddSubjectCreateBody = /* @__PURE__ */ zod.object({
+    subject: zod
+        .record(zod.string(), zod.unknown())
+        .describe('Simple or complex SSF subject identifier to subscribe to or remove.'),
+})
+
+export const SsfStreamsRemoveSubjectCreateBody = /* @__PURE__ */ zod.object({
+    subject: zod
+        .record(zod.string(), zod.unknown())
+        .describe('Simple or complex SSF subject identifier to subscribe to or remove.'),
+})
+
+export const ssfStreamsStatusCreateBodyReasonDefault = ``
+export const ssfStreamsStatusCreateBodyReasonMax = 1024
+
+export const SsfStreamsStatusCreateBody = /* @__PURE__ */ zod.object({
+    status: zod
+        .enum(['enabled', 'paused', 'disabled'])
+        .describe('\* `enabled` - Enabled\n\* `paused` - Paused\n\* `disabled` - Disabled')
+        .describe(
+            'Requested delivery status.\n\n\* `enabled` - Enabled\n\* `paused` - Paused\n\* `disabled` - Disabled'
+        ),
+    reason: zod
+        .string()
+        .max(ssfStreamsStatusCreateBodyReasonMax)
+        .default(ssfStreamsStatusCreateBodyReasonDefault)
+        .describe('Reason for the change.'),
+})
+
+export const ssfStreamsVerifyCreateBodyStateMax = 1024
+
+export const SsfStreamsVerifyCreateBody = /* @__PURE__ */ zod.object({
+    state: zod
+        .string()
+        .max(ssfStreamsVerifyCreateBodyStateMax)
+        .optional()
+        .describe('Optional opaque verification state. A fresh state is generated when omitted.'),
+})
+
 /**
  * Create a new password for the sharing configuration.
  */

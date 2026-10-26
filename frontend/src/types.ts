@@ -185,6 +185,7 @@ export enum AvailableFeature {
     SAML = 'saml',
     OIDC = 'oidc',
     SCIM = 'scim',
+    SSF = 'ssf',
     SSO_ENFORCEMENT = 'sso_enforcement',
     XAA_AUTHENTICATION = 'xaa_authentication',
     WHITE_LABELLING = 'white_labelling',

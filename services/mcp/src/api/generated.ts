@@ -87483,6 +87483,121 @@ export namespace Schemas {
     }
 
     /**
+     * * `https://schemas.openid.net/secevent/caep/event-type/session-revoked` - Session revoked (CAEP)
+     * * `https://schemas.openid.net/secevent/risc/event-type/account-enabled` - Account enabled (RISC)
+     * * `https://schemas.openid.net/secevent/risc/event-type/account-disabled` - Account disabled (RISC)
+     * * `https://schemas.openid.net/secevent/risc/event-type/credential-compromise` - Credential compromise (RISC)
+     */
+    export type SSFOutgoingEventTypeEnum = typeof SSFOutgoingEventTypeEnum[keyof typeof SSFOutgoingEventTypeEnum];
+
+
+    export const SSFOutgoingEventTypeEnum = {
+      HttpsSchemasopenidnetSeceventCaepEventTypeSessionRevoked: 'https://schemas.openid.net/secevent/caep/event-type/session-revoked',
+      HttpsSchemasopenidnetSeceventRiscEventTypeAccountEnabled: 'https://schemas.openid.net/secevent/risc/event-type/account-enabled',
+      HttpsSchemasopenidnetSeceventRiscEventTypeAccountDisabled: 'https://schemas.openid.net/secevent/risc/event-type/account-disabled',
+      HttpsSchemasopenidnetSeceventRiscEventTypeCredentialCompromise: 'https://schemas.openid.net/secevent/risc/event-type/credential-compromise',
+    } as const;
+
+    export interface PatchedSSFConfiguration {
+      /** Enable SSF for this organization. Connections and streams remain organization-scoped. */
+      enabled?: boolean;
+      /**
+         * Preset security event types allowed for outgoing producers. Custom event types are not accepted. SSF control events are always supported.
+         * @maxItems 4
+         */
+      event_types?: SSFOutgoingEventTypeEnum[];
+    }
+
+    /**
+     * * `incoming` - Incoming
+     * * `outgoing` - Outgoing
+     */
+    export type SSFDirectionEnum = typeof SSFDirectionEnum[keyof typeof SSFDirectionEnum];
+
+
+    export const SSFDirectionEnum = {
+      Incoming: 'incoming',
+      Outgoing: 'outgoing',
+    } as const;
+
+    export interface PatchedSSFConnection {
+      readonly id?: string;
+      /**
+         * Human-readable connection name.
+         * @maxLength 200
+         */
+      name?: string;
+      /** Incoming receives events from a transmitter; outgoing grants an external receiver access to PostHog streams.
+       *
+       * * `incoming` - Incoming
+       * * `outgoing` - Outgoing */
+      direction?: SSFDirectionEnum;
+      /** Allow this connection to send or receive events when organization SSF is enabled. */
+      enabled?: boolean;
+      /** Incoming transmitter's exact HTTPS issuer. Its SSF metadata and JWKS are discovered automatically. */
+      issuer?: string;
+      /**
+         * Optional agreed receiver audience. Outgoing connections get a unique audience when omitted. Incoming connections can restrict the audience assigned by their transmitter.
+         * @maxLength 512
+         */
+      audience?: string;
+      /**
+         * Transmitter API bearer token, without the Bearer prefix. Stored encrypted and never returned.
+         * @maxLength 4096
+         * @pattern ^[A-Za-z0-9\-._~+/]+=*$
+         */
+      remote_token?: string;
+      /** Signing-key URL discovered from the trusted transmitter's metadata. */
+      readonly jwks_uri?: string;
+      /**
+         * When transmitter metadata and signing keys were last checked.
+         * @nullable
+         */
+      readonly discovered_at?: string | null;
+      /** Whether a transmitter API bearer token is configured. */
+      readonly has_remote_token?: boolean;
+      /** Whether a management credential has been issued to this receiver. */
+      readonly has_management_token?: boolean;
+      /** Number of local streams attached to this connection. */
+      readonly stream_count?: number;
+      /** When the connection was created. */
+      readonly created_at?: string;
+    }
+
+    /**
+     * * `https://schemas.openid.net/secevent/ssf/event-type/verification` - Verification
+     * * `https://schemas.openid.net/secevent/ssf/event-type/stream-updated` - Stream updated
+     * * `https://schemas.openid.net/secevent/caep/event-type/session-revoked` - Session revoked (CAEP)
+     * * `https://schemas.openid.net/secevent/risc/event-type/account-enabled` - Account enabled (RISC)
+     * * `https://schemas.openid.net/secevent/risc/event-type/account-disabled` - Account disabled (RISC)
+     * * `https://schemas.openid.net/secevent/risc/event-type/credential-compromise` - Credential compromise (RISC)
+     */
+    export type SSFStreamEventTypeEnum = typeof SSFStreamEventTypeEnum[keyof typeof SSFStreamEventTypeEnum];
+
+
+    export const SSFStreamEventTypeEnum = {
+      HttpsSchemasopenidnetSeceventSsfEventTypeVerification: 'https://schemas.openid.net/secevent/ssf/event-type/verification',
+      HttpsSchemasopenidnetSeceventSsfEventTypeStreamUpdated: 'https://schemas.openid.net/secevent/ssf/event-type/stream-updated',
+      HttpsSchemasopenidnetSeceventCaepEventTypeSessionRevoked: 'https://schemas.openid.net/secevent/caep/event-type/session-revoked',
+      HttpsSchemasopenidnetSeceventRiscEventTypeAccountEnabled: 'https://schemas.openid.net/secevent/risc/event-type/account-enabled',
+      HttpsSchemasopenidnetSeceventRiscEventTypeAccountDisabled: 'https://schemas.openid.net/secevent/risc/event-type/account-disabled',
+      HttpsSchemasopenidnetSeceventRiscEventTypeCredentialCompromise: 'https://schemas.openid.net/secevent/risc/event-type/credential-compromise',
+    } as const;
+
+    export interface PatchedSSFStreamUpdate {
+      /**
+         * Updated stream description.
+         * @maxLength 1024
+         */
+      description?: string;
+      /**
+         * Updated preset event type URIs. SSF control events are supported automatically.
+         * @maxItems 6
+         */
+      events_requested?: SSFStreamEventTypeEnum[];
+    }
+
+    /**
      * Request body for renaming / re-describing a custom sandbox base image.
      */
     export interface PatchedSandboxCustomImageUpdate {
@@ -101603,6 +101718,221 @@ export namespace Schemas {
       scim_enabled: boolean;
       /** Newly generated plaintext SCIM bearer token. Only returned once. */
       scim_bearer_token: string;
+    }
+
+    export interface SSFConnection {
+      readonly id: string;
+      /**
+         * Human-readable connection name.
+         * @maxLength 200
+         */
+      name: string;
+      /** Incoming receives events from a transmitter; outgoing grants an external receiver access to PostHog streams.
+       *
+       * * `incoming` - Incoming
+       * * `outgoing` - Outgoing */
+      direction: SSFDirectionEnum;
+      /** Allow this connection to send or receive events when organization SSF is enabled. */
+      enabled?: boolean;
+      /** Incoming transmitter's exact HTTPS issuer. Its SSF metadata and JWKS are discovered automatically. */
+      issuer?: string;
+      /**
+         * Optional agreed receiver audience. Outgoing connections get a unique audience when omitted. Incoming connections can restrict the audience assigned by their transmitter.
+         * @maxLength 512
+         */
+      audience?: string;
+      /**
+         * Transmitter API bearer token, without the Bearer prefix. Stored encrypted and never returned.
+         * @maxLength 4096
+         * @pattern ^[A-Za-z0-9\-._~+/]+=*$
+         */
+      remote_token?: string;
+      /** Signing-key URL discovered from the trusted transmitter's metadata. */
+      readonly jwks_uri: string;
+      /**
+         * When transmitter metadata and signing keys were last checked.
+         * @nullable
+         */
+      readonly discovered_at: string | null;
+      /** Whether a transmitter API bearer token is configured. */
+      readonly has_remote_token: boolean;
+      /** Whether a management credential has been issued to this receiver. */
+      readonly has_management_token: boolean;
+      /** Number of local streams attached to this connection. */
+      readonly stream_count: number;
+      /** When the connection was created. */
+      readonly created_at: string;
+    }
+
+    export interface SSFCredential {
+      /** New stream management bearer credential. Returned only once. */
+      token: string;
+    }
+
+    export interface SSFEndpoints {
+      /** PostHog's organization-specific transmitter issuer. */
+      issuer: string;
+      /** Transmitter metadata URL for external receivers. */
+      discovery_url: string;
+      /** Public signing keys used by the organization's transmitter. */
+      jwks_url: string;
+    }
+
+    export interface SSFEventTypeOption {
+      /** Preset security event type URI.
+       *
+       * * `https://schemas.openid.net/secevent/caep/event-type/session-revoked` - Session revoked (CAEP)
+       * * `https://schemas.openid.net/secevent/risc/event-type/account-enabled` - Account enabled (RISC)
+       * * `https://schemas.openid.net/secevent/risc/event-type/account-disabled` - Account disabled (RISC)
+       * * `https://schemas.openid.net/secevent/risc/event-type/credential-compromise` - Credential compromise (RISC) */
+      key: SSFOutgoingEventTypeEnum;
+      /** Human-readable event type name. */
+      label: string;
+    }
+
+    /**
+     * * `enabled` - Enabled
+     * * `paused` - Paused
+     * * `disabled` - Disabled
+     */
+    export type SSFProtocolStatusEnum = typeof SSFProtocolStatusEnum[keyof typeof SSFProtocolStatusEnum];
+
+
+    export const SSFProtocolStatusEnum = {
+      Enabled: 'enabled',
+      Paused: 'paused',
+      Disabled: 'disabled',
+    } as const;
+
+    export interface SSFSettings {
+      /** Enable SSF for this organization. Connections and streams remain organization-scoped. */
+      enabled?: boolean;
+      /**
+         * Preset security event types allowed for outgoing producers. Custom event types are not accepted. SSF control events are always supported.
+         * @maxItems 4
+         */
+      event_types?: SSFOutgoingEventTypeEnum[];
+      /** Organization-specific transmitter endpoints. */
+      readonly endpoints: SSFEndpoints;
+      /** Fixed catalog of additional outgoing security event types available for selection. */
+      readonly event_type_options: readonly SSFEventTypeOption[];
+    }
+
+    export interface SSFStatusInput {
+      /** Requested delivery status.
+       *
+       * * `enabled` - Enabled
+       * * `paused` - Paused
+       * * `disabled` - Disabled */
+      status: SSFProtocolStatusEnum;
+      /**
+         * Reason for the change.
+         * @maxLength 1024
+         */
+      reason?: string;
+    }
+
+    /**
+     * * `enabled` - Enabled
+     * * `paused` - Paused
+     * * `disabled` - Disabled
+     * * `provisioning` - Provisioning
+     * * `failed` - Failed
+     */
+    export type SSFStreamStatusEnum = typeof SSFStreamStatusEnum[keyof typeof SSFStreamStatusEnum];
+
+
+    export const SSFStreamStatusEnum = {
+      Enabled: 'enabled',
+      Paused: 'paused',
+      Disabled: 'disabled',
+      Provisioning: 'provisioning',
+      Failed: 'failed',
+    } as const;
+
+    export interface SSFStream {
+      /** Local stream ID. */
+      readonly id: string;
+      /**
+         * Owning connection ID.
+         * @nullable
+         */
+      readonly connection: string | null;
+      /** Connection direction.
+       *
+       * * `incoming` - Incoming
+       * * `outgoing` - Outgoing */
+      readonly direction: SSFDirectionEnum;
+      /** Human-readable stream description. */
+      readonly description: string;
+      /** Current delivery or provisioning status.
+       *
+       * * `enabled` - Enabled
+       * * `paused` - Paused
+       * * `disabled` - Disabled
+       * * `provisioning` - Provisioning
+       * * `failed` - Failed */
+      readonly status: SSFStreamStatusEnum;
+      /** Reason for the current stream status. */
+      readonly reason: string;
+      /** Immutable receiver audiences assigned to the stream. */
+      readonly audiences: readonly string[];
+      /** Requested event types. */
+      readonly events_requested: readonly string[];
+      /** Event types negotiated for delivery. */
+      readonly events_delivered: readonly string[];
+      /** Stream ID assigned by the remote transmitter for incoming streams. */
+      readonly remote_stream_id: string;
+      /** Local push receiver URL for incoming streams, or polling URL for outgoing streams. */
+      readonly endpoint_url: string;
+      /**
+         * When the last valid incoming verification event was received.
+         * @nullable
+         */
+      readonly last_verified_at: string | null;
+      /** Last provisioning or delivery setup error. No credentials or event payloads are included. */
+      readonly last_error: string;
+      /**
+         * Earliest retry allowed by the transmitter after rate limiting.
+         * @nullable
+         */
+      readonly retry_at: string | null;
+      /** Whether a verification request is awaiting delivery within its five-minute confirmation window. */
+      readonly verification_pending: boolean;
+      /** Whether another stream operation holds the setup lease. */
+      readonly is_busy: boolean;
+      /** When the stream was created. */
+      readonly created_at: string;
+    }
+
+    export interface SSFStreamCreate {
+      /** Connection in the organization that owns this stream. */
+      connection: string;
+      /**
+         * Human-readable stream description.
+         * @maxLength 1024
+         */
+      description?: string;
+      /**
+         * Requested preset event type URIs. Leave unset to request SSF control events for setup.
+         * @maxItems 6
+         */
+      events_requested?: SSFStreamEventTypeEnum[];
+    }
+
+    export interface SSFSubject {[key: string]: JsonValue}
+
+    export interface SSFSubjectInput {
+      /** Simple or complex SSF subject identifier to subscribe to or remove. */
+      subject: SSFSubject;
+    }
+
+    export interface SSFVerificationInput {
+      /**
+         * Optional opaque verification state. A fresh state is generated when omitted.
+         * @maxLength 1024
+         */
+      state?: string;
     }
 
     /**
@@ -123064,6 +123394,17 @@ export namespace Schemas {
     };
 
     export type RolesRoleMembershipsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type SsfListParams = {
     /**
      * Number of results to return per page.
      */

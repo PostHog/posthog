@@ -135,6 +135,22 @@ describe('settingsSceneLogic', () => {
         expect(router.values.hashParams).toHaveProperty('internal-user-filtering')
     })
 
+    it.each([
+        ['/settings/organization-ssf', {}],
+        ['/settings/organization-authentication', { 'ssf-configuration': true }],
+        ['/settings/organization', { 'ssf-configuration': true }],
+    ])('opens the standalone SSF page from %s', async (pathname, hashParams) => {
+        router.actions.push(pathname, {}, hashParams)
+
+        await expectLogic(logic).toMatchValues({
+            selectedLevel: 'organization',
+            selectedSectionId: 'organization-ssf',
+        })
+        expect(logic.values.selectedSection?.settings.map((setting) => setting.id)).toEqual(['ssf-configuration'])
+        expect(router.values.location.pathname).toContain('/settings/organization-ssf')
+        expect(router.values.hashParams).toEqual(hashParams)
+    })
+
     it('redirects the removed toolbar section to web analytics', async () => {
         router.actions.push('/settings/project-toolbar')
 

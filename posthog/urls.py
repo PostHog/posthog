@@ -160,6 +160,7 @@ urlpatterns = [
         name="scim_resource_types",
     ),
     path("scim/v2/<str:scim_slug>/Schemas", csrf_exempt(scim_views.SCIMSchemasView.as_view()), name="scim_schemas"),
+    path("", include("posthog.ssf.urls")),
     # api
     path("api/unsubscribe", unsubscribe.unsubscribe),
     path("api/alerts/github", github.SecretAlert.as_view()),

@@ -88,6 +88,9 @@ import type {
     PatchedProductIntroSeenApi,
     PatchedProjectBackwardCompatApi,
     PatchedProjectSecretAPIKeyApi,
+    PatchedSSFConfigurationApi,
+    PatchedSSFConnectionApi,
+    PatchedSSFStreamUpdateApi,
     PatchedUserApi,
     ProductEnablementApi,
     ProductEnablementResultApi,
@@ -99,9 +102,18 @@ import type {
     PropertyDefinitionsListParams,
     RevokeOtherSessionsResponseApi,
     SCIMTokenResponseApi,
+    SSFConnectionApi,
+    SSFCredentialApi,
+    SSFSettingsApi,
+    SSFStatusInputApi,
+    SSFStreamApi,
+    SSFStreamCreateApi,
+    SSFSubjectInputApi,
+    SSFVerificationInputApi,
     SearchIntentRequestApi,
     SearchIntentResponseApi,
     SharingConfigurationApi,
+    SsfListParams,
     TerminalNetplayMailboxApi,
     TerminalNetplayMailboxRetrieveParams,
     TerminalNetplaySignalApi,
@@ -1443,6 +1455,329 @@ export const organizationsProjectsSettingsAsOfRetrieve = async (
     return apiMutator<ProjectBackwardCompatApi>(getOrganizationsProjectsSettingsAsOfRetrieveUrl(organizationId, id), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getSsfListUrl = (organizationId: string, params?: SsfListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/organizations/${organizationId}/ssf/?${stringifiedParams}`
+        : `/api/organizations/${organizationId}/ssf/`
+}
+
+export const ssfList = async (
+    organizationId: string,
+    params?: SsfListParams,
+    options?: RequestInit
+): Promise<SSFSettingsApi> => {
+    return apiMutator<SSFSettingsApi>(getSsfListUrl(organizationId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSsfConfigurationPartialUpdateUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/ssf/configuration/`
+}
+
+export const ssfConfigurationPartialUpdate = async (
+    organizationId: string,
+    patchedSSFConfigurationApi?: PatchedSSFConfigurationApi,
+    options?: RequestInit
+): Promise<SSFSettingsApi> => {
+    return apiMutator<SSFSettingsApi>(getSsfConfigurationPartialUpdateUrl(organizationId), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedSSFConfigurationApi),
+    })
+}
+
+export const getSsfConnectionsListUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/ssf/connections/`
+}
+
+export const ssfConnectionsList = async (
+    organizationId: string,
+    options?: RequestInit
+): Promise<SSFConnectionApi[]> => {
+    return apiMutator<SSFConnectionApi[]>(getSsfConnectionsListUrl(organizationId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSsfConnectionsCreateUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/ssf/connections/`
+}
+
+export const ssfConnectionsCreate = async (
+    organizationId: string,
+    sSFConnectionApi: NonReadonly<SSFConnectionApi>,
+    options?: RequestInit
+): Promise<SSFConnectionApi> => {
+    return apiMutator<SSFConnectionApi>(getSsfConnectionsCreateUrl(organizationId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sSFConnectionApi),
+    })
+}
+
+export const getSsfConnectionsRetrieveUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/ssf/connections/${id}/`
+}
+
+export const ssfConnectionsRetrieve = async (
+    organizationId: string,
+    id: string,
+    options?: RequestInit
+): Promise<SSFConnectionApi> => {
+    return apiMutator<SSFConnectionApi>(getSsfConnectionsRetrieveUrl(organizationId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSsfConnectionsPartialUpdateUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/ssf/connections/${id}/`
+}
+
+export const ssfConnectionsPartialUpdate = async (
+    organizationId: string,
+    id: string,
+    patchedSSFConnectionApi?: NonReadonly<PatchedSSFConnectionApi>,
+    options?: RequestInit
+): Promise<SSFConnectionApi> => {
+    return apiMutator<SSFConnectionApi>(getSsfConnectionsPartialUpdateUrl(organizationId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedSSFConnectionApi),
+    })
+}
+
+export const getSsfConnectionsDestroyUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/ssf/connections/${id}/`
+}
+
+export const ssfConnectionsDestroy = async (
+    organizationId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getSsfConnectionsDestroyUrl(organizationId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getSsfConnectionsRefreshCreateUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/ssf/connections/${id}/refresh/`
+}
+
+export const ssfConnectionsRefreshCreate = async (
+    organizationId: string,
+    id: string,
+    options?: RequestInit
+): Promise<SSFConnectionApi> => {
+    return apiMutator<SSFConnectionApi>(getSsfConnectionsRefreshCreateUrl(organizationId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getSsfConnectionsRotateTokenCreateUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/ssf/connections/${id}/rotate_token/`
+}
+
+export const ssfConnectionsRotateTokenCreate = async (
+    organizationId: string,
+    id: string,
+    options?: RequestInit
+): Promise<SSFCredentialApi> => {
+    return apiMutator<SSFCredentialApi>(getSsfConnectionsRotateTokenCreateUrl(organizationId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getSsfRotateKeyCreateUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/ssf/rotate_key/`
+}
+
+export const ssfRotateKeyCreate = async (organizationId: string, options?: RequestInit): Promise<SSFSettingsApi> => {
+    return apiMutator<SSFSettingsApi>(getSsfRotateKeyCreateUrl(organizationId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getSsfStreamsListUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/ssf/streams/`
+}
+
+export const ssfStreamsList = async (organizationId: string, options?: RequestInit): Promise<SSFStreamApi[]> => {
+    return apiMutator<SSFStreamApi[]>(getSsfStreamsListUrl(organizationId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSsfStreamsCreateUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/ssf/streams/`
+}
+
+export const ssfStreamsCreate = async (
+    organizationId: string,
+    sSFStreamCreateApi: SSFStreamCreateApi,
+    options?: RequestInit
+): Promise<SSFStreamApi> => {
+    return apiMutator<SSFStreamApi>(getSsfStreamsCreateUrl(organizationId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sSFStreamCreateApi),
+    })
+}
+
+export const getSsfStreamsRetrieveUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/ssf/streams/${id}/`
+}
+
+export const ssfStreamsRetrieve = async (
+    organizationId: string,
+    id: string,
+    options?: RequestInit
+): Promise<SSFStreamApi> => {
+    return apiMutator<SSFStreamApi>(getSsfStreamsRetrieveUrl(organizationId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSsfStreamsPartialUpdateUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/ssf/streams/${id}/`
+}
+
+export const ssfStreamsPartialUpdate = async (
+    organizationId: string,
+    id: string,
+    patchedSSFStreamUpdateApi?: PatchedSSFStreamUpdateApi,
+    options?: RequestInit
+): Promise<SSFStreamApi> => {
+    return apiMutator<SSFStreamApi>(getSsfStreamsPartialUpdateUrl(organizationId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedSSFStreamUpdateApi),
+    })
+}
+
+export const getSsfStreamsDestroyUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/ssf/streams/${id}/`
+}
+
+export const ssfStreamsDestroy = async (organizationId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getSsfStreamsDestroyUrl(organizationId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getSsfStreamsAddSubjectCreateUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/ssf/streams/${id}/add_subject/`
+}
+
+export const ssfStreamsAddSubjectCreate = async (
+    organizationId: string,
+    id: string,
+    sSFSubjectInputApi: SSFSubjectInputApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getSsfStreamsAddSubjectCreateUrl(organizationId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sSFSubjectInputApi),
+    })
+}
+
+export const getSsfStreamsProvisionCreateUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/ssf/streams/${id}/provision/`
+}
+
+export const ssfStreamsProvisionCreate = async (
+    organizationId: string,
+    id: string,
+    options?: RequestInit
+): Promise<SSFStreamApi> => {
+    return apiMutator<SSFStreamApi>(getSsfStreamsProvisionCreateUrl(organizationId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getSsfStreamsRemoveSubjectCreateUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/ssf/streams/${id}/remove_subject/`
+}
+
+export const ssfStreamsRemoveSubjectCreate = async (
+    organizationId: string,
+    id: string,
+    sSFSubjectInputApi: SSFSubjectInputApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getSsfStreamsRemoveSubjectCreateUrl(organizationId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sSFSubjectInputApi),
+    })
+}
+
+export const getSsfStreamsStatusCreateUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/ssf/streams/${id}/status/`
+}
+
+export const ssfStreamsStatusCreate = async (
+    organizationId: string,
+    id: string,
+    sSFStatusInputApi: SSFStatusInputApi,
+    options?: RequestInit
+): Promise<SSFStreamApi> => {
+    return apiMutator<SSFStreamApi>(getSsfStreamsStatusCreateUrl(organizationId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sSFStatusInputApi),
+    })
+}
+
+export const getSsfStreamsVerifyCreateUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/ssf/streams/${id}/verify/`
+}
+
+export const ssfStreamsVerifyCreate = async (
+    organizationId: string,
+    id: string,
+    sSFVerificationInputApi?: SSFVerificationInputApi,
+    options?: RequestInit
+): Promise<SSFStreamApi> => {
+    return apiMutator<SSFStreamApi>(getSsfStreamsVerifyCreateUrl(organizationId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sSFVerificationInputApi),
     })
 }
 

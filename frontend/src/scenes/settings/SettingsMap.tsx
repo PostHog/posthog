@@ -181,6 +181,7 @@ import { OrganizationDesktopBetaTerms } from './organization/OrgDesktopBetaTerms
 import { OrganizationDisplayName } from './organization/OrgDisplayName'
 import { OrgIPAnonymizationDefault } from './organization/OrgIPAnonymizationDefault'
 import { OrganizationVariables } from './organization/OrgVariables'
+import { OrganizationSSF } from './organization/ssf/OrganizationSSF'
 import { EnforceVerifiedDomains } from './organization/VerifiedDomains/EnforceVerifiedDomains'
 import { VerifiedDomains } from './organization/VerifiedDomains/VerifiedDomains'
 import { ProjectDangerZone } from './project/ProjectDangerZone'
@@ -2350,6 +2351,20 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <IdentityProviderFeatureSection configScope={ConfigScopeEnumApi.Xaa} />,
                 flag: ['SSO_SETTINGS_REDESIGN', 'XAA_AUTHENTICATION'],
                 keywords: ['xaa', 'id-jag', 'identity provider', 'token exchange'],
+            },
+        ],
+    },
+    {
+        level: 'organization',
+        id: 'organization-ssf',
+        title: 'Shared Signals Framework (SSF)',
+        settings: [
+            {
+                id: 'ssf-configuration',
+                title: 'Configuration',
+                description: 'Configure organization-wide security event sharing with trusted services.',
+                component: <OrganizationSSF />,
+                keywords: ['ssf', 'shared signals', 'security events', 'caep', 'identity provider'],
             },
         ],
     },

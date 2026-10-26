@@ -42,6 +42,7 @@ const SETTINGS_SECTION_ALIASES: Record<string, SettingSectionId> = {
 // Settings that moved to a different section, keyed by setting id. Deep links to the old
 // section (docs, CDP filter warnings, bookmarks) redirect to the setting's current home.
 const MOVED_SETTINGS: Record<string, SettingSectionId> = {
+    'ssf-configuration': 'organization-ssf',
     'internal-user-filtering': 'project-customization',
     'warehouse-person-properties': 'environment-customer-analytics',
 }
