@@ -74,7 +74,6 @@ export function WatchFeedTab(): JSX.Element {
     const { setDateFrom, setOnlyMyScanners, loadFeed } = useActions(watchFeedLogic)
 
     const items = feedItems ?? []
-    const reloading = feedReloading && items.length > 0
     // Every card carrying a no-evidence reason means the window produced no findings. A feed that mixes a
     // finding with padding needs no explaining, so this stays off unless the whole feed is padding.
     const onlyFiller = items.length > 0 && items.every((item) => FILLER_REASON_KINDS.has(item.reason.kind))
@@ -130,10 +129,12 @@ export function WatchFeedTab(): JSX.Element {
             ) : (
                 <div className="relative mx-auto flex w-full max-w-xl flex-col gap-4">
                     {/* The last result stays while a filter change loads, dimmed so it doesn't read as the new one. */}
-                    {reloading && (
+                    {feedReloading && (
                         <div
-                            className="absolute inset-x-0 top-0 bottom-0 z-10 flex justify-center pt-32"
+                            className="pointer-events-none absolute inset-0 z-10 flex justify-center pt-32"
                             data-attr="vision-watch-feed-reloading"
+                            role="status"
+                            aria-label="Loading the feed"
                         >
                             <Spinner className="sticky top-1/3 text-6xl" />
                         </div>
@@ -155,21 +156,21 @@ export function WatchFeedTab(): JSX.Element {
                     {items.length > 0 && isWatchFeedBlock(emptyReason) && (
                         <WatchFeedBlockedBanner reason={emptyReason} />
                     )}
-                    {/* Three newest clips and nothing else is the answer, not a half-loaded feed, so say so
-                        rather than leaving the reader to infer it from three identical reason lines. */}
-                    {onlyFiller && (
-                        <p className="text-sm text-secondary m-0">
-                            No sessions stood out {feedWindowPhrase(dateFrom)}. These are the newest ones.
-                        </p>
-                    )}
                     {items.length > 0 ? (
                         <div
                             className={clsx(
                                 'flex flex-col gap-4 transition-opacity',
-                                reloading && 'pointer-events-none opacity-40'
+                                feedReloading && 'pointer-events-none opacity-40'
                             )}
-                            aria-busy={reloading}
+                            aria-busy={feedReloading}
                         >
+                            {/* Three newest clips and nothing else is the answer, not a half-loaded feed, so say so
+                            rather than leaving the reader to infer it from three identical reason lines. */}
+                            {onlyFiller && (
+                                <p className="text-sm text-secondary m-0">
+                                    No sessions stood out {feedWindowPhrase(dateFrom)}. These are the newest ones.
+                                </p>
+                            )}
                             {items.map((item, index) => (
                                 <WatchFeedRow
                                     key={`${feedLoad?.feedLoadId}-${item.observation.id}`}

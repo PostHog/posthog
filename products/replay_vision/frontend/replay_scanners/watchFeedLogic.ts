@@ -46,6 +46,7 @@ export interface watchFeedLogicValues {
     feedMoreFailed: boolean
     feedRanker: WatchFeedRanker
     feedRankerVariant: string | null
+    feedReloading: boolean
     feedServed: number
     hasOwnScanners: boolean | null
     onlyMyScanners: boolean
