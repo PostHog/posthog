@@ -36,6 +36,7 @@ from products.review_hog.backend.reviewer.constants import (
     FLASH_LENS_SESSION_TIMEOUT,
     FLASH_LENSES,
     MAX_CONCURRENT_SANDBOXES,
+    PERFORMANCE_LENS,
     REVIEW_MODE_FLASH,
     VALIDATION_MAX_ATTEMPTS,
 )
@@ -741,7 +742,15 @@ class ReviewPRWorkflow:
             ):
                 flash_sessions = await self._review_with_coordinator(stage, meta.lens_chunk_count)
             elif review_design == REVIEW_DESIGN_SINGLE_AGENT:
-                flash_sessions = await self._review_with_single_agent(stage, meta.lens_chunk_count)
+                lenses = list(FLASH_LENSES)
+                if (
+                    meta.skip_performance_lens_on_follow_ups
+                    and inputs.trigger_source == TRIGGER_AUTOMATIC
+                    and meta.run_index > 1
+                    and workflow.patched("reviewhog-performance-lens-follow-up-split-2026-10")
+                ):
+                    lenses.remove(PERFORMANCE_LENS)
+                flash_sessions = await self._review_with_single_agent(stage, meta.lens_chunk_count, lenses)
             else:
                 await self._review_with_pipeline(stage, acting_user_id)
 
@@ -904,6 +913,7 @@ class ReviewPRWorkflow:
                     review_design=review_design,
                     flash_turn=dedup.flash_stats if dedup is not None else None,
                     flash_sessions=flash_sessions,
+                    skip_performance_lens_on_follow_ups=meta.skip_performance_lens_on_follow_ups,
                 ),
                 start_to_close_timeout=_QUICK_TIMEOUT,
                 retry_policy=_RETRY,
@@ -1002,7 +1012,9 @@ class ReviewPRWorkflow:
         return report_id
 
     @staticmethod
-    async def _review_with_single_agent(stage: SandboxStageInput, lens_chunk_count: int) -> FlashSessionStats | None:
+    async def _review_with_single_agent(
+        stage: SandboxStageInput, lens_chunk_count: int, lenses: list[str]
+    ) -> FlashSessionStats | None:
         """Stages 2 and 3 of the single-agent design: the main session and every lens session in parallel.
 
         A failed lens session costs only its own findings. A failed main session fails the turn. Returns
@@ -1019,7 +1031,7 @@ class ReviewPRWorkflow:
             )
             return None
 
-        lens_units = [(lens, chunk_id) for lens in FLASH_LENSES for chunk_id in range(1, lens_chunk_count + 1)]
+        lens_units = [(lens, chunk_id) for lens in lenses for chunk_id in range(1, lens_chunk_count + 1)]
         workflow.logger.info(
             f"STAGE 2-3/7 · Single-agent review: the main session and {len(lens_units)} lens session(s)"
         )
