@@ -78,19 +78,26 @@ class ErrorTrackingDateRangeSerializer(serializers.Serializer):
     )
 
 
+# Any value relative_date_parse reads as relative, including uppercase units it resolves to "now".
+_RELATIVE_DATE_PREFIX = re.compile(r"-?\d+[hdwmqysHDWMQY]")
+# Only the units relative_date_parse resolves: lowercase m is months, uppercase M is minutes.
+_SUPPORTED_RELATIVE_DATE = re.compile(r"-?\d+[hdwmqysM]")
+_DATE_COMPARISON_OPERATORS = ("gt", "gte", "lt", "lte", "is_date_after", "is_date_before")
+
+
 def validate_filter_group(value: list[dict[str, object]]) -> list[dict[str, object]]:
     for item in value:
         if item.get("type") == "hogql":
             raise serializers.ValidationError("HogQL property filters are not supported here.")
         if (
             item.get("type") == "error_tracking_issue"
-            and item.get("key") in ("first_seen", "last_seen")
-            and item.get("operator") in ("gt", "gte", "lt", "lte")
+            and item.get("key") == "first_seen"
+            and item.get("operator") in _DATE_COMPARISON_OPERATORS
             and isinstance(date_value := item.get("value"), str)
-            and re.match(r"^-?\d+[hdwmqysHDWMQY]", date_value)
+            and _RELATIVE_DATE_PREFIX.match(date_value)
         ):
             raise serializers.ValidationError(
-                "Relative dates with gt/gte/lt/lte are not supported for first_seen or last_seen. "
+                "Relative dates are not supported for first_seen comparisons in filterGroup. "
                 "Use firstSeenAfter for issues first seen after a time, or an ISO timestamp in filterGroup."
             )
     return value
@@ -200,7 +207,7 @@ class ErrorTrackingIssuesListQueryRequestSerializer(serializers.Serializer):
     )
 
     def validate_firstSeenAfter(self, value: str) -> str:
-        if re.fullmatch(r"-?\d+[hdwmqysM]", value):
+        if _SUPPORTED_RELATIVE_DATE.fullmatch(value):
             try:
                 return relative_date_parse(value, ZoneInfo("UTC")).isoformat()
             except (ValueError, OverflowError):
