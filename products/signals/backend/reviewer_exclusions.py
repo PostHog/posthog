@@ -11,11 +11,10 @@ excluded person is neither assigned nor asked to review.
 from __future__ import annotations
 
 import json
-from typing import Literal
 from uuid import UUID
 
 from django.db import IntegrityError, transaction
-from django.db.models import JSONField, QuerySet
+from django.db.models import F, JSONField, Q, QuerySet
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
 from django.db.models.functions import Cast
 
@@ -32,8 +31,6 @@ from products.signals.backend.report_generation.resolve_reviewers import (
     resolve_org_github_login_to_users,
 )
 
-SubjectMatch = Literal["none", "match", "ambiguous"]
-
 
 class DuplicateExclusion(ValueError):
     pass
@@ -42,9 +39,8 @@ class DuplicateExclusion(ValueError):
 @frozen
 class StandingExclusion:
     id: str
+    # The stored subject, with a missing identity filled from the organization's GitHub links.
     subject: SuggestedReviewerEntry
-    # The subject with its missing identity filled from the organization's GitHub links.
-    resolved_subject: SuggestedReviewerEntry
     repository: str
     path_prefix: str
 
@@ -70,22 +66,12 @@ def _normalized_login(login: str | None) -> str | None:
     return (login.strip().lower() or None) if login else None
 
 
-def _comparable(subject: SuggestedReviewerEntry, candidate: SuggestedReviewerEntry) -> bool:
-    return bool((subject.user_uuid and candidate.user_uuid) or (subject.github_login and candidate.github_login))
-
-
-def _subject_match(subject: SuggestedReviewerEntry, candidate: SuggestedReviewerEntry) -> SubjectMatch:
-    uuids = (subject.user_uuid, candidate.user_uuid)
-    logins = (
-        subject.github_login.lower() if subject.github_login else None,
-        candidate.github_login.lower() if candidate.github_login else None,
-    )
-    agree = any(left is not None and left == right for left, right in (uuids, logins))
-    disagree = any(left is not None and right is not None and left != right for left, right in (uuids, logins))
-    if not agree:
-        return "none"
-    # One identity says it is the subject and the other says it is not, so nobody can tell.
-    return "ambiguous" if disagree else "match"
+def _same_subject(subject: SuggestedReviewerEntry, candidate: SuggestedReviewerEntry) -> bool:
+    """A user UUID decides whenever both sides know one. A login decides only when one side has no UUID."""
+    if subject.user_uuid and candidate.user_uuid:
+        return subject.user_uuid == candidate.user_uuid
+    login = _normalized_login(subject.github_login)
+    return login is not None and login == _normalized_login(candidate.github_login)
 
 
 class StandingExclusions:
@@ -94,10 +80,12 @@ class StandingExclusions:
     def __init__(
         self,
         *,
+        team_id: int,
         exclusions: tuple[StandingExclusion, ...],
         repository: str | None,
         paths: tuple[str, ...],
     ) -> None:
+        self.team_id = team_id
         self.exclusions = exclusions
         self.repository = repository
         self.paths = paths
@@ -124,7 +112,7 @@ class StandingExclusions:
             .order_by("created_at", "id")
         ]
         if not subjects:
-            return cls(exclusions=(), repository=None, paths=())
+            return cls(team_id=team_id, exclusions=(), repository=None, paths=())
         exclusions = cls._resolve_subjects(team_id, subjects)
         artefacts = SignalReportArtefact.objects.filter(team_id=team_id, report_id=report_id)
         if repository is None:
@@ -142,7 +130,7 @@ class StandingExclusions:
         # under the report lock, so skip it for every other report.
         if repository is not None and any(e.path_prefix and e.repository == repository for e in exclusions):
             paths = cls._read_paths(artefacts.filter(type=SignalReportArtefact.ArtefactType.SIGNAL_FINDING))
-        return cls(exclusions=exclusions, repository=repository, paths=paths)
+        return cls(team_id=team_id, exclusions=exclusions, repository=repository, paths=paths)
 
     @staticmethod
     def _resolve_subjects(
@@ -161,8 +149,7 @@ class StandingExclusions:
             resolved.append(
                 StandingExclusion(
                     id=exclusion_id,
-                    subject=subject,
-                    resolved_subject=SuggestedReviewerEntry(
+                    subject=SuggestedReviewerEntry(
                         user_uuid=subject.user_uuid or (str(user.uuid) if user else None),
                         github_login=subject.github_login
                         or (logins_by_uuid.get(subject.user_uuid) if subject.user_uuid else None),
@@ -222,16 +209,12 @@ class StandingExclusions:
         suppressing: StandingExclusion | None = None
         unresolved = False
         for exclusion in self.exclusions:
-            # The stored identities decide when they share one with the candidate. Filled identities
-            # only stand in when they share none, so a stale login cannot contradict a matching user.
-            subject = exclusion.subject if _comparable(exclusion.subject, candidate) else exclusion.resolved_subject
-            match = _subject_match(subject, candidate)
-            if match == "none":
+            if not _same_subject(exclusion.subject, candidate):
                 continue
             applies = self._applies(exclusion)
             if applies is False:
                 continue
-            if applies is None or match == "ambiguous":
+            if applies is None:
                 unresolved = True
             elif suppressing is None:
                 suppressing = exclusion
@@ -252,9 +235,17 @@ class StandingExclusions:
 
     def allowed_logins(self, logins: list[str]) -> list[str]:
         """The GitHub logins no instruction keeps off this area. A login nobody can decide on is left out."""
+        if not self.exclusions:
+            return list(logins)
+        # Resolve each login to its member, so an instruction keyed on the user still applies after a login change.
+        users = resolve_org_github_login_to_users(self.team_id, logins)
         allowed: list[str] = []
         for login in logins:
-            suppressing, unresolved = self._verdict(SuggestedReviewerEntry(github_login=login.lower()))
+            user = users.get(login.strip().lower())
+            candidate = SuggestedReviewerEntry(
+                user_uuid=str(user.uuid) if user else None, github_login=_normalized_login(login)
+            )
+            suppressing, unresolved = self._verdict(candidate)
             if suppressing is None and not unresolved:
                 allowed.append(login)
         return allowed
@@ -281,15 +272,36 @@ def _record_revision(
 def _active_twins(
     team_id: int, *, subject_user_uuid: UUID | None, subject_github_login: str | None, repository: str, path_prefix: str
 ) -> QuerySet[SignalReviewerExclusion]:
-    """Active instructions with the same key as the partial unique indexes on the model."""
-    subject: dict[str, object] = (
-        {"subject_user_uuid": subject_user_uuid}
-        if subject_user_uuid is not None
-        else {"subject_user_uuid__isnull": True, "subject_github_login": subject_github_login}
+    """Active instructions in the same area for the same subject, the rows keyed on the user UUID first.
+
+    A user row and a login-only row with the subject's login name the same person.
+    """
+    if subject_user_uuid is None:
+        subject = Q(subject_github_login=subject_github_login)
+    else:
+        subject = Q(subject_user_uuid=subject_user_uuid)
+        if subject_github_login is not None:
+            subject |= Q(subject_user_uuid__isnull=True, subject_github_login=subject_github_login)
+    return (
+        SignalReviewerExclusion.objects.for_team(team_id)
+        .filter(subject, status=SignalReviewerExclusion.Status.ACTIVE, repository=repository, path_prefix=path_prefix)
+        .order_by(F("subject_user_uuid").asc(nulls_last=True), "created_at", "id")
     )
-    return SignalReviewerExclusion.objects.for_team(team_id).filter(
-        status=SignalReviewerExclusion.Status.ACTIVE, repository=repository, path_prefix=path_prefix, **subject
-    )
+
+
+def _existing_twin(
+    twins: QuerySet[SignalReviewerExclusion], subject_user_uuid: UUID | None, actor_id: int
+) -> SignalReviewerExclusion | None:
+    """The active twin, with the subject's user attached when the twin knew only the login."""
+    with transaction.atomic():
+        existing = twins.select_for_update().first()
+        if existing is None or subject_user_uuid is None or existing.subject_user_uuid is not None:
+            return existing
+        existing.subject_user_uuid = subject_user_uuid
+        existing.revision += 1
+        existing.save()
+        _record_revision(existing, SignalReviewerExclusionRevision.Action.REVISED, actor_id)
+    return existing
 
 
 def create_exclusion(
@@ -318,7 +330,7 @@ def create_exclusion(
         repository=repository,
         path_prefix=path_prefix,
     )
-    if existing := active.first():
+    if existing := _existing_twin(active, subject_user_uuid, actor_id):
         return existing, False
     try:
         with transaction.atomic():
@@ -334,7 +346,7 @@ def create_exclusion(
             _record_revision(exclusion, SignalReviewerExclusionRevision.Action.CREATED, actor_id)
     except IntegrityError:
         # A concurrent create of the same instruction won the unique constraint.
-        if existing := active.first():
+        if existing := _existing_twin(active, subject_user_uuid, actor_id):
             return existing, False
         raise
     return exclusion, True

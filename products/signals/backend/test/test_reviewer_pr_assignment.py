@@ -886,9 +886,10 @@ class TestDirectlyResponsibleIndividual:
         [
             ("uuid", "PostHog/posthog", "bob"),
             ("login", "posthog/posthog", "bob"),
+            ("uuid_with_old_login", "posthog/posthog", "bob"),
             ("uuid", "PostHog/other", "alice"),
         ],
-        ids=["user_in_this_repository", "login_in_this_repository", "another_repository"],
+        ids=["user_in_this_repository", "login_in_this_repository", "user_after_login_change", "another_repository"],
     )
     def test_standing_exclusions_keep_a_person_off_owner_and_review_candidates(
         self, org_and_team: tuple[Organization, Team], subject: str, repository: str, expected_owner: str
@@ -899,8 +900,8 @@ class TestDirectlyResponsibleIndividual:
             team_id=team.id,
             actor_id=users["alice"].id,
             instruction="I moved off this repository.",
-            subject_user_uuid=users["alice"].uuid if subject == "uuid" else None,
-            subject_github_login="alice" if subject == "login" else None,
+            subject_user_uuid=users["alice"].uuid if subject.startswith("uuid") else None,
+            subject_github_login={"login": "alice", "uuid_with_old_login": "alice-before-rename"}.get(subject),
             repository=repository,
         )
         github = self._github(existing_assignees=[], assignable=None)

@@ -600,32 +600,19 @@ class TestStandingExclusions(BaseTest):
 
     @parameterized.expand(
         [
-            ("no_repository", {"repository": "org/app"}, "repo_selection", None, True),
-            ("no_repository_writer_disabled", {"repository": "org/app"}, "repo_selection", None, False),
-            ("no_paths", {"repository": "org/app", "path_prefix": "src"}, "signal_finding", None, True),
-            (
-                "no_paths_writer_disabled",
-                {"repository": "org/app", "path_prefix": "src"},
-                "signal_finding",
-                None,
-                False,
-            ),
-            ("identities_disagree", {}, None, "someone-else", True),
+            ("no_repository", {"repository": "org/app"}, "repo_selection", True),
+            ("no_repository_writer_disabled", {"repository": "org/app"}, "repo_selection", False),
+            ("no_paths", {"repository": "org/app", "path_prefix": "src"}, "signal_finding", True),
+            ("no_paths_writer_disabled", {"repository": "org/app", "path_prefix": "src"}, "signal_finding", False),
         ]
     )
-    def test_missing_or_ambiguous_state_keeps_the_current_selection(
-        self, _name: str, area: dict[str, str], missing: str | None, login: str | None, enabled: bool
+    def test_missing_area_state_keeps_the_current_selection(
+        self, _name: str, area: dict[str, str], missing: str, enabled: bool
     ) -> None:
         self.enabled = enabled
         self.write(self.me)
-        if missing:
-            SignalReportArtefact.objects.filter(report=self.report, type=missing).delete()
-        exclusion_id = self.exclude(**area)
-        if login:
-            SignalReviewerExclusion.objects.for_team(self.team.id).filter(id=exclusion_id).update(
-                subject_github_login=login
-            )
-            UserSocialAuth.objects.create(user=self.member, provider="github", uid="1", extra_data={"login": "member"})
+        SignalReportArtefact.objects.filter(report=self.report, type=missing).delete()
+        self.exclude(**area)
         self.write(self.other)
         assert [entry.user_uuid for entry in self.rules.read().reviewers] == [self.me.user_uuid]
         assert [event for call in self.capture.call_args_list for event in call.kwargs["events"]] == [
@@ -688,6 +675,26 @@ class TestStandingExclusions(BaseTest):
         ):
             revise_exclusion(team_id=self.team.id, exclusion_id=second, actor_id=self.user.id, repository="org/app")
         assert SignalReviewerExclusion.objects.for_team(self.team.id).get(id=second).repository == "org/other"
+
+    def test_create_with_a_user_reuses_the_login_only_instruction(self) -> None:
+        UserSocialAuth.objects.create(user=self.member, provider="github", uid="1", extra_data={"login": "member"})
+        login_only, _ = create_exclusion(
+            team_id=self.team.id, actor_id=self.user.id, instruction="Off.", subject_github_login="member"
+        )
+        with_user, created = create_exclusion(
+            team_id=self.team.id,
+            actor_id=self.member.id,
+            instruction="Off.",
+            subject_user_uuid=self.member.uuid,
+            subject_github_login="Member",
+        )
+        assert (with_user.id, with_user.subject_user_uuid, created) == (login_only.id, self.member.uuid, False)
+        assert SignalReviewerExclusion.objects.for_team(self.team.id).filter(status="active").count() == 1
+
+        revoke_exclusion(team_id=self.team.id, exclusion_id=with_user.id, actor_id=self.member.id)
+        self.write(self.other)
+
+        assert [entry.user_uuid for entry in self.rules.read().reviewers] == [self.other.user_uuid]
 
     def test_active_twin_is_scoped_to_one_team(self) -> None:
         self.exclude(repository="org/app")
