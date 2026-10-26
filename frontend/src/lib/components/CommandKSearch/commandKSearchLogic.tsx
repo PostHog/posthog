@@ -337,7 +337,8 @@ export interface commandKSearchLogicMeta {
             displayedQuery: {
                 query: SectionsQuery
                 stale: boolean
-            }
+            },
+            featureFlags: FeatureFlagsSet
         ) => CommandKSection[]
         selectableRows: (sections: CommandKSection[]) => CommandKRow[]
         highlightedRow: (selectableRows: CommandKRow[], highlightedKey: string | null) => CommandKRow | null
@@ -676,14 +677,23 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
             ): { query: SectionsQuery; stale: boolean } => pickDisplayedQuery(current, shown, remote),
         ],
         sections: [
-            (s) => [s.mode, s.cursorContext, s.suggestionsSection, s.localLists, s.remote, s.displayedQuery],
+            (s) => [
+                s.mode,
+                s.cursorContext,
+                s.suggestionsSection,
+                s.localLists,
+                s.remote,
+                s.displayedQuery,
+                s.featureFlags,
+            ],
             (
                 mode: CommandKMode,
                 context: CursorContext,
                 suggestions: CommandKSection | null,
                 local: LocalLists,
                 remote: RemoteSlots,
-                displayed: { query: SectionsQuery; stale: boolean }
+                displayed: { query: SectionsQuery; stale: boolean },
+                featureFlags: FeatureFlagsSet
             ): CommandKSection[] =>
                 buildSections({
                     mode,
@@ -693,6 +703,9 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                     remote,
                     ...displayed.query,
                     stale: displayed.stale,
+                    personsFirst:
+                        !!displayed.query.remoteQueries.persons?.includes('@') &&
+                        featureFlags[FEATURE_FLAGS.COMMAND_K_PERSONS_FIRST_FOR_EMAIL] === 'test',
                 }),
         ],
         selectableRows: [
