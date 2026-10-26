@@ -73,13 +73,13 @@ RECORD_SCHEDULE_TO_CLOSE = dt.timedelta(seconds=12)
 ADMISSION_RUN_BUDGET = dt.timedelta(seconds=50)
 ADMISSION_POLL_INTERVAL = dt.timedelta(seconds=2)
 # What the source needs from its binding's `evaluation_timeout`. The checks run side by side, so
-# the batch costs the admission rounds plus one check's budget, not one per check.
+# the batch costs the admission rounds plus one check's budget, not one per check. The last check
+# can end while an earlier record still runs, so the tail holds two records and their failures.
 EVALUATION_BUDGET = (
     PLAN_SCHEDULE_TO_CLOSE
     + ADMISSION_RUN_BUDGET
     + max(CHECK_SCHEDULE_TO_CLOSE, REAL_TIME_CHECK_SCHEDULE_TO_CLOSE)
-    + FAIL_SCHEDULE_TO_CLOSE
-    + RECORD_SCHEDULE_TO_CLOSE
+    + 2 * (FAIL_SCHEDULE_TO_CLOSE + RECORD_SCHEDULE_TO_CLOSE)
 )
 _PATCH_READMISSION = "platform-insight-readmission-2026-10"
 # Runs started before it recorded every outcome in one activity, and replay must schedule the same.
@@ -513,20 +513,26 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
         message = cause.message if cause is not None else str(error.cause or error)
         # Each attempt queries under `{run}:{activity}:{attempt}`, as `_evaluate_check` names it.
         evaluation_id = f"{workflow.info().run_id}:{error.activity_id}"
-        return await workflow.execute_activity(
-            fail_platform_insight_check_activity,
-            FailedInsightCheckInputs(
-                evaluation=inputs,
-                configuration_id=check.configuration_id,
-                error_message=truncate_for_temporal_payload(message, MAX_ERROR_MESSAGE_CHARS),
-                # Temporal rebuilds a remote error as an ApplicationError carrying the class name on `type`.
-                error_type=cause.type if cause is not None else None,
-                query_ids=tuple(f"{evaluation_id}:{attempt}" for attempt in range(1, _maximum_attempts(check) + 1)),
-            ),
-            start_to_close_timeout=FAIL_START_TO_CLOSE,
-            schedule_to_close_timeout=FAIL_SCHEDULE_TO_CLOSE,
-            retry_policy=RetryPolicy(maximum_attempts=3),
-        )
+        try:
+            return await workflow.execute_activity(
+                fail_platform_insight_check_activity,
+                FailedInsightCheckInputs(
+                    evaluation=inputs,
+                    configuration_id=check.configuration_id,
+                    error_message=truncate_for_temporal_payload(message, MAX_ERROR_MESSAGE_CHARS),
+                    # Temporal rebuilds a remote error as an ApplicationError carrying the class name on `type`.
+                    error_type=cause.type if cause is not None else None,
+                    query_ids=tuple(f"{evaluation_id}:{attempt}" for attempt in range(1, _maximum_attempts(check) + 1)),
+                ),
+                start_to_close_timeout=FAIL_START_TO_CLOSE,
+                schedule_to_close_timeout=FAIL_SCHEDULE_TO_CLOSE,
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+        except ActivityError:
+            # The check stays due and the next tick evaluates it again, so the batch's other
+            # outcomes still record.
+            workflow.logger.warning("Could not record a failed platform insight check as errored")
+            return None
 
     async def _record(
         self, inputs: SourceEvaluationInputs, evaluations: list[SourceBatchEvaluation], *, chunked: bool
