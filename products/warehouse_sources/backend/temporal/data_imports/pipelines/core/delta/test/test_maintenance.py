@@ -1485,3 +1485,27 @@ class TestVacuumOnARealTable:
             assert os.path.exists(sibling)
             assert recently_tombstoned <= _parquet_files(root)
             assert deltalake.DeltaTable(root).to_pyarrow_table().num_rows == 1
+
+
+class TestCompactHistoryCurrentPartition:
+    @parameterized.expand([("below_the_threshold", 4, False), ("above_the_threshold", 12, True)])
+    @pytest.mark.asyncio
+    async def test_compacts_the_current_partition_only(self, _name: str, current_files: int, compacted: bool):
+        # The month partitions keep 12 small files each, so a filter that missed them would compact them too.
+        with tempfile.TemporaryDirectory() as path:
+            for partition, count in (("current", current_files), ("2026-01", 12)):
+                for i in range(count):
+                    deltalake.write_deltalake(
+                        path,
+                        pa.table({"id": [i], "_ph_history_partition": [partition]}),
+                        mode="append",
+                        partition_by=["_ph_history_partition"],
+                    )
+            maintenance = _make_maintenance(deltalake.DeltaTable(path))
+            with patch.object(maintenance, "_plan_compaction", AsyncMock(return_value=_DEFAULT_PLAN)):
+                ran = await maintenance.compact_history_current_partition("_ph_history_partition", "current")
+
+            files = deltalake.DeltaTable(path).file_uris()
+            assert ran is compacted
+            assert sum("_ph_history_partition=current/" in f for f in files) == (1 if compacted else current_files)
+            assert sum("_ph_history_partition=2026-01/" in f for f in files) == 12

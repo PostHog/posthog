@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any
 
 import pyarrow as pa
 import deltalake
+import pyarrow.compute as pc
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     first_per_pk_table,
@@ -23,6 +24,8 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
 
+_CLOSING_PARTITION = "_ph_closing_partition"
+
 
 class Scd2DeltaWriter:
     """SCD Type 2 writer over one schema's Delta table.
@@ -33,11 +36,23 @@ class Scd2DeltaWriter:
     via `build_scd2_table`.
     """
 
-    def __init__(self, table: "DeltaTableRef", *, valid_from_column: str, valid_to_column: str) -> None:
+    def __init__(
+        self,
+        table: "DeltaTableRef",
+        *,
+        valid_from_column: str,
+        valid_to_column: str,
+        partition_column: str | None = None,
+        current_partition: str | None = None,
+    ) -> None:
+        """`partition_column` partitions a new table: open rows in `current_partition`, closed rows in the
+        `YYYY-MM` month their version ended. A table created without it stays unpartitioned."""
         self._table = table
         self._logger = table.logger
         self._valid_from_column = valid_from_column
         self._valid_to_column = valid_to_column
+        self._partition_column = partition_column
+        self._current_partition = current_partition
 
     async def write(
         self,
@@ -90,6 +105,14 @@ class Scd2DeltaWriter:
 
                 predicate_parts = [f"source.{col} = target.{col}" for col in normalized_pks]
                 predicate_parts.append(f"target.{self._valid_to_column} IS NULL")
+                updates = {self._valid_to_column: f"source.{self._valid_from_column}"}
+                if self._partitioned(existing_delta_table):
+                    # Open rows only sit in the current partition, so the merge reads and rewrites no other.
+                    predicate_parts.append(f"target.{self._partition_column} = '{self._current_partition}'")
+                    first_per_pk = first_per_pk.append_column(
+                        _CLOSING_PARTITION, pc.strftime(first_per_pk.column(self._valid_from_column), format="%Y-%m")
+                    )
+                    updates[str(self._partition_column)] = f"source.{_CLOSING_PARTITION}"
                 predicate = " AND ".join(predicate_parts)
 
                 # NOTE: do NOT tag this intermediate merge with `commit_properties`. SCD2 is a
@@ -107,7 +130,7 @@ class Scd2DeltaWriter:
                             streamed_exec=False,
                             **delta_merge_spill_kwargs(),
                         )
-                        .when_matched_update(updates={self._valid_to_column: f"source.{self._valid_from_column}"})
+                        .when_matched_update(updates=updates)
                         .execute()
                     )
 
@@ -127,6 +150,7 @@ class Scd2DeltaWriter:
                 deltalake.DeltaTable.create,
                 table_uri=delta_uri,
                 schema=data.schema,
+                partition_by=[self._partition_column] if self._partition_column in data.column_names else None,
                 storage_options=storage_options,
                 configuration=DELTA_TABLE_PROPERTIES,
             )
@@ -146,3 +170,7 @@ class Scd2DeltaWriter:
 
         await ensure_table_properties(delta_table, self._logger)
         return delta_table
+
+    def _partitioned(self, delta_table: deltalake.DeltaTable) -> bool:
+        partition_columns = delta_table.metadata().partition_columns or []
+        return self._partition_column is not None and self._partition_column in partition_columns

@@ -4,6 +4,7 @@ from collections import defaultdict
 from collections.abc import Callable, Iterable
 
 import pyarrow as pa
+import pyarrow.compute as pc
 
 from posthog.dataclasses import frozen
 
@@ -29,7 +30,7 @@ CDC_SEQ_PROVENANCE = {b"posthog_cdc": b"engine_position"}
 
 @frozen
 class HistoryNaming:
-    """The table name suffix and the validity column names of one history table.
+    """The table name suffix, the validity column names and the partition column of one history table.
 
     A history table keeps the naming it was created with, so code reads it from the table and never
     from a constant.
@@ -38,15 +39,35 @@ class HistoryNaming:
     suffix: str
     valid_from: str
     valid_to: str
+    # Open rows sit in `CURRENT_HISTORY_PARTITION`, closed rows in the month their version ended. A close
+    # then rewrites only files of the current partition, which grows with the live table, not with history.
+    partition_column: str | None = None
 
     @property
     def validity_columns(self) -> frozenset[str]:
         return frozenset({self.valid_from, self.valid_to})
 
+    @property
+    def stamped_columns(self) -> frozenset[str]:
+        """Every column the history lane adds to a change row."""
+        return self.validity_columns | ({self.partition_column} if self.partition_column else set())
+
 
 LEGACY_HISTORY_NAMING = HistoryNaming(suffix="_cdc", valid_from="valid_from", valid_to="valid_to")
 # The `_ph_` names leave a source's own `valid_from` and `valid_to` free to sync.
-HISTORY_NAMING = HistoryNaming(suffix="_history", valid_from="_ph_valid_from", valid_to="_ph_valid_to")
+HISTORY_PARTITION_COLUMN = "_ph_history_partition"
+HISTORY_NAMING = HistoryNaming(
+    suffix="_history",
+    valid_from="_ph_valid_from",
+    valid_to="_ph_valid_to",
+    partition_column=HISTORY_PARTITION_COLUMN,
+)
+CURRENT_HISTORY_PARTITION = "current"
+
+
+def history_partitions(valid_to: pa.Array | pa.ChunkedArray) -> pa.Array | pa.ChunkedArray:
+    """`current` for an open row, else the `YYYY-MM` month its version ended."""
+    return pc.if_else(pc.is_null(valid_to), CURRENT_HISTORY_PARTITION, pc.strftime(valid_to, format="%Y-%m"))
 
 
 def history_naming_of(column_names: Iterable[str]) -> HistoryNaming:
@@ -94,7 +115,7 @@ def history_columns(naming: HistoryNaming) -> frozenset[str]:
     `_ph_valid_*` stays reserved on a legacy history table too, because `history_naming_of` reads the
     naming from it.
     """
-    return HISTORY_NAMING.validity_columns | naming.validity_columns
+    return HISTORY_NAMING.stamped_columns | naming.stamped_columns
 
 
 def reserved_column_names(history: HistoryNaming | None) -> frozenset[str]:
@@ -124,7 +145,7 @@ def reserved_column_collisions(
 # Columns that are CDC/SCD2 metadata — always filled from the event itself,
 # never overwritten when enriching DELETE rows with last-known source data.
 _CDC_METADATA_COLUMNS: frozenset[str] = (
-    CAPTURE_COLUMNS | LEGACY_HISTORY_NAMING.validity_columns | HISTORY_NAMING.validity_columns
+    CAPTURE_COLUMNS | LEGACY_HISTORY_NAMING.stamped_columns | HISTORY_NAMING.stamped_columns
 )
 
 
@@ -288,7 +309,7 @@ def enrich_delete_rows(
         return table
 
     pk_set = set(present_pks)
-    metadata_columns = CAPTURE_COLUMNS if history is None else CAPTURE_COLUMNS | history.validity_columns
+    metadata_columns = CAPTURE_COLUMNS if history is None else CAPTURE_COLUMNS | history.stamped_columns
     table_data_cols = [col for col in table.column_names if col not in metadata_columns and col not in pk_set]
 
     # Determine extra columns that exist in existing_rows but not in the current table.
@@ -516,9 +537,12 @@ def build_scd2_table(pa_table: pa.Table, pk_columns: list[str], naming: HistoryN
     )
 
     if pa_table.num_rows == 0:
-        return pa_table.append_column(pa.field(naming.valid_from, ts_type), pa.array([], type=ts_type)).append_column(
+        empty = pa_table.append_column(pa.field(naming.valid_from, ts_type), pa.array([], type=ts_type)).append_column(
             pa.field(naming.valid_to, ts_type), pa.array([], type=ts_type)
         )
+        if naming.partition_column is None:
+            return empty
+        return empty.append_column(pa.field(naming.partition_column, pa.string()), pa.array([], type=pa.string()))
 
     ts_col = pa_table.column(CDC_TIMESTAMP_COLUMN).to_pylist()
 
@@ -541,13 +565,17 @@ def build_scd2_table(pa_table: pa.Table, pk_columns: list[str], naming: HistoryN
                 next_idx = row_indices[j + 1]
                 valid_to[idx] = ts_col[next_idx]
 
-    return pa_table.append_column(
+    valid_to_array = pa.array(valid_to, type=ts_type)
+    stamped = pa_table.append_column(
         pa.field(naming.valid_from, ts_type),
         pa_table.column(CDC_TIMESTAMP_COLUMN),
     ).append_column(
         pa.field(naming.valid_to, ts_type),
-        pa.array(valid_to, type=ts_type),
+        valid_to_array,
     )
+    if naming.partition_column is None:
+        return stamped
+    return stamped.append_column(pa.field(naming.partition_column, pa.string()), history_partitions(valid_to_array))
 
 
 def _events_to_table(events: list[ChangeEvent], position_to_seq: Callable[[str], int] | None = None) -> pa.Table:

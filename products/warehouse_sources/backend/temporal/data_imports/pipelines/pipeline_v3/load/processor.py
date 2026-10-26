@@ -28,6 +28,7 @@ from products.warehouse_sources.backend.models.external_data_schema import Exter
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
     CDC_OP_COLUMN,
+    CURRENT_HISTORY_PARTITION,
     TOAST_OMITTED_COLUMN,
     enrich_delete_rows,
     enrich_toast_omitted_rows,
@@ -1617,7 +1618,11 @@ def _process_message_reported(
                 # The lane stamped the batch with its table's validity columns, so the batch names them.
                 history = history_naming_of(pa_table.column_names)
                 scd2_writer = Scd2DeltaWriter(
-                    delta_table_ref, valid_from_column=history.valid_from, valid_to_column=history.valid_to
+                    delta_table_ref,
+                    valid_from_column=history.valid_from,
+                    valid_to_column=history.valid_to,
+                    partition_column=history.partition_column,
+                    current_partition=CURRENT_HISTORY_PARTITION,
                 )
                 delta_table = async_to_sync(scd2_writer.write)(
                     data=pa_table,

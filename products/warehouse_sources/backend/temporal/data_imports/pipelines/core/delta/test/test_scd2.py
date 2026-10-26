@@ -25,6 +25,41 @@ def _make_writer(delta_uri: str) -> Scd2DeltaWriter:
 
 class TestScd2Write:
     @pytest.mark.asyncio
+    async def test_a_partitioned_table_moves_a_closed_row_into_its_month(self, tmp_path: Path) -> None:
+        # The close merge reads only the current partition, so a closed row left there would stay
+        # open to every later merge, and one moved to the wrong month would hide from queries by month.
+        delta_path = str(tmp_path / "scd2_table")
+        writer = Scd2DeltaWriter(
+            make_local_table_ref(delta_path),
+            valid_from_column="_ph_valid_from",
+            valid_to_column="_ph_valid_to",
+            partition_column="_ph_history_partition",
+            current_partition="current",
+        )
+
+        def _batch(ids: list[int], at: datetime) -> pa.Table:
+            return pa.table(
+                {
+                    "id": pa.array(ids),
+                    "_ph_valid_from": pa.array([at] * len(ids), type=_TS_TYPE),
+                    "_ph_valid_to": pa.array([None] * len(ids), type=_TS_TYPE),
+                    "_ph_history_partition": pa.array(["current"] * len(ids)),
+                }
+            )
+
+        await writer.write(data=_batch([1, 2], datetime(2026, 1, 1, tzinfo=UTC)), primary_keys=["id"])
+        await writer.write(data=_batch([1], datetime(2026, 3, 15, tzinfo=UTC)), primary_keys=["id"])
+
+        table = deltalake.DeltaTable(delta_path)
+        rows = table.to_pyarrow_table().sort_by([("id", "ascending"), ("_ph_valid_from", "ascending")]).to_pylist()
+        assert table.metadata().partition_columns == ["_ph_history_partition"]
+        assert [(r["id"], r["_ph_valid_to"], r["_ph_history_partition"]) for r in rows] == [
+            (1, datetime(2026, 3, 15, tzinfo=UTC), "2026-03"),
+            (1, None, "current"),
+            (2, None, "current"),
+        ]
+
+    @pytest.mark.asyncio
     async def test_first_write_creates_the_table_with_a_short_checkpoint_interval(self, tmp_path: Path) -> None:
         # The SCD2 writer has its own create path; a table it creates on delta-rs's default interval
         # would replay a long uncheckpointed tail on every open.

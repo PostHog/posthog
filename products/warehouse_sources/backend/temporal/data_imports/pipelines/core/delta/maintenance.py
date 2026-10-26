@@ -480,7 +480,12 @@ class DeltaMaintenance:
 
     @recorded_phase("compact")
     async def _compact(
-        self, table: deltalake.DeltaTable, plan: CompactionPlan | None = None, *, partitions: list[str] | None = None
+        self,
+        table: deltalake.DeltaTable,
+        plan: CompactionPlan | None = None,
+        *,
+        partitions: list[str] | None = None,
+        partition_column: str = PARTITION_KEY,
     ) -> bool:
         plan = plan or await self._plan_compaction(table)
         target_size = plan.target_size
@@ -510,7 +515,7 @@ class DeltaMaintenance:
             def _compact_op(size: int = target_size, tasks: int | None = max_concurrent_tasks) -> dict[str, Any]:
                 if partitions:
                     return table.optimize.compact(
-                        partition_filters=[(PARTITION_KEY, "in", partitions)],
+                        partition_filters=[(partition_column, "in", partitions)],
                         target_size=size,
                         max_concurrent_tasks=tasks,
                     )
@@ -973,6 +978,32 @@ class DeltaMaintenance:
             )
         except Exception as e:
             await self._log_maintenance_failure(e, step="compact")
+
+    async def compact_history_current_partition(self, partition_column: str, current_partition: str) -> bool:
+        """Compact the open rows of a partitioned history table once they hold enough small files.
+
+        Every close merge rewrites the files of this partition that hold a closed key. The month
+        partitions keep the table-wide averages of `compact_if_fragmented` low, so its triggers would not
+        see this partition grow. Never raises, like `run_scheduled`.
+        """
+        try:
+            table = await self._table.get_delta_table()
+            if table is None or partition_column not in (table.metadata().partition_columns or []):
+                return False
+            directory = f"{partition_column}={current_partition}"
+            sizes = [
+                size or 0
+                for path, size in table._table.get_add_file_sizes().items()
+                if path.rpartition("/")[0] == directory
+            ]
+            if removable_file_count(sizes, table_target_file_size(table)) < (
+                DEFAULT_COMPACT_REMOVABLE_FILES_PER_PARTITION_THRESHOLD
+            ):
+                return False
+            return await self._compact(table, partitions=[current_partition], partition_column=partition_column)
+        except Exception as e:
+            await self._log_maintenance_failure(e, step="compact_history_current_partition")
+            return False
 
     async def _log_maintenance_failure(self, e: Exception, *, step: str) -> None:
         if isinstance(e, ObjectStorePermissionDeniedError):
