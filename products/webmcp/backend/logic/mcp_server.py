@@ -8,7 +8,7 @@ import requests
 
 from posthog.models import User
 
-from ..facade.contracts import ExecResult, ExecTool, McpServerError, ToolCallResult
+from ..facade.contracts import ExecResult, ExecTool, McpServerError, McpServerTimeout, ToolCallResult
 from .tokens import WebMCPTokenIssuer
 
 # The stateless MCP dialect needs no handshake, so each proxied call is one HTTP request.
@@ -142,6 +142,9 @@ class McpServerClient:
         try:
             # A redirect can resend the bearer token and the command to a URL nobody configured.
             response = requests.post(self._url, json=body, headers=headers, timeout=timeout, allow_redirects=False)
+        except requests.ReadTimeout as error:
+            # The server has the request, so it can still finish the call after this client gives up.
+            raise McpServerTimeout("The MCP server did not answer in time") from error
         except requests.RequestException as error:
             raise McpServerError(f"Could not reach the MCP server: {error.__class__.__name__}") from error
 

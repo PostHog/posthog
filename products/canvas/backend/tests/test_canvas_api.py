@@ -41,7 +41,7 @@ from products.tasks.backend.facade.access import DesktopAccessDecision
 from products.tasks.backend.facade.ai_run_defaults import update_team_ai_run_preferences, update_user_ai_run_preferences
 from products.tasks.backend.facade.contracts import ComputeQuotaDenialReason
 from products.tasks.backend.models import Channel, Task, TaskRun, TaskThreadMessage
-from products.webmcp.backend.facade.contracts import CallToolInput, McpServerError, ToolCallResult
+from products.webmcp.backend.facade.contracts import CallToolInput, McpServerError, McpServerTimeout, ToolCallResult
 from products.workflows.backend.facade.api import get_workflow_summary
 from products.workflows.backend.facade.testing import create_workflow_for_test
 
@@ -107,7 +107,9 @@ class CanvasAPIBaseTest(APIBaseTest):
         assert entry.detail is not None
         return entry.detail["changes"]
 
-    def _sandbox_client(self, task_id: UUID, *, user: User | None = None) -> APIClient:
+    def _sandbox_client(
+        self, task_id: UUID, *, user: User | None = None, scope: str = "canvas:read canvas:write task:read"
+    ) -> APIClient:
         actor = user or self.user
         application = OAuthApplication.objects.create(
             name="Canvas sandbox",
@@ -124,7 +126,7 @@ class CanvasAPIBaseTest(APIBaseTest):
             application=application,
             token=f"pha_canvas_{uuid4().hex}",
             expires=timezone.now() + timedelta(hours=1),
-            scope="canvas:read canvas:write task:read",
+            scope=scope,
             scoped_teams=[self.team.id],
             sandbox_task_id=task_id,
         )
@@ -2793,9 +2795,9 @@ class TestCanvasTools(CanvasAPIBaseTest):
         self.call_tool.assert_called_once_with(
             CallToolInput(user_id=self.user.id, team_id=self.team.id, tool="feature-flag-enable", arguments={"id": 7})
         )
-        assert [entry.detail["trigger"]["job_id"] for entry in self._activity("tool_invoked")] == [
-            "feature-flag-enable"
-        ]
+        [entry] = self._activity("tool_invoked")
+        assert entry.detail is not None
+        assert entry.detail["trigger"]["job_id"] == "feature-flag-enable"
 
     @parameterized.expand(
         [
@@ -2825,6 +2827,29 @@ class TestCanvasTools(CanvasAPIBaseTest):
         assert response.status_code == expected_status, response.json()
         self.call_tool.assert_not_called()
 
+    def test_refuses_a_sandbox_token_that_holds_the_tool_scopes(self):
+        canvas_id = self._tools_canvas()
+        bound_task = Task.objects.create(
+            team=self.team,
+            channel=self.channel,
+            created_by=self.user,
+            title="Bound",
+            description="d",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        client = self._sandbox_client(bound_task.id, scope="canvas:read canvas:write feature_flag:write")
+
+        response = client.post(
+            f"/api/projects/{self.team.id}/canvases/{canvas_id}/tools/invoke/",
+            {"tool": "feature-flag-enable", "arguments": {"id": 7}},
+            format="json",
+            HTTP_X_POSTHOG_TASK_ID=str(bound_task.id),
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        assert response.json()["detail"] == "Canvas tools are run by viewers; sandbox tokens cannot use them."
+        self.call_tool.assert_not_called()
+
     @parameterized.expand(
         [
             (
@@ -2838,6 +2863,14 @@ class TestCanvasTools(CanvasAPIBaseTest):
                 McpServerError("Could not reach the MCP server: ConnectionError"),
                 status.HTTP_502_BAD_GATEWAY,
                 "The PostHog MCP server could not run this tool. Try again.",
+            ),
+            (
+                # The server can still apply the write, so the viewer must not retry blind.
+                "write_timed_out",
+                McpServerTimeout("The MCP server did not answer in time"),
+                status.HTTP_504_GATEWAY_TIMEOUT,
+                "The tool did not answer in time, and the change can still apply. "
+                "Load the current state before you try again.",
             ),
         ]
     )

@@ -282,10 +282,10 @@ version the write returns. On a version conflict, read the flag again before the
 ```tsx
 const flag = await ph.tools.read('feature-flag-get-definition', { id: flagId })
 const updated = await ph.tools.call('feature-flag-set-release-condition-rollout', {
-    id: flagId,
-    condition_index: 0,
-    rollout_percentage: 25,
-    version: flag.version,
+  id: flagId,
+  condition_index: 0,
+  rollout_percentage: 25,
+  version: flag.version,
 })
 ```
 

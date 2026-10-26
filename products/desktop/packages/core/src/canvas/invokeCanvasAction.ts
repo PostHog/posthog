@@ -31,12 +31,15 @@ export async function invokeCanvasAction(
 
 // ph.tools.read runs without a click, so it takes read-only tools only.
 // ph.tools.call comes from a click, and the viewer confirms every tool that
-// is not read-only.
+// is not read-only, with the exact arguments the canvas passes.
 export async function invokeCanvasTool(
   input: z.infer<typeof canvasToolInvokeInput>,
   fromGesture: boolean,
   listTools: () => Promise<CanvasToolDefinition[]>,
-  confirm: (tool: CanvasToolDefinition) => boolean,
+  confirm: (
+    tool: CanvasToolDefinition,
+    args: Record<string, unknown>,
+  ) => boolean,
   invoke: (
     input: z.infer<typeof canvasToolInvokeInput>,
   ) => Promise<CanvasToolResult>,
@@ -49,7 +52,7 @@ export async function invokeCanvasTool(
       `"${input.tool}" changes data. Run it with ph.tools.call from a click.`,
     );
   }
-  if (!tool.read_only && !confirm(tool)) {
+  if (!tool.read_only && !confirm(tool, input.arguments)) {
     throw new Error("Canvas tool call canceled");
   }
   return invoke(input);

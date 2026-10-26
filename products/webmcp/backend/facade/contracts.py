@@ -50,3 +50,7 @@ class ToolCallResult:
 
 class McpServerError(Exception):
     """The MCP server could not complete the call."""
+
+
+class McpServerTimeout(McpServerError):
+    """The MCP server received the call and did not answer in time. The call can still complete."""

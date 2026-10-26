@@ -105,6 +105,9 @@ describe("invokeCanvasAction", () => {
           });
           expect(invoke).toHaveBeenCalledWith(call);
         }
+        if (confirm.mock.calls.length > 0) {
+          expect(confirm).toHaveBeenCalledWith(tool, call.arguments);
+        }
       },
     );
   });

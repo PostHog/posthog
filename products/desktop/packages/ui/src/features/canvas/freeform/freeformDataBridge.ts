@@ -310,9 +310,17 @@ export async function handleFreeformDataRequest(
           arguments: input.arguments ?? {},
         },
         method === "toolCall",
-        () => client.listTools.query(),
-        (tool) =>
-          window.confirm(`${tool.summary}\n\n${tool.name}\n\nContinue?`),
+        // The allowlist changes only with a deploy, so a board that reads many flags fetches it once.
+        () =>
+          queryClient.fetchQuery({
+            queryKey: [CANVAS_QUERY_KEY, "tools"],
+            queryFn: () => client.listTools.query(),
+            staleTime: Infinity,
+          }),
+        (tool, args) =>
+          window.confirm(
+            `${tool.summary}\n\n${tool.name}\n${JSON.stringify(args, null, 2)}\n\nContinue?`,
+          ),
         (call) => client.invokeTool.mutate(call),
       );
       return result;

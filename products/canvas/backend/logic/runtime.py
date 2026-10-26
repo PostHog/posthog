@@ -189,9 +189,14 @@ def call_tool(team_id: int, user_id: int, tool: str, arguments: dict[str, Any]) 
     try:
         return call_canvas_mcp_tool(team_id, user_id, tool, arguments).result
     except CanvasMcpToolError as error:
-        raise CanvasRequestRejected(
-            status.HTTP_502_BAD_GATEWAY if error.server_unavailable else status.HTTP_400_BAD_REQUEST, str(error)
-        ) from error
+        status_code: int
+        if error.outcome_unknown:
+            status_code = status.HTTP_504_GATEWAY_TIMEOUT
+        elif error.server_unavailable:
+            status_code = status.HTTP_502_BAD_GATEWAY
+        else:
+            status_code = status.HTTP_400_BAD_REQUEST
+        raise CanvasRequestRejected(status_code, str(error)) from error
 
 
 def call_connector(

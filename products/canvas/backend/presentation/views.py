@@ -1885,6 +1885,9 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
                 "or the caller is a sandbox or an impersonated session."
             ),
             502: OpenApiResponse(description="The PostHog MCP server could not run the tool."),
+            504: OpenApiResponse(
+                description="A tool that changes data did not answer in time. The change can still apply."
+            ),
         },
     )
     @action(methods=["POST"], detail=True, url_path="tools/invoke")
@@ -1898,7 +1901,8 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         """
         canvas = self._canvas()
         user = self._state_actor(request)
-        if user is None:
+        # A sandbox token authenticates as its user, so the user check alone lets an agent through.
+        if user is None or self._is_sandbox_authenticated(request):
             return Response(
                 {"detail": "Canvas tools are run by viewers; sandbox tokens cannot use them."},
                 status=status.HTTP_403_FORBIDDEN,

@@ -1165,7 +1165,8 @@ class CanvasToolDefinitionSerializer(serializers.Serializer):
     name = serializers.CharField(help_text="MCP tool name, e.g. 'feature-flag-enable'.")
     title = serializers.CharField(help_text="Human-readable tool title.")
     summary = serializers.CharField(help_text="One line naming what the tool does.")
-    read_only = serializers.BooleanField(
+    # The name shadows Field.read_only for mypy only: DRF moves declared fields off the class.
+    read_only = serializers.BooleanField(  # type: ignore[assignment]
         help_text="True when the tool only reads. A canvas runs read-only tools with ph.tools.read, others with "
         "ph.tools.call."
     )

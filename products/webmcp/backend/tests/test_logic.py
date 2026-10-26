@@ -6,13 +6,14 @@ from unittest.mock import MagicMock, patch
 from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
+import requests
 from parameterized import parameterized
 
 from posthog.models import OAuthAccessToken, OAuthApplication, Team, User
 from posthog.temporal.oauth import WEBMCP_APP_CLIENT_ID
 
 from products.webmcp.backend.facade import api
-from products.webmcp.backend.facade.contracts import CallToolInput, McpServerError, ToolCallResult
+from products.webmcp.backend.facade.contracts import CallToolInput, McpServerError, McpServerTimeout, ToolCallResult
 from products.webmcp.backend.logic.tokens import WebMCPTokenIssuer
 
 
@@ -150,3 +151,24 @@ class TestWebMCPCallTool(BaseTest):
             )
 
         mock_post.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("read_timeout", requests.ReadTimeout(), McpServerTimeout),
+            # A connect timeout never reached the server, so the call is safe to retry.
+            ("connect_timeout", requests.ConnectTimeout(), McpServerError),
+        ]
+    )
+    def test_only_a_read_timeout_leaves_the_outcome_unknown(
+        self, mock_post: MagicMock, _name: str, error: Exception, expected: type[McpServerError]
+    ) -> None:
+        mock_post.side_effect = error
+
+        with self.assertRaises(McpServerError) as raised:
+            api.call_tool(
+                CallToolInput(
+                    user_id=self.user.id, team_id=self.team.id, tool="feature-flag-enable", arguments={"id": 7}
+                )
+            )
+
+        assert type(raised.exception) is expected
