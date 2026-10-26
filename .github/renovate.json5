@@ -21,10 +21,8 @@
   dependencyDashboardOSVVulnerabilitySummary: 'all',
   dependencyDashboardReportAbandonment: false,
   configMigration: false,
-  // Fix PRs skip dashboard approval and the schedule, so this cap is the only bound on how many open at once
   vulnerabilityAlerts: {
-    prConcurrentLimit: 5,
-    labels: ['dependencies', 'security'],
+    enabled: false,
   },
   ignorePaths: [
     'common/hogql_parser/**',
