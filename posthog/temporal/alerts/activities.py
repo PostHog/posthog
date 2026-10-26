@@ -675,7 +675,6 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
         breaches: list[str] | None = None
         error: dict | None = None
         invalid_configuration: str | None = None
-        disable_error_code = "invalid_configuration"
         alert_evaluation_result = None
 
         try:
@@ -719,11 +718,21 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
             invalid_configuration = str(err)
         except _CreatorLeftOrganization:
             invalid_configuration = CREATOR_LEFT_DISABLE_REASON
-            disable_error_code = "creator_left_organization"
-        except TableAccessDeniedError:
-            # The owner is still a member, so the denial is their access, not a bug to capture.
-            invalid_configuration = CREATOR_LOST_ACCESS_DISABLE_REASON
-            disable_error_code = "creator_lost_access"
+        except TableAccessDeniedError as err:
+            if alert.created_by is not None and not alert.platform_owned:
+                # The owner is still a member, so the denial is their access, not a bug to capture.
+                invalid_configuration = CREATOR_LOST_ACCESS_DISABLE_REASON
+            else:
+                logger.exception("Alert failed to evaluate", alert_id=alert.id, exc_info=err)
+                capture_exception(
+                    err,
+                    additional_properties={
+                        "alert_configuration_id": str(alert.id),
+                        "insight_id": alert.insight_id,
+                        "team_id": alert.team_id,
+                    },
+                )
+                error = {"message": str(err), "traceback": traceback.format_exc()}
         except Exception as err:
             logger.exception("Alert failed to evaluate", alert_id=alert.id, exc_info=err)
             capture_exception(
@@ -756,7 +765,7 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
             alert = current_alert
             if invalid_configuration is not None:
                 alert_check = disable_invalid_alert(
-                    alert, invalid_configuration, notify_subscribers=False, error_code=disable_error_code
+                    alert, invalid_configuration, notify_subscribers=False, error_code="invalid_configuration"
                 )
                 return EvaluateAlertResult(
                     alert_check_id=str(alert_check.id),

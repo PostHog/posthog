@@ -122,8 +122,6 @@ def export_asset_direct(
     export_source = source or EventSource.EXPORT
 
     try:
-        # The export runs as its owner. Stop before the query, because a query that reads no
-        # restricted table still succeeds after the owner leaves.
         if exported_asset.created_by is not None and creator_access_revoked(exported_asset.created_by, team):
             raise CreatorLeftOrganizationError()
         assert_export_authorization(exported_asset)

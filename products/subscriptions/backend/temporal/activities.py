@@ -554,7 +554,12 @@ async def _deliver_insight_dashboard_subscription(
         )
 
     # The failed tiles in this delivery already tell the recipients why, so nobody else gets an email.
-    owner_reason = get_assets_owner_disable_reason(asset.exception_type for asset in assets)
+    # A subscription with no owner runs userless and is denied every warehouse table, which is not an owner change.
+    owner_reason = (
+        get_assets_owner_disable_reason(asset.exception_type for asset in assets)
+        if subscription.created_by_id is not None
+        else None
+    )
     if owner_reason is not None:
         await database_sync_to_async(disable_invalid_subscription, thread_sensitive=False)(
             subscription, owner_reason, notify_owner=False

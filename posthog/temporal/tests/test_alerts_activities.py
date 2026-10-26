@@ -49,6 +49,8 @@ from posthog.tasks.alerts.utils import (
     send_notifications_for_errors,
 )
 from posthog.temporal.alerts.activities import (
+    CREATOR_LEFT_DISABLE_REASON,
+    CREATOR_LOST_ACCESS_DISABLE_REASON,
     _evaluation_inputs_match,
     _load_alert_for_evaluation,
     _lock_evaluation_alert,
@@ -1266,11 +1268,14 @@ class TestEvaluateAlert:
         assert check.targets_notified
 
     @pytest.mark.parametrize(
-        "owner_change, expected_code",
-        [("left_organization", "creator_left_organization"), ("lost_table_access", "creator_lost_access")],
+        "owner_change, expected_message",
+        [
+            ("left_organization", CREATOR_LEFT_DISABLE_REASON),
+            ("lost_table_access", CREATOR_LOST_ACCESS_DISABLE_REASON),
+        ],
     )
     async def test_evaluate_auto_disables_when_the_owner_can_no_longer_run_the_query(
-        self, alert_with_user, aorganization, owner_change, expected_code
+        self, alert_with_user, aorganization, owner_change, expected_message
     ) -> None:
         owner = await sync_to_async(lambda: alert_with_user.subscribed_users.get())()
         alert_with_user.created_by = owner
@@ -1296,7 +1301,8 @@ class TestEvaluateAlert:
         # A departed owner's alert must stop even when its query would still run.
         assert mock_check.called is (owner_change == "lost_table_access")
         check = await sync_to_async(AlertCheck.objects.get)(pk=result.alert_check_id)
-        assert check.error is not None and check.error["code"] == expected_code
+        # The shared code routes the check to the "alert disabled" email, in-app notice and banner.
+        assert check.error == {"message": expected_message, "code": "invalid_configuration"}
         refreshed = await sync_to_async(AlertConfiguration.objects.get)(pk=alert_with_user.pk)
         assert refreshed.enabled is False
 

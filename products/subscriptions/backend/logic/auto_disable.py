@@ -106,25 +106,16 @@ def get_subscription_disable_reason(target_type: str | None, integration_id: int
 
 
 # Export failures that mean the owner can no longer run the query, not that the export broke.
-_OWNER_DISABLE_REASONS_BY_EXCEPTION_TYPE = {
-    CreatorLeftOrganizationError.__name__: CREATOR_LEFT_DISABLE_REASON,
-    UserNotOrganizationMemberError.__name__: CREATOR_LEFT_DISABLE_REASON,
-    TableAccessDeniedError.__name__: CREATOR_LOST_ACCESS_DISABLE_REASON,
-    UserAccessControlError.__name__: CREATOR_LOST_ACCESS_DISABLE_REASON,
-}
-
-
-def get_asset_owner_disable_reason(exception_type: str | None) -> DisableReason | None:
-    if exception_type is None:
-        return None
-    return _OWNER_DISABLE_REASONS_BY_EXCEPTION_TYPE.get(exception_type)
+# Matched by name because delivery only sees the `exception_type` stored on the asset.
+_CREATOR_LEFT_ERROR_NAMES = frozenset({CreatorLeftOrganizationError.__name__, UserNotOrganizationMemberError.__name__})
+_CREATOR_LOST_ACCESS_ERROR_NAMES = frozenset({TableAccessDeniedError.__name__, UserAccessControlError.__name__})
 
 
 def get_assets_owner_disable_reason(exception_types: Iterable[str | None]) -> DisableReason | None:
-    reasons = {get_asset_owner_disable_reason(exception_type) for exception_type in exception_types}
-    if CREATOR_LEFT_DISABLE_REASON in reasons:
+    names = set(exception_types)
+    if names & _CREATOR_LEFT_ERROR_NAMES:
         return CREATOR_LEFT_DISABLE_REASON
-    if CREATOR_LOST_ACCESS_DISABLE_REASON in reasons:
+    if names & _CREATOR_LOST_ACCESS_ERROR_NAMES:
         return CREATOR_LOST_ACCESS_DISABLE_REASON
     return None
 

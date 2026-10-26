@@ -131,6 +131,7 @@ class TestSubscriptionAssetErrorMessage(APIBaseTest):
             export_format="image/png",
             exception=exception,
             exception_type=exception_type,
+            created_by=self.user,
         )
 
     def setUp(self) -> None:
