@@ -1,0 +1,22 @@
+// Waits before it shows, so a fast load never flashes a skeleton. The component sets the delay.
+.RunLogSkeleton {
+    animation: run-log-fade-in 200ms ease-out both;
+}
+
+.RunLogReveal {
+    animation: run-log-fade-in 150ms ease-out both;
+}
+
+@keyframes run-log-fade-in {
+    from {
+        opacity: 0;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .RunLogSkeleton,
+    .RunLogReveal,
+    .RunLogSkeleton .quill-skeleton {
+        animation: none;
+    }
+}

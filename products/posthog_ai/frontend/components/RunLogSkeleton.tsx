@@ -1,4 +1,6 @@
-import { memo } from 'react'
+import './RunLogSkeleton.scss'
+
+import { memo, useEffect, useState } from 'react'
 
 import {
     ChatBubble,
@@ -27,6 +29,24 @@ const TURNS: SkeletonTurn[] = [
     { question: 'w-56', tools: ['w-28', 'w-20'], paragraphs: [3, 2] },
 ]
 
+/** Fades a thread in after a skeleton was on screen, so the swap reads as one change and not as a jump. */
+export const RUN_LOG_REVEAL_CLASS = 'RunLogReveal'
+
+// One load can show several skeletons in turn (task, then run log). They share one fade-in clock, so the
+// chain waits once and a later skeleton never blinks or restarts the fade.
+const FADE_IN_DELAY_MS = 150
+let mountedSkeletons = 0
+let lastSkeletonHiddenAt = Number.NEGATIVE_INFINITY
+let chainStartedAt = 0
+
+function fadeInDelayMs(): number {
+    const now = performance.now()
+    if (mountedSkeletons === 0 && now - lastSkeletonHiddenAt > 250) {
+        chainStartedAt = now
+    }
+    return FADE_IN_DELAY_MS - (now - chainStartedAt)
+}
+
 /**
  * Loading state for "a run/task log is loading" — shared by the runner scene, the lazy `ReadonlyRunSurface`
  * chunk's Suspense fallback, and the `RunSurface` in-stream bootstrap. Built from the quill thread's own
@@ -44,16 +64,27 @@ export const RunLogSkeleton = memo(function RunLogSkeleton({
     listClassName?: string
     rowClassName?: string
 }): JSX.Element {
+    const [animationDelay] = useState(() => `${fadeInDelayMs()}ms`)
+    useEffect(() => {
+        mountedSkeletons++
+        return () => {
+            mountedSkeletons--
+            lastSkeletonHiddenAt = performance.now()
+        }
+    }, [])
     return (
         <div
             className={cn(
-                'flex flex-col justify-end h-full min-h-0 w-full overflow-hidden',
+                'RunLogSkeleton flex flex-col justify-end h-full min-h-0 w-full overflow-hidden',
                 '[mask-image:linear-gradient(to_bottom,transparent,black_50%)]',
                 className
             )}
             data-attr="run-log-skeleton"
+            style={{ animationDelay }}
+            role="status"
             aria-busy="true"
         >
+            <span className="sr-only">Loading conversation</span>
             <div
                 data-quill
                 className={cn(

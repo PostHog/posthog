@@ -1,9 +1,10 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 
 import { LemonBanner, LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { cn } from 'lib/utils/css-classes'
 
 import { useThreadSkin } from '../hooks/useThreadSkin'
 import { isLogicRetained, RETAINED_RUN_STREAMS, retainMountedLogic } from '../logics/retainedLogics'
@@ -16,7 +17,7 @@ import { FeedbackPromptTrailer } from './FeedbackPromptTrailer'
 import { PermissionInput } from './PermissionInput'
 import { QuestionInput } from './QuestionInput'
 import { QuillRunSurfaceInputs } from './quill/QuillRunSurfaceInputs'
-import { RunLogSkeleton } from './RunLogSkeleton'
+import { RUN_LOG_REVEAL_CLASS, RunLogSkeleton } from './RunLogSkeleton'
 import { ThreadView } from './ThreadView'
 import { TurnTrailerActions } from './TurnTrailerActions'
 
@@ -269,9 +270,11 @@ function RunSurfaceThread({
             ) : null,
         [feedbackSessionId, feedbackRun]
     )
+    const showedSkeletonRef = useRef(false)
     const showSkeleton =
         (bootstrapLoading || (logBootstrapLoading && !runConnectionState)) && !hasThreadItems && streamKey === runId
     if (showSkeleton) {
+        showedSkeletonRef.current = true
         return <RunLogSkeleton className={className} listClassName={listClassName} rowClassName={rowClassName} />
     }
     // The runner shows context usage in its composer footer (`ContextUsageChip`); a surface with no
@@ -281,7 +284,7 @@ function RunSurfaceThread({
     return (
         <ThreadView
             scrollRestorationKey={restoreReadPosition ? taskId : undefined}
-            className={className}
+            className={cn(className, showedSkeletonRef.current && RUN_LOG_REVEAL_CLASS)}
             listClassName={listClassName}
             endInset={floatingInputsHeight > 0 ? floatingInputsHeight + FLOATING_INPUTS_GAP : undefined}
             rowClassName={rowClassName}
