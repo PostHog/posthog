@@ -67,7 +67,8 @@ project yet. Tell the user that and stop.
   as `destination_ids` to apply. If those tools are not available, the data lands in the PostHog warehouse only. Use a
   schema other than the one Fivetran writes to while both run, or the two tools write into the same tables.
 - **Prefix taken.** If apply fails because the prefix is in use, offer a new one and pass it as `prefix`.
-- **Failed apply.** The item stays retryable. Read `error`, fix the cause with the user, and apply again with a new
-  credential, since a stored credential is used up only when a source is created.
+- **Failed apply.** The item stays retryable. Read `error` and fix the cause with the user. A stored credential is used
+  up only when a source is created, so apply again with the same `credential_id`. Send a new connect link only when
+  the error says the credential was not found, expired (after 24 hours) or rejected.
 - **The user changed Fivetran mid-migration.** Call `warehouse-migration-refresh`. Applied, skipped and in-progress
   items stay as they are, and the rest are planned again.

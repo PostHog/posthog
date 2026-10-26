@@ -3918,7 +3918,9 @@ export const WarehouseMigrationsListQueryParams = () => zod.object({
 /**
  * Import a team's Fivetran setup and plan the PostHog sources that replace it.
  */
-export const warehouseMigrationsRetrievePathIdRegExp = new RegExp('^[0-9a-f-]+$')
+export const warehouseMigrationsRetrievePathIdRegExp = new RegExp(
+    '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+)
 
 export const WarehouseMigrationsRetrieveParams = () => zod.object({
     id: zod.string().regex(warehouseMigrationsRetrievePathIdRegExp),
@@ -3932,7 +3934,9 @@ export const WarehouseMigrationsRetrieveParams = () => zod.object({
 /**
  * Import a team's Fivetran setup and plan the PostHog sources that replace it.
  */
-export const warehouseMigrationsItemsListPathIdRegExp = new RegExp('^[0-9a-f-]+$')
+export const warehouseMigrationsItemsListPathIdRegExp = new RegExp(
+    '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+)
 
 export const WarehouseMigrationsItemsListParams = () => zod.object({
     id: zod.string().regex(warehouseMigrationsItemsListPathIdRegExp),
@@ -3946,7 +3950,9 @@ export const WarehouseMigrationsItemsListParams = () => zod.object({
 /**
  * Import a team's Fivetran setup and plan the PostHog sources that replace it.
  */
-export const warehouseMigrationsItemsSkipCreatePathIdRegExp = new RegExp('^[0-9a-f-]+$')
+export const warehouseMigrationsItemsSkipCreatePathIdRegExp = new RegExp(
+    '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+)
 
 export const WarehouseMigrationsItemsSkipCreateParams = () => zod.object({
     id: zod.string().regex(warehouseMigrationsItemsSkipCreatePathIdRegExp),
@@ -3961,7 +3967,9 @@ export const WarehouseMigrationsItemsSkipCreateParams = () => zod.object({
 /**
  * Import a team's Fivetran setup and plan the PostHog sources that replace it.
  */
-export const warehouseMigrationsRefreshCreatePathIdRegExp = new RegExp('^[0-9a-f-]+$')
+export const warehouseMigrationsRefreshCreatePathIdRegExp = new RegExp(
+    '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+)
 
 export const WarehouseMigrationsRefreshCreateParams = () => zod.object({
     id: zod.string().regex(warehouseMigrationsRefreshCreatePathIdRegExp),
