@@ -56,7 +56,7 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
         slug: 'posthog',
         owner: 'posthog',
         scheme,
-        version: '1.3.0',
+        version: '1.4.0',
         orientation: 'portrait',
         userInterfaceStyle: 'automatic',
         icon: icons.png,
@@ -131,7 +131,7 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
                     image: './assets/splash-icon.png',
                     imageWidth: 120,
                     resizeMode: 'contain',
-                    backgroundColor: '#FFFFFF',
+                    backgroundColor: '#F6F6F3',
                     dark: {
                         image: './assets/splash-icon-dark.png',
                         backgroundColor: '#1D1F27',

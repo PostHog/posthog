@@ -42,7 +42,7 @@ Do not run `pnpm update`. That is pnpm's own command, and it upgrades dependenci
 
 ## Runtime version
 
-`app.config.ts` sets `runtimeVersion.policy` to `appVersion`, so the runtime version equals `version` (now `1.3.0`).
+`app.config.ts` sets `runtimeVersion.policy` to `appVersion`, so the runtime version equals `version` (now `1.4.0`).
 An update reaches only the builds with the same runtime version.
 
 The device's `appVersion` policy does not detect native changes. The hosted release workflow additionally compares Expo native fingerprints for both platforms against the last successful native release. You must raise `version` and request a native release when a change needs native code, for example:
