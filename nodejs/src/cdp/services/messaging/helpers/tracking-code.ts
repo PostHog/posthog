@@ -96,6 +96,12 @@ const VERSIONED_PAYLOAD_MARKER = 'v2'
 
 const EMIT_VERSIONED_PAYLOAD = true
 
+// The redirect signature binds the destination to the tracking code, so a link cannot be edited to
+// point somewhere else. A JSON array keeps the boundary between the two values unambiguous, and the
+// leading `[` keeps this payload apart from tracking-code payloads, which are bare base64url.
+const redirectSignaturePayload = (trackingCode: string, targetUrl: string): string =>
+    JSON.stringify(['redirect', trackingCode, targetUrl])
+
 // Generates, signs, verifies and renders email tracking codes. Signing keys and the public
 // tracking URL are read once in the constructor so callers can be injected with a configured
 // instance (see cdp-services.ts) instead of reaching into global config — and tests can pass
@@ -246,6 +252,13 @@ export class EmailTrackingCodeSigner {
     }
 
     redirectUrl(invocation: TrackingInvocation, targetUrl: string, isTest = false): string {
-        return `${this.trackingUrl}/public/m/redirect?ph_id=${this.generate(invocation, isTest)}&target=${encodeURIComponent(targetUrl)}`
+        const trackingCode = this.generate(invocation, isTest)
+        const signature = this.signPayload(redirectSignaturePayload(trackingCode, targetUrl), this.signingKeys[0])
+        return `${this.trackingUrl}/public/m/redirect?ph_id=${trackingCode}&ph_sig=${signature}&target=${encodeURIComponent(targetUrl)}`
+    }
+
+    // Links minted before the target was signed carry no `ph_sig`, so they fail this check.
+    verifyRedirectTarget(trackingCode: string, targetUrl: string, signature: string): boolean {
+        return this.verifySignature(redirectSignaturePayload(trackingCode, targetUrl), signature)
     }
 }

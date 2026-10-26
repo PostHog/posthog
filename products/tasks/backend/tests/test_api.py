@@ -405,6 +405,22 @@ class TestBuiltInAgentTaskAccess(BaseTaskAPITest):
 
 
 class TestScoutTrialTaskVisibility(BaseTaskAPITest):
+    def test_customer_can_follow_the_first_report_investigation(self) -> None:
+        task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="First investigation",
+            origin_product=Task.OriginProduct.SIGNALS_SCOUT,
+            origin_key="first-report",
+        )
+        run = TaskRun.objects.create(team=self.team, task=task)
+        base = f"/api/projects/{self.team.id}/tasks"
+        assert self.client.get(f"{base}/{task.id}/").status_code == 200
+        assert self.client.get(f"{base}/{task.id}/runs/{run.id}/").status_code == 200
+        response = self.client.get(f"{base}/")
+        assert response.status_code == 200
+        assert str(task.id) in {row["id"] for row in response.json()["results"]}
+
     def setUp(self) -> None:
         super().setUp()
         self.ordinary_task = self.create_task()
@@ -2002,7 +2018,8 @@ class TestTaskAPI(BaseTaskAPITest):
             },
         )
 
-    def test_create_task(self):
+    @parameterized.expand([("mobile", True), ("web", False), ("", False)])
+    def test_create_task(self, platform: str, mobile_origin: bool):
         response = self.client.post(
             "/api/projects/@current/tasks/",
             {
@@ -2012,6 +2029,7 @@ class TestTaskAPI(BaseTaskAPITest):
                 "repository": "posthog/posthog",
             },
             format="json",
+            HTTP_X_POSTHOG_CLIENT_PLATFORM=platform,
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
@@ -2022,6 +2040,8 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(data["repositories"], ["posthog/posthog"])
         self.assertEqual(data["runtime"], Task.Runtime.ACP)
         self.assertIsNone(data["latest_run"])
+
+        self.assertIs((Task.objects.get(id=data["id"]).state or {})["created_on_mobile"], mobile_origin)
 
     @parameterized.expand([False, True])
     @patch("products.tasks.backend.presentation.views.api._is_internal_debug_team", return_value=True)
@@ -3256,7 +3276,11 @@ class TestTaskAPI(BaseTaskAPITest):
             )
 
         self.assertEqual(self._post_discussion_task(report.id).status_code, status.HTTP_201_CREATED)
-        self.assertEqual(self._discussion_notes().get().skill_name, skill_name)
+        note = self._discussion_notes().get()
+        self.assertEqual(note.skill_name, skill_name)
+        # The scout learns whose preferences and routing the question reflects.
+        actor_clause, _, _ = note.content.partition(" opened a discussion on report")
+        self.assertIn(self.user.email, actor_clause)
 
     @parameterized.expand(
         [
@@ -7705,6 +7729,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "prior_run_tags": ["prior-tag"],
                 "interaction_origin": "slack",
                 "slack_actor_user_id": self.user.id,
+                "slack_actor_slack_user_id": "U_ORIGINAL_ACTOR",
                 "run_source": "manual",
             },
         )
@@ -7800,6 +7825,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "prior_run_tags": ["forged-prior-tag"],
                     "interaction_origin": "desktop",
                     "slack_actor_user_id": credential_target.id,
+                    "slack_actor_slack_user_id": "U_OTHER_ACTOR",
                     "run_source": "signal_report",
                     "dev_stack_preview": {"port": 8080, "sandbox_id": "sb-real"},
                     "scratch": "ok",
@@ -7870,6 +7896,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["prior_run_tags"] == ["prior-tag"]
         assert run.state["interaction_origin"] == "slack"
         assert run.state["slack_actor_user_id"] == self.user.id
+        assert run.state["slack_actor_slack_user_id"] == "U_ORIGINAL_ACTOR"
         assert run.state["run_source"] == "manual"
         assert run.state["scratch"] == "ok"  # non-protected keys still merge
         assert run.state["systemPrompt"] == system_prompt
@@ -7936,6 +7963,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "prior_run_tags",
                     "interaction_origin",
                     "slack_actor_user_id",
+                    "slack_actor_slack_user_id",
                     "run_source",
                     "scratch",
                 ],
@@ -7990,6 +8018,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["prior_run_tags"] == ["prior-tag"]
         assert run.state["interaction_origin"] == "slack"
         assert run.state["slack_actor_user_id"] == self.user.id
+        assert run.state["slack_actor_slack_user_id"] == "U_ORIGINAL_ACTOR"
         assert run.state["run_source"] == "manual"
         assert "scratch" not in run.state  # non-protected key removed
         assert run.state["systemPrompt"] == system_prompt
@@ -8012,6 +8041,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "task_management_ci_idle_skips": 0,
                     "task_management_ci_wait_checks": 0,
                     "pending_external_followups_checkpoint": {"generation": 99},
+                    "slack_actor_slack_user_id": ["U_OTHER_ACTOR"],
                     "scratch": "ok",
                 }
             },
@@ -8030,6 +8060,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["task_management_ci_idle_skips"] == 1
         assert run.state["task_management_ci_wait_checks"] == 10
         assert run.state["pending_external_followups_checkpoint"] == {"generation": 8}
+        assert run.state["slack_actor_slack_user_id"] == "U_ORIGINAL_ACTOR"
 
     @patch("products.tasks.backend.facade.api.signal_workflow_completion")
     def test_update_run_status_to_completed_signals_workflow(self, mock_signal):
@@ -8808,6 +8839,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
             message_id=None,
             trace_id=expected_trace_id,
             offer_reply_suggestions=True,
+            offer_feature_tip=True,
         )
 
     @parameterized.expand(
@@ -8863,6 +8895,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
             message_id=None,
             trace_id=None,
             offer_reply_suggestions=True,
+            offer_feature_tip=True,
         )
 
     @patch("products.tasks.backend.temporal.client.execute_posthog_code_agent_relay_workflow")
@@ -11197,6 +11230,83 @@ class TestTaskRunAPI(BaseTaskAPITest):
         response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{target.id}/logs/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.content.decode("utf-8").splitlines(), expected_lines)
+
+    @parameterized.expand(
+        [
+            ("default_keeps_the_copy", "", status.HTTP_200_OK, True),
+            ("thread_drops_the_copy", "?view=thread", status.HTTP_200_OK, False),
+            ("thread_drops_the_copy_from_a_page", "?tail_bytes=1&view=thread", status.HTTP_200_OK, False),
+            ("unknown_view_rejected", "?view=compact", status.HTTP_400_BAD_REQUEST, None),
+        ]
+    )
+    @patch("posthog.storage.object_storage.read")
+    def test_logs_endpoint_view(self, _name: str, query: str, expected_status: int, has_copy: bool | None, mock_read):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team)
+        entry = {
+            "notification": {
+                "method": "session/update",
+                "params": {"update": {"_meta": {"claudeCode": {"toolResponse": {"stdout": "x"}}}}},
+            }
+        }
+        mock_read.side_effect = lambda path, missing_ok=False: json.dumps(entry) + "\n" if path == run.log_url else None
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/logs/{query}")
+
+        self.assertEqual(response.status_code, expected_status)
+        if has_copy is not None:
+            claude_code = json.loads(response.content.decode("utf-8").splitlines()[0])["notification"]["params"][
+                "update"
+            ]["_meta"]["claudeCode"]
+            self.assertEqual("toolResponse" in claude_code, has_copy)
+
+    @parameterized.expand(
+        [
+            ("latest_turn_across_the_chain", "?tail_bytes=1", status.HTTP_200_OK, ("2", "3", "1"), ["latest"]),
+            ("older_page_before_an_offset", "?tail_bytes=1&before=2", status.HTTP_200_OK, ("0", "3", "0"), ["older"]),
+            ("before_needs_tail_bytes", "?before=2", status.HTTP_400_BAD_REQUEST, None, None),
+            ("entries_after_a_start_index", "?tail_bytes=1&start=2", status.HTTP_200_OK, ("2", "3", "0"), ["latest"]),
+            ("start_needs_tail_bytes", "?start=2", status.HTTP_400_BAD_REQUEST, None, None),
+        ]
+    )
+    @patch("posthog.storage.object_storage.read")
+    def test_logs_endpoint_pages_through_the_resume_chain(
+        self,
+        _name: str,
+        query: str,
+        expected_status: int,
+        expected_headers: tuple[str, str, str] | None,
+        expected_turns: list[str] | None,
+        mock_read,
+    ):
+        task = self.create_task()
+        ancestor = TaskRun.objects.create(task=task, team=self.team)
+        target = TaskRun.objects.create(task=task, team=self.team, state={"resume_from_run_id": str(ancestor.id)})
+
+        def user_turn(text: str) -> str:
+            update = {"sessionUpdate": "user_message_chunk", "content": {"type": "text", "text": text}}
+            return json.dumps({"notification": {"method": "session/update", "params": {"update": update}}})
+
+        run_started = json.dumps({"notification": {"method": "_posthog/run_started", "params": {"runId": "r"}}})
+        logs = {ancestor.log_url: f"{user_turn('older')}\n{run_started}\n", target.log_url: f"{user_turn('latest')}\n"}
+        mock_read.side_effect = lambda path, missing_ok=False: logs.get(path)
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{target.id}/logs/{query}")
+
+        self.assertEqual(response.status_code, expected_status)
+        if expected_headers is not None:
+            self.assertEqual(
+                (response["X-Log-Offset"], response["X-Log-Count"], response["X-Log-Preamble"]), expected_headers
+            )
+            self.assertEqual(response["X-Log-Origin"], str(ancestor.id))
+            self.assertIn("X-Log-Origin", response["Access-Control-Expose-Headers"])
+            lines = [json.loads(line) for line in response.content.decode("utf-8").splitlines()]
+            turns = [
+                line["notification"]["params"]["update"]["content"]["text"]
+                for line in lines
+                if line["notification"]["method"] == "session/update"
+            ]
+            self.assertEqual(turns, expected_turns)
 
     @parameterized.expand(
         [
@@ -14158,13 +14268,18 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
             self._command_url(task, run),
             self._make_user_message(),
             format="json",
+            HTTP_X_POSTHOG_CLIENT_PLATFORM="mobile",
         )
 
         if not subscription_owner_matches:
             assert response.status_code == status.HTTP_403_FORBIDDEN
+            task.refresh_from_db()
+            self.assertNotIn(self.user.id, (task.state or {}).get("mobile_push_user_ids", []))
             mock_signal_followup.assert_not_called()
             return
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+        task.refresh_from_db()
+        self.assertEqual((task.state or {})["mobile_push_user_ids"], [self.user.id])
         data = response.json()
         self.assertEqual(data["jsonrpc"], "2.0")
         self.assertTrue(data["result"]["queued"])
@@ -14172,6 +14287,22 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         mock_signal_followup.assert_called_once_with(
             run.workflow_id, "Hello agent", [], "req-1", self.user.id, None, steer=False
         )
+
+    @patch("products.tasks.backend.mobile_push.record_mobile_pickup", side_effect=RuntimeError("database unavailable"))
+    @patch("products.tasks.backend.temporal.client.signal_task_followup_message")
+    def test_successful_message_survives_mobile_pickup_persistence_failure(self, mock_signal, mock_pickup):
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+        response = self.client.post(
+            self._command_url(task, run),
+            self._make_user_message(),
+            format="json",
+            HTTP_X_POSTHOG_CLIENT_PLATFORM="mobile",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.json()["result"]["queued"])
+        mock_signal.assert_called_once()
+        mock_pickup.assert_called_once()
 
     @patch("products.tasks.backend.temporal.client.signal_task_followup_message")
     def test_command_signals_steer_intent(self, mock_signal_followup):
@@ -14470,10 +14601,14 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
             self._command_url(task, run),
             self._make_user_message(),
             format="json",
+            HTTP_X_POSTHOG_CLIENT_PLATFORM="mobile",
         )
 
         self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
         self.assertEqual(response.json()["error"], "Failed to queue user message for task run")
+
+        task.refresh_from_db()
+        self.assertNotIn("mobile_push_user_ids", task.state or {})
 
     @parameterized.expand(
         [
@@ -15038,13 +15173,14 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertTrue(response.json()["result"]["closed"])
 
+    @parameterized.expand([("accepted", True), ("rejected", False)])
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     @patch("products.tasks.backend.presentation.views.api.http_requests.post")
-    def test_command_proxies_permission_response(self, mock_post):
+    def test_command_proxies_permission_response(self, _name, acknowledged, mock_post):
         reset_sandbox_jwt_key_cache()
         self._mock_agent_response(
             mock_post,
-            {"jsonrpc": "2.0", "id": "req-4", "result": {"acknowledged": True}},
+            {"jsonrpc": "2.0", "id": "req-4", "result": {"resolved": acknowledged}},
         )
 
         task = self.create_task()
@@ -15059,6 +15195,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
                 "id": "req-4",
             },
             format="json",
+            HTTP_X_POSTHOG_CLIENT_PLATFORM="mobile",
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -15066,6 +15203,9 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         self.assertEqual(call_kwargs["json"]["method"], "permission_response")
         self.assertEqual(call_kwargs["json"]["params"]["requestId"], "perm-1")
         self.assertEqual(call_kwargs["json"]["params"]["optionId"], "allow")
+
+        task.refresh_from_db()
+        self.assertEqual((task.state or {}).get("mobile_push_user_ids", []), [self.user.id] if acknowledged else [])
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     @patch("products.tasks.backend.presentation.views.api.http_requests.post")
@@ -15088,6 +15228,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
                 "id": "req-5",
             },
             format="json",
+            HTTP_X_POSTHOG_CLIENT_PLATFORM="mobile",
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -15095,6 +15236,9 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         self.assertEqual(call_kwargs["json"]["method"], "set_config_option")
         self.assertEqual(call_kwargs["json"]["params"]["configId"], "mode")
         self.assertEqual(call_kwargs["json"]["params"]["value"], "plan")
+
+        task.refresh_from_db()
+        self.assertNotIn("mobile_push_user_ids", task.state or {})
 
     @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
     def test_patch_cannot_forge_the_gateway_pin_stamp(self, _mock_publish):
@@ -16524,11 +16668,15 @@ class TestSandboxEnvironmentAPI(BaseTaskAPITest):
             f"/api/projects/@current/tasks/{task.id}/run/",
             {"mode": "background", "sandbox_environment_id": str(env.id)},
             format="json",
+            HTTP_X_POSTHOG_CLIENT_PLATFORM="mobile",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         task_run = TaskRun.objects.filter(task=task).latest("created_at")
         self.assertEqual(task_run.state.get("sandbox_environment_id"), str(env.id))
+
+        task.refresh_from_db()
+        self.assertEqual((task.state or {})["mobile_push_user_ids"], [self.user.id])
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_run_task_rejects_invalid_sandbox_environment_id(self, mock_workflow):
@@ -16965,10 +17113,16 @@ class TestCloudUsageGate(BaseTaskAPITest):
             state={"pr_authorship_mode": "bot"},
         )
 
-        response = self.client.post(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/resume_in_cloud/")
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/resume_in_cloud/",
+            HTTP_X_POSTHOG_CLIENT_PLATFORM="mobile",
+        )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         mock_resume.assert_called_once()
+
+        task.refresh_from_db()
+        self.assertEqual((task.state or {})["mobile_push_user_ids"], [self.user.id])
 
     @parameterized.expand(
         [

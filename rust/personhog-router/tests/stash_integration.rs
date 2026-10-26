@@ -248,6 +248,7 @@ async fn born_partition_write_parks(retired_first: bool) {
         partitions: NUM_PARTITIONS,
         epoch: 2,
         writer_group: String::new(),
+        retire_groups: vec![],
         draining: vec![Generation {
             topic: "personhog_updates_v1".to_string(),
             partitions: old_count,

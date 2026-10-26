@@ -1805,7 +1805,7 @@ export const visionScannersScoutsCreateBodyConfigOneRepositoriesItemMax = 255
 
 export const visionScannersScoutsCreateBodyConfigOneRepositoriesMax = 10
 
-export const visionScannersScoutsCreateBodyConfigOneWriteScopesMax = 13
+export const visionScannersScoutsCreateBodyConfigOneWriteScopesMax = 14
 
 export const visionScannersScoutsCreateBodyConfigOnePrecheckQueryMax = 10000
 
@@ -1892,7 +1892,7 @@ export const VisionScannersScoutsCreateBody = () => zod
                     .max(visionScannersScoutsCreateBodyConfigOneWriteScopesMax)
                     .optional()
                     .describe(
-                        "Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run."
+                        "Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run."
                     ),
                 lifecycle_locked: zod
                     .boolean()
@@ -2362,7 +2362,17 @@ export const visionScannersWatchFeedRetrieveQueryDateFromDefault = `-7d`
 export const visionScannersWatchFeedRetrieveQueryLimitDefault = 20
 export const visionScannersWatchFeedRetrieveQueryLimitMax = 50
 
+export const visionScannersWatchFeedRetrieveQueryOffsetDefault = 0
+export const visionScannersWatchFeedRetrieveQueryOffsetMin = 0
+export const visionScannersWatchFeedRetrieveQueryOffsetMax = 1000
+
 export const VisionScannersWatchFeedRetrieveQueryParams = () => zod.object({
+    as_of: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe(
+            'The time the first page loaded. Later pages rank as of that time: observations, views, dismissals and impressions after it are ignored, so pages do not shift under a reader who scrolls.'
+        ),
     created_by: zod
         .string()
         .min(1)
@@ -2388,8 +2398,14 @@ export const VisionScannersWatchFeedRetrieveQueryParams = () => zod.object({
         .max(visionScannersWatchFeedRetrieveQueryLimitMax)
         .default(visionScannersWatchFeedRetrieveQueryLimitDefault)
         .describe(
-            'Ceiling on feed items to return, at most 50. The feed is bounded, not paginated, and routinely returns far fewer: a window is not padded to this number with clips that carry no finding.'
+            'Ceiling on feed items to return per page, at most 50. A page routinely returns fewer: a window is not padded to this number with clips that carry no finding.'
         ),
+    offset: zod
+        .number()
+        .min(visionScannersWatchFeedRetrieveQueryOffsetMin)
+        .max(visionScannersWatchFeedRetrieveQueryOffsetMax)
+        .default(visionScannersWatchFeedRetrieveQueryOffsetDefault)
+        .describe('How many ranked items to skip. Send `as_of` with every page after the first.'),
     scanner_ids: zod
         .string()
         .min(1)

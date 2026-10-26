@@ -17,6 +17,7 @@ import pytest_asyncio
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.exceptions import ValidationError
 from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.api.test.test_organization import create_organization
@@ -1339,6 +1340,30 @@ class TestExternalDataSchema(APIBaseTest):
                 ExternalDataSchema.SyncType.FULL_REFRESH,
                 None,
                 "_ph_cdc_seq",
+            ),
+            (
+                "rejects_a_history_table_for_a_source_column_named_like_a_validity_column",
+                {
+                    "primary_key_columns": ["id"],
+                    "cdc_table_mode": "both",
+                    "schema_metadata": {"columns": [{"name": "id"}, {"name": "valid_from"}]},
+                },
+                None,
+                status.HTTP_400_BAD_REQUEST,
+                ExternalDataSchema.SyncType.FULL_REFRESH,
+                None,
+                "valid_from",
+            ),
+            (
+                "accepts_a_validity_column_name_without_a_history_table",
+                {
+                    "primary_key_columns": ["id"],
+                    "schema_metadata": {"columns": [{"name": "id"}, {"name": "valid_from"}]},
+                },
+                None,
+                status.HTTP_200_OK,
+                ExternalDataSchema.SyncType.CDC,
+                ["id"],
             ),
         ]
     )
@@ -4503,6 +4528,74 @@ class TestSerializerLostUpdateProtection(APIBaseTest):
         assert self.schema.cdc_table_mode == "both"
         assert self.schema.sync_type_config["cdc_last_log_position"] == "0/900"
 
+    @parameterized.expand(
+        [
+            (
+                "turning_history_on_over_a_synced_column_is_refused",
+                "consolidated",
+                None,
+                {"cdc_table_mode": "both"},
+                True,
+            ),
+            (
+                "turning_history_on_over_a_column_left_out_is_allowed",
+                "consolidated",
+                ["id"],
+                {"cdc_table_mode": "both"},
+                False,
+            ),
+            (
+                "adding_the_column_to_enabled_columns_is_refused",
+                "both",
+                ["id"],
+                {"enabled_columns": ["id", "valid_to"]},
+                True,
+            ),
+            ("editing_a_table_that_already_syncs_it_is_allowed", "both", None, {"enabled_columns": None}, False),
+        ]
+    )
+    def test_patch_checks_the_validity_columns_the_history_table_receives(
+        self,
+        _name: str,
+        initial_mode: str,
+        initial_enabled_columns: list[str] | None,
+        request_body: dict,
+        refused: bool,
+    ):
+        from products.warehouse_sources.backend.presentation.views.external_data_schema import (
+            ExternalDataSchemaSerializer,
+        )
+
+        self.schema.sync_type_config["cdc_table_mode"] = initial_mode
+        self.schema.sync_type_config["schema_metadata"] = {"columns": [{"name": "id"}, {"name": "valid_to"}]}
+        self.schema.enabled_columns = initial_enabled_columns
+        self.schema.save()
+
+        serializer = ExternalDataSchemaSerializer(
+            self.schema,
+            data=request_body,
+            partial=True,
+            context={"team_id": self.team.pk, "post_commit_actions": []},
+        )
+        with mock.patch(
+            "products.warehouse_sources.backend.presentation.views.external_data_schema.is_any_external_data_schema_paused",
+            return_value=False,
+        ):
+            serializer.is_valid(raise_exception=True)
+            if refused:
+                with pytest.raises(ValidationError, match="valid_to"):
+                    serializer.save()
+            else:
+                serializer.save()
+
+        self.schema.refresh_from_db()
+        assert self.schema.cdc_table_mode == (
+            initial_mode if refused else request_body.get("cdc_table_mode", initial_mode)
+        )
+        assert self.schema.enabled_columns == (
+            initial_enabled_columns if refused else request_body.get("enabled_columns", initial_enabled_columns)
+        )
+
     def test_patch_does_not_revert_a_concurrent_delete_data(self):
         from products.warehouse_sources.backend.presentation.views.external_data_schema import (
             ExternalDataSchemaSerializer,
@@ -4843,6 +4936,27 @@ class TestExternalDataSchemaRowFilters(APIBaseTest):
         assert response.status_code == 200, response.json()
         schema.refresh_from_db()
         assert schema.row_filters == filters
+
+    @parameterized.expand(
+        [
+            ("enabled_columns", ["id", "name"]),
+            ("row_filters", [{"column": "id", "operator": ">", "value": 10}]),
+        ]
+    )
+    def test_selection_change_is_written_to_the_activity_log(self, field: str, value: Any):
+        schema = self._create()
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}", data={field: value}
+        )
+        assert response.status_code == 200, response.json()
+
+        log = ActivityLog.objects.get(scope="ExternalDataSchema", item_id=str(schema.id), activity="updated")
+        assert log.user == self.user
+        assert log.detail is not None
+        assert [c for c in log.detail["changes"] if c["field"] == field] == [
+            {"type": "ExternalDataSchema", "field": field, "action": "created", "before": None, "after": value}
+        ]
 
     def test_null_clears_row_filters(self):
         schema = self._create()

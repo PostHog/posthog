@@ -8,6 +8,7 @@ import { ActivityDisclosure } from './ActivityDisclosure'
 import { ActivitySubsteps } from './ActivitySubsteps'
 import type { ActivityProps, ActivityStatus } from './activityTypes'
 import { QuillActivity } from './quill/QuillActivity'
+import { QuillActivityToggleSection } from './quill/QuillActivityToggleSection'
 import { useQuillThread } from './quill/quillThreadContext'
 import { useActivityDisclosure } from './useActivityDisclosure'
 
@@ -181,17 +182,18 @@ export function ActivityDetails({ children, hasIcon }: { children: React.ReactNo
     )
 }
 
-export function ActivityToggleSection({
-    title,
-    summary,
-    tooltip,
-    children,
-}: {
+export interface ActivityToggleSectionProps {
     title: React.ReactNode
     summary?: React.ReactNode
     tooltip?: string
     children: React.ReactNode
-}): JSX.Element {
+}
+
+export function ActivityToggleSection(props: ActivityToggleSectionProps): JSX.Element {
+    return useQuillThread() ? <QuillActivityToggleSection {...props} /> : <LemonActivityToggleSection {...props} />
+}
+
+function LemonActivityToggleSection({ title, summary, tooltip, children }: ActivityToggleSectionProps): JSX.Element {
     const [isExpanded, setIsExpanded] = useState(false)
 
     return (
@@ -238,11 +240,13 @@ function LemonActivity({
     details = null,
     children = null,
     autoExpand = true,
+    defaultOpen,
     onToggleDetails,
 }: ActivityProps): JSX.Element {
     const hasDetails = substeps.length > 0 || !!details
     const { open: isDetailsExpanded, setOpen: setIsDetailsExpanded } = useActivityDisclosure({
         autoExpand,
+        defaultOpen,
         hasDetails,
         status,
         onToggleDetails,

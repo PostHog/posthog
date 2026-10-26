@@ -26,6 +26,10 @@ def _safe_value(value: Any) -> str:
     return sanitize_user_text(str(value), GENERIC_VALUE_MAX_LEN)
 
 
+def uses_generic_results_summary(query_kind: str) -> bool:
+    return query_kind not in _TREND_SUMMARY_KINDS and query_kind not in _SUMMARIZERS
+
+
 def build_results_summary(
     query_kind: str,
     results: list[Any] | None,

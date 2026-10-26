@@ -362,6 +362,7 @@ export type CyclotronJobInvocationResult<T extends CyclotronJobInvocation = Cycl
      * flag nor an error, so nothing else on the result tells the two apart.
      */
     deliveredToRecipient?: boolean
+    emailSendResult?: { status: 'accepted' | 'skipped' | 'failed'; reason?: string }
     // The run was canceled rather than succeeding or failing. Only meaningful with
     // finished=true and no error: the job row and the lifecycle row both flip to
     // 'canceled'.
@@ -443,6 +444,12 @@ export type CyclotronJobInvocationHogFlow = CyclotronJobInvocation & {
     refreshPerson?: () => Promise<{ person?: CyclotronPerson; filterGlobals: HogFunctionFilterGlobals }>
 }
 
+export type MessageOptOutRecord = {
+    identifier: string
+    // A message category id, or '$all' for all marketing messages.
+    categoryId: string
+}
+
 export type HogFlowInvocationContext = {
     event: HogFunctionInvocationGlobals['event']
     personId?: string // Persisted person UUID, used when distinct_id is not available (e.g. batch workflows, manual person triggers)
@@ -468,6 +475,9 @@ export type HogFlowInvocationContext = {
     // Absent on runs parked before this was introduced — those attribute to no version at all
     // rather than to a wrong one.
     flowVersion?: number
+    // Opt-outs this run's "Opt out of messages" steps made. Message steps check them before the recipient cache,
+    // because a worker that resumes the run can hold the recipient's preferences from before the opt-out.
+    messageOptOuts?: MessageOptOutRecord[]
     // Stamped at run start and persisted with the state, so a recovery path that holds only the
     // workflow id still keeps a sensitive run's message data out of its snapshot.
     sensitive?: boolean

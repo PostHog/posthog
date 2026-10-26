@@ -502,7 +502,15 @@ class TestMCPToolStatsQueryRunner(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTe
         assert row.conversations == 2
         # Only the '{"goal":"x"}' call counts; '{}' and missing do not.
         assert row.with_intent == 1
-        assert row.p50_ms is not None and row.p95_ms is not None
+        assert (row.p50_ms, row.p95_ms) == (200, 290)
+
+    def test_returns_none_latency_when_durations_are_missing(self) -> None:
+        _emit_tool_call(self.team)
+        flush_persons_and_events()
+
+        rows = self._run()
+
+        assert (rows[0].p50_ms, rows[0].p95_ms) == (None, None)
 
     def test_excludes_events_without_new_sdk_source(self) -> None:
         _emit_tool_call(self.team, source=None, duration_ms=100)
@@ -566,8 +574,8 @@ class TestMCPToolDailyStatsQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickho
     def test_groups_by_day_in_order(self) -> None:
         now = datetime.now(tz=UTC)
         _emit_tool_call(self.team, distinct_id="d1", session_id="s1", timestamp=now - timedelta(days=2))
-        _emit_tool_call(self.team, distinct_id="d2", session_id="s2", timestamp=now)
-        _emit_tool_call(self.team, distinct_id="d3", session_id="s3", timestamp=now)
+        _emit_tool_call(self.team, distinct_id="d2", session_id="s2", timestamp=now, duration_ms=100)
+        _emit_tool_call(self.team, distinct_id="d3", session_id="s3", timestamp=now, duration_ms=300)
         flush_persons_and_events()
 
         rows = self._run()
@@ -577,6 +585,8 @@ class TestMCPToolDailyStatsQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickho
         assert rows[0].calls == 1
         assert rows[1].calls == 2
         assert rows[1].sessions == 2
+        assert (rows[0].p50, rows[0].p95) == (0, 0)
+        assert (rows[1].p50, rows[1].p95) == (200, 290)
 
     def test_buckets_by_hour_when_interval_is_hour(self) -> None:
         # Two calls in the same day but different hours split into two hourly buckets — a sub-day

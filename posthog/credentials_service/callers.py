@@ -20,6 +20,8 @@ class CredentialsCaller(StrEnum):
     """
 
     WAREHOUSE_SOURCES = "warehouse-sources"
+    # Batch exports use platform credentials to authenticate with export destinations.
+    BATCH_EXPORTS = "batch-exports"
     CDP = "cdp"
     MESSAGING = "messaging"
     TASKS = "tasks"

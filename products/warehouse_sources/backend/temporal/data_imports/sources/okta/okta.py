@@ -1,8 +1,8 @@
 import re
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import Callable, Iterable, Iterator
 from datetime import UTC, date, datetime, timedelta
-from typing import Any, Optional
+from typing import Any, Optional, cast
 from urllib.parse import urlparse
 
 import requests
@@ -13,8 +13,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTAPIConfig,
     rest_api_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    build_dependent_resource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     HeaderLinkPaginator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ClientConfig,
+    Endpoint,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -30,9 +38,12 @@ class OktaHostNotAllowedError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class OktaResumeConfig:
-    next_url: str
+    next_url: Optional[str] = None
+    # Fan-out tables checkpoint the shape `build_dependent_resource` emits: which parents finished
+    # and the child page of the parent in progress.
+    fanout_state: Optional[dict[str, Any]] = None
 
 
 def normalize_domain(domain: str) -> str:
@@ -100,6 +111,15 @@ def _build_initial_params(
         params["filter"] = f'{field} gt "{formatted}"'
 
     return params
+
+
+def _drop_fields(fields: tuple[str, ...]) -> Callable[[dict[str, Any]], dict[str, Any]]:
+    def drop(row: dict[str, Any]) -> dict[str, Any]:
+        for name in fields:
+            row.pop(name, None)
+        return row
+
+    return drop
 
 
 def _is_same_host(url: str, domain: str) -> bool:
@@ -208,54 +228,84 @@ def okta_source(
 ) -> SourceResponse:
     config = OKTA_ENDPOINTS[endpoint]
 
-    params = _build_initial_params(
-        config, should_use_incremental_field, db_incremental_field_last_value, incremental_field
-    )
-
-    rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": _base_url(domain),
-            # Auth (the SSWS token) is supplied via the framework auth config so its value is
-            # redacted from logs and raised error messages; only non-secret headers go here.
-            "headers": {"Accept": "application/json", "Content-Type": "application/json"},
-            "auth": {"type": "api_key", "api_key": f"SSWS {api_key}", "name": "Authorization", "location": "header"},
-            "paginator": OktaLinkPaginator(domain),
-            # A validated host could 3xx to an internal address; refuse to follow redirects (SSRF).
-            "allow_redirects": False,
-        },
-        "resources": [
-            {
-                "name": endpoint,
-                "endpoint": {
-                    "path": config.path,
-                    "params": params,
-                },
-            }
-        ],
+    client_config: ClientConfig = {
+        "base_url": _base_url(domain),
+        # Auth (the SSWS token) is supplied via the framework auth config so its value is
+        # redacted from logs and raised error messages; only non-secret headers go here.
+        "headers": {"Accept": "application/json", "Content-Type": "application/json"},
+        "auth": {"type": "api_key", "api_key": f"SSWS {api_key}", "name": "Authorization", "location": "header"},
+        "paginator": OktaLinkPaginator(domain),
+        # A validated host could 3xx to an internal address; refuse to follow redirects (SSRF).
+        "allow_redirects": False,
     }
 
-    # A poisoned resume URL (off the org host) must be ignored, falling back to the initial org
-    # URL rather than being followed (SSRF).
-    initial_paginator_state: Optional[dict[str, Any]] = None
-    if resumable_source_manager.can_resume():
-        resume = resumable_source_manager.load_state()
-        if resume is not None and _is_same_host(resume.next_url, domain):
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+
+    resource: Iterable[Any]
+    if config.fanout is not None:
+        # The saved fan-out state carries child next-page URLs, so pin every request to the org
+        # host rather than trusting a stored URL (SSRF).
+        client_config["allowed_hosts"] = []
+
+        def save_fanout_checkpoint(state: Optional[dict[str, Any]]) -> None:
+            if state:
+                resumable_source_manager.save_state(OktaResumeConfig(fanout_state=state))
+
+        child_endpoint_extra: Optional[Endpoint] = None if config.paginated else {"paginator": "single_page"}
+        resource = build_dependent_resource(
+            endpoint_configs=OKTA_ENDPOINTS,
+            child_endpoint=endpoint,
+            fanout=config.fanout,
+            client_config=client_config,
+            path_format_values={},
+            team_id=team_id,
+            job_id=job_id,
+            db_incremental_field_last_value=None,
+            child_endpoint_extra=child_endpoint_extra,
+            page_size_param="limit" if config.paginated else None,
+            resume_hook=save_fanout_checkpoint if config.resumable else None,
+            initial_paginator_state=resume.fanout_state if resume and config.resumable else None,
+        )
+        if config.excluded_fields:
+            resource = cast(Resource, resource).add_map(_drop_fields(config.excluded_fields))
+    else:
+        params = _build_initial_params(
+            config, should_use_incremental_field, db_incremental_field_last_value, incremental_field
+        )
+
+        rest_config: RESTAPIConfig = {
+            "client": client_config,
+            "resources": [
+                {
+                    "name": endpoint,
+                    "endpoint": {
+                        "path": config.path,
+                        "params": params,
+                    },
+                }
+            ],
+        }
+
+        # A poisoned resume URL (off the org host) must be ignored, falling back to the initial org
+        # URL rather than being followed (SSRF).
+        initial_paginator_state: Optional[dict[str, Any]] = None
+        if resume is not None and resume.next_url and _is_same_host(resume.next_url, domain):
             initial_paginator_state = {"next_url": resume.next_url}
 
-    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
-        # Persist only when a next page remains; save AFTER a page is yielded so a crash re-fetches
-        # the next page (merge dedupes) rather than skipping data.
-        if state and state.get("next_url"):
-            resumable_source_manager.save_state(OktaResumeConfig(next_url=state["next_url"]))
+        def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+            # Persist only when a next page remains; save AFTER a page is yielded so a crash re-fetches
+            # the next page (merge dedupes) rather than skipping data.
+            if state and state.get("next_url"):
+                resumable_source_manager.save_state(OktaResumeConfig(next_url=state["next_url"]))
 
-    resource = rest_api_resource(
-        rest_config,
-        team_id,
-        job_id,
-        db_incremental_field_last_value,
-        resume_hook=save_checkpoint,
-        initial_paginator_state=initial_paginator_state,
-    )
+        resource = rest_api_resource(
+            rest_config,
+            team_id,
+            job_id,
+            db_incremental_field_last_value,
+            resume_hook=save_checkpoint,
+            initial_paginator_state=initial_paginator_state,
+        )
 
     def items() -> Iterator[list[Any]]:
         # Re-check at run time (not just at source-create) in case the domain was edited or now
@@ -268,7 +318,7 @@ def okta_source(
     return SourceResponse(
         name=endpoint,
         items=items,
-        primary_keys=[config.primary_key],
+        primary_keys=config.primary_keys,
         # Okta returns the System Log ascending (we request sortOrder=ASCENDING). The filter
         # endpoints don't guarantee an order, but each sync re-applies `filter=lastUpdated gt
         # <watermark>` and paginates every page, so completeness doesn't depend on ordering.

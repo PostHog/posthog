@@ -7,7 +7,7 @@ from django.conf import settings
 
 import structlog
 
-from posthog.llm.wizard_blocklist import WIZARD_BLOCKED_DETAIL, wizard_identity_blocked
+from posthog.llm.wizard_blocklist import WIZARD_BLOCKED_DETAIL
 from posthog.models import OAuthApplication
 from posthog.models.oauth import mint_oauth_access_token
 from posthog.models.team.team import Team
@@ -245,6 +245,12 @@ CONTEXT_LAYER_INTERNAL_SCOPE = "context_layer_internal:write"
 #                          nothing in front of anyone. Creates only; a suggestion is resolved by
 #                          a person. A person grants it in the scout's write access settings, the
 #                          same way as every other scope here, so no scout holds it by default.
+#   ticket:write           Support ticket fields and saved ticket views, plus new private notes.
+#                          The API blocks scouts from public replies, outbound compose, customer
+#                          identity changes, existing-note changes, and generic ticket comments.
+#                          Ticket field changes can still start configured workflows that message
+#                          customers. Ticket delete is outside the scope. Saved view delete is
+#                          permanent and removes member pins; a view is a name and filter set.
 #   canvas:write           Every canvas in a public space of the scout's project, and every canvas
 #                          the acting user created in a space they can see (see
 #                          `authorized_canvases`): publish a new version, patch a grid layout, write
@@ -296,6 +302,7 @@ SCOUT_GRANTABLE_WRITE_SCOPES: frozenset[str] = frozenset(
         "warehouse_table:write",
         "replay_scanner:write",
         "hog_flow_proposal:write",
+        "ticket:write",
         "canvas:write",
         "experiment:write",
     }
@@ -680,7 +687,7 @@ def _organization_id_for_team(team_id: int) -> str:
 
 
 class WizardIdentityBlockedError(Exception):
-    """The abuse blocklist refuses this identity a wizard credential. Distinct from
+    """An access rule refuses this identity a wizard credential. Distinct from
     the mint's RuntimeError cases because it is permanent, and a caller that retries
     a transient token failure must not retry this one."""
 
@@ -695,16 +702,6 @@ def create_wizard_oauth_access_token_for_user(user, team_id: int) -> str:
     resume reaches with no request in front of it.
     """
     organization_id = _organization_id_for_team(team_id)
-    if wizard_identity_blocked(
-        distinct_id=str(user.distinct_id),
-        email=user.email,
-        surface="wizard_mint",
-        user_uuid=str(user.uuid),
-        organization_ids=[organization_id],
-        team_ids=[team_id],
-    ):
-        raise WizardIdentityBlockedError(WIZARD_BLOCKED_DETAIL)
-
     try:
         refused = security_access_refused(
             SecuritySubject(

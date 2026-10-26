@@ -4974,12 +4974,30 @@ class TestExternalDataSource(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("no_primary_key", [("id", "uuid", False)], {}, "primary key"),
+            ("no_primary_key", [("id", "uuid", False)], {}, "primary key", "consolidated", None),
             (
                 "reserved_column",
                 [("id", "uuid", False), ("_ph_cdc_seq", "bigint", True)],
                 {"tracking_link": ["id"]},
                 "_ph_cdc_seq",
+                "consolidated",
+                None,
+            ),
+            (
+                "validity_column_with_a_history_table",
+                [("id", "uuid", False), ("valid_to", "timestamp", True)],
+                {"tracking_link": ["id"]},
+                "valid_to",
+                "cdc_only",
+                None,
+            ),
+            (
+                "validity_column_in_enabled_columns_that_hold_a_non_string",
+                [("id", "uuid", False), ("valid_to", "timestamp", True)],
+                {"tracking_link": ["id"]},
+                "valid_to",
+                "cdc_only",
+                ["id", "valid_to", {}],
             ),
         ]
     )
@@ -5002,6 +5020,8 @@ class TestExternalDataSource(APIBaseTest):
         columns,
         primary_keys,
         expected_in_message,
+        cdc_table_mode,
+        enabled_columns,
         mock_get_source,
         mock_cdc_pg_connection,
         mock_get_primary_key_columns,
@@ -5059,7 +5079,13 @@ class TestExternalDataSource(APIBaseTest):
                     "schema": "public",
                     "cdc_enabled": True,
                     "schemas": [
-                        {"name": "tracking_link", "should_sync": True, "sync_type": "cdc"},
+                        {
+                            "name": "tracking_link",
+                            "should_sync": True,
+                            "sync_type": "cdc",
+                            "cdc_table_mode": cdc_table_mode,
+                            **({"enabled_columns": enabled_columns} if enabled_columns is not None else {}),
+                        },
                     ],
                 },
             },
@@ -13024,10 +13050,10 @@ class TestExternalDataSourceSetup(APIBaseTest):
 
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.capture_exception")
     def test_setup_rejects_source_without_schema_discovery(self, mock_capture_exception):
-        # AmazonCloudWatch doesn't implement get_schemas, so the base raises NotImplementedError.
+        # AmazonEventBridge doesn't implement get_schemas, so the base raises NotImplementedError.
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/setup/",
-            data={"source_type": "AmazonCloudWatch", "prefix": "scaffold_setup_test", "payload": {}},
+            data={"source_type": "AmazonEventBridge", "prefix": "scaffold_setup_test", "payload": {}},
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert "isn't available to connect yet" in response.json()["message"]

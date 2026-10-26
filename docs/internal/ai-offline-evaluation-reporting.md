@@ -48,7 +48,9 @@ A scorer failure marks the case as an error. Statistics still include scores fro
 ## Configured offline experiment suites
 
 Shared-harness suites are enrolled in the offline experiment publisher, including both sandboxed and one-shot suites, except for `logs/eval_agent_observability::eval_agent_observability`, which currently reports only to Braintrust.
-The experiment-skill, Feature Flags, Dashboards, turn-suggestion and Business Knowledge retrieval suites retain `no_send_logs=True` and explicitly set `send_to_posthog=True`, publishing results only to PostHog.
+The experiment-skill, Feature Flags, Dashboards, turn-suggestion, Business Knowledge retrieval and Signals first-report suites retain `no_send_logs=True` and explicitly set `send_to_posthog=True`, publishing results only to PostHog.
+
+The [first-report scout suite](../../products/posthog_ai/eval_harness/README.md#scout-evals) records the persisted report and structured scout outcome alongside context, progress, and first-visible-report timings. Its seeded regression, matched control, and sparse-data cases separate useful report delivery from unsupported findings and justified abstention. Compare quality, the five-minute qualified-report rate, and planted-issue recall separately; sparse cases are excluded from report-quality and report-latency scores because they should not produce a report.
 Public suites retain their Braintrust uploads during enrollment. Braintrust also remains the execution engine for every shared-harness suite, including those whose results publish only to PostHog.
 After scoring, the harness prepares the completed results in memory and queues delivery through the Python SDK's `AsyncOfflineEvaluations` client. It does not execute another agent run or judge call.
 Without an explicit `send_to_posthog` override, `no_send_logs=True` suppresses this upload too.
@@ -77,6 +79,23 @@ Each scorer chart displays the loaded versions with results in the selected date
 while the summary defaults to the latest matching version. The version arrows change only the summary.
 Opening a scorer's history preserves the author and date filters and selects the version shown in the summary.
 The scorer list shows each scorer's creator and last editor, and can be filtered by creator.
+By default, scorers are sorted by last updated, newest first.
+Creating and editing scorers stays under Evaluations → Scorers, with a detail heading and a back link to the list.
+Successful creation and edits return to the scorer list; failed saves keep the form open with your changes.
+
+Online evals, offline experiments, datasets, and scorers have independent setup states. The Evaluations tabs
+stay available when no online evaluations exist, and the offline Experiments and Datasets tabs remain visible
+during dataset setup. The experiments setup links to the [offline evals guide](https://posthog.com/docs/ai-evals/offline-evals).
+The offline setup preview compares prompt and model combinations with multiple scorers. Scorer setup shows how
+numeric, boolean, and categorical definitions are shared by offline experiments and
+[manual trace reviews](https://posthog.com/docs/ai-observability/trace-reviews). Archived scorers remain accessible
+from the setup screen; filtered lists keep their filters and results table.
+Dataset setup appears only when there are no active or archived datasets, so projects with only archived
+datasets can still browse and restore them from the list.
+
+Scorers have an optional **Short name** (up to 40 characters) for experiment table headers and other compact views.
+These views use the full name when the short name is blank. Editing or clearing a short name updates existing
+experiment displays without creating a scorer version or changing scoring rules. Versions appear in a separate badge.
 
 The SQL suite uses these existing scorers:
 
@@ -553,9 +572,28 @@ Opening those resources requires their own permissions.
 ## Inspecting offline results
 
 Open **Evaluations → Offline evals** to see the newest experiments and chosen score trends.
+When offline evaluations are enabled, **Experiments** is selected by default. **Datasets** opens the list on the same page
+with `tab=datasets` in the query string. MCP-generated dataset-list links retain this tab selector.
+Existing `/ai-evals/datasets` and `/llm-analytics/datasets`
+links redirect there, preserving filters and pagination. Dataset creation and detail pages live at
+`/ai-evals/evaluations/offline/datasets/:id`, within the Offline evals navigation. Both legacy dataset
+detail routes redirect there, preserving item deep links, revisions, tabs, filters, and hashes.
+The Evaluations heading and navigation stay in place on dataset creation and detail pages. Dataset items appear
+directly in the detail view; **Details** opens the dataset metadata without replacing the items table.
+The back arrow beside the dataset name returns to the list and preserves its filters, including after creating a dataset.
+Creation and editing actions appear below the dataset form. Switching from Experiments to Datasets clears
+experiment search and filters and restores the saved dataset tag selection.
+Projects with Datasets enabled but without offline evaluations open **Datasets** automatically,
+including from experiment-list links. **Experiments** stays visible with a disabled **Coming soon** label.
+When Datasets is disabled, its tab stays disabled and direct list links show an availability message.
+The chevron beside **Score trends** collapses or expands the charts. It starts expanded and remembers
+your choice in local storage. Charts load on the first expansion if the page opens collapsed, and
+keep their data when collapsed and expanded again. Refresh or a filter change updates loaded charts.
 A shared time range, run source, and upload state filter applies to both the score charts and the experiment list.
 The overview starts with the last 30 days and all upload states. Uploading and failed runs can show partial score summaries.
-Projects without experiments show setup steps; a filter with no matching experiments keeps the overview available.
+Projects without experiments show a full setup screen with example results and a link to the offline evals guide;
+a filter with no matching experiments keeps the overview available. The offline evaluations description and tabs
+stay visible on both the experiments and datasets setup screens.
 Datasets, suites, and traces are optional context and are not required to display an experiment.
 The compact experiment list shows the execution source in its own column and item/scorer counts together; hover over coverage for result and scorer-version counts.
 
