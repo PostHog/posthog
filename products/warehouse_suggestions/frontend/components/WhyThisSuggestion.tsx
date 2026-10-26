@@ -1,7 +1,7 @@
 import { Tooltip } from '@posthog/lemon-ui'
 
 import type { WarehouseSuggestionEvidenceApi } from '../generated/api.schemas'
-import { QUERY_LOG_CAVEAT, daysReadLabel, surfaceSegments } from '../suggestionCopy'
+import { daysReadLabel, surfaceSegments } from '../suggestionCopy'
 import { ReadsBySurfaceBar } from './ReadsBySurfaceBar'
 
 export interface WhyThisSuggestionProps {
@@ -14,13 +14,16 @@ export function WhyThisSuggestion({ evidence, windowDays, label }: WhyThisSugges
     const segments = surfaceSegments(evidence)
     const daysRead = (evidence.human_days ?? 0) > 0 ? daysReadLabel(evidence, windowDays) : null
 
+    if (segments.length === 0 && !daysRead) {
+        return <span translate="no">{label}</span>
+    }
+
     return (
         <Tooltip
             title={
                 <div className="flex w-64 max-w-full flex-col gap-2 py-0.5">
                     {segments.length > 0 && <ReadsBySurfaceBar segments={segments} />}
                     {daysRead && <span>{daysRead}</span>}
-                    <span className="opacity-75">{QUERY_LOG_CAVEAT}</span>
                 </div>
             }
         >
@@ -31,11 +34,7 @@ export function WhyThisSuggestion({ evidence, windowDays, label }: WhyThisSugges
             >
                 <span translate="no">{label}</span>
                 <span className="sr-only">
-                    {[
-                        segments.map((segment) => `${segment.label} ${segment.count}`).join(', '),
-                        daysRead,
-                        QUERY_LOG_CAVEAT,
-                    ]
+                    {[segments.map((segment) => `${segment.label} ${segment.count}`).join(', '), daysRead]
                         .filter(Boolean)
                         .map((part) => `. ${part}`)
                         .join('')}
