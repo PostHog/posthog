@@ -650,6 +650,17 @@ export type SignalTeamConfigApiAutostartBaseBranches = { [key: string]: string }
  */
 export type SignalTeamConfigApiIssueTrackingConfig = { [key: string]: string }
 
+export type GitHubReadinessStatusEnumApi =
+    (typeof GitHubReadinessStatusEnumApi)[keyof typeof GitHubReadinessStatusEnumApi]
+
+export const GitHubReadinessStatusEnumApi = {
+    Ready: 'ready',
+    NotConnected: 'not_connected',
+    ReconnectRequired: 'reconnect_required',
+    NoRepositories: 'no_repositories',
+    TemporarilyUnavailable: 'temporarily_unavailable',
+} as const
+
 /**
  * * `P0` - P0
  * * `P1` - P1
@@ -674,6 +685,8 @@ export interface SignalTeamConfigApi {
      * @nullable
      */
     autostart_enabled?: boolean | null
+    /** Effective GitHub access for self-driving, including eligible organization-owner connections, based on cached installation and repository state. */
+    readonly github_readiness: GitHubReadinessStatusEnumApi
     default_autostart_priority?: AutonomyPriorityEnumApi
     /**
      * Default Slack channel for this team's signal inbox notifications, in the same `channel_id|#channel-name` shape PostHog uses elsewhere (only the channel id is required). Null means no team-level default; per-user channels still apply.
@@ -2098,6 +2111,22 @@ export interface SignalReportListApi {
     readonly reviewer_assignment: ReviewerControlResponseApi | null
     /** Current report status. Monitoring reads as resolved when its rollout is disabled. */
     readonly status: SignalReportStatusEnumApi
+    /** GitHub readiness prerequisite holding research in the candidate state; null once research starts.
+     *
+     * * `ready` - Connected
+     * * `not_connected` - Connect GitHub
+     * * `reconnect_required` - Reconnect GitHub
+     * * `no_repositories` - Allow repository access
+     * * `temporarily_unavailable` - Checking GitHub access */
+    readonly research_blocked_reason: GitHubReadinessStatusEnumApi | null
+    /** GitHub readiness prerequisite holding automatic implementation; null when no blocker is recorded.
+     *
+     * * `ready` - Connected
+     * * `not_connected` - Connect GitHub
+     * * `reconnect_required` - Reconnect GitHub
+     * * `no_repositories` - Allow repository access
+     * * `temporarily_unavailable` - Checking GitHub access */
+    readonly implementation_blocked_reason: GitHubReadinessStatusEnumApi | null
     /**
      * Original implementation-complete time for this Monitoring period, null before entry. Present only when Monitoring is enabled.
      * @nullable
@@ -2348,6 +2377,22 @@ export interface SignalReportApi {
     readonly reviewer_assignment: ReviewerControlResponseApi | null
     /** Current report status. Monitoring reads as resolved when its rollout is disabled. */
     readonly status: SignalReportStatusEnumApi
+    /** GitHub readiness prerequisite holding research in the candidate state; null once research starts.
+     *
+     * * `ready` - Connected
+     * * `not_connected` - Connect GitHub
+     * * `reconnect_required` - Reconnect GitHub
+     * * `no_repositories` - Allow repository access
+     * * `temporarily_unavailable` - Checking GitHub access */
+    readonly research_blocked_reason: GitHubReadinessStatusEnumApi | null
+    /** GitHub readiness prerequisite holding automatic implementation; null when no blocker is recorded.
+     *
+     * * `ready` - Connected
+     * * `not_connected` - Connect GitHub
+     * * `reconnect_required` - Reconnect GitHub
+     * * `no_repositories` - Allow repository access
+     * * `temporarily_unavailable` - Checking GitHub access */
+    readonly implementation_blocked_reason: GitHubReadinessStatusEnumApi | null
     /**
      * Original implementation-complete time for this Monitoring period, null before entry. Present only when Monitoring is enabled.
      * @nullable

@@ -1,17 +1,29 @@
 import time
+from datetime import timedelta
 from typing import Optional
 
 import pytest
+import time_machine
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
+
+from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.egress.github.transport import GitHubEgressBudgetExhausted
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
+from posthog.models import Team
+from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.integration import GitHubIntegration, Integration
+from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 from posthog.redis import get_client as get_redis_client
-from posthog.tasks.integrations import refresh_github_branch_cache, refresh_integration, refresh_integrations
+from posthog.tasks.integrations import (
+    refresh_github_branch_cache,
+    refresh_integration,
+    refresh_integrations,
+    revalidate_github_installation,
+)
 
 
 class TestIntegrationsTasks(APIBaseTest):
@@ -152,3 +164,90 @@ class TestIntegrationsTasks(APIBaseTest):
             refresh_github_branch_cache(str(integration.id), "posthog/posthog", False, "older")
 
         assert get_redis_client().get(lock_key) == b"newer"
+
+    @parameterized.expand(
+        [
+            ("retry_after", False, 180, None, False, 180),
+            ("reset_at", True, None, 240, False, 240),
+            ("budget", False, None, None, True, 60),
+            ("no_hint", True, None, None, False, 60),
+        ]
+    )
+    @time_machine.travel("2026-01-15T12:00:00Z", tick=False)
+    def test_installation_revalidation_survives_repeated_cooldowns(
+        self, _name: str, personal: bool, retry_after: int | None, reset_in: int | None, budget: bool, countdown: int
+    ) -> None:
+        config = {"installation_id": "restored", "installation_unavailable_since": 1}
+        github_type: type[GitHubIntegrationBase]
+        if personal:
+            integration: Integration | UserIntegration = UserIntegration.objects.create(
+                user=self.user, kind="github", integration_id="restored", config=config
+            )
+            github_type = UserGitHubIntegration
+        else:
+            integration = Integration.objects.create(
+                team=self.team, kind="github", integration_id="restored", config=config
+            )
+            github_type = GitHubIntegration
+        now = int(time.time())
+        error = (
+            GitHubEgressBudgetExhausted("Budget exhausted", scope="restored")
+            if budget
+            else GitHubRateLimitError(
+                "Rate limited", retry_after=retry_after, reset_at=now + reset_in if reset_in else None
+            )
+        )
+        response = Mock(status_code=201)
+        response.json.return_value = {
+            "token": "fake-installation-token",
+            "expires_at": (timezone.now() + timedelta(hours=1)).isoformat(),
+        }
+        with (
+            patch("posthog.tasks.integrations.time.time", return_value=now),
+            patch.object(github_type, "client_request", side_effect=[error] * 7 + [response]),
+            patch.object(github_type, "sync_repository_cache") as sync,
+            patch.object(revalidate_github_installation, "apply_async") as schedule,
+            patch.object(revalidate_github_installation, "delay") as next_phase,
+        ):
+            for attempt in range(7):
+                revalidate_github_installation("restored", personal=personal)
+                assert schedule.call_count == attempt + 1
+                schedule.assert_called_with(
+                    args=["restored"], kwargs={"personal": personal, "after_id": None}, countdown=countdown
+                )
+                integration.refresh_from_db()
+                assert "installation_unavailable_since" in integration.config
+                sync.assert_not_called()
+                next_phase.assert_not_called()
+            revalidate_github_installation("restored", personal=personal)
+        integration.refresh_from_db()
+        assert "installation_unavailable_since" not in integration.config
+        sync.assert_called_once()
+        assert schedule.call_count == 7
+        if not personal:
+            next_phase.assert_called_once_with("restored", personal=True)
+
+    def test_installation_revalidation_resumes_after_completed_connections(self) -> None:
+        completed = Integration.objects.create(team=self.team, kind="github", integration_id="shared")
+        other_team = Team.objects.create(organization=self.organization, name="Other project")
+        Integration.objects.create(team=other_team, kind="github", integration_id="shared")
+        with (
+            patch.object(
+                GitHubIntegration,
+                "refresh_access_token",
+                side_effect=[None, GitHubRateLimitError("Rate limited", retry_after=120)],
+            ) as refresh,
+            patch.object(GitHubIntegration, "sync_repository_cache") as sync,
+            patch.object(revalidate_github_installation, "apply_async") as schedule,
+            patch.object(revalidate_github_installation, "delay"),
+        ):
+            revalidate_github_installation("shared")
+            assert refresh.call_count == 2
+            sync.assert_called_once()
+            schedule.assert_called_once_with(
+                args=["shared"], kwargs={"personal": False, "after_id": str(completed.pk)}, countdown=120
+            )
+            refresh.side_effect = None
+            refresh.reset_mock()
+            revalidate_github_installation("shared", personal=False, after_id=str(completed.pk))
+            refresh.assert_called_once()

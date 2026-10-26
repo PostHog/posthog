@@ -22,6 +22,7 @@ from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 from posthog.models.integration import Integration, is_supported_external_issue_provider
+from posthog.models.integration.github_readiness import GitHubReadinessStatus
 
 from products.signals.backend import contracts
 from products.signals.backend.agent_instructions import AGENT_STEERING_MAX_LENGTH, STEERING_FIELDS
@@ -58,6 +59,7 @@ from products.signals.backend.report_checks import (
 )
 from products.signals.backend.report_content_gates import team_report_monitoring_enabled
 from products.signals.backend.reviewer_rules import ReviewerRules
+from products.tasks.backend.facade.github_readiness import get_team_github_readiness
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 from products.warehouse_sources.backend.facade.types import ExternalDataSchemaStatus
 
@@ -377,6 +379,14 @@ class _AutostartBaseBranchesField(serializers.DictField):
 # singleton. Without this drf-spectacular types the response as a paginated list.
 @extend_schema_serializer(many=False)
 class SignalTeamConfigSerializer(serializers.ModelSerializer):
+    github_readiness = serializers.SerializerMethodField(
+        help_text="Effective GitHub access for self-driving, including eligible organization-owner connections, based on cached installation and repository state."
+    )
+
+    @extend_schema_field(serializers.ChoiceField(choices=GitHubReadinessStatus.choices))
+    def get_github_readiness(self, obj: SignalTeamConfig) -> str:
+        return get_team_github_readiness(obj.team_id).status
+
     scout_instructions = serializers.CharField(
         required=False,
         allow_blank=True,
@@ -520,6 +530,7 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "autostart_enabled",
+            "github_readiness",
             "default_autostart_priority",
             "default_slack_notification_channel",
             "autostart_base_branches",
@@ -1450,6 +1461,19 @@ class SignalReportSerializerExtension(OpenApiSerializerExtension):
 
 
 class SignalReportSerializer(serializers.ModelSerializer):
+    implementation_blocked_reason = serializers.ChoiceField(
+        choices=GitHubReadinessStatus.choices,
+        read_only=True,
+        allow_null=True,
+        help_text="GitHub readiness prerequisite holding automatic implementation; null when no blocker is recorded.",
+    )
+    research_blocked_reason = serializers.ChoiceField(
+        choices=GitHubReadinessStatus.choices,
+        read_only=True,
+        allow_null=True,
+        help_text="GitHub readiness prerequisite holding research in the candidate state; null once research starts.",
+    )
+
     reviewer_assignment = serializers.SerializerMethodField(
         help_text="Reviewer control and state token for preparing an automatic proposal."
     )
@@ -1652,6 +1676,8 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "summary_lead",
             "reviewer_assignment",
             "status",
+            "research_blocked_reason",
+            "implementation_blocked_reason",
             "monitoring_started_at",
             "total_weight",  # Used for priority scoring
             "signal_count",  # Used for occurrence count

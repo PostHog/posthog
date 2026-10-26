@@ -4,6 +4,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.test import SimpleTestCase
+from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
@@ -11,6 +12,7 @@ from rest_framework import status
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.extensions import get_or_create_team_extension
+from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 
 from products.signals.backend.agent_instructions import AGENT_STEERING_MAX_LENGTH, STEERING_FIELDS
 from products.signals.backend.facade.api import set_default_slack_notification_channel
@@ -88,6 +90,32 @@ class TestSignalTeamConfigAPI(APIBaseTest):
         assert data["default_autostart_priority"] == "P4"
         # Null until a team explicitly opts out; the guard treats null as autostart-on.
         assert data["autostart_enabled"] is None
+        assert data["github_readiness"] == "not_connected"
+
+    @parameterized.expand(
+        [
+            (OrganizationMembership.Level.OWNER, "ready"),
+            (OrganizationMembership.Level.ADMIN, "not_connected"),
+        ]
+    )
+    def test_github_readiness_uses_eligible_owner_connections_without_network_calls(
+        self, level: int, expected: str
+    ) -> None:
+        self.organization_membership.level = level
+        self.organization_membership.save(update_fields=["level"])
+        UserIntegration.objects.create(
+            user=self.user,
+            kind="github",
+            integration_id="123",
+            config={},
+            repository_cache=[{"full_name": "example/application"}],
+            repository_cache_updated_at=timezone.now(),
+        )
+        with patch.object(UserGitHubIntegration, "sync_repository_cache") as refresh:
+            response = self.client.get(self._url())
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["github_readiness"] == expected
+        refresh.assert_not_called()
 
     def test_get_config_lazily_creates_when_no_config_exists(self):
         self.config.delete()

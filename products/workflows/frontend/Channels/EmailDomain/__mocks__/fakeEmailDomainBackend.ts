@@ -201,6 +201,7 @@ export class FakeEmailDomainBackend {
             files_write_requestable: false,
             installation_shared: null,
             installation_status: null,
+            github_readiness: null,
         }
         this.senders.set(sender.id, sender)
         if (!this.domains.has(domain)) {

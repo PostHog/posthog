@@ -56860,6 +56860,17 @@ export namespace Schemas {
       installation_id?: string;
     }
 
+    export type GitHubReadinessStatusEnum = typeof GitHubReadinessStatusEnum[keyof typeof GitHubReadinessStatusEnum];
+
+
+    export const GitHubReadinessStatusEnum = {
+      Ready: 'ready',
+      NotConnected: 'not_connected',
+      ReconnectRequired: 'reconnect_required',
+      NoRepositories: 'no_repositories',
+      TemporarilyUnavailable: 'temporarily_unavailable',
+    } as const;
+
     export interface GitHubRepo {
       /** GitHub repository numeric identifier. */
       id: number;
@@ -64946,6 +64957,8 @@ export namespace Schemas {
       readonly installation_shared: boolean | null;
       /** GitHub only, null otherwise. `unavailable` means the App was uninstalled or suspended on GitHub and PostHog can no longer mint tokens for it; `connected` otherwise. */
       readonly installation_status: InstallationStatusEnum | null;
+      /** GitHub connection and repository readiness for code research; null for other integrations. */
+      readonly github_readiness: GitHubReadinessStatusEnum | null;
     }
 
     export interface RecommendedAction {
@@ -79512,6 +79525,22 @@ export namespace Schemas {
       readonly reviewer_assignment: ReviewerControlResponse | null;
       /** Current report status. Monitoring reads as resolved when its rollout is disabled. */
       readonly status: SignalReportStatusEnum;
+      /** GitHub readiness prerequisite holding research in the candidate state; null once research starts.
+       *
+       * * `ready` - Connected
+       * * `not_connected` - Connect GitHub
+       * * `reconnect_required` - Reconnect GitHub
+       * * `no_repositories` - Allow repository access
+       * * `temporarily_unavailable` - Checking GitHub access */
+      readonly research_blocked_reason: GitHubReadinessStatusEnum | null;
+      /** GitHub readiness prerequisite holding automatic implementation; null when no blocker is recorded.
+       *
+       * * `ready` - Connected
+       * * `not_connected` - Connect GitHub
+       * * `reconnect_required` - Reconnect GitHub
+       * * `no_repositories` - Allow repository access
+       * * `temporarily_unavailable` - Checking GitHub access */
+      readonly implementation_blocked_reason: GitHubReadinessStatusEnum | null;
       /**
          * Original implementation-complete time for this Monitoring period, null before entry. Present only when Monitoring is enabled.
          * @nullable
@@ -87746,6 +87775,8 @@ export namespace Schemas {
       readonly installation_shared?: boolean | null;
       /** GitHub only, null otherwise. `unavailable` means the App was uninstalled or suspended on GitHub and PostHog can no longer mint tokens for it; `connected` otherwise. */
       readonly installation_status?: InstallationStatusEnum | null;
+      /** GitHub connection and repository readiness for code research; null for other integrations. */
+      readonly github_readiness?: GitHubReadinessStatusEnum | null;
     }
 
     export interface PatchedJsSnippetVersion {
@@ -101784,6 +101815,22 @@ export namespace Schemas {
       readonly reviewer_assignment: ReviewerControlResponse | null;
       /** Current report status. Monitoring reads as resolved when its rollout is disabled. */
       readonly status: SignalReportStatusEnum;
+      /** GitHub readiness prerequisite holding research in the candidate state; null once research starts.
+       *
+       * * `ready` - Connected
+       * * `not_connected` - Connect GitHub
+       * * `reconnect_required` - Reconnect GitHub
+       * * `no_repositories` - Allow repository access
+       * * `temporarily_unavailable` - Checking GitHub access */
+      readonly research_blocked_reason: GitHubReadinessStatusEnum | null;
+      /** GitHub readiness prerequisite holding automatic implementation; null when no blocker is recorded.
+       *
+       * * `ready` - Connected
+       * * `not_connected` - Connect GitHub
+       * * `reconnect_required` - Reconnect GitHub
+       * * `no_repositories` - Allow repository access
+       * * `temporarily_unavailable` - Checking GitHub access */
+      readonly implementation_blocked_reason: GitHubReadinessStatusEnum | null;
       /**
          * Original implementation-complete time for this Monitoring period, null before entry. Present only when Monitoring is enabled.
          * @nullable
@@ -109487,6 +109534,8 @@ export namespace Schemas {
          * @nullable
          */
       autostart_enabled?: boolean | null;
+      /** Effective GitHub access for self-driving, including eligible organization-owner connections, based on cached installation and repository state. */
+      readonly github_readiness: GitHubReadinessStatusEnum;
       default_autostart_priority?: AutonomyPriorityEnum;
       /**
          * Default Slack channel for this team's signal inbox notifications, in the same `channel_id|#channel-name` shape PostHog uses elsewhere (only the channel id is required). Null means no team-level default; per-user channels still apply.
