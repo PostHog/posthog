@@ -7076,10 +7076,6 @@ snapshots:
         hash: v1.k794b7964.c5cd37c72bd95f6aa01a44214ab95eaa72edd6ca426485ecdfde61c81a545557.5Azw3P2-43IkuxQp_wJHvhNQr8AT-ud_atFAumNjNAE
     products-dashboards-dashboard-widgets-widget-types-metrics-metric--single-stat--light:
         hash: v1.k794b7964.8e5bda7d611f39f9094e7c132f8f838c4be1941b80b7f14c9239da5358204382.xFzOX_rEuF5UBXuTo6rCiDHALE61UwKEn2ZXvIXHI9A
-    products-dashboards-dashboard-widgets-widget-types-metrics-metric--table--dark:
-        hash: v1.k794b7964.af4db2b90b7bfad6b185f314e312c98c32fdb0e412b7e807cfb1eab73f43d202.t1KK__R-ZLnKRWgZEyWamwkc_Nly9gAbEOwKxyg0fnc
-    products-dashboards-dashboard-widgets-widget-types-metrics-metric--table--light:
-        hash: v1.k794b7964.da5094153e93579a394de21e7e5d36b6d591ca28f22028c359e6fae8be1d4087.D_o-l3HWOVzg9gntIsZTDzILZRPYILdXfSe3QcMLsYI
     products-dashboards-dashboard-widgets-widget-types-metrics-metric--time-series--dark:
         hash: v1.k794b7964.01b23320f1eebe34fb4518f04d69b4707e6a5de9f48dad8beedf430eef0bf5c5.-iLOxV4X47VntW-8aaOOW-SapIw5aZCnyrO574NpB6w
     products-dashboards-dashboard-widgets-widget-types-metrics-metric--time-series--light:
