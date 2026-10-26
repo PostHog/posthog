@@ -413,12 +413,12 @@ export class EmailService {
             // gating here turns wasted invocations into one clear skip.
             const suspensionCause = await this.teamWorkflowsConfigService.getEmailSendingSuspension(invocation.teamId)
             if (suspensionCause) {
-                addLog(
-                    'warn',
+                const skipReason =
                     suspensionCause === 'staff'
                         ? 'Skipping send: email sending is suspended for this project. Contact support to get sending re-enabled.'
                         : 'Skipping send: our email provider paused sending for this project. Check the Reputation tab to see what to fix.'
-                )
+                addLog('warn', skipReason)
+                result.emailSendResult = { status: 'skipped', reason: skipReason }
                 logger.warn('Skipping email send for a suspended team', {
                     teamId: invocation.teamId,
                     cause: suspensionCause,
@@ -450,12 +450,11 @@ export class EmailService {
                 // Error rather than warn: the email did not go out, and warn-level lines get skimmed
                 // past in the run logs. The run itself still continues; a pause is policy, not a
                 // fault, so it must not enter retry or abort handling.
-                addLog(
-                    'error',
-                    workflowPause.byStaff
-                        ? `Skipping send: PostHog staff paused email sending for this workflow.${pauseDetail} Contact support to get sending re-enabled.`
-                        : `Skipping send: email sending is paused for this workflow.${pauseDetail} Resume it from the workflow page once the audience is cleaned up.`
-                )
+                const skipReason = workflowPause.byStaff
+                    ? `Skipping send: PostHog staff paused email sending for this workflow.${pauseDetail} Contact support to get sending re-enabled.`
+                    : `Skipping send: email sending is paused for this workflow.${pauseDetail} Resume it from the workflow page once the audience is cleaned up.`
+                addLog('error', skipReason)
+                result.emailSendResult = { status: 'skipped', reason: skipReason }
                 if (!isTest) {
                     result.metrics.push({
                         team_id: invocation.teamId,
@@ -519,6 +518,7 @@ export class EmailService {
             const skipReason = await this.buildSuppressionSkipReason(invocation.teamId, params)
             if (skipReason) {
                 addLog('info', skipReason)
+                result.emailSendResult = { status: 'skipped', reason: skipReason }
                 if (!isTest) {
                     result.metrics.push({
                         team_id: invocation.teamId,
@@ -659,6 +659,7 @@ export class EmailService {
             const viewEmailToken = assetRow ? ` [Email:${invocation.id}:${invocation.state.actionId ?? ''}]` : ''
             addLog('info', `Email sent to ${params.to.email} from ${from.name} <${from.email}>${viewEmailToken}`)
             success = true
+            result.emailSendResult = { status: 'accepted' }
         } catch (error) {
             if (error instanceof SESThrottleError) {
                 // Treat as a transient delivery delay — reschedule rather than fail
@@ -672,6 +673,7 @@ export class EmailService {
             } else {
                 addLog('error', error.message)
                 result.error = error.message
+                result.emailSendResult = { status: 'failed', reason: error.message }
                 result.finished = true
             }
         }
