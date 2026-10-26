@@ -33,6 +33,7 @@ from structlog import get_logger
 
 from posthog.celery import app
 from posthog.database_healthcheck import DATABASE_FOR_FLAG_MATCHING
+from posthog.frontend_assets_check import start_frontend_assets_check
 from posthog.git import get_git_commit_full
 from posthog.kafka_client.profiles import KafkaClusterProfile
 from posthog.kafka_client.routing import get_producer
@@ -142,6 +143,10 @@ def readyz(request: HttpRequest):
 
     if role and role not in get_args(ServiceRole):
         return JsonResponse({"error": "InvalidRole"}, status=400)
+
+    # The web and frontdoor pools probe with role=web, and they serve the HTML that references the CDN files.
+    if role == "web":
+        start_frontend_assets_check()
 
     available_checks: dict[str, Callable] = {
         "clickhouse": is_clickhouse_connected,
