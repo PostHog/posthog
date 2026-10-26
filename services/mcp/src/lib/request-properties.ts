@@ -25,6 +25,8 @@ export type RequestProperties = {
     mcpElicitationUrlSupported?: boolean | undefined
     mcpProtocolVersion?: string | undefined
     mcpVendorClient?: string | undefined
+    // From the `io.modelcontextprotocol/ui` client capability. Undefined when the client sent no capabilities.
+    mcpClientSupportsUiApps?: boolean | undefined
     readOnly?: boolean | undefined
     mode?: McpMode | undefined
     viaMcpStore?: boolean | undefined
@@ -53,6 +55,7 @@ export type ClientInfo = {
     clientVersion?: string | undefined
     protocolVersion?: string | undefined
     elicitationUrlSupported?: boolean | undefined
+    supportsUiApps?: boolean | undefined
 }
 
 function header(request: Request, name: string): string | undefined {
@@ -125,6 +128,7 @@ export function parseRequestProperties(
         mcpProtocolVersion: clientInfo.protocolVersion,
         mcpElicitationUrlSupported: clientInfo.elicitationUrlSupported,
         mcpVendorClient: vendorClient,
+        mcpClientSupportsUiApps: clientInfo.supportsUiApps,
         mode: viaMcpStore ? 'tools' : parseMcpMode(header(request, 'x-posthog-mcp-mode') || params.get('mode')),
         viaMcpStore,
         taskId: sanitizeHeaderValue(header(request, 'x-posthog-task-id')),

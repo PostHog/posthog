@@ -148,6 +148,11 @@ export type Context = {
      * Which PostHog connection this context runs through, when it runs through one at all. Set only
      * by the forwarded context (see lib/connection-forwarding.ts); absent on a local call.
      */
+    /**
+     * True when the client can render MCP UI apps. Set by the request resolver from the client
+     * capabilities, or from the client profile when the client sent no capabilities.
+     */
+    clientSupportsUiApps?: boolean
     connection?: {
         /** Project on this side that owns the connection. */
         localProjectId: string

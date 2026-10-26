@@ -12188,6 +12188,36 @@ export namespace Schemas {
     }
 
     /**
+     * * `client` - Client
+     * * `auto` - Auto
+     */
+    export type AgentOperationApprovalsEnum = typeof AgentOperationApprovalsEnum[keyof typeof AgentOperationApprovalsEnum];
+
+
+    export const AgentOperationApprovalsEnum = {
+      Client: 'client',
+      Auto: 'auto',
+    } as const;
+
+    export interface AgentOperationApprovalOption {
+      /** Send this option's meaning as the reply: allow, allow all, or deny. */
+      option_id: string;
+      /** Option kind, such as allow_once, allow_always or reject_once. */
+      kind: string;
+      /** Option label. */
+      name: string;
+    }
+
+    export interface AgentOperationApproval {
+      /** The pending approval request. */
+      request_id: string;
+      /** The tool call that waits for approval. */
+      title: string;
+      /** The answers that the sandbox accepts. */
+      options: AgentOperationApprovalOption[];
+    }
+
+    /**
      * * `complete` - Complete
      * * `needs_input` - Needs input
      * * `failed` - Failed
@@ -12303,6 +12333,13 @@ export namespace Schemas {
          * @nullable
          */
       summary: string | null;
+      /** Whether the client answers approval prompts.
+       *
+       * * `client` - Client
+       * * `auto` - Auto */
+      approvals: AgentOperationApprovalsEnum;
+      /** The approval that the operation waits for. Reply 'allow', 'allow all' or 'deny'. */
+      approval: AgentOperationApproval | null;
       /**
          * The question or approval that the operation waits for.
          * @nullable
@@ -12369,6 +12406,11 @@ export namespace Schemas {
          * @pattern ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$
          */
       repository?: string;
+      /** 'client' when the client can show approval prompts to its user, so PostHog AI asks before each sensitive tool call. 'auto' (default) runs with no prompts; the key's scopes still limit the run.
+       *
+       * * `client` - Client
+       * * `auto` - Auto */
+      approvals?: AgentOperationApprovalsEnum;
       /**
          * Optional branch, tag, or commit in the repository. The default branch when not set. The server pins it to one commit.
          * @maxLength 255

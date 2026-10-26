@@ -128,6 +128,7 @@ export const postHogAgentRunHandler = async (
             ...(params.posthog_conversation_id ? { conversation_id: params.posthog_conversation_id } : {}),
             ...(params.repository ? { repository: params.repository } : {}),
             ...(params.ref ? { ref: params.ref } : {}),
+            ...(context.clientSupportsUiApps ? { approvals: 'client' } : {}),
         },
     })
     return {

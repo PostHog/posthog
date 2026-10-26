@@ -25,6 +25,10 @@ class AgentOperation(TeamScopedRootMixin, UUIDModel):
     TERMINAL_STATES = frozenset({State.SUCCEEDED, State.FAILED, State.CANCELLED, State.EXPIRED})
     ACTIVE_STATES = frozenset({State.QUEUED, State.RUNNING, State.NEEDS_INPUT, State.CANCELLING})
 
+    class Approvals(models.TextChoices):
+        CLIENT = "client", "Client"
+        AUTO = "auto", "Auto"
+
     class ParentCredentialKind(models.TextChoices):
         PERSONAL_API_KEY = "personal_api_key", "Personal API key"
         OAUTH_TOKEN_FAMILY = "oauth_token_family", "OAuth refresh-token family"
@@ -46,6 +50,8 @@ class AgentOperation(TeamScopedRootMixin, UUIDModel):
     goal = models.TextField()
 
     state = models.CharField(max_length=16, choices=State.choices, default=State.QUEUED)
+    # "client": the run asks for approvals and the client's UI answers them. "auto": the run asks for none.
+    approvals = models.CharField(max_length=8, choices=Approvals.choices, default=Approvals.AUTO)
     state_reason = models.CharField(max_length=64, null=True, blank=True)
 
     granted_scopes = models.JSONField(default=list)

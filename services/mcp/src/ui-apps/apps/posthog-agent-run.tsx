@@ -8,6 +8,50 @@ import type { AgentOperation } from '../../tools/posthogAgent/operations'
 import { AgentOperationView, isTerminal } from '../components/AgentOperationView'
 import { AppWrapper } from '../components/AppWrapper'
 import { useToolPolling } from '../hooks/useToolPolling'
+import { parseToolResultContent } from '../hooks/useToolResult'
+
+/** Calls an operation tool, then replaces the polled data with the operation it returns. */
+function useOperationAction(
+    app: App | null,
+    setData: (operation: AgentOperation) => void,
+    fallbackError: string
+): {
+    pending: string | null
+    error: string | null
+    run: (key: string, name: string, args: Record<string, unknown>) => Promise<void>
+} {
+    const [pending, setPending] = useState<string | null>(null)
+    const [error, setError] = useState<string | null>(null)
+
+    const run = useCallback(
+        async (key: string, name: string, args: Record<string, unknown>): Promise<void> => {
+            if (!app || pending) {
+                return
+            }
+            setPending(key)
+            setError(null)
+            try {
+                const result = await app.callServerTool({ name, arguments: args })
+                const next = result.isError
+                    ? null
+                    : parseToolResultContent<AgentOperation>(result.structuredContent, result._meta)
+                if (next) {
+                    setData(next)
+                } else {
+                    const text = result.content?.find((c) => c.type === 'text')
+                    setError(text && 'text' in text ? text.text : fallbackError)
+                }
+            } catch (e) {
+                setError(e instanceof Error ? e.message : String(e))
+            } finally {
+                setPending(null)
+            }
+        },
+        [app, pending, setData, fallbackError]
+    )
+
+    return { pending, error, run }
+}
 
 function PostHogAgentRunContent({ data, app }: { data: AgentOperation; app: App | null }): JSX.Element {
     const {
@@ -27,34 +71,10 @@ function PostHogAgentRunContent({ data, app }: { data: AgentOperation; app: App 
         isDone: isTerminal,
         getIntervalSeconds: (op) => op.retry_after_seconds,
     })
-    const [cancelling, setCancelling] = useState(false)
-    const [cancelError, setCancelError] = useState<string | null>(null)
+    const cancel = useOperationAction(app, setData, 'Could not cancel the operation.')
+    const reply = useOperationAction(app, setData, 'Could not send the reply.')
 
     const current = operation ?? data
-
-    const handleCancel = useCallback(async () => {
-        if (!app || cancelling) {
-            return
-        }
-        setCancelling(true)
-        setCancelError(null)
-        try {
-            const result = await app.callServerTool({
-                name: 'posthog-agent-cancel',
-                arguments: { operation_id: current.id, project_id: current.project.id },
-            })
-            if (result.isError || !result.structuredContent) {
-                const text = result.content?.find((c) => c.type === 'text')
-                setCancelError(text && 'text' in text ? text.text : 'Could not cancel the operation.')
-            } else {
-                setData(result.structuredContent as unknown as AgentOperation)
-            }
-        } catch (e) {
-            setCancelError(e instanceof Error ? e.message : String(e))
-        } finally {
-            setCancelling(false)
-        }
-    }, [app, cancelling, current.id, current.project.id, setData])
 
     return (
         <AgentOperationView
@@ -62,9 +82,24 @@ function PostHogAgentRunContent({ data, app }: { data: AgentOperation; app: App 
             onOpenLink={(url) => (app ? void app.openLink({ url }) : window.open(url, '_blank', 'noopener,noreferrer'))}
             canControl={!!app}
             pollError={error}
-            onCancel={() => void handleCancel()}
-            cancelling={cancelling}
-            cancelError={cancelError}
+            onCancel={() =>
+                void cancel.run('cancel', 'posthog-agent-cancel', {
+                    operation_id: current.id,
+                    project_id: current.project.id,
+                })
+            }
+            cancelling={cancel.pending !== null}
+            cancelError={cancel.error}
+            onReply={(message) =>
+                void reply.run(message, 'posthog-agent-reply', {
+                    operation_id: current.id,
+                    project_id: current.project.id,
+                    message,
+                    client_request_id: crypto.randomUUID(),
+                })
+            }
+            pendingReply={reply.pending}
+            replyError={reply.error}
         />
     )
 }

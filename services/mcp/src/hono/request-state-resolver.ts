@@ -292,6 +292,10 @@ export class RequestStateResolver {
         // mount its iframe. Single-exec CLI clients like Claude Code can't mount it, so the
         // tool's advertisement and execution stay gated on the UI-host check.
         const renderUiEnabled = !fixedTools && clientProfile.isClaudeUiHost()
+        context.clientSupportsUiApps =
+            requestContext.mcpClientSupportsUiApps ??
+            sessionContext?.mcpClientSupportsUiApps ??
+            clientProfile.isClaudeUiHost()
 
         const { mode: resolvedMode, useSingleExec } = fixedTools
             ? { mode: 'tools' as const, useSingleExec: false }

@@ -46,7 +46,14 @@ vi.mock('@/lib/posthog/flags', () => ({
 vi.mock('@/hono/cache/McpSessionRedisStore', () => ({
     McpSessionRedisStore: class {
         async resolve(requestContext: Record<string, unknown>): Promise<Record<string, unknown>> {
-            const keys = ['mcpClientName', 'mcpClientVersion', 'mcpProtocolVersion', 'mcpConsumer', 'mcpVendorClient']
+            const keys = [
+                'mcpClientName',
+                'mcpClientVersion',
+                'mcpProtocolVersion',
+                'mcpConsumer',
+                'mcpVendorClient',
+                'mcpClientSupportsUiApps',
+            ]
             const resolved = Object.fromEntries(
                 keys.map((key) => [key, mockSessionStore.get(key) ?? requestContext[key]])
             )
@@ -588,6 +595,37 @@ describe('RequestStateResolver MCP client contexts', () => {
         expect(result.renderUiEnabled).toBe(true)
         expect(result.useSingleExec).toBe(true)
         expect(props.mode).toBe('cli')
+    })
+
+    it.each([
+        ['declared UI support', { mcpClientName: 'codex', mcpClientSupportsUiApps: true }, true],
+        [
+            'declared no UI support on a Claude UI host',
+            { mcpClientName: 'Claude Desktop', mcpVendorClient: 'ClaudeAI', mcpClientSupportsUiApps: false },
+            false,
+        ],
+        [
+            'unknown capabilities on a Claude UI host',
+            { mcpClientName: 'Claude Desktop', mcpVendorClient: 'ClaudeAI' },
+            true,
+        ],
+        [
+            'unknown capabilities on Claude Code',
+            { mcpClientName: 'Anthropic/ClaudeAI', mcpVendorClient: 'ClaudeCode' },
+            false,
+        ],
+    ] as const)('resolves UI app support for tools from %s', async (_label, overrides, expected) => {
+        const result = await makeResolver().resolve(makeProps(overrides))
+
+        expect(result.context.clientSupportsUiApps).toBe(expected)
+    })
+
+    it('keeps UI app support from initialize for later calls in the session', async () => {
+        await makeResolver().resolve(makeProps({ mcpClientName: 'codex', mcpClientSupportsUiApps: true }))
+
+        const result = await makeResolver().resolve(makeProps({ mcpClientName: undefined }))
+
+        expect(result.context.clientSupportsUiApps).toBe(true)
     })
 
     it.each([

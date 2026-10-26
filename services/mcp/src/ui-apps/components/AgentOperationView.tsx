@@ -1,9 +1,14 @@
 import { CheckCircle2, Circle, CircleDot, ExternalLink } from 'lucide-react'
 import { type ReactNode, useEffect, useState } from 'react'
 
-import { Badge, Button, Card, CardContent, CardHeader, CardTitle, Separator, Spinner } from '@posthog/quill'
+import { Badge, Button, Card, CardContent, CardHeader, CardTitle, Separator, Spinner, Textarea } from '@posthog/quill'
 
-import type { AgentOperation, AgentOperationState } from '../../tools/posthogAgent/operations'
+import {
+    type AgentOperation,
+    type AgentOperationApproval,
+    type AgentOperationState,
+    APPROVAL_REPLIES,
+} from '../../tools/posthogAgent/operations'
 
 const TERMINAL_STATES: ReadonlySet<AgentOperationState> = new Set(['succeeded', 'failed', 'cancelled', 'expired'])
 const ACTIVITY_LIMIT = 8
@@ -202,6 +207,104 @@ function ResultView({
     )
 }
 
+const CHAT_HINT = 'Answer in the chat to continue.'
+
+function ApprovalPrompt({
+    approval,
+    canReply,
+    onReply,
+    pendingReply,
+}: {
+    approval: AgentOperationApproval
+    canReply: boolean
+    onReply: (message: string) => void
+    pendingReply: string | null
+}): JSX.Element {
+    const busy = pendingReply !== null
+    const buttons = [
+        { message: APPROVAL_REPLIES.allow, label: 'Allow', variant: 'primary' },
+        { message: APPROVAL_REPLIES.allowAll, label: 'Allow all', variant: 'outline' },
+        { message: APPROVAL_REPLIES.deny, label: 'Deny', variant: 'destructive-outline' },
+    ] as const
+    return (
+        <div className="flex flex-col gap-2 rounded border border-warning bg-warning/10 p-2 text-sm">
+            <div>
+                <p className="font-semibold">PostHog AI needs your approval</p>
+                <p className="whitespace-pre-wrap break-words">{approval.title}</p>
+            </div>
+            {canReply ? (
+                <div className="flex flex-wrap gap-2">
+                    {buttons.map((button) => (
+                        <Button
+                            key={button.message}
+                            variant={button.variant}
+                            size="sm"
+                            loading={pendingReply === button.message}
+                            disabled={busy}
+                            onClick={() => onReply(button.message)}
+                        >
+                            {button.label}
+                        </Button>
+                    ))}
+                </div>
+            ) : (
+                <p className="text-xs text-muted-foreground">{CHAT_HINT}</p>
+            )}
+        </div>
+    )
+}
+
+function QuestionPrompt({
+    question,
+    canReply,
+    onReply,
+    pendingReply,
+}: {
+    question: string
+    canReply: boolean
+    onReply: (message: string) => void
+    pendingReply: string | null
+}): JSX.Element {
+    const [answer, setAnswer] = useState('')
+    const busy = pendingReply !== null
+    const trimmed = answer.trim()
+    return (
+        <div className="flex flex-col gap-2 rounded border border-warning bg-warning/10 p-2 text-sm">
+            <div>
+                <p className="font-semibold">PostHog AI needs input</p>
+                <p className="whitespace-pre-wrap break-words">{question}</p>
+            </div>
+            {canReply ? (
+                <form
+                    className="flex flex-col gap-2"
+                    onSubmit={(e) => {
+                        e.preventDefault()
+                        if (trimmed && !busy) {
+                            onReply(trimmed)
+                        }
+                    }}
+                >
+                    <Textarea
+                        aria-label="Your answer"
+                        placeholder="Type your answer"
+                        rows={3}
+                        value={answer}
+                        disabled={busy}
+                        onChange={(e) => setAnswer(e.target.value)}
+                    />
+                    <div>
+                        <Button type="submit" variant="primary" size="sm" loading={busy} disabled={!trimmed}>
+                            Send
+                        </Button>
+                    </div>
+                </form>
+            ) : (
+                <p className="text-xs text-muted-foreground">{CHAT_HINT}</p>
+            )}
+        </div>
+    )
+}
+
 export function AgentOperationView({
     operation,
     onOpenLink,
@@ -210,6 +313,9 @@ export function AgentOperationView({
     onCancel,
     cancelling,
     cancelError,
+    onReply,
+    pendingReply,
+    replyError,
 }: {
     operation: AgentOperation
     onOpenLink: (url: string) => void
@@ -218,11 +324,15 @@ export function AgentOperationView({
     onCancel: () => void
     cancelling: boolean
     cancelError: string | null
+    onReply: (message: string) => void
+    pendingReply: string | null
+    replyError: string | null
 }): JSX.Element {
     const elapsed = useElapsed(operation)
     const activity = useActivityFeed(operation)
     const terminal = isTerminal(operation)
     const question = operation.result?.question ?? operation.question
+    const canReply = canControl && operation.state === 'needs_input'
     const canCancel = !terminal && operation.state !== 'cancelling'
 
     return (
@@ -255,12 +365,23 @@ export function AgentOperationView({
                 </div>
             </CardHeader>
             <CardContent className="flex flex-col gap-4">
-                {question && (
-                    <div className="rounded border border-warning bg-warning/10 p-2 text-sm">
-                        <p className="font-semibold">PostHog AI needs input</p>
-                        <p className="whitespace-pre-wrap break-words">{question}</p>
-                        <p className="mt-1 text-xs text-muted-foreground">Answer in the chat to continue.</p>
-                    </div>
+                {operation.approval ? (
+                    <ApprovalPrompt
+                        approval={operation.approval}
+                        canReply={canReply}
+                        onReply={onReply}
+                        pendingReply={pendingReply}
+                    />
+                ) : (
+                    question && (
+                        <QuestionPrompt
+                            key={question}
+                            question={question}
+                            canReply={canReply}
+                            onReply={onReply}
+                            pendingReply={pendingReply}
+                        />
+                    )
                 )}
                 {operation.plan.length > 0 && (
                     <Section title="Plan">
@@ -287,8 +408,8 @@ export function AgentOperationView({
                         <ResultView result={operation.result} onOpenLink={onOpenLink} />
                     </>
                 )}
-                {(pollError || cancelError) && (
-                    <p className="text-xs text-destructive-foreground">{cancelError ?? pollError}</p>
+                {(pollError || cancelError || replyError) && (
+                    <p className="text-xs text-destructive-foreground">{cancelError ?? replyError ?? pollError}</p>
                 )}
             </CardContent>
         </Card>

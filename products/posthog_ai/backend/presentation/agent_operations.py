@@ -72,6 +72,12 @@ class AgentOperationStartSerializer(serializers.Serializer):
         required=False,
         help_text="Optional GitHub repository in 'organization/repository' form, for PostHog AI to read. The repository is read-only.",
     )
+    approvals = serializers.ChoiceField(
+        choices=AgentOperation.Approvals.choices,
+        required=False,
+        default=AgentOperation.Approvals.AUTO,
+        help_text="'client' when the client can show approval prompts to its user, so PostHog AI asks before each sensitive tool call. 'auto' (default) runs with no prompts; the key's scopes still limit the run.",
+    )
     ref = serializers.CharField(
         max_length=255,
         required=False,
@@ -118,6 +124,18 @@ class AgentOperationArtifactSerializer(serializers.Serializer):
     url = serializers.CharField(allow_null=True, help_text="A link to the object, when one exists.")
 
 
+class AgentOperationApprovalOptionSerializer(serializers.Serializer):
+    option_id = serializers.CharField(help_text="Send this option's meaning as the reply: allow, allow all, or deny.")
+    kind = serializers.CharField(help_text="Option kind, such as allow_once, allow_always or reject_once.")
+    name = serializers.CharField(help_text="Option label.")
+
+
+class AgentOperationApprovalSerializer(serializers.Serializer):
+    request_id = serializers.CharField(help_text="The pending approval request.")
+    title = serializers.CharField(help_text="The tool call that waits for approval.")
+    options = AgentOperationApprovalOptionSerializer(many=True, help_text="The answers that the sandbox accepts.")
+
+
 class AgentOperationResultSerializer(serializers.Serializer):
     status = serializers.ChoiceField(
         choices=AgentOperationResultStatus.choices, help_text="What PostHog AI reported at the end of its turn."
@@ -154,6 +172,12 @@ class AgentOperationSerializer(serializers.Serializer):
         child=serializers.CharField(), help_text="Steps since the cursor that the client sent."
     )
     summary = serializers.CharField(allow_null=True, help_text="PostHog AI's running summary of the work.")
+    approvals = serializers.ChoiceField(
+        choices=AgentOperation.Approvals.choices, help_text="Whether the client answers approval prompts."
+    )
+    approval = AgentOperationApprovalSerializer(
+        allow_null=True, help_text="The approval that the operation waits for. Reply 'allow', 'allow all' or 'deny'."
+    )
     question = serializers.CharField(
         allow_null=True, help_text="The question or approval that the operation waits for."
     )
@@ -175,7 +199,7 @@ def _question(operation: AgentOperation) -> str | None:
         return None
     if operation.pending_permission_request:
         title = operation.pending_permission_request.get("title") or "a tool"
-        return f"PostHog AI asks for approval: {title}. Reply 'allow' or 'deny'."
+        return f"PostHog AI asks for approval: {title}. Reply 'allow', 'allow all' or 'deny'."
     return (operation.result or {}).get("question")
 
 
@@ -197,6 +221,10 @@ def _serialize(view: OperationView) -> dict[str, Any]:
             "plan": view.plan,
             "new_steps": view.new_steps,
             "summary": view.summary,
+            "approvals": operation.approvals,
+            "approval": operation.pending_permission_request
+            if operation.state == AgentOperation.State.NEEDS_INPUT
+            else None,
             "question": _question(operation),
             "result": operation.result,
             "cursor": view.cursor,
@@ -284,6 +312,7 @@ class AgentOperationViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             conversation_id=str(data["conversation_id"]) if data.get("conversation_id") else None,
             repository=data.get("repository"),
             ref=data.get("ref"),
+            approvals=data.get("approvals", AgentOperation.Approvals.AUTO),
         )
         try:
             outcome = service.start(start, authenticator=getattr(request, "successful_authenticator", None))
