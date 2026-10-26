@@ -47,7 +47,6 @@ logger = structlog.get_logger(__name__)
 
 SLACK_APP_AGENT_DESIGN_FLAG = "slack-app-agent-design"
 SLACK_APP_CHART_LINKS_FLAG = "slack-app-chart-links"
-SLACK_APP_FEATURE_TIPS_FLAG = "slack-app-feature-tips"
 SLACK_APP_FORKING_FLAG = "slack-app-forking"
 SLACK_APP_MULTIPLAYER_APPROVALS_FLAG = "slack-app-multiplayer-approvals"
 SLACK_APP_BYOS_FLAG = "slack-app-byos"
@@ -138,21 +137,6 @@ def is_slack_app_chart_links_enabled(integration: Integration) -> bool:
         SLACK_APP_CHART_LINKS_FLAG,
         integration,
         failure_log_key="slack_app_chart_links_feature_flag_check_failed",
-    )
-
-
-def is_slack_app_feature_tips_enabled(integration: Integration, distinct_id: str) -> bool:
-    """Gate for the one-line feature tip under an answer.
-
-    ``distinct_id`` is the reader's PostHog distinct id, or their Slack-derived id when no
-    PostHog user is linked. A tip is a per-person decision, so a percentage rollout splits
-    people and a holdout group can measure what tips change.
-    """
-    return _workspace_flag_enabled(
-        SLACK_APP_FEATURE_TIPS_FLAG,
-        integration,
-        failure_log_key="slack_app_feature_tips_feature_flag_check_failed",
-        distinct_id=distinct_id,
     )
 
 
