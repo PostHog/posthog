@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,14 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class TrelloSource(ResumableSource[TrelloSourceConfig, TrelloResumeConfig]):
+    codebase_detection = detect(
+        env=("^TRELLO_",),
+        script_hosts=("p.trellocdn.com",),
+        npm=("trello",),
+        pypi=("py-trello",),
+        rubygems=("ruby-trello",),
+    )
+
     supported_versions = ("1",)
     default_version = "1"
     api_docs_url = "https://developer.atlassian.com/cloud/trello/rest/"
@@ -49,7 +58,7 @@ class TrelloSource(ResumableSource[TrelloSourceConfig, TrelloResumeConfig]):
             name=ExternalDataSourceType.TRELLO,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Trello",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Trello API key and token to sync your boards, cards, lists and more into the PostHog Data warehouse.
 
 Get your API key from [trello.com/power-ups/admin](https://trello.com/power-ups/admin) and generate a token with **read** access for your account.""",

@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CareQualityCommissionSource(ResumableSource[CareQualityCommissionSourceConfig, CQCResumeConfig]):
+    codebase_detection = detect(env=("^(CARE_QUALITY_COMMISSION|CAREQUALITYCOMMISSION)_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v1",)
     default_version = "v1"
@@ -48,7 +51,7 @@ class CareQualityCommissionSource(ResumableSource[CareQualityCommissionSourceCon
             name=ExternalDataSourceType.CAREQUALITYCOMMISSION,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Care Quality Commission",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your CQC Syndication API subscription key to pull UK health and social care provider and location data into the PostHog Data warehouse.
 
 Create a subscription key from the [CQC developer portal](https://api-portal.service.cqc.org.uk) — subscribe to the Syndication API product and copy its primary key.

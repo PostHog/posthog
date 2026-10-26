@@ -1,5 +1,6 @@
 import { useActions } from 'kea'
 
+import { resolveFilterTestAccounts } from 'scenes/experiments/exposureContract'
 import { SharedMetric } from 'scenes/experiments/SharedMetrics/sharedMetricLogic'
 
 import type { ExperimentExposureCriteria, ExperimentMetric } from '~/queries/schema/schema-general'
@@ -51,7 +52,7 @@ export const MetricsPanel = ({
     const { closeSharedMetricModal } = useActions(sharedMetricModalLogic)
 
     // we need this value to calculate the recent activity on the metrics list
-    const filterTestAccounts = experiment.exposure_criteria?.filterTestAccounts ?? false
+    const filterTestAccounts = resolveFilterTestAccounts(experiment.exposure_criteria)
 
     const primaryMetrics = [...(experiment.metrics || []).filter(isExperimentMetric), ...sharedMetrics.primary]
     const secondaryMetrics = [

@@ -91,6 +91,11 @@ export function CrossProjectDashboardsList(): JSX.Element {
                 <LemonInput
                     value={newName}
                     onChange={setNewName}
+                    onPressEnter={() => {
+                        if (newName.trim() && !isCreating) {
+                            createDashboard()
+                        }
+                    }}
                     placeholder="Company overview"
                     autoFocus
                     data-attr="cross-project-dashboard-new-name"

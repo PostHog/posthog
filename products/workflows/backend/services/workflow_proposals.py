@@ -2,13 +2,19 @@ import copy
 import json
 from collections.abc import Mapping, Sequence
 from copy import deepcopy
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Optional
 from uuid import UUID
 
-from posthog.api.app_metrics2 import fetch_app_metric_totals
+from django.db import IntegrityError, transaction
+from django.db.models import QuerySet
+from django.utils import timezone
 
-from products.workflows.backend.facade.contracts import ProposalChanges
+from posthog.api.app_metrics2 import fetch_app_metric_totals
+from posthog.dataclasses import frozen
+
+from products.workflows.backend.facade.contracts import CreatedWorkflowProposal, ProposalChanges, WorkflowProposalRecord
+from products.workflows.backend.facade.enums import WorkflowProposalStatus
 from products.workflows.backend.metrics import (
     GUARDRAIL_LABELS,
     GUARDRAIL_METRICS,
@@ -33,6 +39,119 @@ PROPOSAL_WHOLE_LIST_FIELDS = ("edges", "variables")
 
 
 PROPOSAL_MERGE_BY_ID_FIELDS = ("actions",)
+
+
+def _to_record(proposal: WorkflowProposal) -> WorkflowProposalRecord:
+    return WorkflowProposalRecord(
+        id=proposal.id,
+        title=proposal.title,
+        rationale=proposal.rationale,
+        content=proposal.content,
+        evidence=proposal.evidence,
+        step_id=proposal.step_id,
+        base_version=proposal.base_version,
+        status=WorkflowProposalStatus(proposal.status),
+        source_id=proposal.source_id,
+        created_at=proposal.created_at,
+        resolved_at=proposal.resolved_at,
+        resolved_by=proposal.resolved_by,
+        applied_version=proposal.applied_version,
+        rejection_reason=proposal.rejection_reason,
+    )
+
+
+def _proposals(hog_flow_id: UUID, status: str | None) -> QuerySet[WorkflowProposal]:
+    # Applied ones order by the version that shipped them and rejected ones by when they were rejected,
+    # since either can happen long after filing; the rest read as a queue, newest first.
+    # `-pk` breaks ties so OFFSET/LIMIT pages neither repeat nor skip a proposal.
+    if status == WorkflowProposal.Status.APPLIED:
+        ordering: tuple[str, ...] = ("-applied_version", "-created_at", "-pk")
+    elif status == WorkflowProposal.Status.REJECTED:
+        ordering = ("-resolved_at", "-created_at", "-pk")
+    else:
+        ordering = ("-created_at", "-pk")
+    queryset = WorkflowProposal.objects.filter(hog_flow_id=hog_flow_id).order_by(*ordering)
+    if status:
+        queryset = queryset.filter(status=status)
+    return queryset
+
+
+def count_proposals(*, hog_flow_id: UUID, status: str | None) -> int:
+    return _proposals(hog_flow_id, status).count()
+
+
+def list_proposals(*, hog_flow_id: UUID, status: str | None, offset: int, limit: int) -> list[WorkflowProposalRecord]:
+    queryset = _proposals(hog_flow_id, status).select_related("resolved_by")
+    return [_to_record(proposal) for proposal in queryset[offset : offset + limit]]
+
+
+def get_proposal(*, team_id: int, hog_flow_id: UUID, proposal_id: UUID) -> WorkflowProposalRecord | None:
+    proposal = (
+        WorkflowProposal.objects.select_related("resolved_by")
+        .filter(team_id=team_id, hog_flow_id=hog_flow_id, id=proposal_id)
+        .first()
+    )
+    return _to_record(proposal) if proposal is not None else None
+
+
+def get_proposal_by_source_id(*, hog_flow_id: UUID, source_id: str) -> WorkflowProposalRecord | None:
+    proposal = WorkflowProposal.objects.filter(hog_flow_id=hog_flow_id, source_id=source_id).first()
+    return _to_record(proposal) if proposal is not None else None
+
+
+def create_proposal(
+    *,
+    hog_flow_id: UUID,
+    title: str,
+    rationale: str,
+    content: dict[str, Any],
+    evidence: dict[str, Any],
+    step_id: str | None,
+    base_version: int,
+    source_id: str | None,
+) -> CreatedWorkflowProposal:
+    proposal = WorkflowProposal(
+        hog_flow_id=hog_flow_id,
+        title=title,
+        rationale=rationale,
+        content=content,
+        evidence=evidence,
+        step_id=step_id,
+        base_version=base_version,
+        source_id=source_id,
+    )
+    try:
+        with transaction.atomic():
+            proposal.save()
+    except IntegrityError:
+        existing = (
+            WorkflowProposal.objects.filter(hog_flow_id=hog_flow_id, source_id=source_id).first() if source_id else None
+        )
+        if existing is None:
+            raise
+        return CreatedWorkflowProposal(proposal=_to_record(existing), created=False)
+    return CreatedWorkflowProposal(proposal=_to_record(proposal), created=True)
+
+
+def lock_proposal(*, team_id: int, proposal_id: UUID) -> WorkflowProposalRecord:
+    return _to_record(WorkflowProposal.objects.select_for_update().get(team_id=team_id, id=proposal_id))
+
+
+def resolve_proposal(
+    *,
+    team_id: int,
+    proposal_id: UUID,
+    status: WorkflowProposalStatus,
+    resolved_by_id: int | None,
+    rejection_reason: str = "",
+) -> WorkflowProposalRecord:
+    proposal = WorkflowProposal.objects.get(team_id=team_id, id=proposal_id)
+    proposal.status = status
+    proposal.resolved_at = timezone.now()
+    proposal.resolved_by_id = resolved_by_id
+    proposal.rejection_reason = rejection_reason
+    proposal.save(update_fields=["status", "resolved_at", "resolved_by", "rejection_reason"])
+    return _to_record(proposal)
 
 
 # How far past the applied version the after side will look for versions that kept the change.
@@ -393,6 +512,12 @@ def _write_leaf(item: dict, path: tuple[str, ...], value: Any) -> None:
     item[path[-1]] = value
 
 
+def apply_approved_proposals_for_flow(hog_flow: HogFlow) -> None:
+    WorkflowProposal.objects.filter(hog_flow=hog_flow, status=WorkflowProposal.Status.APPROVED).update(
+        status=WorkflowProposal.Status.APPLIED, applied_version=hog_flow.version
+    )
+
+
 def unstage_proposals_for_flow(hog_flow: HogFlow) -> None:
     """Put back in the queue any approved suggestion whose change the draft no longer carries.
 
@@ -529,12 +654,40 @@ def versions_carrying_change(hog_flow: HogFlow, proposal: WorkflowProposal) -> t
     return carrying or [applied], None
 
 
+# Longer than any window a reviewer reads as "recent", so a typo cannot ask ClickHouse for years of metrics.
+_MAX_ABSOLUTE_WINDOW = timedelta(days=90)
+
+
+@frozen
+class AbsoluteWindow:
+    start: datetime
+    end: datetime
+
+
+def absolute_window(window: object, now: datetime) -> Optional[AbsoluteWindow]:
+    """The bounds of an ISO 8601 interval such as "2026-10-07T22:00:00Z/2026-10-14T22:00:00Z", or None.
+
+    A producer that reads only closed days names them this way, so PostHog must read the same days back."""
+    if not isinstance(window, str) or window.count("/") != 1:
+        return None
+    try:
+        start, end = (datetime.fromisoformat(part) for part in window.split("/"))
+    except ValueError:
+        return None
+    if start.tzinfo is None or end.tzinfo is None:
+        return None
+    if not start < end <= now or end - start > _MAX_ABSOLUTE_WINDOW:
+        return None
+    return AbsoluteWindow(start=start, end=end)
+
+
 def version_outcome(
     *,
     team_id: int,
     hog_flow_id: UUID,
     versions: Sequence[Optional[int]],
     after: datetime,
+    before: Optional[datetime] = None,
     step_id: Optional[str] = None,
     target: str = TARGET_OPEN_METRIC,
 ) -> Optional[dict]:
@@ -550,6 +703,9 @@ def version_outcome(
             app_source_id=f"{hog_flow_id}/{version}",
             breakdown_by="name",
             after=after,
+            # A merged hourly row keeps a sub-second timestamp, so only an exclusive bound keeps the whole last hour.
+            before=before,
+            before_exclusive=True,
             instance_id=step_id or None,
             name=[
                 TARGET_SEND_METRIC,

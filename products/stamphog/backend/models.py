@@ -42,12 +42,12 @@ class StamphogRepoConfig(ModelActivityMixin, ProductTeamModel):
     # Opt-in: capture merged PRs and fold them into the daily Slack digest. Independent of
     # `enabled` (review) so a repo can be reviewed without digests, or vice versa.
     digest_enabled = models.BooleanField(default=False)
-    # ALL reviews every relevant PR event (the default); LABEL reviews only PRs carrying trigger_label,
-    # mirroring the Action's label-gated opt-in flow.
+    # LABEL (the default) reviews only PRs carrying trigger_label, mirroring the Action's label-gated
+    # opt-in flow; ALL reviews every relevant PR event.
     review_mode = models.CharField(
         max_length=16,
-        choices=[(m.value, m.value) for m in ReviewMode],
-        default=ReviewMode.ALL.value,
+        choices=ReviewMode.choices,
+        default=ReviewMode.LABEL.value,
     )
     trigger_label = models.CharField(max_length=100, default="stamphog")
     # The PostHog user who connected this repo's installation (plain id, no FK — multi-DB product).

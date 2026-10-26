@@ -2,7 +2,7 @@ import { MOCK_TEAM_ID } from 'lib/api.mock'
 
 import '@testing-library/jest-dom'
 
-import { render } from '@testing-library/react'
+import { cleanup, render } from '@testing-library/react'
 
 import { makeTestSetup } from 'lib/components/ActivityLog/activityLogLogic.test.setup'
 
@@ -12,6 +12,8 @@ import { ActivityScope } from '~/types'
 jest.mock('lib/colors')
 
 describe('the activity log logic', () => {
+    afterEach(cleanup)
+
     describe('humanizing insights', () => {
         const insightTestSetup = makeTestSetup(
             ActivityScope.INSIGHT,

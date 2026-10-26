@@ -4,6 +4,7 @@ import type { BarChartConfig, ChartTheme, PointClickData, Series } from '../../c
 import { ReferenceLine } from '../../overlays/ReferenceLine'
 import { getHogChart, getHogChartTooltip, renderHogChart, waitForHogChartTooltip } from '../../testing'
 import { dimensions } from '../../testing/jsdom'
+import { measureLabelWidth } from '../../utils/text-measure'
 import { BarChart } from './BarChart'
 
 const THEME: ChartTheme = {
@@ -181,6 +182,23 @@ describe('BarChart', () => {
             expect(chart.yAxisLabel()).toBe('Series')
         })
 
+        it.each<[Orientation, boolean]>([
+            ['horizontal', true],
+            ['vertical', false],
+        ])('%s: a wide chart raises the category label cap (shows full label: %s)', (axisOrientation, showsFull) => {
+            const label = 'filesystem::play_open_in_app'
+            const { chart } = renderHogChart(
+                <BarChart
+                    series={[{ key: 'a', label: 'A', data: [10] }]}
+                    labels={[label]}
+                    theme={THEME}
+                    config={{ axisOrientation, maxCategoryLabelWidth: measureLabelWidth(label) / 2 }}
+                />
+            )
+            const [tick] = axisOrientation === 'horizontal' ? chart.yTicks() : chart.xTicks()
+            expect(tick === label).toBe(showsFull)
+        })
+
         it('renders without crashing in yScaleType log with positive data', () => {
             const series: Series[] = [{ key: 'a', label: 'A', data: [1, 10, 100] }]
             const { chart } = renderHogChart(
@@ -346,6 +364,27 @@ describe('BarChart', () => {
             const tooltip = await chart.waitForTooltip()
             expect(tooltip.series.a.value).toBeCloseTo(20 / 35, 5)
             expect(tooltip.series.b.value).toBeCloseTo(15 / 35, 5)
+        })
+
+        it.each([
+            { index: 0, calls: 0, cursor: 'cursor-crosshair' },
+            { index: 1, calls: 1, cursor: 'cursor-pointer' },
+        ])('isPointClickable gates click and pointer at index $index', async ({ index, calls, cursor }) => {
+            const onPointClick = jest.fn()
+            const { chart } = renderHogChart(
+                <BarChart
+                    series={SERIES}
+                    labels={LABELS}
+                    theme={THEME}
+                    onPointClick={onPointClick}
+                    onDateRangeZoom={jest.fn()}
+                    isPointClickable={(i) => i === 1}
+                />
+            )
+            chart.hoverAtIndex(index)
+            expect(chart.element.className).toContain(cursor)
+            await chart.clickAtIndex(index)
+            expect(onPointClick).toHaveBeenCalledTimes(calls)
         })
 
         it('stacked onPointClick reports each series own value, not the cumulative stack total', async () => {

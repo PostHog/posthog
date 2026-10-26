@@ -9,13 +9,17 @@ from pathlib import Path
 import pytest
 from unittest.mock import MagicMock, patch
 
+from hogli.telemetry import _CI_ENV_VARS
+from hogli_commands import preflight_checks
 from hogli_commands.preflight_checks import (
     Finding,
     Scope,
     SemgrepUnavailable,
+    check_cross_lane,
     check_merge_queue_lane,
     check_semgrep_devex,
     check_snapshot_baselines,
+    check_stack_depth,
 )
 
 MANIFEST = """version: 1
@@ -36,6 +40,18 @@ MANIFEST_B_REHASHED = MANIFEST.replace("v1.bbb", "v1.ddd")
 
 def _scope(changed: list[str]) -> Scope:
     return Scope(files=changed, changed=changed, merge_base="abc123", committed_only=True)
+
+
+class TestStackDepth:
+    @pytest.mark.parametrize(
+        "stdout,returncode,expected",
+        [(json.dumps({"status": "fail", "detail": "six open layers"}), 1, "fail"), ("not json", 1, "skipped")],
+    )
+    def test_uses_the_shared_checker_verdict(self, stdout: str, returncode: int, expected: str) -> None:
+        result = subprocess.CompletedProcess([], returncode, stdout=stdout)
+        with patch("hogli_commands.preflight_checks.subprocess.run", return_value=result):
+            status, _ = check_stack_depth()
+        assert status == expected
 
 
 def _git_show(blobs: dict[str, bytes]) -> Callable[..., bytes | None]:
@@ -126,6 +142,7 @@ class TestSemgrepDevex:
     )
     @patch("hogli_commands.preflight_checks._semgrep_findings", side_effect=_every_line_is_a_finding)
     @patch("hogli_commands.preflight_checks.shutil.which", return_value="/usr/bin/uv")
+    @patch("hogli_commands.preflight_checks._semgrep_spec", lambda: "semgrep==1.0.0")
     def test_only_findings_the_branch_introduced_are_reported(
         self,
         mock_which: MagicMock,
@@ -149,6 +166,7 @@ class TestSemgrepDevex:
         "hogli_commands.preflight_checks._semgrep_findings", side_effect=SemgrepUnavailable("tool cache unavailable")
     )
     @patch("hogli_commands.preflight_checks.shutil.which", return_value="/usr/bin/uv")
+    @patch("hogli_commands.preflight_checks._semgrep_spec", lambda: "semgrep==1.0.0")
     def test_an_incomplete_scan_skips_instead_of_reporting(
         self, mock_which: MagicMock, mock_findings: MagicMock
     ) -> None:
@@ -170,6 +188,7 @@ class TestSemgrepDevex:
         assert "--offline" in command
 
     @patch("hogli_commands.preflight_checks.shutil.which", return_value="/usr/bin/uv")
+    @patch("hogli_commands.preflight_checks._semgrep_spec", lambda: "semgrep==1.0.0")
     def test_baseline_scan_uses_only_the_remaining_check_budget(self, mock_which: MagicMock) -> None:
         clock = [100.0]
         scans = 0
@@ -242,14 +261,73 @@ class TestSemgrepDevex:
         assert status == "pass"
         assert detail == "no new findings"
 
+    @pytest.mark.parametrize(
+        "cached,environment,expected_downloads,expected_fragment",
+        [
+            (False, {}, 1, "started in the background"),
+            (False, {"CI": "true"}, 0, "--prepare-semgrep"),
+            (False, {"POSTHOG_TASK_RUN_ID": "run"}, 0, "--prepare-semgrep"),
+            (True, {}, 0, "CI will run the check"),
+        ],
+    )
+    @patch("hogli_commands.preflight_checks.shutil.which", return_value="/usr/bin/tool")
+    def test_a_tool_missing_from_the_cache_downloads_once_in_the_background(
+        self,
+        mock_which: MagicMock,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        cached: bool,
+        environment: dict[str, str],
+        expected_downloads: int,
+        expected_fragment: str,
+    ) -> None:
+        (tmp_path / ".github/workflows").mkdir(parents=True)
+        (tmp_path / ".github/workflows/ci-security.yaml").write_text(
+            "SEMGREP_IMAGE: semgrep/semgrep:1.175.0@sha256:test\n"
+        )
+        (tmp_path / "posthog").mkdir()
+        (tmp_path / "posthog/a.py").write_text("value = 1\n")
+        for name in (*_CI_ENV_VARS, "POSTHOG_TASK_RUN_ID"):
+            monkeypatch.delenv(name, raising=False)
+        for name, value in environment.items():
+            monkeypatch.setenv(name, value)
 
-WORKFLOW = ".github/workflows/ci-backend.yml"
+        def run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[object]:
+            if command[0] == "git":
+                return subprocess.CompletedProcess(command, 0, stdout=b"download-marker\n", stderr=b"")
+            if cached and "--version" in command:
+                return subprocess.CompletedProcess(command, 0, stdout="1.175.0", stderr="")
+            return subprocess.CompletedProcess(command, 1, stdout="", stderr="error: not found in the cache")
+
+        scope = Scope(files=["posthog/a.py"], changed=["posthog/a.py"], merge_base="abc123", committed_only=False)
+        with (
+            patch("hogli_commands.preflight_checks.REPO_ROOT", tmp_path),
+            patch("hogli_commands.preflight_checks.subprocess.run", side_effect=run),
+            patch("hogli_commands.preflight_checks.subprocess.Popen") as mock_popen,
+        ):
+            status, detail = check_semgrep_devex(scope)
+            repeat_status, _ = check_semgrep_devex(scope)
+
+        assert (status, repeat_status) == ("skipped", "skipped")
+        assert expected_fragment in detail
+        assert mock_popen.call_count == expected_downloads
+        if expected_downloads:
+            assert mock_popen.call_args.args[0] == ["/usr/bin/tool", "ci:preflight", "--prepare-semgrep"]
+            assert mock_popen.call_args.kwargs["start_new_session"] is True
+
+
+WORKFLOW = ".github/workflows/ci-python.yml"
 PRODUCT_FILE = "products/x/backend/api.py"
 EVERY_LANE = ["fe:core", "py:core", "rust:core"]
 
 
 def _node_output(payload: object) -> subprocess.CompletedProcess[str]:
     return subprocess.CompletedProcess(args=[], returncode=0, stdout=json.dumps(payload), stderr="")
+
+
+@pytest.fixture(autouse=True)
+def fresh_lane_cache() -> None:
+    preflight_checks._lane_for.cache_clear()
 
 
 def _widened(listed: int, total: int) -> dict[str, object]:
@@ -286,3 +364,45 @@ class TestMergeQueueLane:
         assert status == expected_status
         if expected_status == "warning":
             assert WORKFLOW in detail
+
+
+MIXED = {"cross_lane": True, "cross_lane_heavy_files": [PRODUCT_FILE], "cross_lane_light_files": ["nodejs/a.ts"]}
+
+
+class TestCrossLane:
+    @pytest.mark.parametrize(
+        "summary,expected_status",
+        [
+            ({"cross_lane": False}, "pass"),
+            ({"cross_lane": None}, "skipped"),
+            (MIXED, "warning"),
+        ],
+    )
+    @patch("hogli_commands.preflight_checks._renamed_from", return_value={})
+    @patch("hogli_commands.preflight_checks.shutil.which", return_value="/usr/bin/node")
+    def test_warns_on_a_mixed_diff(
+        self,
+        mock_which: MagicMock,
+        mock_renames: MagicMock,
+        summary: dict[str, object],
+        expected_status: str,
+    ) -> None:
+        runs = [_node_output(EVERY_LANE), _node_output(summary)]
+        with patch("hogli_commands.preflight_checks.subprocess.run", side_effect=runs):
+            status, detail = check_cross_lane(_scope([PRODUCT_FILE, "nodejs/a.ts"]))
+
+        assert status == expected_status
+        if expected_status == "warning":
+            assert PRODUCT_FILE in detail and "nodejs/a.ts" in detail
+
+    @patch("hogli_commands.preflight_checks._renamed_from", return_value={})
+    @patch("hogli_commands.preflight_checks.shutil.which", return_value="/usr/bin/node")
+    def test_shares_one_lane_computation_with_the_lane_check(
+        self, mock_which: MagicMock, mock_renames: MagicMock
+    ) -> None:
+        runs = [_node_output(["py:core"]), _node_output({**MIXED, "is_all": False})]
+        with patch("hogli_commands.preflight_checks.subprocess.run", side_effect=runs) as run:
+            check_cross_lane(_scope([PRODUCT_FILE, "nodejs/a.ts"]))
+            check_merge_queue_lane(_scope([PRODUCT_FILE, "nodejs/a.ts"]))
+
+        assert run.call_count == 2

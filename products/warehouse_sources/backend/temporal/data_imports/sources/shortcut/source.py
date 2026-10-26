@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ShortcutSource(SimpleSource[ShortcutSourceConfig]):
+    codebase_detection = detect(
+        env=("^SHORTCUT_API_TOKEN$", "^SHORTCUT_TOKEN$"), npm=("@shortcut/client", "@useshortcut/client")
+    )
+
     supported_versions = ("v3",)
     default_version = "v3"
     api_docs_url = "https://developer.shortcut.com/api/rest/v3"
@@ -49,7 +54,7 @@ class ShortcutSource(SimpleSource[ShortcutSourceConfig]):
             name=ExternalDataSourceType.SHORTCUT,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Shortcut",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Shortcut API token to sync your Shortcut data into the PostHog Data warehouse.
 
 You can create an API token in your [Shortcut account settings](https://app.shortcut.com/settings/account/api-tokens). The token grants access to the whole workspace it belongs to and becomes invalid if you're removed from that workspace.""",

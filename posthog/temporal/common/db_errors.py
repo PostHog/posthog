@@ -39,6 +39,23 @@ _TRANSIENT_DB_ERROR_MARKERS = (
     # down" above, just raised by the pooler in front of Postgres rather than Postgres itself.
     # A connect failure through a pooler, so no SQLSTATE — falls through to this message match.
     "pooler is shutting down",
+    # psycopg's own message when a connection already marked BAD (by an earlier dropped-connection
+    # event on the same connection object) is used again: _check_connection_ok raises this straight
+    # off local state, with no new network round trip. Same dead-connection condition as "server
+    # closed the connection unexpectedly" above, just discovered on a later reuse of the connection
+    # instead of on the read/write that first found it dead. close_old_connections() at the top of
+    # the next activity attempt discards the broken connection, so a retry self-heals.
+    "the connection is closed",
+    # Postgres rejects a new connection once every `max_connections` slot is taken, before
+    # authentication runs, so it carries no SQLSTATE the way a rejected password or a missing
+    # database would. Self-healing: a slot frees the moment another backend connection closes,
+    # which happens continuously under normal load.
+    "sorry, too many clients already",
+    # getaddrinfo EAI_AGAIN (errno -3): the resolver could not get an answer now, for example during
+    # a short cluster DNS outage. It clears when DNS comes back, so a retry self-heals. EAI_NONAME
+    # (errno -2, "Name or service not known") and EAI_NODATA (errno -5, "No address associated with
+    # hostname") stay unmatched, because both can mean a host that never resolves.
+    "Temporary failure in name resolution",
 )
 
 # SQLSTATE class 57P (operator intervention): the server is shutting down or restarting and
@@ -88,7 +105,7 @@ def is_transient_db_error(error: BaseException) -> bool:
         # it ship in the same deploy, but a worker can roll out ahead of the migration completing.
         # Every activity here already retries via Temporal's retry policy, and the query succeeds
         # once the migration lands, so this is a self-healing race, not a bug. Mirrors the
-        # schema-lag handling in batch_consumer.py, loop_retention.py and task_auto_archive.py.
+        # schema-lag handling in batch_consumer.py and task_auto_archive.py.
         if isinstance(error, ProgrammingError) and isinstance(
             error.__cause__, psycopg.errors.UndefinedColumn | psycopg.errors.UndefinedTable
         ):

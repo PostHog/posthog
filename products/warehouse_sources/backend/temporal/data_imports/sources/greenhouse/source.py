@@ -1,6 +1,7 @@
 from datetime import date
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -48,6 +49,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class GreenhouseSource(ResumableSource[GreenhouseSourceConfig, GreenhouseResumeConfig]):
+    codebase_detection = detect(
+        env=("^GREENHOUSE_",), script_hosts=("boards.greenhouse.io", "boards-api.greenhouse.io")
+    )
+
     supported_versions = (GREENHOUSE_V1, GREENHOUSE_V3)
     default_version = GREENHOUSE_V3
     api_docs_url = "https://harvestdocs.greenhouse.io"
@@ -66,7 +71,7 @@ class GreenhouseSource(ResumableSource[GreenhouseSourceConfig, GreenhouseResumeC
             name=ExternalDataSourceType.GREENHOUSE,
             category=DataWarehouseSourceCategory.HR___RECRUITING,
             label="Greenhouse",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Greenhouse Harvest credentials to automatically pull your Greenhouse recruiting data into the PostHog Data warehouse.
 
 Create credentials in Greenhouse under **Configure → Dev Center → API Credential Management**.

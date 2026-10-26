@@ -17,6 +17,7 @@ import { ChartDisplayType } from '~/types'
 import { makeChartErrorHandler } from 'products/product_analytics/frontend/insights/trends/shared/chartErrorHandler'
 
 import { type SqlChartProps } from './SqlChart'
+import { SqlChartTooltip } from './SqlChartTooltip'
 import {
     type SqlBarGraphConfig,
     type SqlLineSeriesMeta,
@@ -68,10 +69,31 @@ export const SqlBarGraph = (props: SqlChartProps): JSX.Element => {
                         theme={model.theme}
                         config={model.config}
                         onPointClick={onPointClickProp ? onPointClick : undefined}
+                        tooltip={
+                            onPointClickProp
+                                ? (context) => (
+                                      <SqlChartTooltip
+                                          context={context}
+                                          config={model.config.tooltip}
+                                          onPointClick={onPointClickProp}
+                                          hint={props.pointClickHint}
+                                      />
+                                  )
+                                : undefined
+                        }
                         onError={handleChartError}
                     >
                         <ReferenceLines lines={model.config.referenceLines ?? []} />
-                        {props.chartSettings.showValuesOnSeries && <ValueLabels valueFormatter={valueLabelFormatter} />}
+                        {props.children}
+                        {props.chartSettings.showValuesOnSeries && (
+                            <ValueLabels
+                                valueFormatter={valueLabelFormatter}
+                                position={props.chartSettings.valueLabelPosition}
+                                background={props.chartSettings.valueLabelBackground}
+                                fontSize={props.chartSettings.valueLabelFontSize}
+                                rotation={props.chartSettings.valueLabelRotation}
+                            />
+                        )}
                     </BarChart>
                 ) : (
                     <TimeSeriesBarChart
@@ -80,8 +102,21 @@ export const SqlBarGraph = (props: SqlChartProps): JSX.Element => {
                         theme={model.theme}
                         config={model.config}
                         onPointClick={onPointClickProp ? onPointClick : undefined}
+                        tooltip={
+                            onPointClickProp
+                                ? (context) => (
+                                      <SqlChartTooltip
+                                          context={context}
+                                          config={model.config.tooltip}
+                                          onPointClick={onPointClickProp}
+                                          hint={props.pointClickHint}
+                                      />
+                                  )
+                                : undefined
+                        }
                         onError={handleChartError}
                     >
+                        {props.children}
                         {props.showAnnotations && props.insightNumericId && (
                             <AnnotationsLayer insightNumericId={props.insightNumericId} dates={model.labels} />
                         )}

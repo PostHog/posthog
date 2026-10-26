@@ -67,6 +67,30 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "createdAt": "When the task was created.",
         },
     },
+    "sections": {
+        "description": "A section that groups the tasks of a project. Resolves the section id carried on tasks.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "id": "Unique identifier for the section.",
+            "name": "Name of the section.",
+            "project": "Identifier of the project the section belongs to.",
+            "position": "Order of the section within its project.",
+            "status": "Section status ('open' or 'archived').",
+        },
+    },
+    "custom_fields": {
+        "description": "A custom field configured on a project. Needed to read the custom field values stored on tasks. Fanned out over every project, with the parent project id injected as `project_id`.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "id": "Unique identifier for the custom field.",
+            "project_id": "Identifier of the parent project this field row was fetched under (injected by the connector).",
+            "name": "Name of the custom field.",
+            "type": "Value type of the field ('number', 'text', 'select' or 'date').",
+            "format": "Display format of the field, such as number, currency or percent, with its decimals and label.",
+            "options": "Allowed options of a 'select' field, each with an id, a name and a colour.",
+            "position": "Order of the field within the project.",
+        },
+    },
     "time_records": {
         "description": "Individual time entries logged against tasks. Supports incremental sync via the server-side from/to date window.",
         "docs_url": _DOCS_URL,

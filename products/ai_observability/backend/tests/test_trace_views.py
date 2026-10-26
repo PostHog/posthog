@@ -1,5 +1,5 @@
 import base64
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
@@ -10,13 +10,24 @@ from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, Concurrenc
 from posthog.constants import AvailableFeature
 from posthog.models import Team
 from posthog.models.ai_events.test_util import bulk_create_ai_events
+from posthog.models.event.util import bulk_create_events
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 
+from products.access_control.backend.facade.contracts import PropertyAccessLevel
 from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.ai_observability.backend.models.review_queues import ReviewQueue
+from products.event_definitions.backend.models.property_definition import PropertyDefinition
+
+from .logic.traces.rows import make_evaluation_result_event
 
 T0 = datetime(2026, 9, 1, 10, 0, tzinfo=UTC)
+GENERATION = "00000000-0000-0000-0000-000000000001"
+TRACE_EVENT = "00000000-0000-0000-0000-000000000002"
+EVALUATION_RESULT = "00000000-0000-0000-0000-000000000003"
+QUESTION = [{"role": "user", "content": "Why did my invoice go up?"}]
+ANSWER = [{"role": "assistant", "content": "Two seats were added."}]
 
 
 def _create_trace(team: Team, trace_id: str = "trace-1") -> None:
@@ -30,6 +41,62 @@ def _create_trace(team: Team, trace_id: str = "trace-1") -> None:
                 "timestamp": T0,
                 "properties": {"$ai_trace_id": trace_id, "$ai_parent_id": trace_id, "$ai_input_tokens": 3},
             }
+        ]
+    )
+
+
+def _create_node_trace(
+    team: Team,
+    trace_id: str = "trace-1",
+    *,
+    with_trace_event: bool = True,
+    extra_properties: dict[str, object] | None = None,
+) -> None:
+    events: list[dict[str, object]] = [
+        {
+            "event": "$ai_generation",
+            "event_uuid": GENERATION,
+            "distinct_id": "user-1",
+            "team": team,
+            "timestamp": T0,
+            "properties": {
+                "$ai_trace_id": trace_id,
+                "$ai_parent_id": trace_id,
+                "$ai_input": QUESTION,
+                "$ai_output_choices": ANSWER,
+                "$ai_tools": [{"name": "lookup_invoice"}],
+                "$ai_provider": "openai",
+                **(extra_properties or {}),
+            },
+        }
+    ]
+    if with_trace_event:
+        events.append(
+            {
+                "event": "$ai_trace",
+                "event_uuid": TRACE_EVENT,
+                "distinct_id": "user-1",
+                "team": team,
+                "timestamp": T0,
+                "properties": {"$ai_trace_id": trace_id, "$ai_input_state": {"question": "Why?"}},
+            }
+        )
+    bulk_create_ai_events(events)
+
+
+def _create_evaluation_result(team: Team) -> None:
+    bulk_create_events(
+        [
+            make_evaluation_result_event(
+                uuid=EVALUATION_RESULT,
+                team=team,
+                timestamp=T0 + timedelta(seconds=30),
+                properties={
+                    "$ai_target_event_id": GENERATION,
+                    "$ai_evaluation_name": "Answers the question",
+                    "$ai_evaluation_reasoning": "Direct answer.",
+                },
+            )
         ]
     )
 
@@ -54,6 +121,8 @@ class TestTraceViewSet(ClickhouseTestMixin, APIBaseTest):
         assert body["tree"][0]["children"][0]["id"] == "00000000-0000-0000-0000-000000000001"
         assert body["totals"]["inputTokens"] == 3
         assert body["threadNodeIds"] == ["00000000-0000-0000-0000-000000000001"]
+        assert body["defaultNodeId"] == "00000000-0000-0000-0000-000000000001"
+        assert body["nodeIdsByAlias"] == {}
 
     @parameterized.expand([("unknown trace", False), ("another team's trace", True)])
     def test_not_found(self, _name: str, other_team_owns_it: bool) -> None:
@@ -75,9 +144,22 @@ class TestTraceViewSet(ClickhouseTestMixin, APIBaseTest):
 
         assert self.client.get(self._url(segment), query).status_code == 400
 
-    @parameterized.expand([("browser session", False, "app_per_org"), ("personal api key", True, "api_per_team")])
+    @parameterized.expand(
+        [
+            (f"{reader} {read}", with_api_key, exhausted_limit, suffix)
+            for reader, with_api_key, exhausted_limit in [
+                ("browser session", False, "app_per_org"),
+                ("personal api key", True, "api_per_team"),
+            ]
+            for read, suffix in [
+                ("trace", ""),
+                ("node", f"nodes/{_encode('trace-1')}/"),
+                ("evaluations", "evaluations/"),
+            ]
+        ]
+    )
     def test_throttles_when_the_query_concurrency_limit_is_exhausted(
-        self, _name: str, with_api_key: bool, exhausted_limit: str
+        self, _name: str, with_api_key: bool, exhausted_limit: str, suffix: str
     ) -> None:
         _create_trace(self.team, "trace-1")
         headers = {}
@@ -94,9 +176,142 @@ class TestTraceViewSet(ClickhouseTestMixin, APIBaseTest):
             patch("posthog.clickhouse.client.limit.TEST", False),
             patch.object(RateLimit, "use", autospec=True, side_effect=use),
         ):
-            response = self.client.get(self._url(_encode("trace-1")), headers=headers)
+            response = self.client.get(self._url(_encode("trace-1")) + suffix, headers=headers)
 
         assert response.status_code == 429
+
+
+class TestTraceNodeView(ClickhouseTestMixin, APIBaseTest):
+    def _url(self, trace_id: str, node_segment: str) -> str:
+        return f"/api/projects/{self.team.id}/ai_observability/traces/{_encode(trace_id)}/nodes/{node_segment}/"
+
+    def test_returns_the_properties_as_ingested_and_names_the_io_keys(self) -> None:
+        _create_node_trace(self.team)
+
+        response = self.client.get(self._url("trace-1", _encode(GENERATION)))
+
+        assert response.status_code == 200, response.content
+        body = response.json()
+        assert (body["id"], body["kind"], body["error"]) == (GENERATION, "generation", None)
+        assert body["metadata"]["provider"] == "openai"
+        assert body["event"]["ioKeys"] == {"input": "$ai_input", "output": "$ai_output_choices", "tools": "$ai_tools"}
+        assert body["event"]["properties"]["$ai_input"] == QUESTION
+
+    @parameterized.expand([("plain id", "trace-1"), ("id with a slash", "a/b")])
+    def test_root_node_is_the_trace_event(self, _name: str, trace_id: str) -> None:
+        _create_node_trace(self.team, trace_id)
+
+        body = self.client.get(self._url(trace_id, _encode(trace_id))).json()
+
+        assert (body["id"], body["kind"]) == (trace_id, "trace")
+        assert body["event"]["ioKeys"]["input"] == "$ai_input_state"
+
+    def test_root_without_a_trace_event_has_no_event(self) -> None:
+        _create_node_trace(self.team, with_trace_event=False)
+
+        response = self.client.get(self._url("trace-1", _encode("trace-1")))
+
+        assert response.status_code == 200
+        assert response.json()["event"] is None
+
+    @parameterized.expand(
+        [
+            ("unknown node", "trace-1", "00000000-0000-0000-0000-00000000ffff"),
+            ("root of an unknown trace", "trace-2", "trace-2"),
+            ("node of another trace", "trace-2", GENERATION),
+        ]
+    )
+    def test_node_not_found(self, _name: str, trace_id: str, node_id: str) -> None:
+        _create_node_trace(self.team)
+
+        assert self.client.get(self._url(trace_id, _encode(node_id))).status_code == 404
+
+    @parameterized.expand(
+        [
+            ("malformed trace segment", "A", _encode(GENERATION)),
+            ("malformed node segment", _encode("trace-1"), "A"),
+        ]
+    )
+    def test_rejects_a_malformed_segment(self, _name: str, trace_segment: str, node_segment: str) -> None:
+        _create_node_trace(self.team)
+
+        url = f"/api/projects/{self.team.id}/ai_observability/traces/{trace_segment}/nodes/{node_segment}/"
+        assert self.client.get(url).status_code == 400
+
+    def test_masks_properties_the_viewer_may_not_read(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.PROPERTY_ACCESS_CONTROL, "name": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        definition = PropertyDefinition.objects.create(
+            team=self.team, name="secret_plan", property_type="String", type=PropertyDefinition.Type.EVENT
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=definition,
+            organization_member=self.organization_membership,
+            access_level=PropertyAccessLevel.NONE.value,
+        )
+        _create_node_trace(self.team, extra_properties={"secret_plan": "enterprise"})
+
+        properties = self.client.get(self._url("trace-1", _encode(GENERATION))).json()["event"]["properties"]
+
+        assert "secret_plan" not in properties
+        assert properties["$ai_provider"] == "openai"
+
+
+class TestTraceEvaluationsView(ClickhouseTestMixin, APIBaseTest):
+    def _url(self, segment: str) -> str:
+        return f"/api/projects/{self.team.id}/ai_observability/traces/{segment}/evaluations/"
+
+    def test_returns_the_results_in_camel_case(self) -> None:
+        _create_evaluation_result(self.team)
+
+        response = self.client.get(self._url(_encode("trace-1")))
+
+        assert response.status_code == 200
+        assert response.json()["results"][0] | {"timestamp": None} == {
+            "id": EVALUATION_RESULT,
+            "evaluationId": None,
+            "evaluationName": "Answers the question",
+            "targetNodeId": GENERATION,
+            "outcome": "pass",
+            "label": "True",
+            "reasoning": "Direct answer.",
+            "timestamp": None,
+            "isBackfill": False,
+        }
+
+    def test_an_unknown_trace_has_no_results(self) -> None:
+        response = self.client.get(self._url(_encode("trace-2")))
+
+        assert (response.status_code, response.json()) == (200, {"results": []})
+
+    def test_rejects_an_unencoded_trace_id(self) -> None:
+        assert self.client.get(self._url("trace-1")).status_code == 400
+
+    def test_masks_properties_the_viewer_may_not_read(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.PROPERTY_ACCESS_CONTROL, "name": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        definition = PropertyDefinition.objects.create(
+            team=self.team,
+            name="$ai_evaluation_reasoning",
+            property_type="String",
+            type=PropertyDefinition.Type.EVENT,
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=definition,
+            organization_member=self.organization_membership,
+            access_level=PropertyAccessLevel.NONE.value,
+        )
+        _create_evaluation_result(self.team)
+
+        result = self.client.get(self._url(_encode("trace-1"))).json()["results"][0]
+
+        assert (result["reasoning"], result["outcome"]) == (None, "pass")
 
 
 class TestTraceViewSetResourceLevelAccess(ClickhouseTestMixin, APIBaseTest):

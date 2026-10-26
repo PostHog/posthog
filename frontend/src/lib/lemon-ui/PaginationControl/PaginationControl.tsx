@@ -5,6 +5,7 @@ import clsx from 'clsx'
 import { IconChevronLeft, IconChevronRight } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 
 import { PaginationState } from './types'
 
@@ -51,6 +52,19 @@ export function PaginationControl<T>({
                         ? `${currentEndIndex} of ${entryCount}${entryCountIsLowerBound ? '+' : ''} ${entryCount === 1 ? nouns[0] : nouns[1]}`
                         : `${currentStartIndex + 1}-${currentEndIndex} of ${entryCount}${entryCountIsLowerBound ? '+' : ''} ${nouns[1]}`}
             </span>
+            {pagination && !pagination.controlled && pagination.showPageSelector && pageCount && currentPage ? (
+                <LemonSelect
+                    size="small"
+                    aria-label="Go to page"
+                    data-attr="pagination-go-to-page"
+                    value={currentPage}
+                    onChange={setCurrentPage}
+                    options={Array.from({ length: pageCount }, (_, index) => ({
+                        value: index + 1,
+                        label: `Page ${index + 1} of ${pageCount}`,
+                    }))}
+                />
+            ) : null}
             <LemonButton
                 icon={<IconChevronLeft />}
                 aria-label="Previous page"

@@ -38,8 +38,8 @@ jobs:
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         if: |
-            github.event_name == 'workflow_dispatch' ||
-            (github.event.pull_request.head.repo.full_name == github.repository &&
+            (github.event_name == 'workflow_dispatch' && github.repository == 'PostHog/posthog') ||
+            (github.event.pull_request.head.repo.full_name == 'PostHog/posthog' &&
              contains(toJson(github.event.pull_request.labels.*.name), 'smoke_test'))
         permissions: {}
         steps:
@@ -49,7 +49,7 @@ jobs:
         name: resolve image filter
         runs-on: ubuntu-24.04
         timeout-minutes: 2
-        if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+        if: (github.event_name == 'workflow_dispatch' && github.repository == 'PostHog/posthog') || github.event.pull_request.head.repo.full_name == 'PostHog/posthog'
         permissions: {}
         outputs:
             filter: ${{ steps.parse.outputs.filter }}

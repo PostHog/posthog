@@ -14,7 +14,7 @@ from temporalio.exceptions import ApplicationError
 from posthog.sync import database_sync_to_async
 
 from products.managed_warehouse.backend.facade.contracts import ManagedWarehouseSourceJobStatus
-from products.managed_warehouse.backend.models import ManagedWarehouseSourceJob
+from products.managed_warehouse.backend.models import ManagedWarehouseSourceJob, ManagedWarehouseSourceLifecycle
 from products.managed_warehouse.backend.temporal import ducklake_register_data_imports_workflow as registration_module
 from products.managed_warehouse.backend.temporal.ducklake_register_data_imports_workflow import (
     S3_COPY_BATCH_SIZE,
@@ -53,25 +53,43 @@ def _cp_no_rows():
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-@pytest.mark.parametrize("flag_enabled", [True, False])
-async def test_registration_gate_uses_data_warehouse_scene_flag(monkeypatch, ateam, flag_enabled):
-    captured: dict[str, object] = {}
+@pytest.mark.parametrize(
+    "enabled_flags, failing_flags, expected, internal_only, active",
+    [
+        ({"data-warehouse-scene"}, set(), True, False, True),
+        ({"managed-warehouse-trino-query"}, set(), True, False, True),
+        (set(), set(), False, False, True),
+        (set(), set(), True, True, True),
+        ({"managed-warehouse-trino-query"}, set(), False, True, False),
+        ({"data-warehouse-scene"}, {"managed-warehouse-trino-query"}, True, False, True),
+    ],
+)
+async def test_registration_gate_accepts_either_managed_warehouse_flag(
+    monkeypatch, ateam, enabled_flags, failing_flags, expected, internal_only, active
+):
+    if internal_only:
+        await ManagedWarehouseSourceLifecycle.objects.acreate(
+            organization_id=ateam.organization_id,
+            internal_only=True,
+            background_loading_enabled=True,
+            desired_active=active,
+        )
+    calls: list[dict[str, object]] = []
 
     def fake_feature_enabled(key, distinct_id, **kwargs):
-        captured.update(key=key, distinct_id=distinct_id, **kwargs)
-        return flag_enabled
+        calls.append({"key": key, "distinct_id": distinct_id, **kwargs})
+        if key in failing_flags:
+            raise RuntimeError("flag evaluation failed")
+        return key in enabled_flags
 
     monkeypatch.setattr(registration_module, "feature_enabled_or_false", fake_feature_enabled)
 
     result = await ducklake_register_data_imports_gate_activity(DuckLakeRegisterDataImportsGateInputs(team_id=ateam.id))
 
-    assert result is flag_enabled
-    assert captured["key"] == "data-warehouse-scene"
-    assert captured["distinct_id"] == str(ateam.organization_id)
-    assert captured["groups"] == {"organization": str(ateam.organization_id)}
-    assert captured["group_properties"] == {"organization": {"id": str(ateam.organization_id)}}
-    assert captured["only_evaluate_locally"] is True
-    assert captured["send_feature_flag_events"] is False
+    assert result is expected
+    assert calls[0]["distinct_id"] == str(ateam.organization_id)
+    assert calls[0]["groups"] == {"organization": str(ateam.organization_id)}
+    assert calls[0]["group_properties"] == {"organization": {"id": str(ateam.organization_id)}}
 
 
 @pytest.mark.asyncio

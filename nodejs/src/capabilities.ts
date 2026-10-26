@@ -30,6 +30,7 @@ export const CAPABILITIES_CDP_WORKFLOWS: PluginServerCapabilities = {
     cdpCyclotronV2Janitor: isDevEnv(),
     cdpHogflowScheduler: isDevEnv(),
     cdpHogflowSubscriptionMatcher: isDevEnv(),
+    cdpCohortMembershipTriggers: true,
 }
 
 /** Realtime Cohorts - cohort membership persistence */
@@ -143,6 +144,10 @@ export function getPluginServerCapabilities(
             return {
                 cdpCohortMembership: true,
             }
+        case PluginServerMode.cdp_cohort_membership_triggers:
+            return {
+                cdpCohortMembershipTriggers: true,
+            }
         case PluginServerMode.cdp_legacy_on_event:
             return {
                 cdpLegacyOnEvent: true,
@@ -181,6 +186,12 @@ export function getPluginServerCapabilities(
             return {
                 cdpRerunWorker: true,
             }
+        // Deliberately absent from CAPABILITIES_CDP: a replay is a bounded, operator-triggered run,
+        // not something a local or combined stack should start on its own.
+        case PluginServerMode.cdp_dlq_replay:
+            return {
+                cdpDlqReplay: true,
+            }
         case PluginServerMode.ingestion_v2:
         case PluginServerMode.ingestion_v2_combined:
             throw new Error(`Mode ${mode} is handled by IngestionGeneralServer, not PluginServer`)
@@ -200,6 +211,9 @@ export function getPluginServerCapabilities(
         case PluginServerMode.recordings_blob_ingestion_v2_ml_image_scrub_dlq_replay:
         case PluginServerMode.recordings_blob_ingestion_v2_ml_image_fetch:
         case PluginServerMode.recordings_blob_ingestion_v2_ml_image_fetch_retry:
+        case PluginServerMode.ai_research_v4_image_fetch:
+        case PluginServerMode.ai_research_v4_image_fetch_retry:
+        case PluginServerMode.ai_research_v4_parquet_sink:
         case PluginServerMode.recording_api:
             throw new Error(`Mode ${mode} is handled by IngestionSessionReplayServer, not PluginServer`)
     }

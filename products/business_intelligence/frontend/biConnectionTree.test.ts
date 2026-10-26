@@ -31,9 +31,27 @@ const tables = {
 }
 
 describe('BI connections', () => {
+    it('resolves aliases from a table named __proto__', () => {
+        const protoTable = table('__proto__', [
+            field('person', 'lazy_table', { table: 'persons' }),
+            field('alias', 'field_traverser', { chain: ['person'] }),
+        ])
+        const catalog = new Proxy(tables, {
+            get: (target, name, receiver) => (name === '__proto__' ? protoTable : Reflect.get(target, name, receiver)),
+        })
+        const connections = buildBIConnections({ ...source, table: '__proto__' }, catalog, [], {}, true)
+        expect(connections.map((connection) => connection.name)).toEqual(['alias', 'person'])
+    })
+
     it('drags nested dimensions and measures using paths from the original source', () => {
-        const [person] = buildBIConnections(source, tables, ['["person"]', '["person","company"]'], {}, true)
+        const catalog = new Proxy(tables, {
+            ownKeys: () => {
+                throw new Error('Connection traversal must not enumerate the full table catalog')
+            },
+        })
+        const [person] = buildBIConnections(source, catalog, ['["person"]', '["person","company"]'], {}, true)
         const [company] = person.connections
+
         expect(company.connections).toEqual([])
         const dimension = company.fields.dimensions[0]
         const measure = company.fields.measures[0]
@@ -51,6 +69,65 @@ describe('BI connections', () => {
         expect(query?.query).toContain('FROM events')
     })
 
+    it.each([
+        ['events', 'person'],
+        ['stripe_charges', 'customer'],
+    ])('drags related dimensions and measures from %s through %s', (rootTable, relation) => {
+        const rootSource = { ...source, table: rootTable }
+        const warehouse = rootTable === 'stripe_charges'
+        const relatedTable = warehouse ? 'stripe_customers' : 'persons'
+        const catalog: Record<string, DatabaseSchemaTable> = {
+            ...tables,
+            [rootTable]: {
+                ...table(rootTable, [
+                    field(relation, 'lazy_table', {
+                        table: `\`${relatedTable}\``,
+                        fields: ['email', 'lifetime_value', 'company'],
+                    }),
+                ]),
+                type: warehouse ? 'data_warehouse' : 'posthog',
+            },
+            [relatedTable]: {
+                ...tables.persons,
+                name: relatedTable,
+                id: warehouse ? 'warehouse-customer-id' : 'persons',
+                type: warehouse ? 'data_warehouse' : 'posthog',
+            },
+        }
+        const [related] = buildBIConnections(
+            rootSource,
+            catalog,
+            [JSON.stringify([relation]), JSON.stringify([relation, 'company'])],
+            {},
+            true
+        )
+        const [company] = related.connections
+        expect(related.tableName).toBe(relatedTable)
+        expect(company.connections).toEqual([])
+        const dimension = company.fields.dimensions[0]
+        const measure = company.fields.measures[0]
+        expect(dimension).toMatchObject({
+            name: `${relation}.company.name`,
+            expression: `${relation}.company.name`,
+            source: rootSource,
+        })
+        expect(measure).toMatchObject({
+            name: `${relation}.company.annual_revenue`,
+            type: 'decimal',
+            source: rootSource,
+        })
+        const value = getBIDropTarget(measure, 'rows').field as BIField
+        const query = buildBIQuery({
+            ...DEFAULT_BI_CONFIG,
+            source: rootSource,
+            rows: [dimension],
+            values: [{ field: value, aggregation: 'sum' }],
+        })
+        expect(query?.query).toContain(`${relation}.company.name`)
+        expect(query?.query).toContain(`sum(${relation}.company.annual_revenue)`)
+        expect(query?.query).toContain(`FROM ${rootTable}`)
+    })
+
     it.each(['lazy_table', 'view', 'materialized_view', 'virtual_table'] as const)(
         'uses declared fields for %s connections',
         (type) => {
@@ -64,6 +141,20 @@ describe('BI connections', () => {
             expect(person.connections).toEqual([])
         }
     )
+
+    it('keeps native property groups searchable without treating warehouse JSON as PostHog properties', () => {
+        const catalog = {
+            ...tables,
+            persons: table('persons', [field('properties', 'json'), field('email', 'string')]),
+        }
+        for (const rootSource of [{ table: 'events' }, source]) {
+            const connections = buildBIConnections(rootSource, catalog, ['["person"]'], {}, true)
+            const filtered = filterBIConnections(connections, '$browser')
+            expect(filtered.flatMap((connection) => connection.fields.dimensions.map((field) => field.name))).toEqual(
+                rootSource.connectionId ? [] : ['person.properties']
+            )
+        }
+    })
 
     it('uses the PostHog table ID for hydration and status', () => {
         const catalog = { ...tables, persons: { ...table('persons', []), id: 'person-table-id' } }
@@ -142,10 +233,11 @@ describe('BI connections', () => {
         expect(person).toMatchObject({ state: 'ready', tableName: undefined, connections: [] })
         expect(person.fields.dimensions).toEqual([
             expect.objectContaining({ name: 'person.created_at', type: 'unknown', source }),
-            expect.objectContaining({ name: 'person.id', type: 'unknown', source }),
             expect.objectContaining({ name: 'person.properties', type: 'unknown', source }),
         ])
-        expect(person.fields.measures).toEqual([])
+        expect(person.fields.measures).toEqual([
+            expect.objectContaining({ name: 'person.id', type: 'unknown', source }),
+        ])
         expect(getPendingBIConnectionTables([person])).toEqual([])
     })
 

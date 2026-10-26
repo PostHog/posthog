@@ -38,12 +38,14 @@ LABELS_EPOCH = "2026-04-01T00:00:00+00:00"
 # head predicts). already_fixed and wontfix_irrelevant are deliberately not here. Shared by the
 # labels SQL (cumulative count) and the head definition.
 WRONG_DISMISSAL_REASONS = ("analysis_wrong", "report_unclear", "wontfix_intentional")
-# The resolve button used as a dismissal: the report was resolved, but the problem was not fixed.
+# A report can be resolved without an implemented fix, so these reasons do not label a fix.
 NOT_FIXED_RESOLUTION_REASONS = (
+    "no_action_needed",
     "analysis_wrong",
     "wontfix_intentional",
     "wontfix_irrelevant",
     "report_unclear",
+    "wrong_assignee",
     "wrong_repo",
 )
 # A dismissal that says the problem was real and is fixed somewhere.
@@ -62,11 +64,19 @@ partition_def = dagster.DailyPartitionsDefinition(start_date="2026-04-01")
 
 owner_tags: dict[str, str] = {"owner": JobOwners.TEAM_SELF_DRIVING.value}
 
+# The serving publish runs inside the manifest asset and inside the manual promote job.
+RunContext = dagster.AssetExecutionContext | dagster.OpExecutionContext
+
 
 def is_inbox_ranking_registered() -> bool:
     """EU report rows and embeddings are unreachable from a US dag, and labels from every region
     already land in the US dogfood project, so the whole location registers on US only."""
     return settings.CLOUD_DEPLOYMENT != "EU"
+
+
+def is_inbox_ranking_mirror_registered() -> bool:
+    """EU trains nothing, but it builds its own project vectors from its own report embeddings."""
+    return settings.CLOUD_DEPLOYMENT == "EU"
 
 
 def dataset_unconfigured() -> bool:
@@ -113,7 +123,7 @@ def skip_unconfigured(context: dagster.AssetExecutionContext) -> bool:
 # boto3.client("s3") is left untyped on purpose: mypy and pyright resolve it to different stub
 # packages (mypy_boto3_s3 vs types_boto3_s3), so a concrete S3Client annotation can't satisfy both.
 def s3_client():  # noqa: ANN201
-    # The dedicated bucket is reached via ambient AWS config (the node role on prod). Without it,
+    # The dedicated bucket is reached via ambient AWS config (the `dagster` IRSA role on prod). Without it,
     # every other environment (local dev, self-hosted, CI) uses the deployment's object-storage
     # service, which needs its explicit endpoint and credentials regardless of DEBUG.
     if settings.INBOX_RANKING_DATASET_S3_BUCKET:
