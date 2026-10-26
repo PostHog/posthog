@@ -37,7 +37,7 @@ from loginas.utils import is_impersonated_session
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, PermissionDenied, Throttled, ValidationError
+from rest_framework.exceptions import PermissionDenied, Throttled, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -184,7 +184,6 @@ from products.replay_vision.backend.scout_writes import (
 )
 from products.replay_vision.backend.search import parse_date_bound
 from products.replay_vision.backend.session_limits import MAX_SESSION_ID_LENGTH
-from products.replay_vision.backend.tag_suggestions import SuggestionError, suggest_classifier_tags
 from products.replay_vision.backend.temporal.constants import VISION_SIGNALS_SOURCE_PRODUCT, VISION_SIGNALS_SOURCE_TYPE
 from products.replay_vision.backend.temporal.metrics import record_estimate_outcome, record_scanner_limit_reached
 from products.replay_vision.backend.temporal.read_meter_types import current_sweep_throttle_factor
@@ -2089,65 +2088,6 @@ class EstimateResponseSerializer(serializers.Serializer):
     )
 
 
-class SuggestTagsRequestSerializer(serializers.Serializer):
-    """Body of POST /vision/scanners/suggest_tags/ — the classifier config currently being edited."""
-
-    prompt = serializers.CharField(
-        max_length=10000,
-        help_text="The classifier's instruction prompt — the single dimension to categorize sessions by.",
-    )
-    tags = serializers.ListField(
-        child=serializers.CharField(max_length=200),
-        required=False,
-        default=list,
-        max_length=200,
-        help_text="The categories already configured, so suggestions never duplicate one the user has.",
-    )
-    multi_label = serializers.BooleanField(
-        required=False,
-        default=True,
-        help_text="Whether the classifier assigns multiple tags per session.",
-    )
-    allow_freeform_tags = serializers.BooleanField(
-        required=False,
-        default=False,
-        help_text="Whether the classifier may emit tags outside the fixed vocabulary.",
-    )
-    scanner_id = serializers.UUIDField(
-        required=False,
-        allow_null=True,
-        help_text=(
-            "Existing scanner to ground suggestions in its own observations (the tags and reasoning it has "
-            "already produced on real recordings). Omit for an unsaved scanner."
-        ),
-    )
-
-
-class TagSuggestionSerializer(serializers.Serializer):
-    """One grounded tag suggestion."""
-
-    tag = serializers.CharField(help_text="Suggested tag to add to the vocabulary, normalized to lowercase.")
-    rationale = serializers.CharField(
-        help_text="One sentence explaining the specific evidence this tag is grounded in."
-    )
-    source = serializers.ChoiceField(  # type: ignore[assignment]
-        choices=["observed", "product", "prompt"],
-        help_text=(
-            "Primary grounding: observed=a category this scanner already emitted on recordings; "
-            "product=the org's events/screens; prompt=the scanner's stated goal."
-        ),
-    )
-
-
-class SuggestTagsResponseSerializer(serializers.Serializer):
-    """Grounded tag suggestions for the classifier config editor."""
-
-    suggestions = TagSuggestionSerializer(
-        many=True,
-        help_text="Suggested tags to add, most relevant first. May be empty when the evidence is too thin.",
-    )
-
-
 class DraftScannerRequestSerializer(serializers.Serializer):
     """Body of POST /vision/scanners/draft/ — the user's goal, stated in their own words."""
 
@@ -3405,7 +3345,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
 
         # Reject a scanner_id outside this project before doing any work, so it can't silently undercount the others-sum.
         # Treat missing object-level access the same as missing-entirely so a denied scanner's existence and
-        # credit usage can't be inferred by comparing responses (mirrors the `suggest_tags` action below).
+        # credit usage can't be inferred by comparing responses.
         scanner_id = body.validated_data.get("scanner_id")
         if scanner_id is not None:
             scanner = ReplayScanner.objects.filter(team_id=self.team_id, pk=scanner_id).first()
@@ -3460,58 +3400,6 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                 }
             ).data
         )
-
-    @extend_schema(
-        request=SuggestTagsRequestSerializer,
-        responses={
-            200: SuggestTagsResponseSerializer,
-            503: OpenApiResponse(
-                response=ReplayVisionErrorSerializer, description="Tag suggestions couldn't be generated."
-            ),
-        },
-    )
-    @action(
-        detail=False,
-        methods=["post"],
-        url_path="suggest_tags",
-        required_scopes=["replay_scanner:read", "session_recording:read"],
-    )
-    def suggest_tags(self, request: Request, **kwargs: Any) -> Response:
-        """Suggest classifier tags grounded in the scanner's own observations and the org's product data."""
-        # Suggestions read recording-derived observation reasoning, so gate on session_recording read.
-        if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
-            raise PermissionDenied("Suggesting categories requires session_recording read access.")
-
-        body = SuggestTagsRequestSerializer(data=request.data)
-        body.is_valid(raise_exception=True)
-        data = body.validated_data
-
-        scanner: ReplayScanner | None = None
-        scanner_id = data.get("scanner_id")
-        if scanner_id is not None:
-            scanner = ReplayScanner.objects.filter(team_id=self.team_id, id=scanner_id).first()
-            # Observations inherit the scanner's RBAC; treat missing access as not-found so existence doesn't leak.
-            if scanner is None or not self.user_access_control.check_access_level_for_object(scanner, "viewer"):
-                raise NotFound("Scanner not found.")
-
-        try:
-            suggestions = suggest_classifier_tags(
-                team=self.team,
-                user=cast(User, request.user),
-                prompt=data["prompt"],
-                current_tags=data["tags"],
-                multi_label=data["multi_label"],
-                allow_freeform_tags=data["allow_freeform_tags"],
-                scanner=scanner,
-                user_access_control=self.user_access_control,
-            )
-        except SuggestionError:
-            return Response(
-                {"detail": "Couldn't generate tag suggestions right now. Try again in a moment."},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
-            )
-
-        return Response(SuggestTagsResponseSerializer({"suggestions": suggestions}).data)
 
     @extend_schema(
         request=DraftScannerRequestSerializer,

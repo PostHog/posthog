@@ -1,13 +1,11 @@
 import { memo } from 'react'
 
-import { IconDocument, IconGithub, IconSearch } from '@posthog/icons'
-
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
 import { Thread } from 'products/posthog_ai/frontend/api/primitives'
 
-import { type PlaygroundTurnApi, SandboxToolNameEnumApi } from '../../generated/api.schemas'
-import { describeSearch } from './playgroundDisplay'
+import type { PlaygroundTurnApi } from '../../generated/api.schemas'
+import { PlaygroundTrace } from './PlaygroundTrace'
 
 export interface PlaygroundTurnProps {
     id: string
@@ -20,43 +18,16 @@ export const PlaygroundTurn = memo(function PlaygroundTurn({ id, question, turn 
     const run = turn?.run ?? null
     const isRunning = turn === null || run?.status === 'running'
     const error = turn?.error ?? run?.error ?? null
+    const searches = run?.searches ?? []
+    const citedRefs = run?.sources.map((source) => source.ref) ?? []
 
     return (
         <>
             <Thread.Message type="human">
                 <Thread.Markdown content={question} id={`${id}-question`} />
             </Thread.Message>
-            {run?.searches.map((search, index) => {
-                const label = describeSearch(search)
-                return (
-                    <Thread.Activity
-                        key={`${search.tool}-${index}`}
-                        id={`${id}-search-${index}`}
-                        title={label.title}
-                        subtitle={label.subtitle}
-                        status="completed"
-                        icon={
-                            search.tool === SandboxToolNameEnumApi.BusinessKnowledgeRepositoriesSearch ? (
-                                <IconGithub />
-                            ) : search.tool === SandboxToolNameEnumApi.BusinessKnowledgeDocumentsSearch ? (
-                                <IconSearch />
-                            ) : (
-                                <IconDocument />
-                            )
-                        }
-                        animate={false}
-                        showCompletionIcon={false}
-                    />
-                )
-            })}
-            {isRunning ? (
-                <Thread.Reasoning
-                    content="Looking through business knowledge"
-                    completed={false}
-                    id={`${id}-running`}
-                    showCompletionIcon={false}
-                    animate
-                />
+            {isRunning || searches.length > 0 ? (
+                <PlaygroundTrace id={id} running={isRunning} searches={searches} citedRefs={citedRefs} />
             ) : null}
             {run?.status === 'completed' && run.reply ? (
                 <Thread.Message type="ai" wrapperClassName="max-w-4/5">

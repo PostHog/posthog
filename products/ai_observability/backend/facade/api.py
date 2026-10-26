@@ -225,7 +225,7 @@ def _to_evaluation_result(result: EvaluationResult) -> contracts.TraceEvaluation
 
 
 def evaluations_period(team: Team, date_from: date | datetime | None, date_to: date | datetime | None) -> PeriodBounds:
-    """Raises `InvalidPeriodError` for a period that is empty, longer than 90 days or out of range."""
+    """Raises `InvalidPeriodError` for a period that is empty, longer than 91 days or out of range."""
     return PeriodBounds.from_request(date_from, date_to, team.timezone_info)
 
 

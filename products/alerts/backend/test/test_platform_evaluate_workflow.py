@@ -386,9 +386,10 @@ async def test_a_cancelled_platform_ai_check_keeps_its_place_in_the_cap_until_it
 
     def blocking(inputs: InsightCheckInputs, *_args: object, **_kwargs: object) -> None:
         started.append(inputs.configuration_id)
-        release.wait(timeout=30)
+        if not inputs.owned_by_platform:
+            release.wait(timeout=30)
 
-    def check(configuration_id: str) -> InsightCheckInputs:
+    def check(configuration_id: str, *, owned: bool = False) -> InsightCheckInputs:
         return InsightCheckInputs(
             evaluation=SourceEvaluationInputs(
                 source=SourceKind.INSIGHT,
@@ -398,6 +399,7 @@ async def test_a_cancelled_platform_ai_check_keeps_its_place_in_the_cap_until_it
             configuration_id=configuration_id,
             held_until=0.0,
             uses_llm_detector=True,
+            owned_by_platform=owned,
         )
 
     first, second = ActivityEnvironment(), ActivityEnvironment()
@@ -418,6 +420,12 @@ async def test_a_cancelled_platform_ai_check_keeps_its_place_in_the_cap_until_it
                 await cancelled
             # Its thread still runs, so the parallel run still holds both of its places.
             assert PLATFORM_LLM_CHECKS.locked()
+            # A check of an alert the platform owns is production's own, so the full cap does not hold it back.
+            async with asyncio.timeout(10):
+                await ActivityEnvironment().run(
+                    evaluate_platform_insight_llm_check_activity, check("owned", owned=True)
+                )
+            assert "owned" in started
 
             release.set()
             await running
