@@ -8629,10 +8629,10 @@ Today (4): `campaigns`, `categories`, `contacts`, `products`
 
 Diffed against: <https://api-docs.omnisend.com/llms.txt>
 
-- [ ] `POST /analytics/statistics (Statistics)` — Aggregated delivery, engagement, revenue-attribution and audience-growth metrics grouped by event date — the vendor's headline marketing numbers, absent entirely today (high)
-- [ ] `POST /analytics/reports (Reports)` — Same metric family grouped by send date with campaign/automation dimensions, so campaigns can be ranked by performance rather than just listed (high)
-- [ ] `GET /segments and GET /segments/{segmentID}/statistics` — Segment definitions plus member counts — the lookup that resolves the segment ids automations and campaigns target (high)
-- [ ] `GET /automations (list automation workflows)` — Automated flows are the other half of Omnisend sending volume; only one-off campaigns are synced today (high)
+- [x] `POST /analytics/statistics (Statistics)` — Aggregated delivery, engagement, revenue-attribution and audience-growth metrics grouped by event date — the vendor's headline marketing numbers, absent entirely today (high)
+- [x] `POST /analytics/reports (Reports)` — Same metric family grouped by send date with campaign/automation dimensions, so campaigns can be ranked by performance rather than just listed (high)
+- [x] `GET /segments and GET /segments/{segmentID}/statistics` — Segment definitions plus member counts — the lookup that resolves the segment ids automations and campaigns target (high)
+- [x] `GET /automations (list automation workflows)` — Automated flows are the other half of Omnisend sending volume; only one-off campaigns are synced today (high)
 - [ ] `GET /brands/current` — Single-row account/brand context (currency, store connection) that makes revenue figures interpretable (low)
 
 Note: The connector targets v3 (https://api.omnisend.com/v3). The gaps above are on the current 2026-03-15 version (header-based versioning, base https://api.omnisend.com/api/), which added Segments, Automations, Analytics, Email Templates and Images — so closing them means reaching into a newer API version, not just adding v3 paths. Events are write-only (POST /events), so there is no queryable event stream. Email templates, universal layouts, images and batches were excluded as assets/plumbing.
