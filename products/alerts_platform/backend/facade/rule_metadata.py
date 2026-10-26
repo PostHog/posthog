@@ -6,10 +6,11 @@ take templates, because a label that changed with each check would make each che
 a receiver that keys on labels.
 """
 
-import re
 import json
 from collections.abc import Collection, Mapping
 from typing import Final
+
+import re2
 
 MAX_RULE_LABELS: Final = 20
 MAX_RULE_ANNOTATIONS: Final = 20
@@ -20,16 +21,16 @@ MAX_LABEL_VALUE_BYTES: Final = 256
 MAX_ANNOTATION_VALUE_BYTES: Final = 4096
 
 # Prometheus's own pattern, so a label survives a hop through Alertmanager unchanged.
-_NAME: Final = re.compile(r"[a-zA-Z_][a-zA-Z0-9_]*")
+_NAME: Final = re2.compile(r"[a-zA-Z_][a-zA-Z0-9_]*")
 # The platform adds these to every message. A rule that set them would hide what the platform says.
 RESERVED_PREFIX: Final = "posthog_"
 RESERVED_LABELS: Final = frozenset({"alertname"})
 
 URL_SUFFIX: Final = "_url"
 
-_TEMPLATE: Final = re.compile(r"\{\{(.*?)\}\}", re.DOTALL)
-_LABEL_REFERENCE: Final = re.compile(r"\s*\$labels\.([a-zA-Z_][a-zA-Z0-9_]*)\s*")
-_VALUE_REFERENCE: Final = re.compile(r"\s*\$value\s*")
+_TEMPLATE: Final = re2.compile(r"(?s)\{\{(.*?)\}\}")
+_LABEL_REFERENCE: Final = re2.compile(r"\s*\$labels\.([a-zA-Z_][a-zA-Z0-9_]*)\s*")
+_VALUE_REFERENCE: Final = re2.compile(r"\s*\$value\s*")
 
 
 class InvalidRuleMetadata(ValueError):
