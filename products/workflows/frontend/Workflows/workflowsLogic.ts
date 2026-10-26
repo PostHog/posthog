@@ -6,9 +6,9 @@ import posthog from 'posthog-js'
 import { LemonDialog, PaginationManual, lemonToast } from '@posthog/lemon-ui'
 
 import api, { ApiConfig, CountedPaginatedResponse, HogFlowListType } from 'lib/api'
-import { buildUserScopedPersistenceConfig } from 'lib/logic/persistence'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { type FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { buildUserScopedPersistenceConfig } from 'lib/logic/persistence'
 import { objectsEqual } from 'lib/utils/objects'
 import { urls } from 'scenes/urls'
 

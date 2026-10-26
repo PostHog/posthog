@@ -48,8 +48,8 @@ import {
     workflowsLogic,
 } from './workflowsLogic'
 import { WorkflowStepMatches } from './WorkflowStepMatches'
-import { WorkflowTagsCell } from './WorkflowTagsCell'
 import { workflowsWaitingRefreshLogic } from './workflowsWaitingRefreshLogic'
+import { WorkflowTagsCell } from './WorkflowTagsCell'
 import { hasMessagingAction } from './workflowTypeFilters'
 
 const STATUS_CONFIG: Record<HogFlow['status'], { label: string; type: 'success' | 'default' | 'warning' | 'muted' }> = {
