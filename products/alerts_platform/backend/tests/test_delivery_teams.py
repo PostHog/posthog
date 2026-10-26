@@ -71,13 +71,36 @@ class TestTeamsCard(SimpleTestCase):
             ],
         }
 
+    def test_rule_links_give_way_to_the_data_and_alert_links(self) -> None:
+        message = alert_message(
+            annotations={f"link_{index}_url": f"https://example.com/{index}" for index in range(5)},
+            data_link=MessageLink(label="View logs", url="https://app.example.com/project/1/logs"),
+        )
+
+        actions = card_for(message)["attachments"][0]["content"]["actions"]
+
+        assert [action["title"] for action in actions] == [
+            "Link 0",
+            "Link 1",
+            "Link 2",
+            "Link 3",
+            "View logs",
+            "View alert",
+        ]
+
     def test_a_query_error_cannot_push_the_card_past_what_teams_accepts(self) -> None:
         message = alert_message(
+            headline="x" * 4000,
+            annotations={
+                "description": "\x01" * 40_000,
+                **{f"link_{index}_url": f"https://example.com/{index}/" + "q" * 1950 for index in range(4)},
+            },
+            data_link=MessageLink(label="View logs", url="https://app.example.com/logs?" + "q" * 4000),
             details=(
                 MessageDetail(label="Error", value="\x01" * 50_000),
                 MessageDetail(label="Query", value="\x01" * 50_000),
                 MessageDetail(label="Failed checks", value="3"),
-            )
+            ),
         )
         target = cast(AlertDestinationData, {"type": "teams", "webhook_url": TEAMS_URL})
 
@@ -86,7 +109,7 @@ class TestTeamsCard(SimpleTestCase):
 
         sent = adapter.sent[-1].body
         assert isinstance(sent, bytes)
-        facts = json.loads(sent)["attachments"][0]["content"]["body"][1]["facts"]
+        facts = json.loads(sent)["attachments"][0]["content"]["body"][2]["facts"]
         assert len(sent) < 28_000
         assert facts[2] == {"title": "Failed checks", "value": "3"}
 

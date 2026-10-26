@@ -106,7 +106,7 @@ class HeldTransport(RecordingTransport):
 def _request(
     team_id: int,
     *,
-    configuration_id: str = "cfg-1",
+    configuration_id: str = "00000000-0000-0000-0000-0000000000c1",
     sends_messages: bool = True,
     incident_actions: dict[str, IncidentAction] | None = None,
     owned_by_platform: bool = False,
@@ -645,6 +645,17 @@ class TestDeliveryPath(APIBaseTest):
         assert len(self.emitted) == emitted
         assert sorted(channel for channel, _ in RecordingTransport.sends) == native_channels
         assert (outcome.emitted_transitions, outcome.emitted_events) == (emitted, emitted)
+
+    def test_a_message_carries_the_rule_as_stored_when_it_is_sent(self) -> None:
+        self.configuration.labels = {"severity": "critical"}
+        self.configuration.annotations = {"runbook_url": "https://runbooks.example.com/api"}
+        self.configuration.save()
+
+        self._run(_announcement(_transition(AlertEventKind.FIRING)), self._chooses(DeliveryPath.NATIVE))
+
+        _, message = RecordingTransport.sends[0]
+        assert message.labels["severity"] == "critical"
+        assert message.links[0] == MessageLink(label="Runbook", url="https://runbooks.example.com/api")
 
     def test_a_firing_and_its_resolve_take_the_path_the_firing_took(self) -> None:
         fired = self._run(

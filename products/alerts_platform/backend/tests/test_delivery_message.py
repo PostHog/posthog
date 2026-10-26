@@ -15,6 +15,7 @@ from products.alerts_platform.backend.facade.contracts import (
     MessageDetail,
     MessageImage,
     MessageLink,
+    RuleMetadata,
     SourceDescription,
     SourceKind,
 )
@@ -54,13 +55,16 @@ def _transition(kind: AlertEventKind, **overrides: Any) -> AnnouncedTransition:
     return AnnouncedTransition(**fields)
 
 
-def _announcement(consecutive_failures: int = 0, source: SourceKind = SourceKind.LOGS) -> EvaluationAnnouncement:
+def _announcement(
+    consecutive_failures: int = 0, source: SourceKind = SourceKind.LOGS, rule: RuleMetadata | None = None
+) -> EvaluationAnnouncement:
     return EvaluationAnnouncement(
         configuration_id="cfg-1",
         source=source,
         alert_name="API errors",
         consecutive_failures=consecutive_failures,
         transitions=(),
+        rule=rule or RuleMetadata(),
     )
 
 
@@ -226,3 +230,32 @@ class TestAlertMessage:
         message = _build(_announcement(), _transition(AlertEventKind.FIRING, condition={}))
 
         assert message.details == (MessageDetail(label="Value", value="300"),)
+
+    @pytest.mark.parametrize(
+        "kind,headline,context,description",
+        [
+            (AlertEventKind.FIRING, "checkout errors over limit", "Log alert 'API errors' is firing", "Payments fail."),
+            (
+                AlertEventKind.RESOLVED,
+                "checkout errors over limit",
+                "Log alert 'API errors' is resolved",
+                "Payments fail.",
+            ),
+            (AlertEventKind.ERRORED, "Log alert 'API errors' could not be checked", None, None),
+        ],
+    )
+    def test_a_rule_summary_speaks_for_a_breach_but_not_for_a_failed_check(
+        self, kind: AlertEventKind, headline: str, context: str | None, description: str | None
+    ) -> None:
+        rule = RuleMetadata(
+            labels={"service": "checkout", "team": "payments"},
+            annotations={"summary": "{{ $labels.service }} errors over limit", "description": "Payments fail."},
+        )
+        transition = _transition(kind, labels={"service": "web", "env": "prod"}, error_message="Query is too expensive")
+
+        message = _build(_announcement(rule=rule), transition)
+
+        assert message.headline == headline
+        assert (message.context[0] if message.context else None) == context
+        assert message.description == description
+        assert message.labels == {"service": "checkout", "env": "prod", "team": "payments"}

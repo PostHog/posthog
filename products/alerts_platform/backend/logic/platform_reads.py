@@ -21,6 +21,7 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformCheckEventPage,
     PlatformCheckPage,
     PlatformLastCheck,
+    RuleMetadata,
 )
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner, PlatformAlertState
 from products.alerts_platform.backend.logic import platform_alert_events
@@ -139,6 +140,17 @@ def alert_snapshot(team_id: int, configuration_id: str, grouping_key: str) -> Pl
         .first()
     )
     return instance_view(alert, alert.configuration) if alert is not None else None
+
+
+def rule_metadata(team_id: int, configuration_id: str) -> RuleMetadata:
+    """The labels and annotations set on a configuration, or none when it no longer exists."""
+    row = (
+        PlatformAlertConfiguration.objects.for_team(team_id)
+        .filter(id=configuration_id)
+        .values("labels", "annotations")
+        .first()
+    )
+    return RuleMetadata() if row is None else RuleMetadata(labels=row["labels"], annotations=row["annotations"])
 
 
 def runtime_by_legacy_id(

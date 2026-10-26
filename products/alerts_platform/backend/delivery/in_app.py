@@ -16,6 +16,7 @@ from products.alerts_platform.backend.delivery.message import AlertMessage, tran
 from products.alerts_platform.backend.delivery.transport import DeliveryError, MessageHandle
 from products.alerts_platform.backend.delivery.wire import credential_digest
 from products.alerts_platform.backend.facade.contracts import AlertDestinationData, AlertEventKind
+from products.alerts_platform.backend.logic.rule_metadata import SEVERITY_LABEL
 from products.notifications.backend.facade.api import (
     NotificationData,
     NotificationResourceType,
@@ -73,7 +74,7 @@ class InAppTransport:
                 NotificationData(
                     team_id=team_id,
                     notification_type=notification_type,
-                    priority=Priority.NORMAL,
+                    priority=Priority.CRITICAL if message.labels.get(SEVERITY_LABEL) == "critical" else Priority.NORMAL,
                     title=title,
                     body=body,
                     target_type=TargetType.USER,

@@ -7,6 +7,7 @@ A provider turns this into its own body shape.
 """
 
 import hashlib
+from dataclasses import field
 from typing import Any, Final
 
 from posthog.dataclasses import frozen
@@ -23,6 +24,12 @@ from products.alerts_platform.backend.facade.contracts import (
     MessageLink,
     SourceKind,
 )
+from products.alerts_platform.backend.logic.rule_metadata import (
+    DESCRIPTION_ANNOTATION,
+    SUMMARY_ANNOTATION,
+    links,
+    render_annotations,
+)
 
 _HEADLINES: Final[dict[AlertEventKind, str]] = {
     AlertEventKind.FIRING: "{kind} alert '{name}' is firing",
@@ -38,6 +45,8 @@ _SYMBOLS: Final[dict[AlertEventKind, str]] = {
     AlertEventKind.ERRORED: "🟡",
     AlertEventKind.BROKEN: "⚠️",
 }
+
+_BREACH_KINDS: Final = (AlertEventKind.FIRING, AlertEventKind.RESOLVED)
 
 _SOURCE_LABELS: Final[dict[SourceKind, str]] = {
     SourceKind.LOGS: "Log",
@@ -78,6 +87,9 @@ class AlertMessage:
     source_incident_key: str | None = None
     # The project the alert belongs to, which a reader with alerts in several projects needs.
     project: MessageLink | None = None
+    labels: dict[str, str] = field(default_factory=dict)
+    annotations: dict[str, str] = field(default_factory=dict)
+    platform_headline: str | None = None
 
     @property
     def title(self) -> str:
@@ -85,10 +97,19 @@ class AlertMessage:
         return f"{self.symbol} {self.headline}"
 
     @property
+    def description(self) -> str | None:
+        return self.annotations.get(DESCRIPTION_ANNOTATION)
+
+    @property
+    def rule_links(self) -> tuple[MessageLink, ...]:
+        return links(self.annotations)
+
+    @property
     def links(self) -> tuple[MessageLink, ...]:
-        """The source's data first, because that is where a responder starts."""
+        """The links the alert's author set, then the source's data, because that is where a responder starts."""
         view_alert = MessageLink(label="View alert", url=self.alert_url)
-        return (self.data_link, view_alert) if self.data_link is not None else (view_alert,)
+        data = (self.data_link,) if self.data_link is not None else ()
+        return (*self.rule_links, *data, view_alert)
 
 
 def transition_delivery_key(message: AlertMessage) -> str:
@@ -197,8 +218,18 @@ def build_message(
                 value=f"{untracked} not tracked because this alert is at its group limit",
             )
         )
+    labels = {**transition.labels, **announcement.rule.labels}
+    annotations = render_annotations(announcement.rule.annotations, labels=labels, value=transition.value)
+    platform_headline = headline.format(kind=_SOURCE_LABELS[announcement.source], name=announcement.alert_name)
+    context = description.context
+    if kind not in _BREACH_KINDS:
+        annotations.pop(SUMMARY_ANNOTATION, None)
+        annotations.pop(DESCRIPTION_ANNOTATION, None)
+    summary = annotations.get(SUMMARY_ANNOTATION)
+    if summary is not None:
+        context = (platform_headline, *context)
     return AlertMessage(
-        headline=headline.format(kind=_SOURCE_LABELS[announcement.source], name=announcement.alert_name),
+        headline=summary or platform_headline,
         symbol=_SYMBOLS[kind],
         details=tuple(details),
         configuration_id=announcement.configuration_id,
@@ -206,11 +237,14 @@ def build_message(
         source=announcement.source,
         alert_url=source_alert_url or alert_url(project_id, announcement.configuration_id),
         transition=transition,
-        context=description.context,
+        context=context,
         data_link=description.data_link,
         image=resolve_image(announcement.source, team_id=team_id, transition=transition),
         slack_elements=description.slack_elements,
         incident_action=incident_action,
         source_incident_key=source_incident_key,
         project=project,
+        labels=labels,
+        annotations=annotations,
+        platform_headline=platform_headline if summary is not None else None,
     )

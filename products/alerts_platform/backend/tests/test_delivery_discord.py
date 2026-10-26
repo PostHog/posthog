@@ -39,19 +39,30 @@ class TestDiscordMessage(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("long_error", (), None),
+            ("long_error", (), None, {}),
             (
                 "long_error_context_and_data_link",
                 ("Services: " + "api," * 400,) * 3,
                 MessageLink(label="View logs", url="https://app.example.com/logs?" + "q" * 3000),
+                {},
+            ),
+            (
+                "long_rule_summary_and_links",
+                ("Services: " + "api," * 400,),
+                None,
+                {
+                    "summary": "x" * 2100,
+                    **{f"link_{index}_url": "https://example.com/" + "q" * 440 for index in range(5)},
+                },
             ),
         ]
     )
     def test_a_long_message_stays_inside_what_discord_accepts(
-        self, _name: str, context: tuple[str, ...], data_link: MessageLink | None
+        self, _name: str, context: tuple[str, ...], data_link: MessageLink | None, annotations: dict[str, str]
     ) -> None:
         message = alert_message(
-            headline="API errors could not be checked",
+            headline=annotations.get("summary", "API errors could not be checked"),
+            annotations=annotations,
             details=(MessageDetail(label="Error", value="x" * 5000), MessageDetail(label="Failed checks", value="3")),
             context=context,
             data_link=data_link,
@@ -62,6 +73,19 @@ class TestDiscordMessage(SimpleTestCase):
         assert len(content) <= MAX_CONTENT_CHARS
         assert "**Failed checks:** 3" in content
         assert content.endswith(f"[View alert](<{ALERT_URL}>)")
+
+    def test_rule_links_give_way_to_the_data_link(self) -> None:
+        data_link = MessageLink(label="View logs", url="https://app.example.com/project/1/logs?" + "q" * 400)
+        message = alert_message(
+            annotations={f"link_{index}_url": "https://example.com/" + "q" * 100 for index in range(2)},
+            data_link=data_link,
+        )
+
+        content = content_for(message)
+
+        assert f"[View logs](<{data_link.url}>)" in content
+        assert "[Link 0]" in content
+        assert "[Link 1]" not in content
 
 
 class TestDiscordTransport(SimpleTestCase):

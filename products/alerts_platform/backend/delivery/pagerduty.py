@@ -30,6 +30,7 @@ from products.alerts_platform.backend.facade.contracts import (
     PagerDutyRegion,
     PagerDutySeverity,
 )
+from products.alerts_platform.backend.logic.rule_metadata import SEVERITY_LABEL
 
 PROVIDER: Final = "pagerduty"
 
@@ -86,20 +87,30 @@ def pagerduty_body(message: AlertMessage, *, routing_key: str, severity: PagerDu
     transition = message.transition
     body["client"] = "PostHog"
     body["client_url"] = message.alert_url
-    if message.data_link is not None:
-        body["links"] = [{"href": message.data_link.url, "text": message.data_link.label}]
+    links = [*message.rule_links, *((message.data_link,) if message.data_link is not None else ())]
+    if links:
+        body["links"] = [{"href": link.url, "text": link.label} for link in links]
     body["payload"] = {
         "summary": message.headline[:_MAX_SUMMARY_LENGTH],
         "source": SOURCE,
-        "severity": severity.value,
+        "severity": _severity(message, severity).value,
         "timestamp": rfc3339(transition.occurred_at),
         "custom_details": {
             **{detail.label: detail.value for detail in message.details},
+            **({"description": message.description} if message.description else {}),
+            **({"labels": message.labels} if message.labels else {}),
             "delivered_by": SOURCE,
             "configuration_id": message.configuration_id,
         },
     }
     return body
+
+
+def _severity(message: AlertMessage, configured: PagerDutySeverity) -> PagerDutySeverity:
+    try:
+        return PagerDutySeverity(message.labels.get(SEVERITY_LABEL, configured))
+    except ValueError:
+        return configured
 
 
 class PagerDutyTransport:

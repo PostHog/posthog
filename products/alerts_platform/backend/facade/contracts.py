@@ -755,6 +755,14 @@ class AnnouncedTransition:
 
 
 @frozen
+class RuleMetadata:
+    """The labels and annotations the alert's author set, as stored. Annotation templates are not rendered yet."""
+
+    labels: dict[str, str] = field(default_factory=dict)
+    annotations: dict[str, str] = field(default_factory=dict)
+
+
+@frozen
 class EvaluationAnnouncement:
     """What one evaluation left for a destination to say.
 
@@ -774,6 +782,8 @@ class EvaluationAnnouncement:
     # a group without anyone being told.
     overflowed: int = 0
     overflow_is_lower_bound: bool = False
+    # Read when the delivery runs, unlike the transition snapshots, so a retry shows a later edit.
+    rule: RuleMetadata = field(default_factory=RuleMetadata)
 
 
 @frozen
