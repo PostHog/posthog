@@ -28,6 +28,7 @@ from products.cdp.backend.services.invocation_replay import (
     get_replay_state,
     plan_replay,
     release_replay_claim,
+    replay_cache,
 )
 from products.cdp.backend.tasks.invocation_replay import run_invocation_replay
 
@@ -291,6 +292,9 @@ class TestInvocationReplay(ClickhouseTestMixin, APIBaseTest):
         _insert(function, [_row("a1", "failed"), _recovered()])
         plan = plan_replay(_criteria())
 
+        with patch.object(replay_cache, "set", side_effect=ConnectionError("redis down")):
+            with self.assertRaises(ConnectionError):
+                claim_replay(plan, actor="first")
         assert claim_replay(plan, actor="first")
         assert not claim_replay(plan, actor="second")
         assert (get_replay_state(plan.fingerprint) or {})["actor"] == "first"
@@ -342,9 +346,20 @@ class TestInvocationReplay(ClickhouseTestMixin, APIBaseTest):
 
         assert (claim_replay(plan, actor="second") is not None) is can_resend
 
+    @parameterized.expand(
+        [
+            ("rejected_by_cdp_api", MagicMock(status_code=400, text="{}"), True),
+            ("read_timeout", ReadTimeout("read timed out"), False),
+        ]
+    )
     @patch("products.cdp.backend.services.invocation_replay.rerun_hog_invocations")
-    def test_an_overlapping_plan_waits_until_the_first_surely_queued_nothing(self, rerun: MagicMock) -> None:
-        rerun.return_value = MagicMock(status_code=400, text="{}")
+    def test_an_overlapping_plan_waits_until_the_first_surely_queued_nothing(
+        self, _name: str, outcome: Any, frees_destination: bool, rerun: MagicMock
+    ) -> None:
+        if isinstance(outcome, BaseException):
+            rerun.side_effect = outcome
+        else:
+            rerun.return_value = outcome
         _insert(
             _function(self.team, "template-google-ads"), [_row("a1", "failed"), _row("a2", "failed", 60), _recovered()]
         )
@@ -353,11 +368,17 @@ class TestInvocationReplay(ClickhouseTestMixin, APIBaseTest):
         assert (first.invocation_count, overlapping.invocation_count) == (1, 2)
         with time_machine.travel("2026-10-23T08:00:00Z", tick=False):
             assert claim_replay(first, actor="first")
-        with time_machine.travel("2026-10-23T10:00:00Z", tick=False), self.assertRaises(ReplayOverlapError):
-            claim_replay(overlapping, actor="second")
-        execute_replay(first, actor="first")
+        with time_machine.travel("2026-10-23T10:00:00Z", tick=False):
+            with self.assertRaises(ReplayOverlapError):
+                claim_replay(overlapping, actor="second")
+            execute_replay(first, actor="first")
 
-        assert claim_replay(overlapping, actor="second")
+        with time_machine.travel("2026-10-23T12:00:00Z", tick=False):
+            if frees_destination:
+                assert claim_replay(overlapping, actor="second")
+            else:
+                with self.assertRaises(ReplayOverlapError):
+                    claim_replay(overlapping, actor="second")
 
     @patch("products.cdp.backend.services.invocation_replay.rerun_hog_invocations")
     def test_staff_can_release_a_send_only_once_its_worker_stopped_reporting(self, rerun: MagicMock) -> None:

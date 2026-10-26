@@ -591,7 +591,7 @@ def _claim_key(fingerprint: str) -> str:
 
 
 class ReplayOverlapError(Exception):
-    """Another replay sent in the last hour covers some of the same destinations."""
+    """Another replay still holds some of the same destinations."""
 
 
 def _function_reservation_key(function_id: str) -> str:
@@ -616,32 +616,37 @@ def claim_replay(plan: ReplayPlan, *, actor: str) -> str | None:
     # queue those runs twice, because the rerun worker does not reserve a run before
     # it queues it. The reservation lasts until the send ends, and then for
     # FUNCTION_RESERVATION_SECONDS, which is long enough for lifecycle rows to show
-    # a replayed run as no longer failed, so a later plan leaves it out.
+    # a replayed run as no longer failed, so a later plan leaves it out. A request
+    # that may have queued its runs keeps the reservation until staff release the plan.
     reserved: list[str] = []
-    for function in plan.replayable_functions:
-        if not replay_cache.add(
-            _function_reservation_key(function.function_id), plan.fingerprint, timeout=REPLAY_STATE_TTL_SECONDS
-        ):
-            _release_functions(plan.fingerprint, reserved)
-            _release_claim(plan.fingerprint)
-            raise ReplayOverlapError(
-                f"Another replay sent in the last hour covers destination {function.function_id}. "
-                "Wait for its runs to finish, then preview again."
-            )
-        reserved.append(function.function_id)
-    replay_cache.set(
-        _state_key(plan.fingerprint),
-        {
-            "status": "queued",
-            "actor": actor,
-            "updated_at": datetime.now(UTC).isoformat(),
-            "invocation_count": plan.invocation_count,
-            "request_count": plan.request_count,
-            "function_ids": reserved,
-            "results": [],
-        },
-        timeout=REPLAY_STATE_TTL_SECONDS,
-    )
+    try:
+        for function in plan.replayable_functions:
+            if not replay_cache.add(
+                _function_reservation_key(function.function_id), plan.fingerprint, timeout=REPLAY_STATE_TTL_SECONDS
+            ):
+                raise ReplayOverlapError(
+                    f"Another replay still holds destination {function.function_id}. "
+                    "Wait for its runs to finish, or release it on its status page, then preview again."
+                )
+            reserved.append(function.function_id)
+        replay_cache.set(
+            _state_key(plan.fingerprint),
+            {
+                "status": "queued",
+                "actor": actor,
+                "updated_at": datetime.now(UTC).isoformat(),
+                "invocation_count": plan.invocation_count,
+                "request_count": plan.request_count,
+                "function_ids": reserved,
+                "results": [],
+            },
+            timeout=REPLAY_STATE_TTL_SECONDS,
+        )
+    except BaseException:
+        # Without a state record staff cannot release these keys, so a failed claim must not keep them.
+        _release_functions(plan.fingerprint, reserved)
+        _release_claim(plan.fingerprint)
+        raise
     return claim
 
 
@@ -752,6 +757,7 @@ def execute_replay(plan: ReplayPlan, *, actor: str) -> list[FunctionReplayResult
     # Destinations whose runs a request may have queued. The others are released
     # at the end, so a new plan can send their runs without waiting.
     possibly_queued: set[str] = set()
+    uncertain_functions: set[str] = set()
     in_flight = False
     try:
         for function in plan.replayable_functions:
@@ -785,6 +791,8 @@ def execute_replay(plan: ReplayPlan, *, actor: str) -> list[FunctionReplayResult
                     uncertain = not _never_reached_cdp(error)
                 in_flight = False
                 uncertain_requests += uncertain
+                if uncertain:
+                    uncertain_functions.add(function.function_id)
                 if status_code == 200 or uncertain:
                     possibly_queued.add(function.function_id)
                 result = FunctionReplayResult(
@@ -827,7 +835,7 @@ def execute_replay(plan: ReplayPlan, *, actor: str) -> list[FunctionReplayResult
     else:
         queued_nothing_for = [f.function_id for f in plan.replayable_functions if f.function_id not in possibly_queued]
         _release_functions(fingerprint, queued_nothing_for)
-        for function_id in possibly_queued:
+        for function_id in possibly_queued - uncertain_functions:
             replay_cache.touch(_function_reservation_key(function_id), timeout=FUNCTION_RESERVATION_SECONDS)
     logger.info("invocation_replay_finished", actor=actor, fingerprint=fingerprint, failed_requests=failed_requests)
     return results
