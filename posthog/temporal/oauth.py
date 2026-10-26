@@ -477,6 +477,8 @@ def resolve_scopes(
             resolved = [*reads, *scratchpad]
         elif scopes == "signals_monitoring":
             resolved = [scope for scope in (*MCP_READ_SCOPES, *internal) if scope.endswith(":read")]
+            if include_internal_scopes:
+                resolved.append("monitoring_check_internal:read")
         elif scopes == "signals_scout_experiment":
             # Trials use a separate private Go token; their tool credential must not reach the legacy gateway.
             reads = [

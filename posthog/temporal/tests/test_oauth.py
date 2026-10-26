@@ -114,8 +114,12 @@ class TestResolveScopes(SimpleTestCase):
         scopes = resolve_scopes("signals_monitoring")
         assert "query:read" in scopes
         assert "llm_gateway:read" in scopes
+        assert "monitoring_check_internal:read" in scopes
         assert not any(scope.endswith(":write") for scope in scopes)
         assert not has_write_scopes("signals_monitoring")
+        assert "monitoring_check_internal:read" not in resolve_scopes(
+            "signals_monitoring", include_internal_scopes=False
+        )
 
     @parameterized.expand([(preset, preset) for preset in MCP_SCOPE_PRESETS] + [("custom", ["feature_flag:read"])])
     def test_inbox_write_travels_with_task_write(self, _name: str, scopes: PosthogMcpScopes) -> None:

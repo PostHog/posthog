@@ -119,6 +119,7 @@ APIScopeObject = Literal[
     "session_recording_playlist",
     "sharing_configuration",
     "scout_experiment_internal",
+    "monitoring_check_internal",
     "signal_scout",
     "signal_scout_internal",
     "signal_scout_report",
@@ -199,6 +200,7 @@ INTERNAL_API_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
         # agent through its own explicit gateway grants.
         "mcp_builtin_agent",
         "scout_experiment_internal",
+        "monitoring_check_internal",
         # Sandbox-only writes for the headless Signals agent (memory create/delete,
         # finding emit). Read access for the same surface lives on the public
         # `signal_scout` object so user-grantable PAKs can still inspect runs/memory.

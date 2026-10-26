@@ -2010,7 +2010,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         self._authorized_task_id = self._ensure_task_accessible()
 
     @staticmethod
-    def _is_trial_lifecycle_update(payload: object) -> bool:
+    def _is_sandbox_lifecycle_update(payload: object) -> bool:
         if not isinstance(payload, dict) or not payload or set(payload) - {"status", "error_message", "state"}:
             return False
         if "status" in payload and (
@@ -2039,13 +2039,21 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         }:
             return None
         scopes = get_authenticator_scopes(request.successful_authenticator) or []
+        lifecycle_scope = next(
+            (
+                scope
+                for scope in ("scout_experiment_internal:read", "monitoring_check_internal:read")
+                if scope in scopes
+            ),
+            None,
+        )
         if (
             "task:read" in scopes
-            and "scout_experiment_internal:read" in scopes
+            and lifecycle_scope is not None
             and (
                 self.action in {"append_log", "set_summary"}
                 or self.action in {"update", "partial_update"}
-                and self._is_trial_lifecycle_update(request.data)
+                and self._is_sandbox_lifecycle_update(request.data)
             )
             and run_context.is_sandbox_run_request(
                 request=request,
@@ -2054,7 +2062,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 run_id=self.kwargs.get("pk"),
             )
         ):
-            return ["task:read", "scout_experiment_internal:read"]
+            return ["task:read", lifecycle_scope]
         if self.action == "artifacts_download":
             return ["task:read"]
         if self.action == "retrieve":
@@ -2549,6 +2557,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             ),
             user_id=self._user_id(),
             analytics_context_reader=run_context.analytics_context_reader(request=self.request, team_id=self.team_id),
+            update_task_tags="monitoring_check_internal:read"
+            not in (get_authenticator_scopes(request.successful_authenticator) or []),
         )
         if run is None:
             raise NotFound()

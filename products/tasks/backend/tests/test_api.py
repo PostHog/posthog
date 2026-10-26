@@ -49,6 +49,7 @@ from posthog.temporal.oauth import (
     ARRAY_APP_CLIENT_ID_US,
     POSTHOG_AI_APP_CLIENT_ID_DEV,
     POSTHOG_DESKTOP_MOBILE_APP_CLIENT_ID_US,
+    SIGNALS_APP_CLIENT_ID_DEV,
 )
 from posthog.token_bucket import BucketDecision, BucketUnavailable
 from posthog.utils import absolute_uri
@@ -492,9 +493,17 @@ class TestScoutTrialTaskVisibility(BaseTaskAPITest):
             scopes=scopes,
         )
 
-    def test_trial_can_append_own_log_without_general_task_write_access(self) -> None:
+    @parameterized.expand([("scout_experiment_internal",), ("monitoring_check_internal",)])
+    def test_scoped_agent_can_append_own_log_without_general_task_write_access(self, marker: str) -> None:
         task, run = self.trial_tasks[0], self.trial_runs[0]
-        client = self._trial_log_client()
+        if marker == "monitoring_check_internal":
+            task.origin_product = Task.OriginProduct.SIGNAL_REPORT
+            task.origin_key = None
+            task.save(update_fields=["origin_product", "origin_key"])
+        client = self._trial_log_client(
+            scopes=f"task:read internal_run:read {marker}:read",
+            client_id=SIGNALS_APP_CLIENT_ID_DEV if marker == "monitoring_check_internal" else ARRAY_APP_CLIENT_ID_DEV,
+        )
         base = f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/"
         entry = {"type": "info", "message": "Synthetic scout inspected recent activity"}
         log_objects: dict[str, str] = {}
@@ -563,21 +572,27 @@ class TestScoutTrialTaskVisibility(BaseTaskAPITest):
 
     @parameterized.expand(
         [
-            ("model", {"state": {"model": "other"}}),
-            ("effort", {"state": {"reasoning_effort": "low"}}),
-            ("other_state", {"state": {"custom_key": "value"}}),
-            ("mixed_state", {"status": "failed", "state": {"agent_version": "test-agent", "model": "other"}}),
-            ("state_type", {"status": "failed", "state": ["agent_version"]}),
-            ("state_null", {"status": "failed", "state": None}),
-            ("remove", {"state_remove_keys": ["model"]}),
-            ("branch", {"branch": "other"}),
-            ("output", {"output": {"url": "https://example.com"}}),
-            ("status_type", {"status": {"value": "failed"}}),
+            (marker, name, payload)
+            for marker in ("scout_experiment_internal", "monitoring_check_internal")
+            for name, payload in [
+                ("model", {"state": {"model": "other"}}),
+                ("effort", {"state": {"reasoning_effort": "low"}}),
+                ("other_state", {"state": {"custom_key": "value"}}),
+                ("mixed_state", {"status": "failed", "state": {"agent_version": "test-agent", "model": "other"}}),
+                ("state_type", {"status": "failed", "state": ["agent_version"]}),
+                ("state_null", {"status": "failed", "state": None}),
+                ("remove", {"state_remove_keys": ["model"]}),
+                ("branch", {"branch": "other"}),
+                ("output", {"output": {"url": "https://example.com"}}),
+                ("status_type", {"status": {"value": "failed"}}),
+            ]
         ]
     )
-    def test_trial_cannot_patch_non_lifecycle_fields(self, _name: str, payload: dict[str, object]) -> None:
+    def test_scoped_agent_cannot_patch_non_lifecycle_fields(
+        self, marker: str, _name: str, payload: dict[str, object]
+    ) -> None:
         task, run = self.trial_tasks[0], self.trial_runs[0]
-        client = self._trial_log_client()
+        client = self._trial_log_client(scopes=f"task:read internal_run:read {marker}:read")
         run.refresh_from_db()
         original_state = run.state
         original_status = run.status
@@ -589,23 +604,20 @@ class TestScoutTrialTaskVisibility(BaseTaskAPITest):
 
     @parameterized.expand(
         [
-            ("unbound",),
-            ("sibling_task",),
-            ("other_run",),
-            ("unregistered_token",),
-            ("foreign_client",),
-            ("gateway_only",),
+            (marker, case)
+            for marker in ("scout_experiment_internal", "monitoring_check_internal")
+            for case in ("unbound", "sibling_task", "other_run", "unregistered_token", "foreign_client", "gateway_only")
         ]
     )
-    def test_trial_log_append_requires_exact_trusted_run(self, case: str) -> None:
+    def test_scoped_log_append_requires_exact_trusted_run(self, marker: str, case: str) -> None:
         task, run = self.trial_tasks[0], self.trial_runs[0]
         client = self._trial_log_client(
             bound=case != "unbound",
             client_id="synthetic-foreign-client" if case == "foreign_client" else ARRAY_APP_CLIENT_ID_DEV,
             scopes=(
-                "llm_gateway:read internal_run:read scout_experiment_internal:read"
+                f"llm_gateway:read internal_run:read {marker}:read"
                 if case == "gateway_only"
-                else "task:read internal_run:read scout_experiment_internal:read"
+                else f"task:read internal_run:read {marker}:read"
             ),
         )
         if case == "sibling_task":

@@ -174,7 +174,9 @@ allowance. Monitoring task runs participate in Signals spend accounting.
 The dedicated Monitoring workflow supplies the authored criteria, original findings, implementation
 history, and current-attempt evidence through a session attachment. The agent uses read-only tools
 as a user with access to the report's environment. Its `signals_monitoring` credential preset grants
-no write scopes, including on the provisioning token. Every attached measurement plan's query and
+no write scopes, including on the provisioning token. A sandbox-only read marker permits log uploads
+and bounded lifecycle updates only for the token's exact bound run. It grants no report or general task writes.
+Every attached measurement plan's query and
 eligibility query require analytics access, even for an agent-only attempt. Analytics context retains query permission
 markers on the TaskRun. A queued task rechecks Monitoring, the definition, user access, and execution
 controls at the provisioning boundary before it starts paid work.

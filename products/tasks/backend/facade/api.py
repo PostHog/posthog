@@ -3816,6 +3816,7 @@ def set_task_run_summary(
     include_agent_state: bool = False,
     user_id: int | None = None,
     analytics_context_reader: Callable[[object], bool] | None = None,
+    update_task_tags: bool = True,
 ) -> contracts.TaskRunDetailDTO | None:
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
@@ -3826,7 +3827,7 @@ def set_task_run_summary(
         updates[TASK_RUN_TAGS_STATE_KEY] = list(dict.fromkeys(tags))
     with transaction.atomic():
         run.state = TaskRun.update_state_atomic(run.id, updates=updates)
-        if tags is not None and not run.task.is_scout_experiment:
+        if tags is not None and update_task_tags and not run.task.is_scout_experiment:
             set_tags_on_object(tags, run.task)
             cleanup_orphan_tags(run.team_id)
     run.refresh_from_db()
