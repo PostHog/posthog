@@ -9,7 +9,13 @@ import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 import { urls } from 'scenes/urls'
 
 import { DataTableNode, DataVisualizationNode, NodeKind } from '~/queries/schema/schema-general'
-import { isActorsQuery, isBIVisualizationNode, isDataTableNode, isHogQLQuery } from '~/queries/utils'
+import {
+    isActorsQuery,
+    isBIVisualizationNode,
+    isDataTableNode,
+    isDataVisualizationNode,
+    isHogQLQuery,
+} from '~/queries/utils'
 import { ChartDisplayType, InsightModel, ReplayTabs } from '~/types'
 
 import { dashboardInsightResultMenuLogic } from './dashboardInsightResultMenuLogic'
@@ -38,7 +44,7 @@ export function DashboardInsightResultMenu({
                   display: ChartDisplayType.ActionsTable,
               }
             : query &&
-                (query.kind === NodeKind.DataVisualizationNode ||
+                ((isDataVisualizationNode(query) && query.kind === NodeKind.DataVisualizationNode) ||
                     (isDataTableNode(query) && isHogQLQuery(query.source)))
               ? query
               : undefined
