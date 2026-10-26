@@ -87,6 +87,7 @@ rules:
                               |AITrainingDeletionRequest
                               |Alert
                               |AlertConfiguration
+                              |InsightAlertInvestigation
                               |Annotation
                               |Announcement
                               |AnnouncementDelivery
@@ -426,7 +427,6 @@ rules:
                               |SubscriptionDelivery
                               |PlatformAlert
                               |PlatformAlertConfiguration
-                              |InsightAlertInvestigation
                               |PlatformAlertDeliveryPath
                               |PlatformAlertThread
                               |AlertDestination
@@ -575,6 +575,7 @@ rules:
                         |AITrainingDeletionRequest
                         |Alert
                         |AlertConfiguration
+                        |InsightAlertInvestigation
                         |Annotation
                         |Announcement
                         |AnnouncementDelivery
@@ -904,7 +905,6 @@ rules:
                         |SubscriptionDelivery
                         |PlatformAlert
                         |PlatformAlertConfiguration
-                        |InsightAlertInvestigation
                         |PlatformAlertDeliveryPath
                         |PlatformAlertThread
                         |AlertDestination
