@@ -312,19 +312,27 @@ def create_exclusion(
     login = _normalized_login(subject_github_login)
     if subject_user_uuid is None and login is None:
         raise ValueError("An exclusion needs a user or a GitHub login.")
-    area = {
-        "subject_user_uuid": subject_user_uuid,
-        "subject_github_login": login,
-        "repository": repository.strip().lower(),
-        "path_prefix": _normalized_path(path_prefix),
-    }
-    active = _active_twins(team_id, **area)
+    repository = repository.strip().lower()
+    path_prefix = _normalized_path(path_prefix)
+    active = _active_twins(
+        team_id,
+        subject_user_uuid=subject_user_uuid,
+        subject_github_login=login,
+        repository=repository,
+        path_prefix=path_prefix,
+    )
     if existing := active.first():
         return existing, False
     try:
         with transaction.atomic():
             exclusion = SignalReviewerExclusion.objects.for_team(team_id).create(
-                team_id=team_id, instruction=instruction, created_by_id=actor_id, **area
+                team_id=team_id,
+                instruction=instruction,
+                created_by_id=actor_id,
+                subject_user_uuid=subject_user_uuid,
+                subject_github_login=login,
+                repository=repository,
+                path_prefix=path_prefix,
             )
             _record_revision(exclusion, SignalReviewerExclusionRevision.Action.CREATED, actor_id)
     except IntegrityError:
