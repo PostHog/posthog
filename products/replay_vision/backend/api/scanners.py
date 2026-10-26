@@ -1,8 +1,10 @@
 import json
+import hashlib
 from datetime import UTC, datetime, timedelta
 from typing import Any, NoReturn, cast
 from uuid import UUID
 
+from django.core.cache import cache
 from django.db import IntegrityError, models, transaction
 from django.db.models import (
     CharField,
@@ -17,9 +19,8 @@ from django.db.models import (
     Subquery,
     Sum,
     Value,
-    Window,
 )
-from django.db.models.functions import Coalesce, NullIf, RowNumber
+from django.db.models.functions import Coalesce, NullIf
 from django.utils import timezone
 
 import structlog
@@ -64,6 +65,7 @@ from posthog.rate_limit import (
     ReplayVisionWatchFeedSustainedRateThrottle,
 )
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
@@ -188,9 +190,13 @@ from products.replay_vision.backend.tag_suggestions import SuggestionError, sugg
 from products.replay_vision.backend.temporal.constants import VISION_SIGNALS_SOURCE_PRODUCT, VISION_SIGNALS_SOURCE_TYPE
 from products.replay_vision.backend.temporal.metrics import record_estimate_outcome, record_scanner_limit_reached
 from products.replay_vision.backend.temporal.read_meter_types import current_sweep_throttle_factor
-from products.replay_vision.backend.watch_feed import rank_watch_feed_candidates
+from products.replay_vision.backend.watch_feed import WATCH_FEED_MIN_ITEMS, rank_watch_feed_candidates
 from products.replay_vision.backend.watch_feed_impressions import feed_impression_counts, record_feed_impressions
-from products.replay_vision.backend.watch_rank import rank_watch_feed_by_embedding
+from products.replay_vision.backend.watch_rank import (
+    rank_watch_feed_by_embedding,
+    select_embedding_filler,
+    select_embedding_picks,
+)
 from products.signals.backend.facade.api import get_outcomes_for_signal_source_slice
 
 # Date is set by the schedule at trigger time, not by the user — strip on save.
@@ -1632,8 +1638,7 @@ class ScannerStatsResponseSerializer(serializers.Serializer):
 WATCH_FEED_DEFAULT_LIMIT = 20
 WATCH_FEED_MAX_LIMIT = 50
 WATCH_FEED_DEFAULT_DATE_FROM = "-7d"
-# Widest window one request may rank. An arbitrarily early `date_from` would make Postgres partition
-# and sort the team's entire observation history before the row caps apply.
+# Widest window one request may rank. A scanner with few rows in the window walks its whole window before the cap stops it.
 WATCH_FEED_MAX_WINDOW_DAYS = 90
 # Rank at most this many of the newest succeeded observations in the window. A very high-volume
 # team ranks only the newest slice, which recency-biases the feed — acceptable for a preview surface.
@@ -1646,6 +1651,53 @@ WATCH_FEED_PER_SCANNER_CAP = 100
 # each id__in list bounded while the walk stops as soon as the page is covered.
 WATCH_FEED_BYPASS_CHUNK = 200
 WATCH_FEED_IMPRESSIONS_MAX_IDS = 100
+# Long enough to cover a reader scrolling one load; a new load gets a new `as_of` and a fresh ranking.
+WATCH_FEED_PICKS_CACHE_TTL_S = 15 * 60
+
+
+def select_watch_feed_candidates(
+    walkable: QuerySet[ReplayObservation],
+    scanner_ids: list[UUID],
+    viewed: Exists,
+    access: UserAccessControl,
+    team_id: int,
+) -> list[dict[str, Any]]:
+    """The newest readable rows of the window, at most WATCH_FEED_PER_SCANNER_CAP per scanner, without scan results."""
+    # One slice per scanner stops each index walk at the cap, where a window function sorts the whole window first.
+    slices: list[Any] = [
+        walkable.filter(scanner_id=scanner_id)
+        .order_by("-created_at", "-id")
+        .values_list("id", "created_at")[:WATCH_FEED_PER_SCANNER_CAP]
+        for scanner_id in scanner_ids
+    ]
+    if not slices:
+        return []
+    walked = slices[0].union(*slices[1:], all=True)
+    newest_first = [row_id for row_id, _ in sorted(walked, key=lambda row: (row[1], row[0]), reverse=True)]
+    # The row-gate reads each row's snapshot JSON, so it runs on the newest walked rows only.
+    rows: list[dict[str, Any]] = []
+    for start in range(0, len(newest_first), WATCH_FEED_CANDIDATE_CAP):
+        chunk = newest_first[start : start + WATCH_FEED_CANDIDATE_CAP]
+        rows += list(
+            accessible_observations(access, team_id, ReplayObservation.objects.filter(team_id=team_id, id__in=chunk))
+            .annotate(feed_viewed=viewed)
+            .order_by("-created_at", "-id")
+            .values("id", "scanner_id", "session_id", "created_at", "watch_rank", "feed_viewed")
+        )
+        if len(rows) >= WATCH_FEED_CANDIDATE_CAP:
+            break
+    return rows[:WATCH_FEED_CANDIDATE_CAP]
+
+
+def attach_scanner_results(team_id: int, rows: list[dict[str, Any]]) -> None:
+    """Load the scan result for each candidate row, by primary key, after the window cap has applied."""
+    results = dict(
+        ReplayObservation.objects.filter(team_id=team_id, id__in=[row["id"] for row in rows]).values_list(
+            "id", "scanner_result"
+        )
+    )
+    for row in rows:
+        row["scanner_result"] = results.get(row["id"])
 
 
 class WatchFeedRanker(models.TextChoices):
@@ -1877,6 +1929,14 @@ class WatchFeedReasonSerializer(serializers.Serializer):
         help_text=(
             "Other sessions from the same scanner in the window that describe nearly the same thing, for "
             "`embedding_pick`. The feed shows one session per group."
+        ),
+    )
+    affected_people = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Distinct people across the session's duplicate group in the window, for `embedding_pick`. A finding "
+            "that reached more people ranks higher."
         ),
     )
 
@@ -2642,9 +2702,9 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                 ).values_list("id", flat=True)
             )
             allowed_ids = [scanner_id for scanner_id in allowed_ids if scanner_id in created_ids]
+        # The scanner list stays off this base: every per-scanner walk would otherwise carry the whole list.
         candidates = ReplayObservation.objects.filter(
             team_id=self.team_id,
-            scanner_id__in=allowed_ids,
             status=ObservationStatus.SUCCEEDED,
             created_at__gte=date_from,
             created_at__lte=window_end,
@@ -2664,17 +2724,19 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                 | Q(scanner_result__model_output__notability_reason__icontains=term)
                 | Q(scanner_snapshot__name__icontains=term)
             )
-        # Row-gate on each row's snapshot experiment before ranking, so a restricted row can't take a slot.
-        candidates = accessible_observations(self.user_access_control, self.team_id, candidates)
         viewer_id = cast(User, request.user).id
         # Before ranking, so a row the viewer marked not useful neither takes a slot nor shifts the window baselines.
         # Views and dismissals after `as_of` wait for the next load, so later pages of this one do not shift.
-        candidates = candidates.exclude(
+        walkable = candidates.exclude(
             Exists(
                 ReplayObservationFeedDismissal.objects.filter(
                     observation_id=OuterRef("id"), user_id=viewer_id, created_at__lte=as_of
                 )
             )
+        )
+        # Row-gate on each row's snapshot experiment before ranking, so a restricted row can't take a feed slot.
+        candidates = accessible_observations(
+            self.user_access_control, self.team_id, walkable.filter(scanner_id__in=allowed_ids)
         )
         viewed = Exists(
             ReplayObservationView.objects.filter(
@@ -2689,23 +2751,43 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         variant = watch_feed_ranker_variant(self.team_id, self.team.uuid)
         mode = ranker_mode(variant)
         ranker = mode if mode in ("jev", "embedding") else "weighted-score"
-        # The embedding ranker reads only the stored rank, so it skips loading every row's scan result.
-        row_fields = ["id", "scanner_id", "session_id", "created_at", "watch_rank", "feed_viewed"]
-        if ranker != "embedding":
-            row_fields.append("scanner_result")
-        candidate_rows = list(
-            candidates.annotate(
-                feed_viewed=viewed,
-                scanner_recency_rank=Window(
-                    RowNumber(),
-                    partition_by=F("scanner_id"),
-                    order_by=[F("created_at").desc(), F("id").desc()],
-                ),
+        if ranker == "embedding":
+            # Every page of one load ranks the same window as of the same `as_of`, so later pages reuse the first's picks.
+            picks_key = (
+                "replay_vision:watch_picks:"
+                + hashlib.sha256(
+                    json.dumps(
+                        [
+                            self.team_id,
+                            viewer_id,
+                            as_of.isoformat(),
+                            str(date_from),
+                            str(window_end),
+                            sorted(map(str, allowed_ids)),
+                            params.get("search"),
+                            params.get("scanner_type"),
+                        ]
+                    ).encode()
+                ).hexdigest()
             )
-            .filter(scanner_recency_rank__lte=WATCH_FEED_PER_SCANNER_CAP)
-            .values(*row_fields)
-            .order_by("-created_at", "-id")[:WATCH_FEED_CANDIDATE_CAP]
-        )
+            candidate_rows = cache.get(picks_key)
+            if candidate_rows is None:
+                # The embedding ranker reads only a small stored rank, so it picks over the whole window in SQL.
+                candidate_rows = select_embedding_picks(
+                    walkable, allowed_ids, viewed, self.user_access_control, self.team_id, WATCH_FEED_CANDIDATE_CAP
+                )
+                # Picks in one duplicate group collapse into one card, so the floor counts groups.
+                pick_roots = {row["watch_group_root"] for row in candidate_rows}
+                if len(pick_roots) < WATCH_FEED_MIN_ITEMS:
+                    candidate_rows += select_embedding_filler(
+                        walkable, allowed_ids, viewed, self.user_access_control, self.team_id, pick_roots
+                    )
+                cache.set(picks_key, candidate_rows, WATCH_FEED_PICKS_CACHE_TTL_S)
+        else:
+            candidate_rows = select_watch_feed_candidates(
+                walkable, allowed_ids, viewed, self.user_access_control, self.team_id
+            )
+            attach_scanner_results(self.team_id, candidate_rows)
         page_end = params["offset"] + params["limit"]
         if ranker == "embedding":
             impressions = feed_impression_counts(
@@ -2760,9 +2842,13 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         rows = {
             row.id: row
             for row in hydrate_for_serialization(
-                # team_id is redundant with the already-scoped candidate query these ids came from,
-                # but keeps the re-fetch fail-closed on its own.
-                ReplayObservation.objects.filter(team_id=self.team_id, id__in=list(reasons_by_id)),
+                # Re-checks experiment access on the page's rows, because a later page can be served from picks
+                # cached before the viewer lost access. team_id keeps the re-fetch fail-closed on its own.
+                accessible_observations(
+                    self.user_access_control,
+                    self.team_id,
+                    ReplayObservation.objects.filter(team_id=self.team_id, id__in=list(reasons_by_id)),
+                ),
                 viewer_id=request.user.id,
             )
         }

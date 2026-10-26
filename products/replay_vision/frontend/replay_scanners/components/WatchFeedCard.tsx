@@ -23,6 +23,7 @@ import type {
 } from '../../generated/api.schemas'
 import { OBSERVATION_ORIGIN_PARAM, WATCH_FEED_ORIGIN } from '../../utils/breadcrumbs'
 import { citedTextToPlainText } from '../../utils/citations'
+import { hasScannerPage, scannerLabel } from '../../utils/observation'
 import { SCANNER_TYPE_TAG_TYPE, ScannerType } from '../types'
 import { watchFeedLogic } from '../watchFeedLogic'
 import { CARD_SEEN_DWELL_MS, cardProperties } from '../watchFeedTelemetry'
@@ -144,6 +145,10 @@ export function watchReasonCopy(reason: WatchFeedReasonApi): string {
             const category = reason.watch_category
                 ? WATCH_CATEGORY_COPY[reason.watch_category]
                 : 'This session stands out for this scanner.'
+            const people = reason.affected_people ?? 1
+            if (people > 1) {
+                return `${category} ${people} people had a similar session.`
+            }
             const similar = reason.similar_count ?? 0
             if (similar === 0) {
                 return category
@@ -261,7 +266,7 @@ export function watchFeedRowSentence(observation: ReplayObservationApi, reason: 
         return reason.notability_reason
     }
     const headline = watchCardHeadline(observation)
-    return headline?.title ?? ((observation.scanner_snapshot?.name as string | undefined) || '(untitled scanner)')
+    return headline?.title ?? scannerLabel(observation)
 }
 
 /**
@@ -278,6 +283,20 @@ function WatchFeedScannerLink({
     scannerType: ScannerType | undefined
 }): JSX.Element {
     const verdict = readResult(observation)?.verdict
+    const linked = hasScannerPage(observation)
+    const chip = (
+        <>
+            {scannerType && (
+                <LemonTag
+                    type={SCANNER_TYPE_TAG_TYPE[scannerType]}
+                    className="size-6 shrink-0 justify-center !rounded-full !p-0"
+                >
+                    {scannerTypeIcon(scannerType)}
+                </LemonTag>
+            )}
+            <span className="truncate font-medium">{scannerName}</span>
+        </>
+    )
     return (
         <Tooltip
             title={
@@ -289,26 +308,25 @@ function WatchFeedScannerLink({
                             {typeof verdict === 'string' && verdict ? ` Answered ${verdict}.` : ''}
                         </span>
                     )}
-                    <span className="italic">Click to open this scanner</span>
+                    {linked && <span className="italic">Click to open this scanner</span>}
                 </div>
             }
         >
-            <Link
-                to={urls.replayVision(observation.scanner_id)}
-                subtle
-                className="relative z-10 flex max-w-full min-w-0 items-center gap-2 self-start text-sm text-secondary hover:text-default"
-                data-attr="vision-watch-feed-scanner-chip"
-            >
-                {scannerType && (
-                    <LemonTag
-                        type={SCANNER_TYPE_TAG_TYPE[scannerType]}
-                        className="size-6 shrink-0 justify-center !rounded-full !p-0"
-                    >
-                        {scannerTypeIcon(scannerType)}
-                    </LemonTag>
-                )}
-                <span className="truncate font-medium">{scannerName}</span>
-            </Link>
+            {/* A one-off scan has no scanner page, so its chip names the scan without linking anywhere. */}
+            {linked ? (
+                <Link
+                    to={urls.replayVision(observation.scanner_id)}
+                    subtle
+                    className="relative z-10 flex max-w-full min-w-0 items-center gap-2 self-start text-sm text-secondary hover:text-default"
+                    data-attr="vision-watch-feed-scanner-chip"
+                >
+                    {chip}
+                </Link>
+            ) : (
+                <span className="relative z-10 flex max-w-full min-w-0 items-center gap-2 self-start text-sm text-secondary">
+                    {chip}
+                </span>
+            )}
         </Tooltip>
     )
 }
@@ -366,7 +384,7 @@ export function WatchFeedRow({ item, position }: WatchFeedRowProps): JSX.Element
     const scannerType =
         (observation.scanner_snapshot?.scanner_type as ScannerType | undefined) ??
         (result?.scanner_type as ScannerType | undefined)
-    const scannerName = (observation.scanner_snapshot?.name as string | undefined) || '(untitled scanner)'
+    const scannerName = scannerLabel(observation)
     const person = observation.recording_subject_email || observation.distinct_id
     const keyMomentMs = observationKeyMomentMs(observation)
     // `t` is always set, so the observation page opens with the player expanded. `from` marks the feed as

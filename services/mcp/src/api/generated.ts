@@ -120583,6 +120583,11 @@ export namespace Schemas {
          * @nullable
          */
       similar_count?: number | null;
+      /**
+         * Distinct people across the session's duplicate group in the window, for `embedding_pick`. A finding that reached more people ranks higher.
+         * @nullable
+         */
+      affected_people?: number | null;
     }
 
     /**

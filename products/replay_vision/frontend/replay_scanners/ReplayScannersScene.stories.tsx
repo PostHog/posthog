@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_BASIC_USER, MOCK_DEFAULT_USER } from 'lib/api.mock'
+
 import type { Meta, StoryObj } from '@storybook/react'
 import { waitFor, within } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
@@ -1128,8 +1130,23 @@ export const UsageTab: StoryObj = {
     parameters: { pageUrl: `${urls.replayVision()}?tab=usage` },
 }
 
-// The home page lands on the What to watch feed.
-export const HomeWatchFeed: StoryObj = {}
+// The home page lands on the What to watch feed. The viewer created one scanner, so the feed offers the scope tabs.
+export const HomeWatchFeed: StoryObj = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/vision/scanners/': {
+                    ...scanners,
+                    results: scanners.results.map((item, index) =>
+                        index === 0
+                            ? { ...item, created_by: { ...MOCK_DEFAULT_BASIC_USER, id: MOCK_DEFAULT_USER.id } }
+                            : item
+                    ),
+                },
+            },
+        }),
+    ],
+}
 
 // The jev ranker arm: the same rows as the default arm, plus the reason Jev picked each finding. The
 // first row leads with the scan's notability sentence, the second falls back to the derived headline,
@@ -1249,7 +1266,12 @@ export const HomeWatchFeedEmbeddingArm: StoryObj = {
                                 },
                                 viewed: false,
                             }),
-                            reason: { kind: 'embedding_pick', watch_category: 'failure', similar_count: 3 },
+                            reason: {
+                                kind: 'embedding_pick',
+                                watch_category: 'failure',
+                                similar_count: 3,
+                                affected_people: 3,
+                            },
                         },
                         {
                             observation: observation({
