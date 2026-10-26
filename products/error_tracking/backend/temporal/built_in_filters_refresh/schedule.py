@@ -42,6 +42,6 @@ async def create_error_tracking_built_in_filters_refresh_schedule(client: Client
     )
 
     if await a_schedule_exists(client, SCHEDULE_ID):
-        await a_update_schedule(client, SCHEDULE_ID, built_in_filters_refresh_schedule)
+        await a_update_schedule(client, SCHEDULE_ID, built_in_filters_refresh_schedule, keep_paused=True)
     else:
         await a_create_schedule(client, SCHEDULE_ID, built_in_filters_refresh_schedule, trigger_immediately=False)

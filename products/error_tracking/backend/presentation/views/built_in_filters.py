@@ -51,6 +51,8 @@ class ErrorTrackingBuiltInFilterViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet
     scope_object = "error_tracking"
     scope_object_read_actions = ["list"]
     scope_object_write_actions = ["partial_update"]
+    # Each rule drops events for the whole project, so a grant on one error tracking object is not enough.
+    requires_resource_level_access = True
     lookup_field = "key"
     lookup_value_regex = "[a-z0-9_]+"
 

@@ -92,8 +92,12 @@ def set_built_in_filter_enabled(team_id: int, key: str, *, enabled: bool) -> Bui
         return _state(definition, None)
 
     if existing is not None:
-        if existing.disabled_data is not None or _is_older_than(existing, definition):
+        if _is_older_than(existing, definition):
             _refresh_rule(existing, definition)
+        elif existing.disabled_data is not None:
+            # Keep the filters: a row from a newer definition must not go back to this worker's older one.
+            existing.disabled_data = None
+            existing.save(update_fields=["disabled_data", "updated_at"])
         return _state(definition, existing)
 
     try:

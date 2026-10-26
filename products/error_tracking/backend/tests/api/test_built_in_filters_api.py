@@ -1,8 +1,15 @@
+import pytest
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import call, patch
 
+from parameterized import parameterized
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
+from posthog.models.organization import OrganizationMembership
+from posthog.models.user import User
+
+from products.access_control.backend.facade.testing import create_access_control
 from products.error_tracking.backend.logic.built_in_filter_definitions import BUILT_IN_FILTERS_BY_KEY
 from products.error_tracking.backend.logic.built_in_filters import (
     refresh_stale_built_in_filter_rules,
@@ -91,10 +98,16 @@ class TestBuiltInFiltersAPI(APIBaseTest):
         assert rule.sampling_rate == 1.0
         assert rule.order_key == 0
 
-    def test_turning_a_filter_on_again_retries_a_rule_that_ingestion_turned_off(self) -> None:
+    @parameterized.expand([("same_version", 0), ("newer_version", 1)])
+    def test_turning_a_filter_on_again_retries_a_rule_that_ingestion_turned_off(
+        self, _name: str, version_offset: int
+    ) -> None:
         self._set("legacy_browsers", True)
+        newer_filters = {"type": "OR", "values": []}
         ErrorTrackingSuppressionRule.objects.filter(team=self.team).update(
-            disabled_data={"message": "Invalid regex", "props": {}}
+            disabled_data={"message": "Invalid regex", "props": {}},
+            built_in_version=BUILT_IN_FILTERS_BY_KEY["legacy_browsers"].version + version_offset,
+            **({"filters": newer_filters} if version_offset else {}),
         )
 
         listed = {f["key"]: f for f in self.client.get(self._url()).json()}
@@ -102,7 +115,33 @@ class TestBuiltInFiltersAPI(APIBaseTest):
         assert listed["legacy_browsers"]["disabled_reason"] == "Invalid regex"
 
         assert self._set("legacy_browsers", True)["disabled_reason"] is None
-        assert ErrorTrackingSuppressionRule.objects.get(team=self.team).disabled_data is None
+        rule = ErrorTrackingSuppressionRule.objects.get(team=self.team)
+        assert rule.disabled_data is None
+        expected_filters = newer_filters if version_offset else BUILT_IN_FILTERS_BY_KEY["legacy_browsers"].filters
+        assert rule.filters == expected_filters
+
+    @pytest.mark.ee
+    def test_toggling_requires_resource_level_access(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        restricted_user = User.objects.create_and_join(self.organization, "restricted@posthog.com", "testtest")
+        membership = OrganizationMembership.objects.get(user=restricted_user, organization=self.organization)
+        create_access_control(team_id=self.team.id, resource="error_tracking", access_level="none")
+        create_access_control(
+            team_id=self.team.id,
+            resource="error_tracking",
+            resource_id="00000000-0000-0000-0000-000000000001",
+            access_level="editor",
+            organization_member_id=membership.id,
+        )
+        self.client.force_login(restricted_user)
+
+        response = self.client.patch(self._url("web_crawlers"), data={"enabled": True}, format="json")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert not ErrorTrackingSuppressionRule.objects.filter(team=self.team).exists()
 
     def test_unknown_filter_returns_404(self) -> None:
         response = self.client.patch(self._url("not_a_filter"), data={"enabled": True}, format="json")
