@@ -11952,6 +11952,10 @@ snapshots:
         hash: v1.k794b7964.9c362d9b9c26bb883910cfbdd1836a4527c166f4c96a2f5360e69023c79d5f0e.DuYijIxQuSoZCwSuCLHfE5vpQ9S7-wEi7vbYSPvUoQY
     scenes-app-inbox-focused-setup--built-in-scouts--light:
         hash: v1.k794b7964.5218eb7e49c96084e51040039f1a1d65e8146a1c71fc41101537b3d743a9323c.BIPRFRy76xqqc4q0D41zmRuDqMJy4dpNwDZ-TU24b4Y
+    scenes-app-inbox-focused-setup--experiment-disabled-entry--dark:
+        hash: v1.k794b7964.6c70ca121885ddce07610304d817ad796012e50a59ad252d5e6579266cf4f16a._BaYx_Cdy8pSHQmYsZyPgK_7NpDEzi7z1lX7_7r1ECo
+    scenes-app-inbox-focused-setup--experiment-disabled-entry--light:
+        hash: v1.k794b7964.f1abd2d97a96ac5409cdd995fabc39d2f5a0a2207218ed0c6fe8a101fe112af4.0qy6zrp9xu1ndFM-fk2LlZLb67K0mBIagRMpm4MrXpo
     scenes-app-inbox-focused-setup--github--dark:
         hash: v1.k794b7964.2f22b978f644c1c0b4673abc1417da42588fb907d7839fcf0bf7a35980b2e8dc.yEa2Mh7klA-11G--wkqe5uconS0kX2dDS_rH0gxJRXM
     scenes-app-inbox-focused-setup--github--light:
