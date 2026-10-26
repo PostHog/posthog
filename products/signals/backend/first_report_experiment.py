@@ -7,6 +7,7 @@ import posthoganalytics
 from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
+from posthog.ph_client import ph_scoped_capture
 
 from products.signals.backend.agent_runtime import AgentRuntime
 from products.signals.backend.models import SignalReport, SignalScoutRun
@@ -15,6 +16,7 @@ if TYPE_CHECKING:
     from posthog.models.team.team import Team
 
 FIRST_REPORT_EXPERIMENT = "self-driving-banger-scout"
+FIRST_REPORT_SCOUT_VARIANTS = frozenset({"test-sol", "test-deepseek"})
 
 
 @frozen
@@ -67,19 +69,19 @@ def resolve_first_report_experiment(team: Team) -> FirstReportExperiment | None:
     return None
 
 
-def capture_first_report_exposure(team: Team, experiment: FirstReportExperiment, run_id: str) -> None:
+def capture_first_report_exposure(team: Team, experiment: FirstReportExperiment) -> None:
     try:
-        posthoganalytics.capture(
-            distinct_id=str(team.uuid),
-            event="$experiment_exposure",
-            groups=groups(team.organization, team),
-            properties={
-                **experiment.properties(),
-                "$feature_flag": FIRST_REPORT_EXPERIMENT,
-                "$feature_flag_response": experiment.variant,
-                "run_id": run_id,
-            },
-        )
+        with ph_scoped_capture() as capture:
+            capture(
+                distinct_id=str(team.uuid),
+                event="$experiment_exposure",
+                groups=groups(team.organization, team),
+                properties={
+                    **experiment.properties(),
+                    "$feature_flag": FIRST_REPORT_EXPERIMENT,
+                    "$feature_flag_response": experiment.variant,
+                },
+            )
     except Exception as error:
         capture_exception(error)
 
