@@ -23,7 +23,9 @@ from products.review_hog.backend.reviewer.push_gate import (
     apply_follow_up_value_rules,
     apply_next_push_rule,
     apply_throttle,
+    apply_zero_change_rule,
     next_push_probability,
+    plan_delta_review,
 )
 from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError
 
@@ -728,3 +730,84 @@ def test_next_push_rule_keeps_the_value_rule_inputs() -> None:
     with patch(f"{_MODULE}.NEXT_PUSH_SKIP_AT", 0.0):
         result = apply_next_push_rule(decision, follow_up=4, pr_lines=400)
     assert (result.reason, result.reviewable_lines, result.previous_findings) == ("next_push_likely", 400, 2)
+
+
+@parameterized.expand(
+    [
+        ("no_change_in_the_treatment_arm_skips", _running(0), 0, True, (True, True, "zero_change")),
+        ("no_change_in_the_control_arm_runs_and_records_it", _running(0), 0, False, (False, True, "zero_change")),
+        ("a_changed_line_runs", _running(0), 1, True, (False, False, "system_one_above_threshold")),
+        ("an_unknown_comparison_runs", _running(0), None, True, (False, False, "system_one_above_threshold")),
+        (
+            "a_shadow_match_is_taken_over",
+            PushGateDecision(skip=False, would_skip=True, reason="docs_only"),
+            0,
+            True,
+            (True, True, "zero_change"),
+        ),
+        (
+            "a_gate_failure_keeps_running",
+            PushGateDecision(skip=False, would_skip=False, reason="compare_unavailable"),
+            0,
+            True,
+            (False, False, "compare_unavailable"),
+        ),
+        (
+            "an_earlier_skip_keeps_its_reason",
+            PushGateDecision(skip=True, would_skip=True, reason="merge_only"),
+            0,
+            True,
+            (True, True, "merge_only"),
+        ),
+    ]
+)
+def test_zero_change_rule_skips_only_a_known_unchanged_pr_diff_in_the_treatment_arm(
+    _name: str,
+    decision: PushGateDecision,
+    pr_changed_lines: int | None,
+    enabled: bool,
+    expected: tuple[bool, bool, str],
+) -> None:
+    result = apply_zero_change_rule(decision, pr_changed_lines=pr_changed_lines, enabled=enabled)
+    assert (result.skip, result.would_skip, result.reason) == expected
+
+
+@parameterized.expand(
+    [
+        ("small_later_push_in_the_treatment_arm", _running(5), {}, (True, True)),
+        ("small_later_push_in_the_control_arm", _running(5), {"enabled": False}, (True, False)),
+        ("first_follow_up_stays_whole", _running(5), {"run_index": 2}, (False, False)),
+        ("over_the_share_stays_whole", _running(5), {"changed_reviewable_lines": 31}, (False, False)),
+        ("at_the_share_is_in", _running(5), {"changed_reviewable_lines": 30}, (True, True)),
+        ("no_reviewable_change_stays_whole", _running(5), {"changed_reviewable_lines": 0}, (False, False)),
+        ("a_dependency_change_stays_whole", _running(5), {"dependency_changed": True}, (False, False)),
+        ("an_uncomparable_file_stays_whole", _running(5), {"comparable": False}, (False, False)),
+        ("unknown_sizes_stay_whole", _running(5), {"changed_reviewable_lines": None}, (False, False)),
+        (
+            "a_gate_failure_stays_whole",
+            PushGateDecision(skip=False, would_skip=False, reason="compare_unavailable"),
+            {},
+            (False, False),
+        ),
+        (
+            "a_skipped_push_reviews_nothing",
+            PushGateDecision(skip=True, would_skip=True, reason="small_pr"),
+            {},
+            (False, False),
+        ),
+    ]
+)
+def test_delta_review_covers_only_small_comparable_later_pushes(
+    _name: str, decision: PushGateDecision, overrides: dict[str, Any], expected: tuple[bool, bool]
+) -> None:
+    inputs: dict[str, Any] = {
+        "run_index": 3,
+        "changed_reviewable_lines": 12,
+        "reviewable_lines": 1000,
+        "dependency_changed": False,
+        "comparable": True,
+        "enabled": True,
+        **overrides,
+    }
+    result = plan_delta_review(decision, **inputs)
+    assert (result.delta_eligible, result.delta_review) == expected

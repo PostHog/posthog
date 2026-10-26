@@ -34,7 +34,7 @@ from products.review_hog.backend.reviewer.constants import (
     priority_rank,
 )
 from products.review_hog.backend.reviewer.models import PROMPTS_DIR
-from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRMetadata
+from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRFileUpdate, PRMetadata
 from products.review_hog.backend.reviewer.models.issues_review import (
     DropDisposition,
     DroppedIssue,
@@ -100,8 +100,10 @@ class SingleAgentPrompt:
         merge_base_sha: str | None = None,
         scope_files: list[str] | None = None,
         for_lens: bool = False,
+        delta_since: str | None = None,
     ) -> None:
         self.repository = repository
+        self.delta_since = delta_since
         self.guidelines = guidelines
         self.pr_metadata = pr_metadata
         self.merge_base_sha = merge_base_sha
@@ -190,6 +192,8 @@ class SingleAgentPrompt:
             REPOSITORY=self.repository,
             HEAD_SHA=self.pr_metadata.head_sha or self.pr_metadata.head_branch,
             BASE_SHA=self._base_sha(),
+            # A commit id only, so no text from the repository reaches the session's shell.
+            DELTA_SINCE=self.delta_since if self.delta_since and _COMMIT_SHA.fullmatch(self.delta_since) else None,
             PR_TITLE=without_cache_marker(self.pr_metadata.title),
             PR_DESCRIPTION=without_cache_marker(self.pr_metadata.body.strip() or "(no description provided)"),
             FILE_LIST=without_cache_marker(self._file_list(not_shown)),
@@ -653,6 +657,43 @@ class ChangedSinceReview:
             for line_range in issue.lines
             for line in changed
         )
+
+
+def _near_changed(update: PRFileUpdate, changed: set[int]) -> bool:
+    if update.new_start_line is None:
+        return False
+    end = update.new_end_line or update.new_start_line
+    margin = FLASH_FOLLOW_UP_CHANGE_MARGIN_LINES
+    return any(update.new_start_line - margin <= line <= end + margin for line in changed)
+
+
+def delta_files(pr_files: list[PRFile], change: ChangedSinceReview) -> list[PRFile]:
+    """The PR's files that changed since the earlier head, each with only the diff blocks around the changed lines.
+
+    A removal block stays when it borders a kept block, so a removed guard shows next to the code it guarded. A file
+    without a patch stays whole when its counts changed. Files the push did not touch drop out.
+    """
+    result: list[PRFile] = []
+    for pr_file in pr_files:
+        if pr_file.filename in change.files_without_patch:
+            if change.changed_line_counts.get(pr_file.filename):
+                result.append(pr_file)
+            continue
+        changed = change.lines.get(pr_file.filename)
+        if not changed:
+            continue
+        near = [_near_changed(update, changed) for update in pr_file.changes]
+        kept = [
+            update
+            for index, update in enumerate(pr_file.changes)
+            if near[index]
+            or (
+                update.type == "deletion"
+                and ((index > 0 and near[index - 1]) or (index + 1 < len(near) and near[index + 1]))
+            )
+        ]
+        result.append(pr_file.model_copy(update={"changes": kept}))
+    return result
 
 
 def _old_code_findings(

@@ -45,6 +45,18 @@ The rules, in order. The first rule that matches gives the reason:
    the next turn that runs reviews everything since the last reviewed head. This caps bursts of
    pushes, and it never schedules a review on its own.
 
+13. `zero_change`: the PR's own diff is the same as at the last automatically reviewed head, in every file,
+   lockfiles and dependency manifests included. It compares the stored PR snapshots of both heads, so a base merge or a
+   rebase that only moves the PR's code matches, and a push after skipped pushes compares against the same baseline.
+   It runs after rule 10 and before rule 11, and only a PR in the treatment arm of `reviewhog-zero-change-skip` skips.
+   An unknown comparison (no snapshot at either head) never matches.
+
+A turn that passes every rule can review only what changed (`plan_delta_review`): a follow-up from run
+`DELTA_BAND_FIRST_RUN_INDEX` on, whose changed reviewable lines are at most `DELTA_BAND_MAX_CHANGE_SHARE` of the PR's
+reviewable lines, with no dependency file changed and every changed file comparable. The first follow-up always reviews
+the whole PR. Only a PR in the treatment arm of `reviewhog-delta-band` runs the delta review; the other arm records that
+the turn was eligible.
+
 Each rule has its own switch. A rule that is switched off still reports the turn it would skip
 (`would_skip`), so production data can calibrate it before it skips anything. Every failure fails
 open: the turn runs.
@@ -110,6 +122,14 @@ SMALL_PR_REVIEWABLE_LINES_BELOW = 150
 QUIET_PUSH_MAX_OWN_CODE_LINES = 30
 # Picked by the replay in `review-eval/experiments/2026-10-14-review-throttle`.
 PUSH_BUDGET = Budget(burst=2, per_hour=2)
+# Picked by the backtest in `review-eval/experiments/2026-10-26-economics-report` (calibrate67) and fixed for the experiment.
+DELTA_BAND_FIRST_RUN_INDEX = 3
+DELTA_BAND_MAX_CHANGE_SHARE = 0.03
+# A change to one of these files changes what the code runs with, so it never counts as small or as no change.
+_DEPENDENCY_FILE = re.compile(
+    r"(^|/)(package\.json|pnpm-lock\.yaml|package-lock\.json|yarn\.lock|pyproject\.toml|uv\.lock|poetry\.lock|"
+    r"requirements[^/]*\.txt|go\.mod|go\.sum|Cargo\.toml|Cargo\.lock|Gemfile(\.lock)?|composer\.(json|lock))$|\.lock$"
+)
 # Longer than a turn and its retry take, so a retried turn finds that its head paid already.
 _PAID_HEAD_TTL_SECONDS = 6 * 3600
 
@@ -220,6 +240,7 @@ SkipReason = Literal[
     "quiet_small_push",
     "next_push_likely",
     "throttled",
+    "zero_change",
 ]
 RunReason = Literal[
     "commits_removed",
@@ -251,6 +272,14 @@ class PushGateDecision:
     # Inputs of rules 8 to 10. None when the gate could not read them.
     reviewable_lines: int | None = None
     previous_findings: int | None = None
+    # Lines of the PR's own diff that changed since the last automatically reviewed head, in every file. None when unknown.
+    pr_changed_lines: int | None = None
+    delta_eligible: bool = False
+    delta_review: bool = False
+
+
+def is_dependency_file(path: str) -> bool:
+    return _DEPENDENCY_FILE.search(path) is not None
 
 
 @frozen
@@ -737,3 +766,40 @@ def apply_throttle(decision: PushGateDecision, *, report_id: str, head_sha: str)
         return decision
     client.delete(paid_key)
     return replace(decision, skip=_rule_enabled("throttled"), would_skip=True, reason="throttled")
+
+
+def apply_zero_change_rule(
+    decision: PushGateDecision, *, pr_changed_lines: int | None, enabled: bool
+) -> PushGateDecision:
+    """Rule 13, after rules 8 to 10. It takes over a shadow match. `pr_changed_lines` None means unknown, so the push runs."""
+    decision = replace(decision, pr_changed_lines=pr_changed_lines)
+    if decision.skip or decision.reason in _FAIL_OPEN_REASONS or pr_changed_lines != 0:
+        return decision
+    return replace(decision, skip=enabled, would_skip=True, reason="zero_change")
+
+
+def plan_delta_review(
+    decision: PushGateDecision,
+    *,
+    run_index: int,
+    changed_reviewable_lines: int | None,
+    reviewable_lines: int | None,
+    dependency_changed: bool,
+    comparable: bool,
+    enabled: bool,
+) -> PushGateDecision:
+    """Whether a turn that runs reviews only what changed since the last automatically reviewed head.
+
+    Anything unknown (no comparison, a file without a patch, a gate that could not judge the push) keeps the full review.
+    """
+    eligible = (
+        not decision.skip
+        and decision.reason not in _FAIL_OPEN_REASONS
+        and comparable
+        and not dependency_changed
+        and run_index >= DELTA_BAND_FIRST_RUN_INDEX
+        and changed_reviewable_lines is not None
+        and reviewable_lines is not None
+        and 0 < changed_reviewable_lines <= DELTA_BAND_MAX_CHANGE_SHARE * reviewable_lines
+    )
+    return replace(decision, delta_eligible=eligible, delta_review=eligible and enabled)
