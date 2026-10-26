@@ -9,7 +9,7 @@ export const template: HogFunctionTemplate = {
     id: 'template-posthog-run-scout',
     name: 'Run scout',
     description:
-        'Start a Signals scout run from a workflow. The scout explores as it does on its schedule and files what it finds to your inbox. Add a note to tell the scout what triggered the run.',
+        'Start a Signals scout run from a workflow. With a note, the scout handles what the note names first and skips its usual routine unless its skill says otherwise. Without a note, it runs as it does on its schedule. It files what it finds to your inbox.',
     icon_url: '/static/posthog-icon.svg',
     category: ['Custom'],
     code_language: 'hog',
@@ -55,7 +55,7 @@ return run
             secret: false,
             required: false,
             description:
-                'Optional. Tells the scout what triggered this run, so it can focus on it. Use identifiers such as a PR number or URL, for example PR #{event.properties.pr_number}, not free text like a title or body from the event. The scout sees the note for this run only. Notes longer than 1,000 characters are cut. Adding a note requires editor access to skills.',
+                'Optional. Tells the scout what triggered this run. The scout handles that first. Use identifiers such as a PR number or URL, for example PR #{event.properties.pr_number}, not free text like a title or body from the event. The scout sees the note for this run only. Notes longer than 1,000 characters are cut. Adding a note requires editor access to skills.',
         },
         {
             // The engine treats a 4xx as a step failure before the code above runs, unless the
