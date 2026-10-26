@@ -1,0 +1,83 @@
+import uuid
+
+from posthog.test.base import BaseTest
+from unittest.mock import patch
+
+from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.organization_domain import OrganizationDomain
+from posthog.models.organization_invite import OrganizationInvite
+from posthog.models.project import Project
+from posthog.models.team import Team
+from posthog.models.team.util import tombstone_organization_record
+from posthog.models.user import User
+
+
+class TestTombstoneOrganizationRecord(BaseTest):
+    def _bootstrap_doomed_org(self) -> tuple[Organization, User]:
+        user = User.objects.create_user("doomed-member@example.com", None, "Doomed")
+        organization, _, _ = Organization.objects.bootstrap(user, name="doomed org")
+        organization.customer_id = "cus_tombstone_test"
+        organization.save(update_fields=["customer_id"])
+        OrganizationInvite.objects.create(organization=organization, target_email="invitee@example.com")
+        OrganizationDomain.objects.create(organization=organization, domain="tombstone.example.com")
+        return organization, user
+
+    def test_replaces_the_row_with_a_deleted_marker(self):
+        organization, user = self._bootstrap_doomed_org()
+        original_created_at = organization.created_at
+
+        tombstone_organization_record(str(organization.id))
+
+        tombstone = Organization.objects.get(id=organization.id)
+        assert bool(tombstone.deleted) is True
+        assert tombstone.deleted_at is not None
+        assert tombstone.name == "doomed org"
+        assert tombstone.slug == f"deleted-{organization.id.hex}"
+        assert tombstone.customer_id == "cus_tombstone_test"
+        assert tombstone.created_at == original_created_at
+        assert tombstone.is_active is False
+        assert tombstone.is_not_active_reason == Organization.DeactivationReason.DELETED
+        assert tombstone.is_pending_deletion is True
+
+        assert not OrganizationMembership.objects.filter(organization_id=organization.id).exists()
+        assert not OrganizationInvite.objects.filter(organization_id=organization.id).exists()
+        assert not OrganizationDomain.objects.filter(organization_id=organization.id).exists()
+        assert not Project.objects.filter(organization_id=organization.id).exists()
+        assert not Team.objects.filter(organization_id=organization.id).exists()
+
+        user.refresh_from_db()
+        assert user.current_organization_id is None
+        assert user.current_team_id is None
+
+    def test_is_idempotent(self):
+        organization, _ = self._bootstrap_doomed_org()
+
+        tombstone_organization_record(str(organization.id))
+        first_deleted_at = Organization.objects.get(id=organization.id).deleted_at
+        tombstone_organization_record(str(organization.id))
+
+        assert Organization.objects.get(id=organization.id).deleted_at == first_deleted_at
+
+    def test_frees_the_slug_for_reuse(self):
+        organization, _ = self._bootstrap_doomed_org()
+        original_slug = organization.slug
+
+        tombstone_organization_record(str(organization.id))
+        successor = Organization.objects.create(name="doomed org")
+
+        assert successor.slug == original_slug
+
+    def test_missing_organization_is_a_noop(self):
+        tombstone_organization_record(str(uuid.uuid4()))
+
+    def test_does_not_enqueue_member_billing_sync(self):
+        organization, _ = self._bootstrap_doomed_org()
+
+        with (
+            patch("posthog.models.organization.is_cloud", return_value=True),
+            patch("posthog.tasks.sync_billing.sync_members_to_billing") as sync_mock,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            tombstone_organization_record(str(organization.id))
+
+        sync_mock.delay.assert_not_called()

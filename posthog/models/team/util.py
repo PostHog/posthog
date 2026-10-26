@@ -376,10 +376,45 @@ def delete_project_record(project_id: int) -> None:
     Project.objects.filter(id=project_id).delete()
 
 
-def delete_organization_record(organization_id: str) -> None:
+def tombstone_organization_record(organization_id: str) -> None:
+    """Cascade-delete the Organization row, then re-insert a minimal deleted marker.
+
+    Only the cascade removes every current and future org-scoped child row; the tombstone keeps
+    id/name/created_at/customer_id. bulk_create fires no signals, so the deletion workflow's
+    billing activity is the real-time flag path.
+    """
+    import uuid
+
+    from django.db import transaction
+    from django.utils import timezone
+
     from posthog.models.organization import Organization
 
-    Organization.objects.filter(id=organization_id).delete()
+    with transaction.atomic():
+        original = (
+            Organization.objects.filter(id=organization_id)
+            .values("name", "created_at", "customer_id", "deleted")
+            .first()
+        )
+        if original is None or original["deleted"]:
+            return
+        Organization.objects.filter(id=organization_id).delete()
+        now = timezone.now()
+        tombstone = Organization(
+            id=organization_id,
+            name=original["name"],
+            # Frees the original slug for reuse, exactly like the hard delete did.
+            slug=f"deleted-{uuid.UUID(str(organization_id)).hex}",
+            deleted=True,
+            deleted_at=now,
+            is_active=False,
+            is_not_active_reason=Organization.DeactivationReason.DELETED,
+            is_pending_deletion=True,
+            customer_id=original["customer_id"],
+        )
+        Organization.objects.bulk_create([tombstone])
+        # update() bypasses auto_now_add, pinning the original creation time.
+        Organization.objects.filter(id=organization_id).update(created_at=original["created_at"])
 
 
 can_enable_actor_on_events = False

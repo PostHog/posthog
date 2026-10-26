@@ -283,8 +283,11 @@ class OrganizationAdmin(admin.ModelAdmin):
         "sync_to_billing_display",
         "ai_training_opt_in_history_display",
         "trigger_deletion_display",
+        "deleted",
+        "deleted_at",
     ]
     search_fields = ("id", "name", "members__email", "team__api_token")
+    list_filter = ("deleted",)
     list_display = (
         "id",
         "name",

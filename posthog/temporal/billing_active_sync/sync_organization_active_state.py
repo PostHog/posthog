@@ -41,7 +41,7 @@ def sync_organization_active_state(organization_id: str) -> None:
         return
 
     organization = Organization.objects.filter(id=organization_id).first()
-    # A deleted org is deactivated; the reconciliation sweep skips ids this instance does not know.
+    # A tombstoned org has is_active=False; a missing row (deleted before tombstones shipped) is also deactivated.
     # is_active is nullable; the rest of the app treats only an explicit False as deactivated.
     deactivated = organization is None or organization.is_active is False
     BillingManager(license, None).set_organizations_deactivated([organization_id], deactivated=deactivated)

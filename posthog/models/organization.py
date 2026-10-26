@@ -24,7 +24,14 @@ from posthog.constants import INVITE_DAYS_VALIDITY, MAX_SLUG_LENGTH, AvailableFe
 from posthog.dataclasses import frozen
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.personal_api_key import PersonalAPIKey
-from posthog.models.utils import LowercaseSlugField, UUIDTModel, create_with_slug, generate_slug_candidates, sane_repr
+from posthog.models.utils import (
+    DeletedMetaFields,
+    LowercaseSlugField,
+    UUIDTModel,
+    create_with_slug,
+    generate_slug_candidates,
+    sane_repr,
+)
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
@@ -162,14 +169,19 @@ def default_is_ai_training_opted_in():
     return getattr(settings, "CLOUD_DEPLOYMENT", None) != "EU"
 
 
-class Organization(ModelActivityMixin, UUIDTModel):
+class Organization(ModelActivityMixin, DeletedMetaFields, UUIDTModel):
     class Meta:
         indexes = [
             models.Index(
                 fields=["id"],
                 condition=Q(is_active=False),
                 name="org_inactive_id_idx",
-            )
+            ),
+            models.Index(
+                fields=["id"],
+                condition=Q(deleted=True),
+                name="org_deleted_id_idx",
+            ),
         ]
         constraints = [
             models.UniqueConstraint(
@@ -207,6 +219,7 @@ class Organization(ModelActivityMixin, UUIDTModel):
             "Suspected PostHog Desktop abuse. Contact PostHog support if you think this is a mistake.",
             "Desktop abuse",
         )
+        DELETED = "This organization has been deleted.", "Deleted"
 
     members = models.ManyToManyField(
         "posthog.User",
@@ -988,7 +1001,8 @@ def sync_billing_on_membership_removal(sender, instance: OrganizationMembership,
     organization_id = str(instance.organization_id)
 
     def _sync_if_org_exists():
-        if Organization.objects.filter(id=organization_id).exists():
+        # A tombstoned org still has a row at commit time, but it has no members to sync.
+        if Organization.objects.filter(id=organization_id).exclude(deleted=True).exists():
             sync_members_to_billing.delay(organization_id)
 
     transaction.on_commit(_sync_if_org_exists)
@@ -1027,7 +1041,7 @@ def sync_billing_on_membership_save(sender, instance: OrganizationMembership, cr
     organization_id = str(instance.organization_id)
 
     def _sync_if_org_exists():
-        if Organization.objects.filter(id=organization_id).exists():
+        if Organization.objects.filter(id=organization_id).exclude(deleted=True).exists():
             sync_members_to_billing.delay(organization_id)
 
     transaction.on_commit(_sync_if_org_exists)

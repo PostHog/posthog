@@ -254,3 +254,23 @@ class TestSyncTasks(BaseTest):
         self._run_with_cloud(reconcile_organization_active_state)
 
         set_mock.assert_not_called()
+
+    @patch("ee.billing.billing_manager.BillingManager.set_organizations_deactivated")
+    @patch("ee.billing.billing_manager.BillingManager.get_deactivated_organizations")
+    def test_reconciliation_deactivates_a_tombstoned_organization(self, get_mock, set_mock):
+        tombstone = Organization.objects.create(name="tombstoned org", is_active=False, deleted=True)
+        get_mock.return_value = []
+
+        self._run_with_cloud(reconcile_organization_active_state)
+
+        set_mock.assert_called_once_with([str(tombstone.pk)], deactivated=True)
+
+    @patch("ee.billing.billing_manager.BillingManager.set_organizations_deactivated")
+    @patch("ee.billing.billing_manager.BillingManager.get_deactivated_organizations")
+    def test_reconciliation_never_reactivates_a_tombstone(self, get_mock, set_mock):
+        tombstone = Organization.objects.create(name="tombstoned org", is_active=False, deleted=True)
+        get_mock.return_value = [str(tombstone.pk)]
+
+        self._run_with_cloud(reconcile_organization_active_state)
+
+        set_mock.assert_not_called()
