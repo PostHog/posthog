@@ -130,9 +130,12 @@ async def submit_signal_metadata_updates(
             await asyncio.gather(*(handle.result() for handle in handles))
 
 
-async def publish_signal_spend(*, team_id: int, signal_id: str, wait_for_completion: bool = True) -> None:
+async def publish_signal_spend(
+    *, team_id: int, signal_id: str, wait_for_completion: bool = True, update_id: str | None = None
+) -> None:
     from temporalio.client import WithStartWorkflowOperation  # noqa: PLC0415 — keeps Temporal off Django startup
     from temporalio.common import WorkflowIDConflictPolicy  # noqa: PLC0415 — keeps Temporal off Django startup
+    from temporalio.service import RPCError, RPCStatusCode  # noqa: PLC0415 — keeps Temporal off Django startup
 
     from posthog.temporal.common.client import async_connect  # noqa: PLC0415 — keeps Temporal off Django startup
 
@@ -140,12 +143,21 @@ async def publish_signal_spend(*, team_id: int, signal_id: str, wait_for_complet
         await submit_signal_metadata_updates(team_id=team_id, signal_ids=[signal_id])
         return
     client = await asyncio.wait_for(async_connect(), timeout=5)
+    workflow_id = f"signal-spend-{team_id}-{signal_id}"
+    if update_id is not None:
+        try:
+            await client.get_workflow_handle(workflow_id).get_update_handle(update_id).result()
+            return
+        except RPCError as error:
+            if error.status != RPCStatusCode.NOT_FOUND:
+                raise
     await client.execute_update_with_start_workflow(
         "publish_spend",
+        id=update_id,
         start_workflow_operation=WithStartWorkflowOperation(
             "update-signal-spend",
             SignalSpendUpdate(team_id=team_id, signal_id=signal_id),
-            id=f"signal-spend-{team_id}-{signal_id}",
+            id=workflow_id,
             task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
             id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
         ),

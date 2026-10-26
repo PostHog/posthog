@@ -24,7 +24,11 @@ from products.signals.backend.spend import (
     submit_signal_metadata_updates,
 )
 from products.signals.backend.temporal.spend import UpdateSignalSpendWorkflow
-from products.signals.backend.temporal.summary import SignalReportSummaryWorkflow, check_report_task_settlement_activity
+from products.signals.backend.temporal.summary import (
+    SignalReportSummaryWorkflow,
+    check_report_task_settlement_activity,
+    publish_report_spend_activity,
+)
 from products.signals.backend.temporal.types import SignalReportSummaryWorkflowInputs
 from products.tasks.backend.logic.services.custom_prompt_multi_turn_runner import MultiTurnSession
 from products.tasks.backend.models import Task
@@ -56,6 +60,12 @@ class ResearchAndSettle:
     async def run(self, input: SignalReportSummaryWorkflowInputs) -> str:
         await workflow.execute_activity("research_and_end_session", input, start_to_close_timeout=timedelta(minutes=1))
         await SignalReportSummaryWorkflow()._wait_for_task_settlement(input)
+        await workflow.execute_activity(
+            publish_report_spend_activity,
+            input,
+            start_to_close_timeout=timedelta(minutes=1),
+            retry_policy=RetryPolicy(initial_interval=timedelta(seconds=1), maximum_attempts=2),
+        )
         return "research retained"
 
 
@@ -160,6 +170,7 @@ async def test_research_releases_shared_slot_before_waiting_for_task_settlement(
     signal_id = str(uuid4())
     researches = 0
     published = False
+    publications = 0
 
     @activity.defn(name="publish_task_spend")
     async def publish_task_spend(input: SignalSpendUpdate) -> None:
@@ -178,8 +189,9 @@ async def test_research_releases_shared_slot_before_waiting_for_task_settlement(
 
     @activity.defn(name="update_signal_spend_activity")
     async def write_metadata(input: SignalSpendUpdate) -> SignalSpendPublication:
-        nonlocal published
-        if publication_fails:
+        nonlocal published, publications
+        publications += 1
+        if publication_fails and publications == 1:
             raise ApplicationError("Kafka unavailable", non_retryable=True)
         published = True
         return SignalSpendPublication(
@@ -199,6 +211,7 @@ async def test_research_releases_shared_slot_before_waiting_for_task_settlement(
                 activities=[
                     research_and_end_session,
                     check_report_task_settlement_activity,
+                    publish_report_spend_activity,
                     write_metadata,
                     confirm_metadata,
                 ],
@@ -220,6 +233,7 @@ async def test_research_releases_shared_slot_before_waiting_for_task_settlement(
                     "products.signals.backend.temporal.summary.async_connect", new=AsyncMock(return_value=env.client)
                 ),
                 patch("products.signals.backend.temporal.summary.SignalSpend") as spend_model,
+                patch("products.signals.backend.temporal.summary.finish_report_spend"),
                 patch(
                     "products.signals.backend.temporal.summary.get_task_run",
                     return_value=SimpleNamespace(workflow_id=task_workflow_id),
@@ -243,4 +257,5 @@ async def test_research_releases_shared_slot_before_waiting_for_task_settlement(
                 )
                 assert result == "research retained"
                 assert researches == 1
-                assert published is not publication_fails
+                assert published
+                assert publications == 2

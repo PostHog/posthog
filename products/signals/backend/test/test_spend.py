@@ -814,9 +814,7 @@ class TestSignalSpend(BaseTest):
     def test_reset_discards_receipts_and_keeps_the_existing_table(self) -> None:
         migration = import_module("products.signals.backend.migrations.0204_reset_signal_spend")
         with override_settings(MIGRATION_MODULES={}):
-            state = MigrationLoader(connection).project_state(
-                [("signals", "0203_reviewer_exclusion")]
-            )
+            state = MigrationLoader(connection).project_state([("signals", "0203_reviewer_exclusion")])
         with connection.cursor() as cursor:
             cursor.execute("CREATE SCHEMA test_signal_spend_reset")
             cursor.execute("SET LOCAL search_path TO test_signal_spend_reset, public")

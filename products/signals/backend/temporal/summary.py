@@ -1582,7 +1582,15 @@ async def publish_report_spend_activity(input: SignalReportSummaryWorkflowInputs
         await database_sync_to_async(finish_report_spend)(
             team_id=input.team_id, report_id=input.report_id, signal_id=signal_id
         )
-        await publish_signal_spend(team_id=input.team_id, signal_id=signal_id)
+        # Release the shared activity slot between attempts so the metadata publisher can run.
+        await asyncio.wait_for(
+            publish_signal_spend(
+                team_id=input.team_id,
+                signal_id=signal_id,
+                update_id=f"{temporalio.activity.info().workflow_run_id}:{temporalio.activity.info().activity_id}",
+            ),
+            timeout=5,
+        )
 
 
 @temporalio.activity.defn
