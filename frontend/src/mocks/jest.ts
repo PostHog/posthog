@@ -14,7 +14,7 @@ import { Mocks, mocksToHandlers } from '~/mocks/utils'
 // still overrides them per test.
 const jestOnlyDefaultHandlers = mocksToHandlers({
     get: {
-        // teamLogic reloads the loaded team by id. The paginated floor is not a team.
+        // teamLogic and projectLogic reload the tab project by id, and the paginated floor is not a project.
         '/api/projects/:team_id/': MOCK_DEFAULT_TEAM,
         '/api/projects/:team_id/product_tours/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/integrations/': EMPTY_PAGINATED_RESPONSE,
