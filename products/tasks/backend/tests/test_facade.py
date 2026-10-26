@@ -1160,6 +1160,15 @@ class TestFacadeReadsAndMappers(TestCase):
         self.assertIn(stale_local.id, stale_ids)
         self.assertNotIn(fresh.id, stale_ids)
 
+        task.origin_product = Task.OriginProduct.SIGNAL_REPORT
+        task.save(update_fields=["origin_product"])
+        stale.state = {"github_recovery_deadline": (django_timezone.now() + timedelta(days=1)).isoformat()}
+        stale.save(update_fields=["state"])
+        self.assertNotIn(stale.id, facade.get_stale_queued_task_run_ids(older_than=timedelta(hours=24), limit=100))
+        stale.state = {"github_recovery_deadline": (django_timezone.now() - timedelta(seconds=1)).isoformat()}
+        stale.save(update_fields=["state"])
+        self.assertIn(stale.id, facade.get_stale_queued_task_run_ids(older_than=timedelta(hours=24), limit=100))
+
         # The dispatch reconciler and the 24h fail sweep must never see local (desktop-driven)
         # runs — re-dispatching one starts a cloud workflow that hijacks the live local session,
         # and failing one turns an idle desktop session into a bogus failure.

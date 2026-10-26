@@ -23,7 +23,9 @@ GITHUB_RECONNECT_REQUIRED_STATUSES = (
 )
 
 
-def get_team_github_readiness(team_id: int, *, verify: bool = False, team_only: bool = False) -> GitHubReadiness:
+def get_team_github_readiness(
+    team_id: int, *, verify: bool = False, team_only: bool = False, repository: str | None = None
+) -> GitHubReadiness:
     candidates: list[GitHubIntegrationBase] = [
         GitHubIntegration(row, source="github_readiness", priority=Priority.BATCH)
         for row in Integration.objects.filter(team_id=team_id, kind="github").order_by(
@@ -50,7 +52,12 @@ def get_team_github_readiness(team_id: int, *, verify: bool = False, team_only: 
     for github in candidates:
         readiness = github_readiness(github, verify=verify)
         if readiness.status == GitHubReadinessStatus.READY:
-            return readiness
+            if repository is None or any(
+                repo.get("full_name", "").casefold() == repository.casefold()
+                for repo in github.integration.repository_cache or []
+            ):
+                return readiness
+            readiness = GitHubReadiness(status=GitHubReadinessStatus.NO_REPOSITORIES, integration=github)
         if blocked.status == GitHubReadinessStatus.NOT_CONNECTED:
             blocked = readiness
     return blocked

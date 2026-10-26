@@ -26,6 +26,9 @@ from products.signals.backend.models import SignalReport
 from products.signals.backend.quota import self_driving_quota_gate
 from products.signals.backend.temporal.types import SignalReportSummaryWorkflowInputs
 from products.tasks.backend.facade.github_readiness import GITHUB_RECOVERY_WINDOW, get_team_github_readiness
+from products.tasks.backend.facade.github_recovery import (
+    resume_github_blocked_task_runs as resume_github_blocked_task_runs,
+)
 
 RECOVERY_BATCH_SIZE = 25
 
