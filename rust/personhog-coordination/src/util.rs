@@ -154,9 +154,12 @@ pub async fn run_lease_keepalive(
                 r = attempt => match r {
                     Ok(Ok(pair)) => break pair,
                     Ok(Err(e)) => e,
-                    Err(_) => Error::invalid_state(
-                        "keepalive stream establishment timed out".to_string(),
-                    ),
+                    Err(_) => {
+                        store.inner().observe_member_unresponsive();
+                        Error::invalid_state(
+                            "keepalive stream establishment timed out".to_string(),
+                        )
+                    }
                 },
             };
             counter!(
@@ -227,6 +230,13 @@ pub async fn run_lease_keepalive(
                     ))),
                 }
             };
+            match &outcome {
+                Ok(_) => store.inner().observe_member_outcome(Ok(())),
+                Err(e) => match e.etcd_error() {
+                    Some(etcd) => store.inner().observe_member_outcome(Err(etcd)),
+                    None => store.inner().observe_member_unresponsive(),
+                },
+            }
             match outcome {
                 Ok(true) => {
                     // The gap between confirmations is the headroom

@@ -12,6 +12,7 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { version = "0.7", features = ["rt"] }
+tonic = { version = "0.14", default-features = false }
 tracing = { workspace = true }
 
 [lints]
