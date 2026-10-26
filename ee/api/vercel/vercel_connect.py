@@ -24,8 +24,8 @@ from posthog.models.organization_integration import OrganizationIntegration
 from posthog.models.team import Team
 from posthog.models.user import User
 
-from ee.api.vercel.crypto import decrypt_payload, encrypt_payload, mark_token_used
-from ee.vercel.client import APIError, VercelAPIClient
+from ee.api.vercel.crypto import decrypt_payload, encrypt_payload, mark_token_used, release_used_token
+from ee.vercel.client import APIError, OAuthTokenResponse, VercelAPIClient
 
 logger = structlog.get_logger(__name__)
 
@@ -46,6 +46,7 @@ CONNECT_NONCE_COOKIE_PATH = "/api/vercel/connect"
 INSTALL_STATE_COOKIE_PREFIX = "__Host-ph_vercel_install_state_"
 MAX_PENDING_INSTALL_STATES = 5
 INSTALL_CONTINUATION_CACHE_PREFIX = "vercel_connect_install_next:"
+INSTALL_CONTINUATION_SALT = "vercel_connect_install"
 SESSION_INVALID_MESSAGE = "Session expired or invalid. Please try linking again from Vercel."
 _BROWSER_NONCE_KEY = "browser_nonce"
 
@@ -126,8 +127,22 @@ def _install_continuation_cache_key(state: str) -> str:
     return INSTALL_CONTINUATION_CACHE_PREFIX + hashlib.sha256(state.encode()).hexdigest()
 
 
-def _install_continuation(state: str) -> str:
-    return cache.get(_install_continuation_cache_key(state), "")
+def _save_install_continuation(state: str, continuation: dict) -> None:
+    cache.set(
+        _install_continuation_cache_key(state),
+        encrypt_payload(continuation, salt=INSTALL_CONTINUATION_SALT, jti=False),
+        timeout=CONNECT_SESSION_TIMEOUT,
+    )
+
+
+def _install_continuation(state: str) -> dict | None:
+    token = cache.get(_install_continuation_cache_key(state))
+    if not token:
+        return None
+    try:
+        return decrypt_payload(token, salt=INSTALL_CONTINUATION_SALT, ttl=CONNECT_SESSION_TIMEOUT)
+    except InvalidToken:
+        return None
 
 
 def _forget_install_continuation(state: str) -> None:
@@ -145,14 +160,13 @@ def _drop_excess_install_state_cookies(request: Request, response: HttpResponse)
         response.delete_cookie(name, path="/", samesite="Lax")
 
 
-def _redirect_through_vercel_install(request: Request, next_url: str) -> HttpResponse:
+def _redirect_through_vercel_install(request: Request, continuation: dict) -> HttpResponse:
     # A Marketplace install calls back without a state, so nothing ties its code to this browser. Vercel's
     # external install flow returns the state we send, and the state cookie ties that state to this browser.
     state = secrets.token_urlsafe(32)
     slug = quote(settings.VERCEL_INTEGRATION_SLUG, safe="")
     response = HttpResponseRedirect(f"https://vercel.com/integrations/{slug}/new?{urlencode({'state': state})}")
-    if next_url:
-        cache.set(_install_continuation_cache_key(state), next_url, timeout=CONNECT_SESSION_TIMEOUT)
+    _save_install_continuation(state, continuation)
     _drop_excess_install_state_cookies(request, response)
     response.set_cookie(
         _install_state_cookie_name(state),
@@ -198,6 +212,35 @@ def _require_install_state_from_this_browser(request: Request, state: str) -> No
         {"reason": reason, "integration": "vercel"},
     )
     raise exceptions.ValidationError(SESSION_INVALID_MESSAGE)
+
+
+def _require_same_vercel_user(continuation: dict, install_grant: OAuthTokenResponse) -> None:
+    if secrets.compare_digest(str(continuation.get("user_id", "")).encode(), install_grant.user_id.encode()):
+        return
+
+    capture_exception(
+        Exception("Vercel connect: install page returned a different Vercel user"),
+        {"reason": "install_user_mismatch", "integration": "vercel"},
+    )
+    raise exceptions.ValidationError(SESSION_INVALID_MESSAGE)
+
+
+def _exchange_code(code: str, client_id: str, client_secret: str, redirect_uri: str) -> OAuthTokenResponse:
+    token_response = VercelAPIClient(bearer_token=None).oauth_token_exchange(
+        code=code,
+        client_id=client_id,
+        client_secret=client_secret,
+        redirect_uri=redirect_uri,
+    )
+    if token_response.error:
+        logger.error(
+            "vercel_connect_token_exchange_failed",
+            error=token_response.error,
+            error_description=token_response.error_description,
+            integration="vercel",
+        )
+        raise exceptions.AuthenticationFailed("Vercel authentication failed")
+    return token_response
 
 
 def _mark_token_used(jti: str) -> bool:
@@ -315,38 +358,35 @@ class VercelConnectCallbackViewSet(viewsets.GenericViewSet):
         state = request.query_params.get("state")
         if not state:
             _reject_install_return_without_state(request)
-            return _redirect_through_vercel_install(request, next_url)
-        _require_install_state_from_this_browser(request, state)
-        next_url = _install_continuation(state) or next_url
-
-        client = VercelAPIClient(bearer_token=None)
-        token_response = client.oauth_token_exchange(
-            code=code,
-            client_id=client_id,
-            client_secret=client_secret,
-            redirect_uri=redirect_uri,
-        )
-
-        if token_response.error:
-            logger.error(
-                "vercel_connect_token_exchange_failed",
-                error=token_response.error,
-                error_description=token_response.error_description,
-                integration="vercel",
+            # Vercel waits for the import on the installation of this Marketplace code, so keep its grant.
+            # The install page code only proves which Vercel user holds this browser.
+            marketplace_grant = _exchange_code(code, client_id, client_secret, redirect_uri)
+            return _redirect_through_vercel_install(
+                request,
+                {
+                    "access_token": marketplace_grant.access_token,
+                    "token_type": marketplace_grant.token_type,
+                    "installation_id": marketplace_grant.installation_id,
+                    "user_id": marketplace_grant.user_id,
+                    "team_id": marketplace_grant.team_id,
+                    "configuration_id": configuration_id,
+                    "next_url": next_url,
+                },
             )
-            raise exceptions.AuthenticationFailed("Vercel authentication failed")
+        _require_install_state_from_this_browser(request, state)
+        continuation = _install_continuation(state)
+        if continuation is None:
+            capture_exception(
+                Exception("Vercel connect: install state has no Marketplace grant"),
+                {"reason": "missing_marketplace_grant", "integration": "vercel"},
+            )
+            raise exceptions.ValidationError(SESSION_INVALID_MESSAGE)
+
+        _require_same_vercel_user(continuation, _exchange_code(code, client_id, client_secret, redirect_uri))
 
         browser_nonce = secrets.token_urlsafe(32)
         session_token = _sign_connect_session(
-            {
-                "access_token": token_response.access_token,
-                "token_type": token_response.token_type,
-                "installation_id": token_response.installation_id,
-                "user_id": token_response.user_id,
-                "team_id": token_response.team_id,
-                "configuration_id": configuration_id,
-                "next_url": next_url,
-            },
+            {**continuation, "next_url": continuation.get("next_url") or next_url},
             browser_nonce=browser_nonce,
         )
 
@@ -516,6 +556,8 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
                 org_integration.delete()
                 for resource in resources.values():
                     resource.delete()
+            # The rollback leaves nothing behind, so the same session can try the link again.
+            release_used_token(jti)
             capture_exception(
                 VercelImportError("Vercel did not accept the resource import"),
                 {
