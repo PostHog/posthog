@@ -1,0 +1,52 @@
+from datetime import timedelta
+from typing import Any
+
+from posthog.test.base import BaseTest
+
+from django.utils import timezone
+
+from parameterized import parameterized
+
+from posthog.models.activity_logging.activity_log import ActivityLog
+
+from products.feature_flags.backend.facade.edit_history import FlagEditAuthor, flag_edits_since
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
+
+
+class TestFlagEditsSince(BaseTest):
+    @parameterized.expand(
+        [
+            ("person", True, False, None, FlagEditAuthor.PERSON),
+            ("agent", True, False, "agent", FlagEditAuthor.AGENT),
+            ("scheduled_change", True, False, "scheduled_change", FlagEditAuthor.SCHEDULED_CHANGE),
+            ("system", False, True, None, FlagEditAuthor.SYSTEM),
+            ("deleted_user", False, False, None, FlagEditAuthor.PERSON),
+            ("legacy_row_without_a_user", False, None, None, FlagEditAuthor.SYSTEM),
+            ("exposure_freeze_by_a_person", True, False, "experiment_exposure_frozen", FlagEditAuthor.PERSON),
+        ]
+    )
+    def test_author(
+        self, _name: str, has_user: bool, is_system: bool | None, job_type: str | None, expected: FlagEditAuthor
+    ) -> None:
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="authored")
+        detail: dict[str, Any] = {
+            "changes": [{"type": "FeatureFlag", "action": "changed", "field": "key", "before": "a", "after": "b"}]
+        }
+        if job_type:
+            detail["trigger"] = {"job_type": job_type, "job_id": "1", "payload": {}}
+        ActivityLog.objects.create(
+            team_id=self.team.id,
+            scope="FeatureFlag",
+            item_id=str(flag.id),
+            activity="updated",
+            user=self.user if has_user else None,
+            is_system=is_system,
+            detail=detail,
+        )
+
+        (edit,) = flag_edits_since(
+            team_id=self.team.id, feature_flag_id=flag.id, since=timezone.now() - timedelta(days=1), limit=2
+        )
+
+        assert edit.author == expected
+        assert edit.user_id == (self.user.id if has_user else None)
