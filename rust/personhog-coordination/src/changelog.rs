@@ -14,20 +14,36 @@ use crate::types::ChangelogConfig;
 use crate::util;
 
 /// Polls until `config/changelog` is seeded; it is the only source of the topic and count.
+/// Keeps polling through etcd being unreachable, and returns `None` once `shutdown` fires.
 pub async fn load_changelog_config(
     store: &PersonhogStore,
     poll_interval: Duration,
-) -> Result<ChangelogConfig> {
+    shutdown: &CancellationToken,
+) -> Result<Option<ChangelogConfig>> {
     let mut polls: u64 = 0;
     loop {
-        if let Some(config) = store.get_changelog_config().await? {
-            return Ok(config);
-        }
-        if polls.is_multiple_of(10) {
-            tracing::warn!("config/changelog is not seeded; waiting for the control plane");
+        let read = tokio::select! {
+            _ = shutdown.cancelled() => return Ok(None),
+            read = store.get_changelog_config() => read,
+        };
+        match read {
+            Ok(Some(config)) => return Ok(Some(config)),
+            Ok(None) if polls.is_multiple_of(10) => {
+                tracing::warn!("config/changelog is not seeded; waiting for the control plane");
+            }
+            Err(e) if util::is_etcd_unavailable(&e) => {
+                if polls.is_multiple_of(10) {
+                    tracing::warn!(error = %e, "etcd is unreachable; waiting to load config/changelog");
+                }
+            }
+            Err(e) => return Err(e),
+            Ok(None) => {}
         }
         polls += 1;
-        tokio::time::sleep(poll_interval).await;
+        tokio::select! {
+            _ = shutdown.cancelled() => return Ok(None),
+            _ = tokio::time::sleep(poll_interval) => {}
+        }
     }
 }
 

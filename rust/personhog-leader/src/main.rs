@@ -367,9 +367,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let store = Arc::new(PersonhogStore::new(etcd_store));
 
     // The same source the router hashes against.
-    let loaded = load_changelog_config(&store, CHANGELOG_BOOT_POLL_INTERVAL)
-        .await
-        .expect("Failed to load the changelog config from etcd");
+    let Some(loaded) = load_changelog_config(
+        &store,
+        CHANGELOG_BOOT_POLL_INTERVAL,
+        &changelog_handle.shutdown_token(),
+    )
+    .await
+    .expect("Failed to load the changelog config from etcd") else {
+        return Ok(());
+    };
     let changelog_topic = loaded.topic.clone();
     let num_partitions = loaded.partitions;
     let topic_partitions =

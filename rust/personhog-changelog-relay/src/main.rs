@@ -1,8 +1,9 @@
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
 use assignment_coordination::store::{EtcdStore, StoreConfig};
-use axum::{routing::get, Router};
+use axum::{http::StatusCode, routing::get, Router};
 use common_kafka::kafka_producer::{create_kafka_producer, spawn_bounded_flush_on_shutdown};
 use common_metrics::setup_metrics_routes;
 use envconfig::Envconfig;
@@ -67,6 +68,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ComponentOptions::new().is_observability(true),
     );
     let readiness = manager.readiness_handler();
+    let config_loaded = Arc::new(AtomicBool::new(false));
     let liveness = manager.liveness_handler();
     let monitor = manager.monitor_background();
 
@@ -75,9 +77,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Router::new()
             .route(
                 "/_readiness",
-                get(move || {
-                    let r = readiness.clone();
-                    async move { r.check().await }
+                get({
+                    let config_loaded = Arc::clone(&config_loaded);
+                    move || {
+                        let r = readiness.clone();
+                        let loaded = config_loaded.load(Ordering::SeqCst);
+                        async move {
+                            if loaded {
+                                r.check().await
+                            } else {
+                                StatusCode::SERVICE_UNAVAILABLE
+                            }
+                        }
+                    }
                 }),
             )
             .route("/_liveness", get(move || async move { liveness.check() })),
@@ -100,7 +112,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     })
     .await?;
     let store = Arc::new(PersonhogStore::new(store));
-    let loaded = load_changelog_config(&store, CHANGELOG_BOOT_POLL_INTERVAL).await?;
+    let Some(loaded) = load_changelog_config(
+        &store,
+        CHANGELOG_BOOT_POLL_INTERVAL,
+        &changelog_handle.shutdown_token(),
+    )
+    .await?
+    else {
+        return Ok(());
+    };
+    config_loaded.store(true, Ordering::SeqCst);
     // Retire waits only on the groups the config lists, so relaying under any
     // other group could see a generation deleted before it is read.
     if !loaded.retire_groups.contains(&config.kafka_consumer_group) {

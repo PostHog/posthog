@@ -24,16 +24,38 @@ pub fn new_handoff_id() -> String {
     format!("{}-{}", millis, Uuid::new_v4())
 }
 
-/// Record one supervisor-level failure against the consecutive budget;
-/// returns `false` when it is exhausted. Progress resets the count
-/// first, and INVARIANT: progress means *applied* work (a completed
-/// convergence, an applied snapshot or event) — never a read that
-/// changed nothing, which stays available in exactly the wedges the
-/// budget exists for. Measured rather than time-based, because a
-/// "healthy after N seconds" threshold exempts every failure detector
-/// slower than N.
+/// A supervisor's consecutive failures since its last applied work.
+#[derive(Debug, Default)]
+pub(crate) struct RunFailures {
+    /// Every failure; paces the backoff.
+    consecutive: u32,
+    /// Failures etcd answered; spends the budget.
+    budgeted: u32,
+}
+
+impl RunFailures {
+    pub(crate) fn consecutive(&self) -> u32 {
+        self.consecutive
+    }
+}
+
+/// Whether a coordination failure only says etcd could not be reached.
+/// A restart cannot fix that, so it does not spend the retry budget.
+pub(crate) fn is_etcd_unavailable(err: &Error) -> bool {
+    err.etcd_error()
+        .is_some_and(assignment_coordination::failover::is_member_level)
+}
+
+/// Record one supervisor-level failure; returns `false` when the budget is
+/// exhausted. Progress resets both counts first, and INVARIANT: progress
+/// means *applied* work (a completed convergence, an applied snapshot or
+/// event) — never a read that changed nothing, which stays available in
+/// exactly the wedges the budget exists for. Measured rather than
+/// time-based, because a "healthy after N seconds" threshold exempts every
+/// failure detector slower than N. Failures that only say etcd is
+/// unavailable back off but spend nothing.
 pub(crate) fn note_run_failure(
-    consecutive: &mut u32,
+    failures: &mut RunFailures,
     progress: &AtomicBool,
     budget: u32,
     component: &'static str,
@@ -41,9 +63,12 @@ pub(crate) fn note_run_failure(
     err: &Error,
 ) -> bool {
     if progress.swap(false, Ordering::SeqCst) {
-        *consecutive = 1;
-    } else {
-        *consecutive += 1;
+        *failures = RunFailures::default();
+    }
+    failures.consecutive += 1;
+    let etcd_unavailable = is_etcd_unavailable(err);
+    if !etcd_unavailable {
+        failures.budgeted += 1;
     }
     counter!(
         "personhog_coordination_run_restarts_total",
@@ -54,11 +79,13 @@ pub(crate) fn note_run_failure(
         component,
         name,
         error = %err,
-        consecutive = *consecutive,
+        consecutive = failures.consecutive,
+        budget_spent = failures.budgeted,
         budget,
+        etcd_unavailable,
         "coordination run failed; rebuilding in place while the data plane keeps serving"
     );
-    *consecutive < budget
+    failures.budgeted < budget
 }
 
 /// Log and count a coordination-run failure for a component with no
@@ -529,7 +556,7 @@ mod tests {
     use std::collections::HashSet;
     use std::sync::atomic::{AtomicBool, Ordering};
 
-    use super::{new_handoff_id, note_run_failure};
+    use super::{new_handoff_id, note_run_failure, RunFailures};
     use crate::error::Error;
 
     /// Losing the election lease ends a leadership term but says nothing
@@ -552,22 +579,22 @@ mod tests {
     #[test]
     fn applied_work_clears_the_failure_count() {
         let progress = AtomicBool::new(false);
-        let err = Error::invalid_state("etcd unreachable");
-        let mut consecutive = 0u32;
+        let err = Error::invalid_state("list_handoffs failed");
+        let mut failures = RunFailures::default();
 
         for attempt in 1..3 {
             assert!(
-                note_run_failure(&mut consecutive, &progress, 3, "pod", "p", &err),
+                note_run_failure(&mut failures, &progress, 3, "pod", "p", &err),
                 "attempt {attempt} is within budget"
             );
         }
 
         progress.store(true, Ordering::SeqCst);
         assert!(
-            note_run_failure(&mut consecutive, &progress, 3, "pod", "p", &err),
+            note_run_failure(&mut failures, &progress, 3, "pod", "p", &err),
             "applied work resets the count"
         );
-        assert_eq!(consecutive, 1);
+        assert_eq!(failures.consecutive(), 1);
     }
 
     /// And it must escalate when nothing succeeds in between — this is
@@ -577,10 +604,10 @@ mod tests {
     fn an_unbroken_run_of_failures_exhausts_the_budget() {
         let progress = AtomicBool::new(false);
         let err = Error::invalid_state("list_handoffs failed");
-        let mut consecutive = 0u32;
+        let mut failures = RunFailures::default();
 
         assert!(note_run_failure(
-            &mut consecutive,
+            &mut failures,
             &progress,
             2,
             "pod",
@@ -588,8 +615,44 @@ mod tests {
             &err
         ));
         assert!(
-            !note_run_failure(&mut consecutive, &progress, 2, "pod", "p", &err),
+            !note_run_failure(&mut failures, &progress, 2, "pod", "p", &err),
             "the budget is spent, so the caller must stop retrying"
+        );
+    }
+
+    #[test]
+    fn an_unreachable_etcd_backs_off_without_spending_the_budget() {
+        let progress = AtomicBool::new(false);
+        let unavailable: Error = etcd_client::Error::IoError(std::io::Error::from(
+            std::io::ErrorKind::ConnectionRefused,
+        ))
+        .into();
+        let mut failures = RunFailures::default();
+
+        for _ in 0..50 {
+            assert!(note_run_failure(
+                &mut failures,
+                &progress,
+                2,
+                "pod",
+                "p",
+                &unavailable
+            ));
+        }
+        assert_eq!(failures.consecutive(), 50, "the backoff still grows");
+
+        let wedge = Error::invalid_state("list_handoffs failed");
+        assert!(note_run_failure(
+            &mut failures,
+            &progress,
+            2,
+            "pod",
+            "p",
+            &wedge
+        ));
+        assert!(
+            !note_run_failure(&mut failures, &progress, 2, "pod", "p", &wedge),
+            "failures etcd answered still exhaust the budget"
         );
     }
 
