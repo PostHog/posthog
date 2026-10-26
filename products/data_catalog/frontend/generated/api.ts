@@ -384,7 +384,7 @@ export const dataCatalogMetricsRunCreate = async (
 }
 
 export const getDataCatalogMetricsBulkChangeOwnerCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/data_catalog/metrics/bulk-change-owner/`
+    return `/api/projects/${projectId}/data_catalog/metrics/bulk/change_owner/`
 }
 
 /**

@@ -529,7 +529,7 @@ class TestMetricLifecycleAPI(APIBaseTest):
     @parameterized.expand(
         [
             ("bulk_approve", "bulk_approve", {}),
-            ("bulk_change_owner", "bulk-change-owner", {"owner": None}),
+            ("bulk_change_owner", "bulk/change_owner", {"owner": None}),
         ]
     )
     def test_bulk_action_computes_drift_in_a_single_insight_query(
@@ -590,7 +590,7 @@ class TestMetricLifecycleAPI(APIBaseTest):
         theirs = self._other_team_metric("theirs")
 
         response = self.client.post(
-            f"{self.url}bulk-change-owner/",
+            f"{self.url}bulk/change_owner/",
             {"names": ["mrr", "arr", "theirs", "unheard_of"], "owner": "new.owner@example.com"},
             format="json",
         )
@@ -626,8 +626,8 @@ class TestMetricLifecycleAPI(APIBaseTest):
             ),
             ("delete_read_only", "bulk_delete", ["data_catalog:read"], status.HTTP_403_FORBIDDEN),
             ("delete_with_write_scope", "bulk_delete", ["data_catalog:write"], status.HTTP_200_OK),
-            ("change_owner_read_only", "bulk-change-owner", ["data_catalog:read"], status.HTTP_403_FORBIDDEN),
-            ("change_owner_with_write_scope", "bulk-change-owner", ["data_catalog:write"], status.HTTP_200_OK),
+            ("change_owner_read_only", "bulk/change_owner", ["data_catalog:read"], status.HTTP_403_FORBIDDEN),
+            ("change_owner_with_write_scope", "bulk/change_owner", ["data_catalog:write"], status.HTTP_200_OK),
         ]
     )
     def test_bulk_actions_enforce_token_scopes(
