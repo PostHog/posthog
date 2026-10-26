@@ -9,7 +9,7 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { AlertConditionType, InsightThresholdType, Node, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { ChartDisplayType, HogFunctionType, InsightLogicProps, InsightShortId } from '~/types'
+import { ChartDisplayType, FunnelVizType, HogFunctionType, InsightLogicProps, InsightShortId } from '~/types'
 
 import type { AlertType } from '../types'
 import {
@@ -523,5 +523,88 @@ describe('alert chart limits', () => {
             ],
         })
         expect(lines.map((line) => line.value)).toEqual([30])
+    })
+
+    it('uses the current comparison series when both periods carry compare=true', () => {
+        expect(
+            alertsToThresholdGoalLines([alert], {
+                query: { ...query, series: [] },
+                results: [
+                    { order: 0, compare: true, compare_label: 'current', data: [80, 120] },
+                    { order: 0, compare: true, compare_label: 'previous', data: [20, 40] },
+                ],
+            }).map((line) => line.value)
+        ).toEqual([100])
+    })
+
+    it.each([
+        ['conversion_from_start', 25],
+        ['conversion_from_previous', 15],
+    ])('scales a compared funnel %s limit to the current period bars', (metric, expected) => {
+        const funnelAlert = {
+            ...alert,
+            condition: { type: AlertConditionType.ABSOLUTE_VALUE },
+            threshold: { configuration: { type: InsightThresholdType.ABSOLUTE, bounds: { lower: 50 } } },
+            config: { type: 'FunnelsAlertConfig', metric },
+        } as AlertType
+        expect(
+            alertsToThresholdGoalLines([funnelAlert], {
+                query: { kind: NodeKind.FunnelsQuery, series: [], compareFilter: { compare: true } },
+                results: [
+                    { count: 100, compare_label: 'current', data: [] },
+                    { count: 60, compare_label: 'current', data: [] },
+                    { count: 20, compare_label: 'current', data: [] },
+                    { count: 200, compare_label: 'previous', data: [] },
+                    { count: 90, compare_label: 'previous', data: [] },
+                    { count: 30, compare_label: 'previous', data: [] },
+                ],
+            }).map((line) => line.value)
+        ).toEqual([expected])
+    })
+
+    it.each([
+        ['first_row', 100],
+        ['last_row', null],
+    ])('handles partial SQL results in %s order', (evaluation, expected) => {
+        const sqlAlert = { ...alert, config: { type: 'HogQLAlertConfig', column: 'count', evaluation } } as AlertType
+        const lines = alertsToThresholdGoalLines([sqlAlert], {
+            columns: [{ name: 'count', dataIndex: 0, type: { isNumerical: true } }],
+            rows: [[120], [80], [40]],
+            hasMore: true,
+        })
+        expect(lines.map((line) => line.value)).toEqual(expected == null ? [] : [expected])
+    })
+
+    it('omits a combined limit for funnel breakdown groups', () => {
+        const funnelAlert = {
+            ...alert,
+            condition: { type: AlertConditionType.ABSOLUTE_VALUE },
+            threshold: { configuration: { type: InsightThresholdType.ABSOLUTE, bounds: { lower: 50 } } },
+            config: { type: 'FunnelsAlertConfig', metric: 'conversion_from_start' },
+        } as AlertType
+        expect(
+            alertsToThresholdGoalLines([funnelAlert], {
+                query: { kind: NodeKind.FunnelsQuery, series: [], breakdownFilter: { breakdown: 'country' } },
+                results: [],
+            })
+        ).toEqual([])
+    })
+
+    it('does not use the first funnel breakdown group as a baseline for every group', () => {
+        const funnelAlert = {
+            ...alert,
+            config: { type: 'FunnelsAlertConfig', metric: 'conversion_from_start', check_ongoing_interval: true },
+        } as AlertType
+        expect(
+            alertsToThresholdGoalLines([funnelAlert], {
+                query: {
+                    kind: NodeKind.FunnelsQuery,
+                    series: [],
+                    funnelsFilter: { funnelVizType: FunnelVizType.Trends },
+                    breakdownFilter: { breakdown: 'country' },
+                },
+                results: [{ data: [20, 40] }, { data: [80, 100] }],
+            })
+        ).toEqual([])
     })
 })

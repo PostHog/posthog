@@ -133,11 +133,18 @@ export const alertsUnsupportedReason = (
 export type AlertChartContext =
     | {
           query: TrendsQuery | FunnelsQuery
-          results: { data: (number | null)[]; order?: number; compare?: boolean; count?: number }[]
+          results: {
+              data?: (number | null)[]
+              order?: number
+              compare?: boolean
+              compare_label?: 'current' | 'previous'
+              count?: number
+          }[]
       }
     | {
           columns: { name: string; dataIndex: number; type: { isNumerical: boolean } }[]
           rows: unknown[][]
+          hasMore?: boolean
       }
 
 function alertPreviousValue(alert: AlertType, context?: AlertChartContext): number | null {
@@ -146,6 +153,9 @@ function alertPreviousValue(alert: AlertType, context?: AlertChartContext): numb
     }
     if ('rows' in context) {
         if (!isHogQLAlertConfig(alert.config) || alert.config.evaluation === 'any_row') {
+            return null
+        }
+        if (context.hasMore && alert.config.evaluation === 'last_row') {
             return null
         }
         const columnName = alert.config.column
@@ -160,10 +170,12 @@ function alertPreviousValue(alert: AlertType, context?: AlertChartContext): numb
         const previous = raw == null ? null : Number(raw)
         return previous != null && Number.isFinite(previous) ? previous : null
     }
+    if (isFunnelsQuery(context.query) && hasBreakdownFilter(context.query.breakdownFilter)) {
+        return null
+    }
     const seriesIndex = isTrendsAlertConfig(alert.config) ? alert.config.series_index : 0
-    const matchingResults = context.results.filter(
-        (result, index) => !result.compare && (result.order ?? index) === seriesIndex
-    )
+    const currentResults = context.results.filter((result) => result.compare_label !== 'previous')
+    const matchingResults = currentResults.filter((result, index) => (result.order ?? index) === seriesIndex)
     if (matchingResults.length !== 1) {
         return null
     }
@@ -189,7 +201,12 @@ function funnelThresholdScale(alert: AlertType, context?: AlertChartContext): nu
     if (query.funnelsFilter?.funnelVizType === FunnelVizType.Trends) {
         return 1
     }
-    const step = alert.config.funnel_step ?? results.length - 1
+    if (hasBreakdownFilter(query.breakdownFilter)) {
+        return null
+    }
+    const currentSteps = results.filter((result) => result.compare_label !== 'previous')
+    const previousSteps = results.filter((result) => result.compare_label === 'previous')
+    const step = alert.config.funnel_step ?? currentSteps.length - 1
     const alertBase = alert.config.metric === 'conversion_from_previous' ? step - 1 : 0
     let chartBase = 0
     if (query.funnelsFilter?.funnelStepReference === 'previous' && step > 0) {
@@ -198,11 +215,14 @@ function funnelThresholdScale(alert: AlertType, context?: AlertChartContext): nu
             chartBase--
         }
     }
-    if (alertBase === chartBase) {
+    if (alertBase === chartBase && previousSteps.length === 0) {
         return 1
     }
-    const alertCount = results[alertBase]?.count
-    const chartCount = results[chartBase]?.count
+    const alertCount = currentSteps[alertBase]?.count
+    const chartCount =
+        previousSteps.length > 0
+            ? Math.max(currentSteps[0]?.count ?? 0, previousSteps[0]?.count ?? 0)
+            : currentSteps[chartBase]?.count
     if (alertCount == null || chartCount == null || chartCount <= 0) {
         return null
     }

@@ -261,6 +261,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
             insight?.id
                 ? alertsToThresholdGoalLines(alerts, {
                       columns,
+                      hasMore: !!response && 'hasMore' in response && response.hasMore === true,
                       rows:
                           response && 'results' in response && Array.isArray(response.results) ? response.results : [],
                   })

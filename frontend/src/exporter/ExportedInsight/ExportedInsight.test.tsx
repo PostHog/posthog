@@ -6,6 +6,7 @@ import { cleanup, waitFor } from '@testing-library/react'
 
 import { getHogChart, setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
 
+import { isInsightVizNode, isTrendsQuery } from '~/queries/utils'
 import { renderWithInsights } from '~/test/insight-testing'
 import { InsightModel } from '~/types'
 
@@ -62,12 +63,13 @@ describe('ExportedInsight', () => {
     })
 
     it.each([
-        ['trends', __trendsLineMulti, 'relative_increase', 'percentage', 0.25, 'TrendsAlertConfig'],
-        ['funnel', __funnel, 'absolute_value', 'absolute', 55, 'FunnelsAlertConfig'],
-        ['funnel trend', __funnelTrend, 'absolute_value', 'absolute', 55, 'FunnelsAlertConfig'],
+        ['trends', __trendsLineMulti, 'relative_increase', 'percentage', 0.25, 'TrendsAlertConfig', undefined],
+        ['hidden trends', __trendsLineMulti, 'relative_increase', 'percentage', 0.25, 'TrendsAlertConfig', false],
+        ['funnel', __funnel, 'absolute_value', 'absolute', 55, 'FunnelsAlertConfig', undefined],
+        ['funnel trend', __funnelTrend, 'absolute_value', 'absolute', 55, 'FunnelsAlertConfig', undefined],
     ])(
         'draws the %s alert limit in the export',
-        async (_name, fixture, condition, thresholdType, limit, configType) => {
+        async (_name, fixture, condition, thresholdType, limit, configType, showThresholdLines) => {
             const insight = structuredClone(fixture) as unknown as InsightModel
             insight.alerts = [
                 {
@@ -83,7 +85,11 @@ describe('ExportedInsight', () => {
                     },
                 },
             ] as unknown as InsightModel['alerts']
-            if (_name === 'trends') {
+            if (isInsightVizNode(insight.query) && isTrendsQuery(insight.query.source)) {
+                insight.query.source.trendsFilter = {
+                    ...insight.query.source.trendsFilter,
+                    showAlertThresholdLines: showThresholdLines,
+                }
                 insight.result = [{ ...(insight.result as Record<string, unknown>[])[0], data: [40, 60, 80, 120] }]
             }
             renderWithInsights({
@@ -96,11 +102,14 @@ describe('ExportedInsight', () => {
                 ),
             })
             await waitFor(() => {
-                expect(
-                    getHogChart()
-                        .referenceLines()
-                        .map((line) => line.label)
-                ).toContain('Sample limit Upper Threshold')
+                const lines = getHogChart()
+                    .referenceLines()
+                    .map((line) => line.label)
+                if (showThresholdLines === false) {
+                    expect(lines).toEqual([])
+                } else {
+                    expect(lines).toContain('Sample limit Upper Threshold')
+                }
             })
         }
     )
