@@ -394,6 +394,9 @@ export function NotebookComponentShell({
         if (!jupyterStore || !isJupyterEditFocusRequested) {
             return
         }
+        if (nodeRef.current.props.hideInput === true) {
+            updateProps({ hideInput: undefined })
+        }
         const deadline = Date.now() + EDIT_FOCUS_TIMEOUT_MS
         let timer = 0
         const tryFocus = (): void => {
@@ -618,6 +621,8 @@ export function NotebookComponentShell({
         const isRunning = !!runHandler?.isRunning
         const executionCount = runHandler?.executionCount ?? null
         const canEditCells = mode === 'edit'
+        const showInput = node.props.hideInput !== true
+        const showOutput = componentPanels.results || !canToggleComponentPanels
         return (
             <div
                 className={clsx(
@@ -664,35 +669,64 @@ export function NotebookComponentShell({
                 ) : null}
                 <NotebookComponentToolbarExtrasContext.Provider value={setToolbarExtras}>
                     <ComponentPanelContext.Provider value={componentPanelState}>
-                        <div className="MarkdownNotebook__jupyter-input">
+                        {showInput ? (
+                            <div className="MarkdownNotebook__jupyter-input">
+                                <div
+                                    className="MarkdownNotebook__jupyter-prompt MarkdownNotebook__jupyter-prompt--input"
+                                    title={isRunning ? 'Running' : undefined}
+                                >
+                                    {formatJupyterInputPrompt(isRunning, executionCount)}
+                                </div>
+                                <div className="MarkdownNotebook__jupyter-input-area">
+                                    {errors.length ? (
+                                        <div className="MarkdownNotebook__component-errors">
+                                            {errors.map((error) => (
+                                                <div key={error}>{error}</div>
+                                            ))}
+                                        </div>
+                                    ) : null}
+                                    {EditComponent ? (
+                                        <NotebookComponentPanelErrorBoundary node={node} panel="filters">
+                                            <EditComponent
+                                                node={node}
+                                                mode={canEditCells ? 'edit' : 'view'}
+                                                notebookMode={mode}
+                                                updateProps={updateProps}
+                                                deleteNode={deleteNode}
+                                            />
+                                        </NotebookComponentPanelErrorBoundary>
+                                    ) : null}
+                                </div>
+                            </div>
+                        ) : null}
+                        {canEditCells && (showInput || !showOutput) ? (
                             <div
-                                className="MarkdownNotebook__jupyter-prompt MarkdownNotebook__jupyter-prompt--input"
-                                title={isRunning ? 'Running' : undefined}
+                                className="MarkdownNotebook__jupyter-visibility-controls"
+                                onKeyDown={(event) => event.stopPropagation()}
                             >
-                                {formatJupyterInputPrompt(isRunning, executionCount)}
-                            </div>
-                            <div className="MarkdownNotebook__jupyter-input-area">
-                                {errors.length ? (
-                                    <div className="MarkdownNotebook__component-errors">
-                                        {errors.map((error) => (
-                                            <div key={error}>{error}</div>
-                                        ))}
-                                    </div>
+                                <LemonButton
+                                    size="xxsmall"
+                                    noPadding
+                                    aria-label={showInput ? 'Hide input' : 'Show input'}
+                                    data-attr="notebook-jupyter-toggle-input"
+                                    onClick={() => updateProps({ hideInput: showInput ? true : undefined })}
+                                >
+                                    {showInput ? 'Hide' : 'Show in'}
+                                </LemonButton>
+                                {!showOutput ? (
+                                    <LemonButton
+                                        size="xxsmall"
+                                        noPadding
+                                        aria-label="Show output"
+                                        data-attr="notebook-jupyter-show-output"
+                                        onClick={() => toggleComponentPanel('results')}
+                                    >
+                                        Show out
+                                    </LemonButton>
                                 ) : null}
-                                {EditComponent ? (
-                                    <NotebookComponentPanelErrorBoundary node={node} panel="filters">
-                                        <EditComponent
-                                            node={node}
-                                            mode={canEditCells ? 'edit' : 'view'}
-                                            notebookMode={mode}
-                                            updateProps={updateProps}
-                                            deleteNode={deleteNode}
-                                        />
-                                    </NotebookComponentPanelErrorBoundary>
-                                ) : null}
                             </div>
-                        </div>
-                        {componentPanels.results || !canToggleComponentPanels ? (
+                        ) : null}
+                        {showOutput ? (
                             <div className="MarkdownNotebook__jupyter-output">
                                 {ViewComponent ? (
                                     <NotebookComponentPanelErrorBoundary node={node} panel="results">
@@ -708,17 +742,34 @@ export function NotebookComponentShell({
                                     <UnknownComponentView node={node} />
                                 )}
                             </div>
-                        ) : (
-                            <button
-                                type="button"
-                                className="MarkdownNotebook__jupyter-output-collapsed"
-                                aria-label="Show output"
-                                title="Show output (O)"
-                                onClick={() => toggleComponentPanel('results')}
+                        ) : null}
+                        {canEditCells && showOutput ? (
+                            <div
+                                className="MarkdownNotebook__jupyter-visibility-controls"
+                                onKeyDown={(event) => event.stopPropagation()}
                             >
-                                …
-                            </button>
-                        )}
+                                <LemonButton
+                                    size="xxsmall"
+                                    noPadding
+                                    aria-label="Hide output"
+                                    data-attr="notebook-jupyter-hide-output"
+                                    onClick={() => toggleComponentPanel('results')}
+                                >
+                                    Hide
+                                </LemonButton>
+                                {!showInput ? (
+                                    <LemonButton
+                                        size="xxsmall"
+                                        noPadding
+                                        aria-label="Show input"
+                                        data-attr="notebook-jupyter-show-input"
+                                        onClick={() => updateProps({ hideInput: undefined })}
+                                    >
+                                        Show in
+                                    </LemonButton>
+                                ) : null}
+                            </div>
+                        ) : null}
                     </ComponentPanelContext.Provider>
                 </NotebookComponentToolbarExtrasContext.Provider>
                 {canEditCells ? (

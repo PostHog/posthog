@@ -2569,21 +2569,14 @@ button.MarkdownNotebook__component-title:focus-visible {
     color: var(--color-text-error);
 }
 
-.MarkdownNotebook__jupyter-output-collapsed {
-    display: block;
-    width: calc(100% - var(--jupyter-prompt-width));
-    height: 0.75rem;
-    margin: 0.25rem 0 0 var(--jupyter-prompt-width);
-    font-size: 0.75rem;
-    line-height: 0.5rem;
-    color: var(--color-text-secondary);
-    cursor: pointer;
-    background: var(--jupyter-editor-background);
-    border: none;
-    border-radius: 2px;
+.MarkdownNotebook__jupyter-visibility-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin: 0.125rem 0 0.25rem var(--jupyter-prompt-width);
 
-    &:hover {
-        background: var(--jupyter-table-hover);
+    .LemonButton {
+        color: var(--color-text-secondary);
     }
 }
 

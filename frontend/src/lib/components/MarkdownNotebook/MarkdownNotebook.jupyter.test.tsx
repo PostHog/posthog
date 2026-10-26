@@ -72,10 +72,11 @@ function renderJupyterNotebook(markdown: string): {
     cell: (index: number) => HTMLElement
     editor: (index: number) => HTMLTextAreaElement
     sink: () => HTMLElement
+    unmount: () => void
 } {
     runs.length = 0
     const onChange = jest.fn()
-    const { container } = render(
+    const { container, unmount } = render(
         createElement(MarkdownNotebook, {
             value: markdown,
             onChange,
@@ -88,6 +89,7 @@ function renderJupyterNotebook(markdown: string): {
         container.querySelectorAll<HTMLElement>('[data-attr="notebook-jupyter-cell"]')[index]
     return {
         container,
+        unmount,
         latest: () => (onChange.mock.calls.at(-1)?.[0] as string | undefined) ?? markdown,
         cell,
         editor: (index) => cell(index).querySelector('[data-attr="cell-editor"]') as HTMLTextAreaElement,
@@ -323,6 +325,40 @@ describe('MarkdownNotebook in Jupyter mode', () => {
         expect(notebook.latest()).toEqual(
             '# Title\n\nIntro\n\n<Py code="a = 1" />\n\n<Py code="b = 2" />\n\n\nOne\n\nTwo'
         )
+    })
+
+    it.each(['Py', 'Sql'])('hides and restores %s input and output independently across reloads', async (tag) => {
+        const notebook = renderJupyterNotebook(`# Title\n\n<${tag} code="original source" />`)
+        fireEvent.click(within(notebook.cell(0)).getByLabelText('Hide input'))
+        expect(notebook.editor(0)).toBeNull()
+        expect(within(notebook.cell(0)).getByText('output')).toBeTruthy()
+        fireEvent.click(within(notebook.cell(0)).getByLabelText('Show input'))
+        expect(notebook.editor(0).value).toBe('original source')
+        fireEvent.click(within(notebook.cell(0)).getByLabelText('Hide input'))
+
+        fireEvent.click(within(notebook.cell(0)).getByLabelText('Hide output'))
+        expect(within(notebook.cell(0)).queryByText('output')).toBeNull()
+        const saved = notebook.latest()
+        notebook.unmount()
+
+        const reopened = renderJupyterNotebook(saved)
+        expect(reopened.editor(0)).toBeNull()
+        expect(within(reopened.cell(0)).queryByText('output')).toBeNull()
+        fireEvent.click(within(reopened.cell(0)).getByLabelText('Show input'))
+        expect(reopened.editor(0).value).toBe('original source')
+        expect(within(reopened.cell(0)).queryByText('output')).toBeNull()
+        fireEvent.click(within(reopened.cell(0)).getByLabelText('Show output'))
+        expect(within(reopened.cell(0)).getByText('output')).toBeTruthy()
+
+        act(() => reopened.cell(0).focus())
+        press(reopened.cell(0), 'o')
+        expect(within(reopened.cell(0)).getByLabelText('Show output')).toBeTruthy()
+        fireEvent.click(within(reopened.cell(0)).getByLabelText('Show output'))
+        fireEvent.click(within(reopened.cell(0)).getByLabelText('Hide input'))
+        act(() => reopened.cell(0).focus())
+        press(reopened.cell(0), 'Enter')
+        await waitFor(() => expect(document.activeElement).toBe(reopened.editor(0)))
+        expect(reopened.editor(0).value).toBe('original source')
     })
 
     it('never turns keys typed in a code editor into cell commands', () => {
