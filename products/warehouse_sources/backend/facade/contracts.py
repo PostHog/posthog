@@ -338,3 +338,58 @@ class UploadReadSettings:
 
     columns: dict[str, Any]
     allow_double_quotes: bool | None = None
+
+
+class WarehouseMigrationKeyRejectedError(ValueError):
+    """The vendor refused the API key."""
+
+
+class WarehouseMigrationVendorUnreachableError(ValueError):
+    """The vendor API could not be reached to check the API key."""
+
+
+class WarehouseMigrationBusyError(ValueError):
+    """The migration is already reading the vendor account."""
+
+
+class WarehouseMigrationItemClaimedError(ValueError):
+    """An apply has already claimed or finished this migration item."""
+
+
+@dataclass(frozen=True)
+class WarehouseMigrationItemCounts:
+    as_is: int
+    caveats: int
+    unsupported: int
+    applied: int
+    skipped: int
+
+
+@dataclass(frozen=True)
+class WarehouseMigration:
+    """One import of a vendor account. The vendor key never leaves the product."""
+
+    id: UUID
+    provider: str
+    status: str
+    account_name: str
+    crawled_at: datetime | None
+    latest_error: str
+    created_at: datetime
+    item_counts: WarehouseMigrationItemCounts
+
+
+@dataclass(frozen=True)
+class WarehouseMigrationItem:
+    id: UUID
+    migration_id: UUID
+    vendor_connection_id: str
+    vendor_service: str
+    name: str
+    verdict: str
+    caveats: list[str]
+    # The planned PostHog source as stored JSON, or None when the connection cannot move.
+    proposal: dict[str, Any] | None
+    status: str
+    external_data_source_id: UUID | None
+    error: str

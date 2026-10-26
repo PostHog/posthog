@@ -1,95 +1,83 @@
-from collections import Counter
 from typing import Any, cast
+from uuid import UUID
 
 from django.conf import settings
-from django.db.models import Count, QuerySet
 
-from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
-from rest_framework import exceptions, mixins, serializers, status, viewsets
+from drf_spectacular.utils import OpenApiParameter, extend_schema
+from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
-from rest_framework_dataclasses.serializers import DataclassSerializer
 
+from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.user import User
 
-from products.warehouse_sources.backend.migration.fivetran.client import (
-    FivetranAPIError,
-    FivetranAuthError,
-    FivetranClient,
-    FivetranCredentials,
-)
-from products.warehouse_sources.backend.migration.flags import is_migration_import_enabled
-from products.warehouse_sources.backend.migration.types import (
-    ItemProposal,
-    ProposedDestination,
-    ProposedRowFilter,
-    ProposedSchema,
-)
-from products.warehouse_sources.backend.models.warehouse_migration import WarehouseMigration, WarehouseMigrationItem
-from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.crawl_warehouse_migration import (
-    start_crawl,
+from products.warehouse_sources.backend.facade import (
+    contracts,
+    warehouse_migration as migrations,
 )
 
+_UUID_PATTERN = "[0-9a-f-]+"
 
-class ProposedRowFilterSerializer(DataclassSerializer):
+
+class ProposedRowFilterSerializer(serializers.Serializer):
     # A plain string: generated clients cannot name enum members like `>=`.
     operator = serializers.CharField(help_text="One of `>`, `>=`, `<`, `<=`, `=`, `!=`, `IN`, `NOT IN`.")
-
-    class Meta:
-        dataclass = ProposedRowFilter
-        extra_kwargs = {
-            "column": {"help_text": "Column the filter applies to."},
-            "values": {"help_text": "One value, or several for `IN` and `NOT IN`."},
-        }
+    column = serializers.CharField(help_text="Column the filter applies to.")
+    values = serializers.ListField(
+        child=serializers.CharField(), help_text="One value, or several for `IN` and `NOT IN`."
+    )
 
 
-class ProposedSchemaSerializer(DataclassSerializer):
+class ProposedSchemaSerializer(serializers.Serializer):
+    name = serializers.CharField(help_text="PostHog table name.")
+    should_sync = serializers.BooleanField(help_text="Whether the table syncs.")
+    sync_type = serializers.CharField(
+        allow_null=True, help_text="Planned sync type. Null means PostHog picks its default for the table."
+    )
+    disabled_columns = serializers.ListField(
+        child=serializers.CharField(), help_text="Columns Fivetran skipped, which PostHog skips too."
+    )
     row_filters = ProposedRowFilterSerializer(many=True, help_text="Row filters copied from Fivetran.")
-
-    class Meta:
-        dataclass = ProposedSchema
-        extra_kwargs = {
-            "name": {"help_text": "PostHog table name."},
-            "should_sync": {"help_text": "Whether the table syncs."},
-            "sync_type": {"help_text": "Planned sync type. Null means PostHog picks its default for the table."},
-            "disabled_columns": {"help_text": "Columns Fivetran skipped, which PostHog skips too."},
-        }
+    alternative_names = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Names to try, in order, when the source does not discover a table called `name`.",
+    )
 
 
-class ProposedDestinationSerializer(DataclassSerializer):
-    class Meta:
-        dataclass = ProposedDestination
-        extra_kwargs = {
-            "type": {"help_text": "Destination type, for example `Snowflake` or `BigQuery`."},
-            "config": {"help_text": "Non-secret destination settings copied from Fivetran."},
-        }
+class ProposedDestinationSerializer(serializers.Serializer):
+    type = serializers.CharField(help_text="Destination type, for example `Snowflake` or `BigQuery`.")
+    config = serializers.DictField(help_text="Non-secret destination settings copied from Fivetran.")
 
 
-class ItemProposalSerializer(DataclassSerializer):
-    schemas = ProposedSchemaSerializer(many=True, help_text="Tables to sync, with their planned sync settings.")
+class ItemProposalSerializer(serializers.Serializer):
+    source_type = serializers.CharField(help_text="The PostHog source type this connection becomes.")
+    prefix = serializers.CharField(
+        help_text="Table name prefix for the new source, taken from the Fivetran connection name."
+    )
+    prefill = serializers.DictField(
+        help_text="Non-secret connection settings copied from Fivetran, shaped like the source payload."
+    )
+    schemas = ProposedSchemaSerializer(
+        many=True,
+        allow_null=True,
+        help_text="Tables to sync, with their planned sync settings. Null means PostHog uses its default tables.",
+    )
+    sync_frequency = serializers.CharField(help_text="Planned sync frequency, matched to the Fivetran schedule.")
+    sync_time_of_day = serializers.CharField(
+        allow_null=True, help_text="UTC time of day for daily syncs, in HH:MM:SS format."
+    )
     destination = ProposedDestinationSerializer(
         allow_null=True, help_text="Suggested non-PostHog destination, matched to the Fivetran destination."
     )
-
-    class Meta:
-        dataclass = ItemProposal
-        extra_kwargs = {
-            "source_type": {"help_text": "The PostHog source type this connection becomes."},
-            "prefix": {"help_text": "Table name prefix for the new source, taken from the Fivetran connection name."},
-            "prefill": {
-                "help_text": "Non-secret connection settings copied from Fivetran, keyed by PostHog field name."
-            },
-            "sync_frequency": {"help_text": "Planned sync frequency, matched to the Fivetran schedule."},
-            "sync_time_of_day": {"help_text": "UTC time of day for daily syncs, in HH:MM:SS format."},
-        }
+    start_paused = serializers.BooleanField(
+        help_text="Whether every table starts with syncing off, because the connection is paused in Fivetran."
+    )
 
 
 class WarehouseMigrationCreateSerializer(serializers.Serializer):
-    provider = serializers.ChoiceField(
-        choices=WarehouseMigration.Provider.choices, help_text="The ETL vendor to import from."
-    )
+    provider = serializers.ChoiceField(choices=migrations.PROVIDER_CHOICES, help_text="The ETL vendor to import from.")
     api_key = serializers.CharField(write_only=True, help_text="Read-only API key for the vendor account.")
     api_secret = serializers.CharField(write_only=True, help_text="Secret that belongs to the API key.")
 
@@ -102,98 +90,65 @@ class WarehouseMigrationItemCountsSerializer(serializers.Serializer):
     skipped = serializers.IntegerField(help_text="Connections the user chose not to move.")
 
 
-class WarehouseMigrationSerializer(serializers.ModelSerializer):
-    item_counts = serializers.SerializerMethodField(help_text="How many connections fall into each group.")
-
-    class Meta:
-        model = WarehouseMigration
-        fields = ["id", "provider", "status", "account_name", "crawled_at", "latest_error", "created_at", "item_counts"]
-        read_only_fields = fields
-        extra_kwargs = {
-            "id": {"help_text": "Migration ID."},
-            "provider": {"help_text": "The ETL vendor this migration imports from."},
-            "status": {
-                "help_text": "`pending` and `crawling` mean the vendor account is still being read. "
-                "`ready` means the items are planned. `failed` means reading the account failed; see `latest_error`."
-            },
-            "account_name": {"help_text": "Name of the vendor account."},
-            "crawled_at": {"help_text": "When the vendor account was last read."},
-            "latest_error": {"help_text": "Why the last read failed, if it did."},
-            "created_at": {"help_text": "When the migration was started."},
-        }
-
-    @extend_schema_field(WarehouseMigrationItemCountsSerializer)
-    def get_item_counts(self, migration: WarehouseMigration) -> dict[str, int]:
-        counts: Counter[str] = Counter()
-        rows = (
-            WarehouseMigrationItem.objects.for_team(migration.team_id)
-            .filter(migration=migration)
-            .values("status", "verdict")
-            .annotate(count=Count("id"))
-        )
-        for row in rows:
-            counts[row["status"]] += row["count"]
-            # Verdict counts cover only the connections still left to move.
-            if row["status"] not in (WarehouseMigrationItem.Status.APPLIED, WarehouseMigrationItem.Status.SKIPPED):
-                counts[row["verdict"]] += row["count"]
-        return {key: counts[key] for key in ("as_is", "caveats", "unsupported", "applied", "skipped")}
+class WarehouseMigrationSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="Migration ID.")
+    provider = serializers.ChoiceField(
+        choices=migrations.PROVIDER_CHOICES, help_text="The ETL vendor this migration imports from."
+    )
+    status = serializers.ChoiceField(
+        choices=migrations.STATUS_CHOICES,
+        help_text="`pending` and `crawling` mean the vendor account is still being read. "
+        "`ready` means the items are planned. `failed` means reading the account failed; see `latest_error`.",
+    )
+    account_name = serializers.CharField(help_text="Name of the vendor account.")
+    crawled_at = serializers.DateTimeField(allow_null=True, help_text="When the vendor account was last read.")
+    latest_error = serializers.CharField(help_text="Why the last read failed, if it did.")
+    created_at = serializers.DateTimeField(help_text="When the migration was started.")
+    item_counts = WarehouseMigrationItemCountsSerializer(help_text="How many connections fall into each group.")
 
 
-class WarehouseMigrationItemSerializer(serializers.ModelSerializer):
+class WarehouseMigrationItemSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="Item ID. Pass it to the apply and skip actions.")
+    vendor_connection_id = serializers.CharField(help_text="The connection ID in the vendor account.")
+    vendor_service = serializers.CharField(
+        help_text="The vendor's connector type, for example `postgres` or `hubspot`."
+    )
+    name = serializers.CharField(help_text="The connection name in the vendor account.")
+    verdict = serializers.ChoiceField(
+        choices=migrations.ITEM_VERDICT_CHOICES,
+        help_text="Whether the connection moves as it is, moves with caveats, or is not supported.",
+    )
     caveats = serializers.ListField(
         child=serializers.CharField(), help_text="Differences between Fivetran and PostHog for this connection."
     )
-    proposal = serializers.SerializerMethodField(
-        help_text="What PostHog creates for this connection. Null when the connection is not supported."
+    proposal = ItemProposalSerializer(
+        allow_null=True,
+        help_text="What PostHog creates for this connection. Null when the connection is not supported.",
     )
+    status = serializers.ChoiceField(
+        choices=migrations.ITEM_STATUS_CHOICES,
+        help_text="`pending` until the source is created (`applied`) or the user skips it.",
+    )
+    external_data_source_id = serializers.UUIDField(
+        allow_null=True, help_text="The PostHog source created for this connection, if any."
+    )
+    error = serializers.CharField(help_text="Why the last apply attempt failed, if it did.")
 
-    class Meta:
-        model = WarehouseMigrationItem
-        fields = [
-            "id",
-            "vendor_connection_id",
-            "vendor_service",
-            "name",
-            "verdict",
-            "caveats",
-            "proposal",
-            "status",
-            "external_data_source_id",
-            "error",
-        ]
-        read_only_fields = fields
-        extra_kwargs = {
-            "id": {"help_text": "Item ID. Pass it to the apply and skip actions."},
-            "vendor_connection_id": {"help_text": "The connection ID in the vendor account."},
-            "vendor_service": {"help_text": "The vendor's connector type, for example `postgres` or `hubspot`."},
-            "name": {"help_text": "The connection name in the vendor account."},
-            "verdict": {"help_text": "Whether the connection moves as it is, moves with caveats, or is not supported."},
-            "status": {"help_text": "`pending` until the source is created (`applied`) or the user skips it."},
-            "external_data_source_id": {"help_text": "The PostHog source created for this connection, if any."},
-            "error": {"help_text": "Why the last apply attempt failed, if it did."},
-        }
 
-    @extend_schema_field(ItemProposalSerializer(allow_null=True))
-    def get_proposal(self, item: WarehouseMigrationItem) -> dict[str, Any] | None:
-        if item.proposal is None:
-            return None
-        return cast(dict[str, Any], ItemProposalSerializer(ItemProposal.from_json(item.proposal)).data)
+class WarehouseMigrationConnectLinkQuerySerializer(serializers.Serializer):
+    provider = serializers.ChoiceField(choices=migrations.PROVIDER_CHOICES, help_text="The ETL vendor to import from.")
 
 
 class WarehouseMigrationConnectLinkSerializer(serializers.Serializer):
-    provider = serializers.ChoiceField(choices=WarehouseMigration.Provider.choices, help_text="The ETL vendor.")
+    provider = serializers.ChoiceField(choices=migrations.PROVIDER_CHOICES, help_text="The ETL vendor.")
     connect_url = serializers.URLField(help_text="Link the user opens to enter their vendor API key in PostHog.")
     instructions = serializers.CharField(help_text="What the agent should tell the user and do next.")
 
 
-class WarehouseMigrationViewSet(
-    TeamAndOrgViewSetMixin,
-    mixins.CreateModelMixin,
-    mixins.ListModelMixin,
-    mixins.RetrieveModelMixin,
-    mixins.DestroyModelMixin,
-    viewsets.GenericViewSet,
-):
+_ITEM_ID = OpenApiParameter("item_id", str, OpenApiParameter.PATH, description="Item ID.")
+
+
+class WarehouseMigrationViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """Import a team's Fivetran setup and plan the PostHog sources that replace it."""
 
     scope_object = "external_data_source"
@@ -201,101 +156,89 @@ class WarehouseMigrationViewSet(
     requires_resource_level_access = True
     scope_object_write_actions = ["create", "destroy", "refresh", "skip_item"]
     scope_object_read_actions = ["list", "retrieve", "items", "connect_link"]
-    # `.unscoped()` is import-safe; the mixin scopes every request by team_id.
-    queryset = WarehouseMigration.objects.unscoped().all()
-    serializer_class = WarehouseMigrationSerializer
+    # A non-UUID id gets a 404 instead of a lookup error.
+    lookup_value_regex = _UUID_PATTERN
 
     def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
         super().initial(request, *args, **kwargs)
-        if not is_migration_import_enabled(self.team):
+        if not migrations.is_migration_import_enabled(self.team):
             raise exceptions.NotFound()
 
-    def safely_get_queryset(self, queryset: QuerySet[WarehouseMigration]) -> QuerySet[WarehouseMigration]:
-        return queryset.filter(team_id=self.team_id).order_by("-created_at")
+    @extend_schema(responses={200: WarehouseMigrationSerializer(many=True)})
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        return Response(WarehouseMigrationSerializer(migrations.list_migrations(self.team_id), many=True).data)
 
-    @extend_schema(request=WarehouseMigrationCreateSerializer, responses={201: WarehouseMigrationSerializer})
-    def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        serializer = WarehouseMigrationCreateSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        credentials = FivetranCredentials(
-            api_key=serializer.validated_data["api_key"], api_secret=serializer.validated_data["api_secret"]
-        )
+    @extend_schema(responses={200: WarehouseMigrationSerializer})
+    def retrieve(self, request: Request, pk: str, *args: Any, **kwargs: Any) -> Response:
+        migration = migrations.get_migration(self.team_id, UUID(pk))
+        if migration is None:
+            raise exceptions.NotFound()
+        return Response(WarehouseMigrationSerializer(migration).data)
+
+    @validated_request(
+        request_serializer=WarehouseMigrationCreateSerializer, responses={201: WarehouseMigrationSerializer}
+    )
+    def create(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        data = request.validated_data
         try:
-            FivetranClient(credentials).get_account_info()
-        except FivetranAuthError:
+            migration = migrations.create_migration(
+                team_id=self.team_id,
+                user_id=cast(User, request.user).id,
+                provider=data["provider"],
+                api_key=data["api_key"],
+                api_secret=data["api_secret"],
+            )
+        except contracts.WarehouseMigrationKeyRejectedError:
             raise exceptions.ValidationError(
                 {"api_key": "Fivetran rejected this key. Check that it is active and can read the account."}
             )
-        except FivetranAPIError:
+        except contracts.WarehouseMigrationVendorUnreachableError:
             raise exceptions.ValidationError({"api_key": "Fivetran could not be reached with this key. Try again."})
+        return Response(WarehouseMigrationSerializer(migration).data, status=status.HTTP_201_CREATED)
 
-        migration = WarehouseMigration.objects.for_team(self.team_id).create(
-            team_id=self.team_id,
-            created_by=cast(User, request.user),
-            provider=serializer.validated_data["provider"],
-            credentials={"api_key": credentials.api_key, "api_secret": credentials.api_secret},
-        )
-        self._start_crawl(migration)
-        return Response(self.get_serializer(migration).data, status=status.HTTP_201_CREATED)
+    @extend_schema(responses={204: None})
+    def destroy(self, request: Request, pk: str, *args: Any, **kwargs: Any) -> Response:
+        if not migrations.delete_migration(self.team_id, UUID(pk)):
+            raise exceptions.NotFound()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     @extend_schema(request=None, responses={200: WarehouseMigrationSerializer})
     @action(methods=["POST"], detail=True)
-    def refresh(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        migration = self.get_object()
-        if migration.status in (WarehouseMigration.Status.PENDING, WarehouseMigration.Status.CRAWLING):
+    def refresh(self, request: Request, pk: str, *args: Any, **kwargs: Any) -> Response:
+        try:
+            migration = migrations.refresh_migration(self.team_id, UUID(pk))
+        except contracts.WarehouseMigrationBusyError:
             raise exceptions.ValidationError("This migration is already reading the vendor account.")
-        migration.status = WarehouseMigration.Status.PENDING
-        migration.latest_error = ""
-        migration.save(update_fields=["status", "latest_error", "updated_at"])
-        self._start_crawl(migration)
-        return Response(self.get_serializer(migration).data)
+        if migration is None:
+            raise exceptions.NotFound()
+        return Response(WarehouseMigrationSerializer(migration).data)
 
     @extend_schema(responses={200: WarehouseMigrationItemSerializer(many=True)})
-    @action(methods=["GET"], detail=True, pagination_class=None)
-    def items(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        migration = self.get_object()
-        items = (
-            WarehouseMigrationItem.objects.for_team(self.team_id)
-            .filter(migration=migration)
-            .order_by("verdict", "name")
-        )
+    @action(methods=["GET"], detail=True)
+    def items(self, request: Request, pk: str, *args: Any, **kwargs: Any) -> Response:
+        items = migrations.list_migration_items(self.team_id, UUID(pk))
+        if items is None:
+            raise exceptions.NotFound()
         return Response(WarehouseMigrationItemSerializer(items, many=True).data)
 
-    @extend_schema(
-        request=None,
-        responses={200: WarehouseMigrationItemSerializer},
-        parameters=[OpenApiParameter("item_id", str, OpenApiParameter.PATH, description="Item ID.")],
-    )
-    @action(methods=["POST"], detail=True, url_path=r"items/(?P<item_id>[^/.]+)/skip")
-    def skip_item(self, request: Request, item_id: str, *args: Any, **kwargs: Any) -> Response:
-        migration = self.get_object()
-        item = WarehouseMigrationItem.objects.for_team(self.team_id).filter(migration=migration, id=item_id).first()
+    @extend_schema(request=None, responses={200: WarehouseMigrationItemSerializer}, parameters=[_ITEM_ID])
+    @action(methods=["POST"], detail=True, url_path=rf"items/(?P<item_id>{_UUID_PATTERN})/skip")
+    def skip_item(self, request: Request, pk: str, item_id: str, *args: Any, **kwargs: Any) -> Response:
+        try:
+            item = migrations.skip_migration_item(self.team_id, UUID(pk), UUID(item_id))
+        except contracts.WarehouseMigrationItemClaimedError:
+            raise exceptions.ValidationError("This connection is already being created or is a PostHog source.")
         if item is None:
             raise exceptions.NotFound()
-        if item.status == WarehouseMigrationItem.Status.APPLIED:
-            raise exceptions.ValidationError("This connection is already a PostHog source.")
-        item.status = WarehouseMigrationItem.Status.SKIPPED
-        item.save(update_fields=["status", "updated_at"])
         return Response(WarehouseMigrationItemSerializer(item).data)
 
-    @extend_schema(
+    @validated_request(
+        query_serializer=WarehouseMigrationConnectLinkQuerySerializer,
         responses={200: WarehouseMigrationConnectLinkSerializer},
-        parameters=[
-            OpenApiParameter(
-                "provider",
-                str,
-                OpenApiParameter.QUERY,
-                required=True,
-                enum=WarehouseMigration.Provider.values,
-                description="The ETL vendor to import from.",
-            )
-        ],
     )
     @action(methods=["GET"], detail=False)
-    def connect_link(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        provider = request.query_params.get("provider")
-        if provider not in WarehouseMigration.Provider.values:
-            raise exceptions.ValidationError({"provider": "Unknown provider."})
+    def connect_link(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        provider = request.validated_query_data["provider"]
         data = {
             "provider": provider,
             "connect_url": f"{settings.SITE_URL}/project/{self.team_id}/data-warehouse/migrate/connect?provider={provider}",
@@ -306,7 +249,3 @@ class WarehouseMigrationViewSet(
             ),
         }
         return Response(WarehouseMigrationConnectLinkSerializer(data).data)
-
-    def _start_crawl(self, migration: WarehouseMigration) -> None:
-        migration.workflow_id = start_crawl(team_id=self.team_id, migration_id=migration.id)
-        migration.save(update_fields=["workflow_id", "updated_at"])

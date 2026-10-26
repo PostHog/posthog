@@ -4,22 +4,24 @@ from uuid import uuid4
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+import requests
 import requests_mock
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.migration.fivetran.client import FIVETRAN_API_URL
 from products.warehouse_sources.backend.models.warehouse_migration import WarehouseMigration, WarehouseMigrationItem
 
-_VIEWS = "products.warehouse_sources.backend.presentation.views.warehouse_migration"
+_FACADE = "products.warehouse_sources.backend.facade.warehouse_migration"
+_SERVICE = "products.warehouse_sources.backend.migration.service"
 
 
 class TestWarehouseMigrationAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
-        flag = patch(f"{_VIEWS}.is_migration_import_enabled", return_value=True)
+        flag = patch(f"{_FACADE}.is_migration_import_enabled", return_value=True)
         self.flag = flag.start()
         self.addCleanup(flag.stop)
-        start = patch(f"{_VIEWS}.start_crawl", return_value="warehouse-migration-crawl-test")
+        start = patch(f"{_SERVICE}.start_crawl", return_value="warehouse-migration-crawl-test")
         self.start_crawl: MagicMock = start.start()
         self.addCleanup(start.stop)
         self.url = f"/api/projects/{self.team.pk}/warehouse_migrations/"
@@ -49,46 +51,54 @@ class TestWarehouseMigrationAPI(APIBaseTest):
         self.flag.return_value = False
         assert self.client.get(self.url).status_code == 404
 
-    @parameterized.expand([("rejected", 401, 400), ("accepted", 200, 201)])
-    def test_create_checks_the_key_before_storing_it(self, _name: str, vendor_status: int, expected: int) -> None:
+    def _create(self, **mock: Any) -> Any:
         with requests_mock.Mocker() as m:
-            m.get(
-                f"{FIVETRAN_API_URL}/account/info",
-                status_code=vendor_status,
-                json={"code": "Success", "data": {"account_id": "acct_example"}, "message": "Unauthorized"},
-            )
-            response = self.client.post(
+            m.get(f"{FIVETRAN_API_URL}/account/info", **mock)
+            return self.client.post(
                 self.url, {"provider": "fivetran", "api_key": "fake-key", "api_secret": "fake-secret"}
             )
 
-        assert response.status_code == expected, response.json()
+    @parameterized.expand(
+        [
+            ("rejected_key", {"status_code": 401, "json": {"code": "AuthFailed", "message": "Unauthorized"}}),
+            ("unreachable", {"exc": requests.ConnectionError}),
+        ]
+    )
+    def test_create_refuses_a_key_fivetran_does_not_accept(self, _name: str, mock: dict[str, Any]) -> None:
+        response = self._create(**mock)
+
+        assert response.status_code == 400, response.json()
+        assert response.json()["attr"] == "api_key"
+        assert not WarehouseMigration.objects.for_team(self.team.pk).exists()
+        self.start_crawl.assert_not_called()
+
+    def test_create_stores_the_key_and_starts_the_crawl(self) -> None:
+        response = self._create(json={"code": "Success", "data": {"account_id": "acct_example"}})
+
+        assert response.status_code == 201, response.json()
         assert "fake-secret" not in response.content.decode()
-        migrations = WarehouseMigration.objects.for_team(self.team.pk)
-        if expected == 400:
-            assert response.json()["attr"] == "api_key"
-            assert not migrations.exists()
-            self.start_crawl.assert_not_called()
-        else:
-            migration = migrations.get()
-            assert migration.credentials == {"api_key": "fake-key", "api_secret": "fake-secret"}
-            assert migration.workflow_id == "warehouse-migration-crawl-test"
-            self.start_crawl.assert_called_once_with(team_id=self.team.pk, migration_id=migration.id)
+        migration = WarehouseMigration.objects.for_team(self.team.pk).get()
+        assert migration.credentials == {"api_key": "fake-key", "api_secret": "fake-secret"}
+        assert migration.workflow_id == "warehouse-migration-crawl-test"
+        self.start_crawl.assert_called_once_with(team_id=self.team.pk, migration_id=migration.id)
 
     def test_items_and_counts_follow_skips(self) -> None:
         migration = self._migration()
         pending = self._item(migration)
         self._item(migration, verdict=WarehouseMigrationItem.Verdict.UNSUPPORTED)
         applied = self._item(migration, status=WarehouseMigrationItem.Status.APPLIED)
+        applying = self._item(migration, status=WarehouseMigrationItem.Status.APPLYING)
 
         skip = self.client.post(f"{self.url}{migration.id}/items/{pending.id}/skip/")
         assert skip.status_code == 200, skip.json()
         assert skip.json()["status"] == "skipped"
-        assert self.client.post(f"{self.url}{migration.id}/items/{applied.id}/skip/").status_code == 400
+        for claimed in (applied, applying):
+            assert self.client.post(f"{self.url}{migration.id}/items/{claimed.id}/skip/").status_code == 400
 
         detail = self.client.get(f"{self.url}{migration.id}/").json()
         assert "credentials" not in detail
-        assert detail["item_counts"] == {"as_is": 0, "caveats": 0, "unsupported": 1, "applied": 1, "skipped": 1}
-        assert len(self.client.get(f"{self.url}{migration.id}/items/").json()) == 3
+        assert detail["item_counts"] == {"as_is": 1, "caveats": 0, "unsupported": 1, "applied": 1, "skipped": 1}
+        assert len(self.client.get(f"{self.url}{migration.id}/items/").json()) == 4
 
     def test_refresh_restarts_the_crawl_unless_one_is_running(self) -> None:
         migration = self._migration()
@@ -98,9 +108,23 @@ class TestWarehouseMigrationAPI(APIBaseTest):
         assert migration.status == WarehouseMigration.Status.PENDING
         assert self.client.post(f"{self.url}{migration.id}/refresh/").status_code == 400
 
-    def test_other_team_cannot_read_a_migration(self) -> None:
+    def test_a_crawl_that_cannot_start_fails_so_it_can_be_refreshed(self) -> None:
+        migration = self._migration()
+        self.start_crawl.side_effect = RuntimeError("temporal is down")
+
+        response = self.client.post(f"{self.url}{migration.id}/refresh/")
+
+        assert response.status_code == 200, response.json()
+        assert response.json()["status"] == "failed"
+        self.start_crawl.side_effect = None
+        assert self.client.post(f"{self.url}{migration.id}/refresh/").json()["status"] == "pending"
+
+    def test_another_teams_migration_or_a_malformed_id_is_not_found(self) -> None:
         other_team = self.create_team_with_organization(organization=self.organization)
         migration = WarehouseMigration.objects.for_team(other_team.pk).create(
             team_id=other_team.pk, provider=WarehouseMigration.Provider.FIVETRAN
         )
+        own = self._migration()
         assert self.client.get(f"{self.url}{migration.id}/").status_code == 404
+        assert self.client.get(f"{self.url}not-a-uuid/").status_code == 404
+        assert self.client.post(f"{self.url}{own.id}/items/not-a-uuid/skip/").status_code == 404
