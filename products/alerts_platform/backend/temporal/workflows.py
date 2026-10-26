@@ -22,6 +22,7 @@ from posthog.temporal.common.logger import get_write_only_logger
 from products.alerts_platform.backend.temporal.metrics import (
     increment_deliveries_previewed,
     increment_discovery_omitted,
+    increment_holds_expired,
     safe_record,
 )
 from products.alerts_platform.backend.temporal.outcomes import alerts_platform_record_outcomes_activity
@@ -42,6 +43,7 @@ with workflow.unsafe.imports_passed_through():
         AlertDeliveryRequest,
         AlertDemand,
         DemandDiscoveryInputs,
+        HeldDeliveryAddress,
         OrchestrateInputs,
         OrchestrateResult,
         SourceDispatchInputs,
@@ -49,6 +51,7 @@ with workflow.unsafe.imports_passed_through():
         SourceEvaluationInputs,
         TickPage,
     )
+    from products.alerts_platform.backend.logic import delivery_holds
     from products.alerts_platform.backend.logic.demand import discover_demand
     from products.alerts_platform.backend.logic.inventory import count_inventory
     from products.alerts_platform.backend.temporal.inventory_metrics import push_inventory
@@ -292,6 +295,70 @@ async def start_deliveries(deliveries: Sequence[AlertDeliveryRequest]) -> int:
             raise result
         started += 1
     return started
+
+
+# Holds one sweep releases. A sweep that finds more leaves the rest to the next minute's run.
+MAX_HOLDS_PER_SWEEP = 200
+
+
+@activity.defn
+async def alerts_platform_find_expired_holds_activity() -> list[HeldDeliveryAddress]:
+    now = dt.datetime.now(dt.UTC)
+    # A failed prune is logged, so cleanup never keeps a due hold from being sent.
+    try:
+        pruned = await database_sync_to_async_pool(delivery_holds.prune_holds)(now, limit=MAX_HOLDS_PER_SWEEP)
+    except Exception as error:
+        await LOGGER.awarning("alerts_platform_holds_prune_failed", error=str(error))
+    else:
+        if pruned:
+            await LOGGER.ainfo("alerts_platform_holds_pruned", count=pruned)
+    return list(await database_sync_to_async_pool(delivery_holds.expired_holds)(now, limit=MAX_HOLDS_PER_SWEEP))
+
+
+@activity.defn
+async def alerts_platform_release_expired_holds_activity(
+    addresses: list[HeldDeliveryAddress],
+) -> list[AlertDeliveryRequest]:
+    """Separate from the find, so a retry after a committed release gets the same requests back."""
+    released = await database_sync_to_async_pool(delivery_holds.release_expired)(addresses, dt.datetime.now(dt.UTC))
+    for request in released:
+        await LOGGER.awarning(
+            "alerts_platform_hold_expired",
+            source=request.source.value,
+            configuration_id=request.configuration_id,
+            evaluation_key=request.evaluation_key,
+        )
+        safe_record(increment_holds_expired, request.source.value)
+    return list(released)
+
+
+@workflow.defn(name="alerts-platform-release-expired-holds")
+class AlertsPlatformReleaseExpiredHoldsWorkflow(PostHogWorkflow):
+    """The safety net for held deliveries: sends each one whose deadline passed with no release.
+
+    One release of a hold wins, so a source that releases it at the same moment cannot also send it.
+    The delivery keeps its usual id, so a retried run that starts it again starts nothing new.
+    """
+
+    inputs_cls = AlertsPlatformInputs
+    inputs_optional = True
+
+    @workflow.run
+    async def run(self, inputs: AlertsPlatformInputs) -> int:
+        addresses = await workflow.execute_activity(
+            alerts_platform_find_expired_holds_activity,
+            start_to_close_timeout=dt.timedelta(seconds=30),
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+        if not addresses:
+            return 0
+        released = await workflow.execute_activity(
+            alerts_platform_release_expired_holds_activity,
+            addresses,
+            start_to_close_timeout=dt.timedelta(seconds=60),
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+        return await start_deliveries(released)
 
 
 @workflow.defn(name="alerts-platform-deliver")
@@ -565,9 +632,15 @@ EVALUATION_ACTIVITIES: list[Callable[..., object]] = [
     alerts_platform_probe_postgres_activity,
     alerts_platform_record_outcomes_activity,
 ]
-DELIVERY_WORKFLOWS: list[type[PostHogWorkflow]] = [AlertsPlatformDeliverWorkflow, AlertsPlatformDeliverPreviewWorkflow]
+DELIVERY_WORKFLOWS: list[type[PostHogWorkflow]] = [
+    AlertsPlatformDeliverWorkflow,
+    AlertsPlatformDeliverPreviewWorkflow,
+    AlertsPlatformReleaseExpiredHoldsWorkflow,
+]
 DELIVERY_ACTIVITIES: list[Callable[..., object]] = [
     alerts_platform_deliver_activity,
     alerts_platform_deliver_preview_activity,
     alerts_platform_emit_transitions_activity,
+    alerts_platform_find_expired_holds_activity,
+    alerts_platform_release_expired_holds_activity,
 ]

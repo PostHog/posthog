@@ -39,7 +39,7 @@ The schedule starts `alerts-platform-orchestrate` with `{}` on the orchestration
 There is no routing flag: the flow is tick → orchestration → evaluation → delivery.
 It uses SKIP overlap, a one-minute catchup window, a 50-second workflow execution timeout,
 and one workflow attempt. Creation does not trigger an immediate run; the next minute starts it.
-Delivery has no schedule: evaluation starts its delivery child.
+Delivery has no schedule of its own: evaluation starts its delivery child, and the [held-delivery sweep](#held-deliveries) starts the ones it releases.
 New schedules start unpaused. Registration updates existing schedules to this policy while retaining their state from Temporal, including manual pauses.
 To stop future ticks, pause the schedule in Temporal; resume it there when ready. Pausing does not stop workflows already running.
 Reverting the code that registers a schedule does not remove one already registered.
@@ -540,6 +540,25 @@ Pass `--ids-file` to either backfill, with one alert id per line, to copy only t
 It switches the copies off and keeps their rows, state and history. Checks already running finish.
 Running the backfill again turns them back on at the production alert's next due time.
 An hourly alert on the platform checks on a UTC grid, while production checks it at the alert's creation minute, so the two stacks check an hourly alert at different minutes.
+
+## Held deliveries
+
+A source can hold an evaluation's delivery instead of starting it, for example while an agent investigates a firing.
+It puts the request on `PlatformAlertOutcome.held_delivery` with a reason and a deadline, and leaves it out of the deliveries it starts.
+`record_outcomes` writes the hold to `PlatformAlertDeliveryHold` in the same transaction as the outcome.
+
+`release_hold` in the facade stamps a hold once, under a row lock.
+It returns the request only for a release with `send`, and only to the releaser that won.
+That releaser starts the delivery with `start_deliveries`, so the delivery keeps its usual id.
+A retry from the same releaser gets the request back. Another releaser gets nothing.
+`reschedule_hold` moves an unreleased hold's deadline.
+`deliver_evaluation` also refuses an evaluation whose hold is unreleased or released with `suppress`.
+
+`alerts-platform-release-expired-holds-schedule` starts `alerts-platform-release-expired-holds` every minute on the delivery queue, with SKIP overlap and a 5-minute execution timeout.
+The workflow finds up to 200 holds past their deadline, releases each with `send` as the safety net, and starts their deliveries.
+It skips the holds of a disabled configuration. It still sends a hold whose alert went back to its source, because the request records the owner at check time.
+The find step also deletes holds older than 90 days, which is how long the history rows they annotate live.
+`alerts_platform_holds_expired_total` counts the holds the safety net sent. A rise means a source holds deliveries and does not release them.
 
 ## Postgres connectivity probe
 

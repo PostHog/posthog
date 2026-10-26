@@ -12,8 +12,10 @@ from datetime import datetime
 from uuid import UUID
 
 from products.alerts_platform.backend.facade.contracts import (
+    AlertDeliveryRequest,
     DestinationSend,
     HandbackRefusal,
+    HeldDeliveryAddress,
     NewAlertDestination,
     PlatformAlertCheckInput,
     PlatformAlertConfigurationEdit,
@@ -32,8 +34,10 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceKind,
     StoredAlertDestination,
 )
+from products.alerts_platform.backend.facade.enums import HoldRelease, HoldReleasedBy
 from products.alerts_platform.backend.logic import (
     alert_destinations,
+    delivery_holds,
     destination_sends,
     platform_lifecycle,
     platform_reads,
@@ -58,6 +62,19 @@ def due_check_ids(
 def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now: datetime) -> int:
     """The platform's only write of state and schedule. Returns how many rows it wrote."""
     return platform_lifecycle.record_outcomes(team_id, outcomes, now)
+
+
+def release_hold(
+    address: HeldDeliveryAddress, *, action: HoldRelease, released_by: HoldReleasedBy, now: datetime
+) -> AlertDeliveryRequest | None:
+    """Releases a held delivery. Returns the request when the caller should start its delivery,
+    which it does with `start_deliveries` so the delivery keeps its usual id."""
+    return delivery_holds.release_hold(address, action=action, released_by=released_by, now=now)
+
+
+def reschedule_hold(address: HeldDeliveryAddress, *, release_after: datetime) -> bool:
+    """Moves an unreleased hold's safety-net deadline. Returns False when nothing was held."""
+    return delivery_holds.reschedule_hold(address, release_after=release_after)
 
 
 def slot_of(next_check_at: datetime | None, cutoff: datetime) -> str:
