@@ -2619,7 +2619,7 @@ export interface SignalReportTaskActionListResponseApi {
 }
 
 export interface SignalReportTaskActionRunRequestApi {
-    /** The action to run. Use a value from the actions list.
+    /** The action to run. Use a value from the actions list, or `ask` to send your own `message`.
      *
      * * `get_it_merged` - Get it merged
      * * `make_it_green` - Make it green

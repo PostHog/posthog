@@ -3374,7 +3374,7 @@ class SignalReportTaskActionListResponseSerializer(serializers.Serializer):
 class SignalReportTaskActionRunRequestSerializer(serializers.Serializer):
     action = serializers.ChoiceField(
         choices=ReportTaskActionKind.choices,
-        help_text="The action to run. Use a value from the actions list.",
+        help_text="The action to run. Use a value from the actions list, or `ask` to send your own `message`.",
     )
     suggested_prompt_index = serializers.IntegerField(
         required=False,
