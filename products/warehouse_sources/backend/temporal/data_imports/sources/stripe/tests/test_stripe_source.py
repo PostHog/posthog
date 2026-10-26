@@ -1444,6 +1444,7 @@ class TestWebhookOnlyResponseWiring:
     def _make_manager(self, enabled: bool) -> MagicMock:
         manager = MagicMock(spec=WebhookSourceManager)
         manager.webhook_enabled = mock.AsyncMock(return_value=enabled)
+        manager.webhook_unregistered = mock.AsyncMock(return_value=False)
         return manager
 
     def _source(self, endpoint: str, manager: MagicMock) -> Any:
@@ -1473,6 +1474,16 @@ class TestWebhookOnlyResponseWiring:
         assert response.webhook_only is False
         manager.webhook_enabled.assert_awaited_once_with(webhook_only=False)
 
+    @parameterized.expand([("unregistered_webhook_skips_poll", True, 0), ("no_webhook_schema_polls", False, 1)])
+    def test_unregistered_webhook_poll(self, _name: str, unregistered: bool, expected_get_rows_calls: int) -> None:
+        manager = self._make_manager(enabled=False)
+        manager.webhook_unregistered = mock.AsyncMock(return_value=unregistered)
+        with mock.patch.object(stripe_module, "get_rows", return_value=iter([{"id": "cus_1"}])) as get_rows:
+            response = self._source(CUSTOMER_RESOURCE_NAME, manager)
+            rows = list(response.items())
+        assert get_rows.call_count == expected_get_rows_calls
+        assert rows == ([] if unregistered else [{"id": "cus_1"}])
+
     def test_discount_partitions_on_start_not_created(self) -> None:
         # Discount objects carry `start`/`end`, not `created`. If the incremental-field entry is
         # dropped the partition key falls back to "created" and the Delta partitioner KeyErrors on
@@ -1495,6 +1506,7 @@ class TestCustomerPaymentMethodHistory:
     def _make_manager(self, enabled: bool) -> MagicMock:
         manager = MagicMock(spec=WebhookSourceManager)
         manager.webhook_enabled = mock.AsyncMock(return_value=enabled)
+        manager.webhook_unregistered = mock.AsyncMock(return_value=False)
         return manager
 
     def _source(self, endpoint: str, manager: MagicMock) -> Any:
@@ -1911,6 +1923,7 @@ class TestWebhookRefetch:
         )
         webhooks = MagicMock(spec=WebhookSourceManager)
         webhooks.webhook_enabled = mock.AsyncMock(return_value=True)
+        webhooks.webhook_unregistered = mock.AsyncMock(return_value=False)
         events = table_from_py_list([_event_row("evt_1", "invoice.paid", 1700000100, _INCOMPLETE_INVOICE)])
 
         with scripted_network(lambda request: ScriptedResponse(json=_stripe_list(_ALL_LINES, request.path))):
@@ -1963,6 +1976,7 @@ class TestPartitioningAndColumnHints:
     def _source(self, endpoint: str) -> Any:
         manager = MagicMock(spec=WebhookSourceManager)
         manager.webhook_enabled = mock.AsyncMock(return_value=False)
+        manager.webhook_unregistered = mock.AsyncMock(return_value=False)
         return stripe_module.stripe_source(
             api_key="sk_test_123",
             account_id=None,

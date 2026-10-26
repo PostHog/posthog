@@ -1528,6 +1528,9 @@ def stripe_source(
     # re-enable — a poll could never rebuild the table.
     webhook_only = endpoint in WEBHOOK_ONLY_ENDPOINTS
     webhook_enabled = async_to_sync(webhook_source_manager.webhook_enabled)(webhook_only=webhook_only)
+    skip_unregistered_webhook_poll = (
+        not webhook_enabled and not webhook_only and async_to_sync(webhook_source_manager.webhook_unregistered)()
+    )
     warehouse_parent = _resolve_warehouse_parent(endpoint, team_id, source_id, use_warehouse_parent)
 
     def items():
@@ -1556,6 +1559,14 @@ def stripe_source(
             return webhook_source_manager.get_items(
                 table_transformer=table_transformer, batch_row_limit=batch_row_limit
             )
+
+        if skip_unregistered_webhook_poll:
+            logger.warning(
+                f"Stripe: skipped the {endpoint} sync. This table uses webhook sync, but the source has no "
+                "active webhook. Set up the webhook on the source's Webhook tab, or change the table to a "
+                "different sync method."
+            )
+            return iter(())
 
         return get_rows(
             api_key=api_key,
