@@ -6,7 +6,7 @@ import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 from unittest.mock import ANY, MagicMock, patch
 
-from django.db import connection
+from django.db import connection, transaction
 
 from parameterized import parameterized
 from rest_framework import status
@@ -550,17 +550,24 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert create_response.status_code == status.HTTP_201_CREATED, create_response.json()
         assert create_response.json()["managed_by"] is None
 
-    def test_managed_upsert_updates_its_own_function(self):
+    def test_managed_upsert_updates_its_own_function_and_reloads_workers_after_commit(self):
         managed = self._upsert_managed()
 
-        upsert_managed_hog_function(
-            {"name": "Renamed"},
-            team_id=self.team.pk,
-            created_by_id=self.user.pk,
-            managed_by="example_product",
-            hog_function_id=managed.id,
-        )
+        with (
+            patch("products.cdp.backend.facade.api.reload_hog_functions_on_workers") as mock_reload,
+            self.captureOnCommitCallbacks(execute=True),
+            transaction.atomic(),
+        ):
+            upsert_managed_hog_function(
+                {"name": "Renamed"},
+                team_id=self.team.pk,
+                created_by_id=self.user.pk,
+                managed_by="example_product",
+                hog_function_id=managed.id,
+            )
+            assert mock_reload.call_count == 0
 
+        mock_reload.assert_called_once_with(team_id=self.team.pk, hog_function_ids=[str(managed.id)])
         managed.refresh_from_db()
         assert (managed.name, managed.managed_by) == ("Renamed", "example_product")
 

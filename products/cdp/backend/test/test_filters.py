@@ -1323,6 +1323,10 @@ class TestFilterPropertyReferences(SimpleTestCase):
     @parameterized.expand(
         [
             ("properties.plan = 'example'", {"event": ["plan"]}),
+            ("properties['plan'] = 'example'", {"event": ["plan"]}),
+            ("properties['detail']['name'] = 'example'", {"event": ["detail.name"]}),
+            ("person.properties['email'] = 'example'", {"person": ["email"]}),
+            ("properties[concat('pl', 'an')] = 'example'", {"event": [None]}),
             ("events.properties.customer.region = 'example'", {"event": ["customer.region"]}),
             ("properties IS NOT NULL", {"event": [None]}),
             ("person.properties.plan = 'example'", {"person": ["plan"]}),

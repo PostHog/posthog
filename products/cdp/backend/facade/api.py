@@ -120,7 +120,12 @@ def upsert_managed_hog_function(
         saved = serializer.save(team=team)
     else:
         saved = serializer.save(team=team, created_by=User.objects.get(id=created_by_id))
-    return cast(HogFunction, saved).id
+    saved_id = cast(HogFunction, saved).id
+    # The post_save reload fires inside the caller's transaction, before the workers can read the row.
+    transaction.on_commit(
+        lambda: reload_hog_functions_on_workers(team_id=team_id, hog_function_ids=[str(saved_id)]), robust=True
+    )
+    return saved_id
 
 
 def disable_managed_hog_functions(*, team_id: int, managed_by: str, hog_function_ids: Sequence[UUID]) -> None:

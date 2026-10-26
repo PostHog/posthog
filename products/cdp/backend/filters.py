@@ -50,6 +50,21 @@ class FilterPropertyReferences(TraversingVisitor):
         finally:
             self._lambda_scopes.pop()
 
+    def visit_array_access(self, node: ast.ArrayAccess) -> None:
+        # properties['plan'] parses as an array access over the bare properties field, which would
+        # otherwise count as a read of the whole object.
+        keys: list[str | int] = []
+        base: ast.Expr = node
+        while isinstance(base, ast.ArrayAccess):
+            if not isinstance(base.property, ast.Constant) or not isinstance(base.property.value, str | int):
+                break
+            keys.insert(0, base.property.value)
+            base = base.array
+        if isinstance(base, ast.Field):
+            self.visit_field(ast.Field(chain=[*base.chain, *keys]))
+            return
+        super().visit_array_access(node)
+
     def visit_field(self, node: ast.Field) -> None:
         chain: list[str | int] = list(node.chain)
         if chain and any(chain[0] in scope for scope in self._lambda_scopes):
