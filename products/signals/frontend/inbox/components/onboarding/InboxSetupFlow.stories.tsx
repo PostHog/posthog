@@ -314,6 +314,7 @@ export const GithubAccessRequired: Story = {
 }
 
 export const TreatmentEntry = {
+    name: 'Guided intro',
     render: () => <InboxOnboardingEntry />,
     decorators: [
         mswDecorator({
@@ -327,6 +328,7 @@ export const TreatmentEntry = {
 
 export const NarrowTreatmentEntry: Story = {
     ...TreatmentEntry,
+    name: 'Narrow guided intro',
     decorators: [
         ...(TreatmentEntry.decorators ?? []),
         (Story) => (
@@ -338,8 +340,9 @@ export const NarrowTreatmentEntry: Story = {
 }
 
 export const ManualEntry: Story = {
+    name: 'Control intro',
     parameters: {
-        featureFlags: { [FEATURE_FLAGS.INBOX_UI_ONBOARDING]: 'control' },
+        featureFlags: { ...meta.parameters?.featureFlags, [FEATURE_FLAGS.INBOX_UI_ONBOARDING]: 'control' },
     },
     render: () => <InboxOnboardingEntry />,
     decorators: [
@@ -381,8 +384,9 @@ const quickGeneralScout = {
 }
 
 export const QuickEntry: Story = {
+    name: 'Quick setup intro',
     parameters: {
-        featureFlags: { [FEATURE_FLAGS.INBOX_UI_ONBOARDING]: 'test-github' },
+        featureFlags: { ...meta.parameters?.featureFlags, [FEATURE_FLAGS.INBOX_UI_ONBOARDING]: 'test-github' },
     },
     render: () => <QuickActivationPreview />,
     decorators: [
@@ -412,6 +416,7 @@ export const QuickEntry: Story = {
 
 export const QuickConnected: Story = {
     ...QuickEntry,
+    name: 'Quick setup with GitHub connected',
     decorators: [
         mswDecorator({
             get: {

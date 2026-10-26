@@ -43,7 +43,7 @@ import type {
 } from '../../generated/api.schemas'
 import type { InboxOnboardingStepEnumApi } from '../../generated/api.schemas'
 import type { AgentRosterSource } from '../components/config/agentRosterMeta'
-import { captureSignalSourceConnected } from '../inboxAnalytics'
+import { captureInboxWelcomeManualSetupClicked, captureSignalSourceConnected } from '../inboxAnalytics'
 import { signalSourcesLogic, WAREHOUSE_SOURCE_SETUP, type WarehouseBackedSource } from '../signalSourcesLogic'
 import type { SourceProductStatus } from '../signalSourcesLogic'
 import type { SignalSourceConfig } from '../types'
@@ -253,7 +253,7 @@ export interface inboxSetupLogicMeta {
         isTreatment: (experimentVariant: 'control' | 'test-github' | 'test-ui' | null) => boolean
         resumingSetup: (searchParams: Record<string, any>) => boolean
         usesFocusedSetup: (
-            isTreatment: boolean,
+            experimentVariant: 'control' | 'test-github' | 'test-ui' | null,
             started: boolean,
             savedState: InboxOnboardingStateApi | null,
             resumingSetup: boolean
@@ -501,9 +501,13 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
                 ['signals', 'scouts', 'github', 'quick'].includes(String(params.onboarding_step)),
         ],
         usesFocusedSetup: [
-            (s) => [s.isTreatment, s.started, s.savedState, s.resumingSetup],
-            (treatment: boolean, started: boolean, state: InboxOnboardingStateApi | null, resuming: boolean): boolean =>
-                treatment || started || !!state?.draft || resuming,
+            (s) => [s.experimentVariant, s.started, s.savedState, s.resumingSetup],
+            (
+                variant: 'control' | 'test-ui' | 'test-github' | null,
+                started: boolean,
+                state: InboxOnboardingStateApi | null,
+                resuming: boolean
+            ): boolean => variant !== null || started || !!state?.draft || resuming,
         ],
         sources: [
             (s) => [
@@ -708,6 +712,9 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
             continueFromWelcome: () => {
                 if (values.inProgress) {
                     return
+                }
+                if (!values.isTreatment) {
+                    captureInboxWelcomeManualSetupClicked()
                 }
                 capture('self-driving onboarding welcome continued')
                 actions.openSetup()

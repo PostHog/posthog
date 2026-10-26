@@ -69,6 +69,7 @@ describe('focused Inbox setup', () => {
             get: {
                 '/api/projects/@current': () => [200, { ...MOCK_DEFAULT_TEAM, ingested_event: hasEvents }],
                 '/api/projects/:id/signals/reports/available_reviewers/': {},
+                '/api/projects/:id/wizard/sessions/latest/': () => [204, null],
                 '/api/environments/:id/external_data_sources/': () => ({
                     results: warehouseConnected
                         ? [
@@ -283,13 +284,13 @@ describe('focused Inbox setup', () => {
                 ...(assignment ? { [FEATURE_FLAGS.INBOX_UI_ONBOARDING]: assignment } : {}),
             })
             await expectLogic(logic, () => logic.actions.loadSetup()).toFinishAllListeners()
-            expect(logic.values.usesFocusedSetup).toBe(assignment === 'test-ui')
+            expect(logic.values.usesFocusedSetup).toBe(assignment !== null)
             expect(logic.values.inProgress).toBe(false)
             const capture = jest.spyOn(posthog, 'capture')
             const onboarding = inboxOnboardingLogic()
             onboarding.mount()
             try {
-                if (assignment === 'test-ui') {
+                if (assignment !== null) {
                     await expectLogic(logic, () => logic.actions.continueFromWelcome()).toFinishAllListeners()
                     await expectLogic(logic, () => logic.actions.continueFromWelcome()).toFinishAllListeners()
                 } else {
@@ -349,7 +350,10 @@ describe('focused Inbox setup', () => {
                 )
                 expect(
                     capture.mock.calls.filter(([event]) => event === 'self-driving onboarding welcome continued')
-                ).toHaveLength(assignment === 'test-ui' ? 1 : 0)
+                ).toHaveLength(assignment !== null ? 1 : 0)
+                expect(
+                    capture.mock.calls.filter(([event]) => event === 'Inbox welcome manual setup clicked')
+                ).toHaveLength(assignment === 'test-ui' ? 0 : 1)
             } finally {
                 onboarding.unmount()
                 capture.mockRestore()

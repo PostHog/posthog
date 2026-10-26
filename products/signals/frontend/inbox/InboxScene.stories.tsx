@@ -226,19 +226,28 @@ export const InstallingSelfDriving: Story = {
 
 // Fresh project: nothing watching and nothing in the inbox → the full-pane welcome page (no tab row).
 export const SelfDrivingOnboarding: Story = {
+    parameters: {
+        featureFlags: { ...meta.parameters?.featureFlags, [FEATURE_FLAGS.INBOX_UI_ONBOARDING]: 'control' },
+    },
     decorators: [
         mswDecorator({
             get: {
                 '/api/projects/:id/signals/reports': () => [200, { results: [], count: 0, next: null, previous: null }],
                 '/api/projects/:id/signals/source_configs': () => [200, { results: [], count: 0 }],
                 '/api/projects/:id/signals/scout/configs': () => [200, []],
+                '/api/projects/:id/signals/onboarding/': { draft: null, completed_at: null, variant: 'control' },
+            },
+            post: {
+                '/api/projects/:id/signals/onboarding/expose/': { draft: null, completed_at: null, variant: 'control' },
             },
         }),
     ],
 }
 
 export const FocusedOnboarding: Story = {
-    parameters: { featureFlags: { [FEATURE_FLAGS.INBOX_UI_ONBOARDING]: 'test-ui' } },
+    parameters: {
+        featureFlags: { ...meta.parameters?.featureFlags, [FEATURE_FLAGS.INBOX_UI_ONBOARDING]: 'test-ui' },
+    },
     decorators: [
         ...(Array.isArray(SelfDrivingOnboarding.decorators) ? SelfDrivingOnboarding.decorators : []),
         mswDecorator({
