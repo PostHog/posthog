@@ -31,6 +31,7 @@ import {
     accountsList,
     accountsRetrieve,
     customerTasksArchiveCreate,
+    customerTasksBulkUpdateCreate,
     customerTasksCreate,
     customerTasksList,
     customerTasksRetrieve,
@@ -41,6 +42,7 @@ import type {
     AccountApi,
     CustomerTaskApi,
     CustomerTaskCreateApi,
+    CustomerTaskBulkPatchApi,
     CustomerTaskPageApi,
     CustomerTaskUserApi,
     PaginatedAccountListApi,
@@ -53,7 +55,6 @@ import {
     CUSTOMER_TASK_ORDERINGS,
     CUSTOMER_TASK_URL_KEYS,
     customerTaskAssigneeMode,
-    CUSTOMER_TASK_STATUS_TRANSITIONS,
     customerTaskSearchParams,
     CustomerTaskEvents,
     isRoleAssigneeFilter,
@@ -82,9 +83,6 @@ export interface CustomerTasksLogicProps extends AccountViewTileLogicProps {
     canViewAll?: boolean
     persistPrefix?: string
 }
-export type CustomerTaskBulkPatch =
-    | Pick<PatchedCustomerTaskUpdateApi, 'status' | 'assigned_to_id' | 'due_at' | 'account_id'>
-    | { archived: boolean }
 export interface customerTasksLogicValues {
     accountOptions: AccountApi[]
     accountOptionsResponse: PaginatedAccountListApi | null
@@ -117,9 +115,9 @@ export interface customerTasksLogicValues {
 export interface customerTasksLogicActions {
     bulkUpdateTasks: (
         taskIds: string[],
-        patch: CustomerTaskBulkPatch,
+        patch: CustomerTaskBulkPatchApi,
         onComplete: (failedIds: string[]) => void
-    ) => { taskIds: string[]; patch: CustomerTaskBulkPatch; onComplete: (failedIds: string[]) => void }
+    ) => { taskIds: string[]; patch: CustomerTaskBulkPatchApi; onComplete: (failedIds: string[]) => void }
     openTaskFromUrl: (taskId: string) => { taskId: string }
     closeModal: () => void
     createTask: (task: CustomerTaskCreateApi) => { task: CustomerTaskCreateApi }
@@ -236,7 +234,7 @@ export const customerTasksLogic: LogicWrapper<customerTasksLogicType> = kea<cust
         updateTask: (taskId: string, patch: PatchedCustomerTaskUpdateApi) => ({ taskId, patch }),
         bulkUpdateTasks: (
             taskIds: string[],
-            patch: CustomerTaskBulkPatch,
+            patch: CustomerTaskBulkPatchApi,
             onComplete: (failedIds: string[]) => void
         ) => ({ taskIds, patch, onComplete }),
         archiveTask: (taskId: string) => ({ taskId }),
@@ -461,58 +459,16 @@ export const customerTasksLogic: LogicWrapper<customerTasksLogicType> = kea<cust
             }
             actions.mutationStarted('bulk')
             tasks.forEach((task) => actions.mutationStarted(task.id))
-            const failedIds: string[] = []
             try {
-                for (const task of tasks) {
-                    if ('archived' in patch) {
-                        if (Boolean(task.archived_at) === patch.archived) {
-                            continue
-                        }
-                        if (patch.archived ? !task.can_edit : !task.can_restore) {
-                            failedIds.push(task.id)
-                            continue
-                        }
-                        try {
-                            if (patch.archived) {
-                                await customerTasksArchiveCreate(projectId, task.id)
-                            } else {
-                                await customerTasksRestoreCreate(projectId, task.id)
-                            }
-                        } catch {
-                            failedIds.push(task.id)
-                        }
-                        continue
-                    }
-                    if (
-                        !task.can_edit ||
-                        task.archived_at ||
-                        (patch.status &&
-                            patch.status !== task.status &&
-                            !CUSTOMER_TASK_STATUS_TRANSITIONS[task.status].includes(patch.status))
-                    ) {
-                        failedIds.push(task.id)
-                        continue
-                    }
-                    const changed =
-                        (patch.status !== undefined && patch.status !== task.status) ||
-                        (patch.assigned_to_id !== undefined &&
-                            patch.assigned_to_id !== (task.assigned_to?.id ?? null)) ||
-                        (patch.due_at !== undefined && patch.due_at !== task.due_at) ||
-                        (patch.account_id !== undefined && patch.account_id !== (task.account?.id ?? null))
-                    if (!changed) {
-                        continue
-                    }
-                    try {
-                        await customerTasksPartialUpdate(projectId, task.id, patch)
-                    } catch {
-                        failedIds.push(task.id)
-                    }
-                }
-                onComplete(JSON.stringify(taskUrlState(values)) === selectionScope ? failedIds : [])
-                if (failedIds.length > 0) {
-                    lemonToast.error(`We could not update ${failedIds.length} of ${tasks.length} tasks. Try again.`)
-                }
+                await customerTasksBulkUpdateCreate(projectId, {
+                    task_ids: tasks.map((task) => task.id),
+                    updates: patch,
+                })
+                onComplete([])
                 actions.loadTaskPage()
+            } catch (error) {
+                onComplete(JSON.stringify(taskUrlState(values)) === selectionScope ? tasks.map((task) => task.id) : [])
+                lemonToast.error(taskWriteFailureMessage(error, 'Could not update the tasks. Try again.'))
             } finally {
                 tasks.forEach((task) => actions.mutationFinished(task.id))
                 actions.mutationFinished('bulk')

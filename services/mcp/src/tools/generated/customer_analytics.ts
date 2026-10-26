@@ -1319,12 +1319,6 @@ const customerTasksPartialUpdate = (): ToolBase<
         if (params.account_id !== undefined) {
             body['account_id'] = params.account_id
         }
-        if (params.name !== undefined) {
-            body['name'] = params.name
-        }
-        if (params.description !== undefined) {
-            body['description'] = params.description
-        }
         if (params.assigned_to_id !== undefined) {
             body['assigned_to_id'] = params.assigned_to_id
         }
@@ -1333,6 +1327,12 @@ const customerTasksPartialUpdate = (): ToolBase<
         }
         if (params.status !== undefined) {
             body['status'] = params.status
+        }
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.description !== undefined) {
+            body['description'] = params.description
         }
         const result = await context.api.request<Schemas.CustomerTask>({
             method: 'PATCH',

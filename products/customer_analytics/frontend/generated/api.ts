@@ -66,6 +66,8 @@ import type {
     CustomerProfileConfigsListParams,
     CustomerTaskActivityPageApi,
     CustomerTaskApi,
+    CustomerTaskBulkUpdateApi,
+    CustomerTaskBulkUpdateResultApi,
     CustomerTaskCreateApi,
     CustomerTaskPageApi,
     CustomerTaskUpdateApi,
@@ -1992,6 +1994,26 @@ export const customerTasksRestoreCreate = async (
     return apiMutator<CustomerTaskApi>(getCustomerTasksRestoreCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getCustomerTasksBulkUpdateCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/customer_tasks/bulk_update/`
+}
+
+/**
+ * Update selected tasks in one transaction. No tasks change if any task fails validation.
+ */
+export const customerTasksBulkUpdateCreate = async (
+    projectId: string,
+    customerTaskBulkUpdateApi: CustomerTaskBulkUpdateApi,
+    options?: RequestInit
+): Promise<CustomerTaskBulkUpdateResultApi> => {
+    return apiMutator<CustomerTaskBulkUpdateResultApi>(getCustomerTasksBulkUpdateCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(customerTaskBulkUpdateApi),
     })
 }
 

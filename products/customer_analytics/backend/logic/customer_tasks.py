@@ -6,7 +6,7 @@ from typing import cast
 from uuid import UUID
 
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Case, CharField, F, IntegerField, Q, QuerySet, Value, When
 from django.db.models.functions import Coalesce, Concat, Lower, NullIf, Trim
 from django.utils import timezone
@@ -41,6 +41,13 @@ class _CustomerTaskActivityPage:
     activities: list[CustomerTaskActivity]
     total_count: int
     visible_account_ids: frozenset[str]
+
+
+@frozen
+class _CustomerTaskWrite:
+    task: CustomerTask
+    before_assignee: User | None
+    activity: CustomerTaskActivity
 
 
 _ALLOWED_TRANSITIONS: dict[str, frozenset[str]] = {
@@ -395,6 +402,107 @@ def create_customer_task(
     return task
 
 
+def _prepare_customer_task_update(
+    *,
+    team: Team,
+    task: CustomerTask,
+    input: contracts.UpdateCustomerTaskInput,
+    actor: User | None,
+    user_access_control: UserAccessControl,
+) -> _CustomerTaskWrite | None:
+    if not can_access_customer_task_object(task=task, user_access_control=user_access_control, write=True):
+        raise CustomerTaskAccessDenied()
+    if task.archived_at is not None:
+        raise CustomerTaskArchived()
+
+    before_account = task.account
+    before_name = task.name
+    before_description = task.description
+    before_status = task.status
+    before_assignee = task.assigned_to
+    before_due_at = task.due_at
+    semantic_change = (
+        (input.account_id_provided and input.account_id != task.account_id)
+        or (input.name_provided and input.name != task.name)
+        or (input.description_provided and input.description != task.description)
+        or (input.assigned_to_id_provided and input.assigned_to_id != task.assigned_to_id)
+        or (input.due_at_provided and input.due_at != task.due_at)
+        or (input.status_provided and input.status != task.status)
+    )
+    if not semantic_change:
+        return None
+
+    account = _account_for_write(
+        team.id, input.account_id if input.account_id_provided else task.account_id, user_access_control
+    )
+    assignee_id = input.assigned_to_id if input.assigned_to_id_provided else task.assigned_to_id
+    assignee = _validate_assignee(team=team, account=account, assignee_id=assignee_id)
+    requested_status = input.status if input.status_provided else task.status
+    if requested_status is None:
+        raise CustomerTaskInvalidTransition(task.status, "")
+    if (
+        input.status_provided
+        and requested_status != task.status
+        and requested_status not in _ALLOWED_TRANSITIONS[task.status]
+    ):
+        raise CustomerTaskInvalidTransition(task.status, requested_status)
+
+    if requested_status == CustomerTaskStatus.COMPLETED and task.status != CustomerTaskStatus.COMPLETED:
+        completed_at = timezone.now()
+        completed_by = actor if actor is not None else assignee
+    elif requested_status == CustomerTaskStatus.OPEN and task.status == CustomerTaskStatus.COMPLETED:
+        completed_at = None
+        completed_by = None
+    else:
+        completed_at = task.completed_at
+        completed_by = task.completed_by
+
+    task.account = account
+    if input.name_provided:
+        task.name = cast(str, input.name)
+    task.description = input.description if input.description_provided else task.description
+    task.assigned_to = assignee
+    task.due_at = input.due_at if input.due_at_provided else task.due_at
+    task.status = requested_status
+    task.completed_at = completed_at
+    task.completed_by = completed_by
+    changes = _changes(
+        before_account=before_account,
+        after_account=task.account,
+        before_name=before_name,
+        after_name=task.name,
+        before_description=before_description,
+        after_description=task.description,
+        before_status=before_status,
+        after_status=task.status,
+        before_assignee=before_assignee,
+        after_assignee=task.assigned_to,
+        before_due_at=before_due_at,
+        after_due_at=task.due_at,
+    )
+    return _CustomerTaskWrite(
+        task=task,
+        before_assignee=before_assignee,
+        activity=CustomerTaskActivity(
+            team_id=team.id,
+            task=task,
+            actor=actor,
+            activity_type=CustomerTaskActivityType.UPDATED,
+            changes=changes,
+        ),
+    )
+
+
+def _update_customer_task_access(*, team: Team, write: _CustomerTaskWrite, actor: User | None) -> None:
+    _set_customer_task_assignee_access(
+        task=write.task,
+        organization_id=team.organization_id,
+        before_assignee=write.before_assignee,
+        after_assignee=write.task.assigned_to,
+        actor=actor,
+    )
+
+
 def update_customer_task(
     *,
     team: Team,
@@ -407,87 +515,86 @@ def update_customer_task(
         task = _task_for_write(team_id=team.id, task_id=task_id, user_access_control=user_access_control)
         if task is None:
             return None
-        if not can_access_customer_task_object(task=task, user_access_control=user_access_control, write=True):
-            raise CustomerTaskAccessDenied()
-        if task.archived_at is not None:
-            raise CustomerTaskArchived()
-
-        before_account = task.account
-        before_name = task.name
-        before_description = task.description
-        before_status = task.status
-        before_assignee = task.assigned_to
-        before_due_at = task.due_at
-        semantic_change = (
-            (input.account_id_provided and input.account_id != task.account_id)
-            or (input.name_provided and input.name != task.name)
-            or (input.description_provided and input.description != task.description)
-            or (input.assigned_to_id_provided and input.assigned_to_id != task.assigned_to_id)
-            or (input.due_at_provided and input.due_at != task.due_at)
-            or (input.status_provided and input.status != task.status)
+        write = _prepare_customer_task_update(
+            team=team, task=task, input=input, actor=actor, user_access_control=user_access_control
         )
-        if not semantic_change:
-            return task
-
-        account = _account_for_write(
-            team.id, input.account_id if input.account_id_provided else task.account_id, user_access_control
-        )
-        assignee_id = input.assigned_to_id if input.assigned_to_id_provided else task.assigned_to_id
-        assignee = _validate_assignee(team=team, account=account, assignee_id=assignee_id)
-        requested_status = input.status if input.status_provided else task.status
-        if requested_status is None:
-            raise CustomerTaskInvalidTransition(task.status, "")
-        if (
-            input.status_provided
-            and requested_status != task.status
-            and requested_status not in _ALLOWED_TRANSITIONS[task.status]
-        ):
-            raise CustomerTaskInvalidTransition(task.status, requested_status)
-
-        if requested_status == CustomerTaskStatus.COMPLETED and task.status != CustomerTaskStatus.COMPLETED:
-            completed_at = timezone.now()
-            completed_by = actor if actor is not None else assignee
-        elif requested_status == CustomerTaskStatus.OPEN and task.status == CustomerTaskStatus.COMPLETED:
-            completed_at = None
-            completed_by = None
-        else:
-            completed_at = task.completed_at
-            completed_by = task.completed_by
-
-        task.account = account
-        if input.name_provided:
-            task.name = cast(str, input.name)
-        task.description = input.description if input.description_provided else task.description
-        task.assigned_to = assignee
-        task.due_at = input.due_at if input.due_at_provided else task.due_at
-        task.status = requested_status
-        task.completed_at = completed_at
-        task.completed_by = completed_by
-        task.save()
-        _set_customer_task_assignee_access(
-            task=task,
-            organization_id=team.organization_id,
-            before_assignee=before_assignee,
-            after_assignee=assignee,
-            actor=actor,
-        )
-        changes = _changes(
-            before_account=before_account,
-            after_account=task.account,
-            before_name=before_name,
-            after_name=task.name,
-            before_description=before_description,
-            after_description=task.description,
-            before_status=before_status,
-            after_status=task.status,
-            before_assignee=before_assignee,
-            after_assignee=task.assigned_to,
-            before_due_at=before_due_at,
-            after_due_at=task.due_at,
-        )
-        if changes:
-            _record_activity(task=task, activity_type=CustomerTaskActivityType.UPDATED, actor=actor, changes=changes)
+        if write is not None:
+            task.save()
+            _update_customer_task_access(team=team, write=write, actor=actor)
+            write.activity.save()
         return task
+
+
+def bulk_update_customer_tasks(
+    *,
+    team: Team,
+    task_ids: list[UUID],
+    input: contracts.UpdateCustomerTaskInput,
+    archived: bool | None,
+    actor: User | None,
+    user_access_control: UserAccessControl,
+) -> int | None:
+    try:
+        with transaction.atomic():
+            tasks = list(
+                _visible_task_queryset(team.id, user_access_control)
+                .filter(id__in=task_ids)
+                .order_by("id")
+                .select_for_update(of=("self",))
+            )
+            if len(tasks) != len(task_ids):
+                return None
+            writes: list[_CustomerTaskWrite] = []
+            now = timezone.now()
+            for task in tasks:
+                if archived is None:
+                    write = _prepare_customer_task_update(
+                        team=team, task=task, input=input, actor=actor, user_access_control=user_access_control
+                    )
+                    if write is None:
+                        continue
+                else:
+                    if not can_access_customer_task_object(
+                        task=task, user_access_control=user_access_control, write=True
+                    ):
+                        raise CustomerTaskAccessDenied()
+                    if (task.archived_at is not None) == archived:
+                        continue
+                    task.archived_at = now if archived else None
+                    write = _CustomerTaskWrite(
+                        task=task,
+                        before_assignee=task.assigned_to,
+                        activity=CustomerTaskActivity(
+                            team_id=team.id,
+                            task=task,
+                            actor=actor,
+                            activity_type=CustomerTaskActivityType.ARCHIVED
+                            if archived
+                            else CustomerTaskActivityType.RESTORED,
+                            changes=[],
+                        ),
+                    )
+                task.updated_at = now
+                writes.append(write)
+            CustomerTask.objects.for_team(team.id).bulk_update(
+                [write.task for write in writes],
+                [
+                    "account",
+                    "assigned_to",
+                    "due_at",
+                    "status",
+                    "completed_at",
+                    "completed_by",
+                    "archived_at",
+                    "updated_at",
+                ],
+            )
+            for write in writes:
+                _update_customer_task_access(team=team, write=write, actor=actor)
+            CustomerTaskActivity.objects.for_team(team.id).bulk_create([write.activity for write in writes])
+            return len(writes)
+    except IntegrityError as error:
+        raise contracts.CustomerTaskBulkUpdateConflict() from error
 
 
 def archive_customer_task(
