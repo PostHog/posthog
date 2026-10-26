@@ -22,7 +22,6 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 from posthog.schema import IntervalType
 
 from posthog.hogql.errors import QueryError, ResolutionError, TableAccessDeniedError
-from posthog.hogql.query import execute_hogql_query
 
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseClusterMemoryLimitExceeded, ClickHouseQueryTimeOut
 from posthog.models import Organization, Team, User
@@ -791,14 +790,14 @@ class TestScoredBuckets(ClickhouseTestMixin, BaseTest):
             allow_team_ids=(self.team.id, slow_team.id),
         )
 
-        def query(query: str, team: Team, **kwargs: Any) -> Any:
+        def buckets(team: Team, *args: Any) -> dict[int, dict[str, datetime]]:
             if team.id == slow_team.id:
                 raise ClickHouseQueryTimeOut()
-            return execute_hogql_query(query, team, **kwargs)
+            return scored_buckets(team, *args)
 
         with (
             patch("products.signals.backend.anomaly_scores.queue.list_limited_team_attributes", return_value=[]),
-            patch("products.signals.backend.anomaly_scores.queue.execute_hogql_query", side_effect=query),
+            patch("products.signals.backend.anomaly_scores.queue.scored_buckets", side_effect=buckets),
         ):
             selection = select_insights(config, SelectionConfig(weighting=Weighting.UNIFORM), NOW, limit=10)
 
