@@ -50,8 +50,14 @@ from products.alerts_platform.backend.facade.scheduling import (
     to_recurrence_interval,
     validate_and_normalize_schedule_start_time,
 )
+from products.alerts_platform.backend.logic import delivery_holds
 from products.alerts_platform.backend.logic.platform_alert_events import PlatformAlertEventRow, insert_events
-from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration, PlatformAlertThread
+from products.alerts_platform.backend.models import (
+    PlatformAlert,
+    PlatformAlertConfiguration,
+    PlatformAlertDeliveryHold,
+    PlatformAlertThread,
+)
 
 
 def due_q(moment: datetime) -> Q:
@@ -480,7 +486,7 @@ def _without_stale_groups(
         return outcome
     if outcome.grouping.splits_like(Grouping.from_stored(configuration.grouping)):
         return outcome
-    return replace(outcome, groups=(), overflowed=0, overflow_is_lower_bound=False, evicted=())
+    return replace(outcome, groups=(), overflowed=0, overflow_is_lower_bound=False, evicted=(), held_delivery=None)
 
 
 _HELD_BY_MUTE: Final = {
@@ -563,8 +569,12 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
         team_timezone = Team.objects.filter(id=team_id).values_list("timezone", flat=True).first() or "UTC"
 
         rows: list[PlatformAlertEventRow] = []
+        holds: list[PlatformAlertDeliveryHold] = []
         for configuration in configurations:
             outcome = by_id[str(configuration.id)]
+            hold = delivery_holds.hold_for(configuration, outcome, now)
+            if hold is not None:
+                holds.append(hold)
             turned_away = 0
             for reported in outcome.groups:
                 alert = alerts.get(
@@ -650,6 +660,9 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
                 "overflow_is_lower_bound",
             ],
         )
+        # In this transaction, because a recorded firing whose hold was lost would never be sent. A
+        # conflict keeps the first hold, so a repeated evaluation key cannot fail every later record.
+        PlatformAlertDeliveryHold.objects.for_team(team_id).bulk_create(holds, ignore_conflicts=True)
         # `on_commit` rather than a statement after the block, so a caller that wraps this in its
         # own `atomic()` cannot leave history for state its rollback removed.
         transaction.on_commit(lambda: record_history(team_id, rows))

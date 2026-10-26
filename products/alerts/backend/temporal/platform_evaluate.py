@@ -8,6 +8,7 @@ minute, and daily alerts in one timezone share their minute, so evaluating a key
 another would put the last check minutes behind the first.
 """
 
+import time
 import asyncio
 import datetime as dt
 from collections.abc import Callable
@@ -33,6 +34,7 @@ with workflow.unsafe.imports_passed_through():
     from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
     from posthog.temporal.common.utils import close_db_connections
 
+    from products.alerts.backend.platform_chart_detail import RenderedChart, pending_chart_alert_id, with_chart
     from products.alerts_platform.backend.facade.contracts import (
         RECORD_OUTCOMES_ACTIVITY,
         AlertDeliveryRequest,
@@ -65,6 +67,16 @@ REAL_TIME_CHECK_HEARTBEAT_TIMEOUT = _REAL_TIME_TIMEOUTS.heartbeat_timeout
 # Production's retries for an AI detector check, inside the default budget. A judge that reaches
 # no verdict raises for another attempt, and the last attempt records the failure.
 LLM_CHECK_RETRY_POLICY = alert_timeouts(None).evaluate_retry_policy
+# A firing's chart renders in its own activity, after the check has released its pool slot. It
+# outlasts the export render's own 90-second limit, so the render, not the activity, gives up first.
+CHART_START_TO_CLOSE = dt.timedelta(minutes=2)
+# Room to wait for a render slot. A render that gets none in time sends its firing without a chart.
+CHART_SCHEDULE_TO_CLOSE = CHART_START_TO_CLOSE + dt.timedelta(minutes=2)
+CHART_RETRY_POLICY = RetryPolicy(
+    initial_interval=dt.timedelta(seconds=5),
+    backoff_coefficient=2.0,
+    maximum_interval=dt.timedelta(seconds=30),
+)
 FAIL_START_TO_CLOSE = dt.timedelta(seconds=10)
 FAIL_SCHEDULE_TO_CLOSE = dt.timedelta(seconds=20)
 # Stopping a query can wait on a slow ClickHouse, so it runs apart from the failed check's record
@@ -85,7 +97,7 @@ EVALUATION_BUDGET = (
     PLAN_SCHEDULE_TO_CLOSE
     + ADMISSION_RUN_BUDGET
     + max(CHECK_SCHEDULE_TO_CLOSE, REAL_TIME_CHECK_SCHEDULE_TO_CLOSE)
-    + FAIL_SCHEDULE_TO_CLOSE
+    + max(CHART_SCHEDULE_TO_CLOSE, FAIL_SCHEDULE_TO_CLOSE)
     + RECORD_SCHEDULE_TO_CLOSE
     + max(FAIL_SCHEDULE_TO_CLOSE + RECORD_SCHEDULE_TO_CLOSE, STOP_QUERIES_START_TO_CLOSE)
 )
@@ -97,6 +109,8 @@ _PATCH_CHECK_BUDGETS = "platform-insight-check-budgets-2026-10"
 # Runs started before it evaluated every check on this queue. A plan can return an AI detector
 # check into such a run during a deploy, and replay must schedule the activity that run recorded.
 _PATCH_AI_DETECTOR_QUEUE = "platform-insight-ai-detector-queue-2026-10"
+# Runs started before it rendered charts inside the check, and replay must not schedule a render.
+_PATCH_CHART_AFTER_CHECK = "platform-insight-chart-after-check-2026-10"
 # Runs started before it recorded every outcome once the whole batch ended, and failed checks left none.
 _PATCH_RECORD_AS_FINISHED = "platform-insight-record-as-finished-2026-10"
 
@@ -117,6 +131,12 @@ class AdmittedInsightCheck:
     uses_llm_detector: bool = False
     # The platform owns the alert, so this check is the one that notifies.
     owned_by_platform: bool = False
+
+
+@frozen
+class InsightChartInputs:
+    team_id: int
+    alert_id: str
 
 
 @frozen
@@ -313,6 +333,27 @@ def _release_platform_llm_check(thread: "asyncio.Future[SourceBatchEvaluation | 
         thread.exception()
 
 
+@activity.defn
+@close_db_connections
+def render_platform_insight_chart_activity(inputs: InsightChartInputs) -> RenderedChart | None:
+    """Sync, because the render blocks for its whole duration. Only a full render pool raises, for a
+    retry. Any other failure sends the firing without a chart, as production does."""
+    from products.alerts.backend.platform_source_cycle import ChartRenderPoolFull, render_firing_chart  # noqa: PLC0415
+
+    try:
+        # A slot of its own per attempt, so a timed-out attempt cannot release its retry's slot.
+        return render_firing_chart(
+            inputs.team_id, inputs.alert_id, held_until=time.time() + CHART_START_TO_CLOSE.total_seconds()
+        )
+    except ChartRenderPoolFull:
+        raise
+    except Exception:
+        activity.logger.exception(
+            "Could not render a platform insight firing's chart", extra={"alert_id": inputs.alert_id}
+        )
+        return None
+
+
 @workflow.defn(name="insight-alert-platform-evaluate")
 class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
     """Evaluates one batch key, records what it decided, and starts the deliveries its checks asked
@@ -349,6 +390,10 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
             if isinstance(result, BaseException) and not isinstance(result, ActivityError):
                 raise result
         evaluations = [result for result in settled if isinstance(result, SourceBatchEvaluation)]
+        if workflow.patched(_PATCH_CHART_AFTER_CHECK):
+            evaluations = await self._with_charts(inputs, evaluations)
+        # A check that ran on new code under a run that started before the patch leaves its marker.
+        evaluations = [with_chart(evaluation, None) for evaluation in evaluations]
         outcomes = tuple(outcome for evaluation in evaluations for outcome in evaluation.outcomes)
         if len(outcomes) < len(settled):
             workflow.logger.warning(
@@ -359,6 +404,38 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
             return 0
         await self._record(inputs, evaluations, chunked=workflow.patched(_PATCH_CHUNKED_RECORD))
         return len(outcomes)
+
+    async def _with_charts(
+        self, inputs: SourceEvaluationInputs, evaluations: list[SourceBatchEvaluation]
+    ) -> list[SourceBatchEvaluation]:
+        """Renders each firing's chart side by side. A render that fails leaves its firing without one,
+        as production sends a firing without its chart."""
+        pending = [pending_chart_alert_id(evaluation) for evaluation in evaluations]
+        rendered = await asyncio.gather(
+            *(
+                workflow.execute_activity(
+                    render_platform_insight_chart_activity,
+                    InsightChartInputs(team_id=inputs.batch_key.team_id, alert_id=alert_id),
+                    start_to_close_timeout=CHART_START_TO_CLOSE,
+                    schedule_to_close_timeout=CHART_SCHEDULE_TO_CLOSE,
+                    retry_policy=CHART_RETRY_POLICY,
+                )
+                for alert_id in pending
+                if alert_id is not None
+            ),
+            return_exceptions=True,
+        )
+        charts = iter(rendered)
+        result: list[SourceBatchEvaluation] = []
+        for evaluation, alert_id in zip(evaluations, pending):
+            if alert_id is None:
+                result.append(evaluation)
+                continue
+            chart = next(charts)
+            if isinstance(chart, BaseException) and not isinstance(chart, ActivityError):
+                raise chart
+            result.append(with_chart(evaluation, chart if isinstance(chart, RenderedChart) else None))
+        return result
 
     async def _plan(
         self,
@@ -487,7 +564,9 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
                     added = bool(admitted)
                     for check in admitted:
                         started[check.configuration_id] = check
-                        unrecorded[check.configuration_id] = asyncio.create_task(self._check(inputs, check, expires_at))
+                        unrecorded[check.configuration_id] = asyncio.create_task(
+                            self._check_and_chart(inputs, check, expires_at)
+                        )
             finished = {configuration_id: task for configuration_id, task in unrecorded.items() if task.done()}
             if (finished or waiting) and (
                 workflow.now() >= next_record_at or all(task.done() for task in unrecorded.values())
@@ -525,6 +604,17 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
             else:
                 timeout = None
             await asyncio.wait(running, timeout=timeout, return_when=asyncio.FIRST_COMPLETED)
+
+    async def _check_and_chart(
+        self, inputs: SourceEvaluationInputs, check: AdmittedInsightCheck, expires_at: float
+    ) -> SourceBatchEvaluation | None:
+        """The check, then its firing's chart, so a slow render holds back only its own check's record.
+
+        No patch guards the render, because a run on this path started on code that renders charts."""
+        evaluation = await self._check(inputs, check, expires_at)
+        if evaluation is None:
+            return None
+        return (await self._with_charts(inputs, [evaluation]))[0]
 
     async def _evaluations_of(
         self,
@@ -672,6 +762,7 @@ PLATFORM_EVALUATION_ACTIVITIES = [
     plan_platform_insight_round_activity,
     plan_platform_insight_checks_activity,
     evaluate_platform_insight_check_activity,
+    render_platform_insight_chart_activity,
     fail_platform_insight_check_activity,
     stop_platform_insight_queries_activity,
 ]

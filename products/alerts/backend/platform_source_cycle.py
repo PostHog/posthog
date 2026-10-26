@@ -32,12 +32,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.errors import CH_TRANSIENT_ERRORS, QueryErrorCategory, classify_query_error
 from posthog.schema_enums import AlertCalculationInterval
 from posthog.tasks.alerts.schedule_restriction import is_utc_datetime_blocked
-from posthog.tasks.alerts.utils import (
-    AlertEvaluationResult,
-    RenderedInsightChart,
-    render_alert_insight_chart,
-    skip_because_of_weekend,
-)
+from posthog.tasks.alerts.utils import AlertEvaluationResult, render_alert_insight_chart, skip_because_of_weekend
 from posthog.temporal.alerts.admission import admit_evaluation_slots, release_evaluation_slot
 
 from products.alerts.backend.evaluation import check_alert_for_insight
@@ -54,6 +49,7 @@ from products.alerts.backend.llm_detector_limits import is_llm_detector_config
 from products.alerts.backend.logic.alert_email import INSIGHT_ALERT_ERRORED_EVENT_ID
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.alerts.backend.platform_alert_wording import insight_alert_url
+from products.alerts.backend.platform_chart_detail import CHART_PENDING_KEY, RenderedChart
 from products.alerts_platform.backend.facade.api import due_check_ids, due_checks, refresh_settings, slot_of
 from products.alerts_platform.backend.facade.contracts import (
     SOURCE_CONDITION_KEY,
@@ -106,6 +102,12 @@ from products.cdp.backend.internal_events import LEGACY_INSIGHT_ALERT_EVENT
 logger = structlog.get_logger(__name__)
 
 INFLIGHT_KEY = "alerts:platform:insight:evaluations:inflight"
+CHART_RENDER_INFLIGHT_KEY = "alerts:platform:insight:chart-renders:inflight"
+
+
+class ChartRenderPoolFull(Exception):
+    """Every chart render slot is taken. The activity retries later, holding no worker slot meanwhile."""
+
 
 # How many threads of the shared AI pool the parallel run may hold, so a stalled platform check
 # never takes more than this from production. A thread counts until it ends, not until Temporal
@@ -735,8 +737,7 @@ def _decide_grouped(
             key, found = bounded_grouping_key(series.identity), series.result.breaches or []
             if key not in breaches or (found and not breaches[key]):
                 breaches[key] = found
-        # One render serves every value that fires, because they all show the same insight.
-        chart = _chart(check, alert)
+        wants_chart = _wants_chart(check, alert)
         decision = replace(
             decision,
             verdicts=tuple(
@@ -744,7 +745,9 @@ def _decide_grouped(
                     verdict,
                     group=replace(
                         verdict.group,
-                        source_detail=_detail(alert, breaches.get(verdict.group.grouping_key, []), chart),
+                        source_detail=_detail(
+                            alert, breaches.get(verdict.group.grouping_key, []), wants_chart=wants_chart
+                        ),
                     ),
                 )
                 if verdict.outcome.notification == NotificationAction.FIRE
@@ -765,15 +768,38 @@ def _firing_detail(
     check: PlatformAlertCheckInput, alert: AlertConfiguration, breaches: Sequence[str]
 ) -> dict[str, Any]:
     """What production's `$insight_alert_firing` carries beside the verdict, which only the check can know."""
-    return _detail(alert, breaches, _chart(check, alert))
+    return _detail(alert, breaches, wants_chart=_wants_chart(check, alert))
 
 
-def _chart(check: PlatformAlertCheckInput, alert: AlertConfiguration) -> RenderedInsightChart | None:
+def _wants_chart(check: PlatformAlertCheckInput, alert: AlertConfiguration) -> bool:
     # A render takes up to a minute and a half, so only an alert the platform delivers for pays
     # for one. Production renders no chart for a real-time alert either.
-    if check.owned_by_platform and alert.calculation_interval != AlertCalculationInterval.REAL_TIME:
-        return render_alert_insight_chart(alert)
-    return None
+    return check.owned_by_platform and alert.calculation_interval != AlertCalculationInterval.REAL_TIME
+
+
+def render_firing_chart(team_id: int, alert_id: str, *, held_until: float) -> RenderedChart | None:
+    """Render the chart a firing of this alert sends, or None when none applies or the render fails.
+
+    The evaluation workflow calls this after the check, so the render never holds the check's slot.
+    Raises `ChartRenderPoolFull` when the render pool has no room.
+    """
+    if not admit_evaluation_slots(
+        [alert_id],
+        limit=settings.ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_CHART_RENDERS,
+        expires_at=held_until,
+        key=CHART_RENDER_INFLIGHT_KEY,
+    ):
+        raise ChartRenderPoolFull()
+    try:
+        alert = AlertConfiguration.objects.filter(team_id=team_id, id=alert_id).select_related("team").first()
+        if alert is None:
+            return None
+        chart = render_alert_insight_chart(alert)
+        return (
+            RenderedChart(asset_id=chart.asset_id, render_user_id=chart.render_user_id) if chart is not None else None
+        )
+    finally:
+        release_evaluation_slot(alert_id, held_until=held_until, key=CHART_RENDER_INFLIGHT_KEY)
 
 
 def _context(alert: AlertConfiguration) -> dict[str, Any]:
@@ -785,7 +811,7 @@ def _clipped(text: str, limit: int = MAX_BREACH_CHARS) -> str:
     return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
-def _detail(alert: AlertConfiguration, breaches: Sequence[str], chart: RenderedInsightChart | None) -> dict[str, Any]:
+def _detail(alert: AlertConfiguration, breaches: Sequence[str], *, wants_chart: bool) -> dict[str, Any]:
     # Bounded, because the outcome crosses into Temporal and a breach names user-written labels.
     detail: dict[str, Any] = {
         "breaches": [_clipped(breach) for breach in breaches[:MAX_DETAIL_BREACHES]],
@@ -793,11 +819,8 @@ def _detail(alert: AlertConfiguration, breaches: Sequence[str], chart: RenderedI
         # The legacy alert's id, which a native message's snooze menu snoozes.
         "alert_id": str(alert.id),
     }
-    if chart is not None:
-        # The ids rather than a URL, because the URL opens the chart without a login and history keeps
-        # this for its whole retention. A delivery mints the URL when it sends.
-        detail["insight_chart_asset_id"] = chart.asset_id
-        detail["insight_chart_render_user_id"] = chart.render_user_id
+    if wants_chart:
+        detail[CHART_PENDING_KEY] = str(alert.id)
     return detail
 
 
