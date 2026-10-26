@@ -44,7 +44,8 @@
 #   about 15 minutes and still ends in a miss. Restores in this file and in the setup-pnpm,
 #   setup-python-cached and setup-sqlx-cli mirrors set timeout-minutes and continue-on-error so
 #   that a stall becomes an early miss. Schema restores get 4 minutes so that one retry runs,
-#   because a schema miss means a from-scratch migrate. Saves stay unbounded, because a timeout drops what they write.
+#   because a schema miss means a from-scratch migrate. Saves stay unbounded, because a timeout
+#   drops what they write.
 # - The env block clears GITHUB_TOKEN and OTEL_SERVICE_NAME because Depot provides them by default.
 # - Token steps read vars.* and secrets.* from Depot's store. If a value is missing there,
 #   setup-action steps with continue-on-error fall back to the default GITHUB_TOKEN, a Depot
