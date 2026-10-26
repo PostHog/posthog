@@ -374,11 +374,11 @@ export interface warehouseSuggestionsLogicMeta {
             hiddenSuggestionIds: string[],
             surface: SuggestionSurface
         ) => WarehouseSuggestionApi[]
+        suggestionGroups: (listedSuggestions: WarehouseSuggestionApi[]) => SuggestionGroup[]
         surfaceSuggestions: (
             listedSuggestions: WarehouseSuggestionApi[],
             leavingSuggestionIds: string[]
         ) => WarehouseSuggestionApi[]
-        suggestionGroups: (listedSuggestions: WarehouseSuggestionApi[]) => SuggestionGroup[]
         savingsSummary: (surfaceSuggestions: WarehouseSuggestionApi[]) => SavingsSummary
         materializeModalSuggestion: (
             suggestions: WarehouseSuggestionApi[] | null,
