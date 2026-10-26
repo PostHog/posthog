@@ -38,6 +38,13 @@
 #   Without those plans, shards use the combined .test_durations file.
 # - actions/cache uses Depot Cache, which Depot CI and Depot GitHub Actions runners share.
 #   GitHub-hosted runners use a separate GitHub Actions cache.
+# - The actions/cache client gives each cache service request a 3-minute socket timeout and
+#   tries it 5 times. No input or env var shortens either, and SEGMENT_DOWNLOAD_TIMEOUT_MINS
+#   only covers the blob download that follows. A stalled request therefore holds a restore for
+#   about 15 minutes and still ends in a miss. Every actions/cache/restore step sets
+#   timeout-minutes and continue-on-error so that a stall becomes a miss early. Schema restores
+#   get 4 minutes, which lets one retry run, because a miss there means a from-scratch migrate.
+#   Saves and artifact uploads have no step bound, because a timeout would drop what they write.
 # - The env block clears GITHUB_TOKEN and OTEL_SERVICE_NAME because Depot provides them by default.
 # - Token steps read vars.* and secrets.* from Depot's store. If a value is missing there,
 #   setup-action steps with continue-on-error fall back to the default GITHUB_TOKEN, a Depot
@@ -780,6 +787,8 @@ jobs:
                   enable-cache: false
               continue-on-error: true
             - name: Restore test durations from cache
+              timeout-minutes: 2
+              continue-on-error: true
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: .test_durations
@@ -807,6 +816,8 @@ jobs:
                   gh run download "$run_id" --repo "$GITHUB_REPOSITORY" --name test-durations --dir . \
                       || echo "::warning::Timing artifact of run $run_id unavailable, sharding without durations"
             - name: Restore per-segment test durations from cache
+              timeout-minutes: 2
+              continue-on-error: true
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: |
@@ -819,6 +830,8 @@ jobs:
               # The timing workflow rebuilds it from the newest hourly recording. A miss
               # leaves the file absent, and the events_json rows then run every listed test.
               if: github.event_name == 'pull_request'
+              timeout-minutes: 2
+              continue-on-error: true
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: events-schema-prune.json
@@ -942,6 +955,8 @@ jobs:
         steps:
             - name: Look up schema cache
               id: schema-cache
+              timeout-minutes: 4
+              continue-on-error: true
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: schema.sql.gz
@@ -1151,6 +1166,8 @@ jobs:
                     || { echo "::group::compose launch log"; cat "${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>/dev/null || true; echo "::endgroup::"; exit 1; }
             - name: Restore schema cache from master
               if: ${{ github.event_name == 'pull_request' }}
+              timeout-minutes: 4
+              continue-on-error: true
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: schema.sql.gz
@@ -1207,7 +1224,7 @@ jobs:
                   bin/wait-for-docker temporal
                   PYTHONFAULTHANDLER=1 timeout --signal=ABRT --kill-after=30s 3m python manage.py register_temporal_search_attributes
             - name: Restore test durations from cache
-              timeout-minutes: 7
+              timeout-minutes: 2
               continue-on-error: true
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
@@ -1799,6 +1816,8 @@ jobs:
             - name: Restore master schema dump from cache
               id: master-schema-cache
               if: github.event_name != 'push' && steps.master-schema-key.outputs.key != ''
+              timeout-minutes: 4
+              continue-on-error: true
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: schema.sql.gz
@@ -3143,6 +3162,8 @@ jobs:
             # Restore before setup-python so the tool cache is warm when it starts.
             - name: Restore Python tool cache
               id: python-toolcache
+              timeout-minutes: 2
+              continue-on-error: true
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: ${{ runner.tool_cache }}/Python/${{ matrix.python-version }}
@@ -3292,6 +3313,8 @@ jobs:
                     || { echo "::group::compose launch log"; cat "${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>/dev/null || true; echo "::endgroup::"; exit 1; }
             - name: Restore schema cache from master
               if: ${{ github.event_name == 'pull_request' }}
+              timeout-minutes: 4
+              continue-on-error: true
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: schema.sql.gz
@@ -3343,6 +3366,8 @@ jobs:
                       admin_psql -c "DROP DATABASE IF EXISTS test_posthog;" || true
                   fi
             - name: Restore test durations from cache
+              timeout-minutes: 2
+              continue-on-error: true
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: .test_durations
@@ -3370,6 +3395,8 @@ jobs:
                   gh run download "$run_id" --repo "$GITHUB_REPOSITORY" --name test-durations --dir . \
                       || echo "::warning::Timing artifact of run $run_id unavailable, sharding without durations"
             - name: Restore per-segment test durations from cache
+              timeout-minutes: 2
+              continue-on-error: true
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: |
