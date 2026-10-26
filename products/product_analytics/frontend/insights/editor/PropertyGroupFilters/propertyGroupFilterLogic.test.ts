@@ -3,7 +3,13 @@ import { expectLogic } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { EventPropertyFilter, FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
+import {
+    EventPropertyFilter,
+    FilterLogicalOperator,
+    PropertyFilterType,
+    PropertyGroupFilter,
+    PropertyOperator,
+} from '~/types'
 
 import { propertyGroupFilterLogic } from './propertyGroupFilterLogic'
 
@@ -86,11 +92,22 @@ describe('propertyGroupFilterLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             const lastCall = setQuerySpy.mock.calls[setQuerySpy.mock.calls.length - 1][0]
-            expect(lastCall.properties).not.toBeUndefined()
-            expect(lastCall.properties.type).toBe(FilterLogicalOperator.And)
-            expect(lastCall.properties.values).toHaveLength(1)
-            expect(lastCall.properties.values[0].values).toHaveLength(1)
-            expect(lastCall.properties.values[0].values[0].key).toBe('$browser')
+            expect(lastCall.properties).toEqual({
+                type: FilterLogicalOperator.And,
+                values: [
+                    {
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            {
+                                type: PropertyFilterType.Event,
+                                key: '$browser',
+                                value: ['Chrome'],
+                                operator: PropertyOperator.Exact,
+                            },
+                        ],
+                    },
+                ],
+            })
         })
 
         it('keeps a just-added filter group in the editor until it has a filter', async () => {
@@ -113,13 +130,17 @@ describe('propertyGroupFilterLogic', () => {
             logic.actions.setPropertyFilters([browserFilter('Firefox')], 0)
             await expectLogic(logic).toFinishAllListeners()
 
-            expect(logic.values.filters.values.map((group) => group.values)).toEqual([[browserFilter('Firefox')], []])
-            expect(setQuerySpy.mock.lastCall[0].properties.values).toHaveLength(1)
+            const groupValues = (filters: PropertyGroupFilter): unknown[] => filters.values.map((group) => group.values)
+            expect(groupValues(logic.values.filters)).toEqual([[browserFilter('Firefox')], []])
+            expect(groupValues(setQuerySpy.mock.lastCall[0].properties)).toEqual([[browserFilter('Firefox')]])
 
             logic.actions.setPropertyFilters([browserFilter('Safari')], 1)
             await expectLogic(logic).toFinishAllListeners()
 
-            expect(setQuerySpy.mock.lastCall[0].properties.values).toHaveLength(2)
+            expect(groupValues(setQuerySpy.mock.lastCall[0].properties)).toEqual([
+                [browserFilter('Firefox')],
+                [browserFilter('Safari')],
+            ])
         })
     })
 })
