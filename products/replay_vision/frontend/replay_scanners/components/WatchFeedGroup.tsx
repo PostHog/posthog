@@ -16,11 +16,27 @@ import { ReplayScannerTab } from '../replayScannerSceneLogic'
 import { WATCH_GROUP_PREVIEW_SIZE, type WatchFeedGroupLogicProps, watchFeedGroupLogic } from '../watchFeedGroupLogic'
 import { observationKeyMomentMs, watchCardHeadline, watchFeedObservationUrl } from './WatchFeedCard'
 
-function WatchFeedGroupMember({ observation }: { observation: ReplayObservationApi }): JSX.Element {
+/** The card's telemetry properties, so group events join the card they came from. */
+type CardContext = Record<string, unknown>
+
+type WatchFeedGroupProps = WatchFeedGroupLogicProps & { similarCount: number; cardContext: CardContext }
+
+function WatchFeedGroupMember({
+    observation,
+    cardContext,
+}: {
+    observation: ReplayObservationApi
+    cardContext: CardContext
+}): JSX.Element {
     const keyMomentMs = observationKeyMomentMs(observation)
     const url = watchFeedObservationUrl(observation)
-    const captureOpened = (target: string) => (): void =>
-        posthog.capture('replay_vision_watch_group_member_opened', { target })
+    const captureOpened = (target: string) => (): void => {
+        posthog.capture('replay_vision_watch_group_member_opened', {
+            ...cardContext,
+            target,
+            member_observation_id: observation.id,
+        })
+    }
     const person = observation.recording_subject_email || observation.distinct_id
     const title = watchCardHeadline(observation)?.title ?? scannerLabel(observation)
     return (
@@ -62,10 +78,7 @@ function WatchFeedGroupMember({ observation }: { observation: ReplayObservationA
 }
 
 /** Opens the other sessions in a card's duplicate group under the card, so a reader can see who else hit it. */
-export function WatchFeedGroupToggle({
-    similarCount,
-    ...logicProps
-}: WatchFeedGroupLogicProps & { similarCount: number }): JSX.Element {
+export function WatchFeedGroupToggle({ similarCount, cardContext, ...logicProps }: WatchFeedGroupProps): JSX.Element {
     const { expanded } = useValues(watchFeedGroupLogic(logicProps))
     const { toggleExpanded } = useActions(watchFeedGroupLogic(logicProps))
     return (
@@ -77,7 +90,10 @@ export function WatchFeedGroupToggle({
             }
             onClick={() => {
                 if (!expanded) {
-                    posthog.capture('replay_vision_watch_group_expanded', { similar_count: similarCount })
+                    posthog.capture('replay_vision_watch_group_expanded', {
+                        ...cardContext,
+                        similar_count: similarCount,
+                    })
                 }
                 toggleExpanded()
             }}
@@ -92,8 +108,9 @@ export function WatchFeedGroupToggle({
 
 export function WatchFeedGroupList({
     similarCount,
+    cardContext,
     ...logicProps
-}: WatchFeedGroupLogicProps & { similarCount: number }): JSX.Element | null {
+}: WatchFeedGroupProps): JSX.Element | null {
     const { expanded, members, membersLoading } = useValues(watchFeedGroupLogic(logicProps))
     const { loadMembers } = useActions(watchFeedGroupLogic(logicProps))
     if (!expanded) {
@@ -116,11 +133,11 @@ export function WatchFeedGroupList({
                     </LemonButton>
                 </div>
             ) : members.length === 0 ? (
-                <p className="m-0 text-sm text-secondary">The similar sessions are outside this time range.</p>
+                <p className="m-0 text-sm text-secondary">No similar sessions to show right now.</p>
             ) : (
                 <ul className="m-0 flex list-none flex-col gap-3 p-0">
                     {members.map((member) => (
-                        <WatchFeedGroupMember key={member.id} observation={member} />
+                        <WatchFeedGroupMember key={member.id} observation={member} cardContext={cardContext} />
                     ))}
                 </ul>
             )}
@@ -135,8 +152,14 @@ export function WatchFeedGroupList({
                     }
                     className="self-start text-sm"
                     data-attr="vision-watch-feed-group-see-all"
+                    onClick={() =>
+                        posthog.capture('replay_vision_watch_group_see_all_clicked', {
+                            ...cardContext,
+                            similar_count: similarCount,
+                        })
+                    }
                 >
-                    See all {similarCount} similar sessions
+                    See all similar sessions
                 </Link>
             )}
         </div>

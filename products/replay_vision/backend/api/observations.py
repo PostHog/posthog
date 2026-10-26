@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Case, CharField, IntegerField, OuterRef, Q, QuerySet, Subquery, Value, When
+from django.db.models import Case, CharField, IntegerField, Q, QuerySet, Subquery, Value, When
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
 from django.db.models.functions import Cast, Coalesce
 from django.http.response import HttpResponseBase
@@ -903,6 +903,8 @@ class ReplayObservationFilter(django_filters.FilterSet):
     def _filter_watch_group(
         self, queryset: QuerySet[ReplayObservation], _name: str, value: uuid.UUID
     ) -> QuerySet[ReplayObservation]:
+        if self._team is None:
+            return queryset.none()
         root = Coalesce(
             KeyTextTransform("duplicate_of", "watch_rank"), Cast("id", CharField()), output_field=CharField()
         )
@@ -911,7 +913,7 @@ class ReplayObservationFilter(django_filters.FilterSet):
         )
         # The asked row's root comes from a subquery, so the filter adds no statement of its own.
         asked_root = Subquery(
-            ReplayObservation.objects.filter(current, id=value, team_id=OuterRef("team_id"))
+            ReplayObservation.objects.filter(current, id=value, team_id=self._team.id)
             .annotate(_root=root)
             .values("_root")[:1]
         )

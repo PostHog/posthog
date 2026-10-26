@@ -400,7 +400,13 @@ export function WatchFeedRow({ item, position }: WatchFeedRowProps): JSX.Element
     const title = watchFeedRowTitle(observation, reason)
     const filler = FILLER_REASON_KINDS.has(reason.kind)
     const similarCount = reason.kind === 'embedding_pick' ? (reason.similar_count ?? 0) : 0
-    const groupProps = { observationId: observation.id, scannerId: observation.scanner_id, dateFrom, similarCount }
+    const groupProps = {
+        observationId: observation.id,
+        scannerId: observation.scanner_id,
+        dateFrom,
+        similarCount,
+        cardContext: cardProperties(feedLoad, item, position, 'feed_tab'),
+    }
     const captureOpened = (): void => {
         posthog.capture('replay_vision_watch_clip_clicked', {
             ...cardProperties(feedLoad, item, position, 'feed_tab'),
