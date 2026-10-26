@@ -138,17 +138,11 @@ class _CustomerTaskBulkValidation:
         self.assignee_ids = {task.assigned_to_id for task in visible_tasks if task.assigned_to_id is not None}
         if input.assigned_to_id_provided and input.assigned_to_id is not None:
             self.assignee_ids.add(input.assigned_to_id)
-        self.assignee_access = {user_access_control.user.id: user_access_control}
         self.validated_pairs: set[tuple[UUID | None, int]] = set()
 
     @cached_property
-    def assignees(self) -> dict[int, User]:
-        return {
-            membership.user_id: membership.user
-            for membership in OrganizationMembership.objects.filter(
-                organization_id=self.team.organization_id, user_id__in=self.assignee_ids
-            ).select_related("user")
-        }
+    def assignee_access(self) -> dict[int, UserAccessControl]:
+        return UserAccessControl.for_user_ids(user_ids=self.assignee_ids, team=self.team)
 
     def can_edit(self, task: CustomerTask) -> bool:
         return self.user_access_control.check_access_level_for_object(task, required_level="editor")
@@ -166,16 +160,14 @@ class _CustomerTaskBulkValidation:
     def get_assignee(self, account: Account | None, assignee_id: int | None) -> User | None:
         if assignee_id is None:
             return None
-        assignee = self.assignees.get(assignee_id)
-        if assignee is None:
+        access = self.assignee_access.get(assignee_id)
+        if access is None:
             raise CustomerTaskAssigneeInvalid()
         pair = (account.id if account is not None else None, assignee_id)
         if pair not in self.validated_pairs:
-            if assignee_id not in self.assignee_access:
-                self.assignee_access[assignee_id] = UserAccessControl(user=assignee, team=self.team)
-            _validate_assignee_access(team=self.team, account=account, access=self.assignee_access[assignee_id])
+            _validate_assignee_access(team=self.team, account=account, access=access)
             self.validated_pairs.add(pair)
-        return assignee
+        return access.user
 
 
 def _set_customer_task_assignee_access(
@@ -571,6 +563,46 @@ def _update_customer_task_access(*, team: Team, write: _CustomerTaskWrite, actor
     )
 
 
+def _bulk_update_customer_task_access(*, team: Team, writes: list[_CustomerTaskWrite], actor: User | None) -> None:
+    assignment_changes = [write for write in writes if write.before_assignee != write.task.assigned_to]
+    if not assignment_changes:
+        return
+    user_ids = {
+        assignee.id
+        for write in assignment_changes
+        for assignee in (write.before_assignee, write.task.assigned_to)
+        if assignee is not None
+    }
+    membership_ids = dict(
+        OrganizationMembership.objects.filter(organization_id=team.organization_id, user_id__in=user_ids).values_list(
+            "user_id", "id"
+        )
+    )
+    inputs: list[access_control_contracts.SetObjectAccessControlInput] = []
+    for write in assignment_changes:
+        for assignee, access_level in ((write.before_assignee, None), (write.task.assigned_to, "editor")):
+            if assignee is None:
+                continue
+            membership_id = membership_ids.get(assignee.id)
+            if membership_id is None:
+                if access_level is not None:
+                    raise CustomerTaskAssigneeInvalid()
+                continue
+            inputs.append(
+                access_control_contracts.SetObjectAccessControlInput(
+                    resource="customer_task",
+                    resource_id=str(write.task.id),
+                    organization_member_id=membership_id,
+                    access_level=access_level,
+                    created_by_id=actor.id if actor is not None else None,
+                )
+            )
+    try:
+        access_control_api.bulk_set_object_access_controls(team_id=team.id, inputs=inputs)
+    except access_control_api.InvalidObjectAccessControlError as error:
+        raise CustomerTaskAssigneeInvalid() from error
+
+
 def update_customer_task(
     *,
     team: Team,
@@ -663,8 +695,7 @@ def bulk_update_customer_tasks(
                     "updated_at",
                 ],
             )
-            for write in writes:
-                _update_customer_task_access(team=team, write=write, actor=actor)
+            _bulk_update_customer_task_access(team=team, writes=writes, actor=actor)
             CustomerTaskActivity.objects.for_team(team.id).bulk_create([write.activity for write in writes])
             return len(writes)
     except IntegrityError as error:

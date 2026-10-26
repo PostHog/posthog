@@ -12,6 +12,7 @@ from posthog.models.activity_logging.activity_log import (
     ActivityContextBase,
     Change,
     Detail,
+    LogActivityEntry,
     changes_between,
     log_activity,
 )
@@ -29,20 +30,17 @@ class AccessControlContext(ActivityContextBase):
     organization_member_id: str | None
 
 
-@mutable_receiver(model_activity_signal, sender=AccessControl)
-def handle_access_control_change(
-    sender: type,
-    scope: str,
+def get_access_control_log_entry(
+    *,
     before_update: Optional[AccessControl],
     after_update: Optional[AccessControl],
     activity: str,
     user: Optional[User],
     was_impersonated: bool = False,
-    **kwargs: Any,
-) -> None:
+) -> LogActivityEntry | None:
     rule = after_update or before_update
     if rule is None:
-        return
+        return None
 
     if activity == "created":
         changes = [Change(type="AccessControl", field="access_level", action="created", after=rule.access_level)]
@@ -51,13 +49,13 @@ def handle_access_control_change(
     else:
         changes = changes_between("AccessControl", previous=before_update, current=after_update)
 
-    log_activity(
+    return LogActivityEntry(
         organization_id=rule.team.organization_id,
         team_id=rule.team_id,
         user=user,
         was_impersonated=was_impersonated,
         item_id=rule.id,
-        scope=scope,
+        scope="AccessControl",
         activity=activity,
         detail=Detail(
             name=f"{rule.resource} {rule.resource_id}" if rule.resource_id else rule.resource,
@@ -72,3 +70,25 @@ def handle_access_control_change(
             ),
         ),
     )
+
+
+@mutable_receiver(model_activity_signal, sender=AccessControl)
+def handle_access_control_change(
+    sender: type,
+    scope: str,
+    before_update: Optional[AccessControl],
+    after_update: Optional[AccessControl],
+    activity: str,
+    user: Optional[User],
+    was_impersonated: bool = False,
+    **kwargs: Any,
+) -> None:
+    entry = get_access_control_log_entry(
+        before_update=before_update,
+        after_update=after_update,
+        activity=activity,
+        user=user,
+        was_impersonated=was_impersonated,
+    )
+    if entry is not None:
+        log_activity(**entry)
