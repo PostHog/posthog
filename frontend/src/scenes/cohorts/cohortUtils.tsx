@@ -1,17 +1,30 @@
 import { deepEqual as equal } from 'fast-equals'
 import { DeepPartialMap, ValidationErrorType } from 'kea-forms'
 
-import { isEmptyProperty, propertyFilterTypeToPropertyDefinitionType } from 'lib/components/PropertyFilters/utils'
+import {
+    isEmptyProperty,
+    isPersonMetadataPropertyFilter,
+    isPersonPropertyFilter,
+    propertyFilterTypeToPropertyDefinitionType,
+} from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { ENTITY_MATCH_TYPE, PROPERTY_MATCH_TYPE } from 'lib/constants'
+import { isStringDateRegex } from 'lib/utils/dateFilters'
 import { calculateDays } from 'lib/utils/durations'
 import { isNumeric } from 'lib/utils/guards'
 import { areObjectValuesEmpty } from 'lib/utils/objects'
-import { BEHAVIORAL_TYPE_TO_LABEL, CRITERIA_VALIDATIONS, getRowShape } from 'scenes/cohorts/CohortFilters/constants'
+import { isOperatorDate } from 'lib/utils/operators'
+import {
+    BEHAVIORAL_TYPE_TO_LABEL,
+    CRITERIA_VALIDATIONS,
+    FIELD_VALUES,
+    getRowShape,
+} from 'scenes/cohorts/CohortFilters/constants'
 import {
     BehavioralFilterKey,
     BehavioralFilterType,
     CohortClientErrors,
+    FieldOptionsType,
     FieldWithFieldKey,
     FilterType,
 } from 'scenes/cohorts/CohortFilters/types'
@@ -30,6 +43,9 @@ import {
     CohortCriteriaType,
     CohortType,
     FilterLogicalOperator,
+    PropertyDefinition,
+    PropertyDefinitionState,
+    PropertyDefinitionType,
     PropertyFilterType,
     PropertyFilterValue,
     PropertyOperator,
@@ -733,4 +749,43 @@ export function cohortBroadcastAudience(cohort: Pick<CohortType, 'id' | 'name'>)
         source: 'cohort',
         draftSource: { source: 'cohort', source_id: String(cohort.id) },
     }
+}
+
+export function personOperatorOptionsType(propertyType?: PropertyType | null): FieldOptionsType {
+    return propertyType === PropertyType.DateTime
+        ? FieldOptionsType.SingleFieldDateOperators
+        : FieldOptionsType.CohortMathOperators
+}
+
+export type PropertyDefinitionLookup = (
+    key: string,
+    type: PropertyDefinitionType
+) => PropertyDefinition | PropertyDefinitionState | null
+
+/**
+ * True when the cohort editor cannot show a recent filter's operator and value.
+ * While a property type is still loading, only operators that both type menus offer count as shown.
+ */
+export function isRecentPersonFilterUnsupported(
+    filter: AnyPropertyFilter,
+    lookupDefinition: PropertyDefinitionLookup
+): boolean {
+    if (!(isPersonPropertyFilter(filter) || isPersonMetadataPropertyFilter(filter)) || !filter.operator) {
+        return true
+    }
+    const { operator, value } = filter
+    // The cohort date editor takes an absolute date only, so a relative value such as -30d shows as an invalid date.
+    if (isOperatorDate(operator) && typeof value === 'string' && isStringDateRegex.test(value)) {
+        return true
+    }
+    const isOperatorShownFor = (propertyType?: PropertyType): boolean =>
+        operator in FIELD_VALUES[personOperatorOptionsType(propertyType)].values
+    const definition = lookupDefinition(filter.key, propertyFilterTypeToPropertyDefinitionType(filter.type))
+    if (typeof definition === 'object' && definition !== null) {
+        return !isOperatorShownFor(definition.property_type)
+    }
+    if (definition === PropertyDefinitionState.Missing || definition === PropertyDefinitionState.Error) {
+        return !isOperatorShownFor()
+    }
+    return !(isOperatorShownFor(PropertyType.DateTime) && isOperatorShownFor())
 }

@@ -30,6 +30,7 @@ from products.signals.backend.activity_summary.config import read_config
 from products.signals.backend.activity_summary.logic import (
     MAX_SKIP_BACKOFF,
     MAX_VERSIONS,
+    VIEW_UPDATE_INTERVAL,
     ActivitySummaryUpdate,
     UpdateAfterModelCallError,
     UpdateStatus,
@@ -38,6 +39,8 @@ from products.signals.backend.activity_summary.logic import (
 )
 from products.signals.backend.activity_summary.prompt import PROMPT_VERSION
 from products.signals.backend.activity_summary.queue import (
+    TRIGGERS,
+    VIEW_TRIGGERS,
     ActivitySummaryPair,
     ActivitySummaryTierStats,
     daily_usage,
@@ -115,6 +118,8 @@ class ActivitySummaryTickPlan:
     max_skip_backoff_hours: float = MAX_SKIP_BACKOFF.total_seconds() / 3600
     tiers: list[ActivitySummaryTierStats] = dataclasses.field(default_factory=list)
     enrollment: EnrollmentCounts = dataclasses.field(default_factory=EnrollmentCounts)
+    view_update_interval_hours: float = VIEW_UPDATE_INTERVAL.total_seconds() / 3600
+    due_by_trigger: dict[str, int] = dataclasses.field(default_factory=dict)
 
 
 @frozen
@@ -131,6 +136,9 @@ class ActivitySummaryPairInput:
     # Has a default, so the pair input of a workflow in flight during a deploy still decodes.
     max_versions: int = MAX_VERSIONS
     max_skip_backoff_hours: float = MAX_SKIP_BACKOFF.total_seconds() / 3600
+    # Why the queue picked the pair. A view trigger waits `view_update_interval_hours` after a good update.
+    trigger: str | None = None
+    view_update_interval_hours: float | None = None
 
 
 @frozen
@@ -156,6 +164,8 @@ class ActivitySummaryTickResult:
     # Successful updates that made a pair's first summary, and successful updates of an existing summary.
     new_builds: int = 0
     refresh_builds: int = 0
+    # Due pairs at the start of the tick, per trigger.
+    due_by_trigger: dict[str, int] = dataclasses.field(default_factory=dict)
 
 
 def plan_tick(limit: int | None, now: datetime.datetime) -> ActivitySummaryTickPlan:
@@ -203,12 +213,14 @@ def plan_tick(limit: int | None, now: datetime.datetime) -> ActivitySummaryTickP
         max_concurrency=config.max_concurrency,
         min_units=config.min_units,
         min_update_interval_hours=config.min_update_interval_hours,
+        view_update_interval_hours=config.view_update_interval_hours,
         emit_embeddings=config.emit_embeddings,
         capture_events=config.capture_events,
         limits=config.limits,
         max_error_rate=config.max_error_rate,
         max_skip_backoff_hours=config.max_skip_backoff_hours,
         tiers=selection.tiers if selection else [],
+        due_by_trigger=selection.due_by_trigger if selection else {},
         enrollment=counts,
         stop_reason=stop_reason,
         rebuild_before=config.rebuild_before,
@@ -242,7 +254,7 @@ def _emit_embedding(team_id: int, user_id: int) -> None:
     )
 
 
-def _capture_generated(team_id: int, user_id: int, update: ActivitySummaryUpdate) -> None:
+def _capture_generated(team_id: int, user_id: int, update: ActivitySummaryUpdate, trigger: str | None) -> None:
     team = Team.objects.only("uuid", "organization_id").get(id=team_id)
     # Counts and accounting only. The summary and the rendered input are user content.
     ph_background_capture()(
@@ -263,6 +275,7 @@ def _capture_generated(team_id: int, user_id: int, update: ActivitySummaryUpdate
             "latency_ms": update.latency_ms,
             "inputs_used": update.inputs_used,
             "rebuilt": update.rebuilt,
+            "trigger": trigger,
         },
         groups={"organization": str(team.organization_id), "project": str(team.uuid)},
     )
@@ -279,12 +292,15 @@ def run_pair(input: ActivitySummaryPairInput, *, last_attempt: bool = True) -> A
         return ActivitySummaryPairResult(
             status=UpdateStatus.SKIPPED_NOT_ENROLLED.value, cost_usd=None, called_model=False
         )
+    interval_hours = input.min_update_interval_hours
+    if input.trigger in VIEW_TRIGGERS and input.view_update_interval_hours is not None:
+        interval_hours = input.view_update_interval_hours
     try:
         update = update_activity_summary(
             input.team_id,
             input.user_id,
             min_units=input.min_units,
-            min_update_interval=datetime.timedelta(hours=input.min_update_interval_hours),
+            min_update_interval=datetime.timedelta(hours=interval_hours),
             limits=input.limits,
             rebuild_before=input.rebuild_before,
             max_versions=input.max_versions,
@@ -310,7 +326,7 @@ def run_pair(input: ActivitySummaryPairInput, *, last_attempt: bool = True) -> A
             logger.exception("activity_summary_embedding_failed", team_id=input.team_id, user_id=input.user_id)
     if update.status in (UpdateStatus.OK, UpdateStatus.FAILED) and input.capture_events:
         try:
-            _capture_generated(input.team_id, input.user_id, update)
+            _capture_generated(input.team_id, input.user_id, update, input.trigger)
         except Exception:
             logger.exception("activity_summary_capture_failed", team_id=input.team_id, user_id=input.user_id)
     return ActivitySummaryPairResult(
@@ -333,6 +349,7 @@ def capture_tick(result: ActivitySummaryTickResult) -> None:
         tiers=[dataclasses.asdict(tier) for tier in result.tiers],
         new_builds=result.new_builds,
         refresh_builds=result.refresh_builds,
+        due_by_trigger=result.due_by_trigger,
         **dataclasses.asdict(result.enrollment),
     )
     ph_background_capture()(
@@ -348,6 +365,7 @@ def capture_tick(result: ActivitySummaryTickResult) -> None:
             "stop_reason": result.stop_reason,
             "new_builds": result.new_builds,
             "refresh_builds": result.refresh_builds,
+            **{f"due_{trigger}": result.due_by_trigger.get(trigger, 0) for trigger in TRIGGERS},
             **dataclasses.asdict(result.enrollment),
             **{
                 f"{tier.tier}_{name}": getattr(tier, name)
@@ -436,6 +454,8 @@ class ActivitySummaryTickWorkflow:
                             rebuild_before=plan.rebuild_before,
                             max_versions=plan.max_versions,
                             max_skip_backoff_hours=plan.max_skip_backoff_hours,
+                            trigger=pair.trigger,
+                            view_update_interval_hours=plan.view_update_interval_hours,
                         ),
                         start_to_close_timeout=_PAIR_TIMEOUT,
                         heartbeat_timeout=_PAIR_HEARTBEAT_TIMEOUT,
@@ -475,6 +495,7 @@ class ActivitySummaryTickWorkflow:
             enrollment=plan.enrollment,
             new_builds=builds[True],
             refresh_builds=builds[False],
+            due_by_trigger=plan.due_by_trigger,
         )
         await workflow.execute_activity(
             capture_activity_summary_tick_activity,
