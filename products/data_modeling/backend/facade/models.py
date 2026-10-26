@@ -11,6 +11,7 @@ methods, so importing this adds nothing beyond the models Django loads at ``setu
 from products.data_modeling.backend.graph import Graph
 from products.data_modeling.backend.models.dag import DAG, DEFAULT_DAG_NAME
 from products.data_modeling.backend.models.data_modeling_job import (
+    TERMINAL_JOB_STATUSES,
     DataModelingJob,
     DataModelingJobEngine,
     DataModelingJobRunMode,
@@ -36,6 +37,7 @@ __all__ = [
     "DEFAULT_DAG_NAME",
     "NON_SCHEDULING_EDGES",
     "SAVED_QUERY_NODE_TYPES",
+    "TERMINAL_JOB_STATUSES",
     "DataModelingJob",
     "DataModelingJobEngine",
     "DataModelingJobRunMode",

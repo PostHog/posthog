@@ -25,6 +25,7 @@ from products.data_modeling.backend.facade.api import (
     set_incremental_state,
 )
 from products.data_modeling.backend.facade.models import (
+    TERMINAL_JOB_STATUSES,
     DataModelingJob,
     DataModelingJobRunMode,
     DataModelingJobStatus,
@@ -243,12 +244,7 @@ async def check_managed_warehouse_shadow_eligibility_activity(
 def _resolve_managed_warehouse_job(job_id: str, result: "ManagedWarehouseShadowResult") -> str:
     """Update the managed warehouse job to its terminal state based on the result."""
     job = DataModelingJob.objects.get(id=job_id)
-    if job.status in (
-        DataModelingJobStatus.FAILED,
-        DataModelingJobStatus.CANCELLED,
-        DataModelingJobStatus.COMPLETED,
-        DataModelingJobStatus.SKIPPED,
-    ):
+    if job.status in TERMINAL_JOB_STATUSES:
         return job.engine
     if result.error is None:
         job.status = DataModelingJobStatus.COMPLETED
