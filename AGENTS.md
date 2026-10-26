@@ -132,6 +132,21 @@ Examples:
 - ❌ A PR description that quotes verbatim what a coworker said in a Slack thread
 - ❌ A test fixture adapted from a real support conversation with the names and domains replaced
 
+## Read the guide for your area first
+
+Most topic rules live in guides under `.agents/`, not in this file.
+Before your first edit, plan, or review finding, open every guide whose area the task touches.
+Reviewing a diff counts: the diff touches the areas it changes.
+
+| The task touches                                                                                 | Read first                                                                                            |
+| ------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------- |
+| Python or Django backend: models, views, serializers, Celery, Temporal, outbound calls, settings | [.agents/architecture.md](.agents/architecture.md) and [.agents/code-style.md](.agents/code-style.md) |
+| Frontend: components, kea logic, buttons, forms                                                  | [.agents/code-style.md](.agents/code-style.md) and [frontend/src/AGENTS.md](frontend/src/AGENTS.md)   |
+| A new or changed button, menu item, form, or scene                                               | [.agents/feature-usage-tracking.md](.agents/feature-usage-tracking.md)                                |
+| GitHub workflows, `.nvmrc`, publish jobs                                                         | [.agents/ci.md](.agents/ci.md)                                                                        |
+| Claude Code hooks, lint-staged, pre-commit, `.claude/settings.json`                              | [.agents/agent-automation.md](.agents/agent-automation.md)                                            |
+| Auth, secrets, raw SQL, HogQL string building                                                    | [.agents/security.md](.agents/security.md)                                                            |
+
 ## CI / GitHub Actions
 
 Read [.agents/ci.md](.agents/ci.md) before you change a workflow, `.nvmrc`, a publish job, event ingestion, or tests that read event properties, and when you debug flaky CI.
