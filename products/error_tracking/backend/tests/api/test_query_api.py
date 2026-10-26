@@ -855,7 +855,7 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
                     "include_breakdown": False,
                     "include_sparkline": True,
                     "summary_status": "unavailable",
-                    "issue_created_at": "2026-04-24T12:00:00+00:00",
+                    "issue_created_at": "2026-04-01T00:00:00+00:00",
                     "issue_severity": "high",
                 },
             ),
@@ -868,7 +868,7 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
                     "include_breakdown": False,
                     "include_sparkline": True,
                     "summary_status": "unavailable",
-                    "issue_created_at": "2026-04-24T12:00:00+00:00",
+                    "issue_created_at": "2026-04-01T00:00:00+00:00",
                     "issue_severity": None,
                 },
             ),
@@ -877,7 +877,7 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
                 True,
                 ErrorTrackingIssue.Severity.HIGH,
                 {},
-                {"issue_created_at": "2026-04-24T12:00:00+00:00", "issue_severity": "high"},
+                {"issue_created_at": "2026-04-01T00:00:00+00:00", "issue_severity": "high"},
             ),
         ]
     )
@@ -891,6 +891,7 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         expected_properties: dict[str, object],
     ) -> None:
         self.create_issue(severity=severity)
+        ErrorTrackingIssue.objects.filter(id=self.issue_id).update(created_at=datetime(2026, 4, 1, tzinfo=UTC))
         if has_exceptions:
             self.create_exception_event()
             flush_persons_and_events()
