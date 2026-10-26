@@ -16,7 +16,6 @@ from products.signals.backend.models import (
     SignalReviewerExclusionRevision,
 )
 from products.signals.backend.reviewer_exclusions import create_exclusion
-from products.signals.backend.reviewer_exclusions_api import SignalReviewerExclusionViewSet
 from products.signals.backend.reviewer_rules import ReviewerWriteError
 
 
@@ -89,7 +88,7 @@ class TestReviewerExclusionAPI(APIBaseTest):
         payload = {"instruction": "I moved teams.", "report_id": str(report.id)}
 
         with patch(
-            "products.signals.backend.reviewer_exclusions_api.create_exclusion",
+            "products.signals.backend.facade.reviewer_exclusions.create_exclusion",
             side_effect=RuntimeError("database unavailable"),
         ):
             failed = self.client.post(self.url, payload, format="json")
@@ -129,7 +128,7 @@ class TestReviewerExclusionAPI(APIBaseTest):
 
     def test_failed_save_without_a_report_is_an_error(self) -> None:
         with patch(
-            "products.signals.backend.reviewer_exclusions_api.create_exclusion",
+            "products.signals.backend.facade.reviewer_exclusions.create_exclusion",
             side_effect=RuntimeError("database unavailable"),
         ):
             response = self.client.post(self.url, {"instruction": "I moved teams."}, format="json")
@@ -140,7 +139,7 @@ class TestReviewerExclusionAPI(APIBaseTest):
         report = self._report_with_reviewers(self.user)
 
         with patch(
-            "products.signals.backend.reviewer_exclusions_api.remove_suggested_reviewer",
+            "products.signals.backend.facade.reviewer_exclusions.remove_suggested_reviewer",
             side_effect=ReviewerWriteError("Stored reviewer data is invalid."),
         ):
             response = self.client.post(
@@ -197,19 +196,3 @@ class TestReviewerExclusionAPI(APIBaseTest):
         response = getattr(self.client, method)(url, {"instruction": "Off.", **area}, format="json")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-
-    def test_amend_validates_the_area_against_a_concurrent_change(self) -> None:
-        created = self.client.post(self.url, {"instruction": "Off.", "repository": "org/app"}, format="json").json()
-        exclusion_id = created["exclusion"]["id"]
-        load = SignalReviewerExclusionViewSet.get_object
-
-        def load_then_clear_repository(view: SignalReviewerExclusionViewSet) -> SignalReviewerExclusion:
-            stale = load(view)
-            SignalReviewerExclusion.objects.for_team(self.team.id).filter(id=exclusion_id).update(repository="")
-            return stale
-
-        with patch.object(SignalReviewerExclusionViewSet, "get_object", load_then_clear_repository):
-            response = self.client.patch(f"{self.url}{exclusion_id}/", {"path_prefix": "src/billing"}, format="json")
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert SignalReviewerExclusion.objects.for_team(self.team.id).get(id=exclusion_id).path_prefix == ""

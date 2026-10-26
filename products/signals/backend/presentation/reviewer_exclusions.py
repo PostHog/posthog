@@ -7,13 +7,14 @@ A member manages only the instructions that name them. The project access checks
 from __future__ import annotations
 
 from typing import Any, cast
-
-from django.db import transaction
+from uuid import UUID
 
 import structlog
-from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_view
-from rest_framework import mixins, serializers, status, viewsets
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
+from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import NotFound
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -22,25 +23,32 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.exceptions_capture import capture_exception
 from posthog.models import User
-from posthog.permissions import APIScopePermission
+from posthog.models.activity_logging.model_activity import is_impersonated_session
+from posthog.permissions import APIScopePermission, get_authenticator_scoped_team_ids
 
-from products.signals.backend.models import SignalReviewerExclusion
-from products.signals.backend.repo_corrections import sanitized_repository
-from products.signals.backend.reviewer_exclusions import (
+from products.signals.backend.facade.reviewer_exclusions import (
     DuplicateExclusion,
-    create_exclusion,
-    revise_exclusion,
-    revoke_exclusion,
+    PathWithoutRepository,
+    ReviewerExclusion,
+    ReviewerExclusionNotFound,
+    ReviewerExclusionStatus,
+    ReviewerWriteError,
+    RevokedExclusion,
+    create_own_exclusion,
+    get_own_exclusion,
+    list_own_exclusions,
+    remove_report_reviewer,
+    revise_own_exclusion,
+    revoke_own_exclusion,
+    sanitized_repository,
 )
-from products.signals.backend.reviewer_rules import ReviewerWriteError
-from products.signals.backend.views import remove_suggested_reviewer
 
 logger = structlog.get_logger(__name__)
 
 MAX_INSTRUCTION_LENGTH = 2000
 
 
-class ReviewerExclusionSerializer(serializers.ModelSerializer):
+class ReviewerExclusionSerializer(serializers.Serializer):
     id = serializers.UUIDField(read_only=True, help_text="Identifier of the instruction.")
     repository = serializers.CharField(
         read_only=True, help_text="Repository in `owner/name` form that the instruction covers. Empty covers every one."
@@ -50,17 +58,13 @@ class ReviewerExclusionSerializer(serializers.ModelSerializer):
     )
     instruction = serializers.CharField(read_only=True, help_text="Why the member stays off this area.")
     status = serializers.ChoiceField(
-        choices=SignalReviewerExclusion.Status.choices,
+        choices=ReviewerExclusionStatus.choices,
         read_only=True,
         help_text="`active` instructions apply to automatic reviewer selection. `revoked` instructions do not.",
     )
     revision = serializers.IntegerField(read_only=True, help_text="Increases by one at each change.")
     created_at = serializers.DateTimeField(read_only=True, help_text="When the member saved the instruction.")
     updated_at = serializers.DateTimeField(read_only=True, help_text="When the instruction last changed.")
-
-    class Meta:
-        model = SignalReviewerExclusion
-        fields = ["id", "repository", "path_prefix", "instruction", "status", "revision", "created_at", "updated_at"]
 
 
 class ReviewerExclusionAreaSerializer(serializers.Serializer):
@@ -131,7 +135,7 @@ class ReviewerExclusionErrorSerializer(serializers.Serializer):
 
 
 def _create_result(
-    *, exclusion: SignalReviewerExclusion | None, report_removed: bool | None, detail: str, response_status: int
+    *, exclusion: ReviewerExclusion | None, report_removed: bool | None, detail: str, response_status: int
 ) -> Response:
     payload = {
         "instruction_saved": exclusion is not None,
@@ -142,36 +146,49 @@ def _create_result(
     return Response(ReviewerExclusionCreateResultSerializer(payload).data, status=response_status)
 
 
-@extend_schema_view(
-    list=extend_schema(
-        summary="List your reviewer exclusions",
-        description="List the standing instructions that keep you off automatic reviewer selection, active and revoked.",
-    ),
-    retrieve=extend_schema(summary="Get one of your reviewer exclusions"),
+_EXCLUSION_ID = OpenApiParameter(
+    "id",
+    OpenApiTypes.UUID,
+    OpenApiParameter.PATH,
+    description="A UUID string identifying this signal reviewer exclusion.",
 )
-class SignalReviewerExclusionViewSet(
-    TeamAndOrgViewSetMixin,
-    mixins.ListModelMixin,
-    mixins.RetrieveModelMixin,
-    viewsets.GenericViewSet,
-):
+
+
+class SignalReviewerExclusionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     serializer_class = ReviewerExclusionSerializer
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission]
     scope_object = "task"
-    queryset = SignalReviewerExclusion.objects.unscoped()
     pagination_class = None
 
-    def _should_skip_parents_filter(self) -> bool:
-        # `for_team` below reads the canonical team, where the model saves its rows.
-        return True
+    def _exclusion_id(self) -> UUID:
+        try:
+            return UUID(str(self.kwargs["pk"]))
+        except ValueError:
+            raise NotFound()
 
-    def safely_get_queryset(self, queryset: Any) -> Any:
-        return (
-            SignalReviewerExclusion.objects.for_team(self.team_id)
-            .filter(subject_user_uuid=cast(User, self.request.user).uuid)
-            .order_by("-created_at", "-id")
-        )
+    @extend_schema(
+        summary="List your reviewer exclusions",
+        description="List the standing instructions that keep you off automatic reviewer selection, active and revoked.",
+        responses={200: ReviewerExclusionSerializer(many=True)},
+    )
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        exclusions = list_own_exclusions(team_id=self.team_id, user=cast(User, request.user))
+        return Response(ReviewerExclusionSerializer(exclusions, many=True).data)
+
+    @extend_schema(
+        summary="Get one of your reviewer exclusions",
+        parameters=[_EXCLUSION_ID],
+        responses={200: ReviewerExclusionSerializer},
+    )
+    def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        try:
+            exclusion = get_own_exclusion(
+                team_id=self.team_id, user=cast(User, request.user), exclusion_id=self._exclusion_id()
+            )
+        except ReviewerExclusionNotFound:
+            raise NotFound()
+        return Response(ReviewerExclusionSerializer(exclusion).data)
 
     @extend_schema(
         summary="Stay off automatic reviewer selection in an area",
@@ -198,19 +215,24 @@ class SignalReviewerExclusionViewSet(
 
         report_removed: bool | None = None
         if report_id := data.get("report_id"):
+            scoped_team_ids = get_authenticator_scoped_team_ids(request.successful_authenticator)
             try:
-                remove_suggested_reviewer(team=self.team, report_id=str(report_id), user=user, request=request)
+                remove_report_reviewer(
+                    team=self.team,
+                    report_id=str(report_id),
+                    user=user,
+                    scoped_team_ids=tuple(scoped_team_ids) if scoped_team_ids is not None else None,
+                    was_impersonated=is_impersonated_session(request),
+                )
             except ReviewerWriteError as e:
                 return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
             report_removed = True
 
         try:
-            exclusion, created = create_exclusion(
+            exclusion, created = create_own_exclusion(
                 team_id=self.team_id,
-                actor_id=user.id,
+                user=user,
                 instruction=data["instruction"],
-                subject_user_uuid=user.uuid,
-                subject_github_login=user.get_github_login(include_team_fallback=False),
                 repository=data.get("repository", ""),
                 path_prefix=data.get("path_prefix", ""),
             )
@@ -240,43 +262,31 @@ class SignalReviewerExclusionViewSet(
 
     @extend_schema(
         summary="Change one of your reviewer exclusions",
+        parameters=[_EXCLUSION_ID],
         request=ReviewerExclusionUpdateSerializer,
         responses={200: ReviewerExclusionSerializer, 400: ReviewerExclusionErrorSerializer},
     )
     def partial_update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        exclusion = cast(SignalReviewerExclusion, self.get_object())
+        exclusion_id = self._exclusion_id()
         payload = ReviewerExclusionUpdateSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
         data = payload.validated_data
         try:
-            revised = self._revise(exclusion, data)
-        except DuplicateExclusion as e:
-            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
-        if revised is None:
-            return Response({"detail": "A revoked instruction cannot change."}, status=status.HTTP_400_BAD_REQUEST)
-        return Response(ReviewerExclusionSerializer(revised).data)
-
-    def _revise(self, exclusion: SignalReviewerExclusion, data: dict[str, Any]) -> SignalReviewerExclusion | None:
-        with transaction.atomic():
-            # Check the merged area against the locked row, so a concurrent amend cannot break the constraint.
-            locked = (
-                SignalReviewerExclusion.objects.for_team(self.team_id)
-                .select_for_update()
-                .filter(id=exclusion.id, status=SignalReviewerExclusion.Status.ACTIVE)
-                .first()
-            )
-            if locked is None:
-                return None
-            if data.get("path_prefix", locked.path_prefix) and not data.get("repository", locked.repository):
-                raise serializers.ValidationError({"path_prefix": "Give a repository for a path."})
-            return revise_exclusion(
+            revised = revise_own_exclusion(
                 team_id=self.team_id,
-                exclusion_id=exclusion.id,
-                actor_id=cast(User, self.request.user).id,
+                user=cast(User, request.user),
+                exclusion_id=exclusion_id,
                 instruction=data.get("instruction"),
                 repository=data.get("repository"),
                 path_prefix=data.get("path_prefix"),
             )
+        except ReviewerExclusionNotFound:
+            raise NotFound()
+        except PathWithoutRepository as e:
+            raise serializers.ValidationError({"path_prefix": str(e)})
+        except (DuplicateExclusion, RevokedExclusion) as e:
+            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(ReviewerExclusionSerializer(revised).data)
 
     @extend_schema(
         summary="Revoke one of your reviewer exclusions",
@@ -284,13 +294,16 @@ class SignalReviewerExclusionViewSet(
             "Make you eligible for automatic reviewer selection in this area again. Revoking does not add you to "
             "any report, and it does not change old reports."
         ),
+        parameters=[_EXCLUSION_ID],
         request=None,
         responses={200: ReviewerExclusionSerializer},
     )
     @action(detail=True, methods=["post"], url_path="revoke", required_scopes=["task:write"])
     def revoke(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        exclusion = cast(SignalReviewerExclusion, self.get_object())
-        revoked = revoke_exclusion(
-            team_id=self.team_id, exclusion_id=exclusion.id, actor_id=cast(User, request.user).id
-        )
+        try:
+            revoked = revoke_own_exclusion(
+                team_id=self.team_id, user=cast(User, request.user), exclusion_id=self._exclusion_id()
+            )
+        except ReviewerExclusionNotFound:
+            raise NotFound()
         return Response(ReviewerExclusionSerializer(revoked).data)
