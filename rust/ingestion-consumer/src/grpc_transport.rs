@@ -204,6 +204,7 @@ pub struct GrpcTransport {
     /// consecutive chunks (see `begin_send`), so no frame crosses the worker's
     /// message limit.
     max_body_bytes: usize,
+    idle_close: Option<Duration>,
 }
 
 impl GrpcTransport {
@@ -214,6 +215,7 @@ impl GrpcTransport {
             grpc_port,
             ack_timeout,
             max_body_bytes: DEFAULT_MAX_BODY_BYTES,
+            idle_close: None,
             // A fresh epoch for standalone construction; production wiring
             // injects the shared one via `set_assignment_epoch`.
             assignment_epoch: AssignmentEpoch::new(),
@@ -240,6 +242,10 @@ impl GrpcTransport {
     pub fn set_max_body_bytes(&mut self, bytes: usize) {
         assert!(bytes > 0, "max_body_bytes must be > 0");
         self.max_body_bytes = bytes;
+    }
+
+    pub fn set_idle_close(&mut self, after: Duration) {
+        self.idle_close = (!after.is_zero()).then_some(after);
     }
 
     /// Enqueue a sub-batch on the worker's stream. Synchronous on purpose: call
@@ -335,6 +341,7 @@ impl GrpcTransport {
             grpc_url: grpc_url(worker_url, self.grpc_port),
             consumer_id: self.consumer_id.clone(),
             ack_timeout: self.ack_timeout,
+            idle_close: self.idle_close,
             assignment_epoch: self.assignment_epoch.clone(),
         };
         tokio::spawn(async move { runner.run(rx).await });
@@ -401,6 +408,7 @@ struct WorkerStreamRunner {
     grpc_url: String,
     consumer_id: String,
     ack_timeout: Duration,
+    idle_close: Option<Duration>,
     assignment_epoch: AssignmentEpoch,
 }
 
@@ -468,6 +476,7 @@ impl WorkerStreamRunner {
         };
 
         let mut next_seq = 1u64;
+        let mut encode_buffers = EncodeBuffers::open();
         self.record_ledger_depth(0);
 
         loop {
@@ -477,6 +486,7 @@ impl WorkerStreamRunner {
                 &mut pending_first,
                 &mut ledger,
                 &mut next_seq,
+                &mut encode_buffers,
             ) {
                 return end;
             }
@@ -486,6 +496,7 @@ impl WorkerStreamRunner {
             {
                 Ok(Some(ack)) => ack,
                 Ok(None) => continue,
+                Err(StreamEnd::Idle) => return self.close_idle(out_tx, acks).await,
                 Err(end) => return end,
             };
             if let Err(end) = self.handle_ack(ack, queue, &mut pending_first, &mut ledger) {
@@ -581,6 +592,7 @@ impl WorkerStreamRunner {
         pending_first: &mut Option<WorkerStreamItem>,
         ledger: &mut VecDeque<LedgerEntry>,
         next_seq: &mut u64,
+        encode_buffers: &mut EncodeBuffers,
     ) -> Result<(), StreamEnd> {
         loop {
             let item = match pending_first.take() {
@@ -610,8 +622,10 @@ impl WorkerStreamRunner {
                 })),
             };
             // tonic gzips the frame after this point, so only the raw size is observable here.
+            let encoded_len = request.encoded_len() as u64;
             counter!("ingestion_consumer_transport_body_bytes_total", "encoding" => "protobuf")
-                .increment(request.encoded_len() as u64);
+                .increment(encoded_len);
+            encode_buffers.record_frame(encoded_len);
             let deadline = tokio::time::Instant::now() + self.ack_timeout;
             let sent = out_tx.send(request).is_ok();
             ledger.push_back(LedgerEntry {
@@ -661,7 +675,14 @@ impl WorkerStreamRunner {
         ledger: &mut VecDeque<LedgerEntry>,
     ) -> Result<Option<AckEvent>, StreamEnd> {
         let Some(front) = ledger.front() else {
-            return match queue.recv().await {
+            let next = match self.idle_close {
+                Some(after) => match tokio::time::timeout(after, queue.recv()).await {
+                    Ok(next) => next,
+                    Err(_) => return Err(StreamEnd::Idle),
+                },
+                None => queue.recv().await,
+            };
+            return match next {
                 Some(item) => {
                     *pending_first = Some(item);
                     Ok(None)
@@ -788,6 +809,21 @@ impl WorkerStreamRunner {
         }
         self.record_ledger_depth(ledger.len());
         Ok(())
+    }
+
+    async fn close_idle(
+        &self,
+        out_tx: mpsc::UnboundedSender<IngestStreamRequest>,
+        mut acks: tonic::Streaming<IngestStreamResponse>,
+    ) -> StreamEnd {
+        drop(out_tx);
+        // The worker ends its side once it reads the half-close. Dropping
+        // `acks` before that would reset the stream instead.
+        let worker_end = async { while let Ok(Some(_)) = acks.message().await {} };
+        let bound = self.idle_close.unwrap_or(self.ack_timeout);
+        let _ = tokio::time::timeout(bound, worker_end).await;
+        counter!("ingestion_consumer_worker_stream_idle_closes_total").increment(1);
+        StreamEnd::Idle
     }
 
     /// Resolve everything outstanding as failed, **in enqueue order**: the
@@ -921,6 +957,33 @@ enum StreamEnd {
     Failed(Fence),
     /// The stream ended cleanly with nothing outstanding.
     Idle,
+}
+
+struct EncodeBuffers {
+    largest_frame: u64,
+}
+
+impl EncodeBuffers {
+    fn open() -> Self {
+        gauge!("ingestion_consumer_worker_streams_open").increment(1.0);
+        Self { largest_frame: 0 }
+    }
+
+    fn record_frame(&mut self, encoded_len: u64) {
+        if encoded_len > self.largest_frame {
+            gauge!("ingestion_consumer_worker_stream_largest_frame_bytes")
+                .increment((encoded_len - self.largest_frame) as f64);
+            self.largest_frame = encoded_len;
+        }
+    }
+}
+
+impl Drop for EncodeBuffers {
+    fn drop(&mut self) {
+        gauge!("ingestion_consumer_worker_streams_open").decrement(1.0);
+        gauge!("ingestion_consumer_worker_stream_largest_frame_bytes")
+            .decrement(self.largest_frame as f64);
+    }
 }
 
 /// A worker bug that misreports what it processed would lose or double

@@ -780,6 +780,57 @@ async fn the_worker_stream_reconnects_with_a_new_stream_epoch_after_a_fence() {
 }
 
 #[tokio::test]
+async fn an_idle_stream_closes_and_the_next_send_opens_a_new_one() {
+    let mock = start_mock(AckMode::Immediate, None).await;
+    let mut transport =
+        GrpcTransport::new(GrpcPort::Fixed(mock.addr.port()), Duration::from_secs(30));
+    transport.set_idle_close(Duration::from_millis(50));
+    let url = worker_url(mock.addr);
+
+    transport
+        .begin_send(&url, "batch-1", vec![msg("d1", 1)], false)
+        .wait()
+        .await
+        .expect("first send");
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    transport
+        .begin_send(&url, "batch-2", vec![msg("d1", 2)], false)
+        .wait()
+        .await
+        .expect("send after the idle close");
+
+    assert_eq!(mock.hellos.lock().await.len(), 2);
+    let seqs: Vec<_> = mock.received.lock().await.iter().map(|s| s.seq).collect();
+    assert_eq!(seqs, vec![1, 1], "the second send rides a new stream");
+}
+
+#[tokio::test]
+async fn a_stream_with_unacked_work_stays_open_past_the_idle_window() {
+    let (ack_tx, ack_rx) = mpsc::unbounded_channel();
+    let mock = start_mock(AckMode::Manual, Some(ack_rx)).await;
+    let mut transport =
+        GrpcTransport::new(GrpcPort::Fixed(mock.addr.port()), Duration::from_secs(30));
+    transport.set_idle_close(Duration::from_millis(50));
+    let url = worker_url(mock.addr);
+
+    let pending = transport.begin_send(&url, "batch-1", vec![msg("d1", 1)], false);
+    wait_for_received(&mock, 1).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    ack_tx
+        .send(ManualAck::Ok {
+            seq: 1,
+            accepted: 1,
+        })
+        .unwrap();
+
+    assert!(matches!(
+        pending.wait().await.expect("acked after the idle window"),
+        SendOutcome::Accepted(1)
+    ));
+    assert_eq!(mock.hellos.lock().await.len(), 1);
+}
+
+#[tokio::test]
 async fn a_dead_worker_fences_instead_of_hanging() {
     // The caller's deferral path owns the retry pacing.
     let transport = GrpcTransport::new(GrpcPort::Fixed(1), Duration::from_secs(30));
