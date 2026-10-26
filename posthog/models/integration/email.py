@@ -175,18 +175,20 @@ class EmailIntegration:
             self._mark_domain_verified(on_domain_verified=None)
         return verification_result
 
-    def _matching_senders(self) -> "models.QuerySet[model.Integration]":
-        mail_from_subdomain = self.integration.config.get("mail_from_subdomain", "feedback")
-        matching_mail_from = Q(config__mail_from_subdomain=mail_from_subdomain)
-        if mail_from_subdomain == "feedback":
-            matching_mail_from |= Q(config__mail_from_subdomain__isnull=True)
+    def _domain_senders(self) -> "models.QuerySet[model.Integration]":
         return model.Integration.objects.filter(
-            matching_mail_from,
             team_id=self.integration.team_id,
             kind="email",
             config__domain=self.integration.config.get("domain"),
             config__provider=self.integration.config.get("provider", "ses"),
         )
+
+    def _matching_senders(self) -> "models.QuerySet[model.Integration]":
+        mail_from_subdomain = self.integration.config.get("mail_from_subdomain", "feedback")
+        matching_mail_from = Q(config__mail_from_subdomain=mail_from_subdomain)
+        if mail_from_subdomain == "feedback":
+            matching_mail_from |= Q(config__mail_from_subdomain__isnull=True)
+        return self._domain_senders().filter(matching_mail_from)
 
     def verify(self, *, on_domain_verified: Callable[[], None] | None = None) -> "EmailDomainVerification":
         domain = self.integration.config.get("domain")
@@ -295,6 +297,7 @@ class EmailIntegration:
             senders = list(self._matching_senders().select_for_update().order_by("id"))
             sender_ids = [sender.id for sender in senders]
             unverified_ids = [sender.id for sender in senders if not sender.config.get("verified")]
+            domain_was_verified = self._domain_senders().filter(config__verified=True).exists()
             model.Integration.objects.filter(id__in=unverified_ids).update(config=_with_config_key("verified", True))
             # A concurrent edit can move this sender off the checked MAIL FROM subdomain, so it may not be among them.
             verifies_this_sender = self.integration.id in sender_ids
@@ -308,7 +311,7 @@ class EmailIntegration:
             return
         self.integration.config["verified"] = True
         # A sender added to a domain that is already verified joins it, so only the first verification counts.
-        if on_domain_verified and len(unverified_ids) == len(senders):
+        if on_domain_verified and not domain_was_verified:
             on_domain_verified()
 
     # Workers also refresh integrations on their own schedule, so a failed reload only delays sending.
