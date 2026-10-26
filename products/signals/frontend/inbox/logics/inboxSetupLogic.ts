@@ -14,7 +14,6 @@ import { urls } from 'scenes/urls'
 import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics/sourcesDataLogic'
 import { engineeringAnalyticsCiSignalsConfigUpdate } from 'products/engineering_analytics/frontend/generated/api'
 import { visionScannersList, visionScannersPartialUpdate } from 'products/replay_vision/frontend/generated/api'
-import { externalDataSchemasPartialUpdate } from 'products/warehouse_sources/frontend/generated/api'
 
 import type { PaginatedResponse } from '../../../../../frontend/src/lib/api'
 import type { FeatureFlagsSet } from '../../../../../frontend/src/lib/logic/featureFlagLogic'
@@ -44,7 +43,12 @@ import type {
 import type { InboxOnboardingStepEnumApi } from '../../generated/api.schemas'
 import type { AgentRosterSource } from '../components/config/agentRosterMeta'
 import { captureInboxWelcomeManualSetupClicked, captureSignalSourceConnected } from '../inboxAnalytics'
-import { signalSourcesLogic, WAREHOUSE_SOURCE_SETUP, type WarehouseBackedSource } from '../signalSourcesLogic'
+import {
+    ensureRequiredTablesSyncing,
+    signalSourcesLogic,
+    WAREHOUSE_SOURCE_SETUP,
+    type WarehouseBackedSource,
+} from '../signalSourcesLogic'
 import type { SourceProductStatus } from '../signalSourcesLogic'
 import type { SignalSourceConfig } from '../types'
 import { newInboxSetupDraft, reconcileInboxSetupDraft, selectedSourceCount, setupSources } from '../utils/inboxSetup'
@@ -1095,21 +1099,11 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
                         ) {
                             continue
                         }
-                        const setup = WAREHOUSE_SOURCE_SETUP[source.warehouseSource!]
-                        const schemas = (values.dataWarehouseSources?.results ?? [])
-                            .filter((item) => item.source_type === setup.dwSourceType)
-                            .flatMap((item) => item.schemas ?? [])
-                        for (const table of setup.requiredTables) {
-                            const matches = schemas.filter(
-                                (schema) => schema.name === table || schema.name.endsWith(`.${table}`)
-                            )
-                            if (!matches.length) {
-                                throw new Error(`Missing required table: ${table}`)
-                            }
-                            for (const schema of matches.filter((item) => !item.should_sync)) {
-                                await externalDataSchemasPartialUpdate(projectId, schema.id, { should_sync: true })
-                            }
-                        }
+                        await ensureRequiredTablesSyncing(
+                            projectId,
+                            values.dataWarehouseSources?.results ?? [],
+                            WAREHOUSE_SOURCE_SETUP[source.warehouseSource!]
+                        )
                     }
                     const ciSources = draft.sources.filter(
                         (source) => source.source_product === 'engineering_analytics'

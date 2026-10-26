@@ -77,7 +77,7 @@ describe('focused Inbox setup', () => {
                               {
                                   id: 'linear-source',
                                   source_type: 'Linear',
-                                  schemas: [{ id: 'issues', name: 'issues', should_sync: false }],
+                                  schemas: [{ id: 'issues', name: 'issues', should_sync: false, sync_type: null }],
                               },
                           ]
                         : [],
@@ -173,7 +173,7 @@ describe('focused Inbox setup', () => {
                     return [200, config]
                 },
                 '/api/projects/:id/external_data_schemas/:schema/': async ({ request }) => {
-                    expect(await request.json()).toEqual({ should_sync: true })
+                    expect(await request.json()).toEqual({ should_sync: true, sync_type: 'full_refresh' })
                     syncedSchemas++
                     return [200, {}]
                 },

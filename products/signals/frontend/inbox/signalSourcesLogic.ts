@@ -206,6 +206,44 @@ export const WAREHOUSE_SOURCE_SETUP: Record<WarehouseBackedSource, WarehouseSour
     },
 }
 
+// Multi-repo sources qualify schema names (`owner/repo.endpoint`): match by suffix.
+export async function ensureRequiredTablesSyncing(
+    projectId: string,
+    sources: ExternalDataSource[],
+    setup: WarehouseSourceSetup
+): Promise<void> {
+    const { dwSourceType, requiredTables, requiredTableSyncType } = setup
+    const sourceSchemas = sources
+        .filter((source) => source.source_type === dwSourceType)
+        .flatMap((source) => source.schemas ?? [])
+    for (const tableName of requiredTables) {
+        const matchingSchemas = sourceSchemas.filter(
+            (schema) => schema.name === tableName || schema.name.endsWith(`.${tableName}`)
+        )
+        if (matchingSchemas.length === 0) {
+            throw new Error(
+                dwSourceType === 'GoogleSearchConsole'
+                    ? 'This connection is missing web search data. Add the Web search type to your Google Search Console connection in Data warehouse, then try again.'
+                    : `Required table not found: ${tableName}. Update this connection in Data warehouse, then try again.`
+            )
+        }
+        const schemas = matchingSchemas.filter(
+            (schema) => !schema.should_sync || (requiredTableSyncType && schema.sync_type !== requiredTableSyncType)
+        )
+        await Promise.all(
+            schemas.map((schema: ExternalDataSourceSchema) =>
+                externalDataSchemasPartialUpdate(projectId, schema.id, {
+                    should_sync: true,
+                    // The API rejects enabling a table with no sync type; full refresh needs no incremental field.
+                    ...(requiredTableSyncType || !schema.sync_type
+                        ? { sync_type: requiredTableSyncType ?? 'full_refresh' }
+                        : {}),
+                })
+            )
+        )
+    }
+}
+
 /**
  * Shown when a toggle runs before the source list has loaded. Without the list an existing source
  * looks new, and creating it again fails on the unique constraint with a message nobody can act on.
@@ -1837,40 +1875,6 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
             }
         }
 
-        // Enable any required table not yet syncing on the connected source. Multi-repo sources
-        // qualify schema names (`owner/repo.endpoint`): match by suffix.
-        async function ensureRequiredTableSyncing(
-            sources: ExternalDataSource[],
-            dwSourceType: string,
-            tableName: string,
-            fullRefresh: boolean = false
-        ): Promise<void> {
-            const matchesTable = (schema: ExternalDataSourceSchema): boolean =>
-                schema.name === tableName || schema.name.endsWith(`.${tableName}`)
-            const matchingSchemas = sources
-                .filter((source: ExternalDataSource) => source.source_type === dwSourceType)
-                .flatMap((source: ExternalDataSource) => source.schemas ?? [])
-                .filter(matchesTable)
-            if (matchingSchemas.length === 0) {
-                throw new Error(
-                    dwSourceType === 'GoogleSearchConsole'
-                        ? 'This connection is missing web search data. Add the Web search type to your Google Search Console connection in Data warehouse, then try again.'
-                        : `Required table not found: ${tableName}. Update this connection in Data warehouse, then try again.`
-                )
-            }
-            const schemas = matchingSchemas.filter(
-                (schema) => !schema.should_sync || (fullRefresh && schema.sync_type !== 'full_refresh')
-            )
-            await Promise.all(
-                schemas.map((schema: ExternalDataSourceSchema) =>
-                    externalDataSchemasPartialUpdate(String(ApiConfig.getCurrentProjectId()), schema.id, {
-                        should_sync: true,
-                        ...(fullRefresh ? { sync_type: 'full_refresh' } : {}),
-                    })
-                )
-            )
-        }
-
         function failSignalSourceToggle(
             sourceProduct: SignalSourceProduct,
             sourceType: SignalSourceType,
@@ -1946,8 +1950,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 actions.loadSources()
             },
             initiateDataWarehouseSourceToggle: async ({ source }) => {
-                const { dwSourceType, requiredTables, requiredTableSyncType, completion } =
-                    WAREHOUSE_SOURCE_SETUP[source]
+                const { dwSourceType, completion } = WAREHOUSE_SOURCE_SETUP[source]
                 const toggleKey = getWarehouseSourceToggleKey(source)
                 if (
                     completion.kind !== 'source_config' ||
@@ -1968,14 +1971,11 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                             actions.openDataSourceSetup(source)
                             return
                         }
-                        for (const table of requiredTables) {
-                            await ensureRequiredTableSyncing(
-                                sources,
-                                dwSourceType,
-                                table,
-                                requiredTableSyncType === 'full_refresh'
-                            )
-                        }
+                        await ensureRequiredTablesSyncing(
+                            String(ApiConfig.getCurrentProjectId()),
+                            sources,
+                            WAREHOUSE_SOURCE_SETUP[source]
+                        )
                     }
                     const currentConfig = getWarehouseSourceConfig(values, source)
                     if ((currentConfig?.enabled ?? false) === desiredEnabled) {
@@ -2208,10 +2208,11 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                         return
                     }
                     try {
-                        const ciSetup = WAREHOUSE_SOURCE_SETUP.engineering_analytics
-                        for (const tableName of ciSetup.requiredTables) {
-                            await ensureRequiredTableSyncing(sources, ciSetup.dwSourceType, tableName)
-                        }
+                        await ensureRequiredTablesSyncing(
+                            String(ApiConfig.getCurrentProjectId()),
+                            sources,
+                            WAREHOUSE_SOURCE_SETUP.engineering_analytics
+                        )
                     } catch (error: any) {
                         actions.toggleCiSignalsComplete()
                         lemonToast.error(error?.detail || error?.message || 'Failed to enable GitHub CI signals')
