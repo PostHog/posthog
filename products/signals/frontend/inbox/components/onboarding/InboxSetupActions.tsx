@@ -12,11 +12,11 @@ import { InboxQuickSetupAction } from './InboxQuickSetupAction'
 
 export function InboxSetupActions(): JSX.Element {
     const { continueFromWelcome } = useActions(inboxSetupLogic)
-    const { experimentVariant, isQuickSetup } = useValues(inboxSetupLogic)
+    const { isTreatment, isQuickSetup } = useValues(inboxSetupLogic)
 
     return (
         <div className="flex w-full min-w-0 flex-col gap-4">
-            {experimentVariant === 'control' && (
+            {!isTreatment && (
                 <div className="flex min-w-0 flex-col gap-2">
                     <p className="m-0 text-sm text-secondary">
                         Install with Wizard. Run the setup agent in your repository to connect GitHub and choose your
@@ -35,14 +35,14 @@ export function InboxSetupActions(): JSX.Element {
                 // pinned: autocapture data-attr - dashboards and test selectors match on this string
                 <div data-attr="inbox-welcome-set-up-manually" className="self-start">
                     <LemonButton
-                        type={experimentVariant === 'control' ? 'secondary' : 'primary'}
-                        status={experimentVariant === 'control' ? undefined : 'alt'}
+                        type={isTreatment ? 'primary' : 'secondary'}
+                        status={isTreatment ? 'alt' : undefined}
                         sideIcon={<IconArrowRight />}
                         onClick={continueFromWelcome}
                         // pinned: data-attr - the welcome funnel and test selectors match on this string
                         data-attr="inbox-setup-welcome-continue"
                     >
-                        {experimentVariant === 'control' ? 'Start manually' : 'Set up Self-Driving'}
+                        {isTreatment ? 'Set up Self-Driving' : 'Start manually'}
                     </LemonButton>
                 </div>
             )}

@@ -10,6 +10,8 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 
+import { expect } from 'storybook/test'
+
 import {
     allReports,
     mockArtefacts,
@@ -311,6 +313,12 @@ export const SelfDrivingVerdictPending: Story = {
 // over the normal inbox, so existing work stays accessible. Reports are mocked explicitly (not
 // inherited) so "existing work" is unambiguous and the banner – not the takeover – is shown.
 export const SelfDrivingPaused: Story = {
+    parameters: {
+        featureFlags: { ...meta.parameters?.featureFlags, [FEATURE_FLAGS.INBOX_UI_ONBOARDING]: 'control' },
+    },
+    play: async ({ canvas }) => {
+        await expect(canvas.findByText('Self-driving is paused')).resolves.toBeVisible()
+    },
     decorators: [
         mswDecorator({
             get: {
@@ -320,6 +328,11 @@ export const SelfDrivingPaused: Story = {
                 ],
                 '/api/projects/:id/signals/source_configs': () => [200, { results: [], count: 0 }],
                 '/api/projects/:id/signals/scout/configs': () => [200, []],
+                '/api/projects/:id/signals/onboarding/': {
+                    draft: null,
+                    completed_at: '2026-06-11T10:00:00Z',
+                    variant: 'control',
+                },
             },
         }),
     ],

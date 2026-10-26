@@ -253,7 +253,7 @@ export interface inboxSetupLogicMeta {
         isTreatment: (experimentVariant: 'control' | 'test-github' | 'test-ui' | null) => boolean
         resumingSetup: (searchParams: Record<string, any>) => boolean
         usesFocusedSetup: (
-            experimentVariant: 'control' | 'test-github' | 'test-ui' | null,
+            isTreatment: boolean,
             started: boolean,
             savedState: InboxOnboardingStateApi | null,
             resumingSetup: boolean
@@ -501,13 +501,9 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
                 ['signals', 'scouts', 'github', 'quick'].includes(String(params.onboarding_step)),
         ],
         usesFocusedSetup: [
-            (s) => [s.experimentVariant, s.started, s.savedState, s.resumingSetup],
-            (
-                variant: 'control' | 'test-ui' | 'test-github' | null,
-                started: boolean,
-                state: InboxOnboardingStateApi | null,
-                resuming: boolean
-            ): boolean => variant !== null || started || !!state?.draft || resuming,
+            (s) => [s.isTreatment, s.started, s.savedState, s.resumingSetup],
+            (treatment: boolean, started: boolean, state: InboxOnboardingStateApi | null, resuming: boolean): boolean =>
+                treatment || started || !!state?.draft || resuming,
         ],
         sources: [
             (s) => [

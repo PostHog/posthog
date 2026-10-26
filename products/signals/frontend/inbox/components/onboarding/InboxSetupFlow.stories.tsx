@@ -370,6 +370,19 @@ export const ManualEntry: Story = {
     ],
 }
 
+export const ExperimentDisabledEntry: Story = {
+    ...ManualEntry,
+    name: 'Experiment disabled with control intro',
+    parameters: {
+        featureFlags: { ...meta.parameters?.featureFlags, [FEATURE_FLAGS.INBOX_UI_ONBOARDING]: false },
+    },
+    decorators: [
+        mswDecorator({
+            get: { '/api/projects/:id/signals/onboarding/': { draft: null, completed_at: null, variant: null } },
+        }),
+    ],
+}
+
 export const TreatmentReminder: Story = {
     render: () => <InboxOnboardingBanner />,
 }
