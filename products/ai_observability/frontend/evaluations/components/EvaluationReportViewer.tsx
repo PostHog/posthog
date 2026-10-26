@@ -133,7 +133,7 @@ function stripRedundantLeadingHeading(content: string, sectionTitle: string): st
     return lines.slice(startIdx).join('\n')
 }
 
-function ReportSectionContent({
+export function ReportSectionContent({
     section,
     citations,
 }: {

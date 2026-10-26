@@ -1,7 +1,5 @@
-import { useId } from 'react'
-
 import { IconPlus, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonInput, LemonSelect, LemonSwitch, LemonTable } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonInput, LemonSegmentedButton, LemonSwitch } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
@@ -15,158 +13,73 @@ export function CategoricalEvaluationConfig({
     config: EvaluationOutputConfig
     onChange: (patch: EvaluationOutputConfig) => void
 }): JSX.Element {
-    const id = useId()
     const options = config.options ?? []
     const rule = config.passing_rule && 'categories' in config.passing_rule ? config.passing_rule : null
+    const updateOption = (index: number, patch: Partial<{ key: string; label: string }>): void =>
+        onChange({ options: options.map((item, i) => (i === index ? { ...item, ...patch } : item)) })
+
     return (
-        <div className="space-y-4">
-            <LemonField.Pure
-                label="Categories per result"
-                htmlFor={`${id}-selection`}
-                help="Choose whether each result can contain one category or several."
-            >
-                <LemonSelect
-                    id={`${id}-selection`}
-                    data-attr="llma-evaluation-categorical-selection"
+        <div className="flex flex-col gap-4">
+            <LemonField.Pure label="Categories per result">
+                <LemonSegmentedButton
                     value={config.selection_mode ?? 'single'}
+                    onChange={(selection_mode) => onChange({ selection_mode })}
                     options={[
                         { value: 'single', label: 'One category' },
-                        { value: 'multiple', label: 'Multiple categories' },
+                        { value: 'multiple', label: 'Several categories' },
                     ]}
-                    onChange={(selection_mode) => onChange({ selection_mode })}
+                    fullWidth
+                    data-attr="llma-evaluation-categorical-selection"
                 />
             </LemonField.Pure>
-            <LemonField.Pure label="Categories" error={categoricalOptionsError(config)}>
-                <LemonTable
-                    dataSource={options}
-                    size="small"
-                    embedded
-                    stealth
-                    inset
-                    tableLayout="fixed"
-                    uppercaseHeader={false}
-                    emptyState="Add a category to define the possible results."
-                    columns={[
-                        {
-                            title: 'Label',
-                            key: 'label',
-                            render: (_, option, index) => (
-                                <LemonInput
-                                    aria-label={`Category ${index + 1} label`}
-                                    data-attr="llma-evaluation-categorical-label"
-                                    placeholder="Resolved"
-                                    fullWidth
-                                    value={option.label}
-                                    maxLength={256}
-                                    onChange={(label) =>
-                                        onChange({
-                                            options: options.map((item, i) =>
-                                                i === index ? { ...item, label } : item
-                                            ),
-                                        })
-                                    }
-                                />
-                            ),
-                        },
-                        {
-                            title: 'Key',
-                            key: 'key',
-                            render: (_, option, index) => (
-                                <LemonInput
-                                    aria-label={`Category ${index + 1} key`}
-                                    data-attr="llma-evaluation-categorical-key"
-                                    placeholder="resolved"
-                                    fullWidth
-                                    value={option.key}
-                                    maxLength={128}
-                                    onChange={(key) =>
-                                        onChange({
-                                            options: options.map((item, i) => (i === index ? { ...item, key } : item)),
-                                            ...(rule
-                                                ? {
-                                                      passing_rule: {
-                                                          categories: rule.categories.map((value) =>
-                                                              value === option.key ? key : value
-                                                          ),
-                                                      },
-                                                  }
-                                                : {}),
-                                        })
-                                    }
-                                />
-                            ),
-                        },
-                        {
-                            key: 'actions',
-                            width: 48,
-                            render: (_, option, index) => (
-                                <LemonButton
-                                    icon={<IconTrash />}
-                                    size="small"
-                                    tooltip="Remove category"
-                                    aria-label={`Remove category ${option.label || index + 1}`}
-                                    data-attr="llma-evaluation-categorical-remove"
-                                    onClick={() =>
-                                        onChange({
-                                            options: options.filter((_, i) => i !== index),
-                                            ...(rule
-                                                ? {
-                                                      passing_rule: {
-                                                          categories: rule.categories.filter(
-                                                              (key) => key !== option.key
-                                                          ),
-                                                      },
-                                                  }
-                                                : {}),
-                                        })
-                                    }
-                                />
-                            ),
-                        },
-                    ]}
-                />
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    icon={<IconPlus />}
-                    className="self-start"
-                    data-attr="llma-evaluation-categorical-add"
-                    disabledReason={
-                        options.length >= MAX_CATEGORICAL_OPTIONS
-                            ? `You can add up to ${MAX_CATEGORICAL_OPTIONS} categories.`
-                            : undefined
-                    }
-                    onClick={() => onChange({ options: [...options, { key: '', label: '' }] })}
-                >
-                    Add category
-                </LemonButton>
-            </LemonField.Pure>
-            <p className="text-muted text-sm">
-                Results store category keys. Keep keys unchanged to preserve historical results.
-            </p>
-            <LemonSwitch
-                label="Allow N/A responses"
-                data-attr="llma-evaluation-categorical-allows-na"
-                checked={config.allows_na ?? false}
-                onChange={(allows_na) => onChange({ allows_na })}
-            />
-            <LemonField.Pure error={categoricalPassingRuleError(config)}>
-                <LemonSwitch
-                    label="Set a passing rule"
-                    data-attr="llma-evaluation-categorical-passing-rule"
-                    checked={!!rule}
-                    onChange={(enabled) => onChange({ passing_rule: enabled ? { categories: [] } : null })}
-                />
-                {rule && (
-                    <LemonField.Pure label="Passing categories" className="mt-2">
-                        {options
-                            .filter((option) => option.key)
-                            .map((option, index) => (
+            <LemonField.Pure
+                label="Categories"
+                error={categoricalOptionsError(config)}
+                help="Results store the key. Keep a key unchanged to keep its past results."
+            >
+                <div className="flex flex-col gap-2">
+                    {options.length === 0 && (
+                        <span className="text-sm text-secondary">Add a category to define the possible results.</span>
+                    )}
+                    {options.map((option, index) => (
+                        <div key={index} className="flex items-center gap-2">
+                            <LemonInput
+                                className="flex-1 min-w-0"
+                                aria-label={`Category ${index + 1} label`}
+                                data-attr="llma-evaluation-categorical-label"
+                                placeholder="Label, for example Resolved"
+                                value={option.label}
+                                maxLength={256}
+                                onChange={(label) => updateOption(index, { label })}
+                            />
+                            <LemonInput
+                                className="w-36 shrink-0 font-mono"
+                                aria-label={`Category ${index + 1} key`}
+                                data-attr="llma-evaluation-categorical-key"
+                                placeholder="key"
+                                value={option.key}
+                                maxLength={128}
+                                onChange={(key) =>
+                                    onChange({
+                                        options: options.map((item, i) => (i === index ? { ...item, key } : item)),
+                                        ...(rule
+                                            ? {
+                                                  passing_rule: {
+                                                      categories: rule.categories.map((value) =>
+                                                          value === option.key ? key : value
+                                                      ),
+                                                  },
+                                              }
+                                            : {}),
+                                    })
+                                }
+                            />
+                            {rule && (
                                 <LemonCheckbox
-                                    key={index}
-                                    label={option.label || option.key}
+                                    label="Passes"
                                     data-attr="llma-evaluation-categorical-passing-category"
-                                    checked={rule.categories.includes(option.key)}
+                                    disabledReason={option.key ? undefined : 'Add a key first'}
+                                    checked={!!option.key && rule.categories.includes(option.key)}
                                     onChange={(checked) =>
                                         onChange({
                                             passing_rule: {
@@ -177,24 +90,75 @@ export function CategoricalEvaluationConfig({
                                         })
                                     }
                                 />
-                            ))}
-                    </LemonField.Pure>
-                )}
+                            )}
+                            <LemonButton
+                                icon={<IconTrash />}
+                                size="small"
+                                tooltip="Remove category"
+                                aria-label={`Remove category ${option.label || index + 1}`}
+                                data-attr="llma-evaluation-categorical-remove"
+                                onClick={() =>
+                                    onChange({
+                                        options: options.filter((_, i) => i !== index),
+                                        ...(rule
+                                            ? {
+                                                  passing_rule: {
+                                                      categories: rule.categories.filter((key) => key !== option.key),
+                                                  },
+                                              }
+                                            : {}),
+                                    })
+                                }
+                            />
+                        </div>
+                    ))}
+                    <div>
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconPlus />}
+                            data-attr="llma-evaluation-categorical-add"
+                            disabledReason={
+                                options.length >= MAX_CATEGORICAL_OPTIONS
+                                    ? `You can add up to ${MAX_CATEGORICAL_OPTIONS} categories.`
+                                    : undefined
+                            }
+                            onClick={() => onChange({ options: [...options, { key: '', label: '' }] })}
+                        >
+                            Add category
+                        </LemonButton>
+                    </div>
+                </div>
             </LemonField.Pure>
-            {rule ? (
-                <p className="text-muted text-sm">
-                    Every returned category must be marked as passing.
-                    {config.selection_mode === 'multiple'
-                        ? ' An empty selection passes only when no categories are marked as passing.'
-                        : ''}{' '}
-                    Changing this rule also updates how historical results count as passes.
-                </p>
-            ) : (
-                <p className="text-muted text-sm">
-                    Results show their categories without a pass or fail status. Add a passing rule to enable pass rates
-                    and reports.
-                </p>
-            )}
+            <LemonSwitch
+                label="Allow N/A responses"
+                data-attr="llma-evaluation-categorical-allows-na"
+                checked={config.allows_na ?? false}
+                onChange={(allows_na) => onChange({ allows_na })}
+                bordered
+                fullWidth
+            />
+            <LemonField.Pure
+                error={categoricalPassingRuleError(config)}
+                help={
+                    rule
+                        ? `A result passes when every category it returns is marked as passing.${
+                              config.selection_mode === 'multiple'
+                                  ? ' An empty selection passes only when no category is marked.'
+                                  : ''
+                          } Changing this also changes how past results count.`
+                        : 'Without a passing rule, results show their categories but no pass rate or reports.'
+                }
+            >
+                <LemonSwitch
+                    label="Set a passing rule"
+                    data-attr="llma-evaluation-categorical-passing-rule"
+                    checked={!!rule}
+                    onChange={(enabled) => onChange({ passing_rule: enabled ? { categories: [] } : null })}
+                    bordered
+                    fullWidth
+                />
+            </LemonField.Pure>
         </div>
     )
 }

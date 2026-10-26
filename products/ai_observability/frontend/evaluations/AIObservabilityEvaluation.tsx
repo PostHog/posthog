@@ -18,7 +18,6 @@ import {
 } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { DurationPicker } from 'lib/components/DurationPicker/DurationPicker'
 import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -39,13 +38,16 @@ import { providerKeyStateIssueDescription, providerLabel } from '../settings/pro
 import { CategoricalEvaluationConfig } from './components/CategoricalEvaluationConfig'
 import { EvaluationBackfillsTab } from './components/EvaluationBackfillsTab'
 import { EvaluationCodeEditor } from './components/EvaluationCodeEditor'
+import { EvaluationFirstResultStatus } from './components/EvaluationFirstResultStatus'
+import { EvaluationLatestReport } from './components/EvaluationLatestReport'
 import { EvaluationModelPicker } from './components/EvaluationModelPicker'
 import { EvaluationPromptEditor } from './components/EvaluationPromptEditor'
 import { EvaluationReportConfig } from './components/EvaluationReportConfig'
 import { EvaluationReportsCallout } from './components/EvaluationReportsCallout'
 import { EvaluationReportsTab } from './components/EvaluationReportsTab'
 import { EvaluationRunsTable } from './components/EvaluationRunsTable'
-import { EvaluationTriggers } from './components/EvaluationTriggers'
+import { EvaluationSettleConfig } from './components/EvaluationSettleConfig'
+import { EvaluationTriggersPanel } from './components/EvaluationTriggersPanel'
 import { NumericEvaluationConfig } from './components/NumericEvaluationConfig'
 import {
     formatNumericEvaluationScore,
@@ -53,6 +55,7 @@ import {
     numericOutputConfigError,
     categoricalOutputConfigError,
 } from './constants'
+import { EvaluationCreatePage } from './create/EvaluationCreatePage'
 import {
     evaluationOffersSessionTarget,
     evaluationSupportsReportHistory,
@@ -63,20 +66,10 @@ import {
     isBooleanEvaluationOutput,
 } from './evaluationCapabilities'
 import { evaluationReportLogic } from './evaluationReportLogic'
-import {
-    DEFAULT_SESSION_MAX_AGE_SECONDS,
-    DEFAULT_SESSION_QUIET_PERIOD_SECONDS,
-    DEFAULT_SESSION_WINDOW_SECONDS,
-    DEFAULT_TRACE_MAX_AGE_SECONDS,
-    DEFAULT_TRACE_QUIET_PERIOD_SECONDS,
-    DEFAULT_TRACE_WINDOW_SECONDS,
-    LLMEvaluationLogicProps,
-    hasUnsetConditionRollout,
-    llmEvaluationLogic,
-} from './llmEvaluationLogic'
+import { LLMEvaluationLogicProps, hasUnsetConditionRollout, llmEvaluationLogic } from './llmEvaluationLogic'
 import { EvaluationDetailResults } from './overview/EvaluationDetailResults'
 import { statusReasonLabel, statusReasonRecoveryLabel } from './statusDisplay'
-import { EvaluationSettleStrategy, EvaluationTarget, EvaluationType } from './types'
+import { EvaluationTarget, EvaluationType } from './types'
 
 const RUNS_BACKFILL_TIME_FORMAT = { formatDate: 'MMM D, YYYY', formatTime: 'HH:mm' }
 
@@ -120,8 +113,6 @@ export function AIObservabilityEvaluation(): JSX.Element {
         setOutputType,
         patchOutputConfig,
         setEvaluationTarget,
-        setSettleStrategy,
-        patchTargetConfig,
         setActiveTab,
     } = useActions(llmEvaluationLogic)
     const { push } = useActions(router)
@@ -139,6 +130,13 @@ export function AIObservabilityEvaluation(): JSX.Element {
     if (!evaluation) {
         return <NotFound object="evaluation" />
     }
+    if (isNewEvaluation && featureFlags[FEATURE_FLAGS.AI_OBSERVABILITY_EVALUATIONS_OVERVIEW]) {
+        return (
+            <EvaluationCreatePage
+                templateKey={typeof searchParams.template === 'string' ? searchParams.template : undefined}
+            />
+        )
+    }
     const openInPlaygroundUrl =
         evaluationTypeUsesModelConfiguration(evaluation.evaluation_type) && evaluation.id && !usesDecisionModel
             ? combineUrl(urls.aiObservabilityPlayground(), { source_evaluation_id: evaluation.id }).url
@@ -146,14 +144,8 @@ export function AIObservabilityEvaluation(): JSX.Element {
 
     const isHog = evaluation.evaluation_type === 'hog'
     const isSentiment = evaluation.evaluation_type === 'sentiment'
-    const isAggregateTarget = evaluation.target === 'trace' || evaluation.target === 'session'
     const isSessionTarget = evaluation.target === 'session'
     const offersSessionTarget = evaluationOffersSessionTarget(evaluation, settlingStrategyEnabled)
-    // Read the stored strategy whether or not the flag is on. The flag gates the *picker*, not what
-    // the row contains: an API- or MCP-created session eval is inactivity, and forcing fixed_window
-    // here rendered a "wait 30 minutes" field holding a default the config never had.
-    const effectiveStrategy: EvaluationSettleStrategy =
-        evaluation.target_config.strategy ?? (isSessionTarget ? 'inactivity' : 'fixed_window')
     const supportsRunOutcomes = evaluationSupportsRunOutcomes(originalEvaluation)
     const isBooleanOutput = isBooleanEvaluationOutput(evaluation.output_type)
     const hasEditableCriteria = evaluationTypeHasEditableCriteria(evaluation.evaluation_type)
@@ -468,6 +460,17 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                         )}
                                     </LemonBanner>
                                 )}
+                                {resultsCardsEnabled && (
+                                    <>
+                                        <EvaluationFirstResultStatus />
+                                        {evaluationSupportsReportHistory(originalEvaluation) && (
+                                            <EvaluationLatestReport
+                                                evaluationId={evaluation.id}
+                                                onOpenReports={() => setActiveTab('reports')}
+                                            />
+                                        )}
+                                    </>
+                                )}
                                 {resultsCardsEnabled && !runsBackfillId && (
                                     <div className="mb-4">
                                         <EvaluationDetailResults evaluationId={evaluation.id} />
@@ -610,111 +613,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                               ? 'Runs once per trace on all of its events together, after it settles. Only fires for generations that have an $ai_trace_id property.'
                                                               : 'Runs on each matching generation event individually, right after it is ingested.'}
                                                     </p>
-                                                    {isAggregateTarget && (
-                                                        <>
-                                                            {settlingStrategyEnabled && (
-                                                                <LemonField.Pure label="Evaluate when">
-                                                                    <LemonSelect<EvaluationSettleStrategy>
-                                                                        value={effectiveStrategy}
-                                                                        onChange={setSettleStrategy}
-                                                                        options={[
-                                                                            {
-                                                                                value: 'fixed_window',
-                                                                                label: 'A fixed delay has passed',
-                                                                            },
-                                                                            {
-                                                                                value: 'inactivity',
-                                                                                label: isSessionTarget
-                                                                                    ? 'The session goes quiet'
-                                                                                    : 'The trace goes quiet',
-                                                                            },
-                                                                        ]}
-                                                                        fullWidth
-                                                                    />
-                                                                </LemonField.Pure>
-                                                            )}
-                                                            {effectiveStrategy === 'fixed_window' ? (
-                                                                <LemonField.Pure label="Wait before evaluating">
-                                                                    <div className="space-y-1">
-                                                                        <DurationPicker
-                                                                            value={
-                                                                                evaluation.target_config
-                                                                                    .window_seconds ??
-                                                                                (isSessionTarget
-                                                                                    ? DEFAULT_SESSION_WINDOW_SECONDS
-                                                                                    : DEFAULT_TRACE_WINDOW_SECONDS)
-                                                                            }
-                                                                            onChange={(value) => {
-                                                                                if (
-                                                                                    evaluation.target_config
-                                                                                        .strategy === 'inactivity'
-                                                                                ) {
-                                                                                    setSettleStrategy('fixed_window')
-                                                                                }
-                                                                                patchTargetConfig({
-                                                                                    window_seconds: value,
-                                                                                })
-                                                                            }}
-                                                                        />
-                                                                        <p className="text-muted text-xs">
-                                                                            {isSessionTarget
-                                                                                ? "How long to wait after the first matching generation before pulling the whole session (10s to 7 days). Captured when the run is scheduled, so changing it won't affect runs already in flight."
-                                                                                : "How long to wait after the first matching generation before pulling the whole trace (10s–2h). Captured when the run is scheduled — changing it won't affect trace runs already in flight."}
-                                                                        </p>
-                                                                    </div>
-                                                                </LemonField.Pure>
-                                                            ) : (
-                                                                <>
-                                                                    <LemonField.Pure label="Quiet period">
-                                                                        <div className="space-y-1">
-                                                                            <DurationPicker
-                                                                                value={
-                                                                                    evaluation.target_config
-                                                                                        .quiet_period_seconds ??
-                                                                                    (isSessionTarget
-                                                                                        ? DEFAULT_SESSION_QUIET_PERIOD_SECONDS
-                                                                                        : DEFAULT_TRACE_QUIET_PERIOD_SECONDS)
-                                                                                }
-                                                                                onChange={(value) =>
-                                                                                    patchTargetConfig({
-                                                                                        quiet_period_seconds: value,
-                                                                                    })
-                                                                                }
-                                                                            />
-                                                                            <p className="text-muted text-xs">
-                                                                                {isSessionTarget
-                                                                                    ? 'Evaluate once the session has had no new activity for this long (10s to 24 hours). Sessions often pause for a while mid-conversation, so a longer quiet period means fewer verdicts on a session that was not finished.'
-                                                                                    : 'Evaluate once the trace has had no new activity for this long (10s–30m).'}
-                                                                            </p>
-                                                                        </div>
-                                                                    </LemonField.Pure>
-                                                                    <LemonField.Pure label="Evaluate by">
-                                                                        <div className="space-y-1">
-                                                                            <DurationPicker
-                                                                                value={
-                                                                                    evaluation.target_config
-                                                                                        .max_age_seconds ??
-                                                                                    (isSessionTarget
-                                                                                        ? DEFAULT_SESSION_MAX_AGE_SECONDS
-                                                                                        : DEFAULT_TRACE_MAX_AGE_SECONDS)
-                                                                                }
-                                                                                onChange={(value) =>
-                                                                                    patchTargetConfig({
-                                                                                        max_age_seconds: value,
-                                                                                    })
-                                                                                }
-                                                                            />
-                                                                            <p className="text-muted text-xs">
-                                                                                {isSessionTarget
-                                                                                    ? 'Always evaluate once the session is this old, even if it is still active (1m to 7 days).'
-                                                                                    : "Always evaluate once the trace is this old, even if it's still active (1m–2h)."}
-                                                                            </p>
-                                                                        </div>
-                                                                    </LemonField.Pure>
-                                                                </>
-                                                            )}
-                                                        </>
-                                                    )}
+                                                    <EvaluationSettleConfig />
                                                 </>
                                             )}
 
@@ -871,41 +770,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                         className="bg-bg-light border rounded p-4 @min-[40rem]/evaluation:p-6"
                                     >
                                         <h3 className="text-lg font-semibold mb-4">Triggers</h3>
-                                        <p className="text-muted text-sm mb-4">
-                                            The evaluation runs on generations that match any one of these condition
-                                            sets. Within a set, all filters must match, and sampling decides how many of
-                                            the matching generations get evaluated.
-                                            {evaluation.target === 'trace' && (
-                                                <>
-                                                    {' '}
-                                                    Conditions match individual generations. The whole trace is
-                                                    evaluated once any of its generations matches, and sampling applies
-                                                    per trace.
-                                                </>
-                                            )}
-                                        </p>
-                                        <EvaluationTriggers />
-                                        <div className="bg-bg-light border rounded p-3 text-sm mt-6">
-                                            <h4 className="font-semibold mb-2">Examples:</h4>
-                                            <ul className="space-y-1 text-muted list-disc list-inside">
-                                                <li>
-                                                    <strong>10% of all generations:</strong> Set 10% sampling with no
-                                                    filter conditions
-                                                </li>
-                                                <li>
-                                                    <strong>5% of GPT-4 generations:</strong> Set 5% sampling with
-                                                    $ai_model = "gpt-4o"
-                                                </li>
-                                                <li>
-                                                    <strong>Exclude internal users:</strong> Set 100% sampling with
-                                                    person property is_internal ≠ true
-                                                </li>
-                                                <li>
-                                                    <strong>High-cost generations:</strong> Set 100% sampling with
-                                                    $ai_total_cost_usd &gt; 0.01
-                                                </li>
-                                            </ul>
-                                        </div>
+                                        <EvaluationTriggersPanel />
                                     </div>
 
                                     {/* Scheduled Reports (inline config for new evaluations) */}

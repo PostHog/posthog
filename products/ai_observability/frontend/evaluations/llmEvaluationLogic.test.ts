@@ -276,6 +276,24 @@ describe('llmEvaluationLogic', () => {
         })
 
         it.each([
+            ['sentiment' as const, true],
+            ['hog' as const, true],
+            ['llm_judge' as const, false],
+        ])('starts a new %s evaluation running only when it can run without a provider key', async (type, expected) => {
+            await expectLogic(keysLogic).toFinishAllListeners()
+            logic.actions.setEvaluationType(type)
+            expect(logic.values.evaluation?.enabled).toBe(expected)
+        })
+
+        it('keeps a new evaluation paused once someone turned it off by hand', async () => {
+            await expectLogic(keysLogic).toFinishAllListeners()
+            logic.actions.setEvaluationType('hog')
+            logic.actions.setEvaluationEnabled(false)
+            logic.actions.setEvaluationType('sentiment')
+            expect(logic.values.evaluation?.enabled).toBe(false)
+        })
+
+        it.each([
             [DEFAULT_HOG_SOURCE, 'return 0;'],
             ['return 42;', 'return 42;'],
         ])('updates only untouched Hog source %s when selecting numeric output', (source, expected) => {
@@ -2450,6 +2468,45 @@ return result`,
                 expect(reportCreateCount).toBe(0)
             } finally {
                 pushSpy.mockRestore()
+                reportLogic.unmount()
+            }
+        })
+    })
+
+    describe('report destinations', () => {
+        it.each([
+            { name: 'switches a new report to weekly', pickedByHand: false, frequency: 'scheduled', cadence: 'weekly' },
+            { name: 'keeps a frequency someone picked', pickedByHand: true, frequency: 'every_n', cadence: 'daily' },
+        ])('$name when the first destination is added', ({ pickedByHand, frequency, cadence }) => {
+            const reportLogic = evaluationReportLogic({ evaluationId: 'new' })
+            reportLogic.mount()
+            try {
+                reportLogic.actions.setDraftScheduleCadence('daily')
+                if (pickedByHand) {
+                    reportLogic.actions.setDraftFrequency('every_n')
+                }
+                reportLogic.actions.addDraftDestination('email')
+
+                expect(reportLogic.values.configDraft).toMatchObject({ frequency, scheduleCadence: cadence })
+            } finally {
+                reportLogic.unmount()
+            }
+        })
+
+        it('keeps an emptied destination open until it is removed, then clears it', () => {
+            const reportLogic = evaluationReportLogic({ evaluationId: 'new' })
+            reportLogic.mount()
+            try {
+                reportLogic.actions.addDraftDestination('email')
+                reportLogic.actions.setDraftEmailValue('team@example.com')
+                reportLogic.actions.setDraftEmailValue('')
+                expect(reportLogic.values.shownDestinations).toEqual(['email'])
+
+                reportLogic.actions.setDraftEmailValue('team@example.com')
+                reportLogic.actions.removeDraftDestination('email')
+                expect(reportLogic.values.shownDestinations).toEqual([])
+                expect(reportLogic.values.configDraft.emailValue).toEqual('')
+            } finally {
                 reportLogic.unmount()
             }
         })
