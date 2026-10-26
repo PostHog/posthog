@@ -499,6 +499,10 @@ class TestPostgresSourceNonRetryableErrors:
             # A serverless provider refuses every connect while the branch is hibernated, until the
             # customer reactivates it. Host and IP are invented, not real values.
             'connection failed: connection to server at "203.0.113.7", port 5432 failed: FATAL:  branch is hibernated, reactivate it to continue',
+            # The "Certificate authority" field holds a value that isn't a parseable PEM certificate,
+            # so libpq can't load the file `tls_files` wrote for it. Permanent until the customer
+            # fixes the field. Host and temp path are invented, not real values.
+            'connection failed: connection to server at "203.0.113.7", port 5432 failed: could not read root certificate file "/tmp/source-tls-xxxxxxxx/ca.crt": no certificate or crl found',
         ],
     )
     def test_permanent_connection_errors_are_non_retryable(self, source, error_msg):
@@ -1358,6 +1362,24 @@ class TestPostgresSourceNonRetryableErrors:
         friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
         assert friendly, "SNI hostname routing rejection should surface an actionable message"
         assert "requires connecting via" in friendly[0]
+
+    def test_neon_endpoint_id_not_specified_is_non_retryable(self, source):
+        non_retryable = source.get_non_retryable_errors()
+        error_msg = (
+            'connection failed: connection to server at "127.0.0.1", port 35975 failed: ERROR:  '
+            "Endpoint ID is not specified. Either please upgrade the postgres client library "
+            "(libpq) for SNI support or pass the endpoint ID (first part of the domain name) as "
+            "a parameter: '?options=endpoint%3D<endpoint-id>'. See more at https://neon.com/sni\n"
+            'connection to server at "127.0.0.1", port 35975 failed: ERROR:  connection is '
+            "insecure (try using `sslmode=require`)"
+        )
+        assert "Endpoint ID is not specified" in non_retryable
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Neon endpoint ID rejection should be non-retryable: {error_msg}"
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "Neon endpoint ID rejection should surface an actionable message"
+        assert "SSH tunnel" in friendly[0]
+        assert "hostname" in friendly[0]
 
     def test_plaintext_refusal_alone_is_non_retryable(self, source):
         non_retryable = source.get_non_retryable_errors()
@@ -5658,6 +5680,23 @@ class TestValidateCredentialsErrorMapping:
                 "Is the server running on that host and accepting TCP/IP connections?",
                 "Could not connect to the database on the host and port given. Check the host and port are "
                 "correct, and that PostHog's IP addresses are allowed through your firewall.",
+            ),
+            # Neon's proxy routes by the "endpoint ID" carried in the TLS SNI extension, which is
+            # dropped whenever the host is dialed as a bare IP literal — exactly what an SSH tunnel
+            # does, since it always connects through its own loopback bind address.
+            (
+                'connection failed: connection to server at "127.0.0.1", port 35975 failed: ERROR:  '
+                "Endpoint ID is not specified. Either please upgrade the postgres client library "
+                "(libpq) for SNI support or pass the endpoint ID (first part of the domain name) as "
+                "a parameter: '?options=endpoint%3D<endpoint-id>'. See more at https://neon.com/sni\n"
+                'connection to server at "127.0.0.1", port 35975 failed: ERROR:  connection is '
+                "insecure (try using `sslmode=require`)",
+                "Your database provider (Neon) couldn't route the connection because it didn't "
+                'receive routing information ("Endpoint ID is not specified"). This happens when '
+                "the host is configured as an IP address instead of a hostname, or when connecting "
+                "through an SSH tunnel, which can't carry that information to Neon. Update the "
+                "host to the hostname your database provider gave you, or connect directly instead "
+                "of through an SSH tunnel, then try again.",
             ),
             # Unmapped errors fall back to the generic message.
             (
