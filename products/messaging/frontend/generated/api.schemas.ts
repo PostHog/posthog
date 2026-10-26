@@ -646,6 +646,7 @@ export type EmailTemplateApiDesignBody = {
     footers?: EmailTemplateApiDesignBodyFootersItem[]
     /** Body-level settings: backgroundColor, contentWidth ('600px'), fontFamily, textColor. */
     values?: EmailTemplateApiDesignBodyValues
+    [key: string]: unknown
 }
 
 /**
@@ -657,6 +658,7 @@ export type EmailTemplateApiDesign = {
     /** Design schema version, e.g. 16. */
     schemaVersion: number
     body: EmailTemplateApiDesignBody
+    [key: string]: unknown
 }
 
 export interface EmailTemplateApi {

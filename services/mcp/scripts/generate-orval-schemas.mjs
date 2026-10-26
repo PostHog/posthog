@@ -25,8 +25,9 @@ import {
     runOrvalParallel,
 } from '@posthog/openapi-codegen'
 
-import { discoverDefinitions, resolveSchemaPath } from './lib/definitions.mjs'
+import { discoverDefinitions, modulesWithStrictBodies, resolveSchemaPath } from './lib/definitions.mjs'
 import { lazifyZodSchemas } from './lib/lazy-zod-schemas.mjs'
+import { collectOpenObjectPaths, loosenOpenObjects } from './lib/loosen-open-objects.mjs'
 import { stripEnumMinLength, stripUuidFormat } from './lib/schema-transforms.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -37,8 +38,6 @@ const generatedRoot = path.resolve(mcpRoot, 'src', 'generated')
 const definitionsDir = path.resolve(mcpRoot, 'definitions')
 
 const schemaPath = resolveSchemaPath(repoRoot)
-
-const modulesWithStrictBodies = new Set(['email_templates'])
 
 if (!fs.existsSync(schemaPath)) {
     console.error(`OpenAPI schema not found at ${schemaPath}. Run \`hogli build:openapi-schema\` first.`)
@@ -178,8 +177,8 @@ function prepareOrval(moduleName, filteredSchema, tmpDir) {
     return { config, outputFile, moduleOutputDir }
 }
 
-function postprocessOrvalOutput(outputFile) {
-    const generated = fs.readFileSync(outputFile, 'utf-8')
+function postprocessOrvalOutput(outputFile, openPathsByExport) {
+    const generated = loosenOpenObjects(fs.readFileSync(outputFile, 'utf-8'), openPathsByExport)
     const withoutRedundantEnumDescriptions = generated.replace(
         /\n\s*\.describe\(\n\s*(['"`])\* `(?:\\.|(?!\1)[\s\S])*?\1\n\s*\)(?=\s*(?:\.(?:optional|nullish)\(\)\s*)?\.describe\()/g,
         ''
@@ -244,7 +243,8 @@ for (const def of definitions) {
     const schemaCount = Object.keys(filtered.components.schemas).length
 
     const { config, outputFile, moduleOutputDir } = prepareOrval(def.moduleName, filtered, tmpDir)
-    tasks.push({ def, config, outputFile, moduleOutputDir, pathCount, schemaCount, operationIds })
+    const openPathsByExport = modulesWithStrictBodies.has(def.moduleName) ? collectOpenObjectPaths(filtered) : new Map()
+    tasks.push({ def, config, outputFile, moduleOutputDir, pathCount, schemaCount, operationIds, openPathsByExport })
 }
 
 // Phase 2: Run all Orval generations in parallel (in-process, no subprocess overhead)
@@ -257,7 +257,7 @@ for (let i = 0; i < results.length; i++) {
     const result = results[i]
     const task = tasks[i]
     if (result.status === 'fulfilled') {
-        postprocessOrvalOutput(task.outputFile)
+        postprocessOrvalOutput(task.outputFile, task.openPathsByExport)
         console.log(
             `   ✓ ${task.def.moduleName}: ${task.pathCount} paths, ${task.schemaCount} schemas (${task.operationIds.size} enabled ops)`
         )

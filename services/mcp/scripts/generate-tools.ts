@@ -22,7 +22,7 @@ import { fileURLToPath } from 'node:url'
 import { parse as parseYaml } from 'yaml'
 
 import { hasScope } from '../src/lib/api'
-import { discoverDefinitions, isQueryWrappersConfig } from './lib/definitions.mjs'
+import { discoverDefinitions, isQueryWrappersConfig, modulesWithStrictBodies } from './lib/definitions.mjs'
 import { type JsonSchemaRoot, generateZodFromSchemaRef, getEntryVarName } from './lib/json-schema-to-zod'
 import {
     type CategoryConfig,
@@ -507,7 +507,8 @@ function composeToolSchema(
     config: ToolConfig,
     resolved: ResolvedOperation,
     spec: OpenApiSpec,
-    getQuerySchema: () => JsonSchemaRoot
+    getQuerySchema: () => JsonSchemaRoot,
+    hasStrictBody = false
 ): SchemaComposition {
     const pascal = operationIdToPascal(config.operation)
     const orvalImports: string[] = []
@@ -525,6 +526,7 @@ function composeToolSchema(
      * Path params are omitted (always required).
      */
     const optionalParamNames = new Set<string>()
+    let composesBody = false
 
     const excludeSet = new Set(config.exclude_params ?? [])
     const includeSet = config.include_params ? new Set(config.include_params) : undefined
@@ -607,6 +609,7 @@ function composeToolSchema(
         const bodySchemaRef = resolved.operation.requestBody?.content?.['application/json']?.schema
         if (bodySchemaRef) {
             const importName = `${pascal}Body`
+            composesBody = true
             orvalImports.push(importName)
 
             const bodyOmitFields = new Set<string>()
@@ -685,6 +688,9 @@ function composeToolSchema(
         schemaExpr = schemaParts[0]!
         for (let i = 1; i < schemaParts.length; i++) {
             schemaExpr += `.extend(${schemaParts[i]}.shape)`
+        }
+        if (hasStrictBody && composesBody) {
+            schemaExpr += '.strict()'
         }
     }
 
@@ -1136,7 +1142,8 @@ function generateToolCode(
     category: CategoryConfig,
     spec: OpenApiSpec,
     knownTypes: Set<string>,
-    getQuerySchema: () => JsonSchemaRoot
+    getQuerySchema: () => JsonSchemaRoot,
+    hasStrictBody = false
 ): {
     code: string
     orvalImports: string[]
@@ -1159,7 +1166,7 @@ function generateToolCode(
         return generateCustomSchemaToolCode(toolName, config, resolved, category, schemaName, factoryName, knownTypes)
     }
 
-    const composition = composeToolSchema(config, resolved, spec, getQuerySchema)
+    const composition = composeToolSchema(config, resolved, spec, getQuerySchema, hasStrictBody)
     let responseType = config.response_type ?? resolveResponseType(resolved.operation, knownTypes)
 
     // Soft-delete overrides the HTTP method: use PATCH instead of DELETE.
@@ -1951,7 +1958,16 @@ function generateCategoryFile(
     const requiredToolUtilsValueImports = new Set<string>()
 
     for (const [name, config, resolved] of enabledTools) {
-        const result = generateToolCode(name, config, resolved, category, spec, knownTypes, getQuerySchema)
+        const result = generateToolCode(
+            name,
+            config,
+            resolved,
+            category,
+            spec,
+            knownTypes,
+            getQuerySchema,
+            modulesWithStrictBodies.has(moduleName)
+        )
         toolCodes.push(result.code)
         for (const imp of result.orvalImports) {
             allOrvalImports.add(imp)
