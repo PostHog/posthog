@@ -134,6 +134,7 @@ class CustomerTaskAPI(APIBaseTest):
                 team_id=self.team.id, name="Replacement account"
             )
             updates["account_id"] = str(replacement.id)
+        assignee: User | None = None
         if name == "assign":
             assignee = User.objects.create_and_join(self.organization, "new-assignee@example.com", "testpassword")
             updates["assigned_to_id"] = assignee.id
@@ -177,12 +178,12 @@ class CustomerTaskAPI(APIBaseTest):
             if name == "reopen":
                 assert task.completed_at is None
                 assert task.completed_by_id is None
-            if name == "assign":
+            if assignee is not None:
                 assert AccessControl.objects.filter(
                     team=self.team,
                     resource="customer_task",
                     resource_id=str(task.id),
-                    organization_member__user_id=updates["assigned_to_id"],
+                    organization_member__user_id=assignee.id,
                     access_level="editor",
                 ).exists()
             if updates.get("status") == "completed":
