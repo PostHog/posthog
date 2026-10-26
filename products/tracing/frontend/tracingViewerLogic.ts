@@ -45,7 +45,6 @@ function isCompletePrefetch(spans: Span[], traceId: string): boolean {
 export interface tracingViewerLogicValues {
     configuredDistinctIdKeys: string[] | undefined // tracingCorrelationConfigLogic
     configuredSessionIdKeys: string[] | undefined // tracingCorrelationConfigLogic
-    correlationLinksEnabled: boolean // tracingCorrelationConfigLogic
     sessionErrorBadgesEnabled: boolean // tracingCorrelationConfigLogic
     spans: Span[] // tracingDataLogic
     traceLoadContext: {
@@ -227,8 +226,7 @@ export interface tracingViewerLogicMeta {
             canLoadMoreTraceSpans: boolean,
             traceSpansLoading: boolean,
             configuredDistinctIdKeys: string[] | undefined,
-            configuredSessionIdKeys: string[] | undefined,
-            correlationLinksEnabled: boolean
+            configuredSessionIdKeys: string[] | undefined
         ) => TraceIdentity
         traceSessionId: (
             openTraceSpans: Span[],
@@ -270,12 +268,7 @@ export const tracingViewerLogic = kea<tracingViewerLogicType>([
             tracingFiltersLogic({ id }),
             ['hasDeferredFilterRefresh'],
             tracingCorrelationConfigLogic,
-            [
-                'configuredDistinctIdKeys',
-                'configuredSessionIdKeys',
-                'correlationLinksEnabled',
-                'sessionErrorBadgesEnabled',
-            ],
+            ['configuredDistinctIdKeys', 'configuredSessionIdKeys', 'sessionErrorBadgesEnabled'],
         ],
         actions: [
             tracingDataLogic({ id }),
@@ -451,20 +444,14 @@ export const tracingViewerLogic = kea<tracingViewerLogicType>([
                 s.traceSpansLoading,
                 s.configuredDistinctIdKeys,
                 s.configuredSessionIdKeys,
-                s.correlationLinksEnabled,
             ],
             (
                 openTraceSpans: Span[],
                 canLoadMoreTraceSpans: boolean,
                 traceSpansLoading: boolean,
                 configuredDistinctIdKeys: string[] | undefined,
-                configuredSessionIdKeys: string[] | undefined,
-                correlationLinksEnabled: boolean
+                configuredSessionIdKeys: string[] | undefined
             ): TraceIdentity => {
-                // The flag guard runs before the scan, which reads every attribute of every span.
-                if (!correlationLinksEnabled) {
-                    return EMPTY_TRACE_IDENTITY
-                }
                 // Nothing while more spans can arrive, because a second, conflicting identity may
                 // sit on a page that has not loaded, and the prefetch fallback shown during the
                 // first fetch may itself be truncated.
@@ -475,8 +462,7 @@ export const tracingViewerLogic = kea<tracingViewerLogicType>([
             },
         ],
         // The open trace's session for the Errors tab, which needs no person. It follows the badge
-        // flag rather than the person and replay one, so the tab works for a team that has only the
-        // badges. The gate also keeps the span scan off a team that has neither.
+        // flag, which also keeps the span scan off a team without the badges.
         //
         // It reads every span loaded so far, rather than waiting for a complete trace the way
         // `traceIdentity` does. A large trace pages in as the user scrolls the waterfall, and

@@ -69,8 +69,7 @@ export function SpanAttributes({
     propertyType,
 }: SpanAttributesProps): JSX.Element {
     const { addFilter } = useActions(tracingFiltersLogic)
-    const { configuredDistinctIdKeys, configuredSessionIdKeys, correlationLinksEnabled } =
-        useValues(tracingCorrelationConfigLogic)
+    const { configuredDistinctIdKeys, configuredSessionIdKeys } = useValues(tracingCorrelationConfigLogic)
     const { spanColumns } = useValues(tracingConfigLogic)
     const { setSpanColumns } = useActions(tracingConfigLogic)
     const columnKeys = useMemo(() => new Set(spanColumns.map(spanColumnKey)), [spanColumns])
@@ -79,7 +78,7 @@ export function SpanAttributes({
 
     // Person/replay links only apply to real OTel attribute tables (propertyType set), because
     // the synthetic "Span details" table repeats span metadata under conventional-looking keys.
-    const showCorrelationLinks = correlationLinksEnabled && propertyType !== undefined
+    const showCorrelationLinks = propertyType !== undefined
 
     useEffect(
         () => () => {

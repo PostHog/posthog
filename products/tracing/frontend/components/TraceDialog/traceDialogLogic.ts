@@ -109,7 +109,6 @@ export interface traceDialogLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     configuredDistinctIdKeys: string[] | undefined // tracingCorrelationConfigLogic
     configuredSessionIdKeys: string[] | undefined // tracingCorrelationConfigLogic
-    correlationLinksEnabled: boolean // tracingCorrelationConfigLogic
     sessionErrorBadgesEnabled: boolean // tracingCorrelationConfigLogic
     dialogEnabled: boolean
     inspectorOpen: boolean
@@ -259,8 +258,7 @@ export interface traceDialogLogicMeta {
         traceIdentity: (
             traceSpans: TraceDialogSpans | null,
             configuredDistinctIdKeys: string[] | undefined,
-            configuredSessionIdKeys: string[] | undefined,
-            correlationLinksEnabled: boolean
+            configuredSessionIdKeys: string[] | undefined
         ) => TraceIdentity
         traceSessionId: (
             traceSpans: TraceDialogSpans | null,
@@ -307,12 +305,7 @@ export const traceDialogLogic = kea<traceDialogLogicType>([
         ],
         values: [
             tracingCorrelationConfigLogic,
-            [
-                'configuredDistinctIdKeys',
-                'configuredSessionIdKeys',
-                'correlationLinksEnabled',
-                'sessionErrorBadgesEnabled',
-            ],
+            ['configuredDistinctIdKeys', 'configuredSessionIdKeys', 'sessionErrorBadgesEnabled'],
             featureFlagLogic,
             ['featureFlags'],
         ],
@@ -420,19 +413,17 @@ export const traceDialogLogic = kea<traceDialogLogicType>([
         // A truncated trace may hold a second, conflicting person on a page the dialog never
         // loaded, so it names no one rather than risk naming the wrong one.
         traceIdentity: [
-            (s) => [s.traceSpans, s.configuredDistinctIdKeys, s.configuredSessionIdKeys, s.correlationLinksEnabled],
+            (s) => [s.traceSpans, s.configuredDistinctIdKeys, s.configuredSessionIdKeys],
             (
                 traceSpans: TraceDialogSpans | null,
                 distinctIdKeys: string[] | undefined,
-                sessionIdKeys: string[] | undefined,
-                linksEnabled: boolean
+                sessionIdKeys: string[] | undefined
             ): TraceIdentity =>
-                linksEnabled && traceSpans && !traceSpans.truncated
+                traceSpans && !traceSpans.truncated
                     ? resolveTraceIdentity(traceSpans.spans, distinctIdKeys, sessionIdKeys)
                     : EMPTY_TRACE_IDENTITY,
         ],
-        // The Errors tab's session scope follows the badge flag rather than the links flag, the
-        // same split the drawer makes.
+        // The Errors tab's session scope follows the badge flag, the same as the drawer.
         traceSessionId: [
             (s) => [s.traceSpans, s.configuredSessionIdKeys, s.sessionErrorBadgesEnabled],
             (

@@ -57,10 +57,7 @@ describe('traceDialogLogic', () => {
         } as AppContext
         initKeaTests()
         featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([], {
-            [FEATURE_FLAGS.TRACING_SPAN_ERROR_BADGES]: true,
-            [FEATURE_FLAGS.TRACING_SESSION_PERSON_LINKS]: true,
-        })
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TRACING_SPAN_ERROR_BADGES]: true })
         getTraceSpy = jest.spyOn(api.tracing, 'getTrace').mockResolvedValue(page(['a'], null))
         router.actions.push('/logs')
         logic = traceDialogLogic()

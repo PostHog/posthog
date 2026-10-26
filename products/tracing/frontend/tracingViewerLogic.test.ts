@@ -120,12 +120,6 @@ describe('tracingViewerLogic', () => {
             featureFlagLogic.actions.setFeatureFlags([], {})
         })
 
-        function enableCorrelationLinks(): void {
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TRACING_SESSION_PERSON_LINKS], {
-                [FEATURE_FLAGS.TRACING_SESSION_PERSON_LINKS]: true,
-            })
-        }
-
         // A partial prefetch batch is the trace's complete span set, so no fetch runs and the
         // identity resolves from it.
         function openCompleteTrace(attributes: Record<string, string>): void {
@@ -137,23 +131,14 @@ describe('tracingViewerLogic', () => {
         }
 
         it('resolves the person and session the open trace belongs to', () => {
-            enableCorrelationLinks()
-
             openCompleteTrace({ posthogDistinctId: 'user-1', sessionId: 'session-1' })
 
             expect(logic.values.traceIdentity).toEqual({ distinctId: 'user-1', sessionId: 'session-1' })
         })
 
-        it('resolves nothing while the flag is off', () => {
-            openCompleteTrace({ posthogDistinctId: 'user-1', sessionId: 'session-1' })
-
-            expect(logic.values.traceIdentity).toEqual({ distinctId: null, sessionId: null })
-        })
-
         // "The spans disagree, so promote neither" can only be decided over the whole trace, so a
         // known-partial span set must resolve nothing rather than trust the page it has.
         it('resolves nothing while more spans can still load', async () => {
-            enableCorrelationLinks()
             getTraceSpy.mockResolvedValue({
                 results: [
                     makeSpan({
@@ -174,13 +159,12 @@ describe('tracingViewerLogic', () => {
             expect(logic.values.traceIdentity).toEqual({ distinctId: null, sessionId: null })
         })
 
-        // The Errors tab needs the session without the person, so it follows the error badge flag.
-        // Reading the person flag instead would leave the tab empty on a team that has only badges.
+        // The Errors tab follows the error badge flag, so it resolves no session without it.
         it.each([
-            ['the error badge flag', FEATURE_FLAGS.TRACING_SPAN_ERROR_BADGES, 'session-1'],
-            ['the person and replay flag', FEATURE_FLAGS.TRACING_SESSION_PERSON_LINKS, null],
-        ])('resolves traceSessionId under %s', (_name, flag, expected) => {
-            featureFlagLogic.actions.setFeatureFlags([flag], { [flag]: true })
+            ['the error badge flag', [FEATURE_FLAGS.TRACING_SPAN_ERROR_BADGES], 'session-1'],
+            ['no flag', [], null],
+        ])('resolves traceSessionId under %s', (_name, flags, expected) => {
+            featureFlagLogic.actions.setFeatureFlags(flags, Object.fromEntries(flags.map((flag) => [flag, true])))
 
             openCompleteTrace({ posthogDistinctId: 'user-1', sessionId: 'session-1' })
 
