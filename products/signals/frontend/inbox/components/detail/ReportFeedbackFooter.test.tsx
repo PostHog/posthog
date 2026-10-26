@@ -142,6 +142,24 @@ describe('ReportFeedbackFooter', () => {
         expect(screen.getByText('Interview invite')).toBeVisible()
     })
 
+    it('shows the invite after a note on a previously rated report', async () => {
+        cleanup()
+        useMocks({
+            get: {
+                '/api/projects/:team_id/signals/reports/:id/feedback_state/': { sentiment: 'positive', note: '' },
+            },
+        })
+        render(<ReportFeedbackFooter report={makeReport({ id: 'report-with-saved-rating' })} />)
+
+        expect(await screen.findByText('What made it useful?')).toBeVisible()
+        expect(screen.queryByText('Interview invite')).not.toBeInTheDocument()
+
+        await user.type(screen.getByLabelText('Add a note about this report'), 'Clear steps{Enter}')
+
+        expect(await screen.findByText('Note added: Clear steps')).toBeVisible()
+        expect(screen.getByText('Interview invite')).toBeVisible()
+    })
+
     it('does not pop on thumbs-down', async () => {
         setCelebrationFlag(true)
 

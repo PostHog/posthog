@@ -47,9 +47,11 @@ export function ReportFeedbackFooter({
     // tab, and `LemonTabs` remounts tab content, so an unconditional `autoFocus` would grab focus on
     // every tab switch.
     const [askedHere, setAskedHere] = useState(false)
+    const [noteSubmittedHere, setNoteSubmittedHere] = useState(false)
     const [questionDismissed, setQuestionDismissed] = useState(false)
     const sendNote = (): void => {
         if (feedbackNoteDraft.trim()) {
+            setNoteSubmittedHere(true)
             submitFeedbackNote(feedbackNoteDraft)
         }
     }
@@ -170,7 +172,7 @@ export function ReportFeedbackFooter({
                     Note added: {feedbackSentNote}
                 </p>
             )}
-            {askedHere && feedbackNoteSent && <ReportInterviewInvite />}
+            {noteSubmittedHere && feedbackNoteSent && <ReportInterviewInvite />}
         </div>
     )
 }
