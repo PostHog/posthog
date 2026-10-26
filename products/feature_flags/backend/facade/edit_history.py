@@ -62,7 +62,8 @@ class FlagEditSide:
 class FlagEditAuthor(StrEnum):
     """
     Who made a flag edit. An edit that another product triggers, such as an experiment exposure freeze, keeps the
-    author of the action that caused it. Read `FlagEdit.job_type` to find those edits.
+    author of the action that caused it. Read `FlagEdit.job_type` to find those edits. When an agent causes such an
+    edit, the author is PERSON, because `log_activity` adds the agent trigger only when the product sets no trigger.
     """
 
     # A user saved the flag, and no agent or scheduled change acted for them.
