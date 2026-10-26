@@ -123,11 +123,8 @@ describe('workflowDataSuggestionsLogic', () => {
             expect(loadEntrySource('workflow-1')).toBe('data_suggestion')
             expect(logic.values.buildingKey).toBeNull()
             const clicked = capture.mock.calls.find(([event]) => event === 'workflows data suggestion clicked')
-            expect(clicked?.[1]).toEqual(
-                placement
-                    ? expect.objectContaining({ surface, placement })
-                    : expect.not.objectContaining({ placement: expect.anything() })
-            )
+            expect(clicked?.[1]).toMatchObject({ surface })
+            expect(clicked?.[1]?.placement).toEqual(placement)
             const wizardFinished = capture.mock.calls.filter(
                 ([event]) => event === 'workflows onboarding wizard finished'
             )
