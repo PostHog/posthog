@@ -9,6 +9,7 @@ source configures on the shared platform, rather than one product's own table.
 """
 
 from typing import Any
+from uuid import UUID
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
@@ -122,6 +123,12 @@ class PlatformAlertConfiguration(ModelActivityMixin, TeamScopedRootMixin, UUIDMo
     )
 
     activity_logging_on_delete = True
+
+    @property
+    def destination_alert_id(self) -> UUID:
+        """The id the alert's destinations are matched on: the source row's for a copy, and the
+        configuration's own for an alert whose source keeps no row."""
+        return self.legacy_configuration_id or self.id
 
     def _should_log_activity_for_update(self, **kwargs: Any) -> tuple[bool, Any]:
         # A copy its source owns is not logged, so its writes skip the read of the row before the update.
