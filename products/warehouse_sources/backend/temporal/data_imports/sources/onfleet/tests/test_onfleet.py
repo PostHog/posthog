@@ -128,6 +128,16 @@ class TestRoutePlans:
         assert result.raised is None
         assert sorted(row["id"] for row in result.rows) == sorted(created_times)
 
+    def test_saturated_minimum_window_fails_the_sync(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(onfleet_module, "ROUTE_PLANS_LIMIT", 2)
+        monkeypatch.setattr(onfleet_module, "_now_ms", lambda: 8)
+        full_page = [{"id": "a", "timeCreated": 0}, {"id": "b", "timeCreated": 0}]
+
+        result = _driver().run("route_plans", always(ScriptedResponse(json=full_page)))
+
+        assert isinstance(result.raised, ValueError)
+        assert result.rows == []
+
     @pytest.mark.parametrize(
         "inputs, resume_state, expected_from, expected_to",
         [

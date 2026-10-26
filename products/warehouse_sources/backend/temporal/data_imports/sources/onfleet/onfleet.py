@@ -3,7 +3,6 @@ from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 
-import structlog
 from requests import Request, Response
 from requests.auth import HTTPBasicAuth
 
@@ -36,10 +35,8 @@ _CURSOR_KEY = "lastId"
 # `/routePlans` returns at most this many rows per request (its max `limit`) and has no cursor.
 ROUTE_PLANS_LIMIT = 500
 
-logger = structlog.get_logger(__name__)
 
-
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class OnfleetResumeConfig:
     # `/tasks/all`: the `lastId` cursor returned by the previous page; the next request continues after it.
     last_id: Optional[str] = None
@@ -269,11 +266,10 @@ def _iter_route_plans(
                 window_ms = max((window_end - window_start) // 2, 1)
                 resumable_source_manager.safe_point()
                 continue
-            logger.warning(
-                "onfleet_route_plans_window_at_limit",
-                window_start=window_start,
-                window_end=window_end,
-                limit=ROUTE_PLANS_LIMIT,
+            # A 1 ms window can't be split further, so advancing past it would silently drop rows.
+            raise ValueError(
+                f"Onfleet returned {ROUTE_PLANS_LIMIT} or more route plans created between {window_start} and "
+                f"{window_end} (epoch ms), which can't be fetched completely"
             )
 
         if is_last_window:
