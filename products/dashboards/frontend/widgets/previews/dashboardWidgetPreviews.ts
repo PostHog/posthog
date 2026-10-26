@@ -7,6 +7,7 @@ import { ErrorTrackingWidgetPreview } from './ErrorTrackingWidgetPreview'
 import { ExperimentResultsWidgetPreview, ExperimentsListWidgetPreview } from './ExperimentsWidgetPreviews'
 import { LogsWidgetPreview } from './LogsWidgetPreview'
 import { MetricsTableWidgetPreview } from './MetricsTableWidgetPreview'
+import { MetricsWidgetPreview } from './MetricsWidgetPreview'
 import { SessionReplayWidgetPreview } from './SessionReplayWidgetPreview'
 import { SurveyResultsWidgetPreview } from './SurveysWidgetPreviews'
 
@@ -14,8 +15,12 @@ import { SurveyResultsWidgetPreview } from './SurveysWidgetPreviews'
 // app shell, while the previews render product UI (recordings player, error tracking list, logs)
 // that only the add-widget modal needs. Importing them from the catalog put ~1 MiB of product code
 // on every logged-in page load.
-/** New widget types: add preview components here. See products/dashboards/CONTRIBUTING.md. */
-export const DASHBOARD_WIDGET_PREVIEWS: Record<DashboardWidgetCatalogKey, () => JSX.Element> = {
+/** New widget types: add preview components here. See products/dashboards/CONTRIBUTING.md.
+ * A type with picker presets gets the preset's id, so each preset card can preview its own chart. */
+export const DASHBOARD_WIDGET_PREVIEWS: Record<
+    DashboardWidgetCatalogKey,
+    (props: { presetId?: string }) => JSX.Element
+> = {
     notebook_widget: NotebookWidgetPreview,
     conversations_recent_tickets: ConversationsWidgetPreview,
     activity_events_list: ActivityEventsWidgetPreview,
@@ -26,4 +31,5 @@ export const DASHBOARD_WIDGET_PREVIEWS: Record<DashboardWidgetCatalogKey, () => 
     survey_results: SurveyResultsWidgetPreview,
     logs_list: LogsWidgetPreview,
     metrics_table: MetricsTableWidgetPreview,
+    metrics: MetricsWidgetPreview,
 }

@@ -13,6 +13,7 @@ import {
 } from '@posthog/icons'
 
 import { FEATURE_FLAGS, type FeatureFlagKey } from 'lib/constants'
+import type { DashboardControl } from 'scenes/dashboard/dashboardControls'
 import { urls } from 'scenes/urls'
 
 import { ProductKey, QuickFilterContext } from '~/queries/schema/schema-general'
@@ -32,7 +33,13 @@ import {
 } from '../generated/widget-configs.zod'
 import type { DashboardWidgetProductAccess } from '../types'
 import { isLiveDashboardWidgetType } from '../widgets/live/liveWidgetTypes'
+import {
+    METRICS_WIDGET_PRESETS,
+    metricsWidgetDashboardControls,
+    metricsWidgetDefaultConfig,
+} from '../widgets/metrics/metricsWidgetConfig'
 import type { WidgetAvailabilityConfig, WidgetAvailabilityRequirementId } from './widgetAvailability'
+import { getDashboardWidgetCreationFlag } from './widgetCreationFlags'
 
 export const DASHBOARD_WIDGET_HEADER_LAYOUTS = ['simple', 'dashboard_tile'] as const
 
@@ -188,6 +195,20 @@ export type DashboardWidgetCatalogEntry = {
     availability?: WidgetAvailabilityConfig
     /** Quick filter context + property allowlist for on-tile filter bars. */
     tileFilters?: DashboardWidgetTileFiltersCatalogConfig
+    /** Extra picker cards for this one widget type, each with its own label and default config. */
+    pickerPresets?: readonly DashboardWidgetPickerPreset[]
+    /** Open the widget settings right after the tile is added, when the default config shows nothing yet. */
+    openEditorOnAdd?: boolean
+    /** Dashboard filter controls that reach this widget (see `WidgetSpec.receives_dashboard_filters`). */
+    dashboardControls?: (config: Record<string, unknown>) => DashboardControl[]
+}
+
+export type DashboardWidgetPickerPreset = {
+    /** Unique within the widget type. Picker selection keys are `<widget type>:<preset id>`. */
+    id: string
+    label: string
+    description: string
+    defaultConfig: Record<string, unknown>
 }
 
 /** New widget types: add here. See products/dashboards/CONTRIBUTING.md. */
@@ -338,6 +359,28 @@ export const DASHBOARD_WIDGET_CATALOG = {
             message: 'Log in to PostHog to explore the latest events from this dashboard.',
         },
     },
+    metrics: {
+        groupId: 'metrics',
+        label: 'Metric',
+        description: 'A service metric. Write the query with the builder, PromQL or SQL.',
+        defaultConfig: metricsWidgetDefaultConfig('line'),
+        defaultLayout: { w: 6, h: 5, minW: 3, minH: 3 },
+        productAccess: 'metrics',
+        titleHref: urls.metrics(),
+        headerMeta: { showDateRange: false },
+        pickerPresets: METRICS_WIDGET_PRESETS.map((preset) => ({
+            id: preset.id,
+            label: preset.label,
+            description: preset.description,
+            defaultConfig: metricsWidgetDefaultConfig(preset.display),
+        })),
+        openEditorOnAdd: true,
+        dashboardControls: metricsWidgetDashboardControls,
+        sharedPlaceholder: {
+            title: 'Metric',
+            message: 'Log in to PostHog to see this metric.',
+        },
+    },
     logs_list: {
         groupId: 'logs',
         label: 'Recent logs',
@@ -440,13 +483,40 @@ export function getUnknownDashboardWidgetCatalogFallback(widgetType: string): Re
     })
 }
 
+/** One card in the Add widget picker: a widget type, or one of its picker presets. */
+export type DashboardWidgetPickerItem = {
+    /** Selection key: the widget type, or `<widget type>:<preset id>` for a preset card. */
+    key: string
+    widgetType: DashboardWidgetCatalogKey
+    presetId?: string
+    entry: ResolvedDashboardWidgetCatalogEntry
+    defaultConfig: Record<string, unknown>
+    /** Feature flag the user needs to add this widget type (`WidgetSpec.creation_flag`), or null. */
+    creationFlag: string | null
+}
+
 export type DashboardWidgetCatalogGroup = {
     groupId: string
     groupLabel: string
-    widgets: Array<{
-        widgetType: DashboardWidgetCatalogKey
-        entry: ResolvedDashboardWidgetCatalogEntry
-    }>
+    widgets: DashboardWidgetPickerItem[]
+}
+
+function getDashboardWidgetPickerItems(
+    widgetType: DashboardWidgetCatalogKey,
+    entry: ResolvedDashboardWidgetCatalogEntry
+): DashboardWidgetPickerItem[] {
+    const creationFlag = getDashboardWidgetCreationFlag(widgetType)
+    if (!entry.pickerPresets?.length) {
+        return [{ key: widgetType, widgetType, entry, defaultConfig: entry.defaultConfig, creationFlag }]
+    }
+    return entry.pickerPresets.map((preset) => ({
+        key: `${widgetType}:${preset.id}`,
+        widgetType,
+        presetId: preset.id,
+        entry: { ...entry, label: preset.label, description: preset.description },
+        defaultConfig: preset.defaultConfig,
+        creationFlag,
+    }))
 }
 
 function getDashboardWidgetCatalogGroups(): DashboardWidgetCatalogGroup[] {
@@ -467,13 +537,23 @@ function getDashboardWidgetCatalogGroups(): DashboardWidgetCatalogGroup[] {
             groupsById.set(entry.groupId, group)
         }
 
-        group.widgets.push({
-            widgetType: widgetType as DashboardWidgetCatalogKey,
-            entry: resolveDashboardWidgetCatalogEntry(widgetType, entry),
-        })
+        group.widgets.push(
+            ...getDashboardWidgetPickerItems(
+                widgetType as DashboardWidgetCatalogKey,
+                resolveDashboardWidgetCatalogEntry(widgetType, entry)
+            )
+        )
     }
 
-    const groupDisplayOrder = ['session_replay', 'error_tracking', 'activity', 'logs', 'experiments', 'surveys']
+    const groupDisplayOrder = [
+        'session_replay',
+        'error_tracking',
+        'activity',
+        'logs',
+        'metrics',
+        'experiments',
+        'surveys',
+    ]
 
     return [...groupsById.values()].sort((a, b) => {
         const aIndex = groupDisplayOrder.indexOf(a.groupId)
@@ -483,3 +563,25 @@ function getDashboardWidgetCatalogGroups(): DashboardWidgetCatalogGroup[] {
 }
 
 export const DASHBOARD_WIDGET_CATALOG_GROUPS = getDashboardWidgetCatalogGroups()
+
+const DASHBOARD_WIDGET_PICKER_ITEMS_BY_KEY = new Map(
+    DASHBOARD_WIDGET_CATALOG_GROUPS.flatMap((group) => group.widgets).map((item) => [item.key, item])
+)
+
+export function getDashboardWidgetPickerItem(key: string): DashboardWidgetPickerItem | undefined {
+    return DASHBOARD_WIDGET_PICKER_ITEMS_BY_KEY.get(key)
+}
+
+/** Picker groups without the widget types whose creation flag is off for this user. */
+export function getAvailableDashboardWidgetCatalogGroups(
+    isFlagEnabled: (flag: string) => boolean
+): DashboardWidgetCatalogGroup[] {
+    return DASHBOARD_WIDGET_CATALOG_GROUPS.map((group) => ({
+        ...group,
+        widgets: group.widgets.filter(
+            (item) =>
+                (!item.creationFlag || isFlagEnabled(item.creationFlag)) &&
+                (!item.entry.featureFlag || isFlagEnabled(item.entry.featureFlag))
+        ),
+    })).filter((group) => group.widgets.length > 0)
+}

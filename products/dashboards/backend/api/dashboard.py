@@ -42,6 +42,7 @@ import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
 from opentelemetry import trace
+from pydantic import ValidationError as PydanticValidationError
 from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.fields import empty
 from rest_framework.permissions import SAFE_METHODS, BasePermission
@@ -51,7 +52,7 @@ from rest_framework.serializers import BaseSerializer
 from rest_framework.utils import html
 from rest_framework.utils.serializer_helpers import ReturnDict
 
-from posthog.schema import InsightVizNode
+from posthog.schema import DashboardFilter, InsightVizNode
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import ValidatedRequest, validated_request
@@ -181,6 +182,7 @@ from products.dashboards.backend.widget_access import (
     check_widget_tile_product_access,
     get_widget_api_scope_error,
     get_widget_product_access_error,
+    is_api_key_or_oauth_request,
 )
 from products.dashboards.backend.widget_availability import get_widget_feature_enabled
 from products.dashboards.backend.widget_catalog import get_widget_catalog_entries, parse_widget_type_filter
@@ -193,9 +195,10 @@ from products.dashboards.backend.widget_registry import (
     count_active_widget_filters,
     extract_widget_filters,
     get_widget_registry_entry,
+    get_widget_spec,
     validate_widget_config,
 )
-from products.dashboards.backend.widget_specs.configs import CONVERSATIONS_RECENT_TICKETS_WIDGET_TYPE
+from products.dashboards.backend.widgets.errors import WidgetQueryError
 from products.mcp_analytics.backend.dashboard_templates import get_mcp_analytics_default_template
 from products.notifications.backend.facade.api import (
     NotificationData,
@@ -343,6 +346,7 @@ FILTERS_OVERRIDE_PARAM = make_filters_override_param(subject_label="dashboard")
 tracer = trace.get_tracer(__name__)
 
 RUN_WIDGETS_QUERY_CONCURRENCY = 4
+RUN_WIDGETS_DASHBOARD_FILTER_KEYS = ("date_from", "date_to", "metricFilters")
 
 # One subscribe-nudge notification per (user, dashboard) within this window.
 SUBSCRIBE_NUDGE_DEDUPE_TTL_SECONDS = 30 * 24 * 60 * 60
@@ -360,6 +364,7 @@ class _RunWidgetQueryWorkItem(TypedDict):
     query_fn: Any
     config: dict[str, Any]
     user: User | None
+    receives_dashboard_filters: bool
 
 
 def _run_in_context(context: contextvars.Context, work: Callable[[], dict[str, Any]]) -> dict[str, Any]:
@@ -372,6 +377,7 @@ def _run_widget_query(
     *,
     dashboard_id: int,
     distinct_id: str,
+    dashboard_filters: DashboardFilter | None = None,
 ) -> dict[str, Any]:
     tile_id = work_item["tile_id"]
     widget_type = work_item["widget_type"]
@@ -392,17 +398,32 @@ def _run_widget_query(
     ) as slo:
         try:
             query_fn = work_item["query_fn"]
+            dashboard_kwargs: dict[str, Any] = (
+                {"dashboard_id": dashboard_id, "dashboard_filters": dashboard_filters}
+                if work_item["receives_dashboard_filters"]
+                else {}
+            )
             result = query_fn(
                 team,
                 work_item["config"],
                 user=work_item["user"],
                 include_total_count=False,
+                **dashboard_kwargs,
             )
             return {
                 "tile_id": tile_id,
                 "widget_type": widget_type,
                 "result": result,
                 "error": None,
+            }
+        except WidgetQueryError as error:
+            # An expected, user-facing failure (no access, an invalid query), so it is not logged as an exception.
+            return {
+                "tile_id": tile_id,
+                "widget_type": widget_type,
+                "result": None,
+                "error": error.user_message,
+                "error_is_user_facing": True,
             }
         except Exception:
             logger.exception("dashboard_run_widgets_failed", tile_id=tile_id, widget_type=widget_type)
@@ -1104,8 +1125,9 @@ class SharedDashboardWidgetMetadataSerializer(serializers.ModelSerializer):
     @extend_schema_field(DashboardWidgetConfigField(required=False))
     def get_config(self, widget: DashboardWidget) -> dict[str, Any]:
         config = dict(widget.config)
-        if widget.widget_type == CONVERSATIONS_RECENT_TICKETS_WIDGET_TYPE:
-            config.pop("search", None)
+        spec = get_widget_spec(widget.widget_type)
+        for key in spec.public_config_exclude if spec else ():
+            config.pop(key, None)
         return config
 
 
@@ -1232,6 +1254,13 @@ class DashboardWidgetRunResultSerializer(serializers.Serializer):
     error = serializers.CharField(
         allow_null=True,
         help_text="Error message when the widget could not be run.",
+    )
+    error_is_user_facing = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "True when `error` explains the failure to the viewer (for example, no access or an invalid query) and "
+            "can be shown as is. Other errors are generic."
+        ),
     )
 
 
@@ -3814,6 +3843,7 @@ class DashboardsViewSet(
                 required=True,
                 description="Comma-separated dashboard tile IDs to run widgets for.",
             ),
+            FILTERS_OVERRIDE_PARAM,
         ],
         responses={200: RunWidgetsResponseSerializer},
     )
@@ -3881,7 +3911,15 @@ class DashboardsViewSet(
                 }
                 continue
 
-            widget_throttle_error = get_dashboard_widget_query_throttle_error(request, self)
+            spec = get_widget_spec(widget.widget_type)
+            # The query runner's own budget applies to API keys only on /query, so key and OAuth requests keep the
+            # widget throttle whatever the policy.
+            uses_widget_throttle = (
+                spec is None or spec.throttle_policy == "widget" or is_api_key_or_oauth_request(request)
+            )
+            widget_throttle_error = (
+                get_dashboard_widget_query_throttle_error(request, self) if uses_widget_throttle else None
+            )
             if widget_throttle_error:
                 results_by_id[tile_id] = {
                     "tile_id": tile_id,
@@ -3909,8 +3947,15 @@ class DashboardsViewSet(
                     "query_fn": registry_entry["query_fn"],
                     "config": widget.config,
                     "user": cast(User, request.user),
+                    "receives_dashboard_filters": bool(spec and spec.receives_dashboard_filters),
                 }
             )
+
+        dashboard_filters = (
+            self._run_widgets_dashboard_filters(request, dashboard)
+            if any(work_item["receives_dashboard_filters"] for work_item in query_work_items)
+            else None
+        )
 
         if query_work_items:
             max_workers = min(RUN_WIDGETS_QUERY_CONCURRENCY, len(query_work_items))
@@ -3927,6 +3972,7 @@ class DashboardsViewSet(
                             work_item,
                             dashboard_id=dashboard.id,
                             distinct_id=distinct_id,
+                            dashboard_filters=dashboard_filters,
                         ),
                     ): work_item["tile_id"]
                     for work_item in query_work_items
@@ -3938,6 +3984,20 @@ class DashboardsViewSet(
         results = [results_by_id[tile_id] for tile_id in tile_ids]
 
         return Response({"results": results})
+
+    @staticmethod
+    def _run_widgets_dashboard_filters(request: Request, dashboard: Dashboard) -> DashboardFilter | None:
+        # Same merge as insight tiles: saved dashboard filters, then the viewer's unsaved overrides. Shared and
+        # embedded access never honors a client override. Widgets take the date range and metric label filters
+        # only: metric variables can run their own options queries.
+        filters = filters_override_requested_by_client(request, dashboard)
+        widget_filters = {key: filters[key] for key in RUN_WIDGETS_DASHBOARD_FILTER_KEYS if filters.get(key)}
+        if not widget_filters:
+            return None
+        try:
+            return DashboardFilter.model_validate(widget_filters)
+        except PydanticValidationError as error:
+            raise exceptions.ValidationError({"filters_override": "Invalid dashboard filters."}) from error
 
     @extend_schema(
         parameters=[

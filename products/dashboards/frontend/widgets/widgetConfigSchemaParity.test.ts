@@ -9,6 +9,7 @@ import {
     experimentsWidgetConfigSchema,
     logsWidgetConfigSchema,
     metricsTableWidgetConfigSchema,
+    metricsWidgetConfigSchema,
     notebookWidgetConfigSchema,
     sessionReplayWidgetConfigSchema,
     surveyResultsWidgetConfigSchema,
@@ -25,6 +26,7 @@ const WIDGET_CONFIG_SCHEMAS = {
     experiment_results: experimentResultsWidgetConfigSchema,
     logs_list: logsWidgetConfigSchema,
     metrics_table: metricsTableWidgetConfigSchema,
+    metrics: metricsWidgetConfigSchema,
     notebook_widget: notebookWidgetConfigSchema,
     survey_results: surveyResultsWidgetConfigSchema,
 } as const
@@ -39,6 +41,7 @@ type ZodDef = {
     element?: SchemaNode
     shape?: Record<string, SchemaNode>
     entries?: Record<string, unknown>
+    values?: readonly unknown[]
 }
 
 function zodDef(schema: SchemaNode): ZodDef | undefined {
@@ -83,8 +86,20 @@ function zodPropertyTree(schema: SchemaNode): unknown {
         return { $enum: Object.keys(def.entries).sort() }
     }
 
+    if (def?.type === 'literal' && def.values) {
+        return { $type: def.values.every((value) => typeof value === 'number') ? 'integer' : 'string' }
+    }
+
     if (def?.type === 'union' && def.options) {
         const substantiveOptions = def.options.filter((option) => zodDef(unwrapZod(option))?.type !== 'null')
+        // An integer enum (e.g. days of the week) is a union of literals, since a Zod enum holds strings only.
+        const literalValues = substantiveOptions.flatMap((option) => zodDef(unwrapZod(option))?.values ?? [])
+        if (
+            literalValues.length > 1 &&
+            substantiveOptions.every((option) => zodDef(unwrapZod(option))?.type === 'literal')
+        ) {
+            return { $enum: [...literalValues].sort() }
+        }
         if (substantiveOptions.length === 1) {
             return zodPropertyTree(substantiveOptions[0]!)
         }
@@ -145,6 +160,10 @@ function normalizePropertyTree(tree: unknown): unknown {
         return { $types: normalizedTypes }
     }
     // Zod has one number type, so a float field (e.g. the metrics table quantile) reads as an integer.
+    if ('$type' in tree && tree.$type === 'number') {
+        return { $type: 'integer' }
+    }
+
     if ('$type' in tree && tree.$type === 'number') {
         return { $type: 'integer' }
     }

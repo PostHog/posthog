@@ -585,7 +585,12 @@ export interface insightNavLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         activeView: (query: Node<Record<string, any>> | null) => InsightType
-        tabs: (activeView: InsightType, query: Node<Record<string, any>> | null, featureFlags: FeatureFlagsSet) => Tab[]
+        tabs: (
+            activeView: InsightType,
+            query: Node<Record<string, any>> | null,
+            featureFlags: FeatureFlagsSet,
+            metricsQueryCache: MetricsQuery | null
+        ) => Tab[]
     }
 }
 
@@ -657,11 +662,12 @@ export const insightNavLogic = kea<insightNavLogicType>([
             },
         ],
         tabs: [
-            (s) => [s.activeView, s.query, s.featureFlags],
+            (s) => [s.activeView, s.query, s.featureFlags, s.metricsQueryCache],
             (
                 activeView: InsightType,
                 query: null | import('~/queries/schema/schema-general').Node,
-                featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet
+                featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet,
+                metricsQueryCache: MetricsQuery | null
             ) => {
                 const tabs: Tab[] = [
                     {
@@ -720,10 +726,13 @@ export const insightNavLogic = kea<insightNavLogicType>([
                     })
                 }
 
-                if (
-                    (featureFlags[FEATURE_FLAGS.METRICS] && featureFlags[FEATURE_FLAGS.METRICS_INSIGHT_BUILDER]) ||
-                    activeView === InsightType.METRICS
-                ) {
+                // With dashboard widgets on, new metrics charts are metric widgets. The tab then stays only so saved
+                // metrics insights remain editable, including after a switch to another tab and back.
+                const offerMetricsInsights =
+                    featureFlags[FEATURE_FLAGS.METRICS] &&
+                    featureFlags[FEATURE_FLAGS.METRICS_INSIGHT_BUILDER] &&
+                    !featureFlags[FEATURE_FLAGS.DASHBOARD_WIDGETS]
+                if (offerMetricsInsights || activeView === InsightType.METRICS || metricsQueryCache) {
                     tabs.push({
                         label: 'Metrics',
                         type: InsightType.METRICS,
