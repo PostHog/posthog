@@ -54,14 +54,14 @@ fn corpus_flag(case: &Value, id: i32) -> Value {
 }
 
 async fn serve(
-    v3_enabled: bool,
+    v4_enabled: bool,
     distinct_id: &str,
     properties: Value,
     mut flags: Vec<Value>,
 ) -> Result<(ServerHandle, String)> {
     let mut config = DEFAULT_TEST_CONFIG.clone();
     config.internal_request_token = Some(INTERNAL_TOKEN.to_string());
-    config.flags_v3_response_enabled = v3_enabled;
+    config.flags_v4_response_enabled = v4_enabled;
     let redis = setup_redis_client(Some(config.redis_url.clone())).await;
     let team = insert_new_team_in_redis(redis.clone()).await?;
     let db = TestContext::new(None).await;
@@ -76,10 +76,10 @@ async fn serve(
 }
 
 /// A team with one person, three v1 flags and six v2 flags covering every boolean outcome.
-async fn server(v3_enabled: bool) -> Result<(ServerHandle, String)> {
+async fn server(v4_enabled: bool) -> Result<(ServerHandle, String)> {
     let flags = boolean_flags();
     serve(
-        v3_enabled,
+        v4_enabled,
         "ann",
         json!({"email": "ann@example.com"}),
         flags,
@@ -186,14 +186,14 @@ fn keys(value: &Value) -> Vec<&str> {
 }
 
 #[tokio::test]
-async fn v3_returns_the_typed_record_for_v1_and_v2_flags() -> Result<()> {
+async fn v4_returns_the_typed_record_for_v1_and_v2_flags() -> Result<()> {
     let (server, token) = server(true).await?;
     let body = json!({"token": token, "distinct_id": "ann"});
 
-    let v3 = post(&server, "v=3&config=false", &[], body.clone()).await?;
-    wire::validate_v3(&v3).unwrap_or_else(|error| panic!("{error:?}"));
-    assert_eq!(v3["errorsWhileComputingFlags"], true);
-    let flags = &v3["flags"];
+    let v4 = post(&server, "v=4&config=false", &[], body.clone()).await?;
+    wire::validate_v4(&v4).unwrap_or_else(|error| panic!("{error:?}"));
+    assert_eq!(v4["errorsWhileComputingFlags"], true);
+    let flags = &v4["flags"];
     assert_eq!(flags.as_object().unwrap().len(), 9);
 
     let expected = [
@@ -327,27 +327,24 @@ async fn v3_returns_the_typed_record_for_v1_and_v2_flags() -> Result<()> {
     assert_eq!(flags["v1-on"]["metadata"]["version"], 5);
     assert_eq!(flags["v2-true"]["metadata"]["version"], 3);
 
-    let v99 = post(&server, "v=99&config=false", &[], body.clone()).await?;
-    assert_eq!(v99["flags"], v3["flags"]);
-
     let subset = post(
         &server,
-        "v=3&config=false",
+        "v=4&config=false",
         &[],
         json!({"token": token, "distinct_id": "ann", "flag_keys": ["v2-true", "missing"]}),
     )
     .await?;
     assert_eq!(keys(&subset["flags"]), ["v2-true"]);
-    wire::validate_v3(&subset).unwrap();
+    wire::validate_v4(&subset).unwrap();
 
     let detailed = post(
         &server,
-        "v=3&config=false&detailed_analysis=true",
+        "v=4&config=false&detailed_analysis=true",
         INTERNAL,
         body,
     )
     .await?;
-    wire::validate_v3(&detailed).unwrap();
+    wire::validate_v4(&detailed).unwrap();
     assert_eq!(
         detailed["flags"]["v1-on"]["conditions"]
             .as_array()
@@ -396,18 +393,18 @@ async fn v2_legacy_and_decide_shapes_are_unchanged() -> Result<()> {
     assert_eq!(decide_v4["flags"]["v2-true"]["enabled"], true);
     assert_eq!(decide_v4["flags"]["v2-true"].get("value"), None);
 
-    let minimal: Value = reqwest::get(format!("http://{}/flags?v=3", server.addr))
+    let minimal: Value = reqwest::get(format!("http://{}/flags?v=4", server.addr))
         .await?
         .json()
         .await?;
     assert_eq!(minimal["flags"], json!({}));
     assert_eq!(minimal["supportedCompression"], json!(["gzip", "gzip-js"]));
-    wire::validate_v3(&minimal).unwrap();
+    wire::validate_v4(&minimal).unwrap();
     Ok(())
 }
 
 #[tokio::test]
-async fn v3_and_above_serve_the_v2_record_while_the_setting_is_off() -> Result<()> {
+async fn v4_serves_the_v2_record_while_the_setting_is_off() -> Result<()> {
     let string_case = corpus::value_cases()
         .into_iter()
         .find(|case| case["id"] == "v2_value.string.target")
@@ -427,7 +424,7 @@ async fn v3_and_above_serve_the_v2_record_while_the_setting_is_off() -> Result<(
         assert_eq!(v2["flags"]["v2_value.string.target"]["variant"], "compact");
         assert_eq!(v2["flags"]["v2-true"]["enabled"], true);
         assert_eq!(v2["flags"]["v1-variant"]["variant"], "compact");
-        for version in ["v=3", "v=99"] {
+        for version in ["v=3", "v=4", "v=99"] {
             let response = post(
                 &server,
                 &format!("{version}&{config}"),
@@ -450,12 +447,79 @@ async fn v3_and_above_serve_the_v2_record_while_the_setting_is_off() -> Result<(
             .send()
     };
     let minimal_v2: Value = get("v=2").await?.json().await?;
-    let minimal_v3: Value = get("v=3").await?.json().await?;
-    assert_eq!(without_time(minimal_v3), without_time(minimal_v2));
+    let minimal_v4: Value = get("v=4").await?.json().await?;
+    assert_eq!(without_time(minimal_v4), without_time(minimal_v2));
     Ok(())
 }
 
-/// Serves the success cases and checks their v3 and v2 records. Each identifier gets its own
+#[tokio::test]
+async fn only_an_exact_v4_selects_the_v4_record() -> Result<()> {
+    let (server, token) = server(true).await?;
+    let body = json!({"token": token, "distinct_id": "ann"});
+    let request_id = [("X-REQUEST-ID", "00000000-0000-4000-8000-000000000004")];
+    let without_time = |mut response: Value| {
+        response.as_object_mut().unwrap().remove("evaluatedAt");
+        response
+    };
+
+    let v4 = post(&server, "v=4&config=false", &request_id, body.clone()).await?;
+    assert_eq!(v4["flags"]["v2-true"]["value"], true);
+    assert_eq!(v4["flags"]["v2-true"].get("enabled"), None);
+
+    let v2 = without_time(post(&server, "v=2&config=false", &request_id, body.clone()).await?);
+    for version in ["v=3", "v=5", "v=99", "v=9992", "v=17380067"] {
+        let response = post(
+            &server,
+            &format!("{version}&config=false"),
+            &request_id,
+            body.clone(),
+        )
+        .await?;
+        assert_eq!(without_time(response), v2, "{version}");
+    }
+
+    let v1 = without_time(post(&server, "v=1&config=false", &request_id, body.clone()).await?);
+    for version in [
+        "v=4.0",
+        "v=4.5",
+        "v=12345678901234567890123456789012345678901234",
+        "v=abc",
+    ] {
+        let response = post(
+            &server,
+            &format!("{version}&config=false"),
+            &request_id,
+            body.clone(),
+        )
+        .await?;
+        assert_eq!(without_time(response), v1, "{version}");
+    }
+
+    let decide_v4 = post(&server, "v=4&config=false", DECIDE, body).await?;
+    assert_eq!(decide_v4["flags"]["v2-true"]["enabled"], true);
+    assert_eq!(decide_v4["flags"]["v2-true"].get("value"), None);
+
+    let get = |version: &str| {
+        reqwest::Client::new()
+            .get(format!("http://{}/flags?{version}", server.addr))
+            .header(request_id[0].0, request_id[0].1)
+            .send()
+    };
+    let minimal_v2: Value = get("v=2").await?.json().await?;
+    for version in ["v=3", "v=5"] {
+        let minimal: Value = get(version).await?.json().await?;
+        assert_eq!(
+            without_time(minimal),
+            without_time(minimal_v2.clone()),
+            "{version}"
+        );
+    }
+    let minimal_v4: Value = get("v=4").await?.json().await?;
+    wire::validate_v4(&minimal_v4).unwrap();
+    Ok(())
+}
+
+/// Serves the success cases and checks their v4 and v2 records. Each identifier gets its own
 /// server, because the experiment corpus picks identifiers per outcome. Returns the cases checked.
 async fn check_on_the_wire(cases: Vec<Value>) -> Result<usize> {
     let cases: Vec<_> = cases
@@ -492,13 +556,13 @@ async fn check_on_the_wire(cases: Vec<Value>) -> Result<usize> {
         )
         .await?;
         let body = json!({"token": token, "distinct_id": distinct_id});
-        let v3 = post(&server, "v=3&config=false", &[], body.clone()).await?;
-        wire::validate_v3(&v3).unwrap_or_else(|error| panic!("{error:?}"));
+        let v4 = post(&server, "v=4&config=false", &[], body.clone()).await?;
+        wire::validate_v4(&v4).unwrap_or_else(|error| panic!("{error:?}"));
         let v2 = post(&server, "v=2&config=false", &[], body).await?;
         for case in group {
             let key = case["id"].as_str().unwrap();
             let (expected, legacy) = (&case["expected"], &case["legacy"]);
-            let record = &v3["flags"][key];
+            let record = &v4["flags"][key];
             assert_eq!(record["value"], expected["value"], "{key}");
             assert_eq!(record["reason"]["code"], expected["reason"], "{key}");
             assert_eq!(
@@ -540,7 +604,7 @@ async fn check_on_the_wire(cases: Vec<Value>) -> Result<usize> {
 }
 
 #[tokio::test]
-async fn v3_carries_every_typed_corpus_value_through_the_request_path() -> Result<()> {
+async fn v4_carries_every_typed_corpus_value_through_the_request_path() -> Result<()> {
     assert_eq!(check_on_the_wire(corpus::value_cases()).await?, 38);
     Ok(())
 }
