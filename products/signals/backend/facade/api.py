@@ -31,9 +31,19 @@ from posthog.temporal.common.client import async_connect
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.signals.backend.activity_summary import read as activity_summary_read
 from products.signals.backend.activity_summary.read import (
-    ActivitySummaryFocusArea as ActivitySummaryFocusArea,
+    ActivitySummaryTheme as ActivitySummaryTheme,
     ActivitySummaryVersionView as ActivitySummaryVersionView,
     ActivitySummaryView as ActivitySummaryView,
+)
+from products.signals.backend.anomaly_scores import search as anomaly_search
+from products.signals.backend.anomaly_scores.search import (
+    AnomalyDashboardNotFound as AnomalyDashboardNotFound,
+    AnomalyGroupBy as AnomalyGroupBy,
+    AnomalyHistoryFilters as AnomalyHistoryFilters,
+    AnomalyInsightHistory as AnomalyInsightHistory,
+    AnomalyInterval as AnomalyInterval,
+    AnomalySearchFilters as AnomalySearchFilters,
+    AnomalySearchResult as AnomalySearchResult,
 )
 from products.signals.backend.artefact_schemas import (
     # Re-exported so the Slack mention handler can label the task it starts from a report's
@@ -219,6 +229,18 @@ def list_activity_summary_versions(
 ) -> list[ActivitySummaryVersionView] | None:
     """The user's own summary versions, newest first, or None when the flag payload does not enroll the team."""
     return activity_summary_read.list_versions(team, user_id, limit=limit, version=version)
+
+
+def search_anomalies(*, team: Team, user: User, filters: AnomalySearchFilters, now: datetime) -> AnomalySearchResult:
+    """The anomaly rate of each scored insight series the user can read, most anomalous first."""
+    return anomaly_search.search(team, user, filters, now)
+
+
+def get_anomaly_insight_history(
+    *, team: Team, user: User, filters: AnomalyHistoryFilters, now: datetime
+) -> AnomalyInsightHistory | None:
+    """Every scored series of one insight with its buckets, or None when the user cannot read the insight."""
+    return anomaly_search.insight_history(team, user, filters, now)
 
 
 @frozen

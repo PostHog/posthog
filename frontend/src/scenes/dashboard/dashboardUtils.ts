@@ -80,14 +80,18 @@ export function dashboardToSaveableTemplate(
         tiles: dashboard.tiles
             .filter((tile) => !tile.error)
             .map((tile) => {
+                const display = {
+                    layouts: tile.layouts,
+                    color: tile.color,
+                    transparent_background: tile.transparent_background,
+                    group_key: tile.group_key,
+                }
                 if (tile.text) {
                     return {
                         type: 'TEXT' as const,
                         body: tile.text.body,
                         agent_context: tile.text.agent_context,
-                        layouts: tile.layouts,
-                        color: tile.color,
-                        transparent_background: tile.transparent_background,
+                        ...display,
                     }
                 }
                 if (tile.insight) {
@@ -96,9 +100,7 @@ export function dashboardToSaveableTemplate(
                         name: tile.insight.name,
                         description: tile.insight.description || '',
                         query: tile.insight.query,
-                        layouts: tile.layouts,
-                        color: tile.color,
-                        transparent_background: tile.transparent_background,
+                        ...display,
                     }
                 }
                 if (tile.button_tile) {
@@ -110,9 +112,7 @@ export function dashboardToSaveableTemplate(
                             placement: tile.button_tile.placement,
                             style: tile.button_tile.style,
                         },
-                        layouts: tile.layouts,
-                        color: tile.color,
-                        transparent_background: tile.transparent_background,
+                        ...display,
                     }
                 }
                 if (tile.widget) {
@@ -120,13 +120,12 @@ export function dashboardToSaveableTemplate(
                         type: 'WIDGET' as const,
                         widget_type: tile.widget.widget_type,
                         config: tile.widget.config,
-                        layouts: tile.layouts,
-                        color: tile.color,
-                        transparent_background: tile.transparent_background,
+                        ...display,
                     }
                 }
                 throw new Error('Unknown tile type')
             }),
+        customization: dashboard.customization,
         variables: [],
     }
 }

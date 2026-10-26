@@ -107,6 +107,7 @@ class ManagedWarehouseShadowResult:
     file_size_delta_bytes: int = 0
     run_mode: str = UNKNOWN_RUN_MODE
     read_bytes: int | None = None
+    cpu_microseconds: int | None = None
 
 
 def _failed_run_mode(plan: WritePlan | None, use_trino: bool) -> str:
@@ -246,7 +247,10 @@ def _resolve_managed_warehouse_job(job_id: str, result: "ManagedWarehouseShadowR
         job.error = result.error
     completed_at = dt.datetime.now(dt.UTC)
     job.read_bytes = result.read_bytes
-    job.usage_updated_at = completed_at if result.read_bytes is not None else None
+    job.cpu_microseconds = result.cpu_microseconds
+    job.usage_updated_at = (
+        completed_at if result.read_bytes is not None or result.cpu_microseconds is not None else None
+    )
     job.last_run_at = completed_at
     job.save()
     return job.engine
@@ -278,6 +282,7 @@ async def _materialize_view_managed_warehouse(
     s3_secrets: tuple[DuckLakeS3Secret, ...] = ()
     plan: WritePlan | None = None
     processed_bytes: list[int] = []
+    cpu_milliseconds: list[int] = []
     try:
         from products.managed_warehouse.backend.facade.client import execute_ducklake_create_table, execute_trino_model
 
@@ -301,6 +306,7 @@ async def _materialize_view_managed_warehouse(
                 source_query=saved_query.query,
                 incremental=_trino_incremental_write(plan),
                 on_processed_bytes=processed_bytes.append,
+                on_cpu_milliseconds=cpu_milliseconds.append,
             )
             if plan.config is not None:
                 # A quiet window writes nothing, so it records the run without moving the watermark.
@@ -354,6 +360,7 @@ async def _materialize_view_managed_warehouse(
             file_size_delta_bytes=result.file_size_delta_bytes,
             run_mode=INCREMENTAL_RUN_MODE if inputs.use_trino and result.merged else FULL_REFRESH_RUN_MODE,
             read_bytes=_total_read_bytes(processed_bytes),
+            cpu_microseconds=_total_cpu_microseconds(cpu_milliseconds),
         )
         job_engine = await _resolve_managed_warehouse_job(inputs.job_id, shadow_result)
         await clear_node_suspension_for_engine(
@@ -403,6 +410,7 @@ async def _materialize_view_managed_warehouse(
             error=str(e),
             run_mode=_failed_run_mode(plan, inputs.use_trino),
             read_bytes=_total_read_bytes(processed_bytes),
+            cpu_microseconds=_total_cpu_microseconds(cpu_milliseconds),
         )
         if plan is not None and plan.incremental:
             # The merge may have stopped partway or failed on a schema change. Rebuilding next run
@@ -432,6 +440,10 @@ async def _materialize_view_managed_warehouse(
 def _total_read_bytes(processed_bytes: list[int]) -> int | None:
     # No statement reported its bytes, so the run was not measured. That is not the same as reading zero bytes.
     return sum(processed_bytes) if processed_bytes else None
+
+
+def _total_cpu_microseconds(cpu_milliseconds: list[int]) -> int | None:
+    return sum(cpu_milliseconds) * 1_000 if cpu_milliseconds else None
 
 
 def _trino_incremental_write(plan: WritePlan) -> TrinoIncrementalWrite | None:

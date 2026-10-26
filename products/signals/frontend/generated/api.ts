@@ -11,6 +11,8 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     ActivitySummaryApi,
     ActivitySummaryVersionApi,
+    AnomalyInsightResponseApi,
+    AnomalySearchResponseApi,
     CancelReportCheckRequestApi,
     CommitDiffResponseApi,
     CreateReportCheckRequestApi,
@@ -135,6 +137,8 @@ import type {
     SignalUserAutonomyConfigApi,
     SignalUserAutonomyConfigCreateApi,
     SignalsActivitySummaryVersionsRetrieveParams,
+    SignalsAnomaliesInsightRetrieveParams,
+    SignalsAnomaliesSearchRetrieveParams,
     SignalsProcessingListParams,
     SignalsReportArtefactsListParams,
     SignalsReportChecksListParams,
@@ -233,6 +237,74 @@ export const signalsActivitySummaryVersionsRetrieve = async (
     options?: RequestInit
 ): Promise<ActivitySummaryVersionApi[]> => {
     return apiMutator<ActivitySummaryVersionApi[]>(getSignalsActivitySummaryVersionsRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsAnomaliesInsightRetrieveUrl = (
+    projectId: string,
+    params: SignalsAnomaliesInsightRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/anomalies/insight/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/anomalies/insight/`
+}
+
+/**
+ * Read-only anomaly rates of the saved trends insights that anomaly scoring checks.
+ * @summary Get the scored anomaly history of an insight
+ */
+export const signalsAnomaliesInsightRetrieve = async (
+    projectId: string,
+    params: SignalsAnomaliesInsightRetrieveParams,
+    options?: RequestInit
+): Promise<AnomalyInsightResponseApi> => {
+    return apiMutator<AnomalyInsightResponseApi>(getSignalsAnomaliesInsightRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsAnomaliesSearchRetrieveUrl = (
+    projectId: string,
+    params?: SignalsAnomaliesSearchRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/anomalies/search/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/anomalies/search/`
+}
+
+/**
+ * Read-only anomaly rates of the saved trends insights that anomaly scoring checks.
+ * @summary Search anomalous insight series
+ */
+export const signalsAnomaliesSearchRetrieve = async (
+    projectId: string,
+    params?: SignalsAnomaliesSearchRetrieveParams,
+    options?: RequestInit
+): Promise<AnomalySearchResponseApi> => {
+    return apiMutator<AnomalySearchResponseApi>(getSignalsAnomaliesSearchRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

@@ -13,12 +13,15 @@ tools:
         title: Get your activity summary
         description: >
             Get a summary of what the current user has been working on in this project: a one-page markdown profile, a
-            short headline, the main focus areas with the day each was last seen, and the PostHog products they use. It
-            is built only from the user's own recent activity in PostHog, such as tasks they gave to PostHog AI and
-            things they created, changed or opened. It updates at most once a day, when there is enough new activity.
-            Use it to tailor answers and suggestions to what this person works on. `status: not_ready` means no summary
-            exists yet, which is normal for new or quiet users. `stale: true` means a newer version will replace it
-            soon. A 404 means activity summaries are not available for this project.
+            short headline, 3 to 6 themes with a mode and the day each was last seen, and their overall work modes. The
+            `computed` fields list, with ids, the objects they created or changed (`owned`), the objects they open again
+            and again (`watched`), the product pages they open, the products they work in or only visit, and their task
+            count. Each theme's `refs` point at entries in `computed`. It is built only from the user's own recent
+            activity in PostHog, such as tasks they gave to PostHog AI and things they created, changed or opened. It
+            updates at most once a day, when there is enough new activity. Use it to tailor answers and suggestions to
+            what this person works on. `status: not_ready` means no summary exists yet, which is normal for new or quiet
+            users. `stale: true` means a newer version will replace it soon. A 404 means activity summaries are not
+            available for this project.
         feature_flag: activity-summary
     activity-summary-versions-list:
         operation: signals_activity_summary_versions_retrieve
@@ -26,11 +29,55 @@ tools:
         title: List your activity summary versions
         description: >
             List earlier versions of the current user's activity summary in this project, newest first, to see how their
-            focus changed over time. Each version has a headline, the focus areas and `recent_shift`, which says what
-            changed since the version before it. The list leaves out the profile to stay small. Pass `version` to get
-            one version with its full profile. A 404 means activity summaries are not available for this project, or
-            that the requested version does not exist.
+            focus changed over time. Each version has a headline, the themes, the modes and `recent_shift`, which says
+            what changed since the version before it. The list leaves out the profile and the `computed` fields to stay
+            small. Pass `version` to get one version with its full profile and the `computed` fields that its theme refs
+            point at. A 404 means activity summaries are not available for this project, or that the requested version
+            does not exist.
         feature_flag: activity-summary
+    anomaly-insight-get:
+        operation: signals_anomalies_insight_retrieve
+        enabled: true
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get the scored anomaly history of an insight
+        description: >
+            Get the full anomaly scoring history of one saved trends insight: every scored series with its anomaly rate,
+            baseline rate and coverage, and each bucket of the range oldest first with its value, score, flag and
+            detector `details`. A completed bucket that was not scored has `scored: false` and null value, score and
+            flag; it is unknown, not zero. Seeing every series together tells a global cause (every breakdown value
+            flags on the same day) from a segment cause (one series flags alone). Pass `series_key` from an
+            anomaly-search row to narrow to one series, and `include_buckets: false` for the per-series summary only.
+            Values are as they were at scoring time, so they can differ from the live chart after late data arrives. The
+            keys of `details` depend on the detector. A 404 means the insight does not exist, you cannot read it, or
+            anomaly search is not available for this project.
+        feature_flag: anomalies-search
+    anomaly-search:
+        operation: signals_anomalies_search_retrieve
+        enabled: true
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Search anomalous insight series
+        description: >
+            Find which series of the project's saved product analytics insights (trends) were anomalous in a date range,
+            from the scheduled anomaly scoring of those insights. For anomalies in the Metrics product, use
+            characterize-metric-anomaly instead. Each row is one series with `anomaly_rate` (flagged buckets divided by
+            scored buckets in the range). Read it against `baseline_rate`, the same rate over the 30 days before the
+            range: a series that is usually quiet and now flags matters more than one that always flags. Read it
+            together with `coverage` (the share of the range that was scored) and `scored_through` (the newest scored
+            bucket, so later buckets were not checked yet). Scores compare only within one series, so never rank series
+            by score. Scoring is sampled, so a range can be partly scored, and results cover only the insights checked
+            in the range: `insights_scored_in_range` of `watched_insights`. To check a result, `flagged_points` gives
+            the value at each flagged bucket, anomaly-insight-get with the row's `insight_id` gives the full scored
+            history of every series of that insight, and the insight's own query (for example query-trends on the
+            insight) shows the live chart. An empty result means nothing was flagged among the insights scored in the
+            range, or that scoring is not enabled for the project (`scoring_enabled: false`); `message` says which. Use
+            `group_by: insight` for one row per insight. A 404 means anomaly search is not available for this project.
+        feature_flag: anomalies-search
     inbox-ranking-outcomes-list:
         operation: signals_reports_ranking_outcomes_list
         enabled: true

@@ -35,6 +35,8 @@ from products.signals.backend.models import UserActivitySummary, UserActivitySum
 # Fewer rendered lines than this since the last update say too little to change the summary.
 MIN_UNITS = 3
 MIN_UPDATE_INTERVAL = datetime.timedelta(days=1)
+# What someone opens changes slowly, so an update that views led waits longer.
+VIEW_UPDATE_INTERVAL = datetime.timedelta(days=7)
 # The `UserActivitySummaryVersion` rows kept per summary. An update deletes the older ones.
 MAX_VERSIONS = 30
 # A pair that skipped or failed waits this long, so it does not take the queue head on every tick.
@@ -318,6 +320,7 @@ def update_activity_summary(
         as_of=now.date(),
         max_completion_tokens=limits.max_completion_tokens,
         profile_max_chars=limits.profile_max_chars,
+        computed=computed,
     )
     cost = cost_usd(outcome.tokens_in, outcome.tokens_out, MODEL_PRICES.get(model))
     result = ActivitySummaryUpdate(
