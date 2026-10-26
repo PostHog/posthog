@@ -8,6 +8,7 @@ import {
     STOP_MONITORING_REASON_OPTIONS,
     ResolveReasonValue,
 } from '../../utils/dismissalReasons'
+import { ReportInterviewInvite } from '../detail/ReportInterviewInvite'
 import { HotkeyRadio } from './HotkeyRadio'
 
 export interface ResolveReportDialogResult {
@@ -121,6 +122,7 @@ export function openResolveReportDialog({
                         maxRows={8}
                     />
                 </LemonField>
+                {!isSelection && !hotkeys && !copy && <ReportInterviewInvite />}
             </div>
         ),
         errors: {
