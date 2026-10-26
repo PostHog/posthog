@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
+from django.db import transaction
 from django.db.models import QuerySet
 
 import posthoganalytics
@@ -214,9 +215,10 @@ def get_settings(team_id: int) -> contracts.ErrorTrackingSettings:
 
 def update_settings(team_id: int, fields: dict[str, int | bool | None]) -> contracts.ErrorTrackingSettings:
     ingestion_enabled = fields.get("ingestion_enabled")
-    if isinstance(ingestion_enabled, bool):
-        logic.set_exception_ingestion_enabled(team_id, ingestion_enabled)
-    settings = logic.update_settings(team_id=team_id, fields=fields)
+    with transaction.atomic():
+        if isinstance(ingestion_enabled, bool):
+            logic.set_exception_ingestion_enabled(team_id, ingestion_enabled)
+        settings = logic.update_settings(team_id=team_id, fields=fields)
     return _to_settings(settings, logic.is_exception_ingestion_enabled(team_id))
 
 

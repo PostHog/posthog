@@ -3,6 +3,7 @@ from datetime import timedelta
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.db import DataError
 from django.test import override_settings
 from django.utils.timezone import now
 
@@ -633,6 +634,10 @@ class TestErrorTrackingFacadeAPI(BaseTest):
                 "team_id", "pipeline", "drop_all_events"
             )
             assert list(overrides) == [(team_id, IngestionPipeline.ERRORTRACKING, not enabled)]
+
+        with self.assertRaises(DataError):
+            api.update_settings(team_id, {"ingestion_enabled": False, "project_rate_limit_value": 2**31})
+        assert api.get_settings(team_id).ingestion_enabled is True
 
     def test_spike_detection_config_get_and_update(self):
         config = api.get_spike_detection_config(self.team.id)
