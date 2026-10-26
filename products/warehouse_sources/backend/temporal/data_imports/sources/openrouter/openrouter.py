@@ -2,7 +2,7 @@ import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -41,6 +41,8 @@ class OpenRouterResumeConfig:
     date: str | None = None
     # `after` cursor of the next page for cursor-paginated endpoints (batches).
     after: str | None = None
+    # Last parent id whose child rows were all yielded, for fan-out endpoints (parent ids run sorted).
+    parent_id: str | None = None
 
 
 def _headers(api_key: str) -> dict[str, str]:
@@ -241,6 +243,122 @@ def _get_cursor_rows(
         raise OpenRouterPageCapError(f"OpenRouter: hit the {MAX_PAGES}-page cap for {config.name} with pages left")
 
 
+def _list_parent_ids(
+    session: requests.Session,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[OpenRouterResumeConfig],
+    parent: OpenRouterEndpointConfig,
+) -> list[str]:
+    ids: set[str] = set()
+    offset = 0
+    for _ in range(MAX_PAGES):
+        params: dict[str, Any] = dict(parent.params)
+        if parent.pagination is not None:
+            params["offset"] = offset
+            if parent.pagination == "offset_limit":
+                params["limit"] = parent.page_size
+
+        data = _fetch(session, _build_url(parent.path, params), headers, logger)
+        rows = data.get("data") or []
+        ids.update(str(row["id"]) for row in rows if row.get("id"))
+        resumable_source_manager.safe_point()
+
+        if parent.pagination is None or not rows:
+            break
+        if parent.pagination == "offset_limit" and len(rows) < parent.page_size:
+            break
+        offset += len(rows)
+    else:
+        # Fanning out over a partial parent list would replace the child table without the rest.
+        raise OpenRouterPageCapError(f"OpenRouter: hit the {MAX_PAGES}-page cap listing {parent.name}")
+
+    # Sorted, so the saved parent id marks the same point in the list on a resumed attempt.
+    return sorted(ids)
+
+
+def _get_child_rows(
+    session: requests.Session,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    config: OpenRouterEndpointConfig,
+    parent_id: str,
+) -> list[dict[str, Any]]:
+    path = config.path.replace("{parent_id}", quote(parent_id, safe="/:"))
+    rows: list[dict[str, Any]] = []
+    offset = 0
+    for _ in range(MAX_PAGES):
+        params: dict[str, Any] = dict(config.params)
+        if config.pagination is not None:
+            params["offset"] = offset
+            if config.pagination == "offset_limit":
+                params["limit"] = config.page_size
+
+        try:
+            data = _fetch(session, _build_url(path, params), headers, logger)
+        except requests.HTTPError as e:
+            # The parent was deleted after we listed it.
+            if e.response is not None and e.response.status_code == 404:
+                return rows
+            raise
+
+        page = data.get("data")
+        if config.child_rows_key is not None:
+            page = page.get(config.child_rows_key) if isinstance(page, dict) else None
+        page = page or []
+        rows.extend(page)
+
+        if config.pagination is None or not page:
+            break
+        if config.pagination == "offset_limit" and len(page) < config.page_size:
+            break
+        offset += len(page)
+    else:
+        raise OpenRouterPageCapError(f"OpenRouter: hit the {MAX_PAGES}-page cap for {config.name} of {parent_id}")
+
+    if config.parent_id_column is not None:
+        rows = [{**row, config.parent_id_column: parent_id} for row in rows]
+    return rows
+
+
+def _get_fan_out_rows(
+    session: requests.Session,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[OpenRouterResumeConfig],
+    config: OpenRouterEndpointConfig,
+    parent: OpenRouterEndpointConfig,
+) -> Iterator[list[dict[str, Any]]]:
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    resume_after = resume.parent_id if resume is not None else None
+
+    parent_ids = _list_parent_ids(session, headers, logger, resumable_source_manager, parent)
+    for parent_id in parent_ids:
+        if resume_after is not None and parent_id <= resume_after:
+            continue
+
+        # One parent's rows are yielded together, so the saved parent id never covers a partial parent.
+        rows = _get_child_rows(session, headers, logger, config, parent_id)
+        resumable_source_manager.save_state(OpenRouterResumeConfig(parent_id=parent_id))
+        if rows:
+            yield rows
+        else:
+            resumable_source_manager.safe_point()
+
+
+def _get_task_classification_rows(
+    session: requests.Session,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    config: OpenRouterEndpointConfig,
+) -> Iterator[list[dict[str, Any]]]:
+    data = _fetch(session, _build_url(config.path, config.params), headers, logger).get("data") or {}
+    snapshot = {"as_of": data.get("as_of"), "window_days": data.get("window_days")}
+    rows = [{**row, **snapshot} for row in data.get("classifications") or []]
+    if rows:
+        yield rows
+
+
 def _get_single_rows(
     session: requests.Session,
     headers: dict[str, str],
@@ -281,6 +399,12 @@ def get_rows(
             should_use_incremental_field,
             db_incremental_field_last_value,
         )
+    elif config.fan_out_parent is not None:
+        yield from _get_fan_out_rows(
+            session, headers, logger, resumable_source_manager, config, OPENROUTER_ENDPOINTS[config.fan_out_parent]
+        )
+    elif config.task_classifications:
+        yield from _get_task_classification_rows(session, headers, logger, config)
     elif config.pagination == "cursor":
         yield from _get_cursor_rows(session, headers, logger, resumable_source_manager, config)
     elif config.pagination is not None:
