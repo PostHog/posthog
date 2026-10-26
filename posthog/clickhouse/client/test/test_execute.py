@@ -44,10 +44,12 @@ def llm_analytics_slots():
         (Workload.DEFAULT, None, Workload.ONLINE, ClickHouseUser.APP),
         (Workload.OFFLINE, None, Workload.ONLINE, ClickHouseUser.APP),
         (Workload.LOGS, None, Workload.LOGS, ClickHouseUser.APP),
+        (Workload.NEW_EVENTS_CLUSTER, None, Workload.NEW_EVENTS_CLUSTER, ClickHouseUser.APP),
         (Workload.DEFAULT, AccessMethod.OAUTH, Workload.ONLINE, ClickHouseUser.APP),
         (Workload.DEFAULT, AccessMethod.PERSONAL_API_KEY, Workload.OFFLINE, ClickHouseUser.API),
         (Workload.ONLINE, AccessMethod.PROJECT_SECRET_API_KEY, Workload.OFFLINE, ClickHouseUser.API),
         (Workload.LOGS, AccessMethod.PERSONAL_API_KEY, Workload.LOGS, ClickHouseUser.API),
+        (Workload.NEW_EVENTS_CLUSTER, AccessMethod.PERSONAL_API_KEY, Workload.NEW_EVENTS_CLUSTER, ClickHouseUser.API),
     ],
 )
 def test_process_query_task_workload_routing(

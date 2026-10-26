@@ -449,7 +449,7 @@ class TestTrendsQueryRunnerSeriesFanOut(BaseTest):
             series=[EventsNode(event="$pageview")],
             dateRange=DateRange(date_from="2024-01-01", date_to="2024-01-08"),
             breakdownFilter=BreakdownFilter(breakdown="$browser", breakdown_type=BreakdownType.EVENT),
-            modifiers=HogQLQueryModifiers(useNewEventsCluster=native, useNewEventsSchema=native),
+            modifiers=HogQLQueryModifiers(useNewEventsSchema=native),
         )
         with (
             override_instance_config("CLICKHOUSE_NATIVE_EVENTS_HOST", "native.example.com"),

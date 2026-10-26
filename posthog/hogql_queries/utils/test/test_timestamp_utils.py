@@ -615,7 +615,7 @@ class TestEarliestTimestampRouting(BaseTest):
                 "posthog.hogql.query.sync_execute", return_value=([(native,)], [("timestamp", "DateTime")])
             ) as execute,
         ):
-            with events_route_scope(HogQLQueryModifiers(useNewEventsCluster=True, useNewEventsSchema=True)):
+            with events_route_scope(HogQLQueryModifiers(useNewEventsSchema=True)):
                 self.assertEqual(earliest(), native)
                 self.assertEqual(earliest(), native)
             self.assertEqual(earliest(), legacy)

@@ -2189,6 +2189,34 @@ class TestHogqlTableModifiers:
         )
         assert captured_sql is not None and expected_sql in captured_sql
 
+    async def test_a_routed_view_over_events_json_runs_on_the_events_cluster(self, ateam: Team) -> None:
+        ateam.modifiers = {"useNewEventsSchema": True}
+        await database_sync_to_async(ateam.save)()
+        client = _EmptyArrowClient(pa.schema([pa.field("event", pa.string())]))
+        client.describe_body = b"event\tString\n"
+        client_urls: list[str | None] = []
+
+        @contextlib.asynccontextmanager
+        async def fake_get_client(**kwargs: Any) -> AsyncIterator[_EmptyArrowClient]:
+            client_urls.append(kwargs.get("clickhouse_url"))
+            yield client
+
+        instance_settings = {
+            "CLICKHOUSE_NATIVE_EVENTS_HOST": "native.example.com",
+            "CLICKHOUSE_NATIVE_EVENTS_TEAMS": [ateam.pk],
+        }
+        with (
+            unittest.mock.patch("posthog.models.event.new_events_schema.get_instance_setting", instance_settings.get),
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.materialize_view.get_clickhouse_client", fake_get_client
+            ),
+            override_settings(CLICKHOUSE_HTTP_URL="https://main.example.com:8443/"),
+        ):
+            _ = [batch async for batch in hogql_table("SELECT event FROM events LIMIT 1", ateam, LOGGER.bind())]
+
+        # The DESCRIBE never reaches the shards, so it keeps the default cluster; the data query moves.
+        assert client_urls[-1] == "https://native.example.com:8443/"
+
     async def test_compiles_account_dependencies_without_a_user(self, ateam: Team) -> None:
         schema_fields: list[pa.Field[Any]] = [
             pa.field("id", pa.string()),
