@@ -25,7 +25,6 @@ export interface TaskComposerAddMenuProps {
     dropTargetRef?: RefObject<HTMLElement>
     onAddRepository?: () => void
     onAddContext?: () => void
-    triggerRef?: RefObject<HTMLButtonElement>
 }
 
 export function TaskComposerAddMenu({
@@ -33,7 +32,6 @@ export function TaskComposerAddMenu({
     dropTargetRef,
     onAddRepository,
     onAddContext,
-    triggerRef,
 }: TaskComposerAddMenuProps): JSX.Element {
     const { fileInput, openPicker, isOver, addDisabledReason } = useComposerFilePicker(attachmentsKey, dropTargetRef)
     const { getIntegrationsByKind, integrationsLoading } = useValues(integrationsLogic)
@@ -49,7 +47,6 @@ export function TaskComposerAddMenu({
                             <DropdownMenuTrigger
                                 render={
                                     <Button
-                                        ref={triggerRef}
                                         variant="default"
                                         size="icon-sm"
                                         aria-label="Add files, context or a repository"

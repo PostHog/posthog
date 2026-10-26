@@ -40,7 +40,10 @@ export function QuillComposerLayout({
                 }
             >
                 {chips && (
-                    <InputGroupAddon align="block-start" className="flex-wrap gap-2 empty:hidden">
+                    <InputGroupAddon
+                        align="block-start"
+                        className="min-h-0 flex-wrap gap-2 transition-[height,padding] duration-200 ease-[cubic-bezier(0.25,1,0.5,1)] [interpolate-size:allow-keywords] empty:hidden starting:h-0! starting:py-0! motion-reduce:transition-none *:transition-[opacity,translate] *:duration-[180ms] *:ease-[cubic-bezier(0.19,1,0.22,1)] *:starting:-translate-y-1 *:starting:opacity-0 motion-reduce:*:transition-[opacity] motion-reduce:*:starting:translate-y-0"
+                    >
                         {chips}
                     </InputGroupAddon>
                 )}

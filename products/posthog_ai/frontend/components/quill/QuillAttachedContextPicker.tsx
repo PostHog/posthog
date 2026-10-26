@@ -17,6 +17,7 @@ import {
 
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { cn } from 'lib/utils/css-classes'
 
 import { todayShellLogic } from '~/layout/today/todayShellLogic'
 
@@ -121,9 +122,21 @@ export function QuillAttachedContextPicker({
                     <TooltipContent>Add context to help PostHog AI answer your question</TooltipContent>
                 </Tooltip>
             )}
-            <PopoverContent side="top" align="start" anchor={anchor} className="w-auto p-0">
+            <PopoverContent
+                side="top"
+                align="start"
+                sideOffset={8}
+                anchor={anchor}
+                className={cn(
+                    'overflow-hidden rounded-xl p-0',
+                    anchor ? 'w-(--anchor-width) max-w-[calc(100vw-2rem)]' : 'w-auto'
+                )}
+            >
                 {/* The filter is Lemon, so it keeps Lemon's colors inside the quill popover. */}
-                <div data-not-quill>
+                <div
+                    data-not-quill
+                    className="[&_.LemonInput]:rounded-none! [&_.LemonInput]:border-x-0! [&_.LemonInput]:border-t-0! [&_.LemonInput]:bg-transparent! [&_.LemonInput]:shadow-none! [&_.taxonomic-infinite-list]:min-h-0"
+                >
                     <TaxonomicFilter
                         taxonomicFilterLogicKey={filterKey}
                         groupType={TaxonomicFilterGroupType.Events}
@@ -135,7 +148,9 @@ export function QuillAttachedContextPicker({
                             setOpen(false)
                         }}
                         onClose={() => setOpen(false)}
-                        width={450}
+                        width={anchor ? '100%' : 450}
+                        height={anchor ? 240 : undefined}
+                        popoverEnabled={!anchor}
                     />
                 </div>
             </PopoverContent>

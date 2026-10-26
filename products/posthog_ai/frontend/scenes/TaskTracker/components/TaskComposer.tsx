@@ -132,7 +132,6 @@ export function TaskComposer({
     const showRepositoryChip = repositoryEnabled && (repositoryRequested || !!newTaskData.repositoryConfig.repository)
     const showModePicker = skin === 'lemon' || !!newTaskData.repositoryConfig.repository
     const [contextPickerOpen, setContextPickerOpen] = useState(false)
-    const addMenuTriggerRef = useRef<HTMLButtonElement>(null)
 
     useEffect(() => {
         if (focusRequest > 0) {
@@ -304,7 +303,6 @@ export function TaskComposer({
                                             <TaskComposerAddMenu
                                                 attachmentsKey={attachmentsKey}
                                                 dropTargetRef={groupRef}
-                                                triggerRef={addMenuTriggerRef}
                                                 onAddContext={() => setContextPickerOpen(true)}
                                                 onAddRepository={
                                                     repositoryEnabled && !showRepositoryChip
@@ -318,7 +316,7 @@ export function TaskComposer({
                                             <QuillAttachedContextPicker
                                                 open={contextPickerOpen}
                                                 onOpenChange={setContextPickerOpen}
-                                                anchor={addMenuTriggerRef}
+                                                anchor={groupRef}
                                             />
                                             {repositoryEnabled && <TaskComposerEnvironmentSelect />}
                                             {modelPicker}
