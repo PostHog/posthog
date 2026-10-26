@@ -348,8 +348,8 @@ RUN groupadd -g 10001 posthog && \
     chown posthog:posthog /code
 USER posthog
 
-# Layers in this stage are ordered from least to most often changed. A layer is cached only when
-# every layer below it is unchanged, so a per-commit layer placed early forces a new copy of each
+# This stage orders its layers from least to most often changed. BuildKit reuses a cached layer only
+# when every layer below it is unchanged, so a per-commit layer placed early writes a new copy of each
 # layer above it into the build cache on every build.
 
 # Copy the Python dependencies, then the Django staticfiles, from the posthog-build stage.
