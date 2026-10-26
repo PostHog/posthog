@@ -457,6 +457,8 @@ class PlatformCheckEntry:
     value: float | None
     # None when the check succeeded.
     error_message: str | None
+    # What the source recorded beside the verdict. The platform reads only which keys it holds.
+    source_detail: dict[str, Any] = field(default_factory=dict)
 
 
 @frozen
@@ -979,17 +981,51 @@ class SourceDelete(Protocol):
     def __call__(self, *, team_id: int, legacy_configuration_id: UUID) -> None: ...
 
 
+class SourceConfigTeamCheck(Protocol):
+    """Checks a `source_config` against the project it is written in, which `validate` cannot see.
+
+    For example, that its ids name rows of that project. It raises `InvalidPlatformAlertEdit`.
+    """
+
+    def __call__(self, *, team_id: int, edit: PlatformAlertConfigurationEdit) -> None: ...
+
+
+class NativeAlertRemoveDestinations(Protocol):
+    """Removes the destinations of an alert that is about to be deleted.
+
+    The alert's open incidents are closed before this runs, while the destinations their resolves go
+    to still exist. It runs in the delete's transaction, so a delete that fails keeps them.
+    """
+
+    def __call__(self, *, team_id: int, configuration_id: UUID) -> None: ...
+
+
+@frozen
+class NativeAlertLifecycle:
+    """How the platform creates and deletes alerts of a kind whose source keeps no row for them.
+
+    The configuration is the alert's only record, and its own id is the id the alert's destinations
+    are matched on.
+    """
+
+    check_interval_minutes: int
+    remove_destinations: NativeAlertRemoveDestinations
+
+
 @frozen
 class SourceConfigSpec:
     """A source kind's schema for `source_config` and its rules for a whole edit.
 
     `model` validates `source_config`. `validate` raises `InvalidPlatformAlertEdit` for a rule that
-    spans fields, such as one that reads `enabled`. `mirror` runs in the edit's transaction. Without
-    `create` or `delete`, the API cannot create or delete alerts of the kind.
+    spans fields, such as one that reads `enabled`. `check_in_team` runs when a create or an edit
+    sets `source_config`. `mirror` runs in the edit's transaction. Without
+    `create` or `delete`, the API cannot create or delete alerts of the kind, unless the kind is
+    `native`: then the platform creates and deletes them itself, and the source keeps no row.
     """
 
     model: type[BaseModel]
     validate: Callable[[PlatformAlertConfigurationEdit], None]
+    check_in_team: SourceConfigTeamCheck | None = None
     mirror: SourceEditMirror | None = None
     create: SourceCreate | None = None
     delete: SourceDelete | None = None
@@ -997,6 +1033,16 @@ class SourceConfigSpec:
     # source's product. A control-plane close needs both to address its resolve.
     incident_event_ids: Mapping[str, str] | None = None
     alert_url: Callable[[int, UUID], str] | None = None
+    native: NativeAlertLifecycle | None = None
+
+    def __post_init__(self) -> None:
+        # The source-row hooks write a row a native kind does not have.
+        if self.native is not None and (self.mirror or self.create or self.delete):
+            raise ValueError("A native kind keeps no source row, so it cannot register mirror, create or delete.")
+
+    @property
+    def creatable(self) -> bool:
+        return self.native is not None or self.create is not None
 
 
 SourceConfigLoader = Callable[[], SourceConfigSpec]

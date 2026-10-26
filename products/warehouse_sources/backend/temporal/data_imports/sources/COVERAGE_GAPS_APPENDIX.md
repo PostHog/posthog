@@ -419,7 +419,7 @@ Note: Read the official reference index and parsed embedded OpenAPI GET operatio
 
 ## Algolia — gaps
 
-Today (20): `ab_tests`, `add_to_cart_rate`, `average_click_position`, `click_positions`, `click_through_rate`, `conversion_rate`, `indices`, `purchase_rate`, `records`, `revenue`, `rules`, `searches_no_clicks`, `searches_no_results`, `synonyms`, `top_countries`, `top_filter_values`, `top_filters`, `top_hits`, `top_searches`, `users_count`
+Today (25): `ab_tests`, `add_to_cart_rate`, `api_logs`, `average_click_position`, `click_positions`, `click_through_rate`, `conversion_rate`, `indices`, `ingestion_run_events`, `ingestion_runs`, `purchase_rate`, `query_suggestions_configs`, `query_suggestions_logs`, `records`, `revenue`, `rules`, `searches_no_clicks`, `searches_no_results`, `synonyms`, `top_countries`, `top_filter_values`, `top_filters`, `top_hits`, `top_searches`, `users_count`
 
 Diffed against: <https://raw.githubusercontent.com/algolia/api-clients-automation/main/specs/bundled/analytics.yml>
 
@@ -431,12 +431,12 @@ Diffed against: <https://raw.githubusercontent.com/algolia/api-clients-automatio
 - [x] `GET /2/clicks/clickThroughRate, /2/clicks/averageClickPosition, /2/clicks/positions` — click-through and click-position time series (medium) → `click_through_rate`, `average_click_position` (daily, incremental) and `click_positions` (a 12-bucket distribution with no date column, so full refresh)
 - [x] `GET /2/filters and /2/filters/{attribute}` — facet/filter usage breakdown dimension (medium) → `top_filters`, `top_filter_values` (fan-out over `top_filters`, since the attribute is a path param)
 - [x] `GET /2/countries and /2/users/count` — geography breakdown and unique-user counts for search traffic (medium) → `top_countries` (a top-N snapshot, full refresh) and `users_count` (daily, incremental)
-- [ ] `GET /1/runs and /1/runs/{runID}/events (Ingestion API)` — connector run history and per-run events for pipeline reliability reporting (medium)
-- [ ] `GET /1/logs (Search API)` — raw API request log including query, timing and errors (medium)
+- [x] `GET /1/runs and /1/runs/{runID}/events (Ingestion API)` — connector run history and per-run events for pipeline reliability reporting (medium) → `ingestion_runs` (incremental on `createdAt` via `startDate`) and `ingestion_run_events` (fan-out over `ingestion_runs`, each request starting at its run's `createdAt`)
+- [x] `GET /1/logs (Search API)` — raw API request log including query, timing and errors (medium) → `api_logs` (full refresh: Algolia keeps seven days and has no date filter)
 - [ ] `GET /1/incidents, /1/latency/{clusters}, /1/indexing/{clusters} (Monitoring API)` — cluster latency, indexing time and incident history (low)
-- [ ] `GET /1/logs/{indexName} (Query Suggestions API)` — query-suggestions build logs per index (low)
+- [x] `GET /1/logs/{indexName} (Query Suggestions API)` — query-suggestions build logs per index (low) → `query_suggestions_logs` (fan-out over the new `query_suggestions_configs` table from `GET /1/configs`)
 
-Note: Static schema list, no dynamic index discovery. The Analytics API is now covered end to end — the headline tables (top searches, top hits, zero-result and zero-click searches), the daily conversion/revenue/click/user time series, and the filter and country breakdowns — alongside A/B tests (via the GA `/3/abtests`). The Ingestion, Monitoring, and raw-log APIs are still absent. Also diffed against the bundled abtesting.yml, insights.yml, monitoring.yml, ingestion.yml and search.yml specs in the same repo.
+Note: Static schema list, no dynamic index discovery. The Analytics API is now covered end to end — the headline tables (top searches, top hits, zero-result and zero-click searches), the daily conversion/revenue/click/user time series, and the filter and country breakdowns — alongside A/B tests (via the GA `/3/abtests`). The Ingestion API runs and events, the Search API request log and the Query Suggestions logs are covered too. The Monitoring API is still absent: it reports Algolia-wide infrastructure status rather than data for the application, and its latency and indexing endpoints need cluster names the source does not know. Also diffed against the bundled abtesting.yml, insights.yml, monitoring.yml, ingestion.yml and search.yml specs in the same repo.
 
 ## Alguna — gaps
 
@@ -5106,10 +5106,10 @@ Diffed against: <https://raw.githubusercontent.com/FusionAuth/fusionauth-openapi
 - [x] `tenant (POST /api/tenant/search)` — lookup resolving the tenantId on users and login records — the top-level isolation dimension (high)
 - [x] `group (POST /api/group/search)` — lookup naming the groups referenced by user memberships (high)
 - [x] `group/member (POST /api/group/member/search)` — the user-to-group membership table; group-level access analysis is impossible without it (high)
-- [ ] `user/registration (GET /api/user/registration/{userId}/{applicationId})` — which users are registered to which applications, with roles and registration dates (medium)
-- [ ] `user/consent (GET /api/user/consent, POST /api/consent/search)` — consent grants per user plus the consent definition lookup — compliance reporting (medium)
-- [ ] `entity + entity/grant (POST /api/entity/search, /api/entity/grant/search)` — non-user entities and the grants linking them to users — the machine-to-machine authorization graph (medium)
-- [ ] `user/action + user-action + user-action-reason` — moderation action history against users, plus the action and reason lookups that decode it (medium)
+- [x] `user/registration (GET /api/user/registration/{userId}/{applicationId})` — which users are registered to which applications, with roles and registration dates (medium)
+- [x] `user/consent (GET /api/user/consent, POST /api/consent/search)` — consent grants per user plus the consent definition lookup — compliance reporting (medium)
+- [x] `entity + entity/grant (POST /api/entity/search, /api/entity/grant/search)` — non-user entities and the grants linking them to users — the machine-to-machine authorization graph (medium)
+- [x] `user/action + user-action + user-action-reason` — moderation action history against users, plus the action and reason lookups that decode it (medium)
 - [ ] `jwt/refresh (GET /api/jwt/refresh)` — active refresh tokens per user — session longevity and device analysis (medium)
 - [ ] `report/daily-active-user and report/monthly-active-user` — FusionAuth's headline DAU/MAU metrics, precomputed by the vendor (medium)
 - [ ] `identity-provider/link (GET /api/identity-provider/link)` — which users are linked to which social/SSO provider — signup source breakdown (medium)
@@ -8399,15 +8399,15 @@ Note: newsdata.io/documentation is a client-rendered SPA that returns no endpoin
 
 ## NewYorkTimes — gaps
 
-Today (5): `article_search`, `most_popular_emailed`, `most_popular_shared`, `most_popular_viewed`, `top_stories`
+Today (8): `archive`, `article_search`, `books_best_sellers`, `most_popular_emailed`, `most_popular_shared`, `most_popular_viewed`, `times_wire`, `top_stories`
 
 Diffed against: <https://github.com/nytimes/public_api_specs>
 
-- [ ] `archive (/svc/archive/v1/{year}/{month}.json)` — full month-by-month article metadata dump back to 1851 - the natural bulk warehouse table, versus article_search's paginated 100-page cap (high)
-- [ ] `timeswire (/svc/news/v3/content.json)` — continuous feed of newly published items with updated timestamps, the incremental-friendly article stream (high)
-- [ ] `books best-seller list (/svc/books/v3/lists/{date}/{list}.json)` — weekly best-seller rankings, the Books API's headline dataset (medium)
+- [x] `archive (/svc/archive/v1/{year}/{month}.json)` — full month-by-month article metadata dump back to 1851 - the natural bulk warehouse table, versus article_search's paginated 100-page cap (high). Added as `archive`; first sync and full refresh cover the last 12 months, incremental restarts at the watermark's month.
+- [x] `timeswire (/svc/news/v3/content.json)` — continuous feed of newly published items with updated timestamps, the incremental-friendly article stream (high). Added as `times_wire` on `/content/all/all/{time-period}.json`: `/content.json` looks up one item by URL, the feed is the `{time-period}` route.
+- [x] `books best-seller list (/svc/books/v3/lists/{date}/{list}.json)` — weekly best-seller rankings, the Books API's headline dataset (medium). Added as `books_best_sellers` (fan-out over `/lists/names.json`, one row per book per list edition).
 - [ ] `books list names (/svc/books/v3/lists/names.json)` — lookup table resolving the list encoded names, dates and update cadence used by every other books endpoint (medium)
-- [ ] `books best-sellers history (/svc/books/v3/lists/best-sellers/history.json)` — per-title ranking history across weeks, the time series behind the lists (medium)
+- [ ] `books best-sellers history (/svc/books/v3/lists/best-sellers/history.json)` — per-title ranking history across weeks, the time series behind the lists (medium); skipped: no stable row id and no date filter, and a full pull is ~29,000 titles at 20 per page, more requests than the Books API's daily limit. `books_best_sellers` holds the same rankings per edition.
 - [ ] `community user-content (/svc/community/v3/user-content/by-date.json)` — reader comments joined to articles - the only engagement signal in the NYT APIs (medium)
 - [ ] `movie reviews (/svc/movies/v2/reviews/search.json)` — critics' reviews with pick flags, a distinct content corpus from article_search (low)
 - [ ] `movie critics (/svc/movies/v2/critics/{resource-type}.json)` — lookup resolving the critic bylines attached to movie reviews (low)
@@ -8433,12 +8433,12 @@ Today (10): `activities`, `categories`, `client_folders`, `fields`, `leads`, `pi
 
 Diffed against: <https://www.nocrm.io/api>
 
-- [ ] `leads/{lead_id}/action_histories` — per-lead action and step-change history - the state-transition table needed for pipeline velocity and conversion timing (high)
-- [ ] `follow_ups` — scheduled follow-up tasks/reminders on leads, the core activity object driving rep workload analysis (high)
-- [ ] `leads/{lead_id}/comments` — comment thread per lead, the narrative activity stream alongside activities (medium)
+- [x] `leads/{lead_id}/action_histories` — per-lead action and step-change history - the state-transition table needed for pipeline velocity and conversion timing (high). Added as `lead_action_histories` (fan-out over `leads`).
+- [x] `follow_ups` — scheduled follow-up tasks/reminders on leads, the core activity object driving rep workload analysis (high). Added as `follow_ups` (fan-out over `users`, since the endpoint requires a `lead_id` or `user_id`).
+- [x] `leads/{lead_id}/comments` — comment thread per lead, the narrative activity stream alongside activities (medium). Added as `lead_comments` (fan-out over `leads`).
 - [ ] `spreadsheets` — prospecting lists - the top-of-funnel container that leads are created from, with no equivalent table today (medium)
 - [ ] `spreadsheets/{spreadsheet_id}/rows` — prospect rows inside prospecting lists, plus their conversion-to-lead linkage (medium)
-- [ ] `follow_ups/{follow_up_id}/tasks` — individual tasks within a follow-up sequence, the completion-level detail (medium)
+- [x] `follow_ups/{follow_up_id}/tasks` — individual tasks within a follow-up sequence, the completion-level detail (medium). Skipped: the API has no list endpoint for tasks, only `PUT /follow_ups/{follow_up_id}/tasks/{task_id}`; `follow_ups` rows carry `tasks_count` and `tasks_done_count`.
 - [ ] `spreadsheets/{spreadsheet_id}/comments` — comments on prospecting lists and rows, engagement history before a lead exists (low)
 - [ ] `leads/{lead_id}/attachments` — attachment metadata per lead (counts/types, not file bytes) (low)
 
@@ -8795,12 +8795,12 @@ Note: Parsed every GET operation in the official API reference, including nested
 
 ## OpenExchangeRates — gaps
 
-Today (4): `currencies`, `historical`, `latest`, `usage`
+Today (6): `currencies`, `historical`, `latest`, `ohlc`, `time_series`, `usage`
 
 Diffed against: <https://docs.openexchangerates.org/reference/api-introduction>
 
-- [ ] `time-series.json` — pulls a whole date range in one call instead of day-by-day historical requests (high)
-- [ ] `ohlc.json` — open/high/low/close/average per period - the vendor's analytical rate summary (medium)
+- [x] `time-series.json` — pulls a whole date range in one call instead of day-by-day historical requests (high)
+- [x] `ohlc.json` — open/high/low/close/average per period - the vendor's analytical rate summary (medium)
 
 Note: Small API. Remaining endpoints are convert (a single-value calculator, not a table), plus bid-ask and alternative-currencies which are request options on latest/historical rather than separate resources.
 
@@ -10087,10 +10087,10 @@ Today (10): `addresses`, `charges`, `collections`, `customers`, `discounts`, `on
 
 Diffed against: <https://developer.rechargepayments.com/2021-11>
 
-- [ ] `plans` — Lookup table resolving the plan IDs carried on subscriptions and onetimes (high)
-- [ ] `events` — Recharge's account event log - subscription state transitions, cancellations and churn reasons over time (high)
-- [ ] `credit_accounts and credit_adjustments` — Customer store-credit ledger; adjustments are the transaction-level rows behind each balance (medium)
-- [ ] `bundle_selections` — Line-item contents of bundle subscriptions - without it a bundle subscription has no product breakdown (medium)
+- [x] `plans` — Lookup table resolving the plan IDs carried on subscriptions and onetimes (high)
+- [x] `events` — Recharge's account event log - subscription state transitions, cancellations and churn reasons over time (high)
+- [x] `credit_accounts and credit_adjustments` — Customer store-credit ledger; adjustments are the transaction-level rows behind each balance (medium)
+- [x] `bundle_selections` — Line-item contents of bundle subscriptions - without it a bundle subscription has no product breakdown (medium)
 - [ ] `checkouts` — Pre-conversion checkout records, required for abandoned-checkout and funnel analysis (medium)
 - [ ] `customer_entitlements` — Membership/perk entitlements per customer, a membership-program breakdown dimension (medium)
 - [ ] `metafields` — Custom key-value fields attached to customers, subscriptions and addresses that often hold merchant-specific segmentation (low)

@@ -37,7 +37,7 @@ from loginas.utils import is_impersonated_session
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, PermissionDenied, Throttled, ValidationError
+from rest_framework.exceptions import PermissionDenied, Throttled, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -86,11 +86,7 @@ from products.replay_vision.backend.api.trigger import (
     check_team_in_flight_capacity,
     start_apply_scanner_workflow,
 )
-from products.replay_vision.backend.billing import (
-    observation_credits_case,
-    observation_credits_for_model,
-    projected_monthly_credits,
-)
+from products.replay_vision.backend.billing import observation_credits_for_model, projected_monthly_credits
 from products.replay_vision.backend.built_in_scans import BUILT_IN_SCANS, BuiltInScanKey
 from products.replay_vision.backend.consent import AI_CONSENT_REQUIRED_CODE
 from products.replay_vision.backend.impact import (
@@ -145,9 +141,11 @@ from products.replay_vision.backend.quota import (
     org_credit_cap,
     quota_state,
     quota_state_for_cap,
+    scanner_period_receipts,
     spend_projection,
 )
 from products.replay_vision.backend.scanner_access import (
+    accessible_experiment_ids,
     accessible_observations,
     is_experiment_accessible,
     readable_observation_scanner_ids,
@@ -186,7 +184,6 @@ from products.replay_vision.backend.scout_writes import (
 )
 from products.replay_vision.backend.search import parse_date_bound
 from products.replay_vision.backend.session_limits import MAX_SESSION_ID_LENGTH
-from products.replay_vision.backend.tag_suggestions import SuggestionError, suggest_classifier_tags
 from products.replay_vision.backend.temporal.constants import VISION_SIGNALS_SOURCE_PRODUCT, VISION_SIGNALS_SOURCE_TYPE
 from products.replay_vision.backend.temporal.metrics import record_estimate_outcome, record_scanner_limit_reached
 from products.replay_vision.backend.temporal.read_meter_types import current_sweep_throttle_factor
@@ -564,12 +561,12 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
     )
     credits_this_month = serializers.SerializerMethodField(
         help_text=(
-            "Credits this scanner's succeeded observations consumed in the current billing period "
-            "(1 credit = $0.01). Matches the window of the org-wide quota meter."
+            "Credits billed for this scanner's observations created in the current billing period "
+            "(1 credit = $0.01), each at the price frozen when it succeeded. Deleted observations still count."
         ),
     )
     observations_this_month = serializers.SerializerMethodField(
-        help_text="Succeeded observations this scanner produced in the current billing period.",
+        help_text="Billed observations this scanner created in the current billing period, including deleted ones.",
     )
     credits_used_against_limit = serializers.SerializerMethodField(
         help_text=(
@@ -701,10 +698,15 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
     def get_estimated_monthly_credits(self, scanner: ReplayScanner) -> int | None:
         return projected_monthly_credits(scanner.model, scanner.estimated_monthly_observations, scanner.credit_limit)
 
-    def _page_scanner_ids(self, scanner: ReplayScanner) -> list[UUID]:
+    def _page_scanners(self) -> list[ReplayScanner] | None:
+        """The list page's scanners, or None when serializing a single scanner."""
         root = self.root
         instance = root.instance if isinstance(root, serializers.ListSerializer) else None
-        return [s.id for s in instance] if instance is not None else [scanner.id]
+        return list(instance) if instance is not None else None
+
+    def _page_scanner_ids(self, scanner: ReplayScanner) -> list[UUID]:
+        page = self._page_scanners()
+        return [s.id for s in page] if page is not None else [scanner.id]
 
     def _scanner_spend(self, scanner: ReplayScanner) -> ScannerSpend:
         # The context dict is shared across the list's children, so the page's totals are computed once.
@@ -717,8 +719,8 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         return totals.get(scanner.id, ScannerSpend(0, 0))
 
     def _scanner_budget(self, scanner: ReplayScanner) -> ScannerBudget:
-        """The limit-facing figure. Separate from `_scanner_spend` on purpose: that one is the displayed
-        spend read from observation rows, this one is the delete-proof ledger draw the cap is enforced on."""
+        """The limit-facing figure. Separate from `_scanner_spend` on purpose: that one counts settled
+        receipts only, this one also reserves in-flight observations, as the cap enforcement does."""
         budgets = self.context.get("_scanner_budgets")
         if budgets is None:
             budgets = compute_scanner_budgets(
@@ -1026,7 +1028,29 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         get_team = self.context.get("get_team")
         if get_team is None:  # no request context (e.g. internal serialization); don't over-redact
             return True
+        page_access = self._page_experiment_access(get_team().id)
+        if experiment_id in page_access:
+            return page_access[experiment_id]
         return is_experiment_accessible(self.user_access_control, get_team().id, experiment_id)
+
+    def _page_experiment_access(self, team_id: int) -> dict[int, bool]:
+        """Whether the caller may view each experiment the list page targets, checked in one query.
+
+        Shared through the context like `_scanner_spend`, so a page of experiment scanners costs one
+        access check instead of one per row. Outside a list it is empty and callers check one id.
+        """
+        cached = self.context.get("_page_experiment_access")
+        if cached is not None:
+            return cached
+        page_ids = {
+            scope["experiment_id"]
+            for scanner in self._page_scanners() or ()
+            if (scope := scanner.experiment_scope()) and isinstance(scope.get("experiment_id"), int)
+        }
+        accessible = accessible_experiment_ids(self.user_access_control, team_id, page_ids) if page_ids else set()
+        page_access = {experiment_id: experiment_id in accessible for experiment_id in page_ids}
+        self.context["_page_experiment_access"] = page_access
+        return page_access
 
     def create(self, validated_data: dict[str, Any]) -> ReplayScanner:
         team = self.context["get_team"]()
@@ -1180,21 +1204,17 @@ class _ScannerOrderByFilter(OrderByFilter):
 
     def _handle(self, qs: QuerySet[ReplayScanner], key: str, descending: bool) -> QuerySet[ReplayScanner]:
         if key == "credits_this_month":
-            # Same window and pricing as `credits_this_month`, in SQL so the database can order by it.
+            # Same receipts and window as `credits_this_month`, in SQL so the database can order by it.
             organization_id = qs.values_list("team__organization_id", flat=True).first()
             if organization_id is None:
                 return qs.order_by(self._tiebreaker)
             period = current_period_bounds(organization_id)
             spend = (
-                ReplayObservation.objects.filter(
-                    scanner_id=OuterRef("pk"),
-                    status=ObservationStatus.SUCCEEDED,
-                    created_at__gte=period.start,
-                    created_at__lt=period.end,
-                )
+                scanner_period_receipts(organization_id, period)
+                .filter(scanner_id=OuterRef("pk"))
                 .order_by()
                 .values("scanner_id")
-                .annotate(total=Sum(observation_credits_case()))
+                .annotate(total=Sum("credits"))
                 .values("total")
             )
             qs = qs.annotate(
@@ -2065,65 +2085,6 @@ class EstimateResponseSerializer(serializers.Serializer):
     )
     sampling_rate = serializers.FloatField(
         help_text="Sampling rate applied to the projection. Echoed from the request.",
-    )
-
-
-class SuggestTagsRequestSerializer(serializers.Serializer):
-    """Body of POST /vision/scanners/suggest_tags/ — the classifier config currently being edited."""
-
-    prompt = serializers.CharField(
-        max_length=10000,
-        help_text="The classifier's instruction prompt — the single dimension to categorize sessions by.",
-    )
-    tags = serializers.ListField(
-        child=serializers.CharField(max_length=200),
-        required=False,
-        default=list,
-        max_length=200,
-        help_text="The categories already configured, so suggestions never duplicate one the user has.",
-    )
-    multi_label = serializers.BooleanField(
-        required=False,
-        default=True,
-        help_text="Whether the classifier assigns multiple tags per session.",
-    )
-    allow_freeform_tags = serializers.BooleanField(
-        required=False,
-        default=False,
-        help_text="Whether the classifier may emit tags outside the fixed vocabulary.",
-    )
-    scanner_id = serializers.UUIDField(
-        required=False,
-        allow_null=True,
-        help_text=(
-            "Existing scanner to ground suggestions in its own observations (the tags and reasoning it has "
-            "already produced on real recordings). Omit for an unsaved scanner."
-        ),
-    )
-
-
-class TagSuggestionSerializer(serializers.Serializer):
-    """One grounded tag suggestion."""
-
-    tag = serializers.CharField(help_text="Suggested tag to add to the vocabulary, normalized to lowercase.")
-    rationale = serializers.CharField(
-        help_text="One sentence explaining the specific evidence this tag is grounded in."
-    )
-    source = serializers.ChoiceField(  # type: ignore[assignment]
-        choices=["observed", "product", "prompt"],
-        help_text=(
-            "Primary grounding: observed=a category this scanner already emitted on recordings; "
-            "product=the org's events/screens; prompt=the scanner's stated goal."
-        ),
-    )
-
-
-class SuggestTagsResponseSerializer(serializers.Serializer):
-    """Grounded tag suggestions for the classifier config editor."""
-
-    suggestions = TagSuggestionSerializer(
-        many=True,
-        help_text="Suggested tags to add, most relevant first. May be empty when the evidence is too thin.",
     )
 
 
@@ -3384,7 +3345,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
 
         # Reject a scanner_id outside this project before doing any work, so it can't silently undercount the others-sum.
         # Treat missing object-level access the same as missing-entirely so a denied scanner's existence and
-        # credit usage can't be inferred by comparing responses (mirrors the `suggest_tags` action below).
+        # credit usage can't be inferred by comparing responses.
         scanner_id = body.validated_data.get("scanner_id")
         if scanner_id is not None:
             scanner = ReplayScanner.objects.filter(team_id=self.team_id, pk=scanner_id).first()
@@ -3439,58 +3400,6 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                 }
             ).data
         )
-
-    @extend_schema(
-        request=SuggestTagsRequestSerializer,
-        responses={
-            200: SuggestTagsResponseSerializer,
-            503: OpenApiResponse(
-                response=ReplayVisionErrorSerializer, description="Tag suggestions couldn't be generated."
-            ),
-        },
-    )
-    @action(
-        detail=False,
-        methods=["post"],
-        url_path="suggest_tags",
-        required_scopes=["replay_scanner:read", "session_recording:read"],
-    )
-    def suggest_tags(self, request: Request, **kwargs: Any) -> Response:
-        """Suggest classifier tags grounded in the scanner's own observations and the org's product data."""
-        # Suggestions read recording-derived observation reasoning, so gate on session_recording read.
-        if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
-            raise PermissionDenied("Suggesting categories requires session_recording read access.")
-
-        body = SuggestTagsRequestSerializer(data=request.data)
-        body.is_valid(raise_exception=True)
-        data = body.validated_data
-
-        scanner: ReplayScanner | None = None
-        scanner_id = data.get("scanner_id")
-        if scanner_id is not None:
-            scanner = ReplayScanner.objects.filter(team_id=self.team_id, id=scanner_id).first()
-            # Observations inherit the scanner's RBAC; treat missing access as not-found so existence doesn't leak.
-            if scanner is None or not self.user_access_control.check_access_level_for_object(scanner, "viewer"):
-                raise NotFound("Scanner not found.")
-
-        try:
-            suggestions = suggest_classifier_tags(
-                team=self.team,
-                user=cast(User, request.user),
-                prompt=data["prompt"],
-                current_tags=data["tags"],
-                multi_label=data["multi_label"],
-                allow_freeform_tags=data["allow_freeform_tags"],
-                scanner=scanner,
-                user_access_control=self.user_access_control,
-            )
-        except SuggestionError:
-            return Response(
-                {"detail": "Couldn't generate tag suggestions right now. Try again in a moment."},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
-            )
-
-        return Response(SuggestTagsResponseSerializer({"suggestions": suggestions}).data)
 
     @extend_schema(
         request=DraftScannerRequestSerializer,

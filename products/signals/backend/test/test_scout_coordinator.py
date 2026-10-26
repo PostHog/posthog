@@ -24,6 +24,7 @@ from posthog.models.scoping import team_scope
 from posthog.models.scoping.manager import TeamScopeError
 from posthog.sync import database_sync_to_async
 
+from products.signals.backend.constants import SYSTEM_SCOUT_NAMES
 from products.signals.backend.models import (
     SignalReport,
     SignalReportAction,
@@ -2722,7 +2723,9 @@ async def test_enrolled_team_registers_and_runs_canonical_fleet(ateam):
     await database_sync_to_async(sync_canonical_skills)(ateam)
     seeded = await database_sync_to_async(
         lambda: set(
-            LLMSkill.objects.filter(team=ateam, name__startswith="signals-scout-").values_list("name", flat=True)
+            LLMSkill.objects.filter(team=ateam, name__startswith="signals-scout-")
+            .exclude(name__in=SYSTEM_SCOUT_NAMES)
+            .values_list("name", flat=True)
         )
     )()
     assert seeded
@@ -2733,6 +2736,7 @@ async def test_enrolled_team_registers_and_runs_canonical_fleet(ateam):
         lambda: set(SignalScoutConfig.all_teams.filter(team=ateam).values_list("skill_name", flat=True))
     )()
     assert config_names == seeded
+    assert config_names.isdisjoint(SYSTEM_SCOUT_NAMES)
     assert {p.skill_name for p in planned} == seeded
 
 

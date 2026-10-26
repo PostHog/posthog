@@ -1358,6 +1358,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             table_id=str(self.id),
             external_data_source_id=str(self.external_data_source_id) if self.external_data_source_id else None,
             source_type=self.external_data_source.source_type if self.external_data_source else None,
+            is_history_table=self.is_history_table,
         )
 
         # Must resolve an unset option the same way _describe_settings does, by sending no setting.

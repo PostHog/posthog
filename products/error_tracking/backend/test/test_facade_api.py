@@ -3,6 +3,7 @@ from datetime import timedelta
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.db import DataError
 from django.test import override_settings
 from django.utils.timezone import now
 
@@ -11,6 +12,8 @@ from parameterized import parameterized
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
 from posthog.models import Team
+from posthog.models.event_filter_config import EventFilterPipelineOverride
+from posthog.models.event_ingestion_restriction_config import IngestionPipeline
 from posthog.models.integration import GitLabIntegrationError, Integration
 
 from products.access_control.backend.facade.testing import add_role_member, create_role
@@ -615,6 +618,26 @@ class TestErrorTrackingFacadeAPI(BaseTest):
         api.update_settings(self.team.id, {"project_rate_limit_value": 42})
 
         assert api.get_settings(other_team.id).project_rate_limit_value is None
+
+    @parameterized.expand([("project", False), ("environment", True)])
+    def test_exception_ingestion_switch_writes_the_environment_pipeline_override(self, _name, via_environment):
+        team_id = self.team.id
+        if via_environment:
+            team_id = Team.objects.create(
+                organization=self.organization, project=self.project, parent_team=self.team, name="Environment"
+            ).id
+        assert api.get_settings(team_id).ingestion_enabled is True
+
+        for enabled in (False, True):
+            assert api.update_settings(team_id, {"ingestion_enabled": enabled}).ingestion_enabled is enabled
+            overrides = EventFilterPipelineOverride.objects.unscoped().values_list(
+                "team_id", "pipeline", "drop_all_events"
+            )
+            assert list(overrides) == [(team_id, IngestionPipeline.ERRORTRACKING, not enabled)]
+
+        with self.assertRaises(DataError):
+            api.update_settings(team_id, {"ingestion_enabled": False, "project_rate_limit_value": 2**31})
+        assert api.get_settings(team_id).ingestion_enabled is True
 
     def test_spike_detection_config_get_and_update(self):
         config = api.get_spike_detection_config(self.team.id)
