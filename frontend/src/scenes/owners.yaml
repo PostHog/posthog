@@ -102,3 +102,29 @@ rules:
       owners: team-web-analytics
     - match: '/welcome/'
       owners: team-growth
+    - match:
+          - '/real-time-usage/'
+      owners: team-billing
+    - match:
+          - '/debug/'
+      owners: team-data-tools
+    - match:
+          - '/sites/'
+      owners: team-growth
+    - match:
+          - '/organization/*'
+          - '/project/'
+          - '/settings/user/passkeys/'
+      owners: team-platform-features
+    - match:
+          - '/integrations/components/'
+      owners: team-self-driving
+    - match:
+          - '/library/'
+      owners: team-surfaces
+    - match:
+          - '/team-activity/'
+      owners: team-web-analytics
+    - match:
+          - '/integrations/aws-s3/'
+      owners: team-workflows

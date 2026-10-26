@@ -25,3 +25,12 @@ rules:
       owners: team-product-analytics
     - match: ['/test/test_proxy_record.py', '/test/test_proxy_record_diagnostics.py']
       owners: team-platform-features
+    - match:
+          - '/test/notebooks/'
+      owners: team-data-tools
+    - match:
+          - '/test/rust_integration/'
+      owners: team-feature-flags
+    - match:
+          - '/advanced_activity_logs/'
+      owners: team-platform-features

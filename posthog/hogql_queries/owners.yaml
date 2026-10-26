@@ -33,3 +33,7 @@ rules:
               '/utils/utils.py',
           ]
       owners: team-product-analytics
+    - match:
+          - '/legacy_compatibility/'
+          - '/validation/'
+      owners: team-product-analytics

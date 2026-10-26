@@ -17,3 +17,18 @@ rules:
       owners: team-self-driving
     - match: '/surveys/'
       owners: conversations
+    - match:
+          - '/clickhouse/test/'
+      owners: clickhouse
+    - match:
+          - '/clickhouse/views/'
+      owners: team-experiments
+    - match:
+          - '/clickhouse/queries/'
+      owners: team-feature-flags
+    - match:
+          - '/partners/'
+      owners: team-growth
+    - match:
+          - '/api/tests/'
+      owners: team-surfaces
