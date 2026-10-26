@@ -149,6 +149,7 @@ function ReportCardRaw({
     const headline = deriveHeadline(report.summary)
     const cardTime = timestampField === 'created_at' ? report.created_at : (report.updated_at ?? report.created_at)
     const cardTimeTitle = timestampField === 'created_at' ? 'Created' : 'Last updated'
+    const plainReportTitles = useFeatureFlag('SIGNALS_PLAIN_REPORT_TITLES')
     // The impact column carries its own flag: its figures come from live queries, so it rolls out
     // per team as the metric quality is verified.
     const showImpactColumn = useFeatureFlag('SIGNALS_REPORT_METRICS')
@@ -216,7 +217,7 @@ function ReportCardRaw({
                         hasPr && showImpactColumn && '@lg:pr-0'
                     )}
                 >
-                    {hasPr && conventionalTitle && (
+                    {hasPr && !plainReportTitles && conventionalTitle && (
                         <ConventionalCommitScopeTag type={conventionalTitle.type} scope={conventionalTitle.scope} />
                     )}
                     {cardTitle}
