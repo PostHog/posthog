@@ -7453,10 +7453,20 @@ class TestIntegrationRequestAccessAPI(APIBaseTest):
 
 
 @time_machine.travel("2026-03-02T10:00:00Z", tick=False)
-@patch("posthog.api.integration.report_user_action")
-@patch("products.workflows.backend.facade.api.set_default_email_sender_if_unset")
-@patch("products.workflows.backend.facade.api.verify_ses_email_domain")
 class TestEmailVerifyReportsOutcome(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.ses_verify = self._patch("products.workflows.backend.facade.api.verify_ses_email_domain")
+        self._patch("products.workflows.backend.facade.api.set_default_email_sender_if_unset")
+        self.report_user_action = self._patch("posthog.api.integration.report_user_action")
+
+    def _patch(self, target: str) -> MagicMock:
+        patcher = patch(target)
+        self.addCleanup(patcher.stop)
+        return patcher.start()
+
     def _create_sender(self, verified: bool = False) -> Integration:
         sender = Integration.objects.create(
             team=self.team,
@@ -7478,12 +7488,12 @@ class TestEmailVerifyReportsOutcome(APIBaseTest):
             ("pending", "pending"),
         ]
     )
-    def test_a_check_reports_its_outcome_once(self, ses_status, outcome, mock_verify, _mock_default, mock_report):
-        mock_verify.return_value = {"status": ses_status, "dnsRecords": []}
+    def test_a_check_reports_its_outcome_once(self, ses_status: str, outcome: str) -> None:
+        self.ses_verify.return_value = {"status": ses_status, "dnsRecords": []}
 
         self._verify(self._create_sender())
 
-        mock_report.assert_called_once_with(
+        self.report_user_action.assert_called_once_with(
             self.user,
             "email domain verified",
             {"outcome": outcome, "seconds_since_created": 600},
@@ -7491,12 +7501,12 @@ class TestEmailVerifyReportsOutcome(APIBaseTest):
             request=ANY,
         )
 
-    def test_a_check_on_an_already_verified_domain_reports_nothing(self, mock_verify, _mock_default, mock_report):
-        mock_verify.return_value = {"status": "success", "dnsRecords": []}
+    def test_a_check_on_an_already_verified_domain_reports_nothing(self) -> None:
+        self.ses_verify.return_value = {"status": "success", "dnsRecords": []}
 
         self._verify(self._create_sender(verified=True))
 
-        mock_report.assert_not_called()
+        self.report_user_action.assert_not_called()
 
 
 class TestApplePushIntegrationAPI(APIBaseTest):
