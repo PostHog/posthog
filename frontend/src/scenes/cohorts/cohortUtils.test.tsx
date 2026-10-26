@@ -36,6 +36,33 @@ describe('validateGroup', () => {
         }
     }
 
+    it.each<[PropertyOperator, string, boolean]>([
+        [PropertyOperator.SemverGte, '1.2.3', true],
+        [PropertyOperator.SemverEq, '1.2.3-beta.1', true],
+        [PropertyOperator.SemverGte, '2.0', false],
+        [PropertyOperator.SemverLt, 'latest', false],
+        [PropertyOperator.SemverTilde, '1.2', true],
+        [PropertyOperator.SemverCaret, 'latest', false],
+        [PropertyOperator.SemverWildcard, '1.2.*', true],
+        [PropertyOperator.SemverWildcard, 'beta.*', false],
+    ])('a %s criterion with value %s is valid: %s', (operator, value, isValid) => {
+        const errors = validateGroup({
+            type: FilterLogicalOperator.And,
+            values: [
+                {
+                    type: BehavioralFilterKey.Person,
+                    value: BehavioralEventType.HaveProperty,
+                    key: '$app_version',
+                    operator,
+                    value_property: value,
+                },
+            ],
+        })
+
+        const criterionErrors = errors.values?.[0] as { value_property?: string } | undefined
+        expect(criterionErrors?.value_property).toBe(isValid ? undefined : CohortClientErrors.InvalidSemverValue)
+    })
+
     it('falls back to the raw filter type when the label map has no matching entry', () => {
         const group = groupWithNegatedCriteria([
             {

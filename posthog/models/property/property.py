@@ -10,6 +10,7 @@ from posthog.models.filters.utils import GroupTypeIndex, validate_group_type_ind
 # Relocated to the Django-free posthog.property_columns module so the HogQL engine can use them
 # without booting Django; re-exported here for existing callers.
 from posthog.property_columns import PropertyName, TableColumn, TableWithProperties  # noqa: F401
+from posthog.schema_enums import PropertyOperator
 from posthog.utils import str_to_bool
 
 
@@ -89,6 +90,7 @@ NEGATED_OPERATORS = ["is_not", "not_icontains", "not_starts_with", "not_ends_wit
 # Single source of truth for the starts_with/ends_with operator family, so each backend
 # allowlist (feature flags, logs, tracing, sessions) stays in sync without hand-copying.
 STRING_PREFIX_SUFFIX_OPERATORS: tuple[str, ...] = ("starts_with", "not_starts_with", "ends_with", "not_ends_with")
+SEMVER_OPERATORS: tuple[str, ...] = tuple(op.value for op in PropertyOperator if op.value.startswith("semver_"))
 CLICKHOUSE_ONLY_PROPERTY_TYPES = [
     "static-cohort",
     "dynamic-cohort",

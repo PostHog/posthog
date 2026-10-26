@@ -13,7 +13,8 @@ import { isStringDateRegex } from 'lib/utils/dateFilters'
 import { calculateDays } from 'lib/utils/durations'
 import { isNumeric } from 'lib/utils/guards'
 import { areObjectValuesEmpty } from 'lib/utils/objects'
-import { isOperatorDate } from 'lib/utils/operators'
+import { isOperatorDate, isOperatorSemver } from 'lib/utils/operators'
+import { isValidSemverValue } from 'lib/utils/semver'
 import {
     BEHAVIORAL_TYPE_TO_LABEL,
     CRITERIA_VALIDATIONS,
@@ -210,6 +211,12 @@ function hasPositiveCriterion(group: CohortCriteriaGroupFilter | AnyCohortCriter
     return (group.values as AnyCohortCriteriaType[]).filter((g) => !isCohortCriteriaGroup(g)).some((c) => !c.negation)
 }
 
+const SEMVER_RANGE_OPERATORS: ReadonlySet<PropertyOperator> = new Set([
+    PropertyOperator.SemverTilde,
+    PropertyOperator.SemverCaret,
+    PropertyOperator.SemverWildcard,
+])
+
 export function validateGroup(
     group: CohortCriteriaGroupFilter | AnyCohortCriteriaType,
     // The outer ("Match all/any criteria") operator and the other groups in the cohort. When the
@@ -328,6 +335,27 @@ export function validateGroup(
             return {
                 values: betweenErrors,
             }
+        }
+    }
+
+    const semverErrors: DeepPartialMap<CohortCriteriaType, ValidationErrorType>[] = criteria.map((c) => {
+        if (!c.operator || !isOperatorSemver(c.operator)) {
+            return {}
+        }
+        const value = 'value_property' in c ? c.value_property : null
+        const isValid =
+            typeof value === 'string' &&
+            isValidSemverValue(value, {
+                allowWildcard: c.operator === PropertyOperator.SemverWildcard,
+                requireFullVersion: !SEMVER_RANGE_OPERATORS.has(c.operator),
+            })
+        return isValid
+            ? {}
+            : { id: CohortClientErrors.InvalidSemverValue, value_property: CohortClientErrors.InvalidSemverValue }
+    }) as DeepPartialMap<CohortCriteriaType, ValidationErrorType>[]
+    if (semverErrors.some((e) => e.value_property)) {
+        return {
+            values: semverErrors,
         }
     }
 
