@@ -201,6 +201,7 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             for key in (
                 "display_name",
                 "unit",
+                "owner",
                 "definition",
                 "source_insight_short_id",
                 "created_source",

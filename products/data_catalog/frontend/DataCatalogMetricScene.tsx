@@ -14,6 +14,7 @@ import {
 } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDialog, LemonDivider, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
+import { MemberSelect } from 'lib/components/MemberSelect'
 import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -395,7 +396,12 @@ export function DataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProp
 
                 {mountedTabs.includes('definition') && (
                     <div className={tabPanelClassName('definition', activeTab)}>
-                        <MetricMetadata metric={metric} onSaveUnit={(unit) => confirmAndUpdate({ unit })} />
+                        <MetricMetadata
+                            metric={metric}
+                            saving={mutating}
+                            onSaveUnit={(unit) => confirmAndUpdate({ unit })}
+                            onSaveOwner={(owner) => updateMetric({ owner })}
+                        />
 
                         <MetricDefinition
                             metric={metric}
@@ -490,10 +496,14 @@ function StatusRow({ metric }: { metric: DataCatalogMetricApi }): JSX.Element {
 
 function MetricMetadata({
     metric,
+    saving,
     onSaveUnit,
+    onSaveOwner,
 }: {
     metric: DataCatalogMetricApi
+    saving: boolean
     onSaveUnit: (unit: string) => void
+    onSaveOwner: (owner: string | null) => void
 }): JSX.Element {
     const showProvenance = metric.created_source === 'ai_generated'
 
@@ -501,7 +511,27 @@ function MetricMetadata({
         <div className="flex flex-col gap-3">
             <StatusRow metric={metric} />
             <div className="grid grid-cols-2 gap-x-8 gap-y-2 text-sm max-w-2xl">
-                <MetadataItem label="Owner" value={metric.owner || 'Unassigned'} />
+                <MetadataItem
+                    label="Owner"
+                    value={
+                        <MemberSelect
+                            value={null}
+                            defaultLabel="Unassigned"
+                            onChange={(user) => onSaveOwner(user?.email ?? null)}
+                        >
+                            {() => (
+                                <LemonButton
+                                    type="tertiary"
+                                    size="xsmall"
+                                    loading={saving}
+                                    data-attr="data-catalog-metric-owner-select"
+                                >
+                                    {metric.owner || 'Unassigned'}
+                                </LemonButton>
+                            )}
+                        </MemberSelect>
+                    }
+                />
                 <MetadataItem label="Approved by" value={metric.approved_by?.email || 'Not approved'} />
                 <MetadataItem
                     label="Approved at"

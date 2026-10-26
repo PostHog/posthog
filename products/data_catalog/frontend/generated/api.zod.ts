@@ -77,6 +77,12 @@ export const DataCatalogMetricsCreateBody = /* @__PURE__ */ zod
             .max(dataCatalogMetricsCreateBodyUnitMax)
             .optional()
             .describe('Unit of the result, e.g. usd, percent, cents.'),
+        owner: zod
+            .email()
+            .nullish()
+            .describe(
+                "Email of the human accountable for this metric, or null. Set it to the email of a member of this organization to reassign the metric, or to null to clear it. Changing the owner keeps the metric's approval."
+            ),
         definition: zod
             .record(zod.string(), zod.unknown())
             .nullish()
@@ -166,6 +172,12 @@ export const DataCatalogMetricsUpdateBody = /* @__PURE__ */ zod.object({
         .max(dataCatalogMetricsUpdateBodyUnitMax)
         .optional()
         .describe('Unit of the result, e.g. usd, percent, cents.'),
+    owner: zod
+        .email()
+        .nullish()
+        .describe(
+            "Email of the human accountable for this metric, or null. Set it to the email of a member of this organization to reassign the metric, or to null to clear it. Changing the owner keeps the metric's approval."
+        ),
     definition: zod
         .record(zod.string(), zod.unknown())
         .nullish()
@@ -248,6 +260,12 @@ export const DataCatalogMetricsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .max(dataCatalogMetricsPartialUpdateBodyUnitMax)
         .optional()
         .describe('Unit of the result, e.g. usd, percent, cents.'),
+    owner: zod
+        .email()
+        .nullish()
+        .describe(
+            "Email of the human accountable for this metric, or null. Set it to the email of a member of this organization to reassign the metric, or to null to clear it. Changing the owner keeps the metric's approval."
+        ),
     definition: zod
         .record(zod.string(), zod.unknown())
         .nullish()

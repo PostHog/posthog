@@ -10,8 +10,9 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
+from posthog.models import User
 from posthog.models.activity_logging.activity_log import ActivityLog
-from posthog.models.organization import OrganizationMembership
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
@@ -131,6 +132,28 @@ class TestMetricAPI(APIBaseTest):
         assert response.json()["name"] == "arr"
         assert self.client.get(f"{self.url}mrr/").status_code == status.HTTP_404_NOT_FOUND
         assert self.client.get(f"{self.url}arr/").status_code == status.HTTP_200_OK
+
+    @parameterized.expand(
+        [
+            ("reassign_to_member", "new.owner@example.com", status.HTTP_200_OK, "new.owner@example.com"),
+            ("clear", None, status.HTTP_200_OK, None),
+            ("reject_outsider", "outsider@example.com", status.HTTP_400_BAD_REQUEST, "user1@posthog.com"),
+        ]
+    )
+    def test_patch_owner_keeps_approval(
+        self, _name: str, owner: str | None, expected_status: int, expected_owner: str | None
+    ) -> None:
+        User.objects.create_and_join(self.organization, "new.owner@example.com", None)
+        User.objects.create_and_join(Organization.objects.create(name="Other"), "outsider@example.com", None)
+        self.client.post(self.url, {"name": "mrr", "description": "v1"}, format="json")
+        self.client.post(f"{self.url}mrr/approve/")
+
+        response = self.client.patch(f"{self.url}mrr/", {"owner": owner}, format="json")
+
+        assert response.status_code == expected_status, response.json()
+        body = self.client.get(f"{self.url}mrr/").json()
+        assert body["owner"] == expected_owner
+        assert body["status"] == MetricStatus.APPROVED
 
     def test_create_after_delete_starts_fresh(self) -> None:
         created = self.client.post(

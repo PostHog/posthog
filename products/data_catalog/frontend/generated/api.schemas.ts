@@ -177,10 +177,10 @@ export interface DataCatalogMetricApi {
      */
     unit?: string
     /**
-     * Email of the human accountable for this metric, or null.
+     * Email of the human accountable for this metric, or null. Set it to the email of a member of this organization to reassign the metric, or to null to clear it. Changing the owner keeps the metric's approval.
      * @nullable
      */
-    readonly owner: string | null
+    owner?: string | null
     /**
      * Machine-readable query. Omit for a name+description-only stub. Stored upgrade-canonical.
      * @nullable
@@ -280,10 +280,10 @@ export interface DataCatalogMetricCreateApi {
      */
     unit?: string
     /**
-     * Email of the human accountable for this metric, or null.
+     * Email of the human accountable for this metric, or null. Set it to the email of a member of this organization to reassign the metric, or to null to clear it. Changing the owner keeps the metric's approval.
      * @nullable
      */
-    readonly owner: string | null
+    owner?: string | null
     /**
      * Machine-readable query. Omit for a name+description-only stub. Stored upgrade-canonical.
      * @nullable
@@ -407,10 +407,10 @@ export interface PatchedDataCatalogMetricApi {
      */
     unit?: string
     /**
-     * Email of the human accountable for this metric, or null.
+     * Email of the human accountable for this metric, or null. Set it to the email of a member of this organization to reassign the metric, or to null to clear it. Changing the owner keeps the metric's approval.
      * @nullable
      */
-    readonly owner?: string | null
+    owner?: string | null
     /**
      * Machine-readable query. Omit for a name+description-only stub. Stored upgrade-canonical.
      * @nullable
