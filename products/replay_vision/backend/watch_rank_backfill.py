@@ -6,6 +6,8 @@ up. It reads stored vectors from ClickHouse rather than embedding again, and fin
 memory per scanner, oldest first, the same way the consumer would have found them.
 """
 
+import time
+import random
 from collections import defaultdict
 from datetime import datetime
 from itertools import batched
@@ -22,6 +24,7 @@ from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
+from posthog.exceptions import ClickHouseAtCapacity
 
 from products.replay_vision.backend.embeddings import (
     OBSERVATION_EMBEDDINGS_TABLE,
@@ -45,6 +48,8 @@ logger = structlog.get_logger(__name__)
 
 _VECTOR_CHUNK = 500
 _QUERY_TIMEOUT_S = 60
+_CAPACITY_RETRY_BASE_S = 15
+_CAPACITY_RETRY_ATTEMPTS = 6
 
 
 @frozen
@@ -68,7 +73,21 @@ def teams_with_observations(since: datetime) -> list[int]:
 def _stored_vectors(
     team_id: int, scanner_id: str, observation_ids: list[str], since: datetime
 ) -> dict[str, np.ndarray]:
-    """Each observation's stored unit vector, for one batch of a scanner's observations."""
+    """Each observation's stored unit vector, for one batch of a scanner's observations, waiting out a full cluster."""
+    for attempt in range(_CAPACITY_RETRY_ATTEMPTS - 1):
+        try:
+            return _read_stored_vectors(team_id, scanner_id, observation_ids, since)
+        except ClickHouseAtCapacity:
+            delay = _CAPACITY_RETRY_BASE_S * 2**attempt
+            wait = random.uniform(delay, 2 * delay)
+            logger.info("replay_vision.watch_rank_backfill.capacity_wait", team_id=team_id, attempt=attempt, wait=wait)
+            time.sleep(wait)
+    return _read_stored_vectors(team_id, scanner_id, observation_ids, since)
+
+
+def _read_stored_vectors(
+    team_id: int, scanner_id: str, observation_ids: list[str], since: datetime
+) -> dict[str, np.ndarray]:
     with tags_context(product=Product.REPLAY_VISION, query_type="replay_vision_watch_rank_backfill"):
         # nosemgrep: clickhouse-fstring-param-audit - table name and scope are module constants
         rows = sync_execute(

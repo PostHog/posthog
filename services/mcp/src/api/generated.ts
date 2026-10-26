@@ -139384,7 +139384,23 @@ export namespace Schemas {
      * @minimum 0
      */
     chapter?: number;
+    /**
+     * `large` is up to 1280px wide, for detail views. `small` is up to 480px wide, for lists and grids. A frame rendered before small copies existed serves the large image for both.
+     *
+     * * `large` - Large
+     * * `small` - Small
+     * @minLength 1
+     */
+    size?: VisionObservationsThumbnailRetrieveSize;
     };
+
+    export type VisionObservationsThumbnailRetrieveSize = typeof VisionObservationsThumbnailRetrieveSize[keyof typeof VisionObservationsThumbnailRetrieveSize];
+
+
+    export const VisionObservationsThumbnailRetrieveSize = {
+      Large: 'large',
+      Small: 'small',
+    } as const;
 
     export type VisionObservationsSearchRetrieveParams = {
     /**
@@ -139728,7 +139744,23 @@ export namespace Schemas {
      * @minimum 0
      */
     chapter?: number;
+    /**
+     * `large` is up to 1280px wide, for detail views. `small` is up to 480px wide, for lists and grids. A frame rendered before small copies existed serves the large image for both.
+     *
+     * * `large` - Large
+     * * `small` - Small
+     * @minLength 1
+     */
+    size?: VisionScannersObservationsThumbnailRetrieveSize;
     };
+
+    export type VisionScannersObservationsThumbnailRetrieveSize = typeof VisionScannersObservationsThumbnailRetrieveSize[keyof typeof VisionScannersObservationsThumbnailRetrieveSize];
+
+
+    export const VisionScannersObservationsThumbnailRetrieveSize = {
+      Large: 'large',
+      Small: 'small',
+    } as const;
 
     export type VisionScannersObservationsStatsRetrieveParams = {
     /**
