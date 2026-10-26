@@ -297,6 +297,7 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @action(
         detail=False,
         methods=["POST"],
+        url_path="bulk-change-owner",
         required_scopes=["data_catalog:write"],
         request=MetricBulkChangeOwnerRequestSerializer,
         responses={200: MetricBulkChangeOwnerResponseSerializer},
@@ -308,8 +309,9 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         updated, skipped = api.bulk_change_metric_owner(
             metrics, request.validated_data["owner"], cast(User, request.user), request=request
         )
+        context = {**self.get_serializer_context(), "drift_map": api.compute_drift(updated)}
         payload = MetricBulkChangeOwnerResponseSerializer(
-            {"updated": updated, "skipped": [*unresolved, *skipped]}, context=self.get_serializer_context()
+            {"updated": updated, "skipped": [*unresolved, *skipped]}, context=context
         )
         return Response(payload.data)
 

@@ -526,7 +526,15 @@ class TestMetricLifecycleAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert [metric["name"] for metric in response.json()["approved"]] == ["mrr"]
 
-    def test_bulk_approve_computes_drift_in_a_single_insight_query(self) -> None:
+    @parameterized.expand(
+        [
+            ("bulk_approve", "bulk_approve", {}),
+            ("bulk_change_owner", "bulk-change-owner", {"owner": None}),
+        ]
+    )
+    def test_bulk_action_computes_drift_in_a_single_insight_query(
+        self, _name: str, url_path: str, extra_payload: dict
+    ) -> None:
         # Same N+1 guard as the list view: drift must not fan out into one insight lookup per metric.
         names = []
         for index in range(3):
@@ -540,7 +548,7 @@ class TestMetricLifecycleAPI(APIBaseTest):
                 source_insight_short_id=insight.short_id,
             )
         with CaptureQueriesContext(connection) as ctx:
-            response = self.client.post(f"{self.url}bulk_approve/", {"names": names}, format="json")
+            response = self.client.post(f"{self.url}{url_path}/", {"names": names, **extra_payload}, format="json")
         assert response.status_code == status.HTTP_200_OK, response.json()
         insight_queries = [q for q in ctx.captured_queries if "posthog_dashboarditem" in q["sql"]]
         assert len(insight_queries) == 1, insight_queries
@@ -582,7 +590,7 @@ class TestMetricLifecycleAPI(APIBaseTest):
         theirs = self._other_team_metric("theirs")
 
         response = self.client.post(
-            f"{self.url}bulk_change_owner/",
+            f"{self.url}bulk-change-owner/",
             {"names": ["mrr", "arr", "theirs", "unheard_of"], "owner": "new.owner@example.com"},
             format="json",
         )
@@ -596,6 +604,11 @@ class TestMetricLifecycleAPI(APIBaseTest):
         assert {skip["name"] for skip in body["skipped"]} == {"theirs", "unheard_of"}
         theirs.refresh_from_db()
         assert theirs.owner_id != User.objects.get(email="new.owner@example.com").id
+
+    def test_bulk_change_owner_path_leaves_a_metric_of_that_name_reachable(self) -> None:
+        upsert_metric(team=self.team, user=self.user, name="bulk_change_owner", description="d")
+
+        assert self.client.get(f"{self.url}bulk_change_owner/").status_code == status.HTTP_200_OK
 
     @parameterized.expand(
         [
@@ -613,8 +626,8 @@ class TestMetricLifecycleAPI(APIBaseTest):
             ),
             ("delete_read_only", "bulk_delete", ["data_catalog:read"], status.HTTP_403_FORBIDDEN),
             ("delete_with_write_scope", "bulk_delete", ["data_catalog:write"], status.HTTP_200_OK),
-            ("change_owner_read_only", "bulk_change_owner", ["data_catalog:read"], status.HTTP_403_FORBIDDEN),
-            ("change_owner_with_write_scope", "bulk_change_owner", ["data_catalog:write"], status.HTTP_200_OK),
+            ("change_owner_read_only", "bulk-change-owner", ["data_catalog:read"], status.HTTP_403_FORBIDDEN),
+            ("change_owner_with_write_scope", "bulk-change-owner", ["data_catalog:write"], status.HTTP_200_OK),
         ]
     )
     def test_bulk_actions_enforce_token_scopes(

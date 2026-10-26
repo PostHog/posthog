@@ -575,39 +575,6 @@ export interface DataCatalogMetricRunApi {
 }
 
 /**
- * Input for the bulk metric actions: the metric names to act on.
- */
-export interface DataCatalogMetricBulkNamesRequestApi {
-    /**
-     * Names of the metrics to act on, at most 100. Duplicates are collapsed.
-     * @minItems 1
-     * @maxItems 100
-     * @items.maxLength 128
-     */
-    names: string[]
-}
-
-/**
- * A metric the bulk action did not act on, and why.
- */
-export interface DataCatalogMetricBulkSkipApi {
-    /** Name of the metric that was skipped. */
-    name: string
-    /** Why it was skipped, e.g. 'Not found', 'Already approved', 'Drifted from its source insight'. */
-    reason: string
-}
-
-/**
- * Outcome of a bulk approve: what changed, and what was left alone.
- */
-export interface DataCatalogMetricBulkApproveApi {
-    /** The metrics that are now approved, freshly serialized. */
-    approved: DataCatalogMetricApi[]
-    /** Requested metrics that were not approved, with reasons. */
-    skipped: DataCatalogMetricBulkSkipApi[]
-}
-
-/**
  * Input for giving many metrics one owner.
  */
 export interface DataCatalogMetricBulkChangeOwnerRequestApi {
@@ -626,12 +593,45 @@ export interface DataCatalogMetricBulkChangeOwnerRequestApi {
 }
 
 /**
+ * A metric the bulk action did not act on, and why.
+ */
+export interface DataCatalogMetricBulkSkipApi {
+    /** Name of the metric that was skipped. */
+    name: string
+    /** Why it was skipped, e.g. 'Not found', 'Already approved', 'Drifted from its source insight'. */
+    reason: string
+}
+
+/**
  * Outcome of a bulk owner change: what changed, and what was left alone.
  */
 export interface DataCatalogMetricBulkChangeOwnerApi {
     /** The metrics that now have the new owner, freshly serialized. */
     updated: DataCatalogMetricApi[]
     /** Requested metrics whose owner did not change, with reasons. */
+    skipped: DataCatalogMetricBulkSkipApi[]
+}
+
+/**
+ * Input for the bulk metric actions: the metric names to act on.
+ */
+export interface DataCatalogMetricBulkNamesRequestApi {
+    /**
+     * Names of the metrics to act on, at most 100. Duplicates are collapsed.
+     * @minItems 1
+     * @maxItems 100
+     * @items.maxLength 128
+     */
+    names: string[]
+}
+
+/**
+ * Outcome of a bulk approve: what changed, and what was left alone.
+ */
+export interface DataCatalogMetricBulkApproveApi {
+    /** The metrics that are now approved, freshly serialized. */
+    approved: DataCatalogMetricApi[]
+    /** Requested metrics that were not approved, with reasons. */
     skipped: DataCatalogMetricBulkSkipApi[]
 }
 

@@ -205,12 +205,13 @@ describe('metricsLogic', () => {
         'filters by %s and reports the filter change once typing settles',
         async (_label, filterKey, property) => {
             const me = userLogic.values.user?.uuid as string
-            const filterValue = filterKey === 'createdBy' ? me : { uuid: me, email: 'me@example.com' }
+            const myEmail = userLogic.values.user?.email as string
+            const filterValue = filterKey === 'createdBy' ? me : myEmail
             const mine = buildMetric({
                 id: 'metric-1',
                 name: 'mine',
-                created_by: { id: 1, uuid: me, email: 'me@example.com', hedgehog_config: null },
-                owner: 'me@example.com',
+                created_by: { id: 1, uuid: me, email: myEmail, hedgehog_config: null },
+                owner: myEmail,
             })
             const theirs = buildMetric({
                 id: 'metric-2',
@@ -240,6 +241,20 @@ describe('metricsLogic', () => {
             }
         }
     )
+
+    it('offers the owners of the metrics as owner filter options, so a former member stays listed', async () => {
+        logic.actions.loadMetricsSuccess([
+            buildMetric({ id: 'metric-1', name: 'a', owner: 'rose.dawson@posthog.com' }),
+            buildMetric({ id: 'metric-2', name: 'b', owner: 'former.member@posthog.com' }),
+            buildMetric({ id: 'metric-3', name: 'c', owner: null }),
+            buildMetric({ id: 'metric-4', name: 'd', owner: 'rose.dawson@posthog.com' }),
+        ])
+
+        expect(logic.values.ownerFilterOptions).toEqual(['former.member@posthog.com', 'rose.dawson@posthog.com'])
+
+        logic.actions.setFilters({ owner: 'former.member@posthog.com' })
+        expect(logic.values.metrics.map((metric) => metric.name)).toEqual(['b'])
+    })
 
     it('patches approved rows and reloads to reconcile skipped ones', async () => {
         logic.actions.loadMetricsSuccess([

@@ -32,16 +32,11 @@ export type BulkMetricAction = 'approve' | 'delete' | 'change_owner'
 
 const METRICS_PAGE_SIZE = 100
 
-export interface MetricOwnerFilter {
-    uuid: string
-    email: string
-}
-
 export interface MetricsFilters {
     search: string
     status: MetricStatusFilter
     createdBy: string | null
-    owner: MetricOwnerFilter | null
+    owner: string | null
 }
 
 export const DEFAULT_METRICS_FILTERS: MetricsFilters = {
@@ -92,6 +87,7 @@ export interface metricsLogicValues {
     filters: MetricsFilters
     metricFromInsightModalOpen: boolean
     metrics: DataCatalogMetricApi[]
+    ownerFilterOptions: string[]
     proposedCount: number
 }
 
@@ -188,6 +184,7 @@ export interface metricsLogicActions {
 export interface metricsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         metrics: (allMetrics: DataCatalogMetricApi[], filters: MetricsFilters) => DataCatalogMetricApi[]
+        ownerFilterOptions: (allMetrics: DataCatalogMetricApi[]) => string[]
         proposedCount: (allMetrics: DataCatalogMetricApi[]) => number
     }
 }
@@ -297,8 +294,7 @@ export const metricsLogic = kea<metricsLogicType>([
                     results = results.filter((metric) => metric.created_by?.uuid === filters.createdBy)
                 }
                 if (filters.owner) {
-                    const ownerEmail = filters.owner.email
-                    results = results.filter((metric) => metric.owner === ownerEmail)
+                    results = results.filter((metric) => metric.owner === filters.owner)
                 }
                 if (filters.search) {
                     const fuse = createFuse<DataCatalogMetricApi>(results, {
@@ -310,6 +306,11 @@ export const metricsLogic = kea<metricsLogicType>([
                 return results
             },
         ],
+        ownerFilterOptions: [
+            (s) => [s.allMetrics],
+            (allMetrics: DataCatalogMetricApi[]): string[] =>
+                [...new Set(allMetrics.flatMap((metric) => (metric.owner ? [metric.owner] : [])))].sort(),
+        ],
         proposedCount: [
             (s) => [s.allMetrics],
             (allMetrics: DataCatalogMetricApi[]) => allMetrics.filter((metric) => metric.status === 'proposed').length,
@@ -320,13 +321,13 @@ export const metricsLogic = kea<metricsLogicType>([
             // The search box dispatches on every keystroke, so wait for typing to settle before reporting.
             await breakpoint(500)
             const { status, createdBy, owner, search } = values.filters
-            const describeMember = (uuid: string | undefined): string =>
-                uuid ? (uuid === values.user?.uuid ? 'me' : 'other') : 'any'
+            const describeMember = (identifier: string | null, mine: string | undefined): string =>
+                identifier ? (identifier === mine ? 'me' : 'other') : 'any'
             posthog.capture('data catalog metrics filtered', {
                 changed_filters: Object.keys(filters),
                 status,
-                created_by: describeMember(createdBy ?? undefined),
-                owner: describeMember(owner?.uuid),
+                created_by: describeMember(createdBy, values.user?.uuid),
+                owner: describeMember(owner, values.user?.email),
                 has_search: search.length > 0,
                 result_count: values.metrics.length,
             })

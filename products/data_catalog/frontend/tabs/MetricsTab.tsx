@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconRefresh } from '@posthog/icons'
-import { LemonButton, LemonDialog } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonSelect } from '@posthog/lemon-ui'
 
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -66,7 +66,7 @@ export function MetricsTab(): JSX.Element {
     // State, not a ref, so the table re-renders once the slot mounts and the bar can portal into it.
     // The bar portals below the table instead of above it, so selecting a row never shifts the rows.
     const [bulkBarTarget, setBulkBarTarget] = useState<HTMLDivElement | null>(null)
-    const { metrics, allMetrics, allMetricsLoading, filters, actionsInFlight, bulkActionInFlight } =
+    const { metrics, allMetrics, allMetricsLoading, filters, actionsInFlight, bulkActionInFlight, ownerFilterOptions } =
         useValues(metricsLogic)
     const {
         setFilters,
@@ -270,11 +270,15 @@ export function MetricsTab(): JSX.Element {
                     </div>
                     <div className="flex items-center gap-2">
                         <span>Owner:</span>
-                        <MemberSelect
-                            value={filters.owner?.uuid ?? null}
-                            onChange={(user) =>
-                                setFilters({ owner: user ? { uuid: user.uuid, email: user.email } : null })
-                            }
+                        <LemonSelect
+                            size="small"
+                            value={filters.owner}
+                            onChange={(owner) => setFilters({ owner })}
+                            options={[
+                                { value: null, label: 'Any user' },
+                                ...ownerFilterOptions.map((owner) => ({ value: owner, label: owner })),
+                            ]}
+                            data-attr="data-catalog-metrics-owner-filter"
                         />
                     </div>
                     <LemonSegmentedButton

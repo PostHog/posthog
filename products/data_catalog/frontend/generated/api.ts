@@ -383,6 +383,26 @@ export const dataCatalogMetricsRunCreate = async (
     })
 }
 
+export const getDataCatalogMetricsBulkChangeOwnerCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_catalog/metrics/bulk-change-owner/`
+}
+
+/**
+ * Give many metrics one owner, keeping their approvals. Unknown metrics are skipped.
+ */
+export const dataCatalogMetricsBulkChangeOwnerCreate = async (
+    projectId: string,
+    dataCatalogMetricBulkChangeOwnerRequestApi: DataCatalogMetricBulkChangeOwnerRequestApi,
+    options?: RequestInit
+): Promise<DataCatalogMetricBulkChangeOwnerApi> => {
+    return apiMutator<DataCatalogMetricBulkChangeOwnerApi>(getDataCatalogMetricsBulkChangeOwnerCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(dataCatalogMetricBulkChangeOwnerRequestApi),
+    })
+}
+
 export const getDataCatalogMetricsBulkApproveCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/data_catalog/metrics/bulk_approve/`
 }
@@ -400,26 +420,6 @@ export const dataCatalogMetricsBulkApproveCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(dataCatalogMetricBulkNamesRequestApi),
-    })
-}
-
-export const getDataCatalogMetricsBulkChangeOwnerCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/data_catalog/metrics/bulk_change_owner/`
-}
-
-/**
- * Give many metrics one owner, keeping their approvals. Unknown metrics are skipped.
- */
-export const dataCatalogMetricsBulkChangeOwnerCreate = async (
-    projectId: string,
-    dataCatalogMetricBulkChangeOwnerRequestApi: DataCatalogMetricBulkChangeOwnerRequestApi,
-    options?: RequestInit
-): Promise<DataCatalogMetricBulkChangeOwnerApi> => {
-    return apiMutator<DataCatalogMetricBulkChangeOwnerApi>(getDataCatalogMetricsBulkChangeOwnerCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(dataCatalogMetricBulkChangeOwnerRequestApi),
     })
 }
 
