@@ -3,6 +3,7 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/engineering_analytics/api'
+import hooks_engineeringAnalyticsBrokenTests from '@/tools/engineeringAnalytics/redactFailureLogsHooks'
 import hooks_engineeringAnalyticsCiFailureLogs from '@/tools/engineeringAnalytics/redactFailureLogsHooks'
 import hooks_engineeringAnalyticsRunFailureLogs from '@/tools/engineeringAnalytics/redactFailureLogsHooks'
 import { withToolHooks } from '@/tools/tool-hooks'
@@ -20,18 +21,21 @@ const engineeringAnalyticsBrokenTests = (): ToolBase<
 > => ({
     name: 'engineering-analytics-broken-tests',
     schema: EngineeringAnalyticsBrokenTestsSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof EngineeringAnalyticsBrokenTestsSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.BrokenTestsResult>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/engineering_analytics/broken_tests/`,
-            query: {
-                repo: params.repo,
-                source_id: params.source_id,
-            },
-        })
-        return result
-    },
+    handler: withToolHooks(
+        hooks_engineeringAnalyticsBrokenTests,
+        async (context: Context, params: z.infer<ReturnType<typeof EngineeringAnalyticsBrokenTestsSchema>>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const result = await context.api.request<Schemas.BrokenTestsResult>({
+                method: 'GET',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/engineering_analytics/broken_tests/`,
+                query: {
+                    repo: params.repo,
+                    source_id: params.source_id,
+                },
+            })
+            return result
+        }
+    ),
 })
 
 const EngineeringAnalyticsCiFailureLogsSchema = () => {

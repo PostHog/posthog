@@ -33,6 +33,7 @@ tools:
             breaking/resolved distinction needs the job-level source synced: without it those failures fall through to
             flaky/pr_only rather than being misreported. Counts are absolute, never rates (passing runs aren't in this
             data).
+        hooks: engineeringAnalytics/redactFailureLogsHooks
         feature_flag: engineering-analytics
     engineering-analytics-ci-failure-logs:
         operation: engineering_analytics_ci_failure_logs
