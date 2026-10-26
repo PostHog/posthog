@@ -35,7 +35,6 @@ from products.posthog_ai.eval_harness.scorers.contract import Score, Scorer
 __all__ = [
     "CanonicalMetricRun",
     "DeprecationProposed",
-    "DriftedBadgeShown",
     "SemanticMetadataQueried",
     "SemanticTrustDecisionCorrectness",
     "MetricDescriptionConcise",
@@ -47,7 +46,7 @@ __all__ = [
     "GovernedBehaviorCorrectness",
     "ClarificationAsked",
     "MetricDescribeBeforeAdaptedSql",
-    "ProposedBadgeShown",
+    "NoncanonicalBadgeShown",
     "TrustBadgeShown",
 ]
 
@@ -622,8 +621,10 @@ data-catalog-metric-run.
 If lookup or execution fails, disclose the failure and label any raw-query fallback noncanonical. \
 The word itself belongs in the query context. In the final answer, a plain statement that the number \
 is a one-off calculation rather than a saved definition counts as that label.
-- A 'proposed' or drifted metric must never be presented as canonical or official; the agent \
-must derive the number itself (it may note the unapproved definition exists).
+- A 'proposed' or drifted metric is never canonical or official, and an approved match outranks it. \
+The agent may run it when its stored definition measures what the user asked, and must derive the \
+number itself when it does not. Either way, the answer must warn the user that the metric is \
+proposed or drifted.
 - An empty catalog is normal: the agent must derive the number itself without stalling or \
 asking the user to define/approve a metric first.
 - The catalog is read-only: the agent must not create, edit, or propose metrics to answer. \
@@ -901,18 +902,20 @@ class TrustBadgeShown(Scorer):
         )
 
 
-class _NoncanonicalBadgeShown(Scorer):
-    """Binary: when the agent runs the named noncanonical metric, does the answer badge it and link to it?
+_NONCANONICAL_BADGES = {"proposed": PROPOSED_BADGE_ICON, "drifted": DRIFTED_BADGE_CODE_POINT}
 
-    Using a proposed or drifted metric is the agent's call, so a case where it never runs the metric is
-    skipped (``score=None``) and left to the behavior judge.
+
+class NoncanonicalBadgeShown(Scorer):
+    """Binary: when the agent runs the named proposed or drifted metric, does the answer badge it and link to it?
+
+    ``expected["proposed_badge"]["badge"]`` picks the badge (``proposed`` by default, or ``drifted``). Using
+    such a metric is the agent's call, so a case where it never runs the metric is skipped (``score=None``)
+    and left to the behavior judge.
     """
 
-    _scorer_name: str
-    _badge: str
-
     def _name(self) -> str:
-        return self._scorer_name
+        # Both badges report under one name because PostHog upload accepts only registered scorer versions.
+        return "proposed_badge"
 
     def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
         spec = expected.get(self._name()) if isinstance(expected, dict) else None
@@ -921,6 +924,9 @@ class _NoncanonicalBadgeShown(Scorer):
         metric_name = spec.get("metric_name") if isinstance(spec, dict) else None
         if not isinstance(metric_name, str) or not metric_name:
             return Score(name=self._name(), score=0.0, metadata={"reason": "metric_name is required"})
+        badge = _NONCANONICAL_BADGES.get(spec.get("badge", "proposed"))
+        if badge is None:
+            return Score(name=self._name(), score=0.0, metadata={"reason": "unknown badge"})
         parser = _parser_for(output)
         if parser is None:
             return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
@@ -936,20 +942,10 @@ class _NoncanonicalBadgeShown(Scorer):
         # A markdown link whose target ends at this metric's page, so a bare path or a metric whose
         # name only starts the same way does not count.
         link = re.compile(rf"\]\([^)\s]*/data-catalog/metrics/{re.escape(metric_name)}(?:[?#][^)\s]*)?\)")
-        has_badge = self._badge in opening
+        has_badge = badge in opening
         has_link = bool(link.search(opening))
         return Score(
             name=self._name(),
             score=1.0 if has_badge and has_link else 0.0,
             metadata={"has_badge": has_badge, "has_link": has_link},
         )
-
-
-class ProposedBadgeShown(_NoncanonicalBadgeShown):
-    _scorer_name = "proposed_badge"
-    _badge = PROPOSED_BADGE_ICON
-
-
-class DriftedBadgeShown(_NoncanonicalBadgeShown):
-    _scorer_name = "drifted_badge"
-    _badge = DRIFTED_BADGE_CODE_POINT

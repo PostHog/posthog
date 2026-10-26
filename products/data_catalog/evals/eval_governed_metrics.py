@@ -7,7 +7,7 @@ per-case team, asks a headline-business-number question, and grades the trust be
 * approved & not drifted → discover before data access, run the canonical metric, and
   recheck its trust state;
 * multiple materially different approved matches → clarify instead of guessing;
-* proposed or drifted match → run it with its warning badge when its SQL measures the ask,
+* proposed or drifted match → run it, opening with its badge, when its SQL measures the ask,
   derive by hand when the SQL measures something else, and warn about its status either way;
 * empty or failed canonical paths → disclose and label any fallback noncanonical;
 * a definition question the catalog cannot answer → reconstruct from the saved insight and
@@ -74,13 +74,12 @@ from products.data_catalog.evals.constants import (
 from products.data_catalog.evals.offline_config import offline_suite
 from products.data_catalog.evals.scorers import (
     CanonicalMetricRun,
-    DriftedBadgeShown,
     GovernedBehaviorCorrectness,
     MetricsCatalogBeforeAnswer,
     MetricsCatalogBeforeDataDiscovery,
     MetricsCatalogNotQueried,
     MetricsCatalogQueried,
-    ProposedBadgeShown,
+    NoncanonicalBadgeShown,
     TrustBadgeShown,
 )
 from products.data_catalog.evals.seeders import (
@@ -316,9 +315,12 @@ async def eval_governed_metrics(ctx: EvalContext) -> None:
                     "expected_behavior": (
                         f"Found the proposed (unapproved) metric '{PROPOSED_UPLOADERS_METRIC_NAME}', read its SQL, "
                         "saw that it counts distinct users with an uploaded_file event in the trailing 7 days, "
-                        "which is what the user asked, and ran it with data-catalog-metric-run. The answer reports "
-                        "the number and warns the user in words that the metric is only proposed, not approved. "
-                        "Deriving the number by hand while a fitting proposed metric exists, omitting the warning, "
+                        "which is what the user asked, and ran it with data-catalog-metric-run. The answer opens with "
+                        "the line '📝 **Proposed definition in your data catalog**: ' followed by a markdown link "
+                        "to the metric's data catalog page, reports the number, and warns the user in words that "
+                        "the metric is only proposed, not approved. "
+                        "Deriving the number by hand while a fitting proposed metric exists, omitting the opening line "
+                        "or the warning, "
                         "or presenting the number as approved or official is a failure."
                     )
                 },
@@ -355,17 +357,18 @@ async def eval_governed_metrics(ctx: EvalContext) -> None:
                     "metric_name": DRIFTED_METRIC_NAME,
                     "outcome": "succeeded",
                 },
-                "drifted_badge": {"metric_name": DRIFTED_METRIC_NAME},
+                "proposed_badge": {"metric_name": DRIFTED_METRIC_NAME, "badge": "drifted"},
                 "trust_badge": {"shown": False},
                 "governed_behavior_correctness": {
                     "expected_behavior": (
                         f"Found '{DRIFTED_METRIC_NAME}' and noticed it is drifted (is_drifted=true). It read the "
                         "metric's saved SQL, saw that it counts distinct users with any event in the trailing 7 "
                         "days, which is what the user asked, and ran it with data-catalog-metric-run. The answer "
-                        "reports the number and warns the user in words that the metric is drifted, meaning its "
-                        "source insight changed after approval. Deriving the number by hand while the drifted "
-                        "metric's SQL fits, omitting the warning, or presenting the number as approved and "
-                        "current is a failure."
+                        "opens with the line '⚠️ **Drifted definition in your data catalog**: ' followed by a "
+                        "markdown link to the metric's data catalog page, reports the number, and warns the user "
+                        "in words that the metric is drifted, meaning its source insight changed after approval. "
+                        "Deriving the number by hand while the drifted metric's SQL fits, omitting the opening "
+                        "line or the warning, or presenting the number as approved and current is a failure."
                     )
                 },
             },
@@ -775,10 +778,7 @@ async def eval_governed_metrics(ctx: EvalContext) -> None:
             MetricsCatalogNotQueried(),
             GovernedBehaviorCorrectness(),
             TrustBadgeShown(),
-            ProposedBadgeShown(),
-            # Not enrolled in the offline suite above: PostHog upload needs a scorer version created
-            # in project 2 first, so this score reaches Braintrust only.
-            DriftedBadgeShown(),
+            NoncanonicalBadgeShown(),
             # A case is one turn, so the user never answers the offer. Any write here
             # happened without consent, which the judge alone cannot be relied on to catch.
             NoToolCall({METRIC_CREATE_TOOL, METRIC_UPDATE_TOOL}, name="no_metric_write"),

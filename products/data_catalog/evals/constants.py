@@ -120,8 +120,7 @@ PROPOSED_METRIC_DEFINITION: dict = {
     ),
 }
 
-# Proposed pair: both cases seed the same name and description, so the stored SQL is the only
-# signal for whether the agent should run the metric. The mismatched SQL counts downloads.
+# Proposed pair: same name and description, so the stored SQL is the only signal to run it or not.
 PROPOSED_UPLOADERS_METRIC_NAME = "weekly_active_uploaders"
 PROPOSED_UPLOADERS_METRIC_DESCRIPTION = "Distinct users who uploaded at least one file in the trailing 7 days."
 PROPOSED_UPLOADERS_METRIC_DEFINITION: dict = {
@@ -160,9 +159,7 @@ DEFINITION_INSIGHT_QUERY: dict = {
 DECOY_INSIGHT_NAMES = ("Key metrics overview", "Revenue metrics by plan")
 
 # Drifted pair: approved from a source insight, then the insight's query is mutated so the
-# metric reads approved-but-drifted. A run executes the SQL saved at approval, which here still
-# measures WAU. The mismatched arm keeps the same name and description but saved SQL that counts
-# weekly signups, so the saved SQL is the only signal for whether the agent should run it.
+# metric reads drifted. A run executes the SQL saved at approval, so that SQL decides the case.
 DRIFTED_METRIC_NAME = "weekly_active_users"
 DRIFTED_METRIC_DESCRIPTION = "Official WAU. Unique users with any activity event in the trailing 7 days."
 DRIFTED_INSIGHT_ORIGINAL_QUERY: dict = {
