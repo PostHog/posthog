@@ -84,6 +84,7 @@ class TestReviewerCorrectionNoteContent(SimpleTestCase):
         [
             ("no_reason", None, "Self-removal alone does not establish"),
             ("wrong_area", "wrong_area", "scoped to the area of the source report"),
+            ("owned_by_someone_else", "owned_by_someone_else", "on the strength of the same older evidence"),
             ("unavailable", "unavailable", "do not record an exclusion"),
         ]
     )
@@ -101,6 +102,7 @@ class TestReviewerCorrectionNoteContent(SimpleTestCase):
 
         assert expected in content
         assert ("Self-removal alone" in content) == (reason is None)
+        assert ("weaker evidence" in content) == (reason is None)
 
     def test_a_removal_note_cannot_pose_as_a_section(self) -> None:
         content = _build_note_content(

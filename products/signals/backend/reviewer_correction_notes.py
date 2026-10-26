@@ -349,10 +349,14 @@ def _build_note_content(
     if teammate_removed:
         sections.append(f"{_REMOVED_SECTION_PREFIX}{_listed(teammate_removed)}.")
     if self_removed:
-        sections.append(
-            f"{_REMOVED_SECTION_PREFIX}{_listed(self_removed)}. That is the editor's own identity, which is weaker "
-            "evidence than a teammate removing someone."
+        # The weak-evidence caveat makes a model demote the person rather than drop them, which is right
+        # for an unexplained self-removal and wrong when the editor said why.
+        caveat = (
+            "That is the editor's own identity, removed for the reason stated below."
+            if removal_reason in _REASON_GUIDANCE
+            else "That is the editor's own identity, which is weaker evidence than a teammate removing someone."
         )
+        sections.append(f"{_REMOVED_SECTION_PREFIX}{_listed(self_removed)}. {caveat}")
     if teammate_removed or self_removed:
         if removal_reason:
             sections.append(f"Reason the editor gave for the removal: `{removal_reason}`.")
@@ -379,8 +383,8 @@ _REASON_GUIDANCE = {
         "scoped to the area of the source report, and keep routing other areas to them."
     ),
     "owned_by_someone_else": (
-        "Someone else owns this work. Look for the owner in current ownership evidence. This alone does not "
-        "exclude the removed identity from the area."
+        "Someone else owns this work. Do not select the removed identity for similar work on the strength of the "
+        "same older evidence. Look for the owner in current ownership evidence."
     ),
     "unavailable": (
         "The removed identity is not available. This is not ownership evidence, so do not record an "
