@@ -71014,18 +71014,37 @@ export namespace Schemas {
     } as const;
 
     export interface MessageCategory {
+      /** Category ID. Workflow message steps take it as `message_category_id`, and the opt-out of messages step takes it as its `category_id` input. */
       readonly id: string;
-      /** @maxLength 64 */
+      /**
+         * Stable identifier for the category, unique within the project, for example `newsletter`. Opt-out lists and preference imports refer to categories by key. You can't change the key after creation.
+         * @maxLength 64
+         */
       key: string;
-      /** @maxLength 128 */
+      /**
+         * Display name of the category, shown in the PostHog app.
+         * @maxLength 128
+         */
       name: string;
+      /** Internal notes about which messages belong to this category. Recipients don't see it. */
       description?: string;
+      /** Description that recipients see next to the category on the preferences page. */
       public_description?: string;
+      /** `marketing` (the default): recipients can opt out of it, and sends skip recipients who did. `transactional`: for messages a recipient must get, such as receipts or password resets. Sends ignore opt-outs, and the category doesn't appear on the preferences page. Set `message_category_type` on a workflow message step to the type of its category.
+       *
+       * * `marketing` - Marketing
+       * * `transactional` - Transactional */
       category_type?: MessageCategoryTypeEnum;
+      /** When the category was created. */
       readonly created_at: string;
+      /** When the category was last changed. */
       readonly updated_at: string;
-      /** @nullable */
+      /**
+         * ID of the user who created the category. Null when the user no longer exists.
+         * @nullable
+         */
       readonly created_by: number | null;
+      /** Set to true to archive the category. Archived categories don't appear in lists. */
       deleted?: boolean;
     }
 
@@ -87961,18 +87980,37 @@ export namespace Schemas {
     }
 
     export interface PatchedMessageCategory {
+      /** Category ID. Workflow message steps take it as `message_category_id`, and the opt-out of messages step takes it as its `category_id` input. */
       readonly id?: string;
-      /** @maxLength 64 */
+      /**
+         * Stable identifier for the category, unique within the project, for example `newsletter`. Opt-out lists and preference imports refer to categories by key. You can't change the key after creation.
+         * @maxLength 64
+         */
       key?: string;
-      /** @maxLength 128 */
+      /**
+         * Display name of the category, shown in the PostHog app.
+         * @maxLength 128
+         */
       name?: string;
+      /** Internal notes about which messages belong to this category. Recipients don't see it. */
       description?: string;
+      /** Description that recipients see next to the category on the preferences page. */
       public_description?: string;
+      /** `marketing` (the default): recipients can opt out of it, and sends skip recipients who did. `transactional`: for messages a recipient must get, such as receipts or password resets. Sends ignore opt-outs, and the category doesn't appear on the preferences page. Set `message_category_type` on a workflow message step to the type of its category.
+       *
+       * * `marketing` - Marketing
+       * * `transactional` - Transactional */
       category_type?: MessageCategoryTypeEnum;
+      /** When the category was created. */
       readonly created_at?: string;
+      /** When the category was last changed. */
       readonly updated_at?: string;
-      /** @nullable */
+      /**
+         * ID of the user who created the category. Null when the user no longer exists.
+         * @nullable
+         */
       readonly created_by?: number | null;
+      /** Set to true to archive the category. Archived categories don't appear in lists. */
       deleted?: boolean;
     }
 

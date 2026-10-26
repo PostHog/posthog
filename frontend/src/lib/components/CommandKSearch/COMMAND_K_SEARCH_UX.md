@@ -195,6 +195,7 @@ These are the rules reviewers check. Breaking one is a bug.
 - **Same key twice** (`is:dashboard is:insight`): the later value replaces the earlier chip. While a value for a key that already has a chip is being typed, results preview the new value instead of the chip.
 - **Invalid value** (`is:banana`): keep it as plain text, no chip, and show "No type called banana" in the Suggestions section.
 - **Ask PostHog AI**: the last section in Search mode. Without filters, the question is the input text as typed. With filters and free text, the filters read as a sentence around the text (`Find notebooks created by me called "untitled"`). With filters and no free text, the section does not show and Tab does not ask AI.
+  Asking AI does not send the question. It closes the palette and opens the PostHog AI side panel with the question in the composer, so the user can edit it and send it with Enter.
 
 ## Out of scope for v1
 
