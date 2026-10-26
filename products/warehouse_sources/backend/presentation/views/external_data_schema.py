@@ -53,6 +53,7 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSchemaDestination,
     ExternalDataSource,
     UnsupportedSyncTypeError,
+    WarehouseColumnStatistics,
     discovered_schema_finder,
     mark_schema_running_unless_halted,
     resolve_destinations,
@@ -520,6 +521,19 @@ def masked_columns_error(
     if conflicting:
         return f"Primary-key, incremental-field and partition columns can't be masked: {sorted(conflicting)}."
     return None
+
+
+def _clear_masked_column_bounds(schema: ExternalDataSchema) -> None:
+    # Profiles computed before the mask hold plaintext bounds, and the profiler recomputes them only daily.
+    masked = {fold_column_name(column) for column in schema.masked_columns or []}
+    statistics = WarehouseColumnStatistics.objects.for_team(schema.team_id).filter(
+        table_id=schema.table_id, has_min_max=True
+    )
+    stale = [
+        stat_id for stat_id, name in statistics.values_list("id", "column_name") if fold_column_name(name) in masked
+    ]
+    if stale:
+        statistics.filter(id__in=stale).update(min_value=None, max_value=None, has_min_max=False)
 
 
 def _stage_mask_rebuild(config: dict[str, Any]) -> None:
@@ -1740,6 +1754,9 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         )
         if publication_removal is not None:
             self._run_temporal_side_effect(publication_removal)
+
+        if masked_columns_changed and updated_instance.table_id is not None:
+            _clear_masked_column_bounds(updated_instance)
 
         # A version repin invalidates any in-flight import: retried/resumed activities re-resolve
         # the version from the DB, so letting the run finish would mix two vendor API versions in

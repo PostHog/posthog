@@ -48,6 +48,7 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.models.util import clean_type
+from products.warehouse_sources.backend.temporal.data_imports.naming_convention import fold_column_name
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.db_retry import (
     retry_on_operational_error,
 )
@@ -626,6 +627,15 @@ def compute_table_statistics_sync(team_id: int, schema_id: uuid.UUID) -> dict[st
             return {"status": "skipped", "reason": "no_files"}
         row_count, stats_by_column = _aggregate_add_action_stats(add_actions, columns)
         basis = "full"
+
+    # A masked column's bounds are plaintext until its rebuild lands, and digests after it.
+    masked = {fold_column_name(column) for column in schema.masked_columns or []}
+    stats_by_column = {
+        name: dataclasses.replace(stat, min_value=None, max_value=None, has_min_max=False)
+        if fold_column_name(name) in masked
+        else stat
+        for name, stat in stats_by_column.items()
+    }
 
     try:
         for column_name, stat in stats_by_column.items():

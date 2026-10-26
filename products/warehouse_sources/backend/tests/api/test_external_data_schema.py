@@ -41,6 +41,7 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataJob,
     ExternalDataSchema,
     ExternalDataSource,
+    WarehouseColumnStatistics,
     update_sync_type_config_keys,
 )
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
@@ -5221,6 +5222,25 @@ class TestExternalDataSchemaMaskedColumns(APIBaseTest):
         assert schema.sync_type_config.get("reset_pipeline") is (True if resyncs else None)
         assert mock_trigger.call_args_list == ([mock.call(mock.ANY, buffer_one=True)] if resyncs else [])
         assert mock_cancel.call_args_list == ([mock.call("running-workflow-id")] if resyncs else [])
+
+    def test_a_mask_change_clears_the_cached_bounds_of_masked_columns(self) -> None:
+        table = DataWarehouseTable.objects.create(team=self.team)
+        schema = self._create(table=table)
+        for column in ("password", "email"):
+            WarehouseColumnStatistics.objects.for_team(self.team.id).create(
+                team=self.team, table=table, column_name=column, min_value="a", max_value="z", has_min_max=True
+            )
+        with mock.patch(f"{self.VIEWS}.trigger_external_data_workflow"):
+            response = self._patch(schema, {"masked_columns": ["Password"]})
+
+        assert response.status_code == 200, response.json()
+        bounds = {
+            name: (low, high)
+            for name, low, high in WarehouseColumnStatistics.objects.for_team(self.team.id).values_list(
+                "column_name", "min_value", "max_value"
+            )
+        }
+        assert bounds == {"password": (None, None), "email": ("a", "z")}
 
     def test_a_patch_without_the_field_keeps_the_masks(self) -> None:
         schema = self._create(masked_columns=["password"])

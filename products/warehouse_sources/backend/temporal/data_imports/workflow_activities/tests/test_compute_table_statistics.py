@@ -740,6 +740,33 @@ class TestComputeTableStatisticsSync:
         assert stat.computed_for_delta_version == 12
         assert stat.column_type == "Int64"
 
+    def test_a_masked_column_keeps_its_counts_but_stores_no_bounds(self) -> None:
+        team = self._team()
+        schema, table, _ = self._schema_table_job(
+            team, columns={"amount": {"clickhouse": "Nullable(Int64)"}, "email": {"clickhouse": "Nullable(String)"}}
+        )
+        ExternalDataSchema.objects.filter(id=schema.id).update(masked_columns=["Email"])
+        add_actions = pa.table(
+            {
+                "num_records": [10],
+                "null_count.amount": [0],
+                "min.amount": [2],
+                "max.amount": [9],
+                "null_count.email": [1],
+                "min.email": ["a@example.com"],
+                "max.email": ["z@example.com"],
+            }
+        )
+        with patch(DELTA_HELPER_PATH, return_value=self._mock_delta(add_actions)):
+            compute_table_statistics_sync(team.id, schema.id)
+
+        stats = {
+            s.column_name: s for s in WarehouseColumnStatistics.objects.for_team(team.id).filter(table_id=table.id)
+        }
+        assert (stats["email"].null_count, stats["email"].min_value, stats["email"].max_value) == (1, None, None)
+        assert stats["email"].has_min_max is False
+        assert (stats["amount"].min_value, stats["amount"].max_value) == ("2", "9")
+
     def test_recovers_from_stale_connection_during_write(self) -> None:
         # The Delta-log read can run long enough for the pooled connection opened by the earlier
         # metadata queries to go stale before the write loop runs, raising OperationalError on the
