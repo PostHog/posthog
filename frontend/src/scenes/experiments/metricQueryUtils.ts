@@ -259,6 +259,19 @@ const getFunnelSeries = (
     )
 
 /**
+ * The series editor has rows for events, actions and synced warehouse tables only. A
+ * warehouse-native source has no row yet, so the form refuses it like the insight converters do.
+ */
+export function metricSourcesToSeries(sources: ExperimentMetricSource[]): SeriesNode[] {
+    return sources.map((source) => {
+        if (source.kind === NodeKind.ExperimentWarehouseNativeNode) {
+            throw new Error('Warehouse-native sources cannot be edited in the metric form yet')
+        }
+        return source
+    })
+}
+
+/**
  * The picker mirrors a warehouse table's name onto `id`, which `ExperimentDataWarehouseNode` does
  * not accept, so a table keeps only `table_name`. A group has no experiment equivalent and gives null.
  */

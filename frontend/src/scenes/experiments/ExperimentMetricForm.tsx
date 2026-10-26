@@ -49,7 +49,7 @@ import {
 } from './ExperimentMetricOutlierHandling'
 import { ExperimentMetricThreshold, isThresholdAvailableForMath } from './ExperimentMetricThreshold'
 import { EXPOSURE_DEFAULT_EVENT, getActivationConfig, isDefaultExposureConfig } from './exposureContract'
-import { seriesToMetricConfig, seriesToMetricSource } from './metricQueryUtils'
+import { metricSourcesToSeries, seriesToMetricConfig, seriesToMetricSource } from './metricQueryUtils'
 import { commonActionFilterProps } from './Metrics/Selectors'
 import {
     getAllowedMathTypes,
@@ -367,7 +367,7 @@ export function ExperimentMetricForm({
                     <>
                         <SeriesActionFilter
                             bordered
-                            series={[metric.source]}
+                            series={metricSourcesToSeries([metric.source])}
                             trendsDisplayCategory={ChartDisplayCategory.TimeSeries}
                             dataWarehouseNodeKind={NodeKind.ExperimentDataWarehouseNode}
                             onChange={handleSetSeries}
@@ -416,7 +416,7 @@ export function ExperimentMetricForm({
                 {isExperimentFunnelMetric(metric) && (
                     <SeriesActionFilter
                         bordered
-                        series={metric.series}
+                        series={metricSourcesToSeries(metric.series)}
                         trendsDisplayCategory={ChartDisplayCategory.TimeSeries}
                         dataWarehouseNodeKind={NodeKind.ExperimentDataWarehouseNode}
                         onChange={handleSetSeries}
@@ -441,7 +441,7 @@ export function ExperimentMetricForm({
                             <LemonLabel className="mb-1">Numerator (what you're measuring)</LemonLabel>
                             <SeriesActionFilter
                                 bordered
-                                series={[metric.numerator]}
+                                series={metricSourcesToSeries([metric.numerator])}
                                 trendsDisplayCategory={ChartDisplayCategory.TimeSeries}
                                 dataWarehouseNodeKind={NodeKind.ExperimentDataWarehouseNode}
                                 onChange={(series) => {
@@ -469,7 +469,7 @@ export function ExperimentMetricForm({
                             <LemonLabel className="mb-1">Denominator (what you're dividing by)</LemonLabel>
                             <SeriesActionFilter
                                 bordered
-                                series={[metric.denominator]}
+                                series={metricSourcesToSeries([metric.denominator])}
                                 trendsDisplayCategory={ChartDisplayCategory.TimeSeries}
                                 dataWarehouseNodeKind={NodeKind.ExperimentDataWarehouseNode}
                                 onChange={(series) => {
@@ -557,7 +557,7 @@ export function ExperimentMetricForm({
                             ) : (
                                 <SeriesActionFilter
                                     bordered
-                                    series={[metric.start_event]}
+                                    series={metricSourcesToSeries([metric.start_event])}
                                     trendsDisplayCategory={ChartDisplayCategory.TimeSeries}
                                     dataWarehouseNodeKind={NodeKind.ExperimentDataWarehouseNode}
                                     onChange={(series) => {
@@ -589,7 +589,7 @@ export function ExperimentMetricForm({
                             </LemonLabel>
                             <SeriesActionFilter
                                 bordered
-                                series={[metric.completion_event]}
+                                series={metricSourcesToSeries([metric.completion_event])}
                                 trendsDisplayCategory={ChartDisplayCategory.TimeSeries}
                                 dataWarehouseNodeKind={NodeKind.ExperimentDataWarehouseNode}
                                 onChange={(series) => {
