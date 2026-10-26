@@ -49,10 +49,7 @@ export function DashboardInsightResultMenu({
               ? query
               : undefined
     const recordingQuery = actors?.query
-    const canViewRecordings =
-        !!recordingQuery &&
-        (('includeRecordings' in recordingQuery && recordingQuery.includeRecordings) ||
-            !!actors?.additionalSelect?.matched_recordings)
+    const canViewRecordings = !!recordingQuery && !!actors?.additionalSelect?.matched_recordings
     const rowsQuery: DataTableNode | undefined =
         actors?.rowsQuery ??
         (actors?.query

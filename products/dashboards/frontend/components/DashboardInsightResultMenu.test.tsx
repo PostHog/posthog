@@ -39,6 +39,39 @@ beforeEach(() => {
 })
 
 describe('dashboard result menu', () => {
+    it('loads lifecycle people and SQL without requesting unsupported recordings', async () => {
+        const request: OpenPersonsModalProps = {
+            title: 'Resurrecting users',
+            query: {
+                kind: NodeKind.InsightActorsQuery,
+                source: {
+                    kind: NodeKind.LifecycleQuery,
+                    series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+                },
+                day: '2026-01-02',
+                status: 'resurrecting',
+                includeRecordings: true,
+            },
+            additionalSelect: {},
+        }
+        render(
+            <DashboardInsightResultMenu insight={insightOnDashboard(1, [1])}>
+                <button onClick={() => openPersonsModal(request)}>Lifecycle point</button>
+            </DashboardInsightResultMenu>
+        )
+        fireEvent.click(screen.getByText('Lifecycle point'))
+        await waitFor(() => expect(screen.getByText('Open in SQL editor').closest('a')).not.toBeNull())
+        expect(screen.queryByText('View recordings')).not.toBeInTheDocument()
+        expect(queryRunner.performQuery).toHaveBeenCalledWith(
+            expect.objectContaining({ source: request.query, select: ['actor'] }),
+            expect.objectContaining({ signal: expect.any(AbortSignal) }),
+            undefined,
+            expect.any(String)
+        )
+        fireEvent.click(screen.getByText('View people'))
+        expect(openedModal).toHaveBeenCalledWith(request)
+    })
+
     it('opens BI query snapshots in the SQL editor with their source intact', () => {
         const source: HogQLQuery = {
             kind: NodeKind.HogQLQuery,
