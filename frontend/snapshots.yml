@@ -3360,6 +3360,14 @@ snapshots:
         hash: v1.k794b7964.030c95e50318c77d8010cb0a0fa7829cfba90270045068a0db974e232504f9ad.iP86lD1msdXZjVXPQ1hzjV9tizv3xhQfntQDguO8GLg
     experiments-howtoreadtooltip--tooltip-frequentist--light:
         hash: v1.k794b7964.06d76f5dd20d9afc251e95a391666454d01199bf6a587ed1443c19540bd92f57.qvlIJTJCzqS5DL7nVn55PYJujlSmxLxgPDYwA8a5wWo
+    experiments-replayvisionscannercard--off--dark:
+        hash: v1.k794b7964.c9fb173cda38d075177709adc2b01144d835ca606362b9c701a596199a755158.nWxgtqo2ZyNfFq0RRmHmy78q7Hu_ZRbjSM5Q70inZKs
+    experiments-replayvisionscannercard--off--light:
+        hash: v1.k794b7964.29b3f4aabf9a8b4278f376eb215e9a0b9cd790b0dc71d45f883d9de0ab3c1b00.2EJQM-yi0aTNj2xCm0WTg4Ghpn6ltHzErpZH17f-4N0
+    experiments-replayvisionscannercard--on--dark:
+        hash: v1.k794b7964.2310779b5f45ffee6c85f3df1b1cf40d52c32233890d210d3a41378df0f304ff.eQoOTer1duveivghgGouT2veQHXRZdN3wcdrnMqzJcU
+    experiments-replayvisionscannercard--on--light:
+        hash: v1.k794b7964.d6ec4b22a942e76937533228a48b0b9c2b96fd91e59490b73d288d79e5484bf8.-jm9LXPCfKi4WA8TdwuacvyPmG_VO1e7HGUY8Nct_8Q
     experiments-varianttimeseriestooltip--pending-day--dark:
         hash: v1.k794b7964.f97da973c97eab91ecdcbecedb9a1065107791def08411296c66f656cf021914.QvKHBwki9F0yI62j134QSU7jkV2sUlHq6SHddrzmRNo
     experiments-varianttimeseriestooltip--pending-day--light:
@@ -8184,6 +8192,30 @@ snapshots:
         hash: v1.k794b7964.d6977b391a9f26309799ef1ef522b6834aa7f0e23dab4e293069c58c2a0b54e4.IwwwLP99sni7rCWBvJCE_8dpsla1s7t7mGMyixDS0rI
     products-tracing-traceaieventscapnotice--past-the-cap--light:
         hash: v1.k794b7964.feda0df05e8e57c124b6730048dd57d0d678d429c263cff2c5fcb575f945b280.ahdaUiPk9d3Xp8PlnXG7oy3Y5sUkAslXiNwntmQsWAk
+    products-tracing-traceoperationstab--narrowest--dark:
+        hash: v1.k794b7964.9c1ed31c4c0123f4bfbc23b18606aa98d324c6f0bc919791690bbbe57ea74e47.w0TlHrz2y0DG_KB0biW0_61gj4rVsgOHfoFAjAVDuxQ
+    products-tracing-traceoperationstab--narrowest--light:
+        hash: v1.k794b7964.62833e302020c19c9f6be1e1436d2db8898252d7178caa08c57821fe577c6d02.k_FL7WgvVIU1VuHM9h2p1FJIy--kSDO510qQzqa8lJE
+    products-tracing-traceoperationstab--this-span--dark:
+        hash: v1.k794b7964.80d69a88e5459b0770a3dac91d2750bf707d73d15fc4611f546becae49bdf42c.UkrWzdmXzYHTRV8aTSKev-xcgxk0qiV2ryJYQlyJFb0
+    products-tracing-traceoperationstab--this-span--light:
+        hash: v1.k794b7964.0029a54b1ed3d124f160eaf5fefbcbb3883c3fa5a38f5f511db34efb7bdb8f52.m4zlAEr4bOCgl3_0RJA4e7JcE3MF7PJx6uBEYtXGO_c
+    products-tracing-traceoperationstab--whole-trace--dark:
+        hash: v1.k794b7964.6dc7a084dd321fd06596321dd67acc4c424ec54dc58646427fc863105982d9d4.aweoLqJcroGF4_Wc72w-KYqW9qLFz4SK_jxZYHkkJHA
+    products-tracing-traceoperationstab--whole-trace--light:
+        hash: v1.k794b7964.e1b29c6cfe8146f2803560536ec0cf935a0fc779d0f3f4bd201d26fe1559cdf2.YzMszjrf7rj1FxjKUzouXM3hJUFSXRqHEEYdUzn8ULE
+    products-tracing-traceoperationstable--capped--dark:
+        hash: v1.k794b7964.49420bc8c5771bb9dfa92e0cb236f323d9fc2b5efa6f07bae31d5027824e2473._ToUBlZDL1Dvmsg2NsOAOiqMLRaL8d1bTkGp9m0urm0
+    products-tracing-traceoperationstable--capped--light:
+        hash: v1.k794b7964.026c9915e99086e2546f09ad8d6c5c8be601548c946857b3627707753e133dff.qFIHmevdw80OgGlXTA8dBRLH2OMneoXCsEdRgbZxICk
+    products-tracing-traceoperationstable--default--dark:
+        hash: v1.k794b7964.54be2633e637c6c87bf6f058455f8ee6debff77f2ed6e8825a00e72e65a2cf79.ja3KUOj2KtArkDB-k8GvVY7uxfc3h7Zg0WcVi--kHqs
+    products-tracing-traceoperationstable--default--light:
+        hash: v1.k794b7964.3e1f071f75aaf78b8156d01b486535db7f37d6e64138d80abb0b989b0790e366.1R-nOKXm0aHOec5sMsUK5_AEksbkdc8ImVXX7y8Psxo
+    products-tracing-traceoperationstable--narrow--dark:
+        hash: v1.k794b7964.a5725d637781462f2220d218173853b210c750d09f2c0c9b8ed42ed3d0b86601.te8Ga3QG0gpkuXBfSi1mBNfy59G_Z4G8FlCl4L8ZzxA
+    products-tracing-traceoperationstable--narrow--light:
+        hash: v1.k794b7964.6d769306bbfd3f220d7cebc460c066e3712fbac76961c751422274d000322fa5.0mR0sL4fZ9_06uBaXMtRmRVbQLvpD8U_ybLKTDK4Z5w
     products-tracing-virtualizedspanlist--custom-columns--dark:
         hash: v1.k794b7964.706ec8b392aa8b7e63123ae73233f0aa49314df1f4c32894f6f48c7883c35cf3.4royX3fTwY_wCZ7DXohmhbu1njNM4B7nRI6YgxJaKiw
     products-tracing-virtualizedspanlist--custom-columns--light:
