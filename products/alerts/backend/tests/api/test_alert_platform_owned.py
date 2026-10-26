@@ -258,24 +258,29 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
             {"upper": 200},
         )
 
-    def test_a_platform_edit_the_insight_stack_cannot_check_is_refused_on_both_rows(self) -> None:
-        def percentage_bound(stored: PlatformAlertConfigurationEdit) -> PlatformAlertConfigurationEdit:
-            threshold = {"type": "percentage", "bounds": {"upper": 0.5}}
-            condition = {**stored.source_config["condition"], "threshold": threshold}
+    @parameterized.expand(
+        [
+            ("percentage_bound", {"threshold": {"type": "percentage", "bounds": {"upper": 0.5}}}),
+            # The insight API checks a detector against its insight and its access rules, so only it may set one.
+            ("detector", {"detector": {"type": "zscore"}}),
+        ]
+    )
+    def test_a_platform_edit_the_insight_stack_cannot_check_is_refused_on_both_rows(
+        self, _name: str, condition_change: dict[str, Any]
+    ) -> None:
+        stored_config = self._copy().source_config
+
+        def edit(stored: PlatformAlertConfigurationEdit) -> PlatformAlertConfigurationEdit:
+            condition = {**stored.source_config["condition"], **condition_change}
             return replace(stored, source_config={**stored.source_config, "condition": condition})
 
         with pytest.raises(InvalidPlatformAlertEdit):
-            self._edit_on_the_platform(percentage_bound)
+            self._edit_on_the_platform(edit)
 
         self.alert.refresh_from_db()
         assert self.alert.threshold is not None
-        assert (
-            self.alert.threshold.configuration["type"],
-            self._copy().source_config["condition"]["threshold"]["type"],
-        ) == (
-            "absolute",
-            "absolute",
-        )
+        assert (self.alert.threshold.configuration["type"], self.alert.detector_config) == ("absolute", None)
+        assert self._copy().source_config == stored_config
 
     def test_a_snooze_from_slack_mutes_the_platform_copy(self) -> None:
         outcome = snooze_alert_from_slack(self.alert.id, user=self.user, duration="1d")

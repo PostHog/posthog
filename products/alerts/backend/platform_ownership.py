@@ -52,13 +52,12 @@ def on_created(alert: AlertConfiguration, at: datetime) -> bool:
 def on_updated(alert: AlertConfiguration, *, snooze_changed: bool) -> None:
     """Writes an edit the insight API saved onto the platform's copy.
 
-    Raises `PlatformCannotOwn` for an edit the platform cannot evaluate, such as a detector, and
+    Raises `PlatformCannotOwn` for an edit the platform cannot evaluate, such as a real-time check, and
     `InvalidPlatformAlertEdit` for one the platform's schema rejects.
     """
     if not can_move(alert):
         raise PlatformCannotOwn(
-            "The alerts platform runs this alert, and it cannot run detectors, real-time checks or the "
-            "investigation agent yet."
+            "The alerts platform runs this alert, and it cannot run real-time checks or the investigation agent yet."
         )
     update_owned_copy(
         team_id=alert.team_id,
@@ -150,6 +149,11 @@ def _write_insight_row(alert: AlertConfiguration, edit: PlatformAlertConfigurati
     if edit.source_config["insight_id"] != alert.insight_id:
         raise InvalidPlatformAlertEdit("source_config", "An insight alert cannot move to another insight.")
     condition = edit.source_config[SOURCE_CONDITION_KEY]
+    if condition.get("detector") != alert.detector_config:
+        # A detector config is checked against its insight and its access rules in the insight API only.
+        raise InvalidPlatformAlertEdit(
+            "source_config", "The detector can't change through this API. Change it in the insight's alert settings."
+        )
     try:
         # The rules the insight API applies, so the insight stack never holds a pair it cannot check.
         validate_alert_config(
