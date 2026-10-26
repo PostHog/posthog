@@ -422,9 +422,7 @@ export type CyclotronJobInvocationHogFunctionContext = {
     actionId?: string // The hogflow action node ID, used for metrics instance_id when executing within a workflow
     actionStepCount?: number
     customerTaskIdempotencyVersion?: 1
-    // The workflow version this step rendered under. The flow is reloaded on every dequeue, so a step
-    // that rendered before a republish and sends after it would otherwise report the newer version.
-    workflowVersion?: number
+    workflowVersion?: number // The flow reloads on every dequeue, so this keeps the version the step rendered under
 }
 
 export type WorkflowStepResumeStatus = 'completed' | 'failed' | 'cancelled'

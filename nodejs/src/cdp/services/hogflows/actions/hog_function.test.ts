@@ -645,8 +645,8 @@ describe('HogFunctionHandler', () => {
 
     // Live edits reach runs already in flight, so a run that entered on one version can send its
     // message under a newer one. The conversion belongs to the version whose message the person
-    // received, so a send re-pins the attribution version. An email re-pins to the version it rendered
-    // under, the one its send and its billing count under. A non-message step must leave it alone.
+    // received — the same version `email_sent` is counted under — so a send re-pins the attribution
+    // version. A non-message step must leave it alone.
     it.each([
         { billingType: 'email' as const, renderedVersion: 3, expected: 3, billedVersion: 3 },
         { billingType: 'email' as const, renderedVersion: 2, expected: 2, billedVersion: 2 },

@@ -263,8 +263,7 @@ export class HogFunctionHandler implements ActionHandler {
             // already in flight, so a run that entered on v2 can send its email after v3 is
             // published — and the conversion belongs to the version whose message the person
             // received, which is also the version `email_sent` was counted under. Leaving the
-            // run-start stamp here would split a rate across two versions. An email counts under
-            // the version it rendered under, which a republish while it waited to send leaves behind.
+            // run-start stamp here would split a rate across two versions.
             if (this.hogFlowActionBillingType === 'email') {
                 result.invocation.state.flowVersion =
                     resolveEmailSendingVersion(functionResult.invocation) ?? invocation.hogFlow.version

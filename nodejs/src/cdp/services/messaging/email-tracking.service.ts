@@ -116,29 +116,20 @@ export const resolveEmailEngagementDistinctId = (
     return invocation.state?.globals?.event?.distinct_id || undefined
 }
 
-// The workflow version that is sending this message, for the tracking code minted below. A flow step
-// records the version it rendered under. A step saved before that falls back to the flow on the
-// invocation: a flow's email runs as a hog function invocation built by spreading the flow
-// invocation, so `hogFlow` is present at runtime even though the type is the narrower hog function
-// shape. A hog function send has neither, and its engagement lands in the version-agnostic series alone.
-export const resolveEmailSendingVersion = (invocation: CyclotronJobInvocationHogFunction): number | undefined => {
-    if (invocation.state.workflowVersion !== undefined) {
-        return invocation.state.workflowVersion
-    }
-    return 'hogFlow' in invocation
-        ? (invocation as unknown as CyclotronJobInvocationHogFlow).hogFlow.version
-        : undefined
-}
+// A flow's email runs as a hog function invocation spread from the flow invocation, so `hogFlow` is
+// present at runtime although the hog function type does not declare it.
+const sendingHogFlow = (invocation: CyclotronJobInvocationHogFunction): HogFlow | undefined =>
+    'hogFlow' in invocation ? (invocation as unknown as CyclotronJobInvocationHogFlow).hogFlow : undefined
 
-// Send-scoped metrics carry the same version as the tracking code, so a send and its delivery land
-// in one versioned series even when the flow is republished between render and send.
+export const resolveEmailSendingVersion = (invocation: CyclotronJobInvocationHogFunction): number | undefined =>
+    invocation.state.workflowVersion ?? sendingHogFlow(invocation)?.version
+
 export const resolveEmailSendingAppSourceVersion = (
     invocation: CyclotronJobInvocationHogFunction
 ): { id: string; version: number } | undefined => {
+    const hogFlow = sendingHogFlow(invocation)
     const version = resolveEmailSendingVersion(invocation)
-    return 'hogFlow' in invocation && version !== undefined
-        ? { id: (invocation as unknown as CyclotronJobInvocationHogFlow).hogFlow.id, version }
-        : undefined
+    return hogFlow && version !== undefined ? { id: hogFlow.id, version } : undefined
 }
 
 // HTML attribute values arrive entity-encoded (e.g. `&amp;`, `&#38;`). Decode before
