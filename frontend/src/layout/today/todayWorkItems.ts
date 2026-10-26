@@ -179,7 +179,16 @@ export function chatItem(conversation: ConversationDetail): TodayWorkItem {
         status: null,
         channel: null,
         createdById: conversation.user?.id ?? null,
-        author: null,
+        author: conversation.user
+            ? {
+                  id: conversation.user.id,
+                  uuid: conversation.user.uuid,
+                  distinct_id: conversation.user.distinct_id,
+                  first_name: conversation.user.first_name,
+                  last_name: conversation.user.last_name ?? '',
+                  email: conversation.user.email,
+              }
+            : null,
         latestRunId: null,
         runEnvironment: null,
         originProduct: null,

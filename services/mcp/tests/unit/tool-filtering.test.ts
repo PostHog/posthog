@@ -1111,6 +1111,8 @@ describe('Tool Filtering - Feature Flags', () => {
             'insight-data-checks',
             'logs-agent-tools',
             'workflows-transactional-email-api',
+            'activity-summary',
+            'anomalies-search',
         ]
         expect(allFlags).toEqual(expect.arrayContaining(branchFlags))
         // The flags branches add are asserted on the line above and held out of the list and
@@ -1135,7 +1137,6 @@ describe('Tool Filtering - Feature Flags', () => {
                 'field-notes',
                 'mcp-analytics-intent-routing',
                 'metrics',
-                'endpoints-ai-materialization-fix',
                 'engineering-analytics',
                 'web-analytics-path-cleaning-suggestions',
                 'stamphog',
@@ -1153,6 +1154,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'marketing-analytics-setup-plan-mcp',
                 'subscription-source-summaries',
                 'workflows-mcp-onboarding',
+                'aeo-citation-tracking',
             ])
         )
         expect(flags).toContain('ai-observability-offline-evaluations')

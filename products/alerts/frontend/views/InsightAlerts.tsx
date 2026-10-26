@@ -95,6 +95,7 @@ export function InsightAlerts({ alertId }: InsightAlertsProps): JSX.Element {
             title: 'Name',
             dataIndex: 'name',
             key: 'name',
+            className: 'min-w-80',
             render: function renderName(name: any, alert) {
                 return (
                     <>

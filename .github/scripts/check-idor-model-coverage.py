@@ -364,6 +364,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "EventIngestionRestrictionConfig",
         "GlobalRateLimitThresholdConfig",
         "MessagingRecord",
+        "UserActivitySummaryQueueCursor",  # one global read position per input source, no rows of a team
     }
 
     # Baseline violations — these models SHOULD have team_id but don't yet.

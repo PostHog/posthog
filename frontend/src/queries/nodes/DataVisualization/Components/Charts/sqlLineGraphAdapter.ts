@@ -30,10 +30,44 @@ import {
 } from 'products/product_analytics/frontend/insights/trends/shared/goalLinesAdapter'
 
 import { AxisSeries, AxisSeriesSettings, formatDataWithSettings } from '../../dataVisualizationLogic'
-import { AxisBreakdownSeries } from '../seriesBreakdownLogic'
+import { AxisBreakdownSeries, BreakdownSeriesData } from '../seriesBreakdownLogic'
 import { type SqlChartProps } from './SqlChart'
 
 export const MAX_SERIES = 200
+
+/** Without a breakdown, rows that share an x value would draw on top of each other in one slot, so they
+ *  are summed per x value like the breakdown path does. A bar value chart draws one bar per row, so it keeps them. */
+export const sqlChartData = (
+    breakdown: BreakdownSeriesData<number | null>,
+    xData: AxisSeries<string> | null,
+    yData: AxisSeries<number | null>[],
+    visualizationType: ChartDisplayType
+): Pick<SqlChartProps, 'xData' | 'yData'> => {
+    if (breakdown.xData.data.length) {
+        return { xData: breakdown.xData, yData: breakdown.seriesData }
+    }
+    const uniqueX = Array.from(new Set(xData?.data))
+    if (!xData || visualizationType === ChartDisplayType.ActionsBarValue || uniqueX.length === xData.data.length) {
+        return { xData, yData }
+    }
+    const slotByX = new Map(uniqueX.map((x, index) => [x, index]))
+    return {
+        xData: { ...xData, data: uniqueX },
+        yData: yData.map((series) => {
+            if (!series.data.length) {
+                return series
+            }
+            const data: (number | null)[] = uniqueX.map(() => null)
+            series.data.forEach((value, index) => {
+                const slot = slotByX.get(xData.data[index])
+                if (value !== null && slot !== undefined) {
+                    data[slot] = (data[slot] ?? 0) + value
+                }
+            })
+            return { ...series, data }
+        }),
+    }
+}
 
 /** Matches the legacy path's `hexToRGBA(seriesColor, 0.5)` area fill. */
 export const AREA_FILL_OPACITY = 0.5
