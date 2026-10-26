@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
@@ -99,6 +100,24 @@ class TestWarehouseMigrationAPI(APIBaseTest):
         assert "credentials" not in detail
         assert detail["item_counts"] == {"as_is": 1, "caveats": 0, "unsupported": 1, "applied": 1, "skipped": 1}
         assert len(self.client.get(f"{self.url}{migration.id}/items/").json()) == 4
+
+    def test_list_pages_newest_first_without_repeating_tied_rows(self) -> None:
+        oldest, *tied = (self._migration() for _ in range(3))
+        WarehouseMigration.objects.for_team(self.team.pk).filter(id=oldest.id).update(
+            created_at=datetime(2026, 1, 1, tzinfo=UTC)
+        )
+        WarehouseMigration.objects.for_team(self.team.pk).filter(id__in=[m.id for m in tied]).update(
+            created_at=datetime(2026, 1, 2, tzinfo=UTC)
+        )
+
+        first = self.client.get(self.url, {"limit": 2}).json()
+        second = self.client.get(self.url, {"limit": 2, "offset": 2}).json()
+
+        assert first["count"] == 3
+        assert first["next"] is not None
+        assert {row["id"] for row in first["results"]} == {str(m.id) for m in tied}
+        assert [row["id"] for row in second["results"]] == [str(oldest.id)]
+        assert second["next"] is None
 
     def test_refresh_restarts_the_crawl_unless_one_is_running(self) -> None:
         migration = self._migration()

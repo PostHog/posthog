@@ -275,6 +275,8 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.visual_review.backend.presentation.views.RunViewSet",
     "products.warehouse_sources.backend.presentation.views.column_statistics.WarehouseColumnStatisticsViewSet",
     "products.warehouse_sources.backend.presentation.views.public_source_configs.PublicSourceConfigViewSet",
+    # Pages the facade result with limit and offset, newest first, with a page-boundary test.
+    "products.warehouse_sources.backend.presentation.views.warehouse_migration.WarehouseMigrationViewSet",
     "products.warehouse_suggestions.backend.presentation.views.WarehouseSuggestionViewSet",
     "products.web_analytics.backend.api.custom_bot_rules.CustomBotRuleViewSet",
     "products.web_analytics.backend.api.heatmaps_api.HeatmapViewSet",
