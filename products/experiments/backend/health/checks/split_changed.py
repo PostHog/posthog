@@ -18,16 +18,16 @@ from products.experiments.backend.facade.contracts import (
 from products.experiments.backend.health.checks.change_wording import duration, suggested_start, the_change
 from products.experiments.backend.health.checks.flag_change_findings import (
     change_finding,
-    changes_not_checked,
+    changes_to_check,
     delay_after_launch,
     exposed_when,
     few_exposed_units,
-    history_to_check,
     leave_out,
     not_checked_finding,
 )
 from products.experiments.backend.health.checks.flag_state import is_single_variant_shipped
 from products.experiments.backend.health.context import FlagHistory, FlagHistoryNotChecked, FlagState, HealthContext
+from products.experiments.backend.health.skips import CheckOutcome, CheckSkip
 from products.experiments.backend.health.split_changes import (
     SplitChangeShape,
     SplitNetEffect,
@@ -48,10 +48,13 @@ _REVERTED_INFO_TITLE = "The variant split changed and was set back"
 _NOT_CHECKED_TITLE = "Variant split changes were not checked"
 
 
-def split_changed_mid_run(ctx: HealthContext) -> ExperimentHealthFinding | None:
-    history = history_to_check(ctx)
+def split_changed_mid_run(ctx: HealthContext) -> CheckOutcome:
+    history = changes_to_check(ctx)
+    if isinstance(history, CheckSkip):
+        return history
     flag = ctx.flag
-    if history is None or flag is None:
+    # `changes_to_check` skips an experiment without a flag, but the type doesn't carry that.
+    if flag is None:
         return None
     if isinstance(history, FlagHistoryNotChecked):
         return _not_checked(history, flag)
@@ -105,7 +108,7 @@ def split_changed_mid_run(ctx: HealthContext) -> ExperimentHealthFinding | None:
 
 
 def _not_checked(history: FlagHistoryNotChecked, flag: FlagState) -> ExperimentHealthFinding | None:
-    effect = net_effect(changes_not_checked(history, SplitChange))
+    effect = net_effect(history.of_kind(SplitChange))
     if effect is None or _reported_as_shipped(effect, flag):
         return None
     at = format_change_time(effect.last.changed_at, history.team_timezone)
