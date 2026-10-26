@@ -26,7 +26,7 @@ const VIEW_MODE_OPTIONS: LemonSegmentedButtonOption<TraceViewMode>[] = [
     // pinned: autocapture selects on these values, so renaming them breaks saved actions.
     // LemonSegmentedButton puts no data-attr on its root, so each option carries one.
     { value: 'waterfall', label: 'Waterfall', 'data-attr': 'tracing-trace-view-waterfall' },
-    { value: 'calltree', label: 'Call tree', 'data-attr': 'tracing-trace-view-calltree' },
+    { value: 'calltree', label: 'Flame graph', 'data-attr': 'tracing-trace-view-calltree' },
 ]
 
 // The call tree draws a tree of its own, so the flame gets no rows to build one from.
@@ -61,7 +61,7 @@ const TraceViewCallTree = memo(function TraceViewCallTree({
                 {callTree.children.length === 0 ? (
                     // The surface shows its own spinner while spans load.
                     resolving ? null : (
-                        <div className="text-muted text-center py-8">No spans to show in the call tree.</div>
+                        <div className="text-muted text-center py-8">No spans to show in the flame graph.</div>
                     )
                 ) : (
                     <TraceCompareFlame
