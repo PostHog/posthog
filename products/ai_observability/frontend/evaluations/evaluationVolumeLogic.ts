@@ -38,10 +38,10 @@ export interface evaluationVolumeLogicActions {
         errorObject?: any
     }
     loadCountsSuccess: (
-        counts: any[] | null,
+        counts: ConditionCounts[] | null,
         payload?: void
     ) => {
-        counts: any[] | null
+        counts: ConditionCounts[] | null
         payload?: void
     }
 }
@@ -50,9 +50,9 @@ export interface evaluationVolumeLogicActions {
 export interface evaluationVolumeLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        volumeInput: (evaluation: any) => VolumeInput | null
-        countsKey: (volumeInput: any) => string
-        volume: (counts: any, volumeInput: any) => VolumeEstimate | null
+        volumeInput: (evaluation: EvaluationConfig | null) => VolumeInput | null
+        countsKey: (volumeInput: VolumeInput | null) => string
+        volume: (counts: ConditionCounts[] | null, volumeInput: VolumeInput | null) => VolumeEstimate | null
     }
 }
 

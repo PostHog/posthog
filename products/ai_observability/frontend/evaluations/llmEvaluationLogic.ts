@@ -319,12 +319,12 @@ export interface llmEvaluationLogicValues {
     providerKeysLoading: boolean // llmProviderKeysLogic
     requiresProviderKey: boolean // llmProviderKeysLogic
     byokModels: ModelOption[] // modelPickerLogic
-    enabledChosen: boolean
     evaluationProviderModelGroups: ProviderModelGroup[] // modelPickerLogic
     activeTab: string
     breadcrumbs: Breadcrumb[]
     canEnable: boolean
     canEnableReason: string | null
+    enabledChosen: boolean
     evaluation: EvaluationConfig | null
     evaluationBackTarget: EvaluationBackTarget
     evaluationFormSubmitting: boolean
@@ -488,14 +488,14 @@ export interface llmEvaluationLogicActions {
     setAllowsNA: (allowsNA: boolean) => {
         allowsNA: boolean
     }
+    setDefaultEnabled: (enabled: boolean) => {
+        enabled: boolean
+    }
     setEvaluationDescription: (description: string) => {
         description: string
     }
     setEvaluationDirectory: (directoryId: string | null) => {
         directoryId: string | null
-    }
-    setDefaultEnabled: (enabled: boolean) => {
-        enabled: boolean
     }
     setEvaluationEnabled: (enabled: boolean) => {
         enabled: boolean

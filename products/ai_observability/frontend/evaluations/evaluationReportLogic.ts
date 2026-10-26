@@ -310,9 +310,6 @@ export interface evaluationReportLogicActions {
     addDraftDestination: (destination: ReportDestination) => {
         destination: ReportDestination
     }
-    removeDraftDestination: (destination: ReportDestination) => {
-        destination: ReportDestination
-    }
     createReport: (params: {
         cooldown_minutes?: number | null
         delivery_targets: EvaluationReportDeliveryTarget[]
@@ -408,6 +405,9 @@ export interface evaluationReportLogicActions {
     ) => {
         reports: EvaluationReport[]
         payload?: any
+    }
+    removeDraftDestination: (destination: ReportDestination) => {
+        destination: ReportDestination
     }
     resetDraft: () => {
         value: true
