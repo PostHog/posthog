@@ -195,7 +195,7 @@ The boot then creates the store, and every slice begins behind the coverage fenc
 ### The replay window
 
 A restored slice is only correct if the broker can still replay every input past the checkpoint's position for it.
-The restore checks each partition against the enabled inputs' watermarks:
+The restore checks each partition the pod owns against the enabled inputs' watermarks, because boot recovery deletes the others:
 
 - a partition the manifest does not list is reset,
 - a partition where any enabled input's position lies outside the broker's `[low, high]` range is reset,
