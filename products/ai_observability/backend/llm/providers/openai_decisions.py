@@ -159,7 +159,9 @@ class OpenAIDecisionAdapter(OpenAIAdapter):
                 and error.status_code in (429, 503, 529)
                 and not isinstance(mapped, QuotaExceededError)
             ):
-                raise DecisionRateLimitError(error.response.headers.get("Retry-After")) from error
+                raise DecisionRateLimitError(
+                    error.response.headers.get("Retry-After"), status=error.status_code
+                ) from error
             if mapped is not None:
                 raise mapped from error
             if isinstance(error, openai.APIStatusError):

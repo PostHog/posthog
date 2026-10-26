@@ -7,12 +7,32 @@ The feed turns scores into a percentile within each scanner when it loads, so a 
 errors all the time does not fill the feed.
 """
 
+import math
 import asyncio
+from collections import Counter
 from dataclasses import asdict
 from datetime import datetime, timedelta
 from typing import Any, Literal
+from uuid import UUID
 
 from django.core.cache import cache
+from django.db.models import (
+    Case,
+    CharField,
+    Count,
+    Exists,
+    F,
+    FloatField,
+    Func,
+    IntegerField,
+    Q,
+    QuerySet,
+    Value,
+    When,
+    Window,
+)
+from django.db.models.fields.json import KeyTextTransform, KeyTransform
+from django.db.models.functions import Cast, Coalesce, NullIf, RowNumber
 from django.utils import timezone
 
 import numpy as np
@@ -25,6 +45,7 @@ from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
 from posthog.models.team import Team
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.replay_vision.backend.embeddings import (
     OBSERVATION_EMBEDDING_MODEL,
     OBSERVATION_EMBEDDINGS_TABLE,
@@ -32,7 +53,8 @@ from products.replay_vision.backend.embeddings import (
     observation_scope_params,
 )
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
-from products.replay_vision.backend.watch_feed import WatchFeedEntry, finish_feed
+from products.replay_vision.backend.scanner_access import accessible_observations
+from products.replay_vision.backend.watch_feed import WATCH_FEED_MIN_ITEMS, WatchFeedEntry, finish_feed
 
 WatchCategory = Literal["failure", "struggle", "revenue", "routine"]
 
@@ -94,6 +116,12 @@ WATCH_PICK_SEEN_PENALTY = 0.3
 # Each earlier impression keeps this share of a pick's score, so a pick shown three times without a
 # click sinks below a fresh one.
 WATCH_PICK_IMPRESSION_DECAY = 0.8
+# A pick's score grows by this factor times the log of the people its group reached, up to the cap, so a problem
+# that hit six people outranks an equally strong one-off without burying everything else.
+WATCH_PICK_PEOPLE_BOOST = 0.25
+WATCH_PICK_PEOPLE_BOOST_CAP = 2.0
+# Copies of one finding the pick query keeps, so a viewed or restricted top copy does not hide the group.
+WATCH_PICK_GROUP_CANDIDATES = 3
 
 _ANCHOR_CACHE_TTL_S = 7 * 24 * 3600
 
@@ -317,6 +345,167 @@ def _group_root(observation_id: str, parents: dict[str, str]) -> str:
     return observation_id
 
 
+def people_boost(people: int) -> float:
+    """How much a pick's score grows with the number of people its duplicate group reached."""
+    return min(WATCH_PICK_PEOPLE_BOOST_CAP, 1 + WATCH_PICK_PEOPLE_BOOST * math.log(max(people, 1)))
+
+
+def _is_uuid(value: str) -> bool:
+    try:
+        UUID(value)
+    except ValueError:
+        return False
+    return True
+
+
+def _embedding_group_root() -> Coalesce:
+    """A ranked row's duplicate group: the observation it duplicates, or itself."""
+    return Coalesce(KeyTextTransform("duplicate_of", "watch_rank"), Cast("id", CharField()), output_field=CharField())
+
+
+def _cap_duplicate_groups(rows: list[dict[str, Any]], cap: int) -> dict[Any, dict[str, Any]]:
+    """The first `cap` rows, keeping a few per duplicate group so the ranker can still pick a readable, unseen one.
+
+    A group never spans scanners, so the pick order meets each group's rows best first.
+    """
+    picked: dict[Any, dict[str, Any]] = {}
+    group_rows: Counter[str] = Counter()
+    for row in rows:
+        if group_rows[row["watch_group_root"]] >= WATCH_PICK_GROUP_CANDIDATES:
+            continue
+        group_rows[row["watch_group_root"]] += 1
+        picked[row["id"]] = row
+        if len(picked) >= cap:
+            break
+    return picked
+
+
+def select_embedding_picks(
+    walkable: QuerySet[ReplayObservation],
+    scanner_ids: list[Any],
+    viewed: Exists,
+    access: UserAccessControl,
+    team_id: int,
+    cap: int,
+) -> list[dict[str, Any]]:
+    """The window's pick rows for the embedding ranker, with each row's percentile and the reach of its duplicate group.
+
+    The percentile is taken over every ranked row a scanner has in the window, not over a recency slice, so a
+    longer window reaches further back instead of re-ranking the same newest rows.
+    """
+    contrast = Cast(KeyTextTransform("contrast", "watch_rank"), FloatField())
+    category = KeyTextTransform("category", "watch_rank")
+    group_root = _embedding_group_root()
+    current_ranks = (
+        walkable.filter(
+            # The explicit null check lets Postgres match the partial `rlo_scanner_ranked_idx`.
+            scanner_id__in=scanner_ids,
+            watch_rank__isnull=False,
+            watch_rank__anchor_version=ANCHOR_VERSION,
+        )
+        .alias(
+            watch_category=category,
+            contrast_type=Func(
+                KeyTransform("contrast", "watch_rank"), function="jsonb_typeof", output_field=CharField()
+            ),
+        )
+        .filter(contrast_type="number")
+    )
+    qualifying = (
+        current_ranks.annotate(
+            scanner_rows=Window(Count("id"), partition_by=[F("scanner_id")]),
+            scanner_position=Window(
+                RowNumber(), partition_by=[F("scanner_id")], order_by=[contrast.asc(), F("id").asc()]
+            ),
+        )
+        .annotate(
+            watch_percentile=(F("scanner_position") - Value(0.5)) / Cast(F("scanner_rows"), FloatField()),
+            # Each scanner's best row ranks 1, so the cap takes every scanner's best before any second-best.
+            scanner_rank=F("scanner_rows") - F("scanner_position") + Value(1),
+            # Reads a window value, so Django filters on it after the windows run rather than before.
+            issue_scanner_rows=Case(
+                When(watch_category__in=ISSUE_CATEGORIES, then=F("scanner_rows")),
+                default=Value(0),
+                output_field=IntegerField(),
+            ),
+            watch_group_root=group_root,
+        )
+        .filter(issue_scanner_rows__gte=WATCH_PICK_MIN_SCANNER_ROWS, watch_percentile__gte=WATCH_PICK_MIN_PERCENTILE)
+        .order_by("scanner_rank", "-watch_percentile", "-created_at", "-id")
+        .values("id", "watch_percentile", "watch_group_root")
+    )
+    # Bounds the fetch, since a client-side cursor buffers every row; only a window full of copies needs the rest.
+    fetch_limit = cap * (WATCH_PICK_GROUP_CANDIDATES + 1)
+    rows = list(qualifying[:fetch_limit])
+    window_values = _cap_duplicate_groups(rows, cap)
+    if len(window_values) < cap and len(rows) == fetch_limit:
+        window_values = _cap_duplicate_groups(list(qualifying), cap)
+    if not window_values:
+        return []
+    # Counted over readable rows only, so a group never reveals how many restricted sessions it holds. Duplicates
+    # below the cutoff still count, and a person who hit the problem twice counts once.
+    person = Coalesce(NullIf("distinct_id", Value("")), "session_id", output_field=CharField())
+    roots = {row["watch_group_root"] for row in window_values.values()}
+    group_reach = {
+        row["watch_group_root"]: row
+        for row in accessible_observations(
+            access,
+            team_id,
+            # Matches the picks' groups on plain columns first, so only their members reach the snapshot gate.
+            current_ranks.filter(
+                Q(id__in=[root for root in roots if _is_uuid(root)]) | Q(watch_rank__duplicate_of__in=list(roots)),
+                watch_category__in=ISSUE_CATEGORIES,
+            ),
+        )
+        .annotate(watch_group_root=group_root)
+        .values("watch_group_root")
+        .annotate(sessions=Count("id"), people=Count(person, distinct=True))
+    }
+    # The row-gate reads each row's snapshot JSON, so it runs on the picks only.
+    rows = list(
+        accessible_observations(
+            access, team_id, ReplayObservation.objects.filter(team_id=team_id, id__in=list(window_values))
+        )
+        .annotate(feed_viewed=viewed)
+        .values("id", "scanner_id", "session_id", "created_at", "watch_rank", "feed_viewed")
+    )
+    for row in rows:
+        window = window_values[row["id"]]
+        reach = group_reach.get(window["watch_group_root"], {})
+        row["watch_percentile"] = window["watch_percentile"]
+        row["watch_group_root"] = window["watch_group_root"]
+        row["watch_group_size"] = reach.get("sessions", 1)
+        row["watch_group_people"] = reach.get("people", 1)
+    return rows
+
+
+def select_embedding_filler(
+    walkable: QuerySet[ReplayObservation],
+    scanner_ids: list[Any],
+    viewed: Exists,
+    access: UserAccessControl,
+    team_id: int,
+    pick_roots: set[str],
+) -> list[dict[str, Any]]:
+    """The newest readable rows outside the picks' duplicate groups, unwatched first, enough to bring a thin feed up to its floor."""
+    base = (
+        accessible_observations(access, team_id, walkable.filter(scanner_id__in=scanner_ids))
+        .annotate(watch_group_root=_embedding_group_root())
+        .exclude(watch_group_root__in=pick_roots)
+        .annotate(feed_viewed=viewed)
+    )
+    fields = ("id", "scanner_id", "session_id", "created_at", "watch_rank", "feed_viewed")
+    # Two short newest-first walks, because ordering by the viewed flag would sort the whole window.
+    rows = list(base.filter(feed_viewed=False).order_by("-created_at", "-id").values(*fields)[:WATCH_FEED_MIN_ITEMS])
+    if len(rows) < WATCH_FEED_MIN_ITEMS:
+        rows += list(
+            base.filter(feed_viewed=True)
+            .order_by("-created_at", "-id")
+            .values(*fields)[: WATCH_FEED_MIN_ITEMS - len(rows)]
+        )
+    return rows
+
+
 def rank_watch_feed_by_embedding(rows: list[dict[str, Any]]) -> list[WatchFeedEntry]:
     """Rank candidate rows (`id`, `scanner_id`, `session_id`, `created_at`, `watch_rank`, `feed_viewed`,
     and optionally `feed_impressions`) on the embedding rank the watch rank consumer wrote.
@@ -327,7 +516,12 @@ def rank_watch_feed_by_embedding(rows: list[dict[str, Any]]) -> list[WatchFeedEn
     of the picks, and one session's picks spaced apart. Every other row is filler, trimmed to the same
     floor as the other rankers.
     """
-    percentiles = _scanner_percentiles(rows)
+    # Rows from `select_embedding_picks` carry their whole-window percentile; a plain candidate slice does not.
+    percentiles = (
+        {str(row["id"]): row["watch_percentile"] for row in rows if row.get("watch_percentile") is not None}
+        if any("watch_percentile" in row for row in rows)
+        else _scanner_percentiles(rows)
+    )
     parents = {
         str(row["id"]): str(rank["duplicate_of"])
         for row in rows
@@ -350,6 +544,7 @@ def rank_watch_feed_by_embedding(rows: list[dict[str, Any]]) -> list[WatchFeedEn
         score = (
             percentile
             * CATEGORY_WEIGHT[rank["category"]]
+            * people_boost(row.get("watch_group_people") or 1)
             * WATCH_PICK_IMPRESSION_DECAY ** row.get("feed_impressions", 0)
         )
         if row.get("feed_viewed"):
@@ -364,7 +559,8 @@ def rank_watch_feed_by_embedding(rows: list[dict[str, Any]]) -> list[WatchFeedEn
         reason = {
             "kind": "embedding_pick",
             "watch_category": rank["category"],
-            "similar_count": len(group_members[group]) - 1,
+            "similar_count": max(len(group_members[group]), row.get("watch_group_size") or 0) - 1,
+            "affected_people": row.get("watch_group_people") or 1,
         }
         picks.append(
             (
