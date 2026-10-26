@@ -56,7 +56,8 @@ export function NotebookJupyterCellOutput({
     footerExtra,
 }: NotebookJupyterCellOutputProps): JSX.Element | null {
     const interactivePrompt = useComponentPanelState()?.jupyterOutputPrompt
-    const outPrompt = interactivePrompt ?? <span>{`Out[${executionCount ?? ' '}]`}</span>
+    const outPrompt = interactivePrompt?.(false) ?? <span>{`Out[${executionCount ?? ' '}]:`}</span>
+    const errPrompt = interactivePrompt?.(true) ?? <span>{`Err[${executionCount ?? ' '}]:`}</span>
     const media = result?.media ?? []
     const firstPageLength = result?.first_page?.length ?? 0
     // The kernel's row_count is the page size for a paged frame, so it only counts as the total
@@ -85,7 +86,7 @@ export function NotebookJupyterCellOutput({
             ) : null}
             {result?.stderr ? (
                 <OutputRow
-                    {...(!status && !result?.stdout ? leadingPrompt : {})}
+                    {...(!status && !result?.stdout && !hasValueRow ? { prompt: errPrompt } : {})}
                     className="MarkdownNotebook__jupyter-output-area--stderr"
                 >
                     <pre>{result.stderr}</pre>
@@ -93,7 +94,7 @@ export function NotebookJupyterCellOutput({
             ) : null}
             {runError ? (
                 <OutputRow
-                    {...(!status && !result?.stdout && !result?.stderr ? leadingPrompt : {})}
+                    {...(!status && !result?.stdout && !result?.stderr && !hasValueRow ? { prompt: errPrompt } : {})}
                     className="MarkdownNotebook__jupyter-output-area--error"
                 >
                     <pre>{runError}</pre>

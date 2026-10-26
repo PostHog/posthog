@@ -625,7 +625,6 @@ export function NotebookComponentShell({
         const showOutput = componentPanels.results || !canToggleComponentPanels
         const showInput = node.props.hideInput !== true || !showOutput
         const inputLabel = formatJupyterInputPrompt(isRunning, executionCount)
-        const outputLabel = `Out[${executionCount ?? ' '}]`
         const inputPrompt = canEditCells ? (
             <LemonButton
                 size="xxsmall"
@@ -647,27 +646,30 @@ export function NotebookComponentShell({
         ) : (
             <span>{inputLabel}</span>
         )
-        const outputPrompt = canEditCells ? (
-            <LemonButton
-                size="xxsmall"
-                noPadding
-                className={clsx('MarkdownNotebook__jupyter-prompt-button--output', !showOutput && 'line-through')}
-                aria-label={showOutput ? 'Hide output' : 'Show output'}
-                aria-expanded={showOutput}
-                data-attr={showOutput ? 'notebook-jupyter-hide-output' : 'notebook-jupyter-show-output'}
-                tooltip={showOutput ? 'click to hide' : 'click to show'}
-                disabledReason={showOutput && !showInput ? 'Show input before hiding output' : undefined}
-                onClick={() => jupyter.executeCommand('toggle-output', node.id)}
-            >
-                {outputLabel}
-            </LemonButton>
-        ) : (
-            <span>{outputLabel}</span>
-        )
-        const outputPrompts = (
+        const outputPrompt = (isError = runHandler?.hasError ?? false): JSX.Element => {
+            const label = `${isError ? 'Err' : 'Out'}[${executionCount ?? ' '}]:`
+            return canEditCells ? (
+                <LemonButton
+                    size="xxsmall"
+                    noPadding
+                    className={clsx('MarkdownNotebook__jupyter-prompt-button--output', !showOutput && 'line-through')}
+                    aria-label={showOutput ? 'Hide output' : 'Show output'}
+                    aria-expanded={showOutput}
+                    data-attr={showOutput ? 'notebook-jupyter-hide-output' : 'notebook-jupyter-show-output'}
+                    tooltip={showOutput ? 'click to hide' : 'click to show'}
+                    disabledReason={showOutput && !showInput ? 'Show input before hiding output' : undefined}
+                    onClick={() => jupyter.executeCommand('toggle-output', node.id)}
+                >
+                    {label}
+                </LemonButton>
+            ) : (
+                <span>{label}</span>
+            )
+        }
+        const outputPrompts = (isError: boolean): JSX.Element => (
             <div className="MarkdownNotebook__jupyter-prompt-actions" onKeyDown={(event) => event.stopPropagation()}>
                 {!showInput ? inputPrompt : null}
-                {outputPrompt}
+                {outputPrompt(isError)}
             </div>
         )
         return (
@@ -729,7 +731,7 @@ export function NotebookComponentShell({
                                         onKeyDown={(event) => event.stopPropagation()}
                                     >
                                         {inputPrompt}
-                                        {!showOutput ? outputPrompt : null}
+                                        {!showOutput ? outputPrompt() : null}
                                     </div>
                                 </div>
                                 <div className="MarkdownNotebook__jupyter-input-area">
@@ -1013,7 +1015,7 @@ export function NotebookComponentShell({
 }
 
 export function formatJupyterInputPrompt(isRunning: boolean, executionCount: number | null): string {
-    return `In [${isRunning ? '*' : (executionCount ?? ' ')}]`
+    return `In [${isRunning ? '*' : (executionCount ?? ' ')}]:`
 }
 
 function isPlainInputTarget(target: EventTarget | null): boolean {

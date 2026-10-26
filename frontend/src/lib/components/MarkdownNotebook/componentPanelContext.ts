@@ -6,7 +6,7 @@ export type ComponentPanelState = {
     componentPanels: ComponentPanelVisibility
     showEditPanel: boolean
     showViewPanel: boolean
-    jupyterOutputPrompt?: ReactNode
+    jupyterOutputPrompt?: (isError: boolean) => ReactNode
 }
 
 export const ComponentPanelContext = createContext<ComponentPanelState | null>(null)

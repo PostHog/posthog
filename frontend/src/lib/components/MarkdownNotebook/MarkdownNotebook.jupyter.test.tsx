@@ -39,7 +39,8 @@ const registry = createMarkdownNotebookRegistry([
         category: 'Code',
         defaultProps: { code: '' },
         insertCommand: {},
-        ViewComponent: () => createElement('div', null, 'output', useComponentPanelState()?.jupyterOutputPrompt),
+        ViewComponent: () =>
+            createElement('div', null, 'output', useComponentPanelState()?.jupyterOutputPrompt?.(false)),
         EditComponent: CodeEditorStandIn,
         ToolbarComponent: RunPublisher,
     },
@@ -49,7 +50,8 @@ const registry = createMarkdownNotebookRegistry([
         category: 'Code',
         defaultProps: { code: '' },
         insertCommand: {},
-        ViewComponent: () => createElement('div', null, 'output', useComponentPanelState()?.jupyterOutputPrompt),
+        ViewComponent: () =>
+            createElement('div', null, 'output', useComponentPanelState()?.jupyterOutputPrompt?.(false)),
         EditComponent: CodeEditorStandIn,
     },
 ])
