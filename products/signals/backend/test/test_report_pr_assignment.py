@@ -17,6 +17,7 @@ from products.signals.backend.artefact_schemas import (
 )
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalUserAutonomyConfig
 from products.signals.backend.report_assignments import claim_report
+from products.signals.backend.reviewer_exclusions import create_exclusion
 from products.signals.backend.reviewer_pr_assignment import assign_reviewers_to_pull_request
 from products.signals.backend.test.test_reviewer_pr_assignment import (
     _NOT_UNASSIGNED,
@@ -202,7 +203,8 @@ class TestReportPRAssignment:
         assert github.is_assignable.call_count == (1 if assignable else 10)
 
     @pytest.mark.parametrize(
-        "change", ["reviewers", "identity", "access", "preference", "github", "delivery", "writer", "selection"]
+        "change",
+        ["reviewers", "identity", "access", "preference", "github", "exclusion", "delivery", "writer", "selection"],
     )
     def test_a_change_during_permission_checks_stops_assignment(self, org_and_team, change):
         org, team = org_and_team
@@ -221,6 +223,10 @@ class TestReportPRAssignment:
                 SignalUserAutonomyConfig.objects.filter(user=selected).update(github_assign_on_pull_request=False)
             elif change == "github":
                 github.assignee_state[:] = ["manual-owner"]
+            elif change == "exclusion":
+                create_exclusion(
+                    team_id=team.id, actor_id=selected.id, instruction="Off.", subject_user_uuid=selected.uuid
+                )
             return {"success": True, "assignable": True}
 
         github.is_assignable.side_effect = check
@@ -235,6 +241,8 @@ class TestReportPRAssignment:
         else:
             assert self.assign(report, github) == []
         github.add_pull_request_assignees.assert_not_called()
+        if change == "exclusion":
+            github.request_pull_request_reviews.assert_not_called()
 
     @pytest.mark.parametrize("opted_in", [False, True])
     def test_retry_uses_current_github_assignment_preference(

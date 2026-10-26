@@ -47,7 +47,7 @@ function projectMocks(
     }
     return mswDecorator({
         get: {
-            '/api/projects/@current': () => [200, team],
+            '/api/projects/:id': () => [200, team],
             '/api/projects/:id/error_tracking/issues/exists/': { exists: hasData },
         },
         post: {
