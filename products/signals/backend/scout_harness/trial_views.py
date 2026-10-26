@@ -26,6 +26,7 @@ from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.scout_harness.run_gates import check_fleet_gates, check_spend_gates
 from products.signals.backend.scout_harness.skill_loader import SkillNotFoundError
 from products.signals.backend.scout_harness.team_limits import withheld_skills_for_team
+from products.signals.backend.scout_harness.trial_access_policy import scout_trial_team_allowed
 from products.signals.backend.scout_harness.trial_comparison_views import ScoutTrialComparisonMixin
 from products.signals.backend.scout_harness.trial_evaluation_serializers import (
     ScoutTrialEvaluationQuerySerializer,
@@ -66,7 +67,7 @@ class ScoutTrialConfigMixin(ScoutTrialComparisonMixin):
     team: Team
 
     def _internal_trial_access(self, request: Request, identifier: str) -> SignalScoutConfig:
-        if self.team.id != 2 or not request.user.is_staff:
+        if not scout_trial_team_allowed(self.team.id) or not request.user.is_staff:
             raise exceptions.NotFound()
         return self._trial_config(request, identifier)
 

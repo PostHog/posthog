@@ -1,6 +1,6 @@
 # Reusable local evaluation environments
 
-Prepare a persistent PostHog project from saved events and metric definitions. This runs the normal dev app and verifies the restored data through HogQL. It does not run an agent, create a scout, or start an evaluation. No model API keys are needed.
+Prepare a persistent PostHog project from saved events and metric definitions, with an optional Scout definition and starting state. This runs the normal dev app and verifies the restored data through HogQL. A Scout attachment is restored, verified and frozen, but no agent or evaluation is launched. No model API keys are needed for preparation.
 
 ## Prepare a devbox from your laptop
 
@@ -123,6 +123,14 @@ PY
 
 `--events` accepts several files. Exact duplicate event rows with the same UUID are combined; conflicting rows are rejected. `--metrics` is optional. `--timezone` defaults to `UTC` and sets the restored project's timezone. The archive contains only the manifest, data files, and complete `SHA256SUMS`; it never replaces an existing output. Files are private, and archive extraction rejects links, special files, and paths outside the bundle.
 
+### Include a Scout
+
+Add `--scout-case /private/path/case.json` to the same `pack` command. The case follows `ScoutEnvironmentCase` in `products/signals/backend/scout_harness/eval_environment/schema.py`. It carries the pinned skill and files, configuration, source identities, organization gates, notes, memory, prior reports and runs, plus explicit text/time mappings. Its environment ID, cutoff, checkpoint, timezone and text policy must match the bundle. Unsupported fields and unresolved relationships fail before archive publication.
+
+With this attachment, `pack` writes schema version 2 and a checksum-bound `scout.json`. Without it, the existing version-1 format is unchanged. The ordinary `prepare` and `hogli devbox:prepare-eval-env` commands restore the attachment automatically. They verify Scout state before marking the restore complete, then write a frozen baseline and runtime descriptor. A seeding failure leaves a failed receipt; use a fresh workspace rather than reusing partial state.
+
+Use `prompt_mode="native"` for a new or current Scout without recorded replay. It needs no previous runs or captured prompt. The normal Scout runner builds its prompt; leave `SCOUT_EVAL_ENVIRONMENT_FILE` unset. Recorded cases preserve their captured prompt and require the existing local prompt override. Preparation does not configure model credentials, start trials or establish that every task dependency is supported. Load the shared [scout environment skill](https://us.posthog.com/project/2/skills/creating-scout-eval-environments) through PostHog MCP for source selection, routing and validation. The MCP skill is authoritative; there is no repository copy.
+
 ## Time and scope
 
 The source cutoff is an exclusive bound for event `timestamp` and `created_at`. Metric timestamps must be at or before the source cutoff. Version 1 captures metric state at that same checkpoint.
@@ -134,13 +142,18 @@ Dates inside SQL, descriptions, or JSON strings shift only when explicitly liste
 ```json
 {
   "time_strings": ["2030-06-04T12:00:00Z"],
-  "string_replacements": {}
+  "string_replacements": {},
+  "source_project_url": "https://example.com/project/42"
 }
 ```
 
 Declared time strings retain their written precision. A date-only or seconds-only string cannot represent a finer cutoff shift: choose an aligned target cutoff when exact textual query boundaries matter. `string_replacements` applies literal substitutions to restored property and metric text; it is an explicit preparation rule, not an anonymizer. A value cannot be both a declared time string and a `string_replacements` key.
 
-Version 1 restores events and data-catalog metrics only. It does not reconstruct people, groups, dashboards, insights, external tables, agent state, tasks, or report history. Metrics may reference only `events`; source insight references are unsupported. Event UUIDs, distinct IDs, and source event identity values remain in the saved data, while restored metric IDs and their references receive a project-local namespace. Ensure the chosen event window and metric definitions are sufficient for the task you plan to run.
+Version 1 restores events and data-catalog metrics only. Version 2 additionally supports the Scout attachment above, including selected task/run and report context. Neither format restores arbitrary people, groups, dashboards, insights, warehouse tables or external integrations. Metrics may reference only `events`; source insight references are unsupported. Event UUIDs, distinct IDs, and source event identity values remain in the saved data, while restored metric IDs and their references receive a project-local namespace. Ensure the chosen data and supported context are sufficient for the task you plan to run.
+
+An optional `source_project_url` names the captured project whose links should follow the restore. The importer binds that exact project prefix to the new project's ID and configured site URL, then pins the target in the receipt. Events, metrics and Scout context use the same binding; links to other projects or origins stay unchanged. Include the field in both the Scout case and text policy. A source selection plan can declare it too.
+
+Scout attachments can also retain legacy report assignments, report/task links and the TaskRun fields needed to reproduce pull-request projections. They do not restore a task's complete execution environment or credentials.
 
 ## Private data
 

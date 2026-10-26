@@ -22,6 +22,7 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.signals.backend.facade.rubrics import ScoutRubricReferenceContext
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.scout_harness.limits import MAX_TRIAL_RUNS
+from products.signals.backend.scout_harness.trial_access_policy import scout_trial_team_allowed
 from products.signals.backend.scout_harness.trial_comparison_types import (
     TrialComparisonHistoryEntry,
     TrialComparisonPlan,
@@ -240,7 +241,7 @@ def _assert_context_access(
     user: User,
 ) -> None:
     if (
-        config.team_id != 2
+        not scout_trial_team_allowed(config.team_id)
         or not user.is_staff
         or not user.is_active
         or context.team_id != config.team_id

@@ -69,6 +69,7 @@ class _TrialState(BaseModel):
     reports: dict[str, TrialReport] = Field(default_factory=dict)
     report_keys: dict[str, str] = Field(default_factory=dict)
     invalid_reason: str | None = None
+    project_profile: dict[str, JsonValue] | None = None
 
 
 @frozen
@@ -180,6 +181,15 @@ class ScoutTrialStore:
 
     def export(self) -> dict[str, JsonValue]:
         return cast(dict[str, JsonValue], self._read_state().model_dump(mode="json"))
+
+    def project_profile(self) -> dict[str, JsonValue] | None:
+        return self._read_state().project_profile
+
+    def capture_project_profile(self, profile: dict[str, JsonValue]) -> None:
+        def change(state: _TrialState) -> None:
+            state.project_profile = profile
+
+        self._mutate(change)
 
     @staticmethod
     def _merge_memory(snapshot: dict[str, ScratchpadEntry], state: _TrialState) -> dict[str, ScratchpadEntry]:

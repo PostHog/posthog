@@ -832,7 +832,9 @@ def _compute_row_hash(skill: LLMSkill, files: list[LLMSkillFile]) -> str:
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
 
 
-def scout_skill_row_origin(skill: LLMSkill) -> Literal["canonical", "custom"]:
+def scout_skill_row_origin(
+    skill: LLMSkill, *, files: list[LLMSkillFile] | None = None
+) -> Literal["canonical", "custom"]:
     """Row-level refinement of `scout_skill_origin`: a *diverged* seeded row classifies as custom.
 
     `publish_skill_version()` carries `metadata.seeded_by` (and the stale `canonical_hash`)
@@ -847,14 +849,15 @@ def scout_skill_row_origin(skill: LLMSkill) -> Literal["canonical", "custom"]:
 
     Hashing needs the row's file *contents*, so keep this on the per-run load path
     (`skill_loader.load_skill_for_run`); the bulk config-list path stays on the metadata-only
-    `scout_skill_origin`.
+    `scout_skill_origin`. Portable preflight can supply staged files before the row is saved.
     """
     if scout_skill_origin(skill.name, skill.metadata) == "custom":
         return "custom"
     stored_hash = (skill.metadata or {}).get("canonical_hash")
     if stored_hash is None:
         return "canonical"
-    return "custom" if _compute_row_hash(skill, list(skill.files.all())) != stored_hash else "canonical"
+    row_files = files if files is not None else list(skill.files.all())
+    return "custom" if _compute_row_hash(skill, row_files) != stored_hash else "canonical"
 
 
 def scout_skill_row_is_proven_canonical(skill: LLMSkill) -> bool:

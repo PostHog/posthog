@@ -16,7 +16,12 @@ from rest_framework.response import Response
 from posthog.models import User
 
 from products.signals.backend.artefact_schemas import ActionabilityAssessment
-from products.signals.backend.models import MAX_SCOUT_REPORT_NOTES, SignalReport, SignalReportArtefact
+from products.signals.backend.models import (
+    MAX_SCOUT_REPORT_NOTES,
+    SignalReport,
+    SignalReportArtefact,
+    scout_lists_reports_in_inbox,
+)
 from products.signals.backend.scout_harness.trial_state import ScoutTrialStore, TrialReport
 from products.signals.backend.serializers import ReportMetricListSerializer, ReportMetricSerializer
 from products.signals.backend.suggested_reviewer_index import report_ids_naming_reviewers
@@ -35,6 +40,7 @@ class TrialInboxReads:
             "already_addressed",
             "status",
             "include_all_statuses",
+            "include_unlisted",
             "include_source_metadata",
             "source_product",
             "source_id",
@@ -264,6 +270,7 @@ class TrialInboxReads:
         originals = self.view._scope_signal_report_queryset(
             SignalReport.objects.filter(team_id=self.store.run.team_id, id__in=source_ids)
         )
+        originals = self.view._apply_signal_report_listed_filter(originals)
         originals = self.view._annotate_artefact_count(originals)
         originals = self.view._annotate_channel_id(originals)
         originals = self.view._prefetch_signal_report_priority_artefacts(originals)
@@ -284,10 +291,15 @@ class TrialInboxReads:
         priorities = [priority.upper() for priority in self._tokens(query.get("priority"))]
         actionabilities = self._tokens(query.get("actionability"))
         already_addressed = self.view._bool_query_param("already_addressed")
+        include_unlisted = self.view._bool_query_param("include_unlisted") is True
+        config = self.store.run.scout_config
+        private_reports_listed = config is None or scout_lists_reports_in_inbox(config.output_destinations)
         matched: dict[str, set[str]] = {}
         result = []
         for report in reports:
             if report.source_report_id is not None and report.source_report_id not in live:
+                continue
+            if report.source_report_id is None and not include_unlisted and not private_reports_listed:
                 continue
             document = self._decorate(
                 report,

@@ -31,6 +31,7 @@ from products.signals.backend.scout_harness.skill_loader import (
 from products.signals.backend.scout_harness.tools.notes import _to_note
 from products.signals.backend.scout_harness.tools.runs import search_recent_runs
 from products.signals.backend.scout_harness.tools.scratchpad import _to_entry
+from products.signals.backend.scout_harness.trial_access_policy import local_scout_trial_team, scout_trial_team_allowed
 from products.skills.backend.api.skill_services import get_skill_by_name_from_db
 from products.tasks.backend.facade.run_config import (
     get_default_model_for_runtime_adapter,
@@ -52,7 +53,9 @@ class ScoutTrialsDisabled(ScoutTrialLaunchError):
 
 
 def scout_trials_enabled(team: Team) -> bool:
-    if team.id != 2:
+    if local_scout_trial_team(team.id):
+        return True
+    if not scout_trial_team_allowed(team.id):
         return False
     try:
         return (
@@ -97,6 +100,7 @@ class TrialContext(BaseModel):
     memory: list[dict[str, JsonValue]] = Field(default_factory=list)
     notes: list[dict[str, JsonValue]] = Field(default_factory=list)
     recent_runs: list[dict[str, JsonValue]] = Field(default_factory=list)
+    project_profile: dict[str, JsonValue] | None = None
 
     @cached_property
     def evidence_bytes(self) -> int:
@@ -140,7 +144,9 @@ def _read_document(key: str, document_type: type[_Document]) -> _Document | None
 
 
 def _write_document_once(key: str, document: _Document) -> _Document:
-    content = document.model_dump_json()
+    # Workers on the previous TrialContext schema forbid unknown fields, so omit an empty profile.
+    omitted = {"project_profile"} if isinstance(document, TrialContext) and document.project_profile is None else None
+    content = document.model_dump_json(exclude=omitted)
     # Shared project history stays in object storage; launches carry only its context ID.
     if isinstance(document, TrialLaunch) and len(content.encode()) > MAX_TRIAL_LAUNCH_BYTES:
         raise ScoutTrialLaunchError("The trial settings are too large to save.")
@@ -179,7 +185,13 @@ def assert_trial_environment_ready() -> None:
 
 def trial_context_evidence(context: TrialContext) -> str:
     return json.dumps(
-        {"memory": context.memory, "notes": context.notes, "recent_runs": context.recent_runs}, ensure_ascii=False
+        {
+            "memory": context.memory,
+            "notes": context.notes,
+            "recent_runs": context.recent_runs,
+            **({"project_profile": context.project_profile} if context.project_profile is not None else {}),
+        },
+        ensure_ascii=False,
     )
 
 
@@ -322,6 +334,19 @@ def _snapshot_context(
         )
         .order_by("-created_at", "-id")
     )
+    project_profile = None
+    if local_scout_trial_team(team.id):
+        from products.signals.backend.scout_harness.eval_environment.profile import (  # noqa: PLC0415 -- local evals alone capture their profile cache
+            snapshot_project_profile,
+        )
+        from products.signals.backend.scout_harness.trial_state import (  # noqa: PLC0415 -- avoid the trial launch/state import cycle
+            ScoutTrialStateError,
+        )
+
+        try:
+            project_profile = snapshot_project_profile(team.id)
+        except ScoutTrialStateError as error:
+            raise ScoutTrialLaunchError(str(error)) from error
     return TrialContext(
         id=identifier,
         team_id=team.id,
@@ -345,6 +370,7 @@ def _snapshot_context(
             cast(dict[str, JsonValue], run.as_dict())
             for run in search_recent_runs(team_id=team.id, skill_name=skill.name, limit=100)
         ],
+        project_profile=project_profile,
     )
 
 

@@ -470,10 +470,18 @@ def prepare(args: argparse.Namespace) -> None:
             user_id=args.user_id,
             provenance=provenance,
         )
+        if dataset.manifest.scout:
+            from products.signals.backend.facade.eval_environment import (  # noqa: PLC0415 — only Scout attachments need Signals setup
+                freeze_scout_bundle,
+            )
+
+            freeze_scout_bundle(dataset.manifest.scout.resolve(folder), folder, workspace)
         print(f"{'Reused' if result.reused else 'Prepared'} project with {result.event_count:,} events.")
         print(f"Project: {project_link(result.team_id, getattr(args, 'site_url', None))}")
         print(f"Target cutoff: {result.target_cutoff.isoformat()}")
         print(f"Receipt: {result.receipt_path}")
+        if dataset.manifest.scout:
+            print(f"Scout context and frozen runtime descriptor: {workspace / 'frozen.json'}")
         if result.credentials_path is not None:
             print(f"Login credentials: {result.credentials_path}")
         print("The dev app remains running. No agent or evaluation was started.")
@@ -482,6 +490,7 @@ def prepare(args: argparse.Namespace) -> None:
 def pack(args: argparse.Namespace) -> None:
     event_paths = [require_private_path(path) for path in args.events]
     metrics_path = require_private_path(args.metrics) if args.metrics is not None else None
+    scout_case_path = require_private_path(args.scout_case) if args.scout_case is not None else None
     output = require_private_path(args.output)
     if output.exists() or not output.name.endswith(".tar.gz"):
         raise ValueError("Use a new .tar.gz output path; existing files are never replaced")
@@ -499,15 +508,19 @@ def pack(args: argparse.Namespace) -> None:
             environment_id=args.name,
             event_paths=event_paths,
             metrics_path=metrics_path,
+            scout_case_path=scout_case_path,
             source_cutoff=args.source_cutoff,
             timezone=args.timezone,
             time_strings=policy.time_strings,
             string_replacements=policy.string_replacements,
+            source_project_url=policy.source_project_url,
         )
         expected_files = {dataset.path}
         expected_files.update(reference.resolve(folder) for reference in dataset.manifest.events)
         if dataset.manifest.metrics is not None:
             expected_files.add(dataset.manifest.metrics.resolve(folder))
+        if dataset.manifest.scout is not None:
+            expected_files.add(dataset.manifest.scout.resolve(folder))
         if regular_files(folder) != expected_files:
             raise ValueError("The builder produced files outside the environment manifest")
         sums = "".join(
@@ -570,6 +583,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     pack_parser = commands.add_parser("pack", help="Build a portable environment from typed Parquet files")
     pack_parser.add_argument("--events", type=Path, nargs="+", required=True)
     pack_parser.add_argument("--metrics", type=Path)
+    pack_parser.add_argument("--scout-case", type=Path, help="Private scout definition and starting state to restore")
     pack_parser.add_argument("--source-cutoff", type=parse_cutoff, required=True)
     pack_parser.add_argument("--name", "--source-id", dest="name", required=True, help="Stable environment identifier")
     pack_parser.add_argument("--timezone", default="UTC")
@@ -584,6 +598,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     else:
         args.events = [invocation_dir / path for path in args.events]
         args.metrics = invocation_dir / args.metrics if args.metrics else None
+        args.scout_case = invocation_dir / args.scout_case if args.scout_case else None
         args.text_policy = invocation_dir / args.text_policy if args.text_policy else None
         args.output = invocation_dir / args.output
     os.umask(0o077)

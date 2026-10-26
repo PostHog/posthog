@@ -2,6 +2,206 @@
 
 Trials run scout versions in parallel, then judge them against the same saved rubric. Versions can change the prompt, model or reasoning effort.
 
+## Preparing a portable scout environment
+
+Load the shared [creating-scout-eval-environments skill](https://us.posthog.com/project/2/skills/creating-scout-eval-environments)
+through PostHog MCP (`posthog:skill-get`). The MCP skill is the source of truth for
+data sufficiency, capture limits, validation depth and handoff; do not maintain a
+local skill copy. It accepts a saved scout, or a draft skill and target project.
+The source exporter preserves supported context, checks complete pagination and
+rejects unsupported dependencies instead of filling them with synthetic data.
+
+The existing Parquet `pack` command accepts `--scout-case <private case.json>`.
+This produces a version-2 archive containing events, optional governed metrics,
+and a checksum-bound scout definition and starting state. The existing
+`hogli devbox:prepare-eval-env` flow validates the attachment before startup,
+restores and verifies it, then freezes the baseline. Event-only version-1 bundles
+continue to work. See the [bundle README](../../products/posthog_ai/eval_harness/environment/README.md)
+for command usage and the MCP skill's bundled real-data reference for current API limits,
+including the required existing project-profile snapshot.
+
+A source plan can include `companion_skill_names` for skills the scout reads.
+The bundle preserves their versions, files, categories, authors and owners, and
+verifies their restored content before each trial. Only the primary skill gets
+a scout config; importing a companion does not schedule it.
+Canonical companion preflight checks the complete staged skill and its files
+against the saved content hash before creating database rows.
+Starting state can include backing tasks with their archive state and activity
+timestamps, work-claim artefacts and pull requests so report ownership and review
+state remain linked after IDs are remapped.
+Each claim must belong to the artefact's report. Task channels and external
+connections still require separate restore support.
+A legacy assignment can share its ID with one work-claim artefact for the same
+report. All other starting-state record IDs must remain unique.
+
+Declare `source_project_url` in the case and bundle text policy to keep copied
+project links inside the restored instance. Preparation binds the exact source
+project prefix to the new project and pins its configured site URL in the receipt;
+other projects and external links remain unchanged. Legacy assignments and report
+task links can retain report ownership and pull-request projections without
+copying task credentials or the complete execution environment.
+
+Real-data cases use `prompt_mode="native"`: leave `SCOUT_EVAL_ENVIRONMENT_FILE`
+unset so the runner builds its ordinary prompt from restored context. Freeze
+still binds the case and harness version; the native `runtime-prompt.json` is a
+verification descriptor, not a prompt override. Recorded replay remains explicit
+and follows the instructions below.
+
+The preparation helper preserves an existing box's startup setting; it defers
+automatic app startup only when creating a box. Follow the MCP skill for the
+requested completion checks. Environment preparation and a paid scout trial are
+separate outcomes; report the checks actually performed.
+
+## Reconstructing an isolated project from traces
+
+For checkout-based reconstruction, load `creating-scout-eval-environments`
+through PostHog MCP. Keep private traces, reconstructed Parquet files, starting scout state,
+assumptions and trial exports outside Git or in an ignored directory. The scout
+sandbox must not mount that directory.
+
+`python manage.py scout_eval_environment --state-dir <private workspace>` provides
+`prepare`, `freeze`, `check`, `run` and `export`. Run it through `.codex/with-flox`
+from the repository root. Preparation uses the existing Parquet restore flow and
+adds the pinned skill, notes, memory, earlier reports and run history. Freeze the
+first reconstruction before inspecting held-out exports or expected findings.
+Preserve observed organization gates in the real backing rows, including AI data
+processing approval. The importer defaults a new organization to unapproved;
+copying an approved cached project profile alone leaves live write checks blocked.
+Keep unobserved organization settings as explicit reconstruction assumptions.
+Match product feature gates needed by the captured tools too. The existing
+`POSTHOG_FEATURE_FLAGS_FORCE_ENABLED` setting accepts an explicit comma-separated
+list for the disposable local stack; record those choices with the private case
+and restart services after changing them.
+Start with task-relevant tool probes. When a required probe fails or masks a
+required live dependency behind a cache/fallback, check that dependency directly
+using its supported local configuration.
+`build-events --recipe <private JSON> --output <new private Parquet>` builds event
+rows from the `EventRecipe` schema in `eval_environment/recipes.py`; it refuses
+to overwrite an existing file. Record reconstruction assumptions separately.
+`extract --run <private run directory> --read-tools <private JSON list> --output
+<private observations JSON>` extracts permitted reads from paginated raw logs up
+to the first unrecognized operation. Review that boundary for completeness.
+An agent combines the observed query results into a saved case and recipe and
+declares missing-data choices. Related traces can be reviewed together; rebuilding
+from the saved recipe needs no further model calls or trace review. Check this by
+building twice and comparing decoded rows before the first restore.
+
+The first restore shifts the data to its target cutoff (near current UTC by default,
+with a whole-second shift so timestamps and textual interval bounds stay aligned).
+Keep explicit UTC interval bounds in one-time trial steering, shift declared
+embedded timestamps consistently, and preserve the project timezone. A restore
+receipt is reusable; it does not reset changed state or move its cutoff again.
+Clock time continues advancing within a session.
+For date-only or minute-only query bounds, supply an explicitly aligned
+`--target-cutoff`; their written precision cannot represent a finer shift.
+
+For a local project whose ID differs from 2, set `SCOUT_TRIALS_LOCAL_TEAM_ID` to
+the prepared project ID. Only `DEBUG` honors this setting; that exact local
+project does not depend on the production trial feature flag. Staff and skill
+access checks still apply. Other deployments keep the project-2 gate.
+
+Set `SCOUT_EVAL_ENVIRONMENT_FILE` to the frozen workspace's `runtime-prompt.json`
+in the backend and scout worker. The local-only adapter preserves the recorded
+full prompt while replacing declared identifiers/timestamps, current run identity
+and one-time steering. Frozen-input changes or a mismatched scout fail closed.
+The file is read by the worker and is not attached to the sandbox.
+
+For a run that should behave like ordinary scouting, inspect every agent-visible
+instruction before launching. A recorded prompt may already disclose a benchmark
+or private trial. When rewriting those instructions is authorized, keep the original
+prompt privately and declare exact `prompt_transformations` in the case,
+including the source text, replacement, reason and expected occurrence count.
+Freeze binds those changes; a changed source fails closed. Rewrite the task skill
+and steering consistently, retain its scope rules, and keep concrete dates in
+one-time steering. Do not tell the scout that its data is real or ask it to ignore
+inconsistencies. Isolation remains enforced by the server.
+
+Restore observed project and organization names through the case metadata. Use
+an explicitly selected local operator account with `prepare --user-id` when the
+importer's default evaluation-labelled login would be visible to the scout.
+Record assumptions for missing identities outside the scout context.
+Include task-forbidden identity tools in the operator's reconstruction preflight
+while keeping them available to the scout so violations remain observable.
+Preserve captured names, emails, logins and team memberships through their real
+backing state. Check visible responses for automatically generated placeholders;
+use source-backed values or explicit private assumptions for missing fields.
+Keep public examples and defaults on reserved domains, and never fill missing
+identity fields from production.
+
+For requested and authorized execution, start with one standalone trial and
+inspect its complete exported log before launching comparisons. Environment-only
+preparation stops at the MCP skill's smoke-test handoff. The `run` command plans without paid calls; `--launch`
+dispatches the saved IDs. A multi-run plan uses existing Scout comparisons and
+their saved rubric judges. Comparison exports include each run's full trace and
+private results alongside the saved judge report. Check the export's per-run
+errors before treating a trace as complete. Trials isolate their report and
+memory writes; the underlying restored project must remain stable for the whole
+comparison. Inbox reads preserve `include_unlisted` for both existing reports
+and private trial reports, so a scout can search the complete inbox for duplicates.
+Before planning or launching, `check` verifies the frozen files, scout state,
+local routing, governed metric fields and event counts/minimum/maximum timestamps.
+It reads the restored database without repairing it. Event property-level fidelity
+still needs independent task-relevant queries; equal aggregate counts and bounds
+cannot detect every event edit.
+Review tool responses and available reasoning summaries for both evaluation
+awareness and suspected fabricated data. Report the exact evidence separately;
+an absence of remarks does not establish what the scout believed. For a failed
+requested run, follow the MCP skill's repair boundaries and preserve diagnostics.
+Keep scout quality changes and comparison batches separate from preparation.
+Configured local evaluations also snapshot the starting project profile. A
+`force_refresh` call runs the real profile builder, rolls back its shared cache
+and pruning writes and background callbacks, then saves the result only in that
+trial's private state. Later reads in that run see its refreshed profile; other
+runs retain the shared starting snapshot. Ordinary project-profile reads outside
+local trial sandboxes keep their existing behavior.
+
+Use one private campaign ledger and reconcile actual usage before another batch.
+The ledger reserves configured scout/judge token caps and report-check allowance.
+Planning only calculates that allowance. Launch reserves it against a digest of
+the complete saved plan, including launch IDs; a pending retry must match exactly.
+Settled reservations cannot be reused. Legacy pending reservations without a plan
+binding must be reconciled from actual usage before creating a new plan.
+Report validation mints additional tokens, so also enforce a campaign-wide gateway
+wallet or credential budget. Per-token limits alone are not a global spend cap.
+Export results before resetting local databases and use a fresh workspace after
+the reset.
+Preparation labels the verified capture guard as an event-ingestion policy;
+its compiled drop-event behavior and import receipt stay unchanged. The check
+command rejects changed labels or changed guard behavior before paid work.
+Reconstruction recipes preserve observed rows and accept explicit generated
+timestamps. Match the source's timestamp precision and ID format rather than
+introducing regular spacing. Set `generated_uuid_version=7` for timestamp-based
+generated IDs; the default remains 5. UUIDv7 clock bits encode the source event
+timestamp and remain unchanged during the later restore time shift.
+Preserve observed list totals, pagination and ordering, and back referenced
+objects using captured fields or separately declared assumptions. Map only exact
+internal project URL prefixes to the verified local project; preserve external
+URLs and unrelated source context.
+
+Restore trace-observed state outside the typed bundle with a private deterministic
+seed-and-check adapter using real models and local storage. Finish seeding before
+freezing, and pass the event recipe, private builder, assumptions, supplemental
+sources and adapter receipt as repeated `freeze --extra-input <private path>`
+arguments. These hashes bind the reconstruction choices in both freeze documents;
+repeating a freeze requires the same paths and unchanged files. Keep the baseline
+immutable once execution starts. The adapter's live-state check remains mandatory
+before every run or batch because file hashes do not verify database or
+object-storage contents.
+
+Keep the checkout stable during paid runs. Set `TEMPORAL_DISABLE_HOT_RELOAD=1`
+and `GRANIAN_RELOAD_IGNORE_PATHS=<absolute checkout root>` before starting workers
+and the backend. Otherwise source edits or formatter cache writes can restart the
+backend during MCP requests, producing misleading tool failures. Restart through
+the normal stack workflow after changing these settings.
+
+When the requested execution needs a fresh baseline, export results before a
+data-only reset on the disposable devbox. Use the
+existing `hogli down --timeout 20`, `hogli docker:services:remove -y`, and
+`hogli up -d -y` flow before preparing into a fresh private workspace. Run those
+commands through `.codex/with-flox`. This removes local service data; do not seed
+demo data before restoring the trace-derived fixture. `hogli nuke` also reinstalls
+dependencies, so it is a broader environment reset.
+
 ## Before starting
 
 Follow the existing [devbox setup](../../.agents/skills/setting-up-devbox/SKILL.md) and [local stack](../../.agents/skills/run-posthog/SKILL.md) instructions.
@@ -30,6 +230,17 @@ Enable the `scout-trials` feature flag for the `project` group with `id = 2`. A 
 Switching the flag off blocks new trials, resumes, queued scout work and new judge dispatch. Judges already dispatched to Tasks can finish, even if their sandbox has not started yet. Saved results remain readable.
 
 Verify the ports and Docker host mapping. Sandbox URLs and MCP's `POSTHOG_API_BASE_URL` must reach services directly, without the Coder login proxy. Keep `POSTHOG_PUBLIC_URL` and `SITE_URL` on the browser URL.
+The host-side Tasks worker also uses `SANDBOX_AI_GATEWAY_URL` when minting scoped
+tokens. A name such as `host.docker.internal` must resolve from the host as well
+as inside Docker; a working container mapping alone is insufficient. Use
+`scout_eval_environment ... check --probe` to mint and revoke the private scout
+token and ordinary rubric/judge tokens without making a model call. Launch
+repeats this check before creating a run. Rubric generation resolves to
+`signals_scout_suggestions`; judging resolves to `signals_scout`. Enable both in
+`SANDBOX_AI_GATEWAY_PRODUCTS` and configure `SANDBOX_AI_GATEWAY_MINT_KEY`.
+Set `SANDBOX_LLM_GATEWAY_URL` explicitly to a local service too: ordinary Tasks
+can use this fallback if Go token minting fails, even when the Go URL is local.
+The reconstruction check rejects an unset or remote fallback.
 The backend and scout orchestration worker use their existing `AI_GATEWAY_URL` and `AI_GATEWAY_API_KEY`. Private report checks mint and revoke temporary tokens with that service credential. Only the Tasks worker that provisions sandboxes needs `SANDBOX_AI_GATEWAY_URL` and `SANDBOX_AI_GATEWAY_MINT_KEY`. Both credentials must allow private token creation and team attribution in the intended paying project. The `signals_scout` product must not bill customer credits.
 API-side token calls bypass environment proxies, matching the other service gateway clients. Sandbox token calls keep their existing proxy behavior.
 Enable `SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE` only after confirming query/task telemetry and warehouse replicas do not expose trial content to the inspected project. The gateway must acknowledge capture suppression when minting tokens.

@@ -5,9 +5,10 @@ import tempfile
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Literal
 from uuid import uuid4
 
-from posthog.test.base import BaseTest, ClickhouseTestMixin
+from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event
 from unittest.mock import patch
 
 from django.test import SimpleTestCase, override_settings
@@ -26,7 +27,7 @@ from products.data_catalog.backend.facade.api import Metric
 from products.posthog_ai.eval_harness.environment.dataset import EnvironmentDataset
 from products.posthog_ai.eval_harness.environment.events import EnvironmentEvents
 from products.posthog_ai.eval_harness.environment.guard import EnvironmentMigrationsPending
-from products.posthog_ai.eval_harness.environment.restore import PreparedEnvironment
+from products.posthog_ai.eval_harness.environment.restore import EnvironmentReceipt, PreparedEnvironment
 from products.posthog_ai.eval_harness.environment.schema import (
     EVENT_TABLE,
     METRIC_TABLE,
@@ -45,6 +46,7 @@ def make_environment(
     events: Sequence[EnvironmentEvent] = (),
     metrics: Sequence[EnvironmentMetric] = (),
     timezone: str = "UTC",
+    source_project_url: str | None = None,
 ) -> EnvironmentDataset:
     directory.mkdir(parents=True, exist_ok=True)
     event_path = directory / "source-events.parquet"
@@ -58,10 +60,43 @@ def make_environment(
         metrics_path=metric_path,
         source_cutoff=SOURCE,
         timezone=timezone,
+        source_project_url=source_project_url,
     )
 
 
 class TestEnvironmentRestoreValidation(SimpleTestCase):
+    @parameterized.expand([None, "pending", "failed"])
+    def test_verification_requires_completed_receipt_without_creating_restore_state(
+        self, phase: Literal["pending", "failed"] | None
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            dataset = make_environment(root / "source")
+            workspace = root / "import"
+            if phase is not None:
+                workspace.mkdir()
+                receipt = EnvironmentReceipt(
+                    phase=phase,
+                    manifest_sha256=dataset.manifest_sha256,
+                    environment_id=dataset.manifest.environment_id,
+                    source_cutoff=SOURCE,
+                    target_cutoff=SOURCE,
+                    timezone="UTC",
+                    databases={},
+                    identity_namespace=uuid4(),
+                    provenance={},
+                )
+                (workspace / "receipt.json").write_text(receipt.model_dump_json())
+            before = (workspace / "receipt.json").read_bytes() if workspace.exists() else None
+            with (
+                override_settings(DEBUG=True, CLOUD_DEPLOYMENT=None),
+                patch.object(PreparedEnvironment, "_reuse") as reuse,
+                self.assertRaisesRegex(ValueError, "completed import receipt"),
+            ):
+                PreparedEnvironment.verify(dataset, workspace)
+            reuse.assert_not_called()
+            self.assertEqual((workspace / "receipt.json").read_bytes() if workspace.exists() else None, before)
+
     @parameterized.expand(
         [
             ({"DEBUG": False},),
@@ -148,10 +183,73 @@ class TestEnvironmentRestore(ClickhouseTestMixin, BaseTest):
             )
         )
 
+    @parameterized.expand(["metric", "events"])
+    def test_verification_detects_live_data_drift_without_repairing_it(self, changed: str) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            dataset = make_environment(
+                root / "source",
+                events=[
+                    EnvironmentEvent(
+                        uuid=uuid4(),
+                        event="delivery",
+                        distinct_id="original-reader",
+                        timestamp=SOURCE - timedelta(minutes=2),
+                        created_at=SOURCE - timedelta(minutes=1),
+                        properties={},
+                    )
+                ],
+                metrics=[
+                    EnvironmentMetric(
+                        id=uuid4(),
+                        created_at=SOURCE - timedelta(minutes=1),
+                        name="delivery_total",
+                        description="Count invented delivery events.",
+                        definition={"kind": "HogQLQuery", "query": "SELECT count() FROM events"},
+                        referenced_table_names=["events"],
+                        status="approved",
+                    )
+                ],
+            )
+            workspace = root / "import"
+            result = PreparedEnvironment.restore(dataset, workspace, user_id=self.user.id)
+            receipt_before = result.receipt_path.read_bytes()
+            self.assertEqual(PreparedEnvironment.verify(dataset, workspace).team_id, result.team_id)
+            if changed == "metric":
+                Metric.objects.for_team(result.team_id).update(description="Changed after the restore.")
+                error = "restored metric changed"
+            else:
+                _create_event(
+                    team=Team.objects.get(id=result.team_id),
+                    event="delivery",
+                    distinct_id="additional-reader",
+                    timestamp=result.target_cutoff - timedelta(minutes=1),
+                )
+                error = "event counts or timestamp bounds"
+            with (
+                patch.object(
+                    PreparedEnvironment, "restore", side_effect=AssertionError("verification tried to restore")
+                ),
+                self.assertRaisesRegex(ValueError, error),
+            ):
+                PreparedEnvironment.verify(dataset, workspace)
+            self.assertEqual(result.receipt_path.read_bytes(), receipt_before)
+            if changed == "metric":
+                self.assertEqual(
+                    Metric.objects.for_team(result.team_id).get().description, "Changed after the restore."
+                )
+            else:
+                self.assertEqual(
+                    sync_execute("SELECT count() FROM events WHERE team_id = %(team_id)s", {"team_id": result.team_id})[
+                        0
+                    ][0],
+                    2,
+                )
+
     def test_restores_events_and_metrics_without_changing_operator_and_reuses_receipt(self) -> None:
         metric_id = uuid4()
         person_id = uuid4()
-        target = datetime.now(UTC).replace(microsecond=345678)
+        target = datetime(2030, 6, 4, 12, 0, 0, 345678, tzinfo=UTC)
         source_time = SOURCE - timedelta(minutes=2)
         event = EnvironmentEvent(
             uuid=uuid4(),
@@ -160,13 +258,21 @@ class TestEnvironmentRestore(ClickhouseTestMixin, BaseTest):
             person_id=person_id,
             timestamp=source_time,
             created_at=SOURCE - timedelta(minutes=1),
-            properties={"attempts": 2, "ok": False, "nested": {"value": None}, "empty": "", "mixed": [0, "0"]},
+            properties={
+                "attempts": 2,
+                "ok": False,
+                "nested": {"value": None},
+                "empty": "",
+                "mixed": [0, "0"],
+                "source_link": "https://example.com/project/42/inbox/item",
+                "other_link": "https://example.com/project/420/inbox/item",
+            },
         )
         metric = EnvironmentMetric(
             id=metric_id,
             created_at=source_time,
             name="delivery_total",
-            description="Count invented delivery events.",
+            description="Count invented delivery events. https://example.com/project/42/inbox/item",
             definition={"kind": "HogQLQuery", "query": "SELECT count() FROM events"},
             referenced_table_names=["events"],
             status="approved",
@@ -181,11 +287,21 @@ class TestEnvironmentRestore(ClickhouseTestMixin, BaseTest):
         events = [event, *(event.model_copy(update={"uuid": uuid4()}) for _ in range(5_000))]
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            dataset = make_environment(root / "source", events=events, metrics=[metric], timezone="Asia/Kolkata")
+            dataset = make_environment(
+                root / "source",
+                events=events,
+                metrics=[metric],
+                timezone="Asia/Kolkata",
+                source_project_url="https://example.com/project/42",
+            )
             workspace = root / "import"
-            with patch("posthog.models.event.util.bulk_create_events", side_effect=AssertionError("test writer used")):
+            with (
+                override_settings(SITE_URL="http://localhost:8010"),
+                patch("posthog.models.event.util.bulk_create_events", side_effect=AssertionError("test writer used")),
+            ):
                 result = PreparedEnvironment.restore(dataset, workspace, target_cutoff=target, user_id=self.user.id)
-                again = PreparedEnvironment.restore(dataset, workspace)
+                with override_settings(SITE_URL="http://localhost:8999"):
+                    again = PreparedEnvironment.restore(dataset, workspace)
             self.assertEqual(result.event_count, len(events))
             self.assertEqual(result.metric_count, 1)
             self.assertFalse(result.reused)
@@ -198,6 +314,8 @@ class TestEnvironmentRestore(ClickhouseTestMixin, BaseTest):
             receipt = PreparedEnvironment.read_receipt(workspace)
             assert receipt is not None and receipt.event_ingestion is not None
             protection = receipt.event_ingestion
+            expected_project_url = f"http://localhost:8010/project/{result.team_id}"
+            self.assertEqual(receipt.target_project_url, expected_project_url)
             filter_bytecode = protection.filters["bytecode"]
             assert isinstance(filter_bytecode, list)
             self.assertTrue(execute_bytecode(filter_bytecode).result)
@@ -220,6 +338,9 @@ class TestEnvironmentRestore(ClickhouseTestMixin, BaseTest):
             self.assertFalse(organization.is_ai_data_processing_approved)
             self.assertFalse(organization.is_ai_training_opted_in)
             restored_metric = Metric.objects.for_team(team.id).get()
+            self.assertEqual(
+                restored_metric.description, f"Count invented delivery events. {expected_project_url}/inbox/item"
+            )
             self.assertEqual(restored_metric.owner_id, self.user.id)
             self.assertEqual(restored_metric.approved_by_id, self.user.id)
             self.assertEqual(restored_metric.created_by_id, self.user.id)
@@ -246,7 +367,10 @@ class TestEnvironmentRestore(ClickhouseTestMixin, BaseTest):
                 "SELECT properties FROM events WHERE team_id = %(team_id)s AND uuid = %(uuid)s",
                 {"team_id": team.id, "uuid": str(event.uuid)},
             )[0][0]
-            self.assertEqual(json.loads(stored_properties), event.properties)
+            self.assertEqual(
+                json.loads(stored_properties),
+                {**event.properties, "source_link": expected_project_url + "/inbox/item"},
+            )
             for cutoff, user_id in ((target + timedelta(days=1), self.user.id), (target, self.user.id + 100000)):
                 with self.assertRaisesRegex(ValueError, "different import inputs"):
                     PreparedEnvironment.restore(dataset, workspace, target_cutoff=cutoff, user_id=user_id)

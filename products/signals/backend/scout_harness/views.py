@@ -2453,17 +2453,30 @@ class SignalProjectProfileViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         # background build per team, which bounds what a forged GET can cost.
         force_refresh = bool(validated.get("force_refresh", False)) and caller_is_internal_scout
         team_id = _canonical_team_id(self)
-        profile = get_project_profile(
-            team_id=team_id,
-            force_refresh=force_refresh,
-            lazy_build=caller_is_internal_scout,
+        from products.signals.backend.scout_harness.trial_access_policy import (  # noqa: PLC0415 -- local evaluation is opt-in
+            local_scout_trial_team,
         )
-        if profile is None:
-            enqueue_project_profile_build(team_id)
-            raise exceptions.NotFound(
-                "No project profile has been built for this team yet. A build has started, so retry in a minute."
+
+        private = trial_store_for_request(request, team_id) if local_scout_trial_team(team_id) else None
+        if private is not None:
+            from products.signals.backend.scout_harness.eval_environment.profile import (  # noqa: PLC0415 -- keep local evaluation off ordinary request imports
+                local_trial_project_profile,
             )
-        body = profile.as_dict()
+
+            with trial_state_errors():
+                body = local_trial_project_profile(private, force_refresh=force_refresh)
+        else:
+            profile = get_project_profile(
+                team_id=team_id,
+                force_refresh=force_refresh,
+                lazy_build=caller_is_internal_scout,
+            )
+            if profile is None:
+                enqueue_project_profile_build(team_id)
+                raise exceptions.NotFound(
+                    "No project profile has been built for this team yet. A build has started, so retry in a minute."
+                )
+            body = profile.as_dict()
         _overlay_effective_emit_eligibility(
             body,
             team_id=team_id,
