@@ -38,6 +38,7 @@ import {
     ChartSettings,
     ChartSettingsDisplay,
     ChartSettingsFormatting,
+    CustomChartSettings,
     DashboardFilter,
     ConditionalFormattingRule,
     VisualizationNode,
@@ -57,6 +58,10 @@ import {
     getBIVisualizationResponse,
     getBIVisualizationSource,
 } from 'products/business_intelligence/frontend/biQueryResults'
+import {
+    CustomChartData,
+    customChartDataFromResponse,
+} from 'products/product_analytics/frontend/insights/customChart/customChartData'
 
 import type {
     DataNode,
@@ -701,6 +706,8 @@ export interface dataVisualizationLogicValues {
     columns: Column[]
     conditionalFormattingRules: ConditionalFormattingRule[]
     conditionalFormattingRulesPanelActiveKeys: string[]
+    customChart: CustomChartSettings | null
+    customChartData: CustomChartData | null
     dashboardId: any
     dataVisualizationProps: DataVisualizationLogicProps
     effectiveVisualizationType: ChartDisplayType
@@ -884,6 +891,8 @@ export interface dataVisualizationLogicMeta {
         ) => void | Promise<void>
     }
     __keaTypeGenInternalSelectorTypes: {
+        customChart: (query: VisualizationNode) => CustomChartSettings | null
+        customChartData: (query: VisualizationNode, response: AnyResponseType | null) => CustomChartData | null
         response: (
             query: VisualizationNode,
             rawResponse:
@@ -1413,6 +1422,21 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         ],
     })),
     selectors({
+        customChart: [
+            (s) => [s.query],
+            (query: VisualizationNode): CustomChartSettings | null =>
+                query.kind === NodeKind.DataVisualizationNode ? (query.customChart ?? null) : null,
+        ],
+        customChartData: [
+            (s) => [s.query, s.response],
+            (query: VisualizationNode, response: AnyResponseType | null): CustomChartData | null =>
+                query.kind === NodeKind.DataVisualizationNode
+                    ? customChartDataFromResponse(
+                          query.source as unknown as Record<string, unknown>,
+                          response as Record<string, any> | null
+                      )
+                    : null,
+        ],
         response: [
             (s) => [s.query, s.rawResponse],
             (query: VisualizationNode, response: AnyResponseType | null): AnyResponseType | null =>

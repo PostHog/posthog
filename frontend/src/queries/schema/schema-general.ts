@@ -1634,6 +1634,7 @@ export interface DataVisualizationNode extends Node<never> {
     display?: ChartDisplayType
     chartSettings?: ChartSettings
     tableSettings?: TableSettings
+    customChart?: CustomChartSettings
 }
 
 export type VisualizationNode = DataVisualizationNode | BIVisualizationNode
@@ -1758,6 +1759,13 @@ interface InsightVizNodeViewProps {
     hidePersonsModal?: boolean
     hideTooltipOnScroll?: boolean
     vizSpecificOptions?: VizSpecificOptions
+    customChart?: CustomChartSettings
+}
+
+/** A generated canvas that draws the source query's results instead of the built-in chart. */
+export interface CustomChartSettings {
+    /** The canvas whose published build draws the chart. */
+    canvasId: string
 }
 
 /** Base class for insight query nodes. Should not be used directly. */

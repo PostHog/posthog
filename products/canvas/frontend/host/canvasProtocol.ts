@@ -179,6 +179,7 @@ export type HostToCanvasMessage =
     | { channel: typeof CANVAS_CHANNEL; type: 'set-theme'; theme: CanvasTheme }
     | { channel: typeof CANVAS_CHANNEL; type: 'set-comment-highlights'; highlights: CanvasCommentHighlight[] }
     | { channel: typeof CANVAS_CHANNEL; type: 'clear-text-selection' }
+    | { channel: typeof CANVAS_CHANNEL; type: 'set-insight-data'; data: unknown }
     | {
           channel: typeof CANVAS_CHANNEL
           type: 'data-response'

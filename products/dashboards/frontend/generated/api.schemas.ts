@@ -1418,6 +1418,11 @@ export interface CreateTextTileRequestApi {
     color?: string | null
 }
 
+export interface CustomChartSettingsApi {
+    /** The canvas whose published build draws the chart. */
+    canvasId: string
+}
+
 export type InsightVizNodeApiKind = (typeof InsightVizNodeApiKind)[keyof typeof InsightVizNodeApiKind]
 
 export const InsightVizNodeApiKind = {
@@ -4906,6 +4911,7 @@ export interface VizSpecificOptionsApi {
 }
 
 export interface InsightVizNodeApi {
+    customChart?: CustomChartSettingsApi | null
     /** Query is embedded inside another bordered component */
     embedded?: boolean | null
     /** Show with most visual options enabled. Used in insight scene. */
@@ -9291,6 +9297,7 @@ export interface TableSettingsApi {
 
 export interface DataVisualizationNodeApi {
     chartSettings?: ChartSettingsApi | null
+    customChart?: CustomChartSettingsApi | null
     display?: ChartDisplayTypeApi | null
     kind: DataVisualizationNodeApiKind
     source: HogQLQueryApi

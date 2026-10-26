@@ -6,7 +6,9 @@ import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { ChunkLoadErrorBoundary } from 'scenes/ChunkLoadErrorBoundary'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
@@ -48,6 +50,7 @@ import {
 } from '~/types'
 
 import { ChartAlternatives } from 'products/product_analytics/frontend/insights/chartAlternatives/ChartAlternatives'
+import { CustomChart } from 'products/product_analytics/frontend/insights/customChart/CustomChart'
 import { InsightDataChecks } from 'products/product_analytics/frontend/insights/dataChecks/InsightDataChecks'
 import { Funnel } from 'products/product_analytics/frontend/insights/funnels/Funnel'
 import { FunnelCanvasLabel } from 'products/product_analytics/frontend/insights/funnels/FunnelCanvasLabel'
@@ -218,7 +221,10 @@ export function InsightVizDisplay({
         validationErrorCode,
         theme,
         showsFlagCallsRetentionNotice,
+        customChart,
+        customChartData,
     } = useValues(insightVizDataLogic(insightProps))
+    const { featureFlags } = useValues(featureFlagLogic)
     const { loadData, updateQuerySource } = useActions(insightVizDataLogic(insightProps))
     const { exportContext, queryId, insightDataError } = useValues(insightDataLogic(insightProps))
     const { funnelVizType, hasFunnelResults, isFunnelWithEnoughSteps, isFunnelWithIncompleteDataWarehouseStep } =
@@ -378,10 +384,27 @@ export function InsightVizDisplay({
     // A chart that draws its own legend inside the plot opts out of the side-legend column, so we
     // don't render two legends. The slope graph always does; trends/stickiness/lifecycle charts
     // (including pie) do when the quill in-chart legend is on (`usesInChartLegend`).
-    const chartDrawsOwnLegend = display === ChartDisplayType.SlopeGraph || usesInChartLegend
+    // Shared and exported views run no generated code, so they keep the built-in chart.
+    const showsCustomChart = !!customChart && !inSharedMode && !!featureFlags[FEATURE_FLAGS.CUSTOM_CHART_INSIGHTS]
+    const chartDrawsOwnLegend = display === ChartDisplayType.SlopeGraph || usesInChartLegend || showsCustomChart
     const showSideLegend = supportsDisplay && showLegend && !chartDrawsOwnLegend
 
     function renderActiveView(): JSX.Element | null {
+        const builtInChart = renderBuiltInChart()
+        if (customChart && builtInChart && showsCustomChart) {
+            return (
+                <CustomChart
+                    canvasId={customChart.canvasId}
+                    data={customChartData}
+                    builtInChart={builtInChart}
+                    embedded={embedded}
+                />
+            )
+        }
+        return builtInChart
+    }
+
+    function renderBuiltInChart(): JSX.Element | null {
         switch (activeView) {
             case InsightType.TRENDS:
                 return (
