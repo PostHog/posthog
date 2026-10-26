@@ -630,13 +630,11 @@ export const ExternalDataSourcesApplyMigrationItemCreateBody = /* @__PURE__ */ z
         .optional()
         .describe('Destinations to write the new source to. Omit to write to the PostHog warehouse.'),
     created_via: zod
-        .enum(['web', 'api', 'mcp', 'wizard', 'self_driving'])
-        .describe(
-            '\* `web` - web\n\* `api` - api\n\* `mcp` - mcp\n\* `wizard` - wizard\n\* `self_driving` - self_driving'
-        )
+        .enum(['web', 'api', 'mcp'])
+        .describe('\* `web` - web\n\* `api` - api\n\* `mcp` - mcp')
         .default(externalDataSourcesApplyMigrationItemCreateBodyCreatedViaDefault)
         .describe(
-            'Where the request came from.\n\n\* `web` - web\n\* `api` - api\n\* `mcp` - mcp\n\* `wizard` - wizard\n\* `self_driving` - self_driving'
+            'Where the request came from: `web`, `api`, or `mcp`. Defaults to `api`.\n\n\* `web` - web\n\* `api` - api\n\* `mcp` - mcp'
         ),
 })
 

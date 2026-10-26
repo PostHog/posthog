@@ -19,7 +19,7 @@ from products.warehouse_sources.backend.facade import (
     warehouse_migration as migrations,
 )
 
-_UUID_PATTERN = "[0-9a-f-]+"
+_UUID_PATTERN = "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
 DEFAULT_PAGE_SIZE = 100
 
 

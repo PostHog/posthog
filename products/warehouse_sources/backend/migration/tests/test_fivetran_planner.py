@@ -26,6 +26,7 @@ from products.warehouse_sources.backend.migration.types import (
     VendorTable,
     Verdict,
 )
+from products.warehouse_sources.backend.models.util import validate_source_prefix
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -70,6 +71,7 @@ def _caps(**overrides: Any) -> SourceCapabilities:
     )
 
 
+_TEAM_FLAGS = frozenset({"flag-the-team-has"})
 _DATABASE_CAPS = _caps(documented_tables=None, supports_row_filters=True, toggle_groups=frozenset({"ssh_tunnel"}))
 
 
@@ -101,19 +103,27 @@ def _connection(**overrides: Any) -> VendorConnection:
     )
 
 
-def _plan(
-    connection: VendorConnection,
+def _plan_all(
+    connections: tuple[VendorConnection, ...],
     caps: SourceCapabilities | None = None,
     destinations: tuple[VendorDestination, ...] = (),
-) -> PlannedItem:
+) -> tuple[PlannedItem, ...]:
     snapshot = VendorSnapshot(
         provider=MigrationProvider.FIVETRAN,
         account_id="acct_example",
         account_name=None,
         destinations=destinations,
-        connections=(connection,),
+        connections=connections,
     )
-    (item,) = plan_items(snapshot, _CATALOG, lambda _source_type: caps or _caps())
+    return plan_items(snapshot, _CATALOG, lambda _source_type: caps or _caps(), flag_enabled=_TEAM_FLAGS.__contains__)
+
+
+def _plan(
+    connection: VendorConnection,
+    caps: SourceCapabilities | None = None,
+    destinations: tuple[VendorDestination, ...] = (),
+) -> PlannedItem:
+    (item,) = _plan_all((connection,), caps, destinations)
     return item
 
 
@@ -130,10 +140,29 @@ class TestVerdict(SimpleTestCase):
         assert [schema.name for schema in item.proposal.schemas] == ["contacts", "deals"]
         assert item.proposal.sync_frequency == "6hour"
 
+    def test_prefixes_are_valid_and_unique_per_source_type(self) -> None:
+        first, second, digit_first = _plan_all(
+            (
+                _connection(name="hubspot"),
+                _connection(id="conn_staging", name="hubspot"),
+                _connection(name="3PL Orders"),
+            )
+        )
+
+        assert first.proposal is not None and second.proposal is not None and digit_first.proposal is not None
+        assert (first.proposal.prefix, second.proposal.prefix) == ("hubspot", "hubspot_2")
+        assert any("`hubspot_2`" in caveat for caveat in second.caveats), second.caveats
+        assert validate_source_prefix(digit_first.proposal.prefix) == (True, "")
+
     @parameterized.expand(
         [
             ("no_posthog_source", _connection(service="unknown_vendor"), _caps()),
             ("posthog_source_unreleased", _connection(), _caps(unreleased=True)),
+            (
+                "team_lacks_the_source_flag",
+                _connection(),
+                _caps(feature_flags=frozenset({"flag-the-team-has", "flag-the-team-lacks"})),
+            ),
         ]
     )
     def test_unsupported(self, _name: str, connection: VendorConnection, caps: SourceCapabilities) -> None:
@@ -179,14 +208,21 @@ class TestTables(SimpleTestCase):
         connection = _connection(
             service="postgres",
             config={"host": "db.example.com", "user": "reader", "port": 5432, "tunnel_host": "bastion.example.com"},
-            tables=(_table("orders", schema_name="public"), _table("events", schema_name="analytics")),
+            tables=(
+                _table("orders", schema_name="public"),
+                _table("events", schema_name="analytics"),
+                _table("events", schema_name="public"),
+            ),
         )
         item = _plan(connection, _DATABASE_CAPS)
         assert item.proposal is not None and item.proposal.schemas is not None
+        # Both `events` tables keep only their qualified names, so apply cannot map them to one bare table.
         assert [(schema.name, schema.alternative_names) for schema in item.proposal.schemas] == [
             ("public.orders", ("orders",)),
-            ("analytics.events", ("events",)),
+            ("analytics.events", ()),
+            ("public.events", ()),
         ]
+        assert any("`events`" in caveat for caveat in item.caveats), item.caveats
         assert item.proposal.prefill == {
             "host": "db.example.com",
             "user": "reader",
@@ -269,6 +305,7 @@ class TestRowFilters(SimpleTestCase):
                 (),
             ),
             ("operator_without_equivalent", _DATABASE_CAPS, _row_filter(("name", "CONTAINS", ("x",))), ()),
+            ("several_values_for_one_value_operator", _DATABASE_CAPS, _row_filter(("a", "EQUALS", ("1", "2"))), ()),
             ("source_cannot_filter", _caps(documented_tables=None), _row_filter(("status", "EQUALS", ("ACTIVE",))), ()),
             (
                 "column_not_filterable_on_this_table",

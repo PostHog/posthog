@@ -24,10 +24,11 @@ def _proposal(*schemas: ProposedSchema, **overrides: Any) -> ItemProposal:
     return ItemProposal(**fields)
 
 
-def _table(name: str, webhook_only: bool = False) -> SourceSchema:
+def _table(name: str, webhook_only: bool = False, source_schema: str | None = None) -> SourceSchema:
     return SourceSchema(
         name=name,
         webhook_only=webhook_only,
+        source_schema=source_schema,
         supports_incremental=True,
         supports_append=True,
         incremental_fields=[
@@ -101,13 +102,26 @@ class TestBuildPlannedSchemas(SimpleTestCase):
     def test_matches_alternative_names_and_reports_webhook_only_tables(self) -> None:
         proposal = _proposal(
             ProposedSchema(name="public.orders", should_sync=True, sync_type=None, alternative_names=("orders",)),
+            # Discovery read schema `public`, so the bare `users` and `orders` are not this schema's tables.
+            ProposedSchema(name="sales.users", should_sync=True, sync_type=None, alternative_names=("users",)),
+            ProposedSchema(name="sales.orders", should_sync=True, sync_type=None, alternative_names=("orders",)),
             ProposedSchema(name="events", should_sync=True, sync_type=None),
             sync_time_of_day="03:30:00",
         )
+        discovered = [
+            _table("orders", source_schema="public"),
+            _table("users", source_schema="public"),
+            _table("events", webhook_only=True),
+        ]
 
-        planned = build_planned_schemas(proposal, [_table("orders"), _table("events", webhook_only=True)], {})
+        planned = build_planned_schemas(proposal, discovered, {})
 
-        orders, events = planned.schemas
+        orders, users, events = planned.schemas
         assert (orders["name"], orders["should_sync"], orders["sync_time_of_day"]) == ("orders", True, "03:30:00")
+        assert users == {"name": "users", "should_sync": False}
         assert events == {"name": "events", "should_sync": False}
-        assert (planned.unavailable, planned.webhook_only, planned.planned) == ((), ("events",), ("orders", "events"))
+        assert (planned.unavailable, planned.webhook_only, planned.planned) == (
+            ("sales.users", "sales.orders"),
+            ("events",),
+            ("orders", "events"),
+        )

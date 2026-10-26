@@ -5635,14 +5635,12 @@ export interface ApplyMigrationItemApi {
     prefix?: string
     /** Destinations to write the new source to. Omit to write to the PostHog warehouse. */
     destination_ids?: string[]
-    /** Where the request came from.
+    /** Where the request came from: `web`, `api`, or `mcp`. Defaults to `api`.
      *
      * * `web` - web
      * * `api` - api
-     * * `mcp` - mcp
-     * * `wizard` - wizard
-     * * `self_driving` - self_driving */
-    created_via?: ExternalDataSourceCreatedViaEnumApi
+     * * `mcp` - mcp */
+    created_via?: ExternalDataSourceCreateCreatedViaEnumApi
 }
 
 export interface ApplyMigrationItemResponseApi {

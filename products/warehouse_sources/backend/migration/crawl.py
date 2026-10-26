@@ -3,6 +3,9 @@ from uuid import UUID
 from django.db import transaction
 from django.utils import timezone
 
+from posthog.models import Team
+from posthog.ph_client import feature_enabled_or_false
+
 from products.warehouse_sources.backend.migration.capabilities import source_capabilities
 from products.warehouse_sources.backend.migration.fivetran.client import FivetranClient, FivetranCredentials
 from products.warehouse_sources.backend.migration.fivetran.planner import CatalogLookup, PlannedItem, plan_items
@@ -48,7 +51,8 @@ def crawl_migration(*, team_id: int, migration_id: UUID, catalog: CatalogLookup 
     migration.save(update_fields=["status", "latest_error", "updated_at"])
 
     snapshot = fetch_snapshot(FivetranClient(FivetranCredentials(**migration.credentials)))
-    planned = plan_items(snapshot, catalog, source_capabilities)
+    team = Team.objects.only("organization_id").get(id=team_id)
+    planned = plan_items(snapshot, catalog, source_capabilities, flag_enabled=lambda flag: _team_has_flag(team, flag))
     with transaction.atomic():
         locked = WarehouseMigration.objects.for_team(team_id).select_for_update().filter(id=migration_id).first()
         if locked is None or locked.status != WarehouseMigration.Status.CRAWLING:
@@ -61,6 +65,16 @@ def crawl_migration(*, team_id: int, migration_id: UUID, catalog: CatalogLookup 
         locked.status = WarehouseMigration.Status.READY
         locked.save(update_fields=["snapshot", "account_name", "crawled_at", "status", "updated_at"])
     return len(planned)
+
+
+def _team_has_flag(team: Team, flag: str) -> bool:
+    organization_id = str(team.organization_id)
+    return feature_enabled_or_false(
+        flag,
+        organization_id,
+        groups={"organization": organization_id, "project": str(team.id)},
+        group_properties={"organization": {"id": organization_id}},
+    )
 
 
 def mark_migration_failed(*, team_id: int, migration_id: UUID, auth_failed: bool) -> None:

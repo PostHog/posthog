@@ -13786,18 +13786,14 @@ export namespace Schemas {
      * * `web` - web
      * * `api` - api
      * * `mcp` - mcp
-     * * `wizard` - wizard
-     * * `self_driving` - self_driving
      */
-    export type ExternalDataSourceCreatedViaEnum = typeof ExternalDataSourceCreatedViaEnum[keyof typeof ExternalDataSourceCreatedViaEnum];
+    export type ExternalDataSourceCreateCreatedViaEnum = typeof ExternalDataSourceCreateCreatedViaEnum[keyof typeof ExternalDataSourceCreateCreatedViaEnum];
 
 
-    export const ExternalDataSourceCreatedViaEnum = {
+    export const ExternalDataSourceCreateCreatedViaEnum = {
       Web: 'web',
       Api: 'api',
       Mcp: 'mcp',
-      Wizard: 'wizard',
-      SelfDriving: 'self_driving',
     } as const;
 
     export interface ApplyMigrationItem {
@@ -13809,14 +13805,12 @@ export namespace Schemas {
       prefix?: string;
       /** Destinations to write the new source to. Omit to write to the PostHog warehouse. */
       destination_ids?: string[];
-      /** Where the request came from.
+      /** Where the request came from: `web`, `api`, or `mcp`. Defaults to `api`.
        *
        * * `web` - web
        * * `api` - api
-       * * `mcp` - mcp
-       * * `wizard` - wizard
-       * * `self_driving` - self_driving */
-      created_via?: ExternalDataSourceCreatedViaEnum;
+       * * `mcp` - mcp */
+      created_via?: ExternalDataSourceCreateCreatedViaEnum;
     }
 
     export interface ApplyMigrationItemResponse {
@@ -52360,20 +52354,6 @@ export namespace Schemas {
      */
     export type ExternalDataSourceCreatePayload = { [key: string]: unknown };
 
-    /**
-     * * `web` - web
-     * * `api` - api
-     * * `mcp` - mcp
-     */
-    export type ExternalDataSourceCreateCreatedViaEnum = typeof ExternalDataSourceCreateCreatedViaEnum[keyof typeof ExternalDataSourceCreateCreatedViaEnum];
-
-
-    export const ExternalDataSourceCreateCreatedViaEnum = {
-      Web: 'web',
-      Api: 'api',
-      Mcp: 'mcp',
-    } as const;
-
     export interface ExternalDataSourceCreate {
       /** The source type (e.g. 'Postgres', 'Stripe').
        *
@@ -53824,6 +53804,24 @@ export namespace Schemas {
       /** ID of the created external data source. */
       id: string;
     }
+
+    /**
+     * * `web` - web
+     * * `api` - api
+     * * `mcp` - mcp
+     * * `wizard` - wizard
+     * * `self_driving` - self_driving
+     */
+    export type ExternalDataSourceCreatedViaEnum = typeof ExternalDataSourceCreatedViaEnum[keyof typeof ExternalDataSourceCreatedViaEnum];
+
+
+    export const ExternalDataSourceCreatedViaEnum = {
+      Web: 'web',
+      Api: 'api',
+      Mcp: 'mcp',
+      Wizard: 'wizard',
+      SelfDriving: 'self_driving',
+    } as const;
 
     /**
      * One row in `inventory.external_data_sources`.

@@ -121,18 +121,21 @@ def claim_migration_item(team_id: int, item_id: UUID) -> contracts.ClaimedWareho
     item = items.first()
     if item is None:
         return None
-    try:
-        proposal = ItemProposal.from_json(item.proposal or {})
-    except ValidationError:
-        fail_migration_item(
-            team_id, item_id, "The stored plan for this connection is not valid. Refresh the migration."
-        )
-        return None
     now = timezone.now()
     # Conditional, so two requests for one item cannot both create a source.
     claimable = Q(status__in=(_WarehouseMigrationItem.Status.PENDING, _WarehouseMigrationItem.Status.FAILED)) | Q(
         status=_WarehouseMigrationItem.Status.APPLYING, updated_at__lt=now - _APPLY_LEASE
     )
+    try:
+        proposal = ItemProposal.from_json(item.proposal or {})
+    except ValidationError:
+        # Only a claimable item: an applied one failed here would be reset by a refresh and applied twice.
+        items.filter(claimable).update(
+            status=_WarehouseMigrationItem.Status.FAILED,
+            error="The stored plan for this connection is not valid. Refresh the migration.",
+            updated_at=now,
+        )
+        return None
     if not items.filter(claimable).update(status=_WarehouseMigrationItem.Status.APPLYING, updated_at=now):
         return None
     return contracts.ClaimedWarehouseMigrationItem(
