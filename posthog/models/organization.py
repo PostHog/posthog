@@ -169,6 +169,7 @@ def default_is_ai_training_opted_in():
     return getattr(settings, "CLOUD_DEPLOYMENT", None) != "EU"
 
 
+# nosemgrep: no-new-uuidt-models -- an existing model, and its stored ids cannot change.
 class Organization(ModelActivityMixin, DeletedMetaFields, UUIDTModel):
     class Meta:
         indexes = [
