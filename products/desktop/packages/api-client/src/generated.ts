@@ -3742,6 +3742,19 @@ export namespace Schemas {
         response?: (Record<string, unknown> | null) | undefined;
         version?: (number | null) | undefined;
     };
+    export type ExperimentWarehouseNativeExposureConfig = {
+        /**
+         * The direct-query source (an ExternalDataSource id) the SQL is written for.
+         */
+        connection_id: string;
+        kind?: string | undefined;
+        /**
+         * Read-only SQL in the warehouse's dialect, returning one row per exposure with `entity_id`, `variant` and `timestamp` columns. PostHog keeps the first exposure per entity and applies the experiment's date range and multiple-variant handling.
+         */
+        query: string;
+        response?: (Record<string, unknown> | null) | undefined;
+        version?: (number | null) | undefined;
+    };
     export type MultipleVariantHandling = "exclude" | "first_seen";
     export type ExperimentMetricGoal = "increase" | "decrease";
     export type ExperimentDataWarehouseNode = {
@@ -3833,6 +3846,99 @@ export namespace Schemas {
         timestamp_field: string;
         version?: (number | null) | undefined;
     };
+    export type ExperimentWarehouseNativeNode = {
+        /**
+         * The direct-query source (an ExternalDataSource id) the SQL is written for.
+         */
+        connection_id: string;
+        custom_name?: (string | null) | undefined;
+        fixedProperties?:
+            | (Array<
+                  | EventPropertyFilter
+                  | PersonPropertyFilter
+                  | PersonMetadataPropertyFilter
+                  | ElementPropertyFilter
+                  | EventMetadataPropertyFilter
+                  | SessionPropertyFilter
+                  | CohortPropertyFilter
+                  | RecordingPropertyFilter
+                  | LogEntryPropertyFilter
+                  | GroupPropertyFilter
+                  | FeaturePropertyFilter
+                  | FlagPropertyFilter
+                  | HogQLPropertyFilter
+                  | EmptyPropertyFilter
+                  | DataWarehousePropertyFilter
+                  | DataWarehousePersonPropertyFilter
+                  | ErrorTrackingIssueFilter
+                  | LogPropertyFilter
+                  | MetricPropertyFilter
+                  | SpanPropertyFilter
+                  | RevenueAnalyticsPropertyFilter
+                  | AccountCustomPropertyFilter
+                  | WorkflowVariablePropertyFilter
+                  | BehavioralPropertyFilter
+              > | null)
+            | undefined;
+        kind?: string | undefined;
+        math?:
+            | (
+                  | BaseMathType
+                  | FunnelMathType
+                  | PropertyMathType
+                  | CountPerActorMathType
+                  | GroupMathType
+                  | ExperimentMetricMathType
+                  | CalendarHeatmapMathType
+                  | string
+                  | null
+              )
+            | undefined;
+        math_group_type_index?: (MathGroupTypeIndex | null) | undefined;
+        math_hogql?: (string | null) | undefined;
+        math_multiplier?: (number | null) | undefined;
+        math_property?: (string | null) | undefined;
+        math_property_revenue_currency?:
+            | (RevenueCurrencyPropertyConfig | null)
+            | undefined;
+        math_property_type?: (string | null) | undefined;
+        name?: (string | null) | undefined;
+        optionalInFunnel?: (boolean | null) | undefined;
+        properties?:
+            | (Array<
+                  | EventPropertyFilter
+                  | PersonPropertyFilter
+                  | PersonMetadataPropertyFilter
+                  | ElementPropertyFilter
+                  | EventMetadataPropertyFilter
+                  | SessionPropertyFilter
+                  | CohortPropertyFilter
+                  | RecordingPropertyFilter
+                  | LogEntryPropertyFilter
+                  | GroupPropertyFilter
+                  | FeaturePropertyFilter
+                  | FlagPropertyFilter
+                  | HogQLPropertyFilter
+                  | EmptyPropertyFilter
+                  | DataWarehousePropertyFilter
+                  | DataWarehousePersonPropertyFilter
+                  | ErrorTrackingIssueFilter
+                  | LogPropertyFilter
+                  | MetricPropertyFilter
+                  | SpanPropertyFilter
+                  | RevenueAnalyticsPropertyFilter
+                  | AccountCustomPropertyFilter
+                  | WorkflowVariablePropertyFilter
+                  | BehavioralPropertyFilter
+              > | null)
+            | undefined;
+        /**
+         * Read-only SQL in the warehouse's dialect, returning one row per outcome with `entity_id`, `timestamp` and `value` columns. `value` may be omitted when `math` is `total`.
+         */
+        query: string;
+        response?: (Record<string, unknown> | null) | undefined;
+        version?: (number | null) | undefined;
+    };
     export type ExperimentMeanMetric = {
         breakdownFilter?: (BreakdownFilter | null) | undefined;
         conversion_window?: (number | null) | undefined;
@@ -3849,7 +3955,11 @@ export namespace Schemas {
         name?: (string | null) | undefined;
         response?: (Record<string, unknown> | null) | undefined;
         sharedMetricId?: (number | null) | undefined;
-        source: EventsNode | ActionsNode | ExperimentDataWarehouseNode;
+        source:
+            | EventsNode
+            | ActionsNode
+            | ExperimentDataWarehouseNode
+            | ExperimentWarehouseNativeNode;
         threshold?: (number | null) | undefined;
         upper_bound_percentile?: (number | null) | undefined;
         uuid?: (string | null) | undefined;
@@ -3873,7 +3983,12 @@ export namespace Schemas {
         metric_type?: string | undefined;
         name?: (string | null) | undefined;
         response?: (Record<string, unknown> | null) | undefined;
-        series: Array<EventsNode | ActionsNode | ExperimentDataWarehouseNode>;
+        series: Array<
+            | EventsNode
+            | ActionsNode
+            | ExperimentDataWarehouseNode
+            | ExperimentWarehouseNativeNode
+        >;
         sharedMetricId?: (number | null) | undefined;
         uuid?: (string | null) | undefined;
         version?: (number | null) | undefined;
@@ -3889,7 +4004,11 @@ export namespace Schemas {
         conversion_window_unit?:
             | (FunnelConversionWindowTimeUnit | null)
             | undefined;
-        denominator: EventsNode | ActionsNode | ExperimentDataWarehouseNode;
+        denominator:
+            | EventsNode
+            | ActionsNode
+            | ExperimentDataWarehouseNode
+            | ExperimentWarehouseNativeNode;
         denominator_outlier_handling?:
             | (ExperimentMetricOutlierHandling | null)
             | undefined;
@@ -3899,7 +4018,11 @@ export namespace Schemas {
         kind?: string | undefined;
         metric_type?: string | undefined;
         name?: (string | null) | undefined;
-        numerator: EventsNode | ActionsNode | ExperimentDataWarehouseNode;
+        numerator:
+            | EventsNode
+            | ActionsNode
+            | ExperimentDataWarehouseNode
+            | ExperimentWarehouseNativeNode;
         numerator_outlier_handling?:
             | (ExperimentMetricOutlierHandling | null)
             | undefined;
@@ -3919,7 +4042,8 @@ export namespace Schemas {
         completion_event:
             | EventsNode
             | ActionsNode
-            | ExperimentDataWarehouseNode;
+            | ExperimentDataWarehouseNode
+            | ExperimentWarehouseNativeNode;
         conversion_window?: (number | null) | undefined;
         conversion_window_unit?:
             | (FunnelConversionWindowTimeUnit | null)
@@ -3939,6 +4063,7 @@ export namespace Schemas {
             | EventsNode
             | ActionsNode
             | ExperimentDataWarehouseNode
+            | ExperimentWarehouseNativeNode
             | ExperimentExposureNode;
         start_handling: StartHandling;
         uuid?: (string | null) | undefined;
@@ -4096,7 +4221,12 @@ export namespace Schemas {
     };
     export type ExperimentActorsQuery = {
         exposureConfig?:
-            | (ExperimentEventExposureConfig | ActionsNode | null)
+            | (
+                  | ExperimentEventExposureConfig
+                  | ActionsNode
+                  | ExperimentWarehouseNativeExposureConfig
+                  | null
+              )
             | undefined;
         featureFlagKey?: (string | null) | undefined;
         funnelStep?: (number | null) | undefined;
