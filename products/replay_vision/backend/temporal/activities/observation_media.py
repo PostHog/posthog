@@ -17,7 +17,7 @@ from posthog.dataclasses import frozen
 from posthog.temporal.session_replay.rasterize_recording.storage_keys import content_location_from_s3_uri
 
 from products.exports.backend.models.exported_asset import ExportedAsset
-from products.replay_vision.backend.media_small_copies import write_small_copy
+from products.replay_vision.backend.media_small_copies import small_copy_location, write_small_copy
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.models.replay_observation_media import ReplayObservationMedia
 from products.replay_vision.backend.temporal.decorators import track_activity
@@ -41,6 +41,8 @@ _MEDIA_EXPIRY = timedelta(days=90)
 _EDGE_MARGIN_S = 3.0
 _END_MARGIN_S = 1.0
 _SMALL_COPY_CONCURRENCY = 4
+# Leaves room inside the finalize activity's 30s timeout for the link that follows.
+_SMALL_COPY_BUDGET_S = 15.0
 
 
 def _footer_crop_px(context: dict[str, Any]) -> int:
@@ -313,16 +315,32 @@ def _content_location(s3_uri: str) -> str:
         raise ApplicationError(str(error), non_retryable=True) from error
 
 
-async def _small_copy(small_asset_id: int | None, large_location: str, limit: asyncio.Semaphore) -> str | None:
-    if small_asset_id is None:
-        return None
-    try:
-        async with limit:
-            return await asyncio.to_thread(write_small_copy, large_location)
-    except Exception as error:
-        # The large frame still serves every view, so a failed copy must not fail the render.
-        logger.warning("replay_vision.small_copy_failed", location=large_location, error=str(error))
-        return None
+async def _small_copy(large_location: str, limit: asyncio.Semaphore) -> str | None:
+    async with limit:
+        return await asyncio.to_thread(write_small_copy, large_location)
+
+
+async def _small_copies(rendered: list[tuple[PreparedFrame, str]]) -> list[str | None]:
+    """Each rendered frame's small copy location, or None for a frame without one or a copy that failed or ran late."""
+    limit = asyncio.Semaphore(_SMALL_COPY_CONCURRENCY)
+    tasks = {
+        index: asyncio.ensure_future(_small_copy(location, limit))
+        for index, (frame, location) in enumerate(rendered)
+        if frame.small_media_asset_id is not None
+    }
+    if tasks:
+        # A budget inside the activity timeout, so slow storage costs the copies and never the large frames.
+        await asyncio.wait(tasks.values(), timeout=_SMALL_COPY_BUDGET_S)
+    locations: list[str | None] = [None] * len(rendered)
+    for index, task in tasks.items():
+        if not task.done():
+            task.cancel()
+            logger.warning("replay_vision.small_copy_timed_out", location=rendered[index][1])
+        elif task.exception() is not None:
+            logger.warning("replay_vision.small_copy_failed", location=rendered[index][1], error=str(task.exception()))
+        else:
+            locations[index] = task.result()
+    return locations
 
 
 @activity.defn
@@ -335,12 +353,8 @@ async def finalize_observation_media_activity(inputs: FinalizeObservationMediaIn
         for frame in inputs.frames
         if frame.object_id in extracted
     ]
-    # Bounded, so a summary with many chapters does not decode every frame at once inside the activity timeout.
-    limit = asyncio.Semaphore(_SMALL_COPY_CONCURRENCY)
-    small_locations = await asyncio.gather(
-        *(_small_copy(frame.small_media_asset_id, location, limit) for frame, location in rendered)
-    )
-    # Assets with no object to point at: the frames the video did not have, and the small copies that failed.
+    small_locations = await _small_copies(rendered)
+    # Assets with no object to point at: the frames the video did not have.
     missing = [
         asset_id
         for frame in inputs.frames
@@ -348,10 +362,12 @@ async def finalize_observation_media_activity(inputs: FinalizeObservationMediaIn
         for asset_id in (frame.media_asset_id, frame.small_media_asset_id)
         if asset_id is not None
     ]
+    # Small copies that failed or ran late, with the key a late write would land at, so the sweep removes it.
+    failed_small: dict[int, str | None] = {}
     links: list[_MediaLink] = []
     for (frame, location), small_location in zip(rendered, small_locations):
         if frame.small_media_asset_id is not None and small_location is None:
-            missing.append(frame.small_media_asset_id)
+            failed_small[frame.small_media_asset_id] = small_copy_location(location)
         links.append(
             _MediaLink(
                 kind=ReplayObservationMedia.Kind(frame.kind),
@@ -364,14 +380,20 @@ async def finalize_observation_media_activity(inputs: FinalizeObservationMediaIn
                 small_content_location=small_location,
             )
         )
+    linked = bool(links) and await _link_or_expire(inputs.team_id, inputs.observation_id, links)
+    # Expired only after the link, so a retry after a failed link can still write these assets.
     if missing:
         await ExportedAsset.objects.filter(pk__in=missing, team_id=inputs.team_id).aupdate(expires_after=now())
-    if links and await _link_or_expire(inputs.team_id, inputs.observation_id, links):
+    for asset_id, small_location in failed_small.items():
+        await ExportedAsset.objects.filter(pk=asset_id, team_id=inputs.team_id).aupdate(
+            content_location=small_location, expires_after=now()
+        )
+    if linked:
         logger.info(
             "replay_vision.media_ready",
             observation_id=str(inputs.observation_id),
             frames=len(links),
             small_frames=sum(link.small_asset_id is not None for link in links),
-            missing=len(missing),
+            missing=len(missing) + len(failed_small),
             file_size_bytes=sum(frame.file_size_bytes for frame in inputs.result.frames),
         )

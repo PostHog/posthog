@@ -36,15 +36,19 @@ def shrink_png(content: bytes) -> bytes:
     return out.getvalue()
 
 
+def small_copy_location(large_location: str) -> str | None:
+    # A fixed name beside the large object, so a retry overwrites rather than leaks.
+    return f"{large_location.removesuffix('.png')}-small.png" if large_location.endswith(".png") else None
+
+
 def write_small_copy(large_location: str) -> str | None:
     """Store the small copy next to the large frame and return its location, or None when the frame is unreadable."""
-    if not large_location.endswith(".png"):
+    small_location = small_copy_location(large_location)
+    if small_location is None:
         return None
     content = object_storage.read_bytes(large_location, missing_ok=True)
     if not content:
         return None
-    # A fixed name beside the large object, so a retry overwrites rather than leaks.
-    small_location = f"{large_location.removesuffix('.png')}-small.png"
     object_storage.write(small_location, shrink_png(content))
     return small_location
 
@@ -103,12 +107,15 @@ def _add_small_copy(team_id: int, media: ReplayObservationMedia) -> bool:
         # Locked first, so a losing run creates no row whose expiry would delete the shared object.
         locked = (
             ReplayObservationMedia.objects.for_team(team_id, canonical=True)
-            .select_for_update()
-            .filter(pk=media.pk, small_asset__isnull=True)
-            .values_list("pk", flat=True)
+            .select_for_update(of=("self",))
+            .filter(pk=media.pk)
+            .select_related("small_asset")
             .first()
         )
-        if locked is None:
+        if locked is None or locked.small_asset is not None:
+            # Gone, or linked by another writer: the object is ours alone unless that writer stored the same key.
+            if locked is None or locked.small_asset.content_location != small_location:
+                object_storage.delete(small_location)
             return False
         small = ExportedAsset.objects.create(
             team_id=large.team_id,

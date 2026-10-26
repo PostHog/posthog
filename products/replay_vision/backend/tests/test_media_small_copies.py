@@ -115,3 +115,23 @@ class TestBackfillSmallCopies(BaseTest):
         assert servable.small_asset.content_location == small_location
         assert servable.small_asset.expires_after == servable.asset.expires_after
         assert servable.small_asset.export_context["media_size"] == "small"
+
+    def test_a_copy_written_while_its_observation_is_deleted_is_removed(self) -> None:
+        media = self._media(0)
+        small_location = media.asset.content_location.removesuffix(".png") + "-small.png"
+
+        with (
+            patch(
+                "products.replay_vision.backend.media_small_copies.object_storage.read_bytes",
+                return_value=_png(1280, 688),
+            ),
+            patch(
+                "products.replay_vision.backend.media_small_copies.object_storage.write",
+                side_effect=lambda *_: self.observation.delete(),
+            ),
+            patch("products.replay_vision.backend.media_small_copies.object_storage.delete") as delete,
+        ):
+            result = backfill_small_copies(self.team.id)
+
+        assert result.created == 0
+        delete.assert_called_once_with(small_location)
