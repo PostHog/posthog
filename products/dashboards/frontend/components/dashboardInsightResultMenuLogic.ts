@@ -1,6 +1,8 @@
 import { MakeLogicType, afterMount, kea, key, path, props, propsChanged, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { v4 as uuid } from 'uuid'
 
+import api from 'lib/api'
 import { objectsEqual } from 'lib/utils/objects'
 
 import { performQuery } from '~/queries/query'
@@ -62,16 +64,39 @@ export const dashboardInsightResultMenuLogic = kea<dashboardInsightResultMenuLog
     props({} as DashboardInsightResultMenuProps),
     key((props): string => props.key),
     path((key) => ['products', 'dashboards', 'components', 'dashboardInsightResultMenuLogic', key]),
-    loaders(({ props }) => ({
+    loaders(({ props, cache }) => ({
         result: [
             null as ActorResult | null,
             {
                 loadResult: async (_: void, breakpoint): Promise<ActorResult | null> => {
+                    cache.disposables.dispose('actorQuery')
                     const query = props.query
                     if (!query) {
                         return null
                     }
-                    const response = await performQuery(query)
+                    const controller = new AbortController()
+                    const queryId = uuid()
+                    let settled = false
+                    cache.disposables.add(
+                        () => () => {
+                            if (!settled) {
+                                controller.abort()
+                                void api.cancelQuery(queryId).catch((error) => {
+                                    console.warn('Failed cancelling dashboard actor query', error)
+                                })
+                            }
+                        },
+                        'actorQuery',
+                        { pauseOnPageHidden: false }
+                    )
+                    const response = await performQuery(query, { signal: controller.signal }, undefined, queryId)
+                        .catch((error) => {
+                            breakpoint()
+                            throw error
+                        })
+                        .finally(() => {
+                            settled = true
+                        })
                     breakpoint()
                     const recordingsIndex = query.select?.indexOf('matched_recordings') ?? -1
                     const recordings: { session_id?: string }[] =

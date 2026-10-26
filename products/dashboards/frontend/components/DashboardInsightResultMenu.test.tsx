@@ -2,14 +2,16 @@ import '@testing-library/jest-dom'
 
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 
+import api from 'lib/api'
 import { consumePersonsModalClick } from 'lib/components/ResultMenu/personsModalCapture'
 import { openPersonsModal, OpenPersonsModalProps } from 'scenes/trends/persons-modal/PersonsModal'
 
 import * as queryRunner from '~/queries/query'
-import { NodeKind, ActorsQueryResponse } from '~/queries/schema/schema-general'
+import { BIVisualizationNode } from '~/queries/schema/schema-business-intelligence'
+import { NodeKind, ActorsQueryResponse, HogQLQuery } from '~/queries/schema/schema-general'
 import { insightOnDashboard } from '~/scenes/dashboard/dashboardLogic.testHelpers'
 import { initKeaTests } from '~/test/init'
-import { BaseMathType, GroupMathType } from '~/types'
+import { BaseMathType, ChartDisplayType, GroupMathType } from '~/types'
 
 import { DashboardInsightResultMenu } from './DashboardInsightResultMenu'
 
@@ -29,6 +31,7 @@ afterEach(() => {
 beforeEach(() => {
     initKeaTests()
     openedModal.mockClear()
+    jest.spyOn(api, 'cancelQuery').mockResolvedValue()
     jest.spyOn(queryRunner, 'performQuery').mockResolvedValue({
         hogql: "SELECT id FROM persons WHERE properties.country = 'US'",
         results: [[{ id: 'person-selected' }, [{ session_id: 'session-selected' }]]],
@@ -36,6 +39,43 @@ beforeEach(() => {
 })
 
 describe('dashboard result menu', () => {
+    it('opens BI query snapshots in the SQL editor with their source intact', () => {
+        const source: HogQLQuery = {
+            kind: NodeKind.HogQLQuery,
+            query: 'SELECT count() FROM orders',
+            connectionId: 'demo-connection',
+        }
+        const query: BIVisualizationNode = {
+            kind: NodeKind.BIVisualizationNode,
+            source,
+            config: {
+                source: null,
+                querySnapshot: source,
+                chartType: ChartDisplayType.ActionsBar,
+                rows: [],
+                columns: [],
+                values: [],
+                filters: [],
+                limit: 1000,
+            },
+        }
+        render(
+            <DashboardInsightResultMenu insight={{ ...insightOnDashboard(1, [1]), query }}>
+                <div>Snapshot chart</div>
+            </DashboardInsightResultMenu>
+        )
+        fireEvent.click(screen.getByText('Snapshot chart'))
+        for (const label of ['View underlying rows', 'Open in SQL editor']) {
+            const link = screen.getByText(label).closest('a')!
+            expect(JSON.parse(new URL(link.href).searchParams.get('open_query')!)).toEqual({
+                kind: NodeKind.DataVisualizationNode,
+                source,
+                display: ChartDisplayType.ActionsTable,
+            })
+        }
+        expect(queryRunner.performQuery).not.toHaveBeenCalled()
+    })
+
     it.each([undefined, 0] as const)(
         'defers the original datapoint drilldown with all user/group filters intact (group=%s)',
         async (groupIndex) => {
@@ -99,7 +139,10 @@ describe('dashboard result menu', () => {
                     source: request.query,
                     select: ['actor', 'matched_recordings'],
                     orderBy: request.orderBy,
-                })
+                }),
+                expect.objectContaining({ signal: expect.any(AbortSignal) }),
+                undefined,
+                expect.any(String)
             )
             fireEvent.click(rows)
             expect(openedModal).toHaveBeenCalledTimes(1)
@@ -126,7 +169,12 @@ describe('dashboard result menu', () => {
         )
         fireEvent.click(screen.getByText('Funnel point'))
         await waitFor(() => expect(screen.getByText('Open in SQL editor').closest('a')).not.toBeNull())
-        expect(queryRunner.performQuery).toHaveBeenCalledWith(expect.objectContaining({ source: request.query }))
+        expect(queryRunner.performQuery).toHaveBeenCalledWith(
+            expect.objectContaining({ source: request.query }),
+            expect.objectContaining({ signal: expect.any(AbortSignal) }),
+            undefined,
+            expect.any(String)
+        )
         expect(screen.getByText('View recordings').closest('a')).toBeNull()
     })
 
@@ -159,6 +207,12 @@ describe('dashboard result menu', () => {
         await waitFor(() => expect(queryRunner.performQuery).toHaveBeenCalledTimes(1))
         fireEvent.click(screen.getByText('Second point'))
         await waitFor(() => expect(queryRunner.performQuery).toHaveBeenCalledTimes(2))
+        const firstCall = jest.mocked(queryRunner.performQuery).mock.calls[0]
+        const secondCall = jest.mocked(queryRunner.performQuery).mock.calls[1]
+        expect(firstCall[1]?.signal?.aborted).toBe(true)
+        expect(api.cancelQuery).toHaveBeenCalledWith(firstCall[3])
+        expect(secondCall[3]).not.toBe(firstCall[3])
+        expect(secondCall[1]?.signal?.aborted).toBe(false)
         await act(async () => resolveFirst({ hogql: 'SELECT 1', results: [] } as unknown as ActorsQueryResponse))
         expect(screen.getByText('Open in SQL editor').closest('a')).toBeNull()
         fireEvent.click(screen.getByText('Second point'))
@@ -166,6 +220,54 @@ describe('dashboard result menu', () => {
         await waitFor(() => expect(screen.getByText('Open in SQL editor').closest('a')).not.toBeNull())
         const link = screen.getByText('Open in SQL editor').closest('a')!
         expect(new URL(link.href).searchParams.get('open_query')).toBe('SELECT 2')
+    })
+
+    it.each(['dismiss', 'unmount', 'complete'] as const)('cancels only pending queries on %s', async (finish) => {
+        let resolveQuery!: (response: ActorsQueryResponse) => void
+        jest.mocked(queryRunner.performQuery).mockImplementationOnce(
+            (_, options) =>
+                new Promise<ActorsQueryResponse>((resolve, reject) => {
+                    resolveQuery = resolve
+                    options?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))
+                })
+        )
+        const { unmount } = render(
+            <DashboardInsightResultMenu insight={insightOnDashboard(1, [1])}>
+                <button
+                    onClick={() =>
+                        openPersonsModal({
+                            title: 'Selected people',
+                            query: {
+                                kind: NodeKind.InsightActorsQuery,
+                                source: { kind: NodeKind.TrendsQuery, series: [] },
+                            },
+                        })
+                    }
+                >
+                    Chart point
+                </button>
+            </DashboardInsightResultMenu>
+        )
+        fireEvent.click(screen.getByText('Chart point'))
+        await waitFor(() => expect(queryRunner.performQuery).toHaveBeenCalledTimes(1))
+        const call = jest.mocked(queryRunner.performQuery).mock.calls[0]
+        if (finish === 'complete') {
+            await act(async () => resolveQuery({ hogql: 'SELECT 1', results: [] } as unknown as ActorsQueryResponse))
+            await waitFor(() => expect(screen.getByText('Open in SQL editor').closest('a')).not.toBeNull())
+        }
+        if (finish === 'dismiss') {
+            fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' })
+        } else {
+            unmount()
+        }
+        await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument())
+        expect(call[1]?.signal?.aborted).toBe(finish !== 'complete')
+        if (finish === 'complete') {
+            expect(api.cancelQuery).not.toHaveBeenCalled()
+        } else {
+            expect(api.cancelQuery).toHaveBeenCalledTimes(1)
+            expect(api.cancelQuery).toHaveBeenCalledWith(call[3])
+        }
     })
 
     it('does not offer recordings for a drilldown without recording support', () => {

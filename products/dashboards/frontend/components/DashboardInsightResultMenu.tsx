@@ -8,14 +8,8 @@ import { getPersonsRecordingFilters } from 'scenes/trends/persons-modal/getPerso
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 import { urls } from 'scenes/urls'
 
-import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
-import {
-    isActorsQuery,
-    isBIVisualizationNode,
-    isDataVisualizationNode,
-    isDataTableNode,
-    isHogQLQuery,
-} from '~/queries/utils'
+import { DataTableNode, DataVisualizationNode, NodeKind } from '~/queries/schema/schema-general'
+import { isActorsQuery, isBIVisualizationNode, isDataTableNode, isHogQLQuery } from '~/queries/utils'
 import { ChartDisplayType, InsightModel, ReplayTabs } from '~/types'
 
 import { dashboardInsightResultMenuLogic } from './dashboardInsightResultMenuLogic'
@@ -36,13 +30,18 @@ export function DashboardInsightResultMenu({
         setActors(null)
     }
     const query = insight.query
-    const sqlQuery =
-        query &&
-        (isDataVisualizationNode(query) ||
-            isBIVisualizationNode(query) ||
-            (isDataTableNode(query) && isHogQLQuery(query.source)))
-            ? query
-            : undefined
+    const sqlQuery: DataVisualizationNode | DataTableNode | undefined =
+        query && isBIVisualizationNode(query)
+            ? {
+                  kind: NodeKind.DataVisualizationNode,
+                  source: query.source,
+                  display: ChartDisplayType.ActionsTable,
+              }
+            : query &&
+                (query.kind === NodeKind.DataVisualizationNode ||
+                    (isDataTableNode(query) && isHogQLQuery(query.source)))
+              ? query
+              : undefined
     const recordingQuery = actors?.query
     const canViewRecordings =
         !!recordingQuery &&
