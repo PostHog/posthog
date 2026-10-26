@@ -7,7 +7,9 @@ from parameterized import parameterized
 from rest_framework import status
 from social_django.models import UserSocialAuth
 
-from posthog.models import OrganizationMembership, User
+from posthog.models import OrganizationMembership, Team, User
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.signals.backend.models import (
     SignalReport,
@@ -65,6 +67,40 @@ class TestReviewerExclusionAPI(APIBaseTest):
         assert self.client.get(self.url).json() == []
         theirs.refresh_from_db()
         assert (theirs.status, theirs.instruction) == (SignalReviewerExclusion.Status.ACTIVE, "Off.")
+
+    @parameterized.expand(
+        [
+            ("list", "get", ""),
+            ("amend", "patch", "{id}/"),
+            ("revoke", "post", "{id}/revoke/"),
+        ]
+    )
+    def test_child_scoped_key_cannot_reach_parent_project_instructions(
+        self, _name: str, method: str, suffix: str
+    ) -> None:
+        mine, _ = create_exclusion(
+            team_id=self.team.id, actor_id=self.user.id, instruction="Off.", subject_user_uuid=self.user.uuid
+        )
+        environment = Team.objects.create(
+            organization=self.organization, project=self.team.project, parent_team=self.team, name="Child"
+        )
+        raw_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Child-scoped key",
+            user=self.user,
+            secure_value=hash_key_value(raw_key),
+            scopes=["task:read", "task:write"],
+            scoped_teams=[environment.id],
+        )
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw_key}")
+        url = f"/api/projects/{environment.id}/signals/reviewer_exclusions/{suffix.format(id=mine.id)}"
+
+        response = getattr(self.client, method)(url, {"instruction": "Changed."}, format="json")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        mine.refresh_from_db()
+        assert (mine.status, mine.instruction) == (SignalReviewerExclusion.Status.ACTIVE, "Off.")
 
     def test_create_with_report_removes_the_member_then_saves_the_instruction(self) -> None:
         report = self._report_with_reviewers(self.user, self.teammate)

@@ -1,7 +1,8 @@
 """A member's own standing instructions to stay off automatic reviewer selection in one area.
 
-A member manages only the instructions that name them. The project access checks of the
-`task` scope apply, and no scout-edit permission is necessary.
+A member manages only the instructions that name them. The `task` scope applies, and the member
+needs access to the canonical project, where the instructions live. No scout-edit permission is
+necessary.
 """
 
 from __future__ import annotations
@@ -42,6 +43,7 @@ from products.signals.backend.facade.reviewer_exclusions import (
     revoke_own_exclusion,
     sanitized_repository,
 )
+from products.signals.backend.presentation.scout_permissions import ScoutCanonicalTeamAccessPermission
 
 logger = structlog.get_logger(__name__)
 
@@ -157,7 +159,7 @@ _EXCLUSION_ID = OpenApiParameter(
 class SignalReviewerExclusionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     serializer_class = ReviewerExclusionSerializer
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
-    permission_classes = [IsAuthenticated, APIScopePermission]
+    permission_classes = [IsAuthenticated, APIScopePermission, ScoutCanonicalTeamAccessPermission]
     scope_object = "task"
     pagination_class = None
 
