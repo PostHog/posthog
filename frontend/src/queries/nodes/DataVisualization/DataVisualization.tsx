@@ -382,7 +382,14 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                     ...pieXData,
                     data: pieXData.data.map((value) => {
                         const key = JSON.stringify(value ?? null)
-                        aliasLabels.set(key, memberFormatter ? memberFormatter(value) : String(value ?? '[No value]'))
+                        aliasLabels.set(
+                            key,
+                            memberFormatter
+                                ? memberFormatter(value)
+                                : value == null || value === ''
+                                  ? '[No value]'
+                                  : String(value)
+                        )
                         records.set(key, { [pieData.xData!.column.name]: value })
                         return key
                     }),
