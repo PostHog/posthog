@@ -24,12 +24,13 @@ import { navigateToHref } from 'lib/utils/navigateToHref'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { recentItemsModel } from '~/models/recentItemsModel'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
+import { SidePanelTab } from '~/types'
 
 import type { Noun } from '../../../models/groupsModel'
 import type { GroupType, GroupTypeIndex, OrganizationMemberType, UserType } from '../../../types'
@@ -781,7 +782,7 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
             })
             actions.closeCommand()
             if (row.kind === 'ask-ai') {
-                navigateToHref(urls.ai(undefined, row.question))
+                sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Max, row.question)
             } else if (item?.onSelect) {
                 item.onSelect()
             } else if (item?.href && newTab) {
