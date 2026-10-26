@@ -344,7 +344,8 @@ class TestFeatureFlagRolloutActions(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert response.json()["code"] == "unsupported_config_version"
         flag.refresh_from_db()
-        assert flag.filters == v2_filters
+        assert (flag.filters, flag.version) == (v2_filters, 1)
+        assert not ActivityLog.objects.filter(scope="FeatureFlag", item_id=str(flag.id), activity="updated").exists()
 
     @parameterized.expand(ROLLOUT_ACTIONS)
     def test_rollout_action_requires_the_feature_flag_write_scope(self, action, body):

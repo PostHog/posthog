@@ -149,6 +149,10 @@ class V2UpdateTestCase(APIBaseTest):
             f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", data, format="json"
         )
 
+    def post_action(self, flag: FeatureFlag, action: str, data: dict | None = None):
+        url = f"/api/projects/{self.team.id}/feature_flags/{flag.id}/{action}/"
+        return self.client.post(url, data or {}, format="json")
+
     def post_flag(self, data: dict):
         return self.client.post(f"/api/projects/{self.team.id}/feature_flags/", data, format="json")
 

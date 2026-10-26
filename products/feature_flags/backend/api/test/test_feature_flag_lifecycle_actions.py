@@ -8,10 +8,13 @@ from django.test import override_settings
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
+from products.approvals.backend.models import ApprovalPolicy, ChangeRequest
+from products.approvals.backend.services import ChangeRequestService
 from products.feature_flags.backend.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE, flag_payload_codec
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
@@ -112,10 +115,10 @@ class TestFeatureFlagLifecycleActions(APIBaseTest):
     @parameterized.expand(STATE_CASES)
     def test_action_ignores_a_caller_supplied_body(self, case, active, archived, expected_active, expected_archived):
         # A caller-supplied stale targeting object cannot overwrite another edit, because
-        # lifecycle actions ignore the request body. `version` and `original_flag` are
-        # in the body because the flag UI sends both on every PATCH, so an agent porting a
-        # PATCH call keeps them. Together they used to make the serializer discard the state
-        # change and still return 200.
+        # lifecycle actions ignore the request body apart from `version`. `version` and
+        # `original_flag` are in the body because the flag UI sends both on every PATCH, so an
+        # agent porting a PATCH call keeps them. Together they used to make the serializer
+        # discard the state change and still return 200.
         action = case.split("_")[0]
         flag = self._flag(active=active, archived=archived)
 
@@ -127,7 +130,7 @@ class TestFeatureFlagLifecycleActions(APIBaseTest):
                 "key": "hijacked",
                 "active": not expected_active,
                 "archived": not expected_archived,
-                "version": 999,
+                "version": flag.version,
                 "original_flag": {"active": expected_active, "archived": expected_archived},
             },
         )
@@ -138,6 +141,62 @@ class TestFeatureFlagLifecycleActions(APIBaseTest):
         assert flag.key == "lifecycle-flag"
         assert flag.active is expected_active
         assert flag.archived is expected_archived
+
+    @parameterized.expand([("enable", False), ("disable", True)])
+    def test_toggle_refuses_a_stale_version_and_writes_nothing(self, action, active):
+        flag = self._flag(active=active)
+
+        response = self._act(flag, action, {"version": 0})
+
+        assert response.status_code == status.HTTP_409_CONFLICT, response.content
+        flag.refresh_from_db()
+        assert (flag.active, flag.version) == (active, 1)
+        assert not ActivityLog.objects.filter(scope="FeatureFlag", item_id=str(flag.id), activity="updated").exists()
+
+    @parameterized.expand([("enable", False, 1), ("disable", True, 1), ("enable", False, None)])
+    def test_toggle_accepts_the_current_or_a_null_version(self, action, active, version):
+        flag = self._flag(active=active)
+
+        response = self._act(flag, action, {"version": version})
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        flag.refresh_from_db()
+        assert (flag.active, flag.version) == (not active, 2)
+
+    @patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)
+    def test_approving_a_versioned_toggle_applies_it(self, _mock_enabled):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.APPROVALS, "name": AvailableFeature.APPROVALS}
+        ]
+        self.organization.save()
+        ApprovalPolicy.objects.create(
+            organization=self.organization,
+            team=self.team,
+            action_key="feature_flag.disable",
+            conditions={},
+            approver_config={"quorum": 1, "users": [self.user.id]},
+            created_by=self.user,
+        )
+        flag = self._flag(active=True)
+
+        response = self._act(flag, "disable", {"version": 1})
+
+        assert response.status_code == status.HTTP_409_CONFLICT, response.content
+        assert response.json()["code"] == "approval_required"
+        change_request = ChangeRequest.objects.get(team=self.team)
+        assert ChangeRequestService(change_request, self.user).approve().status == "applied"
+        flag.refresh_from_db()
+        assert (flag.active, flag.version, flag.filters) == (False, 2, TARGETING)
+
+    @parameterized.expand([("archive", True, False), ("unarchive", False, True)])
+    def test_archive_actions_ignore_a_stale_version(self, action, active, archived):
+        flag = self._flag(active=active, archived=archived)
+
+        response = self._act(flag, action, {"version": 0})
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        flag.refresh_from_db()
+        assert flag.archived is not archived
 
     @parameterized.expand(STATE_CASES)
     def test_repeating_an_action_writes_nothing(self, case, active, archived, _expected_active, _expected_archived):

@@ -984,6 +984,9 @@ export const FeatureFlagsDependentFlagsListParams = () => zod.object({
  *
  * A disabled flag stops evaluating for every consumer, including a linked experiment or a
  * session replay setting. Read the full definition first to report that impact.
+ *
+ * Send the `version` your last read returned. A flag whose `filters.version` is 2 requires
+ * it, and for any flag a change after that version is refused with 409.
  */
 export const FeatureFlagsDisableCreateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this feature flag.'),
@@ -991,6 +994,18 @@ export const FeatureFlagsDisableCreateParams = () => zod.object({
         .string()
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const featureFlagsDisableCreateBodyVersionMin = 0
+
+export const FeatureFlagsDisableCreateBody = () => zod.object({
+    version: zod
+        .number()
+        .min(featureFlagsDisableCreateBodyVersionMin)
+        .nullish()
+        .describe(
+            "The `version` from your most recent read of this flag. Required when the flag's `filters.version` is 2, optional otherwise. When sent, the change is refused with 409 if anyone else changed the flag after that version. Null is the same as leaving it out."
         ),
 })
 
@@ -1002,6 +1017,9 @@ export const FeatureFlagsDisableCreateParams = () => zod.object({
  * flag whose own flag dependencies are disabled or use an unsupported configuration
  * format is also refused, as is a flag whose release conditions target a deleted cohort.
  * An already-enabled flag is returned unchanged.
+ *
+ * Send the `version` your last read returned. A flag whose `filters.version` is 2 requires
+ * it, and for any flag a change after that version is refused with 409.
  */
 export const FeatureFlagsEnableCreateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this feature flag.'),
@@ -1009,6 +1027,18 @@ export const FeatureFlagsEnableCreateParams = () => zod.object({
         .string()
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const featureFlagsEnableCreateBodyVersionMin = 0
+
+export const FeatureFlagsEnableCreateBody = () => zod.object({
+    version: zod
+        .number()
+        .min(featureFlagsEnableCreateBodyVersionMin)
+        .nullish()
+        .describe(
+            "The `version` from your most recent read of this flag. Required when the flag's `filters.version` is 2, optional otherwise. When sent, the change is refused with 409 if anyone else changed the flag after that version. Null is the same as leaving it out."
         ),
 })
 

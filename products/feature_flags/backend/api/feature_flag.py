@@ -2096,6 +2096,14 @@ class FeatureFlagSerializer(
 
     def _validate_filters_inner(self, filters, operation: str):
         stored_filters = (self.instance.filters or {}) if self.instance is not None else {}
+        if filters and detect_config_format(stored_filters).kind == "v2" and detect_config_format(filters).kind == "v1":
+            # Writing version 1 filters would silently convert the flag, which nothing may do.
+            raise serializers.ValidationError(
+                "This flag uses config version 2, so version 1 filters (groups, multivariate, payloads) "
+                "cannot be written to it. Send the complete version 2 document with version 2 and its rules, "
+                "or leave filters out to change other fields.",
+                code="v1_filters_on_v2_flag",
+            )
         reserved_variant_key = _reserved_variant_key(filters, stored=stored_filters)
         if reserved_variant_key is not None:
             message = (
@@ -3910,6 +3918,19 @@ class FeatureFlagSetReleaseConditionRolloutRequestSerializer(serializers.Seriali
     version = serializers.IntegerField(min_value=0, allow_null=True, help_text=FLAG_VERSION_PRECONDITION_HELP)
 
 
+class FeatureFlagSetActiveRequestSerializer(serializers.Serializer):
+    version = serializers.IntegerField(
+        required=False,
+        min_value=0,
+        allow_null=True,
+        help_text=(
+            "The `version` from your most recent read of this flag. Required when the flag's `filters.version` is "
+            "2, optional otherwise. When sent, the change is refused with 409 if anyone else changed the flag after "
+            "that version. Null is the same as leaving it out."
+        ),
+    )
+
+
 class FeatureFlagRollOutToEveryoneRequestSerializer(serializers.Serializer):
     version = serializers.IntegerField(min_value=0, allow_null=True, help_text=FLAG_VERSION_PRECONDITION_HELP)
     variant_key = serializers.CharField(
@@ -3987,7 +4008,7 @@ class FlagLifecycleWriteRequest(ServiceRequest):
 
 
 class FlagRolloutWriteRequest(FlagLifecycleWriteRequest):
-    """The request a flag rollout action hands to the flag facade.
+    """The request a flag rollout action, or a toggle that sends `version`, hands to the flag facade.
 
     ``strict_version_precondition`` makes ``FeatureFlagSerializer`` refuse the write when the
     caller's version is not the current one, under the row lock it already takes. ``version`` is
@@ -4375,9 +4396,9 @@ class FeatureFlagViewSet(
     #
     # Each routes through the flag facade, which writes through FeatureFlagSerializer — the
     # same path PATCH uses, so the approval gate, the dependency guards, cache invalidation
-    # and activity logging all apply. The write bumps `version` under a row lock, but the
-    # stale-write conflict check does not run: it compares a caller-supplied `version`, and
-    # these endpoints take no body.
+    # and activity logging all apply. The write bumps `version` under a row lock. The
+    # stale-write conflict check runs only when the caller sends `version`, which enable and
+    # disable accept and a config version 2 flag requires.
     #
     # A flag already in the requested state is returned with no write, so a caller retrying in
     # order cannot bump the version or log a change that did not happen. Two calls racing still
@@ -4393,14 +4414,17 @@ class FeatureFlagViewSet(
         apply_encrypted_payload_response_form(self.request, data)
         return Response(data, status=status.HTTP_200_OK)
 
-    def _set_active(self, request: request.Request, *, active: bool) -> Response:
-        from products.feature_flags.backend.facade.api import set_flag_active
+    def _set_active(self, request: ValidatedRequest, *, active: bool) -> Response:
+        from products.feature_flags.backend.facade.api import set_flag_active, update_flag
 
         feature_flag: FeatureFlag = self.get_object()
         rejection = self._deleted_flag_rejection(feature_flag, "enabling it" if active else "disabling it")
         if rejection is not None:
             return rejection
-        if feature_flag.active != active:
+        if feature_flag.active == active:
+            return self._lifecycle_response(feature_flag)
+        version = request.validated_data.get("version")
+        if version is None:
             feature_flag = set_flag_active(
                 feature_flag,
                 active,
@@ -4408,19 +4432,29 @@ class FeatureFlagViewSet(
                 user=request.user,
                 request=FlagLifecycleWriteRequest(request),
             )
+        else:
+            # The request carries the version 1 precondition; the data carries the version 2 token.
+            self._rollout_precondition(feature_flag, version)
+            feature_flag = update_flag(
+                feature_flag,
+                {"active": active, "version": version},
+                team=self.team,
+                user=request.user,
+                request=FlagRolloutWriteRequest(request, version=version),
+            )
         return self._lifecycle_response(feature_flag)
 
-    @action(
-        methods=["POST"],
-        detail=True,
-        required_scopes=["feature_flag:write"],
-        request=None,
+    @validated_request(
+        FeatureFlagSetActiveRequestSerializer,
         responses=flag_lifecycle_responses(
             "The flag is archived, one of the flags it depends on is disabled, a flag it depends "
-            "on uses an unsupported configuration format, or a cohort it targets has been deleted."
+            "on uses an unsupported configuration format, a cohort it targets has been deleted, or "
+            "the flag uses config version 2 and no `version` was sent.",
+            version_precondition=True,
         ),
     )
-    def enable(self, request: request.Request, **kwargs) -> Response:
+    @action(methods=["POST"], detail=True, required_scopes=["feature_flag:write"])
+    def enable(self, request: ValidatedRequest, **kwargs) -> Response:
         """
         Enable a feature flag.
 
@@ -4429,17 +4463,21 @@ class FeatureFlagViewSet(
         flag whose own flag dependencies are disabled or use an unsupported configuration
         format is also refused, as is a flag whose release conditions target a deleted cohort.
         An already-enabled flag is returned unchanged.
+
+        Send the `version` your last read returned. A flag whose `filters.version` is 2 requires
+        it, and for any flag a change after that version is refused with 409.
         """
         return self._set_active(request, active=True)
 
-    @action(
-        methods=["POST"],
-        detail=True,
-        required_scopes=["feature_flag:write"],
-        request=None,
-        responses=flag_lifecycle_responses("Another active flag depends on this one."),
+    @validated_request(
+        FeatureFlagSetActiveRequestSerializer,
+        responses=flag_lifecycle_responses(
+            "Another active flag depends on this one, or the flag uses config version 2 and no `version` was sent.",
+            version_precondition=True,
+        ),
     )
-    def disable(self, request: request.Request, **kwargs) -> Response:
+    @action(methods=["POST"], detail=True, required_scopes=["feature_flag:write"])
+    def disable(self, request: ValidatedRequest, **kwargs) -> Response:
         """
         Disable a feature flag.
 
@@ -4449,6 +4487,9 @@ class FeatureFlagViewSet(
 
         A disabled flag stops evaluating for every consumer, including a linked experiment or a
         session replay setting. Read the full definition first to report that impact.
+
+        Send the `version` your last read returned. A flag whose `filters.version` is 2 requires
+        it, and for any flag a change after that version is refused with 409.
         """
         return self._set_active(request, active=False)
 
