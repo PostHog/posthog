@@ -3,7 +3,7 @@ import re
 import json
 import time
 from collections.abc import Callable, Iterable
-from typing import Any, NoReturn, Protocol, cast
+from typing import Any, Literal, NoReturn, Protocol, cast
 from urllib.parse import urlencode
 from uuid import uuid4
 
@@ -142,7 +142,7 @@ from products.slack_app.backend.services.slack_auth import SLACK_AUTH_FAILURE_CO
 from products.tasks.backend.facade.api import get_in_progress_runs_for_github_integration
 from products.tasks.backend.facade.contracts import InProgressGithubRunsDTO
 from products.workflows.backend.facade.api import get_enabled_workflows_using_integration, lookup_existing_email_tools
-from products.workflows.backend.facade.contracts import EmailProviderUnavailableError
+from products.workflows.backend.facade.contracts import EmailDomainVerificationStatus, EmailProviderUnavailableError
 from products.workflows.backend.facade.enums import EmailDomainSetupMethod
 
 logger = structlog.get_logger(__name__)
@@ -1486,6 +1486,15 @@ class PersonalConnectionRecentAuthPermission(BasePermission):
         return True
 
 
+EmailDomainVerificationOutcome = Literal["verified", "failed", "pending"]
+
+EMAIL_DOMAIN_VERIFICATION_OUTCOMES: dict[EmailDomainVerificationStatus, EmailDomainVerificationOutcome] = {
+    "success": "verified",
+    "failed": "failed",
+    "pending": "pending",
+}
+
+
 @extend_schema(extensions={"x-product": "integrations"})
 class IntegrationViewSet(
     TeamAndOrgViewSetMixin,
@@ -2688,10 +2697,11 @@ class IntegrationViewSet(
     @action(methods=["POST"], detail=True, url_path="email/verify")
     def email_verify(self, request, **kwargs):
         instance = self.get_object()
-        email = EmailIntegration(instance)
-        verification_result = email.verify(
+        verification_result = EmailIntegration(instance).verify(
             on_domain_verified=lambda: self._report_email_domain_verified(request, instance)
         )
+        if (outcome := EMAIL_DOMAIN_VERIFICATION_OUTCOMES[verification_result["status"]]) != "verified":
+            self._report_email_domain_verified(request, instance, outcome)
         return Response(verification_result)
 
     @validated_request(
@@ -2734,12 +2744,15 @@ class IntegrationViewSet(
             raise EmailProviderUnavailable() from error
         return Response(EmailDomainStatusSerializer(report).data)
 
-    def _report_email_domain_verified(self, request: Request, instance: Integration) -> None:
+    def _report_email_domain_verified(
+        self, request: Request, instance: Integration, outcome: EmailDomainVerificationOutcome = "verified"
+    ) -> None:
         report_user_action(
             request.user,
             "email domain verified",
             {
                 "method": self._email_domain_setup_method(request, instance),
+                "outcome": outcome,
                 "seconds_since_created": int((timezone.now() - instance.created_at).total_seconds()),
             },
             team=self.team,

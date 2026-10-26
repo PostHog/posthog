@@ -25,6 +25,7 @@ from products.workflows.backend.test.email_domain_api_test_case import (
     step_states,
 )
 from products.workflows.backend.tests.fakes.fake_dns import dns_operation
+from products.workflows.backend.tests.fakes.fake_ses import SesIdentity
 from products.workflows.backend.tests.fakes.faults import AwsFault, DnsFault
 from products.workflows.backend.tests.fakes.world import EmailDomainWorld
 
@@ -81,7 +82,14 @@ class TestEmailDomainVerification(EmailDomainApiTestCase):
         assert self.is_verified(sender) and self.is_verified(sibling)
         assert TeamWorkflowsConfig.objects.get(team_id=self.team.id).default_email_integration_id == sender
         assert self.verified_events() == [
-            ((ANY, "email domain verified", {"method": "agent", "seconds_since_created": ANY}), {"team": ANY})
+            (
+                (
+                    ANY,
+                    "email domain verified",
+                    {"method": "agent", "outcome": "verified", "seconds_since_created": ANY},
+                ),
+                {"team": ANY},
+            )
         ]
         self.reload_workers.assert_called_once_with(self.team.id, sorted([sender, sibling]))
         assert self.world.ses.writes.count("verify_domain_identity") == 3
@@ -90,6 +98,29 @@ class TestEmailDomainVerification(EmailDomainApiTestCase):
         assert self.verify(late_sender).status_code == status.HTTP_200_OK
         assert self.is_verified(late_sender)
         assert len(self.verified_events()) == 1
+
+    @parameterized.expand(
+        [
+            ("pending", lambda identity: setattr(identity, "checks_paused", True)),
+            ("failed", lambda identity: setattr(identity, "forced_verification_status", "Failed")),
+        ]
+    )
+    def test_a_check_that_does_not_verify_reports_its_outcome(
+        self, outcome: str, stall: Callable[[SesIdentity], None]
+    ) -> None:
+        sender = self.create_sender(f"hello@{DOMAIN}")
+        self.publish(self.records_to_publish(sender), *ALL_KINDS)
+        stall(self.world.ses.identities[DOMAIN])
+
+        assert self.verify(sender).json()["status"] == outcome
+
+        assert not self.is_verified(sender)
+        assert self.verified_events() == [
+            (
+                (ANY, "email domain verified", {"method": "agent", "outcome": outcome, "seconds_since_created": ANY}),
+                {"team": ANY},
+            )
+        ]
 
     @parameterized.expand(
         [(False, False, 404), (True, False, 200), (False, True, 200), (True, True, 200), (None, None, 404)]

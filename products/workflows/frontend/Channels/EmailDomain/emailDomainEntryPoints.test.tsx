@@ -125,7 +125,9 @@ describe('email domain setup entry points', () => {
 
         it('starts from the broadcast sender modal', async () => {
             const onComplete = jest.fn()
-            await renderInApp(<EmailSetupModal entry="broadcast" onClose={jest.fn()} onComplete={onComplete} />)
+            await renderInApp(
+                <EmailSetupModal entry="broadcast" surface="broadcast" onClose={jest.fn()} onComplete={onComplete} />
+            )
             expectBroadcastModal()
             expect(onComplete).not.toHaveBeenCalled()
         })
@@ -155,7 +157,9 @@ describe('email domain setup entry points', () => {
             setWizardFlag(true)
             const onComplete = jest.fn()
             const onClose = jest.fn()
-            await renderInApp(<EmailSetupModal entry={entry} onClose={onClose} onComplete={onComplete} />)
+            await renderInApp(
+                <EmailSetupModal entry={entry} surface="channels" onClose={onClose} onComplete={onComplete} />
+            )
 
             fireEvent.change(document.getElementById('email-domain-another-domain') as HTMLInputElement, {
                 target: { value: 'acme.com' },
