@@ -5,7 +5,7 @@ from collections.abc import Mapping
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, cast
 
-from django.db.models import TextChoices
+from django.db.models import Prefetch, TextChoices
 from django.utils import timezone
 
 import structlog
@@ -1664,10 +1664,27 @@ class SignalReportSerializer(serializers.ModelSerializer):
         suppressed_step_ids = [step.id for step in plan.steps if step.status == SignalReport.Status.SUPPRESSED]
         step_suppression_sources = {
             str(step_report.id): suppression[0].value
-            for step_report in SignalReport.objects.filter(team_id=obj.team_id, id__in=suppressed_step_ids)
+            for step_report in SignalReport.objects.filter(
+                team_id=obj.team_id, id__in=suppressed_step_ids
+            ).prefetch_related(*self._suppression_prefetches())
             if (suppression := self._suppression(step_report)) is not None
         }
         return dict(ReportPlanSerializer(plan, context={"step_suppression_sources": step_suppression_sources}).data)
+
+    @staticmethod
+    def _suppression_prefetches() -> list[Prefetch]:
+        return [
+            Prefetch(
+                "artefacts",
+                queryset=SignalReportArtefact.objects.filter(type=artefact_type).order_by("-created_at"),
+                to_attr=to_attr,
+            )
+            for artefact_type, to_attr in (
+                (SignalReportArtefact.ArtefactType.DISMISSAL, "prefetched_dismissal_artefacts"),
+                (SignalReportArtefact.ArtefactType.SAFETY_JUDGMENT, "prefetched_safety_artefacts"),
+                (SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT, "prefetched_actionability_artefacts"),
+            )
+        ]
 
     def _get_actionability_artefact_data(self, obj: SignalReport) -> dict | None:
         prefetched = getattr(obj, "prefetched_actionability_artefacts", None)
