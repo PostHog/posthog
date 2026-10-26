@@ -1698,13 +1698,14 @@ class _AuthorshipFixture(TestCase):
         )
         self.task_run = TaskRun.objects.create(task=self.task, team=self.team, state={"pr_authorship_mode": "bot"})
 
-    def connect_personal_github(self, *, usable: bool = True) -> None:
+    def connect_personal_github(self, *, usable: bool = True, user: User | None = None) -> None:
         from posthog.models.user_integration import UserIntegration
 
+        user = user or self.user
         UserIntegration.objects.create(
-            user=self.user,
+            user=user,
             kind=UserIntegration.IntegrationKind.GITHUB,
-            integration_id="gh-1",
+            integration_id=f"gh-{user.id}",
             config={} if usable else {"user_refresh_token_expires_at": 1},
             sensitive_config={"user_access_token": "at", "user_refresh_token": "rt"},
         )
@@ -1731,6 +1732,40 @@ class TestUpgradeRunToUserAuthorship(_AuthorshipFixture):
         upgrade_run_to_user_authorship(self.task_run, self.user, state)
 
         assert state == {"pr_authorship_mode": "bot"}
+
+    def _thread_participant(self) -> User:
+        from posthog.models.user import User
+
+        participant = User.objects.create(email="participant@test.com")
+        participant.join(organization=self.organization)
+        self.connect_personal_github(user=participant)
+        return participant
+
+    def _slack_turn_state(self, actor_user_id: int) -> dict:
+        return {"pr_authorship_mode": "bot", "interaction_origin": "slack", "slack_actor_user_id": actor_user_id}
+
+    @parameterized.expand([(Task.OriginProduct.SLACK,), (Task.OriginProduct.WORKFLOW,)])
+    def test_a_thread_participant_with_a_connection_promotes_the_run(self, origin_product: str) -> None:
+        self.task.origin_product = origin_product
+        self.task.save(update_fields=["origin_product"])
+        participant = self._thread_participant()
+        self._set_state(self._slack_turn_state(participant.id))
+
+        promoted = upgrade_run_to_user_authorship(self.task_run, participant, self.task_run.state)
+
+        assert promoted is not None
+        assert promoted["pr_authorship_mode"] == "user"
+        self.task.refresh_from_db()
+        assert self.task.github_user_integration_id is None
+
+    def _workflow_origin_without_a_slack_turn(self) -> None:
+        self.connect_personal_github()
+        self.task.origin_product = Task.OriginProduct.WORKFLOW
+        self.task.save(update_fields=["origin_product"])
+
+    def _a_slack_turn_by_someone_other_than_the_recorded_actor(self) -> None:
+        self.actor = self._thread_participant()
+        self._set_state(self._slack_turn_state(self.user.id))
 
     def _no_actor(self) -> None:
         self.connect_personal_github()
@@ -1776,6 +1811,8 @@ class TestUpgradeRunToUserAuthorship(_AuthorshipFixture):
             ("caller_token_run",),
             ("signal_report_origin",),
             ("a_different_actor_than_the_creator",),
+            ("workflow_origin_without_a_slack_turn",),
+            ("a_slack_turn_by_someone_other_than_the_recorded_actor",),
         ]
     )
     def test_nothing_is_promoted(self, case: str) -> None:
@@ -1797,6 +1834,13 @@ class TestIsBotAuthorshipFallback(_AuthorshipFixture):
     def test_a_slack_run_without_a_personal_install_is_a_fallback(self) -> None:
         assert is_bot_authorship_fallback(self.task, str(self.task_run.id), self.task_run.state) is True
 
+    def test_a_workflow_run_on_a_slack_thread_turn_is_a_fallback(self) -> None:
+        self.task.origin_product = Task.OriginProduct.WORKFLOW
+        self.task.save(update_fields=["origin_product"])
+        self._set_state({"pr_authorship_mode": "bot", "interaction_origin": "slack"})
+
+        assert is_bot_authorship_fallback(self.task, str(self.task_run.id), self.task_run.state) is True
+
     def _user_authored(self) -> None:
         self._set_state({"pr_authorship_mode": "user"})
 
@@ -1810,12 +1854,17 @@ class TestIsBotAuthorshipFallback(_AuthorshipFixture):
         self.task.origin_product = Task.OriginProduct.SIGNAL_REPORT
         self.task.save(update_fields=["origin_product"])
 
+    def _workflow_origin_without_a_slack_turn(self) -> None:
+        self.task.origin_product = Task.OriginProduct.WORKFLOW
+        self.task.save(update_fields=["origin_product"])
+
     @parameterized.expand(
         [
             ("user_authored",),
             ("caller_token_run",),
             ("signal_report_run",),
             ("signal_report_origin",),
+            ("workflow_origin_without_a_slack_turn",),
         ]
     )
     def test_nothing_is_flagged(self, case: str) -> None:

@@ -1830,12 +1830,26 @@ def get_pr_authorship_mode(task: Task, state: dict[str, Any] | None = None) -> P
     return PrAuthorshipMode.USER if task.origin_product in USER_AUTHORABLE_ORIGIN_PRODUCTS else PrAuthorshipMode.BOT
 
 
+def _is_promotable_origin(task: Task, state: dict[str, Any] | None) -> bool:
+    """Whether a run of this task can move from bot to user authorship.
+
+    User-authorable origins always can. A workflow task can only on a Slack thread turn:
+    the workflow posts into a thread, and the people who mention the agent there steer it
+    as themselves. A workflow run with no Slack turn stays on the bot.
+    """
+    from products.tasks.backend.models import Task as TaskModel
+
+    if task.origin_product in USER_AUTHORABLE_ORIGIN_PRODUCTS:
+        return True
+    return task.origin_product == TaskModel.OriginProduct.WORKFLOW and is_slack_interaction_state(state)
+
+
 def is_bot_authorship_fallback(task: Task, run_id: str, state: dict[str, Any] | None = None) -> bool:
     """Whether this run was meant to carry a human git identity but couldn't.
 
-    True exactly when the run's origin is user-authorable and it still resolved to bot
-    authorship, which happens when the creator had no usable personal GitHub installation
-    at creation time. Runs that are bot-authored by design (signal reports) and runs pinned
+    True exactly when the run's origin is promotable and it still resolved to bot
+    authorship, which happens when the acting user had no usable personal GitHub
+    installation. Runs that are bot-authored by design (signal reports) and runs pinned
     to a caller-supplied token are excluded: neither would be fixed by anyone connecting
     their own GitHub.
 
@@ -1843,7 +1857,7 @@ def is_bot_authorship_fallback(task: Task, run_id: str, state: dict[str, Any] | 
     tell someone their pull request went out under the bot's name and know that connecting
     is what changes it.
     """
-    if task.origin_product not in USER_AUTHORABLE_ORIGIN_PRODUCTS:
+    if not _is_promotable_origin(task, state):
         return False
     if parse_run_state(state).run_source == RunSource.SIGNAL_REPORT:
         return False
@@ -1860,8 +1874,10 @@ def upgrade_run_to_user_authorship(
     A run started by someone with no personal GitHub is created as `BOT` and that value is
     frozen in run state, so connecting GitHub mid-thread would otherwise never take effect —
     the agent asks for the connection precisely when it needs the code, and the next turn has
-    to honor it. Only the fallback is promoted: a run that is bot-authored by design (signal
-    reports) or pinned to a caller-supplied token keeps the identity it was given.
+    to honor it. The same applies when someone with a connection joins a thread that a bot run
+    started, such as a workflow alert thread: their turn runs with their own GitHub. Only the
+    fallback is promoted: a run that is bot-authored by design (signal reports) or pinned to a
+    caller-supplied token keeps the identity it was given.
 
     There is no mirror image of this. A disconnection leaves the run on `USER` and lets token
     resolution fail, which logs the sandbox out; falling back to the team installation would
@@ -1876,12 +1892,14 @@ def upgrade_run_to_user_authorship(
     if actor_user is None:
         return None
     task = task_run.task
-    if task.origin_product not in USER_AUTHORABLE_ORIGIN_PRODUCTS:
+    if not _is_promotable_origin(task, state):
         return None
-    # Promotion is only for the creator. A thread participant's connection would retarget a run
-    # they don't own, and later turns by a creator without one would then resolve to nothing
-    # instead of the bot fallback they had. The cloud path refuses the same case outright.
-    if task.created_by_id != actor_user.id:
+    # Promotion is only for the user this run mints credentials for. That is the creator, except
+    # on a Slack thread turn, where it is the recorded Slack actor after its team access check.
+    # Each later turn rebinds the sandbox to its own actor, so a participant without a connection
+    # is logged out rather than handed the previous actor's token.
+    credential_user = get_task_run_credential_user(task, state)
+    if credential_user is None or credential_user.id != actor_user.id:
         return None
     if get_pr_authorship_mode(task, state) != PrAuthorshipMode.BOT:
         return None
