@@ -54,7 +54,7 @@ class TestWarehouseUsage(BaseTest):
 
     def _create_history_table(self, source: ExternalDataSource, name: str) -> None:
         string_column = {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}
-        DataWarehouseTable.objects.create(
+        table = DataWarehouseTable(
             name=name,
             format="Parquet",
             team=self.team,
@@ -63,6 +63,8 @@ class TestWarehouseUsage(BaseTest):
             url_pattern="https://bucket.s3/history/*",
             columns={"id": string_column, "valid_from": string_column, "valid_to": string_column},
         )
+        table.mark_as_history_table()
+        table.save()
 
     def _create_self_managed_table(self, name: str = "self_managed_1") -> None:
         credentials = DataWarehouseCredential.objects.create(access_key="blah", access_secret="blah", team=self.team)
