@@ -754,7 +754,8 @@ export const getExperimentsHealthRetrieveUrl = (projectId: string, id: number) =
  * `running_but_no_rollout` when 10 or more people got a variant from flag calls without a
  * flag version that are no local evaluation, from an hour after the window starts. When
  * every condition that includes users pins the variant whose key one property holds,
- * `assigned_by_property` replaces `all_conditions_pinned`.
+ * `assigned_by_property` replaces `all_conditions_pinned`. `all_conditions_pinned` is info
+ * before launch and a warning from launch on.
  *
  * A draft whose flag has no recorded call gets the info `new_flag_no_traffic`. The record
  * is the flag's `last_called_at`, which a periodic task updates, so it trails a call. The
@@ -766,6 +767,10 @@ export const getExperimentsHealthRetrieveUrl = (projectId: string, id: number) =
  * `running_but_flag_disabled`, as a warning. A caller who can't view the linked flag's
  * history gets the warning, because the pause is not read. A draft whose flag is already
  * active with multiple variants gets `not_started_but_multiple_variants_rolled_out` as info.
+ * An ended experiment whose flag is still active with multiple variants gets
+ * `ended_but_multiple_variants_rolled_out` as a warning, or `ended_flag_not_called` as info
+ * when the flag's `last_called_at` shows no call since the end. The info waits an hour after
+ * the end, because `last_called_at` trails a call.
  *
  * A running experiment whose first primary metric is a funnel gets the info
  * `early_significance` (subcode `below_detectable_effect`) when a significant variant's

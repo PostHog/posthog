@@ -9,8 +9,11 @@ A running experiment whose flag has a 0% rollout is the exception. The flag serv
 variant then, so people who still get one get it from the customer's own assignment, which only the flag's calls
 show. Only the server reports that case.
 
-A paused experiment is the other exception. Only the server reads the experiment's activity log, so only the server
+A paused experiment is another exception. Only the server reads the experiment's activity log, so only the server
 tells a pause from the experiment from a flag disabled elsewhere, and reports the pause with its own subcode.
+
+An ended experiment whose flag has no recorded call since the end is the last exception. Only the server reads the
+flag's latest call, so only the server reports that case, with its own subcode.
 """
 
 from datetime import UTC, datetime, timedelta
@@ -48,6 +51,7 @@ NOT_STARTED_BUT_MULTIPLE_VARIANTS_ROLLED_OUT = "not_started_but_multiple_variant
 RUNNING_BUT_FLAG_DELETED = "running_but_flag_deleted"
 ASSIGNED_OUTSIDE_FLAG_SERVICE = "assigned_outside_flag_service"
 PAUSED_FROM_EXPERIMENT = "paused_from_experiment"
+ENDED_FLAG_NOT_CALLED = "ended_flag_not_called"
 
 # The experiment's Pause and Resume write activity log entries since August 25, 2026, and a pause before then has
 # none. So a missing entry shows that the flag was disabled outside the experiment only for an experiment launched
@@ -100,16 +104,7 @@ def flag_state(ctx: HealthContext) -> CheckOutcome:
             traffic = ctx.condition_set_traffic
             if traffic is not None and traffic.people_assigned_outside >= _MIN_PEOPLE_ASSIGNED_OUTSIDE:
                 return _assigned_outside(traffic)
-            return _finding(
-                code=ExperimentHealthFindingCode.FLAG_OFF_WHILE_RUNNING,
-                subcode=RUNNING_BUT_NO_ROLLOUT,
-                title="The experiment is running, but no new users are being exposed",
-                detail=(
-                    "The linked feature flag has a 0% rollout, so no new users are being exposed. "
-                    "Users exposed earlier are still included in the results. End the experiment with a "
-                    "conclusion, or increase the rollout percentage to expose users."
-                ),
-            )
+            return _no_rollout(traffic)
         if single_variant_shipped:
             variant_key = shipped_variant_key(flag)
             shipped = f'Variant "{variant_key}" is' if variant_key else "One variant is"
@@ -127,6 +122,8 @@ def flag_state(ctx: HealthContext) -> CheckOutcome:
             )
     elif ctx.has_ended:
         if flag.active and _has_multiple_variants_active(flag) and not zero_rollout and not single_variant_shipped:
+            if ctx.flag_called_after_end is False and ctx.ended_at is not None:
+                return _ended_flag_not_called(ctx.ended_at, ctx.team_timezone)
             return _finding(
                 code=ExperimentHealthFindingCode.FLAG_LIVE_AFTER_END,
                 subcode=ENDED_BUT_MULTIPLE_VARIANTS_ROLLED_OUT,
@@ -192,6 +189,49 @@ def _flag_disabled(pause: PauseHistory | None) -> ExperimentHealthFinding:
         detail=(
             "The linked feature flag is disabled while the experiment has not been ended. Resume or end the experiment."
         ),
+    )
+
+
+def _no_rollout(traffic: ConditionSetTraffic | None) -> ExperimentHealthFinding:
+    if traffic is not None:
+        return _finding(
+            code=ExperimentHealthFindingCode.FLAG_OFF_WHILE_RUNNING,
+            subcode=RUNNING_BUT_NO_ROLLOUT,
+            title="The experiment is running, but no new users are being exposed",
+            detail=(
+                "The linked feature flag has a 0% rollout, so no new users are being exposed. "
+                "Users exposed earlier are still included in the results. End the experiment with a "
+                "conclusion, or increase the rollout percentage to expose users."
+            ),
+        )
+    return _finding(
+        code=ExperimentHealthFindingCode.FLAG_OFF_WHILE_RUNNING,
+        subcode=RUNNING_BUT_NO_ROLLOUT,
+        title="The experiment is running, but its feature flag has a 0% rollout",
+        detail=(
+            "The linked feature flag has a 0% rollout, so PostHog serves no variant. Only users whose variant your "
+            "own code assigns are exposed. If your code doesn't assign variants, no new users are being exposed. "
+            "Users exposed earlier are still included in the results. End the experiment with a conclusion, or "
+            "increase the rollout percentage to expose users."
+        ),
+    )
+
+
+def _ended_flag_not_called(ended_at: datetime, team_timezone: str) -> ExperimentHealthFinding:
+    # Info, because a flag that nothing reads exposes nobody. The finding says only what `last_called_at` shows,
+    # because reads that send no `$feature_flag_called` can still get a variant.
+    return _finding(
+        code=ExperimentHealthFindingCode.FLAG_LIVE_AFTER_END,
+        subcode=ENDED_FLAG_NOT_CALLED,
+        severity=ExperimentHealthFindingSeverity.INFO,
+        title="The feature flag is still active after the experiment ended",
+        detail=(
+            f"The experiment ended on {format_change_time(ended_at, team_timezone)}, and the linked feature flag is "
+            'still active with multiple variants. PostHog hasn\'t recorded a "$feature_flag_called" event for it '
+            "since then. Reading only a payload or a list of all flags sends no such event, so your code may still "
+            "read the flag that way. If nothing reads the flag any more, disable or archive it to clean up."
+        ),
+        evidence={"ended_at": ended_at.astimezone(UTC).isoformat()},
     )
 
 

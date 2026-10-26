@@ -120,6 +120,11 @@ class TestForcedVariantReleaseCondition(TestCase):
                 ("all_conditions_pinned", ExperimentHealthFindingSeverity.WARNING, "1", "control", None),
             ),
             (
+                "draft_catch_all_override",
+                _context([{**EVERYONE, "variant": "control"}], status=DRAFT),
+                ("all_conditions_pinned", ExperimentHealthFindingSeverity.INFO, "1", "control", None),
+            ),
+            (
                 "cohorts_forced_into_both_variants",
                 _context([{**IOS, "variant": "test"}, {**STAFF, "variant": "control"}]),
                 ("all_conditions_pinned", ExperimentHealthFindingSeverity.WARNING, "1, 2", "test, control", None),

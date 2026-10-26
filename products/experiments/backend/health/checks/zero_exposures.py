@@ -37,10 +37,12 @@ def zero_exposures(ctx: HealthContext) -> CheckOutcome:
     # Deleting a flag changes its key, so its calls stop moving `last_called_at`. The flag-state check reports the
     # deletion.
     if flag is None or flag.deleted:
-        return _cause_unknown(evidence, unit)
+        return _cause_unknown(evidence, unit, ended=ctx.has_ended)
     if ctx.is_paused:
+        # Info, because the flag-state check already reports the pause, and a pause needs no fix.
         return _finding(
             subcode=EXPERIMENT_PAUSED,
+            severity=ExperimentHealthFindingSeverity.INFO,
             title=f"No {unit}s exposed: the experiment is paused",
             detail=(
                 "The experiment is paused, so its feature flag serves no variants and nobody is counted as exposed. "
@@ -51,7 +53,7 @@ def zero_exposures(ctx: HealthContext) -> CheckOutcome:
         )
     events = ctx.exposure_events
     if events is None:
-        return _cause_unknown(evidence, unit)
+        return _cause_unknown(evidence, unit, ended=ctx.has_ended)
     if events.required_flag_key is None:
         # A custom event or an action carries the variant in a property that client SDKs add to every event, so the
         # flag's calls say nothing about these exposures.
@@ -60,29 +62,61 @@ def zero_exposures(ctx: HealthContext) -> CheckOutcome:
             counted = f'{sender} the event "{events.custom_event}"'
         else:
             counted = f"{sender} an event that matches the exposure action"
+        rule = (
+            f"{unit.capitalize()}s are counted as exposed when {counted} with one of the experiment's variants in "
+            f'the property "{events.variant_property}".'
+        )
+        if ctx.has_ended:
+            return _ended(
+                subcode=CUSTOM_EXPOSURE_NOT_MATCHED,
+                title=f"No {unit}s exposed: no events matched the exposure criteria",
+                detail=(
+                    f"No {unit}s were exposed while the experiment ran, because no event matched the exposure "
+                    f"criteria. {rule} If your code sent the event, check that the exposure criteria, such as the test "
+                    f"account filter, don't leave out your {unit}s."
+                ),
+                evidence=evidence,
+                actions=(ExperimentHealthFindingActionKind.EDIT_EXPOSURE_CRITERIA,),
+            )
         return _finding(
             subcode=CUSTOM_EXPOSURE_NOT_MATCHED,
+            severity=ExperimentHealthFindingSeverity.WARNING,
             title=f"No {unit}s exposed: no events match the exposure criteria",
             detail=(
-                f"{unit.capitalize()}s are counted as exposed when {counted} with one of the experiment's variants in "
-                f'the property "{events.variant_property}". No event has matched during the experiment, so nobody is '
-                "counted. Check that your code sends the event with the variant, and that the exposure criteria, such "
-                f"as the test account filter, don't leave out your {unit}s."
+                f"{rule} No event has matched during the experiment, so nobody is counted. Check that your code sends "
+                "the event with the variant, and that the exposure criteria, such as the test account filter, don't "
+                f"leave out your {unit}s."
             ),
             evidence=evidence,
             actions=(ExperimentHealthFindingActionKind.EDIT_EXPOSURE_CRITERIA,),
         )
     flag_key = events.required_flag_key
+    no_call_recorded = (
+        "Reading only a payload or a list of all flags records no call, and neither does a call with send_event set to "
+        "false."
+    )
+    if ctx.flag_called_during_run is False and ctx.has_ended:
+        return _ended(
+            subcode=FLAG_NOT_CALLED,
+            title=f"No {unit}s exposed: the feature flag had no recorded calls",
+            detail=(
+                f"No {unit}s were exposed while the experiment ran, because PostHog didn't record a call of the feature "
+                f'flag "{flag_key}" in that time. {unit.capitalize()}s are counted when your code reads this flag\'s '
+                f"value. {no_call_recorded}"
+            ),
+            evidence=evidence,
+            actions=(),
+        )
     if ctx.flag_called_during_run is False:
         return _finding(
             subcode=FLAG_NOT_CALLED,
+            severity=ExperimentHealthFindingSeverity.WARNING,
             title=f"No {unit}s exposed: the feature flag has no recorded calls",
             detail=(
                 f'PostHog hasn\'t recorded a call of the feature flag "{flag_key}" during the experiment, so nobody is '
                 f"counted as exposed. {unit.capitalize()}s are counted when your code reads this flag's value, for "
                 "example with getFeatureFlag in the browser or with get_flag on the result of evaluate_flags in Python. "
-                "Reading only a payload or a list of all flags records no call, and neither does a call with "
-                f"send_event set to false. New calls can take up to {LAST_CALLED_AT_LAG} to show up here."
+                f"{no_call_recorded} New calls can take up to {LAST_CALLED_AT_LAG} to show up here."
             ),
             evidence=evidence,
             actions=(),
@@ -95,8 +129,26 @@ def zero_exposures(ctx: HealthContext) -> CheckOutcome:
             if events.activation
             else ""
         )
+        if ctx.has_ended:
+            group_rule = " A call counts only when it carries the group." if unit == "group" else ""
+            return _ended(
+                subcode=CALLS_NOT_COUNTED,
+                title=f"No {unit}s exposed, although the feature flag was called",
+                detail=(
+                    f"No {unit}s were exposed while the experiment ran, although PostHog recorded calls of the feature "
+                    f'flag "{flag_key}" in that time. A call counts when the flag returns one of the experiment\'s '
+                    f"variants and the {unit} passes the exposure criteria.{group_rule}{activation} Check that the "
+                    f"exposure criteria, such as the test account filter, don't leave out your {unit}s."
+                ),
+                evidence=evidence,
+                actions=(
+                    ExperimentHealthFindingActionKind.OPEN_FEATURE_FLAG,
+                    ExperimentHealthFindingActionKind.EDIT_EXPOSURE_CRITERIA,
+                ),
+            )
         return _finding(
             subcode=CALLS_NOT_COUNTED,
+            severity=ExperimentHealthFindingSeverity.WARNING,
             title=f"No {unit}s exposed, although the feature flag is called",
             detail=(
                 f'PostHog has recorded calls of the feature flag "{flag_key}" during the experiment, but none of them '
@@ -111,12 +163,25 @@ def zero_exposures(ctx: HealthContext) -> CheckOutcome:
                 ExperimentHealthFindingActionKind.EDIT_EXPOSURE_CRITERIA,
             ),
         )
-    return _cause_unknown(evidence, unit)
+    return _cause_unknown(evidence, unit, ended=ctx.has_ended)
 
 
-def _cause_unknown(evidence: dict[str, int], unit: str) -> ExperimentHealthFinding:
+def _cause_unknown(evidence: dict[str, int], unit: str, *, ended: bool) -> ExperimentHealthFinding:
+    if ended:
+        return _ended(
+            subcode=None,
+            title=f"No {unit}s exposed",
+            detail=(
+                f"No {unit}s were exposed while the experiment ran, so it shows no results. "
+                f"{unit.capitalize()}s are counted when the exposure event is sent for them. If your code sent it, "
+                "check that the exposure criteria match the events it sent."
+            ),
+            evidence=evidence,
+            actions=(ExperimentHealthFindingActionKind.EDIT_EXPOSURE_CRITERIA,),
+        )
     return _finding(
         subcode=None,
+        severity=ExperimentHealthFindingSeverity.WARNING,
         title=f"No {unit}s exposed",
         detail=(
             f"No {unit}s have been exposed to this experiment, so it shows no results. "
@@ -128,9 +193,31 @@ def _cause_unknown(evidence: dict[str, int], unit: str) -> ExperimentHealthFindi
     )
 
 
+def _ended(
+    *,
+    subcode: str | None,
+    title: str,
+    detail: str,
+    evidence: dict[str, int],
+    actions: tuple[ExperimentHealthFindingActionKind, ...],
+) -> ExperimentHealthFinding:
+    # Info, because nothing exposes more users after the end, so the finding explains why the experiment shows no
+    # results and gives no fix for the code. The exposure criteria can still be changed, because the exposure query
+    # reruns over the events up to the end.
+    return _finding(
+        subcode=subcode,
+        severity=ExperimentHealthFindingSeverity.INFO,
+        title=title,
+        detail=detail,
+        evidence=evidence,
+        actions=actions,
+    )
+
+
 def _finding(
     *,
     subcode: str | None,
+    severity: ExperimentHealthFindingSeverity,
     title: str,
     detail: str,
     evidence: dict[str, int],
@@ -139,7 +226,7 @@ def _finding(
     return ExperimentHealthFinding(
         code=ExperimentHealthFindingCode.ZERO_EXPOSURES,
         subcode=subcode,
-        severity=ExperimentHealthFindingSeverity.WARNING,
+        severity=severity,
         title=title,
         detail=detail,
         evidence=evidence,

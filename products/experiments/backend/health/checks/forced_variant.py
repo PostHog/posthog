@@ -103,7 +103,8 @@ def forced_variant_release_condition(ctx: HealthContext) -> CheckOutcome:
         )
     return _finding(
         subcode=ALL_CONDITIONS_PINNED,
-        severity=ExperimentHealthFindingSeverity.WARNING,
+        # Before launch no result counts these users yet, and the detail asks to remove the overrides before launch.
+        severity=ExperimentHealthFindingSeverity.INFO if is_draft else ExperimentHealthFindingSeverity.WARNING,
         title="No users are randomly assigned to a variant",
         detail=_all_pinned_detail(pinned_numbers, pinned_keys, is_draft, set_after_launch),
         pinned_numbers=pinned_numbers,
