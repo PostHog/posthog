@@ -413,11 +413,25 @@ _SSH_GATEWAY_UNREACHABLE_SYNC_MESSAGE = f"{_SSH_GATEWAY_UNREACHABLE_GUIDANCE}, t
 # sshtunnel raises this once the SSH session is up but no forwarded tunnel came up with it: the
 # bastion could not open a channel to the database host and port, or it refuses port forwarding
 # altogether. Its own wording names neither, so it leaves the user nothing to act on.
+#
+# Unlike `_SSH_GATEWAY_SESSION_ERROR` above (the bastion itself — usually static infrastructure),
+# what sits on the other end of this channel is the customer's database: the same kind of endpoint
+# `ForeignServerUnreachableError` and `_CONNECTION_DROPPED_ERROR_SUBSTRINGS` already treat as
+# capable of a brief, self-recovering outage (a restart, a failover, a maintenance window).
+# `_connected_ssh_tunnel`'s own ~14 second retry only rules out the shortest blips, so this stays
+# retryable rather than disabling an otherwise healthy sync.
 _SSH_FORWARD_FAILED_ERROR = "An error occurred while opening tunnels."
-_SSH_FORWARD_FAILED_MESSAGE = (
+_SSH_FORWARD_FAILED_GUIDANCE = (
     "PostHog signed in to your SSH server but couldn't reach the database through it. Check that "
     "the database host and port are reachable from the SSH server, and that the server allows port "
-    "forwarding."
+    "forwarding"
+)
+_SSH_FORWARD_FAILED_MESSAGE = f"{_SSH_FORWARD_FAILED_GUIDANCE}."
+# The schema stays enabled for this class, so this only replaces the raw driver text once every
+# retry is spent — see `get_retry_exhausted_errors`.
+_SSH_FORWARD_FAILED_EXHAUSTED_MESSAGE = (
+    f"{_SSH_FORWARD_FAILED_GUIDANCE}, and this kept happening on every retry. This sync is still "
+    "enabled and will run again on its next schedule."
 )
 
 # A source past the SSL cutoff connects with sslmode=require, so a server built without SSL support
@@ -1663,6 +1677,10 @@ class PostgresSource(
         # connection mid-query, or an admin cancel — canceled it. Neither says anything about this
         # query or schema, and a retry runs on a fresh connection, so it's self-recovering like the
         # other entries here rather than a verdict to stop retrying.
+        #
+        # `_SSH_FORWARD_FAILED_ERROR` reaches here once `_connected_ssh_tunnel`'s own ~14 second
+        # retry gives up opening the port forward to the database behind the bastion. See its
+        # definition above for why that stays retryable rather than disabling the schema.
         return {
             CLIENT_DEADLINE_ERROR,
             "canceling statement due to user request",
@@ -1673,6 +1691,7 @@ class PostgresSource(
             "conflict with recovery",
             HOST_RESOLUTION_TIMEOUT_ERROR,
             TEMPORARY_HOST_RESOLUTION_ERROR,
+            _SSH_FORWARD_FAILED_ERROR,
         }
 
     def get_retry_exhausted_errors(self) -> dict[str, str]:
@@ -1695,6 +1714,7 @@ class PostgresSource(
             "canceling statement due to user request": _SPURIOUS_CANCEL_EXHAUSTED_MESSAGE,
             HOST_RESOLUTION_TIMEOUT_ERROR: HOST_RESOLUTION_EXHAUSTED_MESSAGE,
             TEMPORARY_HOST_RESOLUTION_ERROR: HOST_RESOLUTION_EXHAUSTED_MESSAGE,
+            _SSH_FORWARD_FAILED_ERROR: _SSH_FORWARD_FAILED_EXHAUSTED_MESSAGE,
         }
 
     def reconcile_schema_metadata(
