@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useAsyncActions, useValues } from 'kea'
 import { BindLogic } from 'kea'
 import posthog from 'posthog-js'
 
@@ -37,7 +37,7 @@ export function AddInsightToDashboardModal(): JSX.Element {
     const { hideAddInsightToDashboardModal, toggleShowMoreInsightTypes } = useActions(addInsightToDashboardLogic)
     const { addInsightToDashboardModalVisible, showMoreInsightTypes } = useValues(addInsightToDashboardLogic)
     const { dashboard, addWidgetTileLoading } = useValues(dashboardLogic)
-    const { addWidgetTiles } = useActions(dashboardLogic)
+    const { addWidgetTiles } = useAsyncActions(dashboardLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const handleClose = (): void => {
