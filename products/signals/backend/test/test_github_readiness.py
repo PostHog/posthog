@@ -12,7 +12,7 @@ from asgiref.sync import async_to_sync, sync_to_async
 from parameterized import parameterized
 
 from posthog.egress.limiter.policies import Priority
-from posthog.models.github_integration_base import GitHubIntegrationBase, GitHubIntegrationError
+from posthog.models.github_integration_base import GitHubIntegrationBase, GitHubIntegrationError, github_access_changed
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.integration.github_readiness import GitHubReadiness, GitHubReadinessStatus, github_readiness
 from posthog.models.organization import OrganizationMembership
@@ -148,6 +148,10 @@ class TestGitHubReadiness(BaseTest):
             GitHubIntegration, "sync_repository_cache", return_value=[{"full_name": "example/application"}]
         ):
             self.assertEqual(get_team_github_readiness(self.team.id, verify=True).status, GitHubReadinessStatus.READY)
+
+    @parameterized.expand([("EXAMPLE/application", "ready"), ("example/other", "no_repositories")])
+    def test_queued_recovery_requires_the_original_repository(self, repository: str, expected: str) -> None:
+        self.assertEqual(get_team_github_readiness(self.team.id, repository=repository).status, expected)
 
     def test_transient_refresh_error_is_retried_without_reconnection(self) -> None:
         self.integration.errors = "TOKEN_REFRESH_FAILED"
@@ -398,6 +402,17 @@ class TestGitHubReadiness(BaseTest):
         with patch(f"{TASKS}.get_team_github_readiness") as readiness:
             resume_github_blocked_reports(self.team.id)
         readiness.assert_not_called()
+
+    def test_connection_event_schedules_report_and_queued_run_recovery(self) -> None:
+        with (
+            patch("products.signals.backend.receivers.cache.add", return_value=True),
+            patch(f"{TASKS}.resume_github_blocked_reports.apply_async") as reports,
+            patch(f"{TASKS}.resume_github_blocked_task_runs.apply_async") as runs,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            github_access_changed.send(sender=GitHubIntegration, installation_id=self.integration.integration_id)
+        reports.assert_called_once_with(args=[self.team.id], kwargs={"connection_restored": True}, countdown=60)
+        runs.assert_called_once_with(args=[self.team.id], countdown=60)
 
     def test_scout_cannot_run_without_github_or_create_a_run_row(self) -> None:
         self.integration.delete()

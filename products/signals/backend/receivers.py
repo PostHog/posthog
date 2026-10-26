@@ -49,6 +49,7 @@ logger = structlog.get_logger(__name__)
 def resume_reports_after_github_access_change(sender: type, installation_id: str, **kwargs: Any) -> None:
     from products.signals.backend.github_readiness_tasks import (  # noqa: PLC0415 - keep the Temporal graph off Django startup
         resume_github_blocked_reports,
+        resume_github_blocked_task_runs,
     )
 
     team_ids = set(
@@ -67,6 +68,7 @@ def resume_reports_after_github_access_change(sender: type, installation_id: str
                 resume_github_blocked_reports.apply_async(
                     args=[team_id], kwargs={"connection_restored": True}, countdown=60
                 )
+                resume_github_blocked_task_runs.apply_async(args=[team_id], countdown=60)
 
     transaction.on_commit(enqueue, robust=True)
 

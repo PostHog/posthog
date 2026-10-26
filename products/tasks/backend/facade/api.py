@@ -1732,6 +1732,11 @@ def get_stale_queued_task_run_ids(
     if created_hard_cap is not None:
         stale |= Q(created_at__lt=now - created_hard_cap, updated_at__lt=now - hard_cap_min_queued)
     queryset = TaskRun.objects.filter(status=TaskRun.Status.QUEUED)  # nosemgrep: celery-task-team-scope-audit
+    queryset = queryset.exclude(
+        environment=TaskRun.Environment.CLOUD,
+        task__origin_product=Task.OriginProduct.SIGNAL_REPORT,
+        state__github_recovery_deadline__gt=now.isoformat(),
+    )
     if environment is not None:
         queryset = queryset.filter(environment=environment)
     if exclude_covered_dispatches:
@@ -2906,6 +2911,8 @@ def delete_sandbox_custom_image(image_id: str | UUID, team_id: int, user_id: int
 # These keys are reserved for server-owned run state, never PATCH input.
 _PROTECTED_RUN_STATE_KEYS = frozenset(
     {
+        "github_blocked_reason",
+        "github_recovery_deadline",
         "sandbox_environment_id",
         # Worker-interpreted trial markers must never be caller-writable.
         "scout_trial",
