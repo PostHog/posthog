@@ -30,8 +30,8 @@ class _FreeJSONField(serializers.JSONField):
 
 
 class MetricOwnerField(serializers.EmailField):
-    def to_representation(self, value: User) -> str:
-        return value.email
+    def get_attribute(self, instance: Metric) -> str | None:
+        return instance.owner.email if instance.owner else None
 
     def run_validation(self, data: object = serializers.empty) -> User | None:
         email = super().run_validation(data)
