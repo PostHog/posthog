@@ -415,7 +415,7 @@ def ensure_no_concurrent_deletes_run(context: dagster.OpExecutionContext) -> Non
     # A queued run has done nothing yet. Its own guard sees this run once it starts.
     blockers = describe_runs(
         context.instance,
-        (deletes_job.name, monthly_old_events_cleanup_job.name, squash_person_overrides.name),
+        (deletes_job.name, monthly_retention_events_cleanup_job.name, squash_person_overrides.name),
         statuses=EXECUTING_RUN_STATUSES,
         exclude_run_id=context.run_id,
     )
@@ -1323,7 +1323,7 @@ def ensure_deletes_job_can_start(context: dagster.OpExecutionContext) -> None:
     # launching another run would collide, not which of two started runs came first.
     blockers = describe_runs(
         context.instance,
-        (deletes_job.name, monthly_old_events_cleanup_job.name, squash_person_overrides.name, context.job_name),
+        (deletes_job.name, monthly_retention_events_cleanup_job.name, squash_person_overrides.name, context.job_name),
         exclude_run_id=context.run_id,
     )
     if blockers:
@@ -1500,18 +1500,18 @@ def cleanup_old_events_by_partition(
         "deletes_job_concurrency": "v1",
     }
 )
-def monthly_old_events_cleanup_job():
+def monthly_retention_events_cleanup_job():
     """Delete events past each team's events retention set in Django admin, a whole month at a time."""
     cleanup_old_events_by_partition(plan_old_events_cleanup(start_after=ensure_no_concurrent_deletes_run()))
 
 
 @dagster.schedule(
-    job=monthly_old_events_cleanup_job,
-    cron_schedule="0 0 1 * *",
-    execution_timezone="UTC",
+    job=monthly_retention_events_cleanup_job,
+    cron_schedule="0 21 3 * *",
+    execution_timezone="Europe/Paris" if settings.CLOUD_DEPLOYMENT == "EU" else "America/Los_Angeles",
     default_status=dagster.DefaultScheduleStatus.STOPPED,
 )
-def monthly_old_events_cleanup_schedule(
+def monthly_retention_events_cleanup_schedule(
     context: dagster.ScheduleEvaluationContext,
 ) -> dagster.RunRequest | dagster.SkipReason:
     if not effective_events_retention():
