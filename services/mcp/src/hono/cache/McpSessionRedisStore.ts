@@ -12,6 +12,7 @@ const SESSION_CONTEXT_KEYS = [
     'mcpElicitationUrlSupported',
     'mcpConsumer',
     'mcpVendorClient',
+    'mcpClientSupportsUiApps',
 ] as const
 
 type SessionContextKey = (typeof SESSION_CONTEXT_KEYS)[number]

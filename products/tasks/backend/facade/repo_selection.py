@@ -17,6 +17,7 @@ from products.tasks.backend.logic.repo_selection import (
     resolve_team_github_integration,
     select_repository,
 )
+from products.tasks.backend.logic.repository_commits import RepositoryCommitError, resolve_repository_commit
 from products.tasks.backend.temporal.process_task.utils import get_github_token
 
 
@@ -35,9 +36,11 @@ __all__ = [
     "RepoSelectionResult",
     "RepoSelectionUnavailableError",
     "RepoSelectionUsageLimitError",
+    "RepositoryCommitError",
     "get_github_token",
     "list_team_connected_repositories",
     "repository_accessible_via_integration",
+    "resolve_repository_commit",
     "resolve_team_github_integration",
     "resolve_team_github_integration_id",
     "select_repository",

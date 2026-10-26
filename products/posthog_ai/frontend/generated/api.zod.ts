@@ -10,6 +10,93 @@
 import * as zod from 'zod'
 
 /**
+ * Send a product goal to PostHog AI. Returns at once; read the status until the state is terminal.
+ * @summary Start an agent operation
+ */
+export const agentOperationsCreateBodyGoalMax = 4096
+
+export const agentOperationsCreateBodyClientRequestIdMax = 128
+
+export const agentOperationsCreateBodyContextMax = 4096
+
+export const agentOperationsCreateBodyRepositoryMax = 255
+
+export const agentOperationsCreateBodyRepositoryRegExp = new RegExp('^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$')
+export const agentOperationsCreateBodyApprovalsDefault = `none`
+export const agentOperationsCreateBodyRefMax = 255
+
+export const AgentOperationsCreateBody = /* @__PURE__ */ zod.object({
+    goal: zod
+        .string()
+        .max(agentOperationsCreateBodyGoalMax)
+        .describe(
+            "The product goal for PostHog AI, written as a complete request. For example: 'Why did signups drop last week?'"
+        ),
+    client_request_id: zod
+        .string()
+        .max(agentOperationsCreateBodyClientRequestIdMax)
+        .describe(
+            'A unique id that the client makes for this request. Send the same id again to recover a lost response. A new goal needs a new id.'
+        ),
+    context: zod
+        .string()
+        .max(agentOperationsCreateBodyContextMax)
+        .optional()
+        .describe(
+            'Optional facts from the client, such as the feature under work or relevant file names. PostHog AI treats it as data, not as instructions.'
+        ),
+    conversation_id: zod
+        .uuid()
+        .optional()
+        .describe('Continue the conversation of an earlier operation, so PostHog AI keeps its context.'),
+    repository: zod
+        .string()
+        .max(agentOperationsCreateBodyRepositoryMax)
+        .regex(agentOperationsCreateBodyRepositoryRegExp)
+        .optional()
+        .describe(
+            "Optional GitHub repository in 'organization\/repository' form, for PostHog AI to read. The repository is read-only."
+        ),
+    approvals: zod
+        .enum(['client', 'none'])
+        .describe('\* `client` - Client\n\* `none` - None')
+        .default(agentOperationsCreateBodyApprovalsDefault)
+        .describe(
+            "'client' when the client can show approval prompts to its user, so PostHog AI asks before each sensitive tool call. 'none' (default) runs with no prompts; the key's scopes still limit the run.\n\n\* `client` - Client\n\* `none` - None"
+        ),
+    ref: zod
+        .string()
+        .max(agentOperationsCreateBodyRefMax)
+        .optional()
+        .describe(
+            'Optional branch, tag, or commit in the repository. The default branch when not set. The server pins it to one commit.'
+        ),
+})
+
+/**
+ * Answer a question or an approval, or steer a running operation. 'allow', 'allow all' or 'deny' with no pending approval or question returns 409 with code no_pending_approval, because the approval was already answered.
+ * @summary Reply to an agent operation
+ */
+export const agentOperationsReplyCreateBodyMessageMax = 4096
+
+export const agentOperationsReplyCreateBodyClientRequestIdMax = 128
+
+export const AgentOperationsReplyCreateBody = /* @__PURE__ */ zod.object({
+    message: zod
+        .string()
+        .max(agentOperationsReplyCreateBodyMessageMax)
+        .describe(
+            "The answer to the operation's question, 'allow' or 'deny' for an approval, or a steering message while it runs."
+        ),
+    client_request_id: zod
+        .string()
+        .max(agentOperationsReplyCreateBodyClientRequestIdMax)
+        .describe(
+            'A unique id for this reply. Send the same id again to recover a lost response without a second delivery.'
+        ),
+})
+
+/**
  * Unified endpoint that handles both conversation creation and streaming.
  *
  * - If message is provided: Start new conversation processing

@@ -35,6 +35,8 @@ import notebookUpdateCell from './notebooks/updateCell'
 // Organizations
 import getOrganizations from './organizations/getOrganizations'
 import setActiveOrganization from './organizations/setActive'
+// PostHog Agent (served only on the /agent endpoint)
+import { POSTHOG_AGENT_TOOL_MAP } from './posthogAgent'
 // PostHog AI tools
 import {
     EXECUTE_SQL_TOOL_NAME,
@@ -158,6 +160,9 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
 
     // Skills — deprecated llma-skill-* aliases forwarding to the renamed skill-* tools.
     ...SKILL_DEPRECATED_ALIASES,
+
+    // PostHog Agent — delegates product work to PostHog AI. Served only on /agent.
+    ...POSTHOG_AGENT_TOOL_MAP,
 }
 
 /** Build one tool by name, from the hand-written and generated registries alike. */

@@ -28,9 +28,15 @@ import {
 
 export type ContextMillRevalidationSource = 'warmup' | 'initialize' | 'discover'
 
+export interface ResourceCatalogOptions {
+    /** Serve only these UI app resources, with no context-mill resources and no prompts. */
+    uiAppUris?: readonly string[]
+}
+
 export class ResourceCatalog {
     private readonly env: Env
     private readonly contextMillCache: ContextMillResourceCache
+    private readonly uiAppUris: ReadonlySet<string> | undefined
 
     private resources: Resource[] = []
     private prompts: Prompt[] = []
@@ -40,8 +46,9 @@ export class ResourceCatalog {
     private allResources: Resource[] = []
     private contextMillEntriesByUri = new Map<string, SlimManifestEntry>()
 
-    constructor(env: Env, redis: RedisLike) {
+    constructor(env: Env, redis: RedisLike, options: ResourceCatalogOptions = {}) {
         this.env = env
+        this.uiAppUris = options.uiAppUris ? new Set(options.uiAppUris) : undefined
         const localUrl = this.contextMillLocalUrl()
         this.contextMillCache = new ContextMillResourceCache(redis, localUrl ? { localUrl } : {})
     }
@@ -51,6 +58,9 @@ export class ResourceCatalog {
     }
 
     async revalidateContextMillResources(source: ContextMillRevalidationSource): Promise<void> {
+        if (this.uiAppUris) {
+            return
+        }
         const stop = contextMillRevalidationDurationSeconds.startTimer({ source })
         try {
             const result = await this.refreshContextMill()
@@ -151,6 +161,9 @@ export class ResourceCatalog {
     }
 
     private async warmupResources(): Promise<void> {
+        if (this.uiAppUris) {
+            return
+        }
         await this.revalidateContextMillResources('warmup')
 
         try {
@@ -177,6 +190,9 @@ export class ResourceCatalog {
         const analyticsBaseUrl = this.env.POSTHOG_MCP_APPS_ANALYTICS_BASE_URL
 
         for (const app of UI_APPS) {
+            if (this.uiAppUris && !this.uiAppUris.has(app.uri)) {
+                continue
+            }
             const html = buildAppStubHtml(app.appDir, baseUrl)
             const meta = buildUiAppResourceMeta(baseUrl, analyticsBaseUrl, app.resourceDomains)
 

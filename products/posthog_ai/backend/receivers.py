@@ -18,10 +18,16 @@ from collections.abc import Iterable
 from typing import Any
 from uuid import UUID
 
+from django.db import transaction
+from django.db.models.signals import post_delete, post_save
+
 from asgiref.sync import async_to_sync
 
 from posthog.models import Team, User
+from posthog.models.oauth import OAuthRefreshToken, oauth_sessions_revoked
+from posthog.models.personal_api_key import PersonalAPIKey
 
+from products.posthog_ai.backend.models.agent_operation import AgentOperation
 from products.posthog_ai.backend.models.assistant import Conversation
 from products.posthog_ai.backend.turn_suggestions.dispatch import enqueue_turn_suggestion_on_turn_completed
 from products.tasks.backend.facade.task_run_signals import (
@@ -57,6 +63,50 @@ def connect() -> None:
     connect_task_run_turn_completed(
         enqueue_turn_suggestion_on_turn_completed, dispatch_uid="posthog_ai_turn_suggestion_on_turn_completed"
     )
+    post_delete.connect(
+        stop_agent_operations_on_api_key_delete, sender=PersonalAPIKey, dispatch_uid="posthog_ai_agent_op_api_key"
+    )
+    post_save.connect(
+        stop_agent_operations_on_refresh_token_revoke,
+        sender=OAuthRefreshToken,
+        dispatch_uid="posthog_ai_agent_op_refresh_token",
+    )
+    oauth_sessions_revoked.connect(stop_agent_operations_on_oauth_revoke, dispatch_uid="posthog_ai_agent_op_oauth")
+
+
+def stop_agent_operations_on_api_key_delete(sender: Any, instance: PersonalAPIKey, **kwargs: Any) -> None:
+    # Deferred: the service pulls in the sandbox dispatch path, which django.setup() must not load.
+    from products.posthog_ai.backend.services.agent_operations.service import (  # noqa: PLC0415
+        stop_operations_for_revoked_credential,
+    )
+
+    key_id = str(instance.id)
+    transaction.on_commit(
+        lambda: stop_operations_for_revoked_credential(AgentOperation.ParentCredentialKind.PERSONAL_API_KEY, key_id)
+    )
+
+
+def stop_agent_operations_on_refresh_token_revoke(sender: Any, instance: OAuthRefreshToken, **kwargs: Any) -> None:
+    # Rotation also revokes the old token, so the check runs after commit, when the family's new token exists.
+    if instance.revoked is None or instance.token_family is None:
+        return
+    from products.posthog_ai.backend.services.agent_operations.service import (  # noqa: PLC0415
+        stop_operations_for_revoked_credential,
+    )
+
+    family = str(instance.token_family)
+    transaction.on_commit(
+        lambda: stop_operations_for_revoked_credential(AgentOperation.ParentCredentialKind.OAUTH_TOKEN_FAMILY, family)
+    )
+
+
+def stop_agent_operations_on_oauth_revoke(sender: Any, user_id: int | None, **kwargs: Any) -> None:
+    # The bulk revocations delete or update tokens in a queryset, which sends no model signal.
+    from products.posthog_ai.backend.services.agent_operations.service import (  # noqa: PLC0415
+        stop_operations_for_revoked_oauth,
+    )
+
+    transaction.on_commit(lambda: stop_operations_for_revoked_oauth(user_id))
 
 
 def copied_chats_hidden_without_sandbox_mode(team_id: int, user_id: int | None) -> Iterable[UUID]:

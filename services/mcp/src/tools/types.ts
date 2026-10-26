@@ -148,6 +148,19 @@ export type Context = {
      * Which PostHog connection this context runs through, when it runs through one at all. Set only
      * by the forwarded context (see lib/connection-forwarding.ts); absent on a local call.
      */
+    /**
+     * True when the client can render MCP UI apps. Set by the request resolver from the client
+     * capabilities, or from the client profile when the client sent no capabilities.
+     */
+    clientSupportsUiApps?: boolean
+    /**
+     * Send an MCP progress notification with this message to the client. Defined only when the
+     * call streams its response, on a surface that streams progress and when the request carries a
+     * progress token. The server sets the progress number, which increases by 1 on each notification.
+     */
+    reportProgress?: (message: string) => void
+    /** Aborts when the client disconnects. */
+    signal?: AbortSignal
     connection?: {
         /** Project on this side that owns the connection. */
         localProjectId: string

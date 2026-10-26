@@ -10,6 +10,7 @@ export interface MCPClientContext extends Pick<
     | 'mcpConsumer'
     | 'mcpVendorClient'
     | 'mcpElicitationUrlSupported'
+    | 'mcpClientSupportsUiApps'
 > {}
 
 export interface MCPRequestContext
@@ -57,6 +58,7 @@ export function buildMCPRequestContext(props: RequestProperties): MCPRequestCont
         mode: props.mode,
         region: props.region,
         mcpVendorClient: props.mcpVendorClient,
+        mcpClientSupportsUiApps: props.mcpClientSupportsUiApps,
         authMethod: classifyAuthMethod(props.apiToken),
     }
 }

@@ -174,10 +174,10 @@ export const TasksListQueryParams = () => zod.object({
             "Filter tasks by the CI check rollup on their most recent run's pull request, as last observed from GitHub. 'none' means the PR has no checks.\n\n\* `passing` - passing\n\* `failing` - failing\n\* `pending` - pending\n\* `none` - none"
         ),
     client_provenance: zod
-        .enum(['posthog_desktop', 'posthog_mobile', 'posthog_web'])
+        .enum(['posthog_desktop', 'posthog_mobile', 'posthog_web', 'agent_mcp'])
         .optional()
         .describe(
-            'Filter by the client that created the task\n\n\* `posthog_desktop` - PostHog Desktop\n\* `posthog_mobile` - PostHog Mobile\n\* `posthog_web` - PostHog Web'
+            'Filter by the client that created the task\n\n\* `posthog_desktop` - PostHog Desktop\n\* `posthog_mobile` - PostHog Mobile\n\* `posthog_web` - PostHog Web\n\* `agent_mcp` - PostHog Agent MCP'
         ),
     commented_by: zod
         .number()
@@ -265,6 +265,7 @@ export const TasksListQueryParams = () => zod.object({
         .array(
             zod
                 .enum([
+                    'agent_mcp',
                     'autoresearch',
                     'error_tracking',
                     'eval_clusters',
@@ -292,7 +293,7 @@ export const TasksListQueryParams = () => zod.object({
                     'workflow',
                 ])
                 .describe(
-                    '\* `autoresearch` - autoresearch\n\* `error_tracking` - error_tracking\n\* `eval_clusters` - eval_clusters\n\* `experiments` - experiments\n\* `hogdesk` - hogdesk\n\* `image_builder` - image_builder\n\* `loop` - loop\n\* `mcp_analytics` - mcp_analytics\n\* `onboarding` - onboarding\n\* `posthog_ai` - posthog_ai\n\* `posthog_desktop` - posthog_desktop\n\* `posthog_mobile` - posthog_mobile\n\* `posthog_web` - posthog_web\n\* `review_hog` - review_hog\n\* `scout_suggestions` - scout_suggestions\n\* `session_summaries` - session_summaries\n\* `signal_report` - signal_report\n\* `signals_chat` - signals_chat\n\* `signals_scout` - signals_scout\n\* `slack` - slack\n\* `space_setup` - space_setup\n\* `support_queue` - support_queue\n\* `support_reply` - support_reply\n\* `task_analysis` - task_analysis\n\* `workflow` - workflow'
+                    '\* `agent_mcp` - agent_mcp\n\* `autoresearch` - autoresearch\n\* `error_tracking` - error_tracking\n\* `eval_clusters` - eval_clusters\n\* `experiments` - experiments\n\* `hogdesk` - hogdesk\n\* `image_builder` - image_builder\n\* `loop` - loop\n\* `mcp_analytics` - mcp_analytics\n\* `onboarding` - onboarding\n\* `posthog_ai` - posthog_ai\n\* `posthog_desktop` - posthog_desktop\n\* `posthog_mobile` - posthog_mobile\n\* `posthog_web` - posthog_web\n\* `review_hog` - review_hog\n\* `scout_suggestions` - scout_suggestions\n\* `session_summaries` - session_summaries\n\* `signal_report` - signal_report\n\* `signals_chat` - signals_chat\n\* `signals_scout` - signals_scout\n\* `slack` - slack\n\* `space_setup` - space_setup\n\* `support_queue` - support_queue\n\* `support_reply` - support_reply\n\* `task_analysis` - task_analysis\n\* `workflow` - workflow'
                 )
         )
         .optional()
@@ -321,7 +322,7 @@ export const TasksCreateParams = () => zod.object({
 
 export const TasksCreateHeader = () => zod.object({
     'X-PostHog-Client-Provenance': zod
-        .enum(['posthog_desktop', 'posthog_mobile', 'posthog_web'])
+        .enum(['agent_mcp', 'posthog_desktop', 'posthog_mobile', 'posthog_web'])
         .optional()
         .describe('First-party client creating the task. Accepted only with an interactive PostHog OAuth grant.'),
     'X-PostHog-Warm-Retry': zod

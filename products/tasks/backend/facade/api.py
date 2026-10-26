@@ -10443,6 +10443,33 @@ def send_cancel(run_id: str | UUID, *, auth_token: str | None = None):
     return _send_cancel(run, auth_token=auth_token)
 
 
+def send_permission_response(
+    run_id: str | UUID, task_id: str | UUID, team_id: int, *, user_id: int, request_id: str, option_id: str
+) -> bool:
+    """Answer a pending permission request in a run's live sandbox, as ``user_id``. ``False`` when it was not sent."""
+    from products.tasks.backend.logic.services.agent_command import (  # noqa: PLC0415 — keep sandbox deps off the api import path
+        send_agent_command,
+    )
+    from products.tasks.backend.logic.services.connection_token import (  # noqa: PLC0415 — keep sandbox deps off the api import path
+        create_sandbox_connection_token,
+    )
+
+    run = _get_visible_run(run_id, task_id, team_id)
+    user = User.objects.filter(id=user_id).first()
+    if run is None or user is None or run.is_terminal:
+        return False
+    auth_token = create_sandbox_connection_token(
+        run, user_id=user.id, distinct_id=user.distinct_id or f"user_{user.id}"
+    )
+    result = send_agent_command(
+        run,
+        method="permission_response",
+        params={"requestId": request_id, "optionId": option_id},
+        auth_token=auth_token,
+    )
+    return bool(result.success)
+
+
 # --- Channels & task threads ---
 
 

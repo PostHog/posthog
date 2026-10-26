@@ -112,6 +112,7 @@ from .get_task_processing_context import TaskProcessingContext
 
 logger = logging.getLogger(__name__)
 SANDBOX_CREATION_CANCELLATION_WAIT_SECONDS = 10
+COMMIT_SHA_PATTERN = re.compile(r"[0-9a-f]{40}")
 SANDBOX_CREATION_HEARTBEAT_SECONDS = 1
 
 NETWORK_RESTRICTED_AGENT_ENV = {
@@ -1259,6 +1260,34 @@ def _is_missing_remote_branch_clone_error(result: ExecutionResult) -> bool:
     )
 
 
+def _branch_checkout_command(
+    sandbox: Any, input: CheckoutBranchInSandboxInput, repo_path: str, branch: str, depth_flag: str
+) -> str:
+    branch_ref = shlex.quote(f"refs/heads/{input.branch}")
+    remote_branch_check = f"cd {shlex.quote(repo_path)} && git ls-remote --exit-code --heads origin {branch_ref}"
+    remote_branch_result = sandbox.execute(remote_branch_check, timeout_seconds=30)
+
+    if remote_branch_result.exit_code == 0:
+        return (
+            f"cd {shlex.quote(repo_path)} && "
+            f"git fetch{depth_flag} origin -- {branch} && "
+            f"git checkout -B {branch} FETCH_HEAD"
+        )
+    if remote_branch_result.exit_code == 2:
+        if input.used_snapshot:
+            return (
+                f"cd {shlex.quote(repo_path)} && "
+                f"git fetch{depth_flag} origin -- HEAD && "
+                f"git checkout -B {branch} FETCH_HEAD"
+            )
+        return f"cd {shlex.quote(repo_path)} && git checkout -B {branch} HEAD"
+    logger.warning(
+        "Failed to check whether remote branch exists",
+        extra={"branch": input.branch, "stderr": remote_branch_result.stderr},
+    )
+    raise RuntimeError(f"Failed to check whether branch {input.branch} exists")
+
+
 @activity.defn
 @asyncify
 @posthoganalytics.scoped(fresh=True, capture_exceptions=False)
@@ -1290,33 +1319,16 @@ def checkout_branch_in_sandbox(input: CheckoutBranchInSandboxInput) -> CheckoutB
                 )
 
         branch = shlex.quote(input.branch)
-        branch_ref = shlex.quote(f"refs/heads/{input.branch}")
-        remote_branch_check = f"cd {shlex.quote(repo_path)} && git ls-remote --exit-code --heads origin {branch_ref}"
-        remote_branch_result = sandbox.execute(remote_branch_check, timeout_seconds=30)
-
-        if remote_branch_result.exit_code == 0:
-            depth_flag = f" --depth {shlex.quote('1')}" if input.shallow_clone else ""
+        depth_flag = f" --depth {shlex.quote('1')}" if input.shallow_clone else ""
+        if COMMIT_SHA_PATTERN.fullmatch(input.branch):
+            # A pinned commit is not a branch head, so the branch lookup would miss it and stay on HEAD.
             checkout_command = (
                 f"cd {shlex.quote(repo_path)} && "
                 f"git fetch{depth_flag} origin -- {branch} && "
-                f"git checkout -B {branch} FETCH_HEAD"
+                f"git checkout --detach FETCH_HEAD"
             )
-        elif remote_branch_result.exit_code == 2:
-            if input.used_snapshot:
-                depth_flag = f" --depth {shlex.quote('1')}" if input.shallow_clone else ""
-                checkout_command = (
-                    f"cd {shlex.quote(repo_path)} && "
-                    f"git fetch{depth_flag} origin -- HEAD && "
-                    f"git checkout -B {branch} FETCH_HEAD"
-                )
-            else:
-                checkout_command = f"cd {shlex.quote(repo_path)} && git checkout -B {branch} HEAD"
         else:
-            logger.warning(
-                "Failed to check whether remote branch exists",
-                extra={"branch": input.branch, "stderr": remote_branch_result.stderr},
-            )
-            raise RuntimeError(f"Failed to check whether branch {input.branch} exists")
+            checkout_command = _branch_checkout_command(sandbox, input, repo_path, branch, depth_flag)
 
         with StepTimer(
             "branch_checkout",

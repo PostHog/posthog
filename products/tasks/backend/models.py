@@ -348,6 +348,7 @@ class TaskClientProvenance(models.TextChoices):
     POSTHOG_DESKTOP = "posthog_desktop", "PostHog Desktop"
     POSTHOG_MOBILE = "posthog_mobile", "PostHog Mobile"
     POSTHOG_WEB = "posthog_web", "PostHog Web"
+    AGENT_MCP = "agent_mcp", "PostHog Agent MCP"
 
 
 def task_client_provenance_choices() -> list[tuple[str, str | Promise]]:

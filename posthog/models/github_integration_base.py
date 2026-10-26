@@ -14,7 +14,7 @@ from collections.abc import Callable, Collection, Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any, Literal, TypedDict, cast
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 from django.core.cache import cache
 from django.db.models import Count, F, Func, JSONField, Value
@@ -1047,6 +1047,20 @@ class GitHubIntegrationBase:
         return window[:limit], has_more
 
     # --- Repository operations ---
+
+    def get_commit_sha(self, repository: str, ref: str) -> str | None:
+        """Resolve a branch, tag, or commit to a full commit SHA. ``None`` when GitHub does not know the ref."""
+        response = self._installation_authenticated_get(
+            f"https://api.github.com/repos/{repository}/commits/{quote(ref, safe='')}",
+            endpoint="/repos/{owner}/{repo}/commits/{ref}",
+        )
+        if response is None or response.status_code != 200:
+            return None
+        try:
+            sha = response.json().get("sha")
+        except Exception:
+            return None
+        return sha if isinstance(sha, str) and re.fullmatch(r"[0-9a-f]{40}", sha) else None
 
     def get_commit_author_info(self, repository: str, sha: str) -> GitHubCommitAuthor | None:
         """Resolve a commit SHA to author metadata via the GitHub API."""

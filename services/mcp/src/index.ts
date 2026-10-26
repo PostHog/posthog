@@ -271,7 +271,8 @@ const handleRequest = async (
         Object.assign(ctx.props, { viaSseRedirect: true })
     }
 
-    if (url.pathname.startsWith('/mcp')) {
+    // `/agent` is the PostHog Agent endpoint. The same Hono runtime serves it.
+    if (url.pathname.startsWith('/mcp') || url.pathname === '/agent' || url.pathname.startsWith('/agent/')) {
         const region = await resolveProxyRegion(token, ctx.props.userHash, env.MCP_KV)
         log.extend({ proxy: 'hono', region })
         const response = await proxyToHono(request, region)
