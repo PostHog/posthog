@@ -23,13 +23,13 @@ export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =
     const logic = emailSetupModalLogic(props)
     const { savedIntegration, verificationLoading, isEmailSenderSubmitting, dnsRecords, domain, isDomainVerified } =
         useValues(logic)
-    const { verifyDomain, submitEmailSender } = useActions(logic)
+    const { verifyDomain, submitEmailSender, closeModal } = useActions(logic)
 
     const emailDomain = savedIntegration?.config?.domain || ''
 
     return (
         <>
-            <LemonModal title="Configure email sender" width="auto" onClose={() => props.onClose(savedIntegration?.id)}>
+            <LemonModal title="Configure email sender" width="auto" onClose={closeModal}>
                 <Form logic={emailSetupModalLogic} props={props} formKey="emailSender">
                     <div className="space-y-4">
                         <FlaggedFeature flag="messaging-ses">

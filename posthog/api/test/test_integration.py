@@ -7452,6 +7452,65 @@ class TestIntegrationRequestAccessAPI(APIBaseTest):
         mock_report.assert_not_called()
 
 
+@time_machine.travel("2026-03-02T10:00:00Z", tick=False)
+@patch("posthog.api.integration.report_user_action")
+@patch("products.workflows.backend.facade.api.set_default_email_sender_if_unset")
+@patch("products.workflows.backend.facade.api.verify_ses_email_domain")
+class TestEmailVerifyReportsOutcome(APIBaseTest):
+    def _create_sender(self, verified: bool = False) -> Integration:
+        sender = Integration.objects.create(
+            team=self.team,
+            kind="email",
+            integration_id="hello@example.com",
+            config={"email": "hello@example.com", "domain": "example.com", "provider": "ses", "verified": verified},
+        )
+        Integration.objects.filter(id=sender.id).update(created_at=timezone.now() - timedelta(minutes=10))
+        return sender
+
+    def _verify(self, sender: Integration, **extra: Any) -> None:
+        response = self.client.post(f"/api/environments/{self.team.id}/integrations/{sender.id}/email/verify/", **extra)
+        assert response.status_code == status.HTTP_200_OK, response.content
+
+    @parameterized.expand(
+        [
+            ("success", "verified"),
+            ("failed", "failed"),
+            ("pending", "pending"),
+        ]
+    )
+    def test_a_check_reports_its_outcome_once(self, ses_status, outcome, mock_verify, _mock_default, mock_report):
+        mock_verify.return_value = {"status": ses_status, "dnsRecords": []}
+
+        self._verify(self._create_sender())
+
+        mock_report.assert_called_once_with(
+            self.user,
+            "email domain verified",
+            {"outcome": outcome, "method": "manual", "seconds_since_created": 600},
+            team=self.team,
+            request=ANY,
+        )
+
+    def test_a_check_on_an_already_verified_domain_reports_nothing(self, mock_verify, _mock_default, mock_report):
+        mock_verify.return_value = {"status": "success", "dnsRecords": []}
+
+        self._verify(self._create_sender(verified=True))
+
+        mock_report.assert_not_called()
+
+    def test_a_check_by_api_key_reports_the_agent_method(self, mock_verify, _mock_default, mock_report):
+        mock_verify.return_value = {"status": "pending", "dnsRecords": []}
+        key_value = "phx_email_verify_test_key"
+        PersonalAPIKey.objects.create(
+            label="Agent", user=self.user, secure_value=hash_key_value(key_value), scopes=["integration:write"]
+        )
+        self.client.logout()
+
+        self._verify(self._create_sender(), HTTP_AUTHORIZATION=f"Bearer {key_value}")
+
+        assert mock_report.call_args.args[2]["method"] == "agent"
+
+
 class TestApplePushIntegrationAPI(APIBaseTest):
     @parameterized.expand(
         [

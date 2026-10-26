@@ -42,6 +42,7 @@ registerIntegrationSetup({
         <ChannelSetupModal
             isOpen={isOpen}
             channelType="twilio"
+            surface="workflow_editor"
             integration={integration}
             onClose={onClose}
             onComplete={onComplete}

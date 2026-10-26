@@ -48,7 +48,7 @@ from posthog.api.github_callback.types import (
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
-from posthog.auth import SessionAuthentication
+from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.domain_connect import discover_domain_connect, extract_root_domain_and_host, get_available_providers
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
@@ -130,6 +130,7 @@ from products.slack_app.backend.services.slack_auth import SLACK_AUTH_FAILURE_CO
 from products.tasks.backend.facade.api import get_in_progress_runs_for_github_integration
 from products.tasks.backend.facade.contracts import InProgressGithubRunsDTO
 from products.workflows.backend.facade.api import get_active_workflows_using_integration
+from products.workflows.backend.facade.contracts import EmailDomainVerificationStatus
 
 logger = structlog.get_logger(__name__)
 
@@ -1458,6 +1459,13 @@ class PersonalConnectionRecentAuthPermission(BasePermission):
         return True
 
 
+EMAIL_DOMAIN_VERIFICATION_OUTCOMES: dict[EmailDomainVerificationStatus, str] = {
+    "success": "verified",
+    "failed": "failed",
+    "pending": "pending",
+}
+
+
 @extend_schema(extensions={"x-product": "integrations"})
 class IntegrationViewSet(
     TeamAndOrgViewSetMixin,
@@ -2650,9 +2658,33 @@ class IntegrationViewSet(
 
     @action(methods=["POST"], detail=True, url_path="email/verify")
     def email_verify(self, request, **kwargs):
-        email = EmailIntegration(self.get_object())
-        verification_result = email.verify()
+        instance = self.get_object()
+        domain_was_verified = instance.config.get("verified") is True
+        verification_result = EmailIntegration(instance).verify()
+        outcome = EMAIL_DOMAIN_VERIFICATION_OUTCOMES[verification_result["status"]]
+        reverified = domain_was_verified and outcome == "verified"
+        if not reverified:
+            self._report_email_domain_verified(request, instance, outcome)
         return Response(verification_result)
+
+    def _report_email_domain_verified(self, request: Request, instance: Integration, outcome: str) -> None:
+        report_user_action(
+            cast(User, request.user),
+            "email domain verified",
+            {
+                "outcome": outcome,
+                "method": self._email_domain_setup_method(request),
+                "seconds_since_created": int((timezone.now() - instance.created_at).total_seconds()),
+            },
+            team=self.team,
+            request=request,
+        )
+
+    @staticmethod
+    def _email_domain_setup_method(request: Request) -> str:
+        if isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication | OAuthAccessTokenAuthentication):
+            return "agent"
+        return "manual"
 
     @extend_schema(responses={200: IntegrationSerializer})
     @action(methods=["PATCH"], detail=True, url_path="email")

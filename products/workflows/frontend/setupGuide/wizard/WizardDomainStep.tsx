@@ -17,6 +17,7 @@ export function WizardDomainStep(): JSX.Element {
     return (
         <div className="flex flex-col gap-4">
             <ChannelSetupModal
+                surface="onboarding_wizard"
                 isOpen={setupModalOpen}
                 channelType={setupModalType}
                 integration={selectedIntegration || undefined}

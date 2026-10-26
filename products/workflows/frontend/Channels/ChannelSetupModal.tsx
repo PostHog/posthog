@@ -2,6 +2,7 @@ import { IntegrationType } from '~/types'
 
 import { APNSSetupModal } from './APNSSetup/APNSSetupModal'
 import { EmailSetupModal } from './EmailSetup/EmailSetupModal'
+import { EmailSetupSurface } from './EmailSetup/emailSetupModalLogic'
 import { FCMSetupModal } from './FCMSetup/FCMSetupModal'
 import { ChannelType } from './MessageChannels'
 import { SlackSetupModal } from './SlackSetup/SlackSetupModal'
@@ -11,6 +12,7 @@ interface ChannelSetupModalProps {
     isOpen: boolean
     channelType: ChannelType | null
     integration: IntegrationType | undefined
+    surface: EmailSetupSurface
     onComplete: () => void
     onClose: () => void
 }
@@ -19,6 +21,7 @@ export function ChannelSetupModal({
     isOpen,
     channelType,
     integration,
+    surface,
     onComplete,
     onClose,
 }: ChannelSetupModalProps): JSX.Element | null {
@@ -34,7 +37,7 @@ export function ChannelSetupModal({
 
     switch (channelType) {
         case 'email':
-            return <EmailSetupModal {...modalProps} />
+            return <EmailSetupModal {...modalProps} surface={surface} />
         case 'slack':
             return <SlackSetupModal {...modalProps} />
         case 'twilio':

@@ -115,6 +115,7 @@ export function BroadcastContentStep(): JSX.Element {
             ) : null}
             {senderSetup ? (
                 <EmailSetupModal
+                    surface="broadcast"
                     integration={senderSetup === 'new' ? undefined : senderSetup}
                     onClose={closeSenderSetup}
                     onComplete={closeSenderSetup}
