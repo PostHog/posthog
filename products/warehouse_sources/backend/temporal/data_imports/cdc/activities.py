@@ -45,9 +45,12 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.adapters impor
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
     CDC_SEQ_COLUMN,
+    HISTORY_COLUMNS,
     ChangeEventBatcher,
     enrich_delete_rows,
     enrich_toast_omitted_rows,
+    is_history_table_mode,
+    reserved_column_collisions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.billing_expiry import (
     blocked_past_buffer_retention,
@@ -367,6 +370,13 @@ class CDCExtractActivity:
             # raw_table has one row per source change event.
             events_extracted += raw_table.num_rows
 
+            # The batcher already refused the capture columns. The history table's own columns are
+            # checked here, because only the schema says whether this table keeps history.
+            if is_history_table_mode(schema.cdc_table_mode):
+                taken = reserved_column_collisions(raw_table.column_names, HISTORY_COLUMNS)
+                if taken:
+                    raise CDCReservedColumnError(f"Table {table_name} has history table column(s) {taken}")
+
             key_columns = self.pk_columns_by_table.get(table_name, [])
 
             # TOAST fill first so DELETE enrichment copies resolved values, not the
@@ -376,8 +386,7 @@ class CDCExtractActivity:
             if not enriched_table.num_rows:
                 continue
 
-            # A source column named _ph_cdc_seq means the batcher could not append the
-            # engine position; writing anyway would name, order, and clean up files by
+            # Without the engine position, writing would name, order, and clean up files by
             # customer data — cleanup can then delete unconsumed files (see errors.py).
             if not has_engine_seq(enriched_table):
                 raise CDCReservedColumnError(f"Table {table_name} has a source column named {CDC_SEQ_COLUMN}")

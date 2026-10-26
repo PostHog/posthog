@@ -1342,6 +1342,18 @@ class TestExternalDataSchema(APIBaseTest):
                 "_ph_cdc_seq",
             ),
             (
+                "rejects_a_source_column_the_load_renames_to_a_capture_column",
+                {
+                    "primary_key_columns": ["id"],
+                    "schema_metadata": {"columns": [{"name": "id"}, {"name": "_PH_CDC_SEQ"}]},
+                },
+                None,
+                status.HTTP_400_BAD_REQUEST,
+                ExternalDataSchema.SyncType.FULL_REFRESH,
+                None,
+                "_ph_cdc_seq",
+            ),
+            (
                 "rejects_a_history_table_for_a_source_column_named_like_a_validity_column",
                 {
                     "primary_key_columns": ["id"],

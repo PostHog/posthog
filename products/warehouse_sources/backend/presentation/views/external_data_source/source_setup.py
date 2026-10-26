@@ -48,7 +48,6 @@ from products.warehouse_sources.backend.facade.models import (
     sync_old_schemas_with_new_schemas,
 )
 from products.warehouse_sources.backend.facade.source_management import (
-    CDC_SEQ_COLUMN,
     PREVIEW_DEFAULT_ROWS,
     PREVIEW_MAX_ROWS,
     AnySource,
@@ -69,10 +68,11 @@ from products.warehouse_sources.backend.facade.source_management import (
     fetch_docs_text,
     filter_dwh_columns_by_enabled_columns,
     get_cdc_adapter,
-    history_column_collisions,
     is_history_table_mode,
     is_team_allowlisted_for_internal_hosts,
     new_source_requires_ssl,
+    reserved_column_collisions,
+    reserved_column_names,
     sql_schema_metadata,
     validate_and_coerce_row_filters,
 )
@@ -1435,8 +1435,9 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                     },
                 )
 
-            # Capture stamps each change with this column, so a source column of the same name would
-            # fail the source's first sync. Refuse before any replication state exists.
+            # Capture and the history table write their own columns next to the source's, so a synced
+            # source column that loads under one of those names would fail the source's first sync.
+            # Refuse before any replication state exists.
             tables_with_reserved_column = sorted(
                 {
                     schema["name"]
@@ -1444,8 +1445,12 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                     if schema.get("sync_type") == "cdc"
                     and schema.get("should_sync", False)
                     and isinstance(schema.get("name"), str)
-                    and CDC_SEQ_COLUMN
-                    in {column[0] for column in getattr(source_schemas_by_name.get(schema["name"]), "columns", [])}
+                    and reserved_column_collisions(
+                        [column[0] for column in getattr(source_schemas_by_name.get(schema["name"]), "columns", [])],
+                        reserved_column_names(history=is_history_table_mode(schema.get("cdc_table_mode"))),
+                        enabled_columns=_payload_enabled_columns(schema),
+                        primary_keys=pk_columns_by_table.get(schema["name"]),
+                    )
                 }
             )
             if tables_with_reserved_column:
@@ -1454,40 +1459,10 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                     status=status.HTTP_400_BAD_REQUEST,
                     data={
                         "message": (
-                            "Change data capture can't sync a column named _ph_cdc_seq, because PostHog uses "
-                            "that name. Rename the column on your database, or choose another sync method for "
-                            f"these tables: {', '.join(tables_with_reserved_column)}."
-                        )
-                    },
-                )
-
-            # The history table stamps each row version with these columns, so a synced source column
-            # of the same name would fail every load into it.
-            tables_with_validity_column = sorted(
-                {
-                    schema["name"]
-                    for schema in payload_schemas
-                    if schema.get("sync_type") == "cdc"
-                    and schema.get("should_sync", False)
-                    and is_history_table_mode(schema.get("cdc_table_mode"))
-                    and isinstance(schema.get("name"), str)
-                    and history_column_collisions(
-                        [column[0] for column in getattr(source_schemas_by_name.get(schema["name"]), "columns", [])],
-                        _payload_enabled_columns(schema),
-                        pk_columns_by_table.get(schema["name"]),
-                    )
-                }
-            )
-            if tables_with_validity_column:
-                new_source_model.delete()
-                return Response(
-                    status=status.HTTP_400_BAD_REQUEST,
-                    data={
-                        "message": (
-                            "A history table can't store a column that loads as valid_from or valid_to, because "
-                            "PostHog uses those names to record when each version was current. Rename the column on "
-                            "your database, or choose the consolidated table only for these tables: "
-                            f"{', '.join(tables_with_validity_column)}."
+                            "Change data capture can't sync a column that loads under a name PostHog writes, such as "
+                            "_ph_cdc_seq, or valid_from and valid_to on a table with a history table. Rename the "
+                            "column on your database, leave it out of the synced columns, or change the sync method "
+                            f"or output tables for these tables: {', '.join(tables_with_reserved_column)}."
                         )
                     },
                 )

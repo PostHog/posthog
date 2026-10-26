@@ -2316,21 +2316,32 @@ class TestBufferedIngressCapture:
             team_id=schema.team_id, schema_id=str(schema.id), restart_seq=0x100
         )
 
-    def test_a_source_column_named_like_seq_fails_the_buffered_run(self):
-        # The batcher skips its append on the collision, so the file's name, ordering, and retry
-        # cleanup would all derive from customer data — cleanup can then delete unconsumed files.
+    @parameterized.expand(
+        [
+            ("position_column", CDC_SEQ_COLUMN, "consolidated", True),
+            ("position_column_the_load_renames", "_PH_CDC_SEQ", "consolidated", True),
+            ("validity_column_with_a_history_table", "validFrom", "both", True),
+            ("validity_column_without_a_history_table", "valid_from", "consolidated", False),
+        ]
+    )
+    def test_a_source_column_named_like_a_written_column_fails_the_buffered_run(
+        self, _name: str, column: str, cdc_table_mode: str, refused: bool
+    ) -> None:
+        # Written anyway, the file's name, ordering, and retry cleanup could derive from customer
+        # data, and cleanup can then delete unconsumed files.
         source = _make_source()
-        schema = _make_schema("users", cdc_mode="streaming", source=source)
-        events = [_make_event(op="I", position="0/100", columns={"id": 1, CDC_SEQ_COLUMN: 42})]
+        schema = _make_schema("users", cdc_mode="streaming", cdc_table_mode=cdc_table_mode, source=source)
+        events = [_make_event(op="I", position="0/100", columns={"id": 1, column: 42})]
 
-        with (
-            _capture_harness(source, [schema], events) as capture,
-            pytest.raises(NonRetryableException, match=CDC_SEQ_COLUMN),
-        ):
-            capture.extract()
+        with _capture_harness(source, [schema], events) as capture:
+            if refused:
+                with pytest.raises(NonRetryableException, match="change data capture"):
+                    capture.extract()
+            else:
+                capture.extract()
 
-        capture.buffer.write_batch.assert_not_called()
-        capture.reader.confirm_position.assert_not_called()
+        assert capture.buffer.write_batch.called is not refused
+        assert capture.reader.confirm_position.called is not refused
 
     @parameterized.expand(
         [
