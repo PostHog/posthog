@@ -5,6 +5,7 @@ import time_machine
 
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
@@ -149,36 +150,37 @@ class TestWindowedCalls:
         assert result.requests[0].param("fromDateTime") == _format_datetime(resume_start)
 
 
-class TestNonRetryableErrors:
+class TestLibraryFolders400IsNonRetryable:
+    # 401/403/429/500/timeout are already covered for every source, Gong included, by
+    # `sources/tests/test_source_error_contract.py`. Only the library_folders-specific 400 needs a
+    # test here.
     @parameterized.expand(
         [
-            ("unauthorized", "401 Client Error: Unauthorized for url: https://api.gong.io/v2/workspaces"),
-            ("forbidden", "403 Client Error: Forbidden for url: https://api.gong.io/v2/calls"),
-            # The account's Call Library feature isn't enabled, so every retry replays the same
-            # unfiltered request against /v2/library/folders and fails identically.
-            (
-                "library_folders_disabled",
-                "400 Client Error: Bad Request for url: https://api.gong.io/v2/library/folders",
-            ),
-            # A later page's cursor lands in the query string, but the match is still a prefix hit.
-            (
-                "library_folders_disabled_later_page",
-                "400 Client Error: Bad Request for url: https://api.gong.io/v2/library/folders?cursor=abc",
-            ),
+            ("library_folders", "library_folders", [ScriptedResponse(status=400)]),
+            # library_folder_calls fans out from a library_folders listing, so the same account-level
+            # rejection surfaces here too, on the parent lookup.
+            ("library_folder_calls", "library_folder_calls", [ScriptedResponse(status=400)]),
         ]
     )
-    def test_matches_known_permanent_failures(self, _name: str, observed_error: str) -> None:
-        assert any(key in observed_error for key in GongSource().get_non_retryable_errors())
+    def test_classified_non_retryable(self, _name: str, endpoint: str, responses: list[ScriptedResponse]) -> None:
+        result = _driver().run(endpoint, responses)
 
-    @parameterized.expand(
-        [
-            # A 400 on a different endpoint must still surface rather than be swallowed.
-            ("bad_request_elsewhere", "400 Client Error: Bad Request for url: https://api.gong.io/v2/calls"),
-            ("read_timeout", "ReadTimeout: HTTPSConnectionPool(host='api.gong.io', port=443): Read timed out."),
-        ]
-    )
-    def test_does_not_match_unrelated_or_transient_failures(self, _name: str, other_error: str) -> None:
-        assert not any(key in other_error for key in GongSource().get_non_retryable_errors())
+        assert result.raised is not None
+        assert error_message_matches(str(result.raised), GongSource().get_non_retryable_errors())
+
+    def test_same_status_on_a_different_endpoint_stays_retryable(self) -> None:
+        # A 400 elsewhere in the API must still surface rather than be swallowed as if it were the
+        # account-level library_folders rejection.
+        last_value = datetime.now(UTC) - timedelta(days=5)
+        result = _driver().run(
+            "calls",
+            [ScriptedResponse(status=400)],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=last_value,
+        )
+
+        assert result.raised is not None
+        assert not error_message_matches(str(result.raised), GongSource().get_non_retryable_errors())
 
 
 class TestGongSource:
