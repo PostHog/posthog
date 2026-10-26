@@ -117,6 +117,7 @@ class TestNuntlyFanout:
         assert result.saved_states and all(
             state.fanout_state is not None and state.cursor is None for state in result.saved_states
         )
+        assert result.response is not None and result.response.supports_resume is True
 
     def test_email_events_fetch_one_unpaginated_page_per_email_and_skip_missing_emails(self) -> None:
         result = self._driver().run(
@@ -135,6 +136,7 @@ class TestNuntlyFanout:
         assert result.params("limit") == ["30", None, None, None]
         assert [(row["emailId"], row["id"]) for row in result.rows] == [("em_1", "evt_1"), ("em_2", "evt_2")]
         assert result.saved_states == []
+        assert result.response is not None and result.response.supports_resume is False
 
     def test_fanout_resume_skips_inboxes_whose_threads_already_synced(self) -> None:
         first = self._driver().run(

@@ -127,6 +127,7 @@ def nuntly_source(
         partition_format="month",
         partition_keys=[endpoint_config.partition_key],
         column_hints=column_hints,
+        supports_resume=endpoint_config.fanout is None or endpoint_config.checkpoint_fanout,
     )
 
 
