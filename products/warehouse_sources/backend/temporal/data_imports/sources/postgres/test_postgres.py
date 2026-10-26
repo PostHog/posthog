@@ -499,6 +499,10 @@ class TestPostgresSourceNonRetryableErrors:
             # A serverless provider refuses every connect while the branch is hibernated, until the
             # customer reactivates it. Host and IP are invented, not real values.
             'connection failed: connection to server at "203.0.113.7", port 5432 failed: FATAL:  branch is hibernated, reactivate it to continue',
+            # The "Certificate authority" field holds a value that isn't a parseable PEM certificate,
+            # so libpq can't load the file `tls_files` wrote for it. Permanent until the customer
+            # fixes the field. Host and temp path are invented, not real values.
+            'connection failed: connection to server at "203.0.113.7", port 5432 failed: could not read root certificate file "/tmp/source-tls-xxxxxxxx/ca.crt": no certificate or crl found',
         ],
     )
     def test_permanent_connection_errors_are_non_retryable(self, source, error_msg):
