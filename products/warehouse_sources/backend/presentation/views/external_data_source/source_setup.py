@@ -9,7 +9,7 @@ from typing import Any, cast
 
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Q, TextChoices
 from django.utils import timezone
 
 import temporalio
@@ -728,15 +728,18 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         return updated_source
 
 
-# `wizard` and `self_driving` are intentionally omitted: they are never accepted from a
-# caller (that would let any client self-label as wizard- or self-driving-created). They
-# are derived server-side by upgrading a machine-injected `mcp` value based on the request
-# transport (the wizard, PostHog Desktop, or the wizard's self-driving program).
-CALLER_CREATED_VIA_CHOICES = [
-    ExternalDataSource.CreatedVia.WEB,
-    ExternalDataSource.CreatedVia.API,
-    ExternalDataSource.CreatedVia.MCP,
-]
+class ExternalDataSourceCreateCreatedVia(TextChoices):
+    """The `CreatedVia` values a caller may set. The class name keeps the generated enum name.
+
+    `wizard` and `self_driving` are intentionally omitted: they are never accepted from a
+    caller (that would let any client self-label as wizard- or self-driving-created). They
+    are derived server-side by upgrading a machine-injected `mcp` value based on the request
+    transport (the wizard, PostHog Desktop, or the wizard's self-driving program).
+    """
+
+    WEB = "web", "web"
+    API = "api", "api"
+    MCP = "mcp", "mcp"
 
 
 class ExternalDataSourceCreateSerializer(serializers.Serializer):
@@ -767,7 +770,7 @@ class ExternalDataSourceCreateSerializer(serializers.Serializer):
         help_text="Connection mode: 'warehouse' (import) or 'direct' (live query).",
     )
     created_via = serializers.ChoiceField(
-        choices=CALLER_CREATED_VIA_CHOICES,
+        choices=ExternalDataSourceCreateCreatedVia.choices,
         required=False,
         default=ExternalDataSource.CreatedVia.API,
         help_text=(
