@@ -434,7 +434,14 @@ class SendTransactionalEmailResponseSerializer(serializers.Serializer):
 
 
 class TransactionalEmailRejected(exceptions.APIException):
-    STATUS_BY_CODE = {"quota_limited": 429, "idempotency_key_in_flight": 409, "idempotency_key_reused": 422}
+    STATUS_BY_CODE = {
+        "quota_limited": 429,
+        "idempotency_key_in_flight": 409,
+        "idempotency_key_reused": 422,
+        "sending_suspended": 422,
+        "sending_paused": 422,
+        "recipient_suppressed": 422,
+    }
     # The caller has to change the request. Without this the error handler reports a server error.
     default_type = "invalid_request"
 
@@ -725,7 +732,11 @@ class MessageTemplatesViewSet(
             ),
             404: OpenApiResponse(description="Template not found"),
             409: OpenApiResponse(description="A request with the same Idempotency-Key is still in progress"),
-            422: OpenApiResponse(description="The Idempotency-Key was already used for a different request"),
+            422: OpenApiResponse(
+                description="The email can't go out: the recipient is suppressed, sending is suspended for the "
+                "project or paused for this transactional email, or the Idempotency-Key was already used for a "
+                "different request"
+            ),
             429: OpenApiResponse(description="Rate limited, or the project is over its email quota"),
             503: OpenApiResponse(description="The email pipeline did not confirm the send"),
         },

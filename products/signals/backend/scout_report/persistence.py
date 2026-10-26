@@ -26,6 +26,7 @@ from __future__ import annotations
 import json
 import uuid
 import logging
+from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -64,6 +65,7 @@ from products.signals.backend.artefact_schemas import (
     TaskRunArtefact,
     TitleChange,
 )
+from products.signals.backend.constants import FIRST_REPORT_SCOUT, first_report_idempotency_key
 from products.signals.backend.enums import ReportLinkWritePath
 from products.signals.backend.models import (
     MAX_SCOUT_CONTENT_REVISIONS,
@@ -80,7 +82,9 @@ from products.signals.backend.report_generation.reviewer_telemetry import captur
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult, persisted_repo_selection
 from products.signals.backend.report_metrics import ReportMetric, metric_batch_error
 from products.signals.backend.report_prompts import normalize_suggested_prompts, suggested_prompts_batch_error
+from products.signals.backend.report_tags import set_report_tags
 from products.signals.backend.reviewer_rules import ReviewerProposal, ReviewerRules
+from products.signals.backend.scout_harness.tags import slugify_tag
 from products.signals.backend.scout_harness.tools.emit import SCOUT_SIGNAL_WEIGHT, SOURCE_PRODUCT, SOURCE_TYPE
 from products.signals.backend.spend import SignalMetadataChange, submit_signal_metadata_updates
 from products.signals.backend.supersession import NO_IMPLEMENTATION_CONTEXT, research_implementation_context
@@ -104,6 +108,11 @@ _EMBEDDING_RENDERING = "plain"
 # Defensive cap: a single authored report shouldn't carry an unbounded evidence list. The agent groups
 # its own observations; this is a harness circuit breaker, mirroring `MAX_EVIDENCE_ENTRIES` on emit.
 MAX_REPORT_SIGNALS = 50
+
+# How many of the team's most recently created reports `scout_report_tags_in_use` reads, tagged or
+# not, and how many slugs it returns. Recent reports carry the vocabulary the fleet uses now.
+_TAGS_IN_USE_REPORT_SAMPLE = 500
+MAX_TAGS_IN_USE = 30
 
 
 class InvalidScoutReportError(ValueError):
@@ -177,6 +186,7 @@ def create_scout_report(
     metrics: Sequence[ReportMetric] = (),
     suggested_prompts: Sequence[str] = (),
     links: Sequence[ReportLink] = (),
+    tags: Sequence[str] = (),
     emit_signals: bool = True,
     run: SignalScoutRun | None = None,
     idempotency_key: str | None = None,
@@ -210,6 +220,9 @@ def create_scout_report(
     inbox offers above the report's "Ask AI" box. Written on the same terms as `charts`, and for
     the same reason.
 
+    `tags`, when supplied, become the report's slug tags through `set_report_tags`, in the same
+    transaction as the report.
+
     `links`, when supplied, become the report's typed `report_link` rows. They are written in the
     same transaction as the report, so the link gates in `auto_start` see them when the caller
     fires autostart. A link that `add_log` rejects rolls back the whole report and raises
@@ -241,6 +254,8 @@ def create_scout_report(
     # `_assert_team_owns_run`; this guards a future direct caller that bypasses it (mirrors `emit`).
     if run is not None and run.team_id != team_id:
         raise RuntimeError(f"create_scout_report: team {team_id} does not own run {run.id} (team {run.team_id})")
+    if run is not None and run.skill_name == FIRST_REPORT_SCOUT:
+        idempotency_key = first_report_idempotency_key(team_id)
 
     document_ids = [s.document_id or str(uuid.uuid4()) for s in signals]
     total_weight = sum(s.weight for s in signals)
@@ -269,6 +284,7 @@ def create_scout_report(
                 ),
             )
             report_id = str(report.id)
+            _apply_report_tags(report, tags)
             # Provenance: every authored report carries a note marking it scout-authored, attributed to
             # the scout's task. This keeps an agentic report auditable as NOT pipeline-generated (a
             # concern raised by edit_report's any-report reach) and gives it a non-empty work log so it
@@ -394,6 +410,48 @@ def create_scout_report(
         total_weight=total_weight,
         signal_document_ids=document_ids,
     )
+
+
+def _apply_report_tags(report: SignalReport, tags: Sequence[str]) -> bool:
+    try:
+        return set_report_tags(report, list(tags))
+    except ValueError as err:
+        raise InvalidScoutReportError(str(err))
+
+
+def set_scout_report_tags(*, team_id: int, report_id: str, tags: Sequence[str]) -> bool:
+    """Replace an existing report's tags (the `edit_report` tags path).
+
+    Team-scoped fail-closed. `tags` is the full set, so an empty sequence clears the tags. A caller
+    that means "leave them alone" does not call this. Returns whether the stored set changed.
+    """
+    _validate_report_id(report_id)
+    with transaction.atomic():
+        report = (
+            SignalReport.objects.select_for_update().filter(team_id=team_id, id=report_id).only("id", "tags").first()
+        )
+        if report is None:
+            raise InvalidScoutReportError(f"report {report_id} not found for team {team_id}")
+        return _apply_report_tags(report, tags)
+
+
+def scout_report_tags_in_use(*, team_id: int) -> list[str]:
+    """The team's report tags, most used first, so a scout reuses a slug instead of coining a twin.
+
+    Counts the tags on the team's newest reports. The limit applies before any filter, so the read
+    walks at most `_TAGS_IN_USE_REPORT_SAMPLE` entries of the `(team, created_at)` index whatever
+    the team's history looks like. Deleted and suppressed reports do not count: a suppressed report
+    failed the safety judge, so its tags must not reach other scouts' prompts. A stored value that is
+    not already a valid slug is skipped. Ties sort by slug, so the list is stable across runs.
+    """
+    rows = (
+        SignalReport.objects.filter(team_id=team_id)
+        .order_by("-created_at")
+        .values_list("status", "tags")[:_TAGS_IN_USE_REPORT_SAMPLE]
+    )
+    hidden = {SignalReport.Status.DELETED, SignalReport.Status.SUPPRESSED}
+    counts = Counter(tag for status, tags in rows if status not in hidden for tag in tags if slugify_tag(tag) == tag)
+    return sorted(counts, key=lambda tag: (-counts[tag], tag))[:MAX_TAGS_IN_USE]
 
 
 def find_scout_report_by_idempotency_key(*, team_id: int, idempotency_key: str) -> ExistingScoutReport | None:
