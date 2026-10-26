@@ -2239,6 +2239,40 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertEqual({r["session_id"] for r in resp.json()["results"]}, expected)
 
+    @parameterized.expand([("asked_by_the_root", "root"), ("asked_by_a_copy", "copy"), ("unknown_id", None)])
+    def test_filter_by_watch_group(self, _name: str, asked: str | None) -> None:
+        rows = {
+            name: self._create_observation(
+                session_id=name, status=ObservationStatus.SUCCEEDED, completed_at=timezone.now()
+            )
+            for name in ("root", "copy", "routine", "stale", "other")
+        }
+        root_id = str(rows["root"].id)
+
+        def rank(duplicate_of: str | None, category: str = "failure", anchor_version: int = ANCHOR_VERSION) -> dict:
+            return {
+                "category": category,
+                "contrast": 0.3,
+                "duplicate_of": duplicate_of,
+                "anchor_version": anchor_version,
+            }
+
+        for name, watch_rank in {
+            "root": rank(None),
+            "copy": rank(root_id),
+            "routine": rank(root_id, category="routine"),
+            "stale": rank(root_id, anchor_version=ANCHOR_VERSION - 1),
+            "other": rank(None),
+        }.items():
+            ReplayObservation.objects.filter(id=rows[name].id).update(watch_rank=watch_rank)
+
+        member = str(rows[asked].id) if asked else str(uuid.uuid4())
+        resp = self.client.get(f"{self.observations_url(str(self.scanner.id))}?watch_group={member}")
+
+        self.assertEqual(resp.status_code, 200)
+        expected = {"root", "copy"} if asked else set()
+        self.assertEqual({r["session_id"] for r in resp.json()["results"]}, expected)
+
     def test_order_by_created_at_descending(self) -> None:
         first = self._create_observation(session_id="first")
         second = self._create_observation(session_id="second")

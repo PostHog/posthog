@@ -28,6 +28,7 @@ import { SCANNER_TYPE_TAG_TYPE, ScannerType } from '../types'
 import { watchFeedLogic } from '../watchFeedLogic'
 import { CARD_SEEN_DWELL_MS, cardProperties } from '../watchFeedTelemetry'
 import { WatchFeedDismissButton } from './WatchFeedDismissButton'
+import { WatchFeedGroupList, WatchFeedGroupToggle } from './WatchFeedGroup'
 
 /** Reason kinds that say nothing about the session. The backend returns these only to pad a near-empty
  * feed, so a feed made up entirely of them means the window turned up no findings at all. */
@@ -376,7 +377,7 @@ export function watchFeedRowTitle(observation: ReplayObservationApi, reason: Wat
  */
 export function WatchFeedRow({ item, position }: WatchFeedRowProps): JSX.Element {
     const { observation, reason } = item
-    const { feedLoad } = useValues(watchFeedLogic)
+    const { feedLoad, dateFrom } = useValues(watchFeedLogic)
     const { cardSeen, dismissItem } = useActions(watchFeedLogic)
     const rowRef = useAutoMarkRead(true, () => cardSeen(item, position), CARD_SEEN_DWELL_MS)
     const result = readResult(observation)
@@ -395,6 +396,8 @@ export function WatchFeedRow({ item, position }: WatchFeedRowProps): JSX.Element
     }).url
     const title = watchFeedRowTitle(observation, reason)
     const filler = FILLER_REASON_KINDS.has(reason.kind)
+    const similarCount = reason.kind === 'embedding_pick' ? (reason.similar_count ?? 0) : 0
+    const groupProps = { observationId: observation.id, scannerId: observation.scanner_id, dateFrom, similarCount }
     const captureOpened = (): void => {
         posthog.capture('replay_vision_watch_clip_clicked', {
             ...cardProperties(feedLoad, item, position, 'feed_tab'),
@@ -469,7 +472,9 @@ export function WatchFeedRow({ item, position }: WatchFeedRowProps): JSX.Element
                         ? `Watch from ${colonDelimitedDuration(Math.floor(keyMomentMs / 1000), null)}`
                         : 'Watch session'}
                 </LemonButton>
+                {similarCount > 0 && <WatchFeedGroupToggle {...groupProps} />}
             </footer>
+            {similarCount > 0 && <WatchFeedGroupList {...groupProps} />}
         </article>
     )
 }

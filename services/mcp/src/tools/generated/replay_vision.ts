@@ -391,6 +391,7 @@ const visionObservationsGet = (): ToolBase<
                 triggered_by: params.triggered_by,
                 variant: params.variant,
                 verdict: params.verdict,
+                watch_group: params.watch_group,
             },
         })
         return withAgentNote(
@@ -1267,6 +1268,7 @@ const visionScannersObservationsGet = (): ToolBase<
                 triggered_by: params.triggered_by,
                 variant: params.variant,
                 verdict: params.verdict,
+                watch_group: params.watch_group,
             },
         })
         return withAgentNote(
@@ -1313,6 +1315,7 @@ const visionScannersObservationsList = (): ToolBase<
                     triggered_by: params.triggered_by,
                     variant: params.variant,
                     verdict: params.verdict,
+                    watch_group: params.watch_group,
                 },
             })
             return withTextProjection(
@@ -1371,6 +1374,7 @@ const visionScannersObservationsStats = (): ToolBase<
                 triggered_by: params.triggered_by,
                 variant: params.variant,
                 verdict: params.verdict,
+                watch_group: params.watch_group,
             },
         })
         return withAgentNote(
