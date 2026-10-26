@@ -85,7 +85,7 @@ from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.filters.utils import earliest_timestamp_func
 from posthog.models.person.util import get_person_by_uuid, validate_person_uuids_exist
 from posthog.models.property.parse import expand_cohort_properties, parse_property_group_data
-from posthog.models.property.property import STRING_PREFIX_SUFFIX_OPERATORS, Property
+from posthog.models.property.property import SEMVER_OPERATORS, STRING_PREFIX_SUFFIX_OPERATORS, Property
 from posthog.models.property.relative_date import determine_parsed_date_for_property_matching
 from posthog.models.team.team import DEPRECATED_ATTRS, Team
 from posthog.models.utils import UUIDT
@@ -435,6 +435,7 @@ SINGLE_VALUE_OPERATORS = (
     "not_icontains",
     *STRING_PREFIX_SUFFIX_OPERATORS,
     *DATE_OPERATORS,
+    *SEMVER_OPERATORS,
 )
 
 # Filter variants that inherit PersonValueValidationMixin, and so store an unwrapped value.
