@@ -1420,6 +1420,10 @@ class CustomerTaskAccessDenied(Exception):
     pass
 
 
+class CustomerTaskBulkUpdateConflict(Exception):
+    pass
+
+
 @stdlib_dataclass(frozen=True)
 class CustomerTaskUserView:
     id: int
