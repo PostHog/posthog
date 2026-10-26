@@ -307,7 +307,7 @@ def create_suppression_rule(
     filters: dict,
     sampling_rate: float,
     built_in_key: str | None = None,
-    built_in_version: int | None = None,
+    built_in_hash: str | None = None,
 ) -> ErrorTrackingSuppressionRule:
     return ErrorTrackingSuppressionRule.objects.create(
         team_id=team_id,
@@ -316,7 +316,7 @@ def create_suppression_rule(
         order_key=0,
         sampling_rate=sampling_rate,
         built_in_key=built_in_key,
-        built_in_version=built_in_version,
+        built_in_hash=built_in_hash,
     )
 
 

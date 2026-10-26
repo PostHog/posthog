@@ -1,13 +1,16 @@
 """Definitions of the built-in suppression filters.
 
-A team that turns a filter on gets one `ErrorTrackingSuppressionRule` row with the filter's key and version.
-Bump `version` whenever a definition's filters change, including when the bot list it reads changes.
-The refresh workflow then rewrites every row that has an older version.
+A team that turns a filter on gets one `ErrorTrackingSuppressionRule` row with the filter's key
+and a hash of the filters it was built from.
+The refresh workflow rewrites every row whose hash differs from the current definition,
+so a change here, including a change to the bot list it reads, reaches every team without a manual step.
 
 Every pattern here comes from PostHog's own data or from public facts:
 React's error decoder pages, bundler and browser error text, and browser release history.
 """
 
+import json
+import hashlib
 from typing import Any
 
 from posthog.dataclasses import frozen
@@ -42,10 +45,13 @@ _LOCAL_URL_PATTERN = r"(?i)^(?:file:|https?://(?:localhost|[^/?#]*\.localhost|12
 @frozen
 class BuiltInFilter:
     key: str
-    version: int
     name: str
     description: str
     filters: dict[str, Any]
+
+    @property
+    def filters_hash(self) -> str:
+        return hashlib.sha256(json.dumps(self.filters, sort_keys=True).encode()).hexdigest()
 
 
 def _leaf(key: str, operator: str, value: str | list[str]) -> dict[str, Any]:
@@ -108,21 +114,18 @@ def _react_hydration_filters() -> dict[str, Any]:
 BUILT_IN_FILTERS: tuple[BuiltInFilter, ...] = (
     BuiltInFilter(
         key="web_crawlers",
-        version=1,
         name="Web crawlers and bots",
         description="Drop exceptions from search engines, AI crawlers, uptime monitors and headless browsers.",
         filters=_web_crawler_filters(),
     ),
     BuiltInFilter(
         key="localhost",
-        version=1,
         name="Local development",
         description="Drop exceptions from pages on localhost, a loopback address or a file: URL.",
         filters={"type": "OR", "values": [_leaf("$current_url", "regex", _LOCAL_URL_PATTERN)]},
     ),
     BuiltInFilter(
         key="legacy_browsers",
-        version=1,
         name="Legacy browsers",
         description=(
             "Drop exceptions from Internet Explorer, Chrome before 87, Edge before 88, Firefox before 78, "
@@ -132,14 +135,12 @@ BUILT_IN_FILTERS: tuple[BuiltInFilter, ...] = (
     ),
     BuiltInFilter(
         key="react_hydration_errors",
-        version=1,
         name="React hydration errors",
         description="Drop React errors about server-rendered HTML that doesn't match the page in the browser.",
         filters=_react_hydration_filters(),
     ),
     BuiltInFilter(
         key="chunk_load_errors",
-        version=1,
         name="Chunk load errors",
         description="Drop errors from lazy-loaded scripts that fail to load, which often happens after a deploy.",
         filters={
@@ -161,7 +162,6 @@ BUILT_IN_FILTERS: tuple[BuiltInFilter, ...] = (
     ),
     BuiltInFilter(
         key="resize_observer_loop",
-        version=1,
         name="ResizeObserver loop errors",
         description="Drop the ResizeObserver loop warning that browsers report as an error.",
         filters={"type": "OR", "values": [_leaf("$exception_values", "icontains", ["ResizeObserver loop"])]},

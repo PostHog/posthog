@@ -14,7 +14,7 @@ class Migration(migrations.Migration):
         ),
         migrations.AddField(
             model_name="errortrackingsuppressionrule",
-            name="built_in_version",
-            field=models.IntegerField(blank=True, null=True),
+            name="built_in_hash",
+            field=models.CharField(blank=True, max_length=64, null=True),
         ),
     ]

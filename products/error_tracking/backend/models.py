@@ -604,8 +604,8 @@ class ErrorTrackingSuppressionRule(UUIDTModel):
     sampling_rate = models.FloatField(null=False, default=1.0)
     # Set only on rows that a built-in filter switch manages. Users cannot edit these rows directly.
     built_in_key = models.CharField(max_length=64, null=True, blank=True)
-    # The definition version that produced filters and bytecode, so a newer definition can refresh the row.
-    built_in_version = models.IntegerField(null=True, blank=True)
+    # Hash of the definition filters behind this row, so the refresh workflow finds rows whose definition changed.
+    built_in_hash = models.CharField(max_length=64, null=True, blank=True)
 
     class Meta:
         indexes = [

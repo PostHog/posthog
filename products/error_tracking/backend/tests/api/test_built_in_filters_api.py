@@ -42,7 +42,7 @@ class TestBuiltInFiltersAPI(APIBaseTest):
 
         rule = ErrorTrackingSuppressionRule.objects.get(team=self.team)
         assert rule.built_in_key == "localhost"
-        assert rule.built_in_version == BUILT_IN_FILTERS_BY_KEY["localhost"].version
+        assert rule.built_in_hash == BUILT_IN_FILTERS_BY_KEY["localhost"].filters_hash
         assert rule.bytecode
         assert self._enabled_keys() == {"localhost"}
 
@@ -98,16 +98,15 @@ class TestBuiltInFiltersAPI(APIBaseTest):
         assert rule.sampling_rate == 1.0
         assert rule.order_key == 0
 
-    @parameterized.expand([("same_version", 0), ("newer_version", 1)])
+    @parameterized.expand([("current_definition", False), ("changed_definition", True)])
     def test_turning_a_filter_on_again_retries_a_rule_that_ingestion_turned_off(
-        self, _name: str, version_offset: int
+        self, _name: str, definition_changed: bool
     ) -> None:
+        definition = BUILT_IN_FILTERS_BY_KEY["legacy_browsers"]
         self._set("legacy_browsers", True)
-        newer_filters = {"type": "OR", "values": []}
         ErrorTrackingSuppressionRule.objects.filter(team=self.team).update(
             disabled_data={"message": "Invalid regex", "props": {}},
-            built_in_version=BUILT_IN_FILTERS_BY_KEY["legacy_browsers"].version + version_offset,
-            **({"filters": newer_filters} if version_offset else {}),
+            **({"filters": {"type": "OR", "values": []}, "built_in_hash": "stale"} if definition_changed else {}),
         )
 
         listed = {f["key"]: f for f in self.client.get(self._url()).json()}
@@ -117,8 +116,8 @@ class TestBuiltInFiltersAPI(APIBaseTest):
         assert self._set("legacy_browsers", True)["disabled_reason"] is None
         rule = ErrorTrackingSuppressionRule.objects.get(team=self.team)
         assert rule.disabled_data is None
-        expected_filters = newer_filters if version_offset else BUILT_IN_FILTERS_BY_KEY["legacy_browsers"].filters
-        assert rule.filters == expected_filters
+        assert rule.filters == definition.filters
+        assert rule.built_in_hash == definition.filters_hash
 
     @pytest.mark.ee
     def test_toggling_requires_resource_level_access(self) -> None:
@@ -150,7 +149,7 @@ class TestBuiltInFiltersAPI(APIBaseTest):
 
 
 class TestRefreshStaleBuiltInFilterRules(BaseTest):
-    def test_refresh_upgrades_only_rules_older_than_their_definition(self) -> None:
+    def test_refresh_rewrites_only_rules_whose_definition_changed(self) -> None:
         definition = BUILT_IN_FILTERS_BY_KEY["localhost"]
         set_built_in_filter_enabled(self.team.id, "chunk_load_errors", enabled=True)
         stale = ErrorTrackingSuppressionRule.objects.create(
@@ -159,16 +158,8 @@ class TestRefreshStaleBuiltInFilterRules(BaseTest):
             bytecode=[],
             order_key=0,
             built_in_key="localhost",
-            built_in_version=definition.version - 1,
+            built_in_hash="stale",
             disabled_data={"message": "Invalid regex", "props": {}},
-        )
-        newer = ErrorTrackingSuppressionRule.objects.create(
-            team=self.team,
-            filters={"type": "OR", "values": []},
-            bytecode=[],
-            order_key=0,
-            built_in_key="web_crawlers",
-            built_in_version=BUILT_IN_FILTERS_BY_KEY["web_crawlers"].version + 1,
         )
         unknown = ErrorTrackingSuppressionRule.objects.create(
             team=self.team,
@@ -176,7 +167,7 @@ class TestRefreshStaleBuiltInFilterRules(BaseTest):
             bytecode=[],
             order_key=0,
             built_in_key="retired_filter",
-            built_in_version=1,
+            built_in_hash="stale",
         )
         untouched = {
             rule.id: rule.updated_at
@@ -189,10 +180,10 @@ class TestRefreshStaleBuiltInFilterRules(BaseTest):
         stale.refresh_from_db()
         assert stale.filters == definition.filters
         assert stale.bytecode
-        assert stale.built_in_version == definition.version
+        assert stale.built_in_hash == definition.filters_hash
         assert stale.disabled_data is None
         assert {
             rule.id: rule.updated_at
             for rule in ErrorTrackingSuppressionRule.objects.filter(team=self.team).exclude(id=stale.id)
         } == untouched
-        assert {newer.id, unknown.id} <= untouched.keys()
+        assert unknown.id in untouched

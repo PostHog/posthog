@@ -58,18 +58,14 @@ def _state(definition: BuiltInFilter, rule: ErrorTrackingSuppressionRule | None)
     return BuiltInFilterState(definition=definition, enabled=rule is not None, disabled_reason=_disabled_reason(rule))
 
 
-def _is_older_than(rule: ErrorTrackingSuppressionRule, definition: BuiltInFilter) -> bool:
-    return rule.built_in_version is None or rule.built_in_version < definition.version
-
-
 def _refresh_rule(rule: ErrorTrackingSuppressionRule, definition: BuiltInFilter) -> None:
     rule.filters = definition.filters
     rule.bytecode = compile_filter_bytecode(rule.team_id, definition.filters)
-    rule.built_in_version = definition.version
+    rule.built_in_hash = definition.filters_hash
     # A rewritten rule gets a fresh start, so a rule that ingestion turned off runs again.
     rule.disabled_data = None
     # update_fields makes the save fail rather than recreate a row that a user deleted in the meantime.
-    rule.save(update_fields=["filters", "bytecode", "built_in_version", "disabled_data", "updated_at"])
+    rule.save(update_fields=["filters", "bytecode", "built_in_hash", "disabled_data", "updated_at"])
 
 
 def list_built_in_filters(team_id: int) -> list[BuiltInFilterState]:
@@ -92,10 +88,9 @@ def set_built_in_filter_enabled(team_id: int, key: str, *, enabled: bool) -> Bui
         return _state(definition, None)
 
     if existing is not None:
-        if _is_older_than(existing, definition):
+        if existing.built_in_hash != definition.filters_hash:
             _refresh_rule(existing, definition)
         elif existing.disabled_data is not None:
-            # Keep the filters: a row from a newer definition must not go back to this worker's older one.
             existing.disabled_data = None
             existing.save(update_fields=["disabled_data", "updated_at"])
         return _state(definition, existing)
@@ -107,7 +102,7 @@ def set_built_in_filter_enabled(team_id: int, key: str, *, enabled: bool) -> Bui
                 filters=definition.filters,
                 sampling_rate=1.0,
                 built_in_key=definition.key,
-                built_in_version=definition.version,
+                built_in_hash=definition.filters_hash,
             )
     except IntegrityError:
         # A concurrent request turned the same filter on first.
@@ -119,7 +114,7 @@ def _stale_rules_filter() -> Q:
     stale = Q()
     for definition in BUILT_IN_FILTERS:
         stale |= Q(built_in_key=definition.key) & (
-            Q(built_in_version__isnull=True) | Q(built_in_version__lt=definition.version)
+            Q(built_in_hash__isnull=True) | ~Q(built_in_hash=definition.filters_hash)
         )
     return stale
 
@@ -127,10 +122,11 @@ def _stale_rules_filter() -> Q:
 def refresh_stale_built_in_filter_rules(
     *, batch_size: int, on_progress: Callable[[], None] | None = None
 ) -> BuiltInFilterRefreshResult:
-    """Rewrite every built-in rule whose version is older than its definition.
+    """Rewrite every built-in rule whose hash differs from its definition's hash.
 
-    It only upgrades. During a deploy, a worker that still runs older code leaves newer rows alone,
-    and it skips a row whose key it doesn't know rather than delete it.
+    During a deploy, a worker that still runs older code can rewrite a row back to the older definition.
+    The next run on new code rewrites it again, and the older rule still works in the meantime.
+    A row whose key this code doesn't know is skipped rather than deleted.
     """
     refreshed = 0
     failed = 0
