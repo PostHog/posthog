@@ -119,6 +119,27 @@ def load_states(team: Team, insights: Collection[Insight]) -> dict[int, TrainedS
     return {row.insight_id: _from_row(row) for row in rows if profiles.get(row.insight_id) == row.profile}
 
 
+def scored_through_by_insight(team: Team, insight_ids: Collection[int]) -> dict[int, datetime.datetime]:
+    """Insight id to the newest scored bucket of its stored state, for the rows that a score step can read.
+
+    The profile is not checked here. `plan_run` checks it, and an insight with a state of another profile trains.
+    """
+    if not insight_ids:
+        return {}
+    rows = (
+        AnomalyScoringState.objects.for_team(team.id)
+        .filter(insight_id__in=list(insight_ids), scored_through__isnull=False)
+        .exclude(artifact_key="")
+        .exclude(series_keys=[])
+        .values_list("insight_id", "scored_through")
+    )
+    scored: dict[int, datetime.datetime] = {}
+    for insight_id, scored_through in rows:
+        if scored_through is not None:
+            scored[insight_id] = max(scored_through, scored.get(insight_id, scored_through))
+    return scored
+
+
 def load_state(team: Team, insight: Insight) -> TrainedState | None:
     return load_states(team, [insight]).get(insight.id)
 

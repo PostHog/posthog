@@ -1,5 +1,7 @@
-"""The order in which a scoring tick picks insights, set by the `anomaly-scoring` flag payload.
+"""The order in which a scoring tick picks insights.
 
+The score pass takes the trained insights most overdue first, see `score_order`. The train pass, and the
+whole tick when the train and score split is off, uses `pick_order`, set by the `anomaly-scoring` flag payload.
 `weighted` samples insights in proportion to usage × staleness, so most of the per-tick query budget goes to
 insights people look at. Weight grows while an insight waits, so an insight nobody views is picked rarely but
 never starves. `uniform` picks the stalest insight first, so every insight gets the same share.
@@ -51,6 +53,14 @@ class Candidate:
     usage: InsightUsage
 
 
+@frozen
+class ScoreCandidate:
+    insight_id: int
+    interval: IntervalType
+    # The newest scored bucket start of the stored state, in the project timezone.
+    scored_through: datetime
+
+
 def _non_negative(value: Any, default: float) -> float:
     # `bool` is an `int` subclass, and `true` is not a number.
     if isinstance(value, bool) or not isinstance(value, int | float) or not math.isfinite(value) or value < 0:
@@ -88,12 +98,31 @@ def staleness(candidate: Candidate, *, now: datetime, max_staleness: int) -> int
     """
     if candidate.newest_scored_bucket is None:
         return max_staleness
+    return _completed_buckets_after(candidate.newest_scored_bucket, candidate.interval, now, max_staleness)
+
+
+def _completed_buckets_after(newest: datetime, interval: IntervalType, now: datetime, max_count: int) -> int:
     count = 0
-    start = bucket_end(candidate.newest_scored_bucket, candidate.interval)
-    while count < max_staleness and bucket_end(start, candidate.interval) <= now:
+    start = bucket_end(newest, interval)
+    while count < max_count and bucket_end(start, interval) <= now:
         count += 1
-        start = bucket_end(start, candidate.interval)
+        start = bucket_end(start, interval)
     return count
+
+
+def score_order(candidates: Sequence[ScoreCandidate], *, now: datetime, max_staleness: int) -> list[int]:
+    """Insight ids with the most completed buckets after their scored state first. Usage has no effect.
+
+    A score step is cheap, so the pass keeps every trained insight current instead of sampling.
+    """
+    keyed = [
+        (
+            _completed_buckets_after(candidate.scored_through, candidate.interval, now, max_staleness),
+            candidate.insight_id,
+        )
+        for candidate in candidates
+    ]
+    return [insight_id for due, insight_id in sorted(keyed, key=lambda item: (-item[0], item[1])) if due > 0]
 
 
 def weight(candidate: Candidate, *, config: SelectionConfig, now: datetime, max_staleness: int) -> float:
