@@ -11,7 +11,7 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
-from posthog.models import User
+from posthog.models import Team, User
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
@@ -29,6 +29,7 @@ from products.warehouse_suggestions.backend.facade.enums import (
     WarehouseSuggestionKind,
     WarehouseSuggestionStatus,
 )
+from products.warehouse_suggestions.backend.logic.access import can_take
 from products.warehouse_suggestions.backend.logic.candidates.base import CandidateContext
 from products.warehouse_suggestions.backend.logic.candidates.registry import CANDIDATES
 from products.warehouse_suggestions.backend.logic.lifecycle import _pick_in_turns, apply_run
@@ -40,6 +41,7 @@ from products.warehouse_suggestions.backend.tests.factories import busy_reads, c
 from .test_accept import REPORT
 
 NOTIFY = "products.warehouse_suggestions.backend.logic.assignment.create_notification"
+CAN_TAKE = "products.warehouse_suggestions.backend.logic.assignment.can_take"
 NOW = datetime(2026, 10, 7, 9, tzinfo=UTC)
 READ_COST_BEFORE = {"read_seconds_per_month": 5000.0, "read_bytes_per_month": 5e12, "human_reads_per_month": 200.0}
 REFRESH_COST_BEFORE = {"refresh_seconds_per_month": 5000.0, "refresh_bytes_per_month": 5e12}
@@ -330,6 +332,37 @@ class TestApplyRun(BaseTest):
             None if access_revoked else teammate.pk,
             [] if access_revoked else [str(teammate.pk)],
         )
+
+    @parameterized.expand(
+        [
+            ("accepted_during_the_run", {"status": WarehouseSuggestionStatus.ACCEPTED}, None),
+            ("reassigned_during_the_run", {"assignee_id": "teammate"}, "teammate"),
+        ]
+    )
+    def test_the_job_leaves_a_suggestion_someone_changed_while_it_was_assigning(
+        self, _name: str, change: dict[str, object], expected_assignee: str | None
+    ) -> None:
+        teammate = User.objects.create_and_join(self.organization, "teammate@example.com", None)
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="orders", query={"kind": "HogQLQuery", "query": "SELECT 1"}, created_by=self.user
+        )
+        ctx = context(team_reads({}), views=[view(saved_query.id, created_by_id=self.user.pk)], team_id=self.team.pk)
+        draft = self._draft(ctx, WarehouseSuggestionKind.MATERIALIZE, saved_query.id, 1)
+        concurrent_change = {key: teammate.pk if value == "teammate" else value for key, value in change.items()}
+
+        def checked_while_someone_changes_it(team: Team, user: User, suggestion: WarehouseSuggestion) -> bool:
+            WarehouseSuggestion.objects.for_team(self.team.pk).update(**concurrent_change)
+            return can_take(team, user, suggestion)
+
+        with (
+            patch(CAN_TAKE, side_effect=checked_while_someone_changes_it),
+            patch(NOTIFY) as notify,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            apply_run(ctx, self.team, [draft], NOW, surface=True)
+
+        row = WarehouseSuggestion.objects.for_team(self.team.pk).get()
+        assert (row.assignee_id, notify.call_count) == (teammate.pk if expected_assignee else None, 0)
 
     def _enable_access_control(self) -> None:
         self.organization.available_product_features = [

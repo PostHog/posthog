@@ -9,6 +9,7 @@ import structlog
 
 from posthog.dataclasses import frozen
 from posthog.models import User
+from posthog.scopes import APIScopeObject
 
 from products.notifications.backend.facade.api import (
     NotificationData,
@@ -35,6 +36,7 @@ KIND_ACTIONS: Mapping[WarehouseSuggestionKind, str] = {
     WarehouseSuggestionKind.MATERIALIZE: "materialize",
     WarehouseSuggestionKind.UNMATERIALIZE: "stop materializing",
 }
+NOTIFIED_RESOURCE: APIScopeObject = "warehouse_objects"
 NOTIFICATION_TITLE_MAX_LENGTH = 255
 ELLIPSIS = "…"
 MANUAL_ASSIGNMENT_BODY = "Open it to see why PostHog suggests it, then accept or dismiss it."
@@ -50,12 +52,21 @@ def assign_surfaced(
     assigned: defaultdict[User, list[WarehouseSuggestion]] = defaultdict(list)
     for row in surfaced:
         assignee = _surfaced_assignee(team, row, creators.get(row.subject_id))
-        if assignee != row.assignee:
-            WarehouseSuggestion.objects.for_team(team.pk).filter(id=row.id).update(assignee=assignee)
-            row.assignee = assignee
+        if not _assign_if_unchanged(team, row, assignee):
+            continue
+        row.assignee = assignee
         if assignee is not None:
             assigned[assignee].append(row)
     return assigned
+
+
+def _assign_if_unchanged(team: "Team", row: WarehouseSuggestion, assignee: User | None) -> bool:
+    """Write `assignee` only if nobody decided or reassigned the suggestion since the job read it."""
+    return bool(
+        WarehouseSuggestion.objects.for_team(team.pk)
+        .filter(id=row.id, status=WarehouseSuggestionStatus.PROPOSED, assignee_id=row.assignee_id)
+        .update(assignee=assignee)
+    )
 
 
 @frozen
@@ -108,6 +119,7 @@ def notify_assigned(team: "Team", suggestion: WarehouseSuggestion, assignee: Use
         title=f"{assigned_by.first_name} assigned you a suggestion to {proposal}",
         body=f"{_sentence_case(proposal)}. {MANUAL_ASSIGNMENT_BODY}",
         source_url=_source_url(team, suggestion),
+        resource_id=str(suggestion.subject_id),
     )
 
 
@@ -164,7 +176,14 @@ def _bounded_title(title: str) -> str:
 
 
 def _notify(
-    team: "Team", assignee: User, *, title: str, body: str, source_url: str, idempotency_key: str | None = None
+    team: "Team",
+    assignee: User,
+    *,
+    title: str,
+    body: str,
+    source_url: str,
+    resource_id: str = "",
+    idempotency_key: str | None = None,
 ) -> None:
     try:
         create_notification(
@@ -175,6 +194,8 @@ def _notify(
                 body=body,
                 target_type=TargetType.USER,
                 target_id=str(assignee.pk),
+                resource_type=NOTIFIED_RESOURCE,
+                resource_id=resource_id,
                 source_url=source_url,
                 idempotency_key=idempotency_key,
             )

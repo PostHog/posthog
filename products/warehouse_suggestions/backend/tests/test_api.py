@@ -241,12 +241,12 @@ class TestWarehouseSuggestionAPI(APIBaseTest):
             )
 
         stored = WarehouseSuggestion.objects.for_team(self.team.id).get(id=suggestion.id).assignee_id
-        notified = [call.args[0].target_id for call in notify.call_args_list]
+        notified = [(call.args[0].target_id, call.args[0].resource_type) for call in notify.call_args_list]
         expected_assignee = assignees[who] if expected_status == status.HTTP_200_OK else assignees[current]
         assert (response.status_code, stored, notified) == (
             expected_status,
             expected_assignee,
-            [str(assignees[who])] if expect_notified else [],
+            [(str(assignees[who]), "warehouse_objects")] if expect_notified else [],
         ), response.json()
 
     def test_assign_refuses_a_suggestion_someone_decided_while_it_was_being_assigned(self) -> None:
