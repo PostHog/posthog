@@ -453,9 +453,11 @@ def select_insights(
     score_skipped = 0
     if config.train_score_split:
         score_order_ids, score_ready = _score_order(watched_by_id, teams, config, now)
-        score_picked, score_skipped = walk(
-            score_order_ids, ScoringRun.SCORE, config.max_score_insights_per_tick if limit is None else limit
-        )
+        score_cap = config.max_score_insights_per_tick if limit is None else limit
+        score_picked, score_skipped = walk(score_order_ids, ScoringRun.SCORE, score_cap)
+        # A spent score budget makes the walk load no plan. Plan the head of the order anyway, so that an
+        # edited insight there still reaches the train pass while the train budget has room.
+        plans_for(score_order_ids[:score_cap])
     # A score-ready insight belongs to the score pass, also when its cap or budget left it out this tick.
     # Without this, the train pass loads a plan for every one of them and then passes over it. An insight
     # that the score pass planned as a train step, for example after an edit, goes to the train pass.

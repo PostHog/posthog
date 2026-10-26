@@ -910,8 +910,16 @@ class TestScoredBuckets(ClickhouseTestMixin, BaseTest):
         ]
         assert (selection.picked_score, selection.picked_train) == (len(expected), 0)
 
+    @parameterized.expand(
+        [
+            ("score_budget_left", False, [("current", ScoringRun.SCORE), ("edited", ScoringRun.TRAIN)]),
+            ("score_budget_spent", True, [("edited", ScoringRun.TRAIN)]),
+        ]
+    )
     @time_machine.travel(NOW, tick=False)
-    def test_an_edited_insight_with_a_current_state_goes_to_the_train_pass(self) -> None:
+    def test_an_edited_insight_with_a_current_state_goes_to_the_train_pass(
+        self, _name: str, score_budget_spent: bool, expected: list[tuple[str, ScoringRun]]
+    ) -> None:
         self.team.timezone = "UTC"
         self.team.save()
         dashboard = Dashboard.objects.create(team=self.team, name="Main")
@@ -952,15 +960,14 @@ class TestScoredBuckets(ClickhouseTestMixin, BaseTest):
             )
         for kind in ScoringRun:
             cache.delete_many([_fleet_budget_key(NOW, kind), _project_budget_key(self.team.id, NOW, kind)])
+        if score_budget_spent:
+            cache.set(_fleet_budget_key(NOW, ScoringRun.SCORE), config.max_score_queries_per_hour)
 
         with patch("products.signals.backend.anomaly_scores.queue.list_limited_team_attributes", return_value=[]):
             selection = select_insights(config, SelectionConfig(), NOW)
 
         names = {insight.id: name for name, insight in insights.items()}
-        assert [(names[pick.insight_id], pick.run) for pick in selection.picks] == [
-            ("current", ScoringRun.SCORE),
-            ("edited", ScoringRun.TRAIN),
-        ]
+        assert [(names[pick.insight_id], pick.run) for pick in selection.picks] == expected
 
 
 async def _run_tick(
