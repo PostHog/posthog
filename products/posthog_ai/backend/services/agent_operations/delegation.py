@@ -56,10 +56,16 @@ def parent_credential(authenticator: object) -> ParentCredential:
 
 def parent_credential_active(operation: AgentOperation) -> bool:
     """Whether the credential that started the operation can still act. Rotation of an OAuth token does
-    not end the operation; revocation of the key, the refresh-token family, or the app grant does."""
+    not end the operation; revocation of the key, the refresh-token family, or the app grant does. A key
+    that lost a delegated scope or access to the project also ends it."""
     kind, ref = operation.parent_credential_kind, operation.parent_credential_ref
     if kind == AgentOperation.ParentCredentialKind.PERSONAL_API_KEY:
-        return PersonalAPIKey.objects.filter(id=ref, user_id=operation.user_id).exists()
+        key = (
+            PersonalAPIKey.objects.filter(id=ref, user_id=operation.user_id)
+            .only("scopes", "scoped_teams", "scoped_organizations")
+            .first()
+        )
+        return key is not None and _key_covers_operation(key, operation)
     if kind == AgentOperation.ParentCredentialKind.OAUTH_TOKEN_FAMILY:
         return OAuthRefreshToken.objects.filter(
             token_family=ref, user_id=operation.user_id, revoked__isnull=True
@@ -68,3 +74,11 @@ def parent_credential_active(operation: AgentOperation) -> bool:
         user = User.objects.filter(id=operation.user_id).first()
         return user is not None and live_oauth_access_tokens(user).filter(application_id=ref).exists()
     return True
+
+
+def _key_covers_operation(key: PersonalAPIKey, operation: AgentOperation) -> bool:
+    if key.scoped_teams and operation.team_id not in key.scoped_teams:
+        return False
+    if key.scoped_organizations and str(operation.team.organization_id) not in key.scoped_organizations:
+        return False
+    return set(operation.granted_scopes) <= set(granted_scopes(list(key.scopes or [])))

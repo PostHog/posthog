@@ -260,6 +260,8 @@ _ERRORS = {
     ),
 }
 
+AI_DATA_PROCESSING_REQUIRED_MESSAGE = "Enable AI data processing for this organization to use the PostHog Agent MCP. An organization admin can turn it on in the organization settings."
+
 
 class AgentOperationViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     """Goals that an external agent delegates to PostHog AI through the PostHog Agent MCP."""
@@ -284,6 +286,11 @@ class AgentOperationViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 f"The PostHog Agent MCP is not available for this organization yet. It needs the '{AGENT_MCP_FEATURE_FLAG}' feature flag."
             )
         return AgentOperationService(self.team, user)
+
+    def _require_ai_data_processing(self) -> None:
+        # Only starting and steering a run send project data to the model. Status and cancel stay open.
+        if self.team.organization.is_ai_data_processing_approved is not True:
+            raise PermissionDenied(AI_DATA_PROCESSING_REQUIRED_MESSAGE)
 
     def _agent_mcp_enabled(self, user: User) -> bool:
         # Local dev reads flags from the local instance, which has no such flag until someone creates it.
@@ -324,6 +331,7 @@ class AgentOperationViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     )
     def create(self, request: Request, **kwargs: Any) -> Response:
         service = self._service()
+        self._require_ai_data_processing()
         if is_team_limited(self.team.api_token, QuotaResource.AI_CREDITS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY):
             raise QuotaLimitExceeded(
                 "Your organization reached its AI credit usage limit. Increase the limits in Billing settings, or ask an org admin to do so."
@@ -361,16 +369,29 @@ class AgentOperationViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
 
     @validated_request(
         request_serializer=AgentOperationReplySerializer,
-        responses={200: OpenApiResponse(response=AgentOperationSerializer), **_ERRORS},
+        responses={
+            200: OpenApiResponse(response=AgentOperationSerializer),
+            **_ERRORS,
+            403: OpenApiResponse(
+                response=AgentOperationErrorSerializer,
+                description="The credential has fewer permissions than the one that started the operation.",
+            ),
+        },
         summary="Reply to an agent operation",
         description="Answer a question or an approval, or steer a running operation. 'allow', 'allow all' or 'deny' with no pending approval or question returns 409 with code no_pending_approval, because the approval was already answered.",
     )
     @action(detail=True, methods=["post"], url_path="reply", required_scopes=["conversation:write"])
     def reply(self, request: Request, pk: str, **kwargs: Any) -> Response:
         service = self._service()
+        self._require_ai_data_processing()
         data = request.validated_data
         try:
-            operation = service.reply(self._operation(pk), data["message"], data["client_request_id"])
+            operation = service.reply(
+                self._operation(pk),
+                data["message"],
+                data["client_request_id"],
+                authenticator=getattr(request, "successful_authenticator", None),
+            )
             view = service.view(operation, None)
         except AgentOperationError as error:
             return _error(error)

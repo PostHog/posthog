@@ -12,6 +12,7 @@ import binascii
 from datetime import timedelta
 from typing import Any
 
+from django.core.cache import cache
 from django.db import IntegrityError, connection, transaction
 from django.db.models import Q, QuerySet
 from django.utils import timezone
@@ -23,7 +24,7 @@ from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.utils import absolute_uri
 
-from products.posthog_ai.backend.message_routing import SandboxDispatchOptions, SandboxSession
+from products.posthog_ai.backend.message_routing import SandboxDispatchOptions, SandboxRouteResult, SandboxSession
 from products.posthog_ai.backend.models import AgentOperation, AgentOperationReply, Conversation
 from products.posthog_ai.backend.services.agent_operations.delegation import (
     caller_scopes,
@@ -58,6 +59,17 @@ MAX_ACTIVE_OPERATIONS_PER_USER = 3
 MAX_STEPS_PER_RESPONSE = 20
 RETRY_AFTER_ACTIVE_SECONDS = 10
 RETRY_AFTER_IDLE_SECONDS = 30
+# Clients read the status every few seconds, and each read of the run log downloads it whole.
+PROGRESS_CACHE_SECONDS = 5
+# The sweep reconciles operations that no client read for this long, so a deadline, a revoked credential,
+# an ended run or a failed stop takes effect without a reader.
+UNWATCHED_AFTER = timedelta(minutes=2)
+SWEEP_BATCH_SIZE = 200
+# A start that stored no run after this long crashed during dispatch, so its operation must not keep a slot.
+DISPATCH_TIMEOUT = timedelta(minutes=10)
+# A stop request that the sandbox did not receive. The operation stays active, so the next reconcile retries it.
+STOP_NOT_SENT_OUTCOMES = frozenset({None, "unavailable"})
+CANCEL_RETRY_REASON = "cancel_retrying"
 # One operation stays in one project, so the agent must not switch projects or reach other projects
 # through connections.
 EXCLUDED_MCP_TOOLS = ["posthog-connection-call", "posthog-connection-forward", "switch-project", "switch-organization"]
@@ -277,10 +289,7 @@ class AgentOperationService:
         if routed is None:
             self._finish(operation, State.FAILED, "dispatch_failed", stop_run=False)
             return StartOutcome(operation=operation, created=True)
-        operation.task_id = routed.task_id
-        operation.run_id = routed.run_id
-        operation.save(update_fields=["task_id", "run_id", "updated_at"])
-        return StartOutcome(operation=operation, created=True)
+        return StartOutcome(operation=self._attach_run(operation, routed, None), created=True)
 
     def _operations_holding_a_sandbox(self) -> QuerySet[AgentOperation]:
         # A run that asked a question has already ended. A run that waits for an approval keeps its sandbox.
@@ -306,6 +315,32 @@ class AgentOperationService:
                 status=409,
             )
         return existing
+
+    def _locked(self, operation: AgentOperation) -> AgentOperation:
+        # Serializes the control changes of one operation. Call it inside a transaction, and never
+        # hold the lock across a sandbox call.
+        return AgentOperation.objects.for_team(self.team.pk).select_for_update().get(pk=operation.pk)
+
+    def _attach_run(self, operation: AgentOperation, routed: SandboxRouteResult, state: str | None) -> AgentOperation:
+        """Store the run that a dispatch started. A cancel that arrived during the dispatch stops it too."""
+        with transaction.atomic():
+            current = self._locked(operation)
+            current.task_id = routed.task_id
+            current.run_id = routed.run_id
+            cancelled = current.state == State.CANCELLING or current.is_terminal
+            if cancelled:
+                current.state = State.CANCELLING
+                current.state_reason = CANCEL_RETRY_REASON
+                current.finished_at = None
+            elif state is not None:
+                if current.state == State.NEEDS_INPUT:
+                    current.result = None
+                current.state = state
+                current.state_reason = None
+            current.save(
+                update_fields=["task_id", "run_id", "state", "state_reason", "result", "finished_at", "updated_at"]
+            )
+        return self._request_cancel(current) if cancelled else current
 
     def _lock_user(self) -> None:
         # Serializes starts per user so the active-operation limit cannot be passed by a burst.
@@ -364,13 +399,17 @@ class AgentOperationService:
         return request.repository, commit
 
     def _dispatch_options(self, operation: AgentOperation) -> SandboxDispatchOptions:
+        extra_run_state: dict[str, Any] = {"mcp_exclude_tools": EXCLUDED_MCP_TOOLS}
+        if operation.repository:
+            # The run gets a read-only GitHub token, so the prompt is not the only thing that keeps it from writing.
+            extra_run_state["github_read_access"] = True
         return SandboxDispatchOptions(
             posthog_mcp_scopes=list(operation.granted_scopes),
             output_schema=AGENT_RESULT_SCHEMA,
             client_provenance=tasks_facade.TaskClientProvenance.AGENT_MCP,
             system_prompt_suffix=AGENT_MCP_INSTRUCTIONS,
             branch=operation.resolved_commit,
-            extra_run_state={"mcp_exclude_tools": EXCLUDED_MCP_TOOLS},
+            extra_run_state=extra_run_state,
         )
 
     # --- reconcile and read ---
@@ -418,6 +457,10 @@ class AgentOperationService:
     def _read_progress(self, operation: AgentOperation) -> RunProgress | None:
         if operation.run_id is None or operation.task_id is None:
             return None
+        cache_key = f"agent_operation_progress:{operation.run_id}"
+        cached = cache.get(cache_key)
+        if isinstance(cached, RunProgress):
+            return cached
         try:
             log_content = tasks_facade.read_task_run_logs(operation.run_id, operation.task_id, self.team.pk)
         except Exception:
@@ -425,10 +468,16 @@ class AgentOperationService:
             return None
         if log_content is None:
             return None
-        return summarize_run_log(tasks_facade.parse_task_run_log_entries(log_content))
+        progress = summarize_run_log(tasks_facade.parse_task_run_log_entries(log_content))
+        cache.set(cache_key, progress, PROGRESS_CACHE_SECONDS)
+        return progress
 
     def reconcile(self, operation: AgentOperation, *, progress: RunProgress | None = None) -> AgentOperation:
-        if operation.is_terminal or operation.run_id is None or operation.task_id is None:
+        if operation.is_terminal:
+            return operation
+        if operation.run_id is None or operation.task_id is None:
+            if timezone.now() >= operation.created_at + DISPATCH_TIMEOUT:
+                return self._finish(operation, State.FAILED, "dispatch_failed", stop_run=False)
             return operation
         if not parent_credential_active(operation):
             return self._finish(operation, State.FAILED, "credential_revoked")
@@ -472,6 +521,8 @@ class AgentOperationService:
             reason = "cancelled" if operation.state == State.CANCELLING else "run_cancelled"
             return self._finish(operation, State.CANCELLED, reason, stop_run=False)
         if operation.state == State.CANCELLING:
+            if operation.state_reason == CANCEL_RETRY_REASON:
+                return self._request_cancel(operation)
             return operation
         if status in (tasks_facade.TaskRunStatus.QUEUED, tasks_facade.TaskRunStatus.NOT_STARTED):
             return self._set_state(operation, State.QUEUED, None)
@@ -537,8 +588,9 @@ class AgentOperationService:
     def _finish(
         self, operation: AgentOperation, state: str, reason: str | None, *, stop_run: bool = True
     ) -> AgentOperation:
-        if stop_run:
-            self._stop_run(operation, reason or state)
+        if stop_run and self._stop_run(operation, reason or state) in STOP_NOT_SENT_OUTCOMES:
+            # The sandbox can still run, so the operation stays active and the next reconcile tries the stop again.
+            return self._set_state(operation, State.CANCELLING, reason)
         operation.finished_at = timezone.now()
         operation.pending_permission_request = None
         self._set_state(operation, state, reason)
@@ -547,7 +599,7 @@ class AgentOperationService:
 
     def _stop_run(self, operation: AgentOperation, reason: str) -> str | None:
         if operation.run_id is None or operation.task_id is None:
-            return None
+            return "not_found"
         try:
             outcome, _ = tasks_cancellation.cancel_task_run(
                 operation.run_id,
@@ -569,17 +621,39 @@ class AgentOperationService:
         operation = self.reconcile(operation)
         if operation.is_terminal:
             return operation
+        with transaction.atomic():
+            operation = self._locked(operation)
+            if operation.is_terminal:
+                return operation
+            # Stored before the stop request, so a reply that starts a run meanwhile stops that run too.
+            operation = self._set_state(operation, State.CANCELLING, CANCEL_RETRY_REASON)
         if operation.run_id is None:
+            # The first run is still being dispatched. `_attach_run` stops it when the dispatch returns.
             return self._finish(operation, State.CANCELLED, "cancelled", stop_run=False)
+        return self._request_cancel(operation)
+
+    def _request_cancel(self, operation: AgentOperation) -> AgentOperation:
         outcome = self._stop_run(operation, "cancelled")
+        if outcome in STOP_NOT_SENT_OUTCOMES:
+            return operation
         if outcome in ("already_terminal", "not_found"):
+            operation = self._set_state(operation, State.CANCELLING, "cancel_requested")
             operation = self.reconcile(operation)
             if not operation.is_terminal:
                 return self._finish(operation, State.CANCELLED, "cancelled", stop_run=False)
             return operation
         return self._set_state(operation, State.CANCELLING, "cancel_requested")
 
-    def reply(self, operation: AgentOperation, message: str, client_request_id: str) -> AgentOperation:
+    def reply(
+        self, operation: AgentOperation, message: str, client_request_id: str, *, authenticator: object
+    ) -> AgentOperation:
+        # The reply resumes the run with the operation's grant, so a narrower credential must not steer it.
+        if not set(operation.granted_scopes) <= set(granted_scopes(caller_scopes(authenticator))):
+            raise AgentOperationError(
+                "insufficient_scope",
+                "This credential has fewer permissions than the one that started the operation. Reply with that credential, or start a new operation.",
+                status=403,
+            )
         request_hash = _hash_text(message)
         previous = (
             AgentOperationReply.objects.for_team(self.team.pk)
@@ -623,15 +697,13 @@ class AgentOperationService:
 
         try:
             if operation.state == State.NEEDS_INPUT and operation.pending_permission_request:
-                self._answer_permission(operation, message)
-            else:
-                self._send_message(operation, message)
+                return self._answer_permission(operation, message)
+            return self._send_message(operation, message)
         except Exception:
             reply.delete()
             raise
-        return operation
 
-    def _answer_permission(self, operation: AgentOperation, message: str) -> None:
+    def _answer_permission(self, operation: AgentOperation, message: str) -> AgentOperation:
         pending = operation.pending_permission_request or {}
         normalized = _normalize_reply(message)
         always = normalized in ALLOW_ALWAYS_REPLIES
@@ -646,9 +718,10 @@ class AgentOperationService:
         operation.pending_permission_request = None
         self._set_state(operation, State.RUNNING, None)
         if not allow and normalized not in DENY_REPLIES:
-            self._send_message(operation, message)
+            return self._send_message(operation, message)
+        return operation
 
-    def _send_message(self, operation: AgentOperation, message: str) -> None:
+    def _send_message(self, operation: AgentOperation, message: str) -> AgentOperation:
         conversation = Conversation.objects.get(id=operation.conversation_id, team=self.team)
         routed = SandboxSession(conversation, self.user, options=self._dispatch_options(operation)).open(
             {"content": message, "initial_permission_mode": PERMISSION_MODES[operation.approvals]}
@@ -657,21 +730,51 @@ class AgentOperationService:
             raise AgentOperationError(
                 "reply_not_delivered", "The sandbox did not accept the reply. Try again.", status=503
             )
-        operation.run_id = routed.run_id
-        operation.task_id = routed.task_id
-        operation.save(update_fields=["run_id", "task_id", "updated_at"])
-        if operation.state == State.NEEDS_INPUT:
-            operation.result = None
-        self._set_state(operation, State.RUNNING if not routed.just_created_run else State.QUEUED, None)
+        return self._attach_run(operation, routed, State.QUEUED if routed.just_created_run else State.RUNNING)
+
+
+def _reconcile_each(operations: QuerySet[AgentOperation]) -> int:
+    count = 0
+    for operation in operations.select_related("team", "user"):
+        try:
+            AgentOperationService(operation.team, operation.user).reconcile(operation)
+            count += 1
+        except Exception:
+            logger.exception("agent_operation_reconcile_failed", operation_id=str(operation.id))
+    return count
 
 
 def stop_operations_for_revoked_credential(kind: str, ref: str) -> None:
     """Stop the active operations that a now-revoked credential started, so their sandboxes lose access."""
-    operations = AgentOperation.objects.unscoped().filter(
-        parent_credential_kind=kind, parent_credential_ref=ref, state__in=AgentOperation.ACTIVE_STATES
+    _reconcile_each(
+        AgentOperation.objects.unscoped().filter(
+            parent_credential_kind=kind, parent_credential_ref=ref, state__in=AgentOperation.ACTIVE_STATES
+        )
     )
-    for operation in operations.select_related("team", "user"):
-        try:
-            AgentOperationService(operation.team, operation.user).reconcile(operation)
-        except Exception:
-            logger.exception("agent_operation_revocation_stop_failed", operation_id=str(operation.id))
+
+
+def stop_operations_for_revoked_oauth(user_id: int | None) -> None:
+    """Stop the active operations whose OAuth parent is revoked. ``None`` checks every user's operations."""
+    operations = AgentOperation.objects.unscoped().filter(
+        parent_credential_kind__in=(
+            AgentOperation.ParentCredentialKind.OAUTH_TOKEN_FAMILY,
+            AgentOperation.ParentCredentialKind.OAUTH_APPLICATION,
+        ),
+        state__in=AgentOperation.ACTIVE_STATES,
+    )
+    if user_id is not None:
+        operations = operations.filter(user_id=user_id)
+    _reconcile_each(operations)
+
+
+def reconcile_unwatched_operations() -> int:
+    """Reconcile the active operations that no client read recently or that passed their deadline."""
+    now = timezone.now()
+    ids = list(
+        AgentOperation.objects.unscoped()
+        .filter(state__in=AgentOperation.ACTIVE_STATES)
+        .filter(Q(updated_at__lt=now - UNWATCHED_AFTER) | Q(deadline_at__lte=now))
+        .order_by("updated_at")
+        .values_list("id", flat=True)[:SWEEP_BATCH_SIZE]
+    )
+    return _reconcile_each(AgentOperation.objects.unscoped().filter(id__in=ids))

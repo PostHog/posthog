@@ -1,4 +1,5 @@
 import json
+import uuid
 from datetime import timedelta
 from typing import Any
 
@@ -10,12 +11,15 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.models.integration import Integration
+from posthog.models.oauth import OAuthApplication, OAuthRefreshToken, revoke_oauth_session, revoke_oauth_token_family
 from posthog.models.personal_api_key import PersonalAPIKey
 
 from products.posthog_ai.backend.models import AgentOperation
 from products.posthog_ai.backend.services.agent_operations.delegation import granted_scopes
 from products.posthog_ai.backend.services.agent_operations.progress import summarize_run_log
 from products.posthog_ai.backend.services.agent_operations.result_schema import AGENT_RESULT_SCHEMA
+from products.posthog_ai.backend.services.agent_operations.service import reconcile_unwatched_operations
 from products.posthog_ai.backend.services.system_prompt.service import PromptService
 from products.tasks.backend.models import Task, TaskRun
 
@@ -194,6 +198,20 @@ class TestAgentOperationsAPI(APIBaseTest):
         assert task.json_schema == AGENT_RESULT_SCHEMA
         assert task.client_provenance == "agent_mcp"
         assert response.json()["project"] == {"id": self.team.id, "name": self.team.name}
+
+    def test_a_repository_run_gets_read_only_github_access_at_the_pinned_commit(self):
+        commit = "b" * 40
+        Integration.objects.create(team=self.team, kind="github", integration_id="12345", config={})
+        with patch(f"{SERVICE}.repo_selection.resolve_repository_commit", return_value=commit):
+            response = self.client.post(
+                self.url,
+                {"goal": "Where is signup tracked?", "client_request_id": "req-1", "repository": "acme/web"},
+                format="json",
+            )
+
+        assert response.status_code == 201, response.json()
+        run = TaskRun.objects.get(id=response.json()["run_id"])
+        assert (run.branch, run.state.get("github_read_access")) == (commit, True)
 
     @parameterized.expand([("no_ui_client", None, "bypassPermissions"), ("ui_client", "client", "auto")])
     def test_only_a_client_with_approval_ui_gets_approval_prompts(self, _name, approvals, permission_mode):
@@ -437,17 +455,42 @@ class TestAgentOperationsAPI(APIBaseTest):
         assert reads == [200] * 15
         assert starts == [201] * 9 + [429]
 
-    def test_deadline_expires_and_stops_the_run(self):
+    @parameterized.expand(
+        [
+            ("stop_sent", [("accepted", None)], "expired", 1),
+            ("stop_retried_by_the_sweep", [("unavailable", None), ("accepted", None)], "cancelling", 2),
+        ]
+    )
+    def test_deadline_expires_once_the_run_stop_is_sent(self, _name, outcomes, state_after_read, stop_calls):
         operation_id = self._start().json()["id"]
         AgentOperation.objects.for_team(self.team.id).filter(id=operation_id).update(
             deadline_at=timezone.now() - timedelta(minutes=1)
         )
 
-        with patch(f"{SERVICE}.tasks_cancellation.cancel_task_run", return_value=("cancelled", None)) as cancel:
+        with patch(f"{SERVICE}.tasks_cancellation.cancel_task_run", side_effect=outcomes) as cancel:
             body = self.client.get(f"{self.url}{operation_id}/").json()
+            reconcile_unwatched_operations()
 
-        assert (body["state"], body["state_reason"]) == ("expired", "deadline")
-        cancel.assert_called_once()
+        operation = AgentOperation.objects.for_team(self.team.id).get(id=operation_id)
+        assert (body["state"], body["state_reason"]) == (state_after_read, "deadline")
+        assert (operation.state, operation.state_reason, cancel.call_count) == ("expired", "deadline", stop_calls)
+
+    def test_cancel_during_the_first_dispatch_stops_the_new_run(self):
+        run = TaskRun.objects.create(team=self.team, task=Task.objects.create(team=self.team, title="t"))
+
+        def open_and_cancel(*_args, **_kwargs):
+            operation = AgentOperation.objects.for_team(self.team.id).get(client_request_id="req-1")
+            self.client.post(f"{self.url}{operation.id}/cancel/")
+            return MagicMock(run_id=str(run.id), task_id=str(run.task_id), just_created_run=True)
+
+        with (
+            patch(f"{SERVICE}.SandboxSession.open", side_effect=open_and_cancel),
+            patch(f"{SERVICE}.tasks_cancellation.cancel_task_run", return_value=("accepted", None)) as cancel,
+        ):
+            body = self._start().json()
+
+        assert (body["state"], body["run_id"]) == ("cancelling", str(run.id))
+        assert str(cancel.call_args.args[0]) == str(run.id)
 
     def test_revoking_the_key_stops_the_operation(self):
         key = self.create_personal_api_key_with_scopes(["conversation:write"])
@@ -462,6 +505,86 @@ class TestAgentOperationsAPI(APIBaseTest):
         operation = AgentOperation.objects.for_team(self.team.id).get(id=operation_id)
         assert (operation.state, operation.state_reason) == ("failed", "credential_revoked")
         cancel.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("scope_removed", {"scopes": ["conversation:write"]}),
+            ("scoped_to_another_project", {"scoped_teams": [999999]}),
+        ]
+    )
+    def test_narrowing_the_key_stops_the_operation(self, _name, change):
+        key = self.create_personal_api_key_with_scopes(["conversation:write", "insight:write"])
+        operation_id = self._start(key=key).json()["id"]
+        PersonalAPIKey.objects.filter(user=self.user).update(**change)
+
+        with patch(f"{SERVICE}.tasks_cancellation.cancel_task_run", return_value=("accepted", None)) as cancel:
+            body = self.client.get(f"{self.url}{operation_id}/").json()
+
+        assert (body["state"], body["state_reason"]) == ("failed", "credential_revoked")
+        cancel.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("family_revoked", lambda token: revoke_oauth_token_family(token)),
+            ("app_disconnected", lambda token: revoke_oauth_session(refresh_token=token)),
+        ]
+    )
+    def test_bulk_oauth_revocation_stops_the_operation(self, _name, revoke):
+        application = OAuthApplication.objects.create(
+            name="Agent client",
+            client_id="agent-client",
+            client_secret="agent-secret",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            user=self.user,
+            hash_client_secret=True,
+            algorithm="RS256",
+        )
+        family = uuid.uuid4()
+        token = OAuthRefreshToken.objects.create(
+            user=self.user, application=application, token="refresh-1", token_family=family
+        )
+        operation_id = self._start().json()["id"]
+        AgentOperation.objects.for_team(self.team.id).filter(id=operation_id).update(
+            parent_credential_kind=AgentOperation.ParentCredentialKind.OAUTH_TOKEN_FAMILY,
+            parent_credential_ref=str(family),
+        )
+
+        with (
+            patch(f"{SERVICE}.tasks_cancellation.cancel_task_run", return_value=("accepted", None)) as cancel,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            revoke(token)
+
+        operation = AgentOperation.objects.for_team(self.team.id).get(id=operation_id)
+        assert (operation.state, operation.state_reason) == ("failed", "credential_revoked")
+        cancel.assert_called_once()
+
+    def test_a_narrower_key_cannot_steer_the_operation(self):
+        broad = self.create_personal_api_key_with_scopes(["conversation:write", "insight:write"])
+        narrow = self.create_personal_api_key_with_scopes(["conversation:write"])
+        operation_id = self._start(key=broad).json()["id"]
+
+        with patch(f"{SERVICE}.SandboxSession.open") as open_:
+            response = self.client.post(
+                f"{self.url}{operation_id}/reply/",
+                {"message": "Also delete the old insights", "client_request_id": "r-1"},
+                format="json",
+                HTTP_AUTHORIZATION=f"Bearer {narrow}",
+            )
+
+        assert (response.status_code, response.json()["code"]) == (403, "insufficient_scope")
+        open_.assert_not_called()
+
+    def test_starting_work_needs_ai_data_processing_approval(self):
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save()
+
+        response = self._start()
+
+        assert response.status_code == 403
+        self.dispatch.assert_not_called()
 
     @parameterized.expand([("free_text", "The pro plan"), ("approval_word", "allow")])
     def test_reply_to_a_question_is_delivered_once_per_request_id(self, _name, message):

@@ -24,12 +24,15 @@ from django.db.models.signals import post_delete, post_save
 from asgiref.sync import async_to_sync
 
 from posthog.models import Team, User
-from posthog.models.oauth import OAuthRefreshToken
+from posthog.models.oauth import OAuthRefreshToken, oauth_sessions_revoked
 from posthog.models.personal_api_key import PersonalAPIKey
 
 from products.posthog_ai.backend.models.agent_operation import AgentOperation
 from products.posthog_ai.backend.models.assistant import Conversation
-from products.posthog_ai.backend.services.agent_operations.service import stop_operations_for_revoked_credential
+from products.posthog_ai.backend.services.agent_operations.service import (
+    stop_operations_for_revoked_credential,
+    stop_operations_for_revoked_oauth,
+)
 from products.posthog_ai.backend.turn_suggestions.dispatch import enqueue_turn_suggestion_on_turn_completed
 from products.tasks.backend.facade.task_run_signals import (
     TaskOriginProduct,
@@ -72,6 +75,7 @@ def connect() -> None:
         sender=OAuthRefreshToken,
         dispatch_uid="posthog_ai_agent_op_refresh_token",
     )
+    oauth_sessions_revoked.connect(stop_agent_operations_on_oauth_revoke, dispatch_uid="posthog_ai_agent_op_oauth")
 
 
 def stop_agent_operations_on_api_key_delete(sender: Any, instance: PersonalAPIKey, **kwargs: Any) -> None:
@@ -89,6 +93,11 @@ def stop_agent_operations_on_refresh_token_revoke(sender: Any, instance: OAuthRe
     transaction.on_commit(
         lambda: stop_operations_for_revoked_credential(AgentOperation.ParentCredentialKind.OAUTH_TOKEN_FAMILY, family)
     )
+
+
+def stop_agent_operations_on_oauth_revoke(sender: Any, user_id: int | None, **kwargs: Any) -> None:
+    # The bulk revocations delete or update tokens in a queryset, which sends no model signal.
+    transaction.on_commit(lambda: stop_operations_for_revoked_oauth(user_id))
 
 
 def copied_chats_hidden_without_sandbox_mode(team_id: int, user_id: int | None) -> Iterable[UUID]:

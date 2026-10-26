@@ -4,6 +4,7 @@ from prometheus_client import Counter
 
 from posthog.celery_queues import CeleryQueue
 
+from products.posthog_ai.backend.services.agent_operations.service import reconcile_unwatched_operations
 from products.posthog_ai.backend.turn_suggestions.service import generate_turn_suggestion
 
 logger = structlog.get_logger(__name__)
@@ -27,3 +28,9 @@ def generate_turn_suggestion_task(*, run_id: str, team_id: int) -> None:
         status=outcome.status,
         reason=outcome.reason,
     )
+
+
+@shared_task(ignore_result=True, queue=CeleryQueue.POSTHOG_AI.value, soft_time_limit=50, time_limit=60)
+def reconcile_agent_operations_task() -> None:
+    reconciled = reconcile_unwatched_operations()
+    logger.info("posthog_ai_agent_operations_reconciled", count=reconciled)
