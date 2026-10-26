@@ -1498,19 +1498,62 @@ describe("SessionLogWriter — local-cache tool_call_update coalescing", () => {
     });
   });
 
-  it("a terminal update merges into buffered snapshots, later fields winning", async () => {
-    writer.appendRawLine(RUN, update({ content: "a1" }));
-    writer.appendRawLine(RUN, update({ content: "a2" }));
-    writer.appendRawLine(
-      RUN,
-      update({ content: "final", status: "completed" }),
-    );
+  it.each(["agent_message_chunk", "agent_thought_chunk"])(
+    "merges tool snapshots across interleaved child %s until completion",
+    async (kind) => {
+      vi.useFakeTimers();
+      try {
+        for (let i = 1; i <= 100; i++) {
+          writer.appendRawLine(
+            RUN,
+            update({
+              rawInput: { text: "x".repeat(i * 1000) },
+              content: `partial ${i}`,
+              _meta: { posthog: { parentToolCallId: "tool-agent" } },
+            }),
+          );
+          writer.appendRawLine(
+            RUN,
+            makeSessionUpdate(kind, {
+              content: { type: "text", text: "Working. " },
+              _meta: { posthog: { parentToolCallId: "text-agent" } },
+            }),
+          );
+        }
 
-    const log = await readLog();
-    expect(log).toHaveLength(1);
-    expect(sessionUpdateOf(log[0]).content).toBe("final");
-    expect(sessionUpdateOf(log[0]).status).toBe("completed");
-  });
+        const streamingLog = (await readLog()).map(sessionUpdateOf);
+        expect(streamingLog).toHaveLength(100);
+        expect(
+          streamingLog.every(
+            (entry) =>
+              entry.sessionUpdate === kind &&
+              entry.content.text === "Working. ",
+          ),
+        ).toBe(true);
+
+        writer.appendRawLine(
+          RUN,
+          update({ content: "final", status: "completed" }),
+        );
+
+        const toolUpdates = (await readLog())
+          .map(sessionUpdateOf)
+          .filter((entry) => entry.sessionUpdate === "tool_call_update");
+        expect(toolUpdates).toEqual([
+          {
+            sessionUpdate: "tool_call_update",
+            toolCallId: "a",
+            rawInput: { text: "x".repeat(100_000) },
+            content: "final",
+            status: "completed",
+            _meta: { posthog: { parentToolCallId: "tool-agent" } },
+          },
+        ]);
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
 
   it("fields carried only by earlier updates survive the terminal write", async () => {
     // Mirrors the real emission shape: streamed rawInput snapshots carry the

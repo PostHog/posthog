@@ -277,7 +277,6 @@ export class SessionLogWriter {
           }
           this.persistSubagentChunks(
             sessionId,
-            session,
             redactor.redact({
               type: "notification",
               timestamp,
@@ -548,14 +547,13 @@ export class SessionLogWriter {
 
   private persistSubagentChunks(
     sessionId: string,
-    session: SessionState,
     events: Record<string, unknown>[],
   ): void {
     for (const event of events) {
       const entry = event as unknown as StoredNotification;
       if (this.isEmptyThoughtChunk(entry.notification)) continue;
       this.emitToSinks(sessionId, entry);
-      this.flushToolUpdateCache(sessionId, session);
+      // Child text can interleave with other tools, so keep their snapshots buffered.
       this.writeToLocalCache(sessionId, entry);
       if (this.posthogAPI) this.pushPendingEntry(sessionId, entry);
     }
@@ -573,7 +571,7 @@ export class SessionLogWriter {
       const redactor = session.subagentRedactors.get(id);
       if (!redactor) continue;
       session.subagentRedactors.delete(id);
-      this.persistSubagentChunks(sessionId, session, redactor.flush());
+      this.persistSubagentChunks(sessionId, redactor.flush());
     }
   }
 
