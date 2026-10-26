@@ -16,15 +16,17 @@ import { initKeaTests } from '~/test/init'
 import {
     accountsList,
     accountsRetrieve,
+    customerTasksArchiveCreate,
     customerTasksCreate,
     customerTasksList,
     customerTasksRetrieve,
     customerTasksPartialUpdate,
+    customerTasksRestoreCreate,
 } from 'products/customer_analytics/frontend/generated/api'
 import type { CustomerTaskApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import { customerTasksPersistencePrefix, parseCustomerTaskSearchParams } from './customerTaskFilters'
-import { customerTasksLogic } from './customerTasksLogic'
+import { customerTasksLogic, type CustomerTaskBulkPatch } from './customerTasksLogic'
 
 jest.mock('products/customer_analytics/frontend/generated/api', () => ({
     accountsList: jest.fn(),
@@ -41,6 +43,8 @@ const mockCreate = customerTasksCreate as jest.MockedFunction<typeof customerTas
 const mockList = customerTasksList as jest.MockedFunction<typeof customerTasksList>
 const mockAccounts = accountsList as jest.MockedFunction<typeof accountsList>
 const mockUpdate = customerTasksPartialUpdate as jest.MockedFunction<typeof customerTasksPartialUpdate>
+const mockArchive = customerTasksArchiveCreate as jest.MockedFunction<typeof customerTasksArchiveCreate>
+const mockRestore = customerTasksRestoreCreate as jest.MockedFunction<typeof customerTasksRestoreCreate>
 const mockAccount = accountsRetrieve as jest.MockedFunction<typeof accountsRetrieve>
 
 const URL_ACCOUNT_ID = '0199ed4a-5c03-0000-3220-df21df612e95'
@@ -85,6 +89,145 @@ describe('customerTasksLogic', () => {
     afterEach(() => {
         logic?.unmount()
         localStorage.clear()
+    })
+
+    test.each<CustomerTaskBulkPatch>([
+        { status: 'completed' },
+        { assigned_to_id: 7 },
+        { assigned_to_id: null },
+        { due_at: '2026-10-30T12:00:00Z' },
+        { due_at: null },
+        { account_id: URL_ACCOUNT_ID },
+        { account_id: null },
+    ])('updates selected tasks with %j and reloads once', async (patch) => {
+        const tasks = [
+            {
+                ...task(),
+                assigned_to: { id: 9, email: 'sam@example.com', first_name: 'Sam', last_name: '' },
+                account: { id: SECOND_URL_ACCOUNT_ID, name: 'Example account' },
+                due_at: '2026-10-29T12:00:00Z',
+            },
+            {
+                ...task(),
+                id: 'task-2',
+                assigned_to: { id: 9, email: 'sam@example.com', first_name: 'Sam', last_name: '' },
+                account: { id: SECOND_URL_ACCOUNT_ID, name: 'Example account' },
+                due_at: '2026-10-29T12:00:00Z',
+            },
+            { ...task(), id: 'task-3' },
+        ]
+        mockList.mockResolvedValue({ count: tasks.length, next: null, previous: null, results: tasks })
+        logic = customerTasksLogic({ context: 'inbox' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        mockList.mockClear()
+        const onComplete = jest.fn()
+
+        logic.actions.bulkUpdateTasks(['task-1', 'task-2'], patch, onComplete)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(mockUpdate.mock.calls.map((call) => call.slice(1))).toEqual([
+            ['task-1', patch],
+            ['task-2', patch],
+        ])
+        expect(mockList).toHaveBeenCalledTimes(1)
+        expect(onComplete).toHaveBeenCalledWith([])
+        expect(logic.values.mutationKeys).toEqual({})
+    })
+
+    test.each([true, false])(
+        'bulk archive state %s skips unchanged tasks and retains failed tasks',
+        async (archived) => {
+            const archivedAt = '2026-09-03T12:00:00Z'
+            const eligible = { ...task(), archived_at: archived ? null : archivedAt, can_restore: true }
+            const tasks = [
+                eligible,
+                { ...eligible, id: 'task-2', can_edit: !archived, can_restore: false },
+                { ...eligible, id: 'task-3', archived_at: archived ? archivedAt : null },
+                { ...eligible, id: 'task-4' },
+            ]
+            const mutate = archived ? mockArchive : mockRestore
+            mutate.mockResolvedValueOnce(task()).mockRejectedValueOnce(new Error('Save failed'))
+            mockList.mockResolvedValue({ count: tasks.length, next: null, previous: null, results: tasks })
+            const toast = jest.spyOn(lemonToast, 'error').mockImplementation(() => '' as never)
+            logic = customerTasksLogic({ context: 'inbox' })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            mockList.mockClear()
+            const onComplete = jest.fn()
+
+            logic.actions.bulkUpdateTasks([...tasks.map((task) => task.id), 'not-on-page'], { archived }, onComplete)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(mutate.mock.calls.map((call) => call[1])).toEqual(['task-1', 'task-4'])
+            expect(mockUpdate).not.toHaveBeenCalled()
+            expect(onComplete).toHaveBeenCalledWith(['task-2', 'task-4'])
+            expect(mockList).toHaveBeenCalledTimes(1)
+            expect(logic.values.mutationKeys).toEqual({})
+            toast.mockRestore()
+        }
+    )
+
+    test.each([false, true])('handles partial failure when filters change: %s', async (changeFilters) => {
+        const tasks = [task(), { ...task(), id: 'task-2' }]
+        mockList.mockResolvedValue({ count: 2, next: null, previous: null, results: tasks })
+        let finishUpdate!: (task: CustomerTaskApi) => void
+        mockUpdate.mockImplementationOnce(
+            () =>
+                new Promise((resolve) => {
+                    finishUpdate = resolve
+                })
+        )
+        mockUpdate.mockRejectedValueOnce(new Error('Save failed'))
+        const toast = jest.spyOn(lemonToast, 'error').mockImplementation(() => '' as never)
+        logic = customerTasksLogic({ context: 'inbox' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        const onComplete = jest.fn()
+
+        logic.actions.bulkUpdateTasks(['task-1', 'task-2'], { status: 'completed' }, onComplete)
+        expect(logic.values.mutationKeys).toEqual({ bulk: true, 'task-1': true, 'task-2': true })
+        logic.actions.bulkUpdateTasks(['task-1', 'task-2'], { status: 'completed' }, onComplete)
+        logic.actions.updateTask('task-2', { assigned_to_id: 7 })
+        expect(mockUpdate).toHaveBeenCalledTimes(1)
+        if (changeFilters) {
+            logic.actions.setFilters({ status: 'all' })
+        }
+        finishUpdate(task())
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(mockUpdate).toHaveBeenCalledTimes(2)
+        expect(onComplete).toHaveBeenCalledWith(changeFilters ? [] : ['task-2'])
+        expect(toast).toHaveBeenCalledWith('We could not update 1 of 2 tasks. Try again.')
+        expect(logic.values.mutationKeys).toEqual({})
+        toast.mockRestore()
+    })
+
+    test('excludes protected tasks, invalid transitions, and tasks outside the current page', async () => {
+        const tasks: CustomerTaskApi[] = [
+            task(false),
+            { ...task(), id: 'task-2', archived_at: '2026-09-03T12:00:00Z' },
+            { ...task(), id: 'task-3', status: 'completed' },
+            { ...task(), id: 'task-4', status: 'in_progress' },
+            { ...task(), id: 'task-5' },
+        ]
+        mockList.mockResolvedValue({ count: 5, next: null, previous: null, results: tasks })
+        const toast = jest.spyOn(lemonToast, 'error').mockImplementation(() => '' as never)
+        logic = customerTasksLogic({ context: 'inbox' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        const onComplete = jest.fn()
+
+        logic.actions.bulkUpdateTasks(
+            [...tasks.map((task) => task.id), 'not-on-page'],
+            { status: 'in_progress' },
+            onComplete
+        )
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(mockUpdate.mock.calls.map((call) => call.slice(1))).toEqual([['task-5', { status: 'in_progress' }]])
+        expect(onComplete).toHaveBeenCalledWith(['task-1', 'task-2', 'task-3'])
+        toast.mockRestore()
     })
 
     test.each([
