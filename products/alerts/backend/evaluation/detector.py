@@ -274,7 +274,11 @@ def _platform_fired_checks(alert: AlertConfiguration, moved_at: datetime) -> lis
     from products.alerts.backend.platform_alert_reads import moved_alert_fired_checks  # noqa: PLC0415
 
     checks = moved_alert_fired_checks(
-        team_id=alert.team_id, moved_at={alert.id: moved_at}, not_before=None, limit=MAX_EARLIER_CHECKS
+        team_id=alert.team_id,
+        moved_at={alert.id: moved_at},
+        not_before=None,
+        limit=MAX_EARLIER_CHECKS,
+        ai_verdicts_only=True,
     ).get(alert.id, ())
     return [
         check

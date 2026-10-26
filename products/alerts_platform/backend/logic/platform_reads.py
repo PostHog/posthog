@@ -270,9 +270,14 @@ def check_page_by_legacy_id(
 
 
 def checks_with_detail_by_legacy_id(
-    *, team_id: int, legacy_configuration_ids: Collection[UUID], detail_key: str, since: datetime, limit: int
+    *,
+    team_id: int,
+    legacy_configuration_ids: Collection[UUID],
+    detail_paths: Sequence[Sequence[str]],
+    since: datetime,
+    limit: int,
 ) -> dict[UUID, tuple[PlatformCheckEntry, ...]]:
-    """Each named alert's newest `limit` checks since `since` whose source detail holds `detail_key`,
+    """Each named alert's newest `limit` checks since `since` whose source detail holds every one of `detail_paths`,
     keyed by the source's id.
 
     An alert the platform does not own is left out, as in `runtime_by_legacy_id`.
@@ -281,6 +286,6 @@ def checks_with_detail_by_legacy_id(
         return {}
     legacy_by_platform_id = _owned_by_legacy_id(team_id, legacy_configuration_ids)
     checks = platform_alert_events.checks_with_detail(
-        team_id, legacy_by_platform_id, detail_key=detail_key, since=since, limit=limit
+        team_id, legacy_by_platform_id, detail_paths=detail_paths, since=since, limit=limit
     )
     return {legacy_by_platform_id[platform_id]: entries for platform_id, entries in checks.items()}

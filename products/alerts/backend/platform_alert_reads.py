@@ -37,6 +37,9 @@ from products.alerts_platform.backend.facade.enums import PlatformAlertOwner, Pl
 # The detail key a detector check that fired on a point stores its dates under.
 FIRED_DATES_KEY: Final = "triggered_dates"
 
+# Only an AI verdict has a reason, so a check that holds one is an AI detector's.
+AI_REASON_PATH: Final = ("triggered_metadata", "rationale")
+
 _EARLIEST: Final = datetime(1970, 1, 1, tzinfo=UTC)
 _LATEST: Final = datetime(2100, 1, 1, tzinfo=UTC)
 
@@ -115,12 +118,18 @@ def moved_alert_check_page(
 
 
 def moved_alert_fired_checks(
-    *, team_id: int, moved_at: Mapping[UUID, datetime], not_before: datetime | None, limit: int
+    *,
+    team_id: int,
+    moved_at: Mapping[UUID, datetime],
+    not_before: datetime | None,
+    limit: int,
+    ai_verdicts_only: bool = False,
 ) -> dict[UUID, tuple[MovedAlertCheck, ...]]:
     """Each moved alert's newest `limit` detector checks that fired on a point, newest first, from the
     platform's history since the move and not before `not_before`.
 
-    `moved_at` holds each alert's `platform_owned_since`. The platform's checks before the move were
+    `moved_at` holds each alert's `platform_owned_since`. `ai_verdicts_only` keeps the AI detector's
+    checks, before the limit applies, so statistical checks from another detector cannot use it up. The platform's checks before the move were
     a parallel run, not the alert's own. A ClickHouse failure leaves out every alert, so a caller
     shows what it has without the platform.
     """
@@ -131,7 +140,7 @@ def moved_alert_fired_checks(
         checks = checks_with_detail_by_legacy_id(
             team_id=team_id,
             legacy_configuration_ids=list(since),
-            detail_key=FIRED_DATES_KEY,
+            detail_paths=[(FIRED_DATES_KEY,), *([AI_REASON_PATH] if ai_verdicts_only else [])],
             since=min(since.values()),
             limit=limit,
         )
