@@ -42,6 +42,7 @@ class HogFlowAdmin(admin.ModelAdmin):
         ("email_sending_paused_at", admin.EmptyFieldListFilter),
     )
     list_select_related = ("team",)
+    raw_id_fields = ("enable_requested_by",)
     search_fields = ("name", "team__name", "team__organization__name")
     ordering = ("-created_at",)
     actions = ("pause_email_sending", "resume_email_sending")

@@ -33,7 +33,7 @@ export function WorkflowActions(props: WorkflowSceneLogicProps): JSX.Element {
         showDraftActions,
         statusToggleDisabledReason,
     } = useValues(workflowLogic)
-    const { saveWorkflowPartial, submitWorkflow, discardChanges, publishDraft, discardDraft } =
+    const { saveWorkflowPartial, enableWorkflow, submitWorkflow, discardChanges, publishDraft, discardDraft } =
         useActions(workflowLogic)
     const { searchParams } = useValues(router)
     const editTemplateId = searchParams.editTemplateId as string | undefined
@@ -82,9 +82,9 @@ export function WorkflowActions(props: WorkflowSceneLogicProps): JSX.Element {
                                 // reveals the per-field messages, and saveWorkflowPartial
                                 // guards the actual enable with a toast.
                                 onClick={() =>
-                                    saveWorkflowPartial({
-                                        status: workflow?.status === 'draft' ? 'active' : 'draft',
-                                    })
+                                    workflow?.status === 'draft'
+                                        ? enableWorkflow()
+                                        : saveWorkflowPartial({ status: 'draft' })
                                 }
                                 disabledReason={statusToggleDisabledReason}
                                 className="transition-colors duration-300 ease-in-out"
@@ -105,9 +105,9 @@ export function WorkflowActions(props: WorkflowSceneLogicProps): JSX.Element {
                                 // reveals the per-field messages, and saveWorkflowPartial
                                 // guards the actual enable with a toast.
                                 onClick={() =>
-                                    saveWorkflowPartial({
-                                        status: workflow?.status === 'draft' ? 'active' : 'draft',
-                                    })
+                                    workflow?.status === 'draft'
+                                        ? enableWorkflow()
+                                        : saveWorkflowPartial({ status: 'draft' })
                                 }
                                 size="small"
                                 disabledReason={statusToggleDisabledReason}

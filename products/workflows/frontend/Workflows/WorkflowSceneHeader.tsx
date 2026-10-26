@@ -20,6 +20,7 @@ import {
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { EnableWorkflowPrompt } from './EnableWorkflowPrompt'
 import { workflowSuggestionsAvailabilityLogic } from './suggestions/workflowSuggestionsAvailabilityLogic'
 import { WorkflowSuggestionsMenuItem } from './suggestions/WorkflowSuggestionsMenuItem'
 import { SaveAsTemplateModal } from './templates/SaveAsTemplateModal'
@@ -32,9 +33,17 @@ import { WorkflowSceneLogicProps } from './workflowSceneLogic'
 import { WorkflowScenePanel } from './WorkflowScenePanel'
 
 export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.Element => {
-    const { workflow, hasUnsavedChanges, hasStagedDraft, workflowLoading, workflowUserAccessLevel } =
+    const { workflow, hasUnsavedChanges, hasStagedDraft, workflowLoading, workflowUserAccessLevel, enablePromptDomains } =
         useValues(workflowLogic)
-    const { setWorkflowValue, duplicate, archiveWorkflow, publishDraft, discardDraft } = useActions(workflowLogic)
+    const {
+        setWorkflowValue,
+        duplicate,
+        archiveWorkflow,
+        publishDraft,
+        discardDraft,
+        confirmEnablePrompt,
+        cancelEnablePrompt,
+    } = useActions(workflowLogic)
     const { searchParams } = useValues(router)
     const editTemplateId = searchParams.editTemplateId as string | undefined
     const { showSaveAsTemplateModal } = useActions(workflowTemplateLogic({ ...props, editTemplateId }))
@@ -48,6 +57,12 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
     return (
         <>
             <SaveAsTemplateModal {...props} editTemplateId={editTemplateId} />
+            <EnableWorkflowPrompt
+                domains={enablePromptDomains}
+                onConfirm={confirmEnablePrompt}
+                onCancel={cancelEnablePrompt}
+                loading={workflowLoading}
+            />
             {sceneMenuBarEnabled && isSavedWorkflow && (
                 <SceneMenuBar>
                     <SceneMenuBarMenu label="File" dataAttr="workflow-menubar-file">

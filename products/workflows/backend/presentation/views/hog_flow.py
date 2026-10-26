@@ -196,6 +196,7 @@ from products.workflows.backend.facade.contracts import (
     WorkflowDraftChanged,
     WorkflowDraftExists,
     WorkflowEditState,
+    WorkflowEvent,
     WorkflowHasNoDraft,
     WorkflowListFiltersInvalid,
     WorkflowListQuery,
@@ -336,11 +337,12 @@ from products.workflows.backend.facade.writes import (
     create_workflow,
     defer_hog_flow_reloads,
     destroy_workflow,
+    disable,
     discard_draft,
     edit_workflow_content,
+    enable,
     publish_confirm_value,
     publish_draft,
-    save_validated_workflow,
     trigger_has_audience,
     update_workflow,
 )
@@ -3280,6 +3282,11 @@ class HogFlowSummarySerializer(HogFlowMinimalSerializer):
         read_only_fields = fields
 
 
+class HogFlowUnverifiedEmailSenderSerializer(serializers.Serializer):
+    id = serializers.IntegerField(read_only=True, help_text="The email sender's integration id.")
+    domain = serializers.CharField(read_only=True, help_text="The sender's domain, which is not verified yet.")
+
+
 class HogFlowSerializer(HogFlowMinimalSerializer):
     origin_product = serializers.ChoiceField(
         choices=HogFlowOriginProduct.choices,
@@ -3313,7 +3320,11 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
     status = serializers.ChoiceField(
         choices=HogFlowState.choices,
         required=False,
-        help_text="draft (no execution), active (live), archived (disabled).",
+        help_text=(
+            "draft (no execution), active (live), archived (disabled). Send active to enable: the response "
+            "carries waiting_for_domain instead when an email sender's domain is not verified yet, and the "
+            "workflow goes live once it is. waiting_for_domain is never accepted as input."
+        ),
     )
     trigger_masking = HogFlowMaskingSerializer(
         required=False,
@@ -3452,6 +3463,37 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "immediately re-trip on the feedback that caused the pause. Null if never paused."
         ),
     )
+    enable_requested_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text="When someone last enabled the workflow. Null if it was never enabled.",
+    )
+    went_live_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "When the workflow last went live. Earlier than enable_requested_at, or null, while the workflow "
+            "waits for its email sender's domain."
+        ),
+    )
+    unverified_email_senders = HogFlowUnverifiedEmailSenderSerializer(
+        many=True,
+        read_only=True,
+        help_text=(
+            "The email senders of this workflow whose domain is not verified yet. Enabling the workflow while "
+            "this list is not empty makes it wait for those domains. Not returned by the list endpoint."
+        ),
+    )
+
+    def validate_status(self, value: str) -> str:
+        instance = cast(Optional[WorkflowEditState], self.instance)
+        if value == HogFlowState.WAITING_FOR_DOMAIN and (
+            instance is None or instance.status != HogFlowState.WAITING_FOR_DOMAIN
+        ):
+            raise serializers.ValidationError(
+                "Send active to enable the workflow. It waits for its email sender's domain on its own."
+            )
+        return value
 
     def _stages_draft(self) -> bool:
         # stage_draft rides the raw request body rather than being a serializer field, mirroring
@@ -3554,7 +3596,8 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         status = data.get("status")
         if status is None and instance:
             status = instance.status
-        if status != "active":
+        # A waiting workflow goes live without another validation, so each edit to it validates like an activation.
+        if status not in (HogFlowState.ACTIVE, HogFlowState.WAITING_FOR_DOMAIN):
             self.context["is_draft"] = True
         elif (
             instance is not None
@@ -3634,6 +3677,9 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "email_sending_paused_by",
             "email_sending_pause_requires_support",
             "email_sending_resumed_at",
+            "enable_requested_at",
+            "went_live_at",
+            "unverified_email_senders",
             "last_run",
             "tags",
         ]
@@ -3659,6 +3705,9 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "email_sending_paused_by",
             "email_sending_pause_requires_support",
             "email_sending_resumed_at",
+            "enable_requested_at",
+            "went_live_at",
+            "unverified_email_senders",
             "last_run",
         ]
 
@@ -3888,7 +3937,8 @@ class HogFlowUpdateSerializer(HogFlowSerializer):
 
 
 def set_workflow_enabled(*, team_id: int, user_id: int, workflow_id: uuid_mod.UUID, enabled: bool) -> str:
-    """Flip a workflow between ``active`` and ``draft`` as ``user_id`` and return the new status.
+    """Enable or disable a workflow as ``user_id`` and return the status it saved: ``active``, or
+    ``waiting_for_domain`` when an email sender is not verified yet, or ``draft``.
 
     The same transition the lifecycle API tools make (enable is ``active``, disable is
     ``draft``); the scheduler fires only active workflows, so a disabled one stops at its
@@ -3898,24 +3948,70 @@ def set_workflow_enabled(*, team_id: int, user_id: int, workflow_id: uuid_mod.UU
     the serializer rather than behind the facade.
     """
     team = Team.objects.get(id=team_id)
-    user_access_control = UserAccessControl(user=User.objects.get(id=user_id), team=team)
+    actor = User.objects.get(id=user_id)
+    user_access_control = UserAccessControl(user=actor, team=team)
     hog_flow = get_team_workflow_edit_state(
         team_id=team_id, workflow_id=workflow_id, user_access_control=user_access_control, required_level="editor"
     )
-    target = HogFlowState.ACTIVE if enabled else HogFlowState.DRAFT
-    if hog_flow.status != target:
-        validated_data: dict[str, Any] = {"status": target}
-        if enabled:
-            serializer = HogFlowSerializer(
-                hog_flow,
-                data={"status": target},
-                partial=True,
-                context={"team_id": team_id, "get_team": lambda: team},
+    if not enabled:
+        change = disable(team_id=team_id, hog_flow_id=hog_flow.id)
+    elif hog_flow.status == HogFlowState.ACTIVE:
+        return str(HogFlowState.ACTIVE)
+    else:
+        serializer = HogFlowSerializer(
+            hog_flow,
+            data={"status": HogFlowState.ACTIVE},
+            partial=True,
+            context={"team_id": team_id, "get_team": lambda: team},
+        )
+        serializer.is_valid(raise_exception=True)
+        change = enable(
+            team_id=team_id, hog_flow_id=hog_flow.id, user_id=user_id, validated_data=serializer.validated_data
+        )
+    transaction.on_commit(
+        lambda: report_workflow_events(
+            change.events,
+            workflow_name=hog_flow.name,
+            origin_product=hog_flow.origin_product,
+            team=team,
+            actor=actor,
+        )
+    )
+    return str(change.current)
+
+
+def report_workflow_events(
+    events: Sequence[WorkflowEvent],
+    *,
+    workflow_name: Optional[str],
+    origin_product: Optional[str],
+    team: Team,
+    actor: User,
+    request: Optional[Request] = None,
+) -> None:
+    """Send the usage events a workflow write returned. Each is credited to the person it names, which is
+    the person who last enabled the workflow, and falls back to ``actor``. Capture never breaks the caller."""
+    for event in events:
+        user = actor
+        if event.user_id is not None and event.user_id != actor.id:
+            user = User.objects.filter(pk=event.user_id).first() or actor
+        try:
+            report_user_action(
+                user,
+                event.name,
+                {
+                    "workflow_id": str(event.workflow_id),
+                    "workflow_name": workflow_name,
+                    "origin_product": origin_product,
+                    "team_id": str(team.id),
+                    "organization_id": str(team.organization_id),
+                    **event.properties,
+                },
+                team=team,
+                request=request,
             )
-            serializer.is_valid(raise_exception=True)
-            validated_data = dict(serializer.validated_data)
-        save_validated_workflow(team_id=team_id, hog_flow_id=hog_flow.id, validated_data=validated_data)
-    return str(target)
+        except Exception as e:
+            logger.warning("Failed to capture workflow usage event", event=event.name, error=str(e))
 
 
 GRAPH_OPERATION_TYPES = [
@@ -5556,6 +5652,16 @@ class HogFlowViewSet(
         except Exception as e:
             logger.warning("Failed to capture workflow usage event", event=event, error=str(e))
 
+    def _report_workflow_events(self, events: Sequence[WorkflowEvent], instance: "Workflow | WorkflowRef") -> None:
+        report_workflow_events(
+            events,
+            workflow_name=instance.name,
+            origin_product=getattr(instance, "origin_product", None),
+            team=self.team,
+            actor=cast(User, self.request.user),
+            request=self.request,
+        )
+
     def perform_create(self, serializer):
         if self._is_mcp_request(self.request) and serializer.validated_data.get("status") == HogFlowState.ACTIVE:
             raise exceptions.ValidationError(
@@ -5571,6 +5677,7 @@ class HogFlowViewSet(
         serializer.instance = self._written_workflow(result)
         self._log_activity(serializer.instance.id, serializer.instance.name, "created", detail_type="standard")
         self._emit_resource_edited(serializer.instance)
+        self._report_workflow_events(result.events, serializer.instance)
 
         self._report_workflow_action(
             "hog_flow_created",
@@ -5655,16 +5762,7 @@ class HogFlowViewSet(
         ):
             self._sync_suggestions_scout(self.request)
 
-        # PostHog capture for hog_flow activated (draft -> active)
-        if result.previous.get("status") == HogFlowState.DRAFT and serializer.instance.status == HogFlowState.ACTIVE:
-            self._report_workflow_action(
-                "hog_flow_activated",
-                serializer.instance,
-                {
-                    "edges_count": len(serializer.instance.edges or []),
-                    "actions_count": len(serializer.instance.actions or []),
-                },
-            )
+        self._report_workflow_events(result.events, serializer.instance)
 
     def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         partial = kwargs.pop("partial", False)
@@ -5683,8 +5781,9 @@ class HogFlowViewSet(
         # usage event fires only after commit.
         with transaction.atomic():
             self._log_activity(instance.id, instance.name, "deleted")
-            destroy_workflow(team_id=self.team_id, hog_flow_id=instance.id)
+            events = destroy_workflow(team_id=self.team_id, hog_flow_id=instance.id)
         self._report_workflow_action("hog_flow_deleted", instance, {"via": "destroy"})
+        self._report_workflow_events(events, instance)
 
     def _log_schedule_activity(
         self, hog_flow: WorkflowRef, *, before: Optional[WorkflowSchedule], after: Optional[WorkflowSchedule]
@@ -5780,6 +5879,7 @@ class HogFlowViewSet(
         # the indistinct "changed" and miss the describer's per-field rendering).
         self._log_activity(instance.id, instance.name, "updated", previous=result.previous, current=result.current)
         self._emit_resource_edited(instance)
+        self._report_workflow_events(result.events, instance)
         self._report_workflow_action(
             "hog_flow_graph_updated",
             instance,
@@ -5828,8 +5928,8 @@ class HogFlowViewSet(
             new_actions = _apply_action_email_edit(base_actions, action_id, email_patch, rendered)
             return self._validate_locked_content(state, {"actions": new_actions}, enforce_graph_structure=True)
 
-        # Same staleness and draft contract as /graph, but no action-redirect refresh or timing
-        # reschedule: an email edit can't delete steps or change timing config.
+        # Same staleness and draft contract as /graph, but no action-redirect refresh: an email edit
+        # can't delete steps. Timing reschedules only when the edit takes a waiting workflow live.
         try:
             result = edit_workflow_content(
                 team_id=self.team_id,
@@ -5846,6 +5946,7 @@ class HogFlowViewSet(
 
         self._log_activity(instance.id, instance.name, "updated", previous=result.previous, current=result.current)
         self._emit_resource_edited(instance)
+        self._report_workflow_events(result.events, instance)
         self._report_workflow_action(
             "hog_flow_action_email_updated",
             instance,
@@ -6001,6 +6102,7 @@ class HogFlowViewSet(
         self._report_schedules_paused(result, locked)
         self._log_activity(locked.id, locked.name, "published", previous=result.previous, current=result.current)
         self._emit_resource_edited(locked)
+        self._report_workflow_events(result.events, locked)
         self._report_workflow_action("hog_flow_draft_published", locked)
 
         return Response(

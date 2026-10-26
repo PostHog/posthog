@@ -18,6 +18,7 @@ from products.workflows.backend.facade.enums import (
     EmailDraftOrigin,
     HogFlowBatchJobState,
     HogFlowScheduleStatus,
+    HogFlowState,
     HogFlowTemplateExitCondition,
     HogFlowTemplateScope,
     SetupStepKey,
@@ -599,6 +600,14 @@ class WorkflowHasNoDraft(Exception):
 
 
 @frozen
+class UnverifiedEmailSender:
+    """An email sender of a workflow whose domain is not verified yet."""
+
+    id: int
+    domain: str
+
+
+@frozen
 class Workflow:
     """A workflow as the API reads it.
 
@@ -640,12 +649,16 @@ class Workflow:
     email_sending_paused_reason: str
     email_sending_paused_by: str
     email_sending_resumed_at: datetime | None
+    enable_requested_at: datetime | None
+    went_live_at: datetime | None
     user_access_level: str | None
     # Tag names, sorted.
     tags: tuple[str, ...] = ()
     # Read on the list only. A single-workflow read leaves both None and ``schedules`` filled.
     pending_suggestions: int | None = None
     suggestions_enabled: bool | None = None
+    # Read for a single workflow only. The list leaves it empty.
+    unverified_email_senders: tuple[UnverifiedEmailSender, ...] = ()
 
 
 @frozen
@@ -810,12 +823,35 @@ class WorkflowActor:
     was_impersonated: bool
 
 
+WorkflowEventName = Literal["hog_flow_enable_requested", "hog_flow_activated", "hog_flow_waiting_cancelled"]
+
+
+@frozen
+class WorkflowEvent:
+    """A usage event a workflow write decided on. The write returns it, and its caller sends it after commit."""
+
+    name: WorkflowEventName
+    workflow_id: UUID
+    # The person who last enabled the workflow, so every event of one Enable credits the same person.
+    user_id: int | None
+    properties: Mapping[str, object]
+
+
+@frozen
+class StatusChange:
+    workflow_id: UUID
+    previous: HogFlowState
+    current: HogFlowState
+    events: tuple[WorkflowEvent, ...]
+
+
 @frozen
 class WorkflowWriteResult:
     previous: Mapping[str, object]
     current: Mapping[str, object]
     routed_to_draft: bool = False
     schedules_paused: int = 0
+    events: tuple[WorkflowEvent, ...] = ()
 
 
 class WorkflowProposalNotFound(Exception):

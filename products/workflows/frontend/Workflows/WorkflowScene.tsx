@@ -53,6 +53,7 @@ import { WorkflowMetrics } from './WorkflowMetrics'
 import { WorkflowRevisions } from './WorkflowRevisions'
 import { WorkflowSceneHeader } from './WorkflowSceneHeader'
 import { WorkflowSceneLogicProps, WorkflowTab, workflowSceneLogic } from './workflowSceneLogic'
+import { WorkflowStartedSendingNotice } from './WorkflowStartedSendingNotice'
 import { TRIGGER_PREFILL_PARAM } from './workflowTriggerPrefill'
 
 export const scene: SceneExport<WorkflowSceneLogicProps> = {
@@ -254,6 +255,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
                 <WorkflowSceneHeader {...props} />
                 <WorkflowEmailPauseBanner />
                 {isSavedWorkflow && <WorkflowBroadcastMoveBanner id={props.id!} />}
+                <WorkflowStartedSendingNotice />
                 {!isSavedWorkflow && <WorkflowAiEmailDraftStatus {...workflowProps} />}
                 {suggestionsAvailable && isSavedWorkflow && <WorkflowSuggestionsNotice id={props.id!} />}
                 {/* Only show Logs and Metrics tabs if the workflow has already been created */}

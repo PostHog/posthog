@@ -9,7 +9,7 @@ import type { CohortUsedInWorkflowsBlockApi } from 'products/cohorts/frontend/ge
 export const COHORT_USED_BY_WORKFLOWS_ERROR_CODE = 'cohort_used_by_workflows'
 
 /**
- * The active workflows that block deleting this cohort or editing it so it stops updating in real
+ * The enabled workflows that block deleting this cohort or editing it so it stops updating in real
  * time, or null when nothing blocks it. A failed check returns null, because the API still refuses
  * the change and the caller then shows the API error.
  */

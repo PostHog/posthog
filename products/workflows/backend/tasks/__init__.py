@@ -5,6 +5,7 @@ from . import (
     hog_flows,
     people_import,
     ses_account_reputation,
+    waiting_workflows,
 )
 
 __all__ = [
@@ -14,4 +15,5 @@ __all__ = [
     "hog_flows",
     "people_import",
     "ses_account_reputation",
+    "waiting_workflows",
 ]

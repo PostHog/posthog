@@ -70,7 +70,13 @@ class WorkflowIdeaSource(LabeledStrEnum):
 class HogFlowState(LabeledStrEnum):
     DRAFT = "draft"
     ACTIVE = "active"
+    # Enabled, but held back until every email sender in it is verified.
+    WAITING_FOR_DOMAIN = "waiting_for_domain"
     ARCHIVED = "archived"
+
+
+# Turned on by a person: live now, or going live by itself once its email domain is verified.
+ENABLED_HOG_FLOW_STATES = (HogFlowState.ACTIVE, HogFlowState.WAITING_FOR_DOMAIN)
 
 
 class HogFlowOriginProduct(LabeledStrEnum):

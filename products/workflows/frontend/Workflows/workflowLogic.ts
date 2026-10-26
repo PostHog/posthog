@@ -1,4 +1,17 @@
-import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import {
+    MakeLogicType,
+    actions,
+    afterMount,
+    connect,
+    getContext,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    reducers,
+    selectors,
+} from 'kea'
 import { DeepPartialMap, ValidationErrorType, forms } from 'kea-forms'
 import type { DeepPartial, FieldName } from 'kea-forms'
 import { lazyLoaders, loaders } from 'kea-loaders'
@@ -75,6 +88,9 @@ import {
 } from './hogflows/types'
 import { openPublishConfirmDialog } from './PublishImpactDialog'
 import { ResourceSaveQueue } from './resourceSaveQueue'
+import { SenderDomainNotice, senderDomainNotice } from './senderDomainNotice'
+import { unverifiedSenderDomains } from './unverifiedSenderDomains'
+import { checkWaitingStatusWhileVisible } from './waitingStatusCheck'
 import { prepareWorkflowDuplicate } from './workflowDuplication'
 import { prefilledEmailContent, prefilledWorkflow, withEmailSender, withPrefilledEmail } from './workflowEmailPrefill'
 import { workflowSceneLogic } from './workflowSceneLogic'
@@ -241,6 +257,29 @@ function pickWorkflowEdits(workflow: HogFlow): Partial<HogFlow> {
     return result as Partial<HogFlow>
 }
 
+const WORKFLOW_LIFECYCLE_FIELDS = ['status', 'enable_requested_at', 'went_live_at', 'unverified_email_senders'] as const
+
+function lifecycleUpdate(latest: HogFlow, fresh: HogFlow): Partial<HogFlow> | null {
+    const update: Record<string, unknown> = {}
+    for (const field of WORKFLOW_LIFECYCLE_FIELDS) {
+        if (!objectsEqual(latest[field], fresh[field])) {
+            update[field] = fresh[field]
+        }
+    }
+    if (Object.keys(update).length === 0) {
+        return null
+    }
+    // The go-live bumps updated_at. Take the new stamp only when nothing else changed, so the next
+    // save does not conflict with the go-live, but still conflicts with an edit made somewhere else.
+    const onlyLifecycleChanged =
+        latest.draft_updated_at === fresh.draft_updated_at &&
+        objectsEqual(pickWorkflowEdits(latest), pickWorkflowEdits(fresh))
+    if (onlyLifecycleChanged) {
+        update.updated_at = fresh.updated_at
+    }
+    return update as Partial<HogFlow>
+}
+
 /** What a save was dispatched with, kept per save because a later save moves the shared state. */
 interface SaveContext {
     initiatedByAutoSave: boolean
@@ -251,6 +290,7 @@ interface SaveContext {
     movedToBroadcasts?: number
     // A status change made while the form had unsaved edits. The edits stay in the form, unsaved.
     keepsFormEdits: boolean
+    enablesWorkflow: boolean
 }
 
 /** The schedule editor state, kept across a status change so unsaved schedule edits survive it. */
@@ -282,6 +322,14 @@ export interface workflowLogicValues {
     aiEmailDraftLoading: boolean
     aiEmailDraftStatus: AiEmailDraftStatusProps | null
     autoSaveBlockedByValidation: boolean
+    dismissedStartedSendingNotices: Record<string, true>
+    enablePromptDomains: string[] | null
+    enablePromptOpen: boolean
+    senderDomainNotice: SenderDomainNotice | null
+    showStartedSendingNotice: boolean
+    isWaitingForDomain: boolean
+    startedSendingNoticeKey: string | null
+    unverifiedSenderDomains: string[]
     autoSaveEnabled: boolean
     currentSchedule: HogFlowSchedule | null
     discardDisabledReason: string | undefined
@@ -358,6 +406,9 @@ export interface workflowLogicActions {
     autoSaveWorkflow: () => {
         value: true
     }
+    cancelEnablePrompt: () => {
+        value: true
+    }
     clearAutoSavePending: () => {
         value: true
     }
@@ -367,8 +418,29 @@ export interface workflowLogicActions {
     confirmPublishDraft: (confirmToken: string) => {
         confirmToken: string
     }
+    confirmEnablePrompt: () => {
+        value: true
+    }
+    enableWorkflow: () => {
+        value: true
+    }
     confirmResumeEmailSending: () => {
         value: true
+    }
+    dismissStartedSendingNotice: () => {
+        value: true
+    }
+    openEnablePrompt: () => {
+        value: true
+    }
+    setStartedSendingNoticeDismissed: (noticeKey: string) => {
+        noticeKey: string
+    }
+    checkWaitingStatus: () => {
+        value: true
+    }
+    setWorkflowLifecycle: (lifecycle: Partial<HogFlow>) => {
+        lifecycle: Partial<HogFlow>
     }
     discardChanges: () => {
         value: true
@@ -3006,6 +3078,20 @@ export interface workflowLogicMeta {
             aiEmailDraft: AiEmailDraftResult | null
         ) => AiEmailDraftStatusProps | null
         logicProps: (arg: WorkflowLogicProps) => WorkflowLogicProps
+        unverifiedSenderDomains: (originalWorkflow: HogFlow | null, featureFlags: FeatureFlagsSet) => string[]
+        enablePromptDomains: (enablePromptOpen: boolean, unverifiedSenderDomains: string[]) => string[] | null
+        senderDomainNotice: (
+            workflow: HogFlow,
+            originalWorkflow: HogFlow | null,
+            integrations: IntegrationType[] | null,
+            featureFlags: FeatureFlagsSet
+        ) => SenderDomainNotice | null
+        startedSendingNoticeKey: (originalWorkflow: HogFlow | null) => string | null
+        isWaitingForDomain: (originalWorkflow: HogFlow | null) => boolean
+        showStartedSendingNotice: (
+            startedSendingNoticeKey: string | null,
+            dismissedStartedSendingNotices: Record<string, true>
+        ) => boolean
         workflowUserAccessLevel: (originalWorkflow: HogFlow | null) => AccessControlLevel | null
         currentSchedule: (schedules: HogFlowSchedule[]) => HogFlowSchedule | null
         pendingSchedule: (
@@ -3282,6 +3368,14 @@ export const workflowLogic = kea<workflowLogicType>([
         setSchedules: (schedules: HogFlowSchedule[]) => ({ schedules }),
         restoreScheduleEdits: (edits: ScheduleEdits) => ({ edits }),
         saveWorkflowPartial: (workflow: Partial<HogFlow>) => ({ workflow }),
+        enableWorkflow: true,
+        openEnablePrompt: true,
+        confirmEnablePrompt: true,
+        cancelEnablePrompt: true,
+        dismissStartedSendingNotice: true,
+        setStartedSendingNoticeDismissed: (noticeKey: string) => ({ noticeKey }),
+        checkWaitingStatus: true,
+        setWorkflowLifecycle: (lifecycle: Partial<HogFlow>) => ({ lifecycle }),
         markSaveAttempted: (actionIds: string[]) => ({ actionIds }),
         triggerManualWorkflow: (variables: Record<string, any>) => ({
             variables,
@@ -3373,6 +3467,15 @@ export const workflowLogic = kea<workflowLogicType>([
                     // auto-save's own 409 would then take the manual path and raise the banner.
                     // Read the origin at dispatch time, while it still describes this save.
                     const initiatedByAutoSave = values.isAutoSave
+                    // Whether this save means to change the lifecycle. Only the enable and disable
+                    // control does, and it says so when it dispatches. Comparing the payload's
+                    // status against the stored one cannot tell the difference: that control does
+                    // not write its new status back to the form, so a form save queued behind it
+                    // carries the old value and reads as a transition back to it.
+                    const isStatusSave = cache.nextSaveChangesStatus === true
+                    cache.nextSaveChangesStatus = false
+                    const createsBroadcast = cache.nextSaveCreatesBroadcast === true
+                    cache.nextSaveCreatesBroadcast = false
                     // Saves run one at a time, so their success and failure actions arrive in
                     // dispatch order. Queue what each save needs alongside them, so the success
                     // listener reads its own values rather than shared state a later save moved.
@@ -3386,19 +3489,12 @@ export const workflowLogic = kea<workflowLogicType>([
                         pendingSchedule: keepsFormEdits ? false : values.pendingSchedule,
                         moveToBroadcastIds: (cache.nextSaveMovesWorkflowIds ?? []) as string[],
                         keepsFormEdits,
+                        enablesWorkflow:
+                            isStatusSave && updates.status === 'active' && values.originalWorkflow?.status !== 'active',
                     }
                     saveContexts.push(saveContext)
                     cache.nextSaveMovesWorkflowIds = []
                     cache.nextSaveKeepsFormEdits = false
-                    // Whether this save means to change the lifecycle. Only the enable and disable
-                    // control does, and it says so when it dispatches. Comparing the payload's
-                    // status against the stored one cannot tell the difference: that control does
-                    // not write its new status back to the form, so a form save queued behind it
-                    // carries the old value and reads as a transition back to it.
-                    const isStatusSave = cache.nextSaveChangesStatus === true
-                    cache.nextSaveChangesStatus = false
-                    const createsBroadcast = cache.nextSaveCreatesBroadcast === true
-                    cache.nextSaveCreatesBroadcast = false
 
                     const runSave = async (): Promise<HogFlow> => {
                         updates = sanitizeWorkflow(updates, values.hogFunctionTemplatesById)
@@ -3796,8 +3892,80 @@ export const workflowLogic = kea<workflowLogicType>([
                 setResumeEmailSendingPending: (_, { pending }) => pending,
             },
         ],
+        enablePromptOpen: [
+            false,
+            {
+                openEnablePrompt: () => true,
+                cancelEnablePrompt: () => false,
+                // Stays open while the enable saves, so its loading confirm blocks a second enable.
+                saveWorkflowSuccess: () => false,
+                saveWorkflowFailure: () => false,
+            },
+        ],
+        originalWorkflow: {
+            setWorkflowLifecycle: (state, { lifecycle }) => (state ? { ...state, ...lifecycle } : state),
+        },
+        workflow: {
+            setWorkflowLifecycle: (state, { lifecycle }) => ({ ...state, ...lifecycle }),
+        },
+        dismissedStartedSendingNotices: [
+            {} as Record<string, true>,
+            // pinned: storage key, renaming it shows every dismissed notice again
+            { persist: true, storageKey: 'workflows-started-sending-notices-dismissed' },
+            {
+                setStartedSendingNoticeDismissed: (state, { noticeKey }) => ({ ...state, [noticeKey]: true }),
+            },
+        ],
     }),
     selectors({
+        unverifiedSenderDomains: [
+            (s) => [s.originalWorkflow, s.featureFlags],
+            (originalWorkflow: HogFlow | null, featureFlags: FeatureFlagsSet): string[] =>
+                featureFlags[FEATURE_FLAGS.WORKFLOWS_EMAIL_DOMAIN_WIZARD]
+                    ? unverifiedSenderDomains(originalWorkflow)
+                    : [],
+        ],
+        enablePromptDomains: [
+            (s) => [s.enablePromptOpen, s.unverifiedSenderDomains],
+            (enablePromptOpen: boolean, unverifiedSenderDomains: string[]): string[] | null =>
+                enablePromptOpen ? unverifiedSenderDomains : null,
+        ],
+        senderDomainNotice: [
+            (s) => [s.workflow, s.originalWorkflow, s.integrations, s.featureFlags],
+            (
+                workflow: HogFlow,
+                originalWorkflow: HogFlow | null,
+                integrations: IntegrationType[] | null,
+                featureFlags: FeatureFlagsSet
+            ): SenderDomainNotice | null => {
+                if (!featureFlags[FEATURE_FLAGS.WORKFLOWS_EMAIL_DOMAIN_WIZARD] || !originalWorkflow) {
+                    return null
+                }
+                const emailSenders = integrations?.filter(({ kind }) => kind === 'email') ?? null
+                return senderDomainNotice(workflow, originalWorkflow, emailSenders)
+            },
+        ],
+        isWaitingForDomain: [
+            (s) => [s.originalWorkflow],
+            (originalWorkflow: HogFlow | null): boolean => originalWorkflow?.status === 'waiting_for_domain',
+        ],
+        startedSendingNoticeKey: [
+            (s) => [s.originalWorkflow],
+            (originalWorkflow: HogFlow | null): string | null => {
+                const { status, enable_requested_at, went_live_at } = originalWorkflow ?? {}
+                const wentLiveAfterWaiting =
+                    status === 'active' &&
+                    !!enable_requested_at &&
+                    !!went_live_at &&
+                    dayjs(went_live_at).isAfter(dayjs(enable_requested_at))
+                return wentLiveAfterWaiting ? `${originalWorkflow?.id}:${went_live_at}` : null
+            },
+        ],
+        showStartedSendingNotice: [
+            (s) => [s.startedSendingNoticeKey, s.dismissedStartedSendingNotices],
+            (noticeKey: string | null, dismissed: Record<string, true>): boolean =>
+                !!noticeKey && !dismissed[noticeKey],
+        ],
         aiEmailDraftStatus: [
             (s) => [s.aiEmailDraftLoading, s.aiEmailDraftApplied, s.aiEmailDraft],
             (loading: boolean, applied: boolean, result: AiEmailDraftResult | null): AiEmailDraftStatusProps | null => {
@@ -4405,7 +4573,6 @@ export const workflowLogic = kea<workflowLogicType>([
             // This is the one path that means to change the lifecycle. The loader reads the flag
             // as it handles the action below, so it describes this save and no other.
             cache.nextSaveChangesStatus = 'status' in workflow
-            cache.enablingWorkflow = workflow.status === 'active' && values.originalWorkflow?.status !== 'active'
             cache.nextSaveKeepsFormEdits = keepsFormEdits
             actions.saveWorkflow(merged)
         },
@@ -4440,13 +4607,56 @@ export const workflowLogic = kea<workflowLogicType>([
         loadWorkflowFailure: () => {
             actions.replayDeferredResourceEdited()
         },
+        enableWorkflow: () => {
+            const asksFirst = !values.workflowHasActionErrors && values.unverifiedSenderDomains.length > 0
+            if (asksFirst) {
+                actions.openEnablePrompt()
+            } else {
+                actions.saveWorkflowPartial({ status: 'active' })
+            }
+        },
+        confirmEnablePrompt: () => {
+            actions.saveWorkflowPartial({ status: 'active' })
+        },
+        checkWaitingStatus: async () => {
+            const latest = (cache.lastSavedWorkflow as HogFlow | undefined) ?? values.originalWorkflow
+            if (!props.id || !latest || !values.isWaitingForDomain || values.workflowLoading) {
+                return
+            }
+            const context = getContext()
+            let fresh: HogFlow
+            try {
+                fresh = await api.hogFlows.getHogFlow(props.id)
+            } catch {
+                return
+            }
+            if (cache.disposables.isDisposed || getContext() !== context) {
+                return
+            }
+            const latestNow = (cache.lastSavedWorkflow as HogFlow | undefined) ?? values.originalWorkflow
+            if (latestNow !== latest || values.workflowLoading) {
+                return
+            }
+            const lifecycle = lifecycleUpdate(latest, fresh)
+            if (!lifecycle) {
+                return
+            }
+            if (cache.lastSavedWorkflow) {
+                cache.lastSavedWorkflow = { ...cache.lastSavedWorkflow, ...lifecycle }
+            }
+            actions.setWorkflowLifecycle(lifecycle)
+        },
+        dismissStartedSendingNotice: () => {
+            if (values.startedSendingNoticeKey) {
+                actions.setStartedSendingNoticeDismissed(values.startedSendingNoticeKey)
+            }
+        },
         saveWorkflow: () => {
             cache.saveEditVersion = values.workflowEditVersion
         },
         saveWorkflowFailure: () => {
             // Keep the queue aligned with the saves still in flight.
             ;(cache.saveContexts as SaveContext[] | undefined)?.shift()
-            cache.enablingWorkflow = false
             actions.replayDeferredResourceEdited()
         },
         replayDeferredResourceEdited: () => {
@@ -4462,8 +4672,8 @@ export const workflowLogic = kea<workflowLogicType>([
             const saveContext = (cache.saveContexts as SaveContext[] | undefined)?.shift()
             const isAutoSave = saveContext?.initiatedByAutoSave ?? values.isAutoSave
 
-            if (cache.enablingWorkflow && originalWorkflow.status === 'active') {
-                cache.enablingWorkflow = false
+            // An enable that waits for its email domain is not reported here: the server records the request.
+            if (saveContext?.enablesWorkflow && originalWorkflow.status === 'active') {
                 // pinned: analytics event name
                 posthog.capture('workflow enabled', {
                     workflow_id: originalWorkflow.id,
@@ -4799,9 +5009,10 @@ export const workflowLogic = kea<workflowLogicType>([
             }
         },
     })),
-    afterMount(({ actions }) => {
+    afterMount(({ actions, cache }) => {
         actions.loadWorkflow()
         actions.loadHogFunctionTemplatesById()
+        checkWaitingStatusWhileVisible(cache.disposables, actions.checkWaitingStatus)
     }),
     beforeUnload((logic) => ({
         enabled: (newLocation) => {

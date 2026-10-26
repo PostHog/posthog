@@ -23,7 +23,7 @@ export function CohortBlockingWorkflowsModal(): JSX.Element {
         <LemonModal
             isOpen={!!blocking}
             onClose={closeBlockingWorkflowsModal}
-            title="This cohort is used by active workflows"
+            title="This cohort is used by enabled workflows"
             width={480}
             footer={
                 <LemonButton type="secondary" onClick={closeBlockingWorkflowsModal}>
