@@ -3,7 +3,7 @@ from django.core.exceptions import ValidationError
 from django.db import models
 
 from posthog.models.event_ingestion_restriction_config import IngestionPipeline
-from posthog.models.scoping.root_mixin import TeamScopedRootMixin
+from posthog.models.scoping.manager import EnvironmentScopedManager
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDModel, UUIDTModel
 
@@ -88,11 +88,15 @@ def ingestion_pipeline_choices() -> list[tuple[str, str]]:
     return [(pipeline.value, pipeline.value) for pipeline in IngestionPipeline]
 
 
-class EventFilterPipelineOverride(UUIDModel, TeamScopedRootMixin):
+class EventFilterPipelineOverride(UUIDModel):
     """
-    Per-team, per-pipeline override of normal ingestion. A team without a row ingests
+    Per-environment, per-pipeline override of normal ingestion. A team without a row ingests
     normally, so a row is written only when the team first changes a pipeline.
     """
+
+    # Ingestion matches a row by the event's own team_id, so rows are never moved to the parent team.
+    all_teams = models.Manager()
+    objects = EnvironmentScopedManager()
 
     # No standalone index: the (team, pipeline) unique constraint already leads on team_id.
     team = models.ForeignKey(Team, on_delete=models.CASCADE, db_constraint=False, db_index=False)
@@ -109,6 +113,7 @@ class EventFilterPipelineOverride(UUIDModel, TeamScopedRootMixin):
     )
 
     class Meta:
+        default_manager_name = "all_teams"
         constraints = [
             models.UniqueConstraint(fields=["team", "pipeline"], name="posthog_unique_event_filter_pipeline_override"),
         ]
