@@ -11,6 +11,8 @@ from parameterized import parameterized
 from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
 
 from posthog.hogql.modifiers import create_default_modifiers_for_team
+from posthog.hogql.parser import parse_select
+from posthog.hogql.query import execute_hogql_query
 
 from posthog.models import Organization, Team, User
 from posthog.models.event.new_events_schema import (
@@ -104,6 +106,16 @@ class TestEventsTableSwitchThroughTheApi(APIBaseTest):
 
         execute = self._post_query(SQL_ON_EVENTS, modifiers)
         self.assertEqual("events_json" in execute.call_args.args[0], events_json)
+
+    @parameterized.expand([("legacy", False), ("events_json", True)])
+    def test_only_a_legacy_read_uses_the_preaggregated_web_tables(self, _name: str, events_json: bool) -> None:
+        with patch("posthog.hogql.query.sync_execute", return_value=([], [])) as execute:
+            execute_hogql_query(
+                parse_select("select count(), uniq(person_id) from events where equals(event, '$pageview')"),
+                team=self.team,
+                modifiers=HogQLQueryModifiers(usePreaggregatedTableTransforms=True, useNewEventsSchema=events_json),
+            )
+        self.assertEqual("web_pre_aggregated_stats" in execute.call_args.args[0], not events_json)
 
     def test_the_cookie_reaches_a_streamed_dashboards_cache_lookup(self) -> None:
         self.user.is_staff = True
