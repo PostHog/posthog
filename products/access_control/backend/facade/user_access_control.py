@@ -476,18 +476,24 @@ class UserAccessControl:
             ):
                 roles_by_user[user_id].append(role_id)
 
-        rules: list[AccessControl] = []
+        default_rules: list[AccessControl] = []
+        rules_by_member: dict[UUID, list[AccessControl]] = defaultdict(list)
+        rules_by_role: dict[UUID, list[AccessControl]] = defaultdict(list)
         if EE_AVAILABLE and memberships[0].organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
-            rules = list(
-                AccessControl.objects.filter(team_id=team.id).filter(
-                    Q(organization_member__isnull=True, role__isnull=True)
-                    | Q(organization_member_id__in=[member.id for member in memberships], role__isnull=True)
-                    | Q(
-                        organization_member__isnull=True,
-                        role_id__in={role_id for roles in roles_by_user.values() for role_id in roles},
-                    )
+            for rule in AccessControl.objects.filter(team_id=team.id).filter(
+                Q(organization_member__isnull=True, role__isnull=True)
+                | Q(organization_member_id__in=[member.id for member in memberships], role__isnull=True)
+                | Q(
+                    organization_member__isnull=True,
+                    role_id__in={role_id for roles in roles_by_user.values() for role_id in roles},
                 )
-            )
+            ):
+                if rule.organization_member_id is not None:
+                    rules_by_member[rule.organization_member_id].append(rule)
+                elif rule.role_id is not None:
+                    rules_by_role[rule.role_id].append(rule)
+                else:
+                    default_rules.append(rule)
 
         access_by_user: dict[int, UserAccessControl] = {}
         for member in memberships:
@@ -496,11 +502,9 @@ class UserAccessControl:
             access.__dict__["_organization_membership"] = member
             access.__dict__["_user_role_ids"] = role_ids
             access.__dict__["_cached_access_controls"] = [
-                rule
-                for rule in rules
-                if (rule.organization_member_id is None and rule.role_id is None)
-                or rule.organization_member_id == member.id
-                or rule.role_id in role_ids
+                *default_rules,
+                *rules_by_member.get(member.id, []),
+                *(rule for role_id in role_ids for rule in rules_by_role.get(role_id, [])),
             ]
             access_by_user[member.user_id] = access
         return access_by_user
