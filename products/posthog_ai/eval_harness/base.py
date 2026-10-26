@@ -41,7 +41,7 @@ from .harness.retries import infrastructure_retry_delay
 from .harness.trial_stats import trial_stats
 from .log_sink import append_case_scores, build_case_dir, write_case_logs
 from .offline_results import OfflineEvalPublisher, OfflineEvalSettings, OfflineEvalSuite, OfflineUploadError
-from .runner import AgentNeverRanError, EvalCaseResult, agent_never_ran, run_eval_case
+from .runner import AgentNeverRanError, EvalCaseResult, SandboxedCaseRunner, agent_never_ran, run_eval_case
 from .scorers import ExitCodeZero, wrap_scorers
 from .trace_events import RunMetadata, emit_trace_events, emit_trace_root
 
@@ -534,6 +534,7 @@ class _SandboxedEvalRun(_BaseEvalRun):
         ctx: EvalContext,
         offline_suite: OfflineEvalSuite | None = None,
         send_to_posthog: bool = True,
+        case_runner: SandboxedCaseRunner | None = None,
     ) -> None:
         if any(isinstance(scorer, ExitCodeZero) for scorer in scorers):
             raise ValueError("ExitCodeZero is added by the sandboxed eval harness; remove it from scorers")
@@ -555,6 +556,7 @@ class _SandboxedEvalRun(_BaseEvalRun):
         self._provider_strategy = ctx.provider_strategy
         self._demo_data = ctx.demo_data
         self._sandbox_slots = ctx.sandbox_slots
+        self._case_runner = case_runner
 
     def _case_input(self, case: BaseEvalCase) -> dict[str, Any]:
         assert isinstance(case, SandboxedEvalCase)
@@ -588,6 +590,7 @@ class _SandboxedEvalRun(_BaseEvalRun):
                                 self.ctx.skill_delivery == "exec"
                                 or bool(original_case and original_case.disable_bundled_skills)
                             ),
+                            inherit_demo_data=original_case.inherit_demo_data if original_case is not None else True,
                         ),
                     )
                     if original_case is not None and original_case.interaction_origin:
@@ -657,7 +660,7 @@ class _SandboxedEvalRun(_BaseEvalRun):
                 with suppress(Exception):
                     await self._set_case_phase(hooks, "agent")
                 result = await asyncio.wait_for(
-                    run_eval_case(
+                    (self._case_runner or run_eval_case)(
                         eval_case,
                         prepared.context,
                         provider=self._provider_strategy,
@@ -799,6 +802,7 @@ async def SandboxedEval(
     ctx: EvalContext,
     offline_suite: OfflineEvalSuite | None = None,
     send_to_posthog: bool = True,
+    case_runner: SandboxedCaseRunner | None = None,
 ) -> ExperimentResult:
     """Run a sandboxed agent evaluation suite via Braintrust.
 
@@ -822,5 +826,6 @@ async def SandboxedEval(
         ctx=ctx,
         offline_suite=offline_suite,
         send_to_posthog=send_to_posthog,
+        case_runner=case_runner,
     )
     return await run.run()

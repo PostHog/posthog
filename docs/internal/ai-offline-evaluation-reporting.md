@@ -44,6 +44,8 @@ A scorer failure marks the case as an error. Statistics still include scores fro
 Shared-harness suites are enrolled in the offline experiment publisher, including sandboxed and one-shot suites and `logs/eval_agent_observability::eval_agent_observability`.
 The Logs catalog pins numeric `answer_mentions` and `call_budget` scorers and the boolean `exit_code_zero` scorer.
 Braintrust remains the local execution engine for every shared-harness suite.
+
+The [first-report scout suite](../../products/posthog_ai/eval_harness/README.md#scout-evals) records the persisted report and structured scout outcome alongside context, progress, and first-visible-report timings. Its seeded regression, matched control, and sparse-data cases separate useful report delivery from unsupported findings and justified abstention. Compare quality, the five-minute qualified-report rate, and planted-issue recall separately; sparse cases are excluded from report-quality and report-latency scores because they should not produce a report.
 After scoring, the harness prepares the completed results in memory and queues delivery through the Python SDK's `AsyncOfflineEvaluations` client. It does not execute another agent run or judge call.
 Set `send_to_posthog=False` to suppress this upload.
 
