@@ -188,6 +188,7 @@ import {
     parseURLFilters,
     parseURLVariables,
     TaskQueue,
+    TileLoads,
     searchParamsWithUrlFilters,
     shouldSharedDashboardAutoForceForStaleTime,
 } from './dashboardUtils'
@@ -234,7 +235,14 @@ function reportDashboardTileRefreshed(
 
 const TILE_REFRESH_CONCURRENCY = 4
 
-type InsightTileRefreshOutcome = 'refreshed' | 'cached' | 'errored' | 'aborted'
+/** `deferred` means a tab switch stopped the load, and the tile waits for its tab to open again. */
+type InsightTileRefreshOutcome = 'refreshed' | 'cached' | 'errored' | 'aborted' | 'deferred'
+
+/** How a load ran, so a tile whose load a tab switch stops can load the same way later. */
+interface TileLoadRefresh {
+    forceRefresh: boolean
+    settings: DashboardSettings
+}
 
 interface InsightTileRefresh {
     actions: Pick<dashboardLogicType['actions'], 'setRefreshStatus' | 'setRefreshError' | 'abortQuery'>
@@ -244,13 +252,36 @@ interface InsightTileRefresh {
     variables: Record<string, HogQLVariable>
     urlFilters: DashboardFilter
     forceRefresh: boolean
+    settings: DashboardSettings
     signal: AbortSignal
     queue: TaskQueue
+    tileLoads: TileLoads<TileLoadRefresh>
 }
 
 /** One queue for every insight and widget load, so a dashboard never sends more than the cap at the same time. */
 function tileLoadQueue(cache: Record<string, any>): TaskQueue {
     return (cache.tileLoadQueue ??= new TaskQueue(TILE_REFRESH_CONCURRENCY))
+}
+
+function tileLoads(cache: Record<string, any>): TileLoads<TileLoadRefresh> {
+    return (cache.tileLoads ??= new TileLoads<TileLoadRefresh>())
+}
+
+/**
+ * The tiles of a tab a viewer leaves whose loads stop. They stop only when there are more of them than the queue
+ * runs at the same time, because only then does the new tab wait behind them.
+ */
+function tileLoadsToCancelOnTabSwitch(
+    tiles: DashboardTile[],
+    refreshStatus: Record<string, RefreshStatus>,
+    widgetRefreshStatus: Record<number, { loading?: boolean }>
+): number[] {
+    const loading = tiles.filter((tile) =>
+        tile.insight
+            ? refreshStatus[tile.insight.short_id]?.loading || refreshStatus[tile.insight.short_id]?.queued
+            : widgetRefreshStatus[tile.id]?.loading
+    )
+    return loading.length > TILE_REFRESH_CONCURRENCY ? loading.map((tile) => tile.id) : []
 }
 
 async function refreshInsightTile(
@@ -263,13 +294,16 @@ async function refreshInsightTile(
         variables,
         urlFilters,
         forceRefresh,
-        signal,
+        settings,
+        signal: refreshSignal,
         queue,
+        tileLoads,
     }: InsightTileRefresh
 ): Promise<InsightTileRefreshOutcome> {
     const insight = tile.insight
     const queryId = uuid()
     let queryStartTime = performance.now()
+    const signal = tileLoads.start([tile.id], refreshSignal, { forceRefresh, settings })
 
     try {
         const refreshedInsight = await queue.run(() => {
@@ -308,10 +342,12 @@ async function refreshInsightTile(
         if (shouldCancelQuery(e)) {
             console.warn(`Insight refresh cancelled for ${insight.short_id} due to abort signal:`, e)
             actions.abortQuery({ queryId, queryStartTime, shortId: insight.short_id })
-            return 'aborted'
+            return refreshSignal.aborted ? 'aborted' : 'deferred'
         }
         actions.setRefreshError(insight.short_id, e)
         return 'errored'
+    } finally {
+        tileLoads.finish([tile.id], signal)
     }
 }
 
@@ -1649,9 +1685,9 @@ export interface dashboardLogicMeta {
         tileGroupDisplay: (dashboard: DashboardType | null, placement: DashboardPlacement) => TileGroupDisplay
         tileGroupKeys: (tileGroupSections: DashboardSection[]) => Map<number, string>
         activeTileGroupTab: (
-            tileGroupDisplay: any,
+            tileGroupDisplay: TileGroupDisplay,
             tileGroupSections: DashboardSection[],
-            tileGroupKeys: any,
+            tileGroupKeys: Map<number, string>,
             tiles: DashboardTile[],
             highlightedInsightId: any,
             searchParams: Record<string, any>
@@ -1664,9 +1700,9 @@ export interface dashboardLogicMeta {
             tileGroupChoices: TileGroupChoices,
             revealedTileGroup: RevealedTileGroup | null,
             tileGroupSections: DashboardSection[],
-            activeTileGroupTab: any
+            activeTileGroupTab: string | null
         ) => string[]
-        collapsedTileIds: (tileGroupKeys: any, collapsedTileGroupKeys: string[]) => Set<number>
+        collapsedTileIds: (tileGroupKeys: Map<number, string>, collapsedTileGroupKeys: string[]) => Set<number>
         insightTiles: (tiles: DashboardTile[]) => DashboardTile[]
         textTiles: (tiles: DashboardTile[]) => DashboardTile[]
         dashboardControlScopes: (insightTiles: DashboardTile[]) => Record<DashboardControl, DashboardControlScope>
@@ -1734,7 +1770,7 @@ export interface dashboardLogicMeta {
             layouts: Partial<Record<string, Layout>>,
             dashboard: DashboardType | null,
             placement: DashboardPlacement,
-            tileGroupDisplay: any
+            tileGroupDisplay: TileGroupDisplay
         ) => DashboardSection[]
         tileGroupSectionLayouts: (
             tileGroupSections: DashboardSection[],
@@ -3761,7 +3797,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         ],
         /**
          * The group each tile opens and closes with. Tiles outside any group share one key, so tiles that waited in a
-         * closed "Other tiles" tab still load after the dashboard switches to sections.
+         * closed "Overview" tab still load after the dashboard switches to sections.
          */
         tileGroupKeys: [
             (s) => [s.tileGroupSections],
@@ -4293,7 +4329,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
     })),
     subscriptions(({ actions, values, cache }) => ({
         // Every way a group opens ends here: a toggle, a tab click or link, a highlighted insight, or a display switch.
-        collapsedTileIds: (collapsedTileIds: Set<number>) => {
+        collapsedTileIds: (collapsedTileIds: Set<number>, previous: Set<number> | undefined) => {
+            // Each tile load rebuilds the set. A load in flight still waits, so a rebuild must not load it twice.
+            if (
+                previous &&
+                collapsedTileIds.size === previous.size &&
+                [...previous].every((id) => collapsedTileIds.has(id))
+            ) {
+                return
+            }
             openTileGroupsWaiting(values.tileGroupKeys, collapsedTileIds, values.waitingTileRefresh).forEach(
                 (groupKey) => actions.refreshTileGroup(groupKey)
             )
@@ -5365,8 +5409,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     variables: urlVariables,
                     urlFilters,
                     forceRefresh: !!forceRefresh,
+                    settings: settingsToRefresh,
                     signal: cache.abortController.signal,
                     queue: tileLoadQueue(cache),
+                    tileLoads: tileLoads(cache),
                 }
                 const loadingHere = (cache.refreshingTileIds = new Set(sortedTilesToRefresh.map((tile) => tile.id)))
                 const fetchSyncInsightFunctions = sortedTilesToRefresh.map((tile) => async () => {
@@ -5489,10 +5535,28 @@ export const dashboardLogic = kea<dashboardLogicType>([
             if (!section) {
                 return
             }
+            // This listener runs before the URL changes, so the active tab is still the one the viewer leaves.
+            const leftTab = values.activeTileGroupTab
+            const leftTiles =
+                leftTab === null || leftTab === getSectionGroupKey(section)
+                    ? []
+                    : values.tiles.filter((tile) => values.tileGroupKeys.get(tile.id) === leftTab)
+            const cancelled = tileLoads(cache).cancel(
+                tileLoadsToCancelOnTabSwitch(leftTiles, values.refreshStatus, values.widgetRefreshStatus)
+            )
+            if (cancelled.length > 0) {
+                const waiting = values.waitingTileRefresh
+                actions.setWaitingTileRefresh({
+                    tileIds: [...new Set([...(waiting?.tileIds ?? []), ...cancelled.map(({ tileId }) => tileId)])],
+                    forceRefresh: !!waiting?.forceRefresh || cancelled.some(({ refresh }) => refresh.forceRefresh),
+                    settings: cancelled[0].refresh.settings,
+                })
+            }
             posthog.capture('dashboard tile group tab opened', {
                 dashboard_id: props.id,
                 ungrouped: section.kind === 'tiles',
                 tile_count: section.tiles.length,
+                cancelled_load_count: cancelled.length,
             })
         },
         changeTileGroupDisplay: ({ groupDisplay }) => {
@@ -5544,8 +5608,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 variables: waiting.settings.variables,
                 urlFilters: values.urlFilters,
                 forceRefresh: waiting.forceRefresh,
+                settings: waiting.settings,
                 signal: cache.groupAbortController.signal,
                 queue: tileLoadQueue(cache),
+                tileLoads: tileLoads(cache),
             }
             await Promise.all(
                 insightTiles.map(async (tile) => {
@@ -5596,11 +5662,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
             const projectId = String(values.currentTeamId)
             const dashboardId = props.id
             const queue = tileLoadQueue(cache)
+            const loadRefresh = { forceRefresh: !!forceRefresh, settings: values.settingsForRefresh }
             const fetchFunctions = chunkTileIds(staleTileIds, 4).map((chunk) => async () => {
+                const chunkSignal = tileLoads(cache).start(chunk, signal, loadRefresh)
                 try {
                     const results = await queue.run(
-                        () => fetchRunWidgets(projectId, dashboardId, chunk, { signal }),
-                        signal
+                        () => fetchRunWidgets(projectId, dashboardId, chunk, { signal: chunkSignal }),
+                        chunkSignal
                     )
                     const resultsByTileId = Object.fromEntries(results.map((result) => [result.tile_id, result]))
                     actions.setWidgetRunResults(resultsByTileId)
@@ -5613,7 +5681,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         )
                     }
                 } catch {
-                    if (signal.aborted) {
+                    if (chunkSignal.aborted) {
                         // After a manual refresh a newer load owns the tile, and its status must stay with that load.
                         actions.stopWidgetRefreshes(
                             chunk.filter((tileId) => cache.widgetLoadSignals.get(tileId) === signal)
@@ -5621,6 +5689,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         return
                     }
                     actions.setWidgetRefreshStatuses(chunk, false, DASHBOARD_WIDGET_FETCH_ERROR_MESSAGE)
+                } finally {
+                    tileLoads(cache).finish(chunk, chunkSignal)
                 }
             })
 

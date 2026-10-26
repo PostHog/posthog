@@ -1005,6 +1005,80 @@ describe('dashboardLogic', () => {
                 expect(loads(ungrouped)).toHaveLength(ungroupedLoads)
             })
 
+            it.each([
+                { leftTabTiles: 5, cancelled: true },
+                { leftTabTiles: 4, cancelled: false },
+            ])(
+                'on a tab switch, $leftTabTiles loading tiles in the tab left behind are cancelled: $cancelled',
+                async ({ leftTabTiles, cancelled }) => {
+                    groupTiles({ target: { collapsed: false } })
+                    const [targetTile, ungroupedTile] = dashboards[5].tiles
+                    const leftTiles = Array.from({ length: leftTabTiles }, (_, index) => ({
+                        ...ungroupedTile,
+                        id: 900 + index,
+                        group_key: null,
+                        insight: {
+                            ...ungroupedTile.insight!,
+                            id: 900 + index,
+                            short_id: `left-${index}` as InsightShortId,
+                        },
+                        layouts: { sm: { x: 0, y: index * 2, w: 12, h: 2 } } as DashboardTile['layouts'],
+                    }))
+                    dashboards[5] = {
+                        ...dashboards[5],
+                        customization: { group_display: 'tabs' },
+                        tiles: [...leftTiles, targetTile],
+                    }
+                    await mountDashboard()
+                    refreshInsight.mockClear()
+                    const finishLoads: (() => void)[] = []
+                    refreshInsight.mockImplementation((_teamId, insight, ...args) =>
+                        insight.short_id.startsWith('left-')
+                            ? new Promise((resolve, reject) => {
+                                  args[3]?.signal?.addEventListener('abort', () =>
+                                      reject(new DOMException('Aborted', 'AbortError'))
+                                  )
+                                  finishLoads.push(() => resolve(insight))
+                              })
+                            : Promise.resolve(insight)
+                    )
+                    await expectLogic(logic, () => logic.actions.triggerDashboardRefresh()).toDispatchActions([
+                        'setWaitingTileRefresh',
+                        'setRefreshStatus',
+                    ])
+
+                    await expectLogic(logic, () => logic.actions.selectTileGroupTab('group-target'))
+                        .toDispatchActions(['refreshTileGroup'])
+                        .delay(5)
+                    finishLoads.forEach((finish) => finish())
+                    await expectLogic(logic).toFinishAllListeners()
+
+                    const leftShortIds = leftTiles.map((tile) => tile.insight.short_id)
+                    const abortedLoads = refreshInsight.mock.calls.filter((call) => call[5]?.signal?.aborted)
+                    expect(abortedLoads.length > 0).toBe(cancelled)
+                    expect(leftShortIds.filter((id) => logic.values.refreshStatus[id]?.queued)).toEqual([])
+                    expect(loads(targetTile.insight!.short_id).at(-1)?.[4]).toEqual('force_blocking')
+                    if (cancelled) {
+                        expect(logic.values.waitingTileRefresh).toMatchObject({
+                            tileIds: leftTiles.map((tile) => tile.id),
+                            forceRefresh: true,
+                        })
+                    }
+
+                    refreshInsight.mockImplementation((_teamId, insight) => Promise.resolve(insight))
+                    await expectLogic(logic, () =>
+                        logic.actions.selectTileGroupTab('tiles-ungrouped')
+                    ).toFinishAllListeners()
+
+                    for (const shortId of leftShortIds) {
+                        const finishedLoads = loads(shortId).filter((call) => !call[5]?.signal?.aborted)
+                        expect(finishedLoads.map((call) => call[4])).toEqual(['force_blocking'])
+                        expect(logic.values.refreshStatus[shortId]).toMatchObject({ refreshed: true })
+                    }
+                    expect(logic.values.waitingTileRefresh).toBeNull()
+                }
+            )
+
             it('loads tiles from a hidden tab when the dashboard switches to sections', async () => {
                 groupTiles({ target: { collapsed: false } })
                 dashboards[5] = {
