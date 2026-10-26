@@ -1,6 +1,8 @@
+import '~/tests/helpers/mocks/consumer.mock'
 import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { DateTime } from 'luxon'
+import { Message } from 'node-rdkafka'
 import { register } from 'prom-client'
 
 import { closeHub, createHub } from '~/common/utils/db/hub'
@@ -8,9 +10,15 @@ import { PostgresUse } from '~/common/utils/db/postgres'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
+import { INVALID_TEAM_ID_KEYS } from '~/tests/helpers/team'
 
 import { Hub, Team } from '../../types'
-import { createHogExecutionGlobals, insertHogFunction } from '../_tests/fixtures'
+import {
+    createHogExecutionGlobals,
+    createIncomingEvent,
+    createKafkaMessage,
+    insertHogFunction,
+} from '../_tests/fixtures'
 import { DESTINATION_PLUGINS_BY_ID } from '../legacy-plugins'
 import { LegacyPluginExecutorService } from '../services/legacy-plugin-executor.service'
 import { HogFunctionInvocationGlobals } from '../types'
@@ -524,6 +532,16 @@ describe('CdpLegacyEventsConsumer', () => {
             const hogFunctions = await consumer['pluginConfigsLoader'].get('99999')
             expect(hogFunctions).toEqual([])
         })
+
+        it.each(INVALID_TEAM_ID_KEYS)(
+            'returns an empty array for invalid team id %p without failing the valid team in the same load',
+            async (key) => {
+                const result = await consumer['pluginConfigsLoader'].getMany([team.id.toString(), key])
+
+                expect(result[team.id.toString()]?.map((x) => x.pluginConfigId)).toEqual([pluginConfig.id])
+                expect(result[key]).toEqual([])
+            }
+        )
     })
 
     describe('migrated legacy_destination hog functions', () => {
@@ -631,6 +649,114 @@ describe('CdpLegacyEventsConsumer', () => {
                 expect.objectContaining({ app_source_id: migrated.id, team_id: team.id }),
                 'hog_function'
             )
+        })
+    })
+
+    describe('batch handler', () => {
+        const lookupError = new Error('canceling statement due to conflict with recovery')
+
+        beforeEach(async () => {
+            consumer['legacyWebhookService']['actionMatcher'].hasWebhooks = jest.fn().mockReturnValue(true)
+            jest.spyOn(consumer['deps'].teamManager, 'hasAvailableFeature').mockResolvedValue(true)
+            await consumer.start()
+        })
+
+        afterEach(async () => {
+            await consumer.stop()
+        })
+
+        it.each([
+            { lookup: 'the team lookup', spy: () => jest.spyOn(consumer['deps'].teamManager, 'getTeam') },
+            { lookup: 'the plugin config lookup', spy: () => jest.spyOn(consumer['pluginConfigsLoader'], 'get') },
+            {
+                lookup: 'the webhook feature lookup',
+                spy: () => jest.spyOn(consumer['deps'].teamManager, 'hasAvailableFeature'),
+            },
+        ])(
+            'fails the batch when $lookup throws without sending anything, and sends once when the batch is read again',
+            async ({ spy }) => {
+                const parses = [
+                    jest.spyOn(consumer['legacyWebhookService'], 'parseBatch'),
+                    jest.spyOn(consumer, '_parseKafkaBatch'),
+                ]
+                const sendWebhooks = jest.spyOn(consumer['legacyWebhookService'], 'processEvents')
+                const runPlugins = jest.spyOn(consumer, 'processBatch')
+                spy().mockRejectedValueOnce(lookupError)
+                const handleBatch = (consumer['kafkaConsumer'].connect as jest.Mock).mock.calls[0][0]
+                const messages = [createKafkaMessage(createIncomingEvent(team.id, {}))]
+
+                await expect(handleBatch(messages)).rejects.toBe(lookupError)
+                // The other side's parse can still be running when the batch fails. It must not send afterwards.
+                await Promise.allSettled(parses.flatMap((parse) => parse.mock.results.map((result) => result.value)))
+                expect(sendWebhooks).not.toHaveBeenCalled()
+                expect(runPlugins).not.toHaveBeenCalled()
+
+                const { backgroundTask } = await handleBatch(messages)
+                await backgroundTask
+                expect(sendWebhooks).toHaveBeenCalledTimes(1)
+                expect(sendWebhooks).toHaveBeenCalledWith([expect.objectContaining({ teamId: team.id })])
+                expect(runPlugins).toHaveBeenCalledTimes(1)
+                expect(runPlugins).toHaveBeenCalledWith([
+                    expect.objectContaining({ project: expect.objectContaining({ id: team.id }) }),
+                ])
+            }
+        )
+
+        it.each([
+            {
+                name: 'a message that is not JSON',
+                bad: (): Message => ({ ...createKafkaMessage({}), value: Buffer.from('not json') }),
+            },
+            {
+                name: 'an event whose properties are not JSON',
+                bad: (teamId: number): Message => createKafkaMessage(createIncomingEvent(teamId, { properties: '{' })),
+            },
+            {
+                // The team lookup sends a team_id that is not a number to its token query, which Postgres
+                // rejects when the text holds a NUL byte.
+                name: 'an event whose team_id is a string with a NUL byte',
+                bad: (teamId: number): Message =>
+                    createKafkaMessage({ ...createIncomingEvent(teamId, {}), team_id: `${teamId}\u0000` }),
+            },
+        ])('skips $name and sends the rest of the batch on both sides', async ({ bad }) => {
+            const sendWebhooks = jest.spyOn(consumer['legacyWebhookService'], 'processEvents')
+            const runPlugins = jest.spyOn(consumer, 'processBatch')
+            const handleBatch = (consumer['kafkaConsumer'].connect as jest.Mock).mock.calls[0][0]
+
+            const { backgroundTask } = await handleBatch([
+                bad(team.id),
+                createKafkaMessage(createIncomingEvent(team.id, {})),
+            ])
+            await backgroundTask
+
+            expect(sendWebhooks).toHaveBeenCalledWith([expect.objectContaining({ teamId: team.id })])
+            expect(runPlugins).toHaveBeenCalledWith([
+                expect.objectContaining({ project: expect.objectContaining({ id: team.id }) }),
+            ])
+        })
+    })
+
+    describe('plugin execution after the batch handler parses', () => {
+        beforeEach(async () => {
+            await consumer.start()
+        })
+
+        afterEach(async () => {
+            await consumer.stop()
+        })
+
+        it('runs plugins with the configs the parse loaded, so a later config lookup cannot fail the batch', async () => {
+            const loader = consumer['pluginConfigsLoader']
+            const loadConfigs = loader.get.bind(loader)
+            jest.spyOn(loader, 'get')
+                .mockImplementationOnce(loadConfigs)
+                .mockRejectedValue(new Error('canceling statement due to conflict with recovery'))
+            const handleBatch = (consumer['kafkaConsumer'].connect as jest.Mock).mock.calls[0][0]
+
+            const { backgroundTask } = await handleBatch([createKafkaMessage(createIncomingEvent(team.id, {}))])
+            await backgroundTask
+
+            expect(mockFetch).toHaveBeenCalled()
         })
     })
 

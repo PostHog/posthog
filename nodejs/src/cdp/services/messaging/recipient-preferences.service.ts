@@ -125,9 +125,10 @@ export class RecipientPreferencesService {
             return null
         }
 
-        // Suppression is a deliverability signal, not a messaging preference: an address that can't
-        // receive mail can't receive it regardless of category. So we check it even for
-        // transactional messages, and before the transactional opt-out bypass below.
+        // Suppression is mostly a deliverability signal, not a messaging preference: an address that can't
+        // receive mail can't receive it regardless of category. So we check it even for transactional
+        // messages, and before the transactional opt-out bypass below. Only spam complaints let
+        // transactional messages through.
         if (await this.isRecipientSuppressed(invocation, action)) {
             return 'suppressed'
         }
@@ -166,7 +167,11 @@ export class RecipientPreferencesService {
 
         try {
             const results = await Promise.all(
-                recipients.map((email) => this.emailSuppressionService.isSuppressed(invocation.teamId, email))
+                recipients.map((email) =>
+                    this.emailSuppressionService.isSuppressed(invocation.teamId, email, {
+                        transactional: action.config.message_category_type === 'transactional',
+                    })
+                )
             )
             return results.some(Boolean)
         } catch (error) {

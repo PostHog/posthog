@@ -1,0 +1,215 @@
+{
+  "members": [
+    {
+      "user_uuid": "00000000-0000-4000-8000-000000000001",
+      "name": "Member A",
+      "github_login": "example-member-a"
+    },
+    {
+      "user_uuid": "00000000-0000-4000-8000-000000000002",
+      "name": "Member B",
+      "github_login": null
+    },
+    {
+      "user_uuid": "00000000-0000-4000-8000-000000000003",
+      "name": "Member C",
+      "github_login": "example-member-c"
+    }
+  ],
+  "report": "Report: expired files remain downloadable. The affected behavior is expiry validation in src/storage/expiry.py. All listed members have project access. No corrections exist unless listed.",
+  "cases": [
+    {
+      "name": "specific_owner_over_broad_activity",
+      "evidence": [
+        {
+          "id": "history-a",
+          "fact": "Member A leads the storage team and has the most commits under src/storage, all in unrelated quota code."
+        },
+        {
+          "id": "owner-b",
+          "fact": "The current ownership rule names Member B for src/storage/expiry.py. Member B maintains expiry validation."
+        }
+      ],
+      "expected_reviewers": [
+        "00000000-0000-4000-8000-000000000002"
+      ],
+      "expected_sources": {
+        "00000000-0000-4000-8000-000000000002": "owner-b"
+      }
+    },
+    {
+      "name": "team_member_evidence",
+      "evidence": [
+        {
+          "id": "team-rule",
+          "fact": "CODEOWNERS assigns src/storage/expiry.py to the storage team. The member roster returns A, B, C in that order, with A marked as maintainer."
+        },
+        {
+          "id": "change-c",
+          "fact": "Member C implemented expiry validation in change e71 and reviewed its boundary tests. A and B work on upload UI; no expiry responsibility is recorded for them."
+        }
+      ],
+      "expected_reviewers": [
+        "00000000-0000-4000-8000-000000000003"
+      ],
+      "expected_sources": {
+        "00000000-0000-4000-8000-000000000003": "change-c"
+      }
+    },
+    {
+      "name": "mechanical_edits_only",
+      "evidence": [
+        {
+          "id": "format-a",
+          "fact": "Member A touched src/storage/expiry.py most recently in a repository-wide formatting change. Inspection shows no behavior change."
+        },
+        {
+          "id": "empty-search",
+          "fact": "Ownership files are absent. The other listed members have no relevant work. The available file and component history gives no substantive author or reviewer."
+        }
+      ],
+      "expected_reviewers": [],
+      "expected_sources": {}
+    },
+    {
+      "name": "broad_activity_only",
+      "evidence": [
+        {
+          "id": "activity-a",
+          "fact": "Member A has many recent commits under src/storage. The changed files are unavailable. There is no ownership rule or other evidence about expiry validation."
+        }
+      ],
+      "expected_reviewers": [],
+      "expected_sources": {}
+    },
+    {
+      "name": "multiple_supported_roles",
+      "evidence": [
+        {
+          "id": "owner-b",
+          "fact": "The current ownership rule names Member B for expiry validation. Member B is responsible for fixing its behavior."
+        },
+        {
+          "id": "review-c",
+          "fact": "Member C maintains the download endpoint that calls expiry validation and reviewed the expiry boundary contract in change d82. The proposed fix changes that contract."
+        },
+        {
+          "id": "unrelated-a",
+          "fact": "Member A maintains storage quota code and has no work on expiry or downloads."
+        }
+      ],
+      "expected_reviewers": [
+        "00000000-0000-4000-8000-000000000002",
+        "00000000-0000-4000-8000-000000000003"
+      ],
+      "expected_sources": {
+        "00000000-0000-4000-8000-000000000002": "owner-b",
+        "00000000-0000-4000-8000-000000000003": "review-c"
+      }
+    },
+    {
+      "name": "without_correction",
+      "evidence": [
+        {
+          "id": "owner-a",
+          "fact": "The ownership file names Member A for expiry validation. Member A authored its current implementation."
+        },
+        {
+          "id": "format-b",
+          "fact": "Member B made a formatting-only change. No other responsibility is recorded."
+        }
+      ],
+      "expected_reviewers": [
+        "00000000-0000-4000-8000-000000000001"
+      ],
+      "expected_sources": {
+        "00000000-0000-4000-8000-000000000001": "owner-a"
+      }
+    },
+    {
+      "name": "with_relevant_correction",
+      "evidence": [
+        {
+          "id": "owner-a",
+          "fact": "The ownership file names Member A for expiry validation. Member A authored its current implementation."
+        },
+        {
+          "id": "format-b",
+          "fact": "Member B made a formatting-only change. No other responsibility is recorded."
+        },
+        {
+          "id": "correction-1",
+          "fact": "On an earlier expiry-validation report, a person removed A and added B with the note: B now maintains expiry validation; A no longer owns that component. This is a new report, with no pins or exclusions."
+        }
+      ],
+      "expected_reviewers": [
+        "00000000-0000-4000-8000-000000000002"
+      ],
+      "expected_sources": {
+        "00000000-0000-4000-8000-000000000002": "correction-1"
+      }
+    },
+    {
+      "name": "with_unrelated_correction",
+      "evidence": [
+        {
+          "id": "owner-a",
+          "fact": "The ownership file names Member A for expiry validation. Member A authored its current implementation."
+        },
+        {
+          "id": "format-b",
+          "fact": "Member B made a formatting-only change. No other responsibility is recorded."
+        },
+        {
+          "id": "correction-2",
+          "fact": "On an upload-progress report, a person replaced A with B because B owns the progress display. The correction concerns upload UI only."
+        }
+      ],
+      "expected_reviewers": [
+        "00000000-0000-4000-8000-000000000001"
+      ],
+      "expected_sources": {
+        "00000000-0000-4000-8000-000000000001": "owner-a"
+      }
+    },
+    {
+      "name": "ambiguous_self_removal",
+      "evidence": [
+        {
+          "id": "owner-a",
+          "fact": "The ownership file names Member A for expiry validation. Member A authored its current implementation."
+        },
+        {
+          "id": "format-b",
+          "fact": "Member B made a formatting-only change. No other responsibility is recorded."
+        },
+        {
+          "id": "correction-3",
+          "fact": "A removed themselves from one previous expiry report without a note. No ownership transfer or standing preference was recorded. This is a new report."
+        }
+      ],
+      "expected_reviewers": [
+        "00000000-0000-4000-8000-000000000001"
+      ],
+      "expected_sources": {
+        "00000000-0000-4000-8000-000000000001": "owner-a"
+      }
+    },
+    {
+      "name": "entity_owner_without_github",
+      "report": "Report: the weekly capacity dashboard uses the wrong unit. No code change is needed.",
+      "evidence": [
+        {
+          "id": "dashboard-owner",
+          "fact": "The dashboard owner is Member B, who maintains its queries. A and C only viewed it. There are no corrections."
+        }
+      ],
+      "expected_reviewers": [
+        "00000000-0000-4000-8000-000000000002"
+      ],
+      "expected_sources": {
+        "00000000-0000-4000-8000-000000000002": "dashboard-owner"
+      }
+    }
+  ]
+}

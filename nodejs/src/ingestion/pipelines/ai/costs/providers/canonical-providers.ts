@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-10-22 20:04:30 UTC
+// Generated at: 2026-10-23 20:03:12 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -119,12 +119,14 @@ export type CanonicalProvider =
     | 'inference-net-bf16'
     | 'inference-net-fast'
     | 'inference-net-fp4'
+    | 'inference-net-fp4-us'
     | 'inference-net-fp8'
     | 'inference-net-us'
     | 'inference-net-us-fast'
     | 'io-net'
     | 'io-net-bf16'
     | 'io-net-fp16'
+    | 'io-net-fp4'
     | 'io-net-fp8'
     | 'io-net-nvfp4'
     | 'ionstream'
@@ -170,6 +172,7 @@ export type CanonicalProvider =
     | 'nextbit-int4'
     | 'novita'
     | 'novita-bf16'
+    | 'novita-fp16'
     | 'novita-fp4'
     | 'novita-fp8'
     | 'novita-int4'
@@ -188,6 +191,7 @@ export type CanonicalProvider =
     | 'parasail-fp4'
     | 'parasail-fp8'
     | 'parasail-int4'
+    | 'pareto-alpha-us'
     | 'perceptron'
     | 'perplexity'
     | 'perplexity-int8'
@@ -223,6 +227,7 @@ export type CanonicalProvider =
     | 'streamlake'
     | 'streamlake-fp8'
     | 'tencent-fp8'
+    | 'tenstorrent-fp4'
     | 'tenstorrent-fp8'
     | 'thinkingmachines-nvfp4'
     | 'together'

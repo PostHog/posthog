@@ -134,10 +134,9 @@ from products.signals.dags.inbox_ranking.consent import training_consent_team_id
 from products.signals.dags.inbox_ranking.dataset.project_vectors import (
     EMBEDDING_COLUMNS,
     LABEL_COLUMNS,
-    MIN_HISTORY_REPORTS,
     PROJECT_VECTORS_SCHEMA_VERSION,
-    VECTOR_KINDS,
     project_vectors,
+    teams_with_history,
 )
 from products.signals.dags.inbox_ranking.dataset.queries import (
     LABEL_DEFAULTS,
@@ -187,6 +186,11 @@ REVIEWERS_SCHEMA_VERSION = 1
 
 # The engagement export is read in another region, so its shape moves apart from every local snapshot.
 ENGAGEMENT_EXPORT_SCHEMA_VERSION = 1
+# Most labels rows belong to this region's reports. A share below this floor means the local report
+# lookup lost rows, and the export would send this region's report ids to the other region.
+ENGAGEMENT_EXPORT_MIN_LOCAL_SHARE = 0.25
+NO_LOCAL_REPORTS = "no_local_reports"
+LOCAL_SHARE_COLLAPSED = "local_share_collapsed"
 
 COMMON_ASSET_KWARGS: dict[str, Any] = {
     "group_name": "inbox_ranking",
@@ -202,7 +206,7 @@ COMMON_ASSET_KWARGS: dict[str, Any] = {
 }
 
 
-def _tag_dagster_queries(context: dagster.AssetExecutionContext, query_type: str) -> None:
+def tag_dagster_queries(context: dagster.AssetExecutionContext, query_type: str) -> None:
     """Stamp product + feature + dagster run tags into the thread's query tags so every ClickHouse
     query this asset issues (sync_execute and HogQL alike) is attributable in system.query_log.
     Both product and feature are required: sync_execute refuses an untagged query in local dev.
@@ -782,7 +786,7 @@ def assemble_user_interaction_rows(
 def inbox_report_state(context: dagster.AssetExecutionContext) -> None:
     if skip_unconfigured(context):
         return
-    _tag_dagster_queries(context, query_type="inbox_ranking_report_state")
+    tag_dagster_queries(context, query_type="inbox_ranking_report_state")
     partition_key = context.partition_key
     _, snapshot_end = snapshot_bounds(partition_key)
     snapshot_date = datetime.date.fromisoformat(partition_key)
@@ -1036,17 +1040,12 @@ def inbox_report_reviewers(context: dagster.AssetExecutionContext) -> None:
     )
 
 
-def _snapshot_report_embeddings(
-    context: dagster.AssetExecutionContext, table: str, rendering: str, query_type: str
-) -> None:
-    """Point-in-time snapshot of one embedding rendering, shared by the report and title assets."""
-    if skip_unconfigured(context):
-        return
-    _tag_dagster_queries(context, query_type=query_type)
-    partition_key = context.partition_key
+def report_embeddings_table(partition_key: str, rendering: str, consent_team_ids: Collection[int]) -> pa.Table:
+    """Point-in-time snapshot of one embedding rendering as of the end of dt=D, for the teams in
+    `consent_team_ids`. Every region's ClickHouse holds only its own reports, so a dag in each region
+    reads its own vectors through this function."""
     _, snapshot_end = snapshot_bounds(partition_key)
     snapshot_date = datetime.date.fromisoformat(partition_key)
-    consent_team_ids = training_consent_team_ids()
 
     # With no consenting team there is no row to read, so the query is not sent.
     results = (
@@ -1075,7 +1074,6 @@ def _snapshot_report_embeddings(
     # This is the widest thing the dag holds — a 1536-float vector per live report, fleet-wide — so
     # the intermediate list of row dicts that from_pylist would need is a whole extra copy of it.
     row_count = len(results)
-    tombstones = 0
     report_ids: list[str] = []
     team_ids: list[int] = []
     embeddings: list[list[float] | None] = []
@@ -1084,8 +1082,6 @@ def _snapshot_report_embeddings(
     for index in range(row_count):
         team_id, document_id, embedding, is_tombstone, inserted_at = results[index]
         results[index] = ()
-        if is_tombstone:
-            tombstones += 1
         report_ids.append(str(document_id))
         team_ids.append(int(team_id))
         # Tombstoned vectors embed the fixed retraction text, not report content, so they are
@@ -1095,9 +1091,7 @@ def _snapshot_report_embeddings(
         tombstone_flags.append(bool(is_tombstone))
     del results
 
-    # An empty result still writes an object: a backfilled day from before the rendering was
-    # emitted must read as "present, zero rows" rather than as a missing partition.
-    arrow_table = pa.Table.from_pydict(
+    return pa.Table.from_pydict(
         {
             "snapshot_date": [snapshot_date] * row_count,
             "report_id": report_ids,
@@ -1110,13 +1104,27 @@ def _snapshot_report_embeddings(
         schema=EMBEDDINGS_SCHEMA,
     )
 
+
+def _snapshot_report_embeddings(
+    context: dagster.AssetExecutionContext, table: str, rendering: str, query_type: str
+) -> None:
+    """Write one embedding rendering's snapshot, shared by the report and title assets."""
+    if skip_unconfigured(context):
+        return
+    tag_dagster_queries(context, query_type=query_type)
+    partition_key = context.partition_key
+    consent_team_ids = training_consent_team_ids()
+    # An empty result still writes an object: a backfilled day from before the rendering was
+    # emitted must read as "present, zero rows" rather than as a missing partition.
+    arrow_table = report_embeddings_table(partition_key, rendering, consent_team_ids)
+
     bucket = dataset_bucket()
     key = partition_object_key(settings.INBOX_RANKING_DATASET_S3_PREFIX, table, partition_key)
     write_parquet(s3_client(), bucket, key, arrow_table)
     context.add_output_metadata(
         {
-            "rows": dagster.MetadataValue.int(row_count),
-            "tombstones": dagster.MetadataValue.int(tombstones),
+            "rows": dagster.MetadataValue.int(arrow_table.num_rows),
+            "tombstones": dagster.MetadataValue.int(pc.sum(arrow_table.column("is_tombstone")).as_py() or 0),
             "training_consent_teams": dagster.MetadataValue.int(len(consent_team_ids)),
             "s3_key": dagster.MetadataValue.text(f"s3://{bucket}/{key}"),
         }
@@ -1186,7 +1194,7 @@ def inbox_signal_embeddings(context: dagster.AssetExecutionContext) -> None:
     """
     if skip_unconfigured(context):
         return
-    _tag_dagster_queries(context, query_type="inbox_ranking_signal_embeddings")
+    tag_dagster_queries(context, query_type="inbox_ranking_signal_embeddings")
     partition_key = context.partition_key
     window_start, window_end = snapshot_bounds(partition_key)
     snapshot_date = datetime.date.fromisoformat(partition_key)
@@ -1299,7 +1307,7 @@ def inbox_signal_embeddings(context: dagster.AssetExecutionContext) -> None:
 def inbox_report_labels(context: dagster.AssetExecutionContext) -> None:
     if skip_unconfigured(context):
         return
-    _tag_dagster_queries(context, query_type="inbox_ranking_labels")
+    tag_dagster_queries(context, query_type="inbox_ranking_labels")
     partition_key = context.partition_key
     _, snapshot_end = snapshot_bounds(partition_key)
     team = labels_team()
@@ -1355,7 +1363,7 @@ def inbox_user_report_interactions(context: dagster.AssetExecutionContext) -> No
     """
     if skip_unconfigured(context):
         return
-    _tag_dagster_queries(context, query_type="inbox_ranking_user_interactions")
+    tag_dagster_queries(context, query_type="inbox_ranking_user_interactions")
     partition_key = context.partition_key
     _, snapshot_end = snapshot_bounds(partition_key)
     team = labels_team()
@@ -1459,16 +1467,13 @@ def inbox_project_vectors(context: dagster.AssetExecutionContext) -> None:
 
     key = partition_object_key(prefix, PROJECT_VECTORS_TABLE, partition_key)
     write_parquet(client, bucket, key, table, schema_version=PROJECT_VECTORS_SCHEMA_VERSION)
-    counts = table.select(["kind", "n_reports"]).to_pylist()
     context.add_output_metadata(
         {
             "rows": dagster.MetadataValue.int(table.num_rows),
             "teams": dagster.MetadataValue.int(len(set(table.column("team_id").to_pylist()))),
             **{
-                f"teams_with_{kind}_history": dagster.MetadataValue.int(
-                    sum(1 for row in counts if row["kind"] == kind and row["n_reports"] >= MIN_HISTORY_REPORTS)
-                )
-                for kind in VECTOR_KINDS
+                f"teams_with_{kind}_history": dagster.MetadataValue.int(count)
+                for kind, count in teams_with_history(table).items()
             },
             "excluded_no_training_consent_reports": dagster.MetadataValue.int(excluded_reports),
             "s3_key": dagster.MetadataValue.text(f"s3://{bucket}/{key}"),
@@ -1486,6 +1491,17 @@ def remote_engagement_rows(labels: pa.Table, local_report_ids: Collection[str]) 
     valid_ids = valid_report_uuids(set(report_ids))
     keep = [report_id in valid_ids and report_id not in local_report_ids for report_id in report_ids]
     return labels.filter(pa.array(keep, type=pa.bool_()))
+
+
+def engagement_export_refusal(label_rows: int, local_rows: int) -> str | None:
+    """Why the export must not be written, or None. An empty labels table has nothing to leak."""
+    if label_rows == 0:
+        return None
+    if local_rows == 0:
+        return NO_LOCAL_REPORTS
+    if local_rows / label_rows < ENGAGEMENT_EXPORT_MIN_LOCAL_SHARE:
+        return LOCAL_SHARE_COLLAPSED
+    return None
 
 
 @dagster.asset(
@@ -1515,44 +1531,76 @@ def inbox_engagement_export(context: dagster.AssetExecutionContext) -> None:
     labels = read_parquet(
         s3_client(), dataset_bucket(), partition_object_key(prefix, LABELS_TABLE, partition_key), list(LABEL_COLUMNS)
     )
-    local_report_ids = _report_teams(
-        sorted(valid_report_uuids(set(labels.column("report_id").to_pylist()))), snapshot_end
-    ).keys()
-    table = remote_engagement_rows(labels, local_report_ids)
-    buffer = io.BytesIO()
-    pq.write_table(table, buffer, compression="zstd")
-    content = buffer.getvalue()
+    # telemetry imports the training modules, which import this module.
+    from products.signals.dags.inbox_ranking.training.telemetry import (  # noqa: PLC0415
+        capture_training_events,
+        engagement_export_event,
+    )
 
+    report_ids = labels.column("report_id").to_pylist()
+    local_report_ids = _report_teams(sorted(valid_report_uuids(set(report_ids))), snapshot_end).keys()
+    local_rows = sum(report_id in local_report_ids for report_id in report_ids)
+    local_share = local_rows / labels.num_rows if labels.num_rows else None
+    table = remote_engagement_rows(labels, local_report_ids)
     key = serving_engagement_key(prefix, partition_key)
-    written = True
-    try:
-        serving_mirror_storage().write(
-            bucket=mirror_bucket,
-            key=key,
-            content=content,
-            extras={
-                # The mirror bucket is in another account, and its policy refuses a write without this ACL.
-                "ACL": "bucket-owner-full-control",
-                "Metadata": {
-                    ROW_COUNT_METADATA_KEY: str(table.num_rows),
-                    SNAPSHOT_DATE_METADATA_KEY: partition_key,
-                    SCHEMA_VERSION_METADATA_KEY: str(ENGAGEMENT_EXPORT_SCHEMA_VERSION),
-                },
-            },
+    skip_reason = engagement_export_refusal(labels.num_rows, local_rows)
+    content = b""
+    written = False
+    if skip_reason is not None:
+        # Nothing is written, so the other region falls back to an older export, then fails on its side.
+        context.log.error(
+            f"engagement export for {partition_key} refused ({skip_reason}): {local_rows} of "
+            f"{labels.num_rows} labels rows have a report in this region"
         )
-    except Exception as error:
-        # The mirror is another deployment's store, so an outage there only logs. The other region
-        # detects the missing day on its side.
-        context.log.exception(f"engagement export for {partition_key} not written: {error!r}")
-        written = False
+    else:
+        buffer = io.BytesIO()
+        pq.write_table(table, buffer, compression="zstd")
+        content = buffer.getvalue()
+        try:
+            serving_mirror_storage().write(
+                bucket=mirror_bucket,
+                key=key,
+                content=content,
+                extras={
+                    # The mirror bucket is in another account, and its policy refuses a write without this ACL.
+                    "ACL": "bucket-owner-full-control",
+                    "Metadata": {
+                        ROW_COUNT_METADATA_KEY: str(table.num_rows),
+                        SNAPSHOT_DATE_METADATA_KEY: partition_key,
+                        SCHEMA_VERSION_METADATA_KEY: str(ENGAGEMENT_EXPORT_SCHEMA_VERSION),
+                    },
+                },
+            )
+            written = True
+        except Exception as error:
+            # The mirror is another deployment's store, so an outage there only logs. The other region
+            # detects the missing day on its side.
+            context.log.exception(f"engagement export for {partition_key} not written: {error!r}")
     context.add_output_metadata(
         {
             "written": dagster.MetadataValue.bool(written),
+            **({"skip_reason": dagster.MetadataValue.text(skip_reason)} if skip_reason else {}),
             "rows": dagster.MetadataValue.int(table.num_rows),
-            "excluded_rows": dagster.MetadataValue.int(labels.num_rows - table.num_rows),
+            "excluded_rows": dagster.MetadataValue.int(local_rows),
+            "local_share": dagster.MetadataValue.float(local_share or 0.0),
             "bytes": dagster.MetadataValue.int(len(content)),
             "s3_key": dagster.MetadataValue.text(f"s3://{mirror_bucket}/{key}"),
         }
+    )
+    capture_training_events(
+        context,
+        partition_key,
+        [
+            engagement_export_event(
+                written=written,
+                skip_reason=skip_reason,
+                rows=table.num_rows,
+                excluded_rows=local_rows,
+                local_share=local_share,
+                bytes_written=len(content),
+                schema_version=ENGAGEMENT_EXPORT_SCHEMA_VERSION,
+            )
+        ],
     )
 
 
