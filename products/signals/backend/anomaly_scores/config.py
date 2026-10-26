@@ -42,6 +42,11 @@ class ReturnFilter:
     # Raw buckets before the run that set the level a bucket returns to.
     baseline: int
 
+    @property
+    def flag_context(self) -> int:
+        """Scored buckets before a bucket whose flags the filter reads: the window, then the run before it."""
+        return 2 * self.window
+
 
 @frozen
 class IntervalScoring:
@@ -70,22 +75,31 @@ class ScoringLimits:
     max_backfill_buckets: int = 30
 
 
-def _zscore(window: int) -> dict[str, Any]:
+_SMOOTH_N = 3
+
+
+def _zscore(window: int) -> IntervalScoring:
     # diffs_n is set explicitly: when preprocessing is given without it, the detector scores raw values,
     # and on sparse series raw values score almost every non-zero bucket near 1.0.
-    return {"type": "zscore", "threshold": 0.95, "window": window, "preprocessing": {"diffs_n": 1, "smooth_n": 3}}
+    detector = {
+        "type": "zscore",
+        "threshold": 0.95,
+        "window": window,
+        "preprocessing": {"diffs_n": 1, "smooth_n": _SMOOTH_N},
+    }
+    # The fall of a spike stays in the smoothed difference for `smooth_n` buckets.
+    return IntervalScoring(
+        min_points=window, detector=detector, return_filter=ReturnFilter(window=_SMOOTH_N, baseline=7)
+    )
 
-
-# The window equals `smooth_n`: the fall of a spike stays in the smoothed difference for that many buckets.
-_RETURN_FILTER = ReturnFilter(window=3, baseline=7)
 
 DEFAULT_PROFILE = ScoringProfile(
     name="default-v2",
     intervals={
-        IntervalType.HOUR: IntervalScoring(min_points=336, detector=_zscore(336), return_filter=_RETURN_FILTER),
-        IntervalType.DAY: IntervalScoring(min_points=56, detector=_zscore(56), return_filter=_RETURN_FILTER),
-        IntervalType.WEEK: IntervalScoring(min_points=52, detector=_zscore(52), return_filter=_RETURN_FILTER),
-        IntervalType.MONTH: IntervalScoring(min_points=24, detector=_zscore(24), return_filter=_RETURN_FILTER),
+        IntervalType.HOUR: _zscore(336),
+        IntervalType.DAY: _zscore(56),
+        IntervalType.WEEK: _zscore(52),
+        IntervalType.MONTH: _zscore(24),
     },
 )
 

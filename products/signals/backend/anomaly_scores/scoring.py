@@ -246,7 +246,7 @@ def fetch_buckets(query: TrendsQuery, scoring: IntervalScoring, to_score: int, *
     The count has one bucket more than the scores read, so a first bucket that the date range cuts short is never read.
     ``history`` replaces the detector history, for the train and score steps of the split.
     """
-    count = (history_buckets(scoring) if history is None else history) + to_score + return_filter_buckets(scoring)
+    count = (history_buckets(scoring) if history is None else history) + to_score + _return_filter_buckets(scoring)
     smoothing = query.trendsFilter.smoothingIntervals if query.trendsFilter else None
     if smoothing and smoothing > _MAX_SMOOTHING_BUCKETS:
         # The field has no upper bound, and the fetch grows with it.
@@ -261,15 +261,10 @@ def fetch_buckets(query: TrendsQuery, scoring: IntervalScoring, to_score: int, *
     return count
 
 
-def return_filter_buckets(scoring: IntervalScoring) -> int:
+def _return_filter_buckets(scoring: IntervalScoring) -> int:
     """Buckets before the oldest bucket to score that the return filter reads: earlier flags, then the baseline."""
     return_filter = scoring.return_filter
-    return 0 if return_filter is None else _flag_context(return_filter) + return_filter.baseline
-
-
-def _flag_context(return_filter: ReturnFilter) -> int:
-    """Scored buckets before a returned bucket whose flags the return filter reads: the window, then the run before it."""
-    return 2 * return_filter.window
+    return 0 if return_filter is None else return_filter.flag_context + return_filter.baseline
 
 
 def build_scoring_query(query: TrendsQuery, buckets: int, limits: ScoringLimits = DEFAULT_LIMITS) -> TrendsQuery:
@@ -340,22 +335,6 @@ def query_cost(insight: Insight, team: Team) -> int:
     return max(1, expanded_series_count(query, cohort_breakdown_expands=cohort_breakdown))
 
 
-@frozen
-class ScoredIndices:
-    completed: list[int]
-    # The newest completed buckets later than `after`, capped at `max_backfill_buckets`.
-    returned: list[int]
-
-
-def _scored_indices(
-    buckets: Sequence[datetime], *, interval: IntervalType, now: datetime, after: datetime | None, limits: ScoringLimits
-) -> ScoredIndices:
-    """The indices of the completed buckets, and of the newest of them later than ``after``."""
-    completed = [i for i, start in enumerate(buckets) if bucket_end(start, interval) <= now]
-    returned = [i for i in completed if after is None or buckets[i] > after][-limits.max_backfill_buckets :]
-    return ScoredIndices(completed=completed, returned=returned)
-
-
 def score_series(
     values: Sequence[float],
     buckets: Sequence[datetime],
@@ -372,13 +351,14 @@ def score_series(
     """
     if len(values) != len(buckets):
         raise ValueError("Each value needs a bucket")
-    indices = _scored_indices(buckets, interval=interval, now=now, after=after, limits=limits)
-    scored = _with_flag_context(indices, scoring)
+    indices = _scored_indices(
+        buckets, interval=interval, now=now, after=after, limits=limits, return_filter=scoring.return_filter
+    )
     detector = get_detector(scoring.detector)
     data = np.array(values, dtype=float)
 
     points: list[ScoredPoint] = []
-    for i in scored:
+    for i in indices.scored:
         # Score each bucket on the history up to it, so the ongoing bucket and later buckets never shape the score.
         # detect() fits once per call; detect_batch() refits at every point of the lookback for model-based detectors.
         result = detector.detect(data[: i + 1]) if i + 1 >= scoring.min_points else None
@@ -392,31 +372,47 @@ def score_series(
                 details={} if result is None or score is None else _details(result),
             )
         )
-    return _returned_points(points, values, scored, indices, scoring)
+    return _returned_points(points, values, indices, scoring.return_filter)
 
 
-def _with_flag_context(indices: ScoredIndices, scoring: IntervalScoring) -> list[int]:
-    """The returned indices after the completed buckets before them whose flags the return filter reads."""
-    if scoring.return_filter is None or not indices.returned:
-        return indices.returned
-    first = indices.completed.index(indices.returned[0])
-    return indices.completed[max(0, first - _flag_context(scoring.return_filter)) : first] + indices.returned
+@frozen
+class ScoredIndices:
+    completed: list[int]
+    # The newest completed buckets later than `after`, capped at `max_backfill_buckets`.
+    returned: list[int]
+    # `returned` after the completed buckets before it whose flags the return filter reads.
+    scored: list[int]
+
+
+def _scored_indices(
+    buckets: Sequence[datetime],
+    *,
+    interval: IntervalType,
+    now: datetime,
+    after: datetime | None,
+    limits: ScoringLimits,
+    return_filter: ReturnFilter | None,
+) -> ScoredIndices:
+    """The indices of the completed buckets, of the newest of them later than ``after``, and of the buckets to score."""
+    completed = [i for i, start in enumerate(buckets) if bucket_end(start, interval) <= now]
+    returned = [i for i in completed if after is None or buckets[i] > after][-limits.max_backfill_buckets :]
+    scored = returned
+    if return_filter is not None and returned:
+        first = completed.index(returned[0])
+        scored = completed[max(0, first - return_filter.flag_context) : first] + returned
+    return ScoredIndices(completed=completed, returned=returned, scored=scored)
 
 
 def _returned_points(
-    points: list[ScoredPoint],
-    values: Sequence[float],
-    scored: list[int],
-    indices: ScoredIndices,
-    scoring: IntervalScoring,
+    points: list[ScoredPoint], values: Sequence[float], indices: ScoredIndices, return_filter: ReturnFilter | None
 ) -> list[ScoredPoint]:
-    """Apply the return filter to the points at ``scored``, then drop the context points before the returned ones."""
-    if scoring.return_filter is not None:
-        points = clear_return_flags(points, values, scored, scoring.return_filter)
-    return points[len(scored) - len(indices.returned) :]
+    """Apply the return filter to the points at ``indices.scored``, then drop the context points before the returned ones."""
+    if return_filter is not None:
+        points = _clear_return_flags(points, values, indices.scored, return_filter)
+    return points[len(indices.scored) - len(indices.returned) :]
 
 
-def clear_return_flags(
+def _clear_return_flags(
     points: Sequence[ScoredPoint], values: Sequence[float], indices: Sequence[int], return_filter: ReturnFilter
 ) -> list[ScoredPoint]:
     """Clear the flag of each point at ``indices`` whose raw value is back at the level before a recent flagged run.
@@ -590,20 +586,21 @@ def _train_step(
     artifacts: dict[str, DetectorArtifact] = {}
     newest: list[datetime] = []
     for line in fetched:
-        indices = _scored_indices(line.buckets, interval=interval, now=now, after=after, limits=limits)
+        indices = _scored_indices(
+            line.buckets, interval=interval, now=now, after=after, limits=limits, return_filter=scoring.return_filter
+        )
         completed = indices.completed
         if completed:
             newest.append(line.buckets[completed[-1]])
-        scored = _with_flag_context(indices, scoring)
         # A refit per due bucket scores a backfill like `score_series`. One fit for all of them goes stale.
         points = [
             point
-            for i in scored
+            for i in indices.scored
             for point in score_with_artifact(
                 detector, _fit(detector, scoring, line.values, i), line.values, line.buckets, [i]
             )
         ]
-        points = _returned_points(points, line.values, scored, indices, scoring)
+        points = _returned_points(points, line.values, indices, scoring.return_filter)
         artifact = _fit(detector, scoring, line.values, completed[-1] + 1) if completed else None
         if artifact is not None:
             artifacts[line.series_key] = artifact
@@ -666,14 +663,14 @@ def _score_step(
         if artifact is None:
             unmatched += 1
             continue
-        indices = _scored_indices(line.buckets, interval=interval, now=now, after=since, limits=limits)
-        scored = _with_flag_context(indices, scoring)
+        indices = _scored_indices(
+            line.buckets, interval=interval, now=now, after=since, limits=limits, return_filter=scoring.return_filter
+        )
         points = _returned_points(
-            score_with_artifact(detector, artifact, line.values, line.buckets, scored),
+            score_with_artifact(detector, artifact, line.values, line.buckets, indices.scored),
             line.values,
-            scored,
             indices,
-            scoring,
+            scoring.return_filter,
         )
         if points:
             newest = points[-1].bucket_start.astimezone(UTC)
