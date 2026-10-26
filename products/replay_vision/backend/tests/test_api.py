@@ -3,7 +3,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 from django.core.cache import cache
 from django.db import IntegrityError, connection, transaction
@@ -60,6 +60,7 @@ from products.replay_vision.backend.models.replay_scanner import (
     ScannerType,
 )
 from products.replay_vision.backend.models.replay_scanner_backfill import ReplayScannerBackfill
+from products.replay_vision.backend.models.replay_scanner_semantics import ReplayScannerSearchTheme
 from products.replay_vision.backend.queries import ESTIMATE_STALE_AFTER, SAVE_ESTIMATE_BUDGET
 from products.replay_vision.backend.queries.scanner_candidate_query import SETTLE_INTERVAL
 from products.replay_vision.backend.queries.scanner_volume_estimate import estimate_scanner_session_volume
@@ -4068,6 +4069,68 @@ class TestObservationSearchAction(_VisionAPITestCase):
         self.assertEqual(self.client.get(f"{self.search_url}?q=anything").status_code, 429)
 
 
+class TestSearchSuggestionsAction(_VisionAPITestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.checkout = self._create_scanner(name="checkout")
+        self.signup = self._create_scanner(name="signup")
+        now = timezone.now()
+        for scanner, label, members, last_member_at in [
+            (self.checkout, "coupon rejected", 10, now),
+            (self.checkout, "card declined", 8, now),
+            (self.checkout, "address form loops", 6, now),
+            (self.checkout, "", 20, now),
+            (self.checkout, "old checkout crash", 50, now - timedelta(days=31)),
+            (self.signup, "email never arrives", 9, now),
+        ]:
+            ReplayScannerSearchTheme.objects.for_team(self.team.id).create(
+                team=self.team,
+                scanner=scanner,
+                vector_sum=b"",
+                member_count=members,
+                label=label,
+                last_member_at=last_member_at,
+            )
+
+    @property
+    def url(self) -> str:
+        return f"/api/environments/{self.team.id}/vision/observations/search_suggestions/"
+
+    @parameterized.expand(
+        [
+            ("cross_scanner_caps_each_scanner", None, ["coupon rejected", "email never arrives", "card declined"]),
+            ("one_scanner", "checkout", ["coupon rejected", "card declined", "address form loops"]),
+        ]
+    )
+    def test_suggestions_are_the_largest_active_named_themes(
+        self, _name: str, scanner: str | None, expected: list[str]
+    ) -> None:
+        query = f"?scanner_id={self.checkout.id}" if scanner else ""
+        resp = self.client.get(f"{self.url}{query}")
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json(), {"queries": expected})
+
+    @parameterized.expand([("ai_processing_on", True), ("ai_processing_off", False)])
+    @patch("products.replay_vision.backend.api.observations.warm_query_vectors")
+    def test_a_view_warms_the_suggestions_only_with_ai_processing_on(
+        self, _name: str, approved: bool, mock_warm: MagicMock
+    ) -> None:
+        self.organization.is_ai_data_processing_approved = approved
+        self.organization.save()
+
+        resp = self.client.post(
+            f"/api/environments/{self.team.id}/vision/observations/search_viewed/",
+            {"scanner_id": str(self.signup.id)},
+        )
+
+        self.assertEqual(resp.status_code, 204)
+        if approved:
+            mock_warm.assert_called_once_with(ANY, ["email never arrives"])
+        else:
+            mock_warm.assert_not_called()
+
+
 class TestReplayScannerEstimateAction(ClickhouseTestMixin, _VisionAPITestCase):
     @property
     def estimate_url(self) -> str:
@@ -6366,8 +6429,8 @@ class TestScannerActivityLogging(_VisionAPITestCase):
         scanner = self._create_scanner()
         ActivityLog.objects.all().delete()
 
-        scanner.search_suggestions = ["checkout errors"]
-        scanner.save(update_fields=["search_suggestions"])
+        scanner.admission_credits_since_refresh = 7
+        scanner.save(update_fields=["admission_credits_since_refresh"])
 
         self.assertEqual(self._logs(str(scanner.id)), [])
 

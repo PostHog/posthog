@@ -225,3 +225,30 @@ async def name_theme(team_id: int, theme_id: uuid.UUID, now: datetime) -> str | 
         return None
     await sync_to_async(_save_name)(team_id, theme_id, label)
     return label
+
+
+MAX_SUGGESTED_QUERIES = 4
+# A cross-scanner view takes at most this many suggestions from one scanner, so one busy scanner never fills it.
+_PER_SCANNER_SUGGESTIONS = 2
+
+
+def theme_suggestions(team_id: int, scanner_ids: list[str], now: datetime) -> list[str]:
+    """The labels of the largest active themes among the given scanners, as example searches."""
+    themes = (
+        ReplayScannerSearchTheme.objects.for_team(team_id)
+        .filter(scanner_id__in=scanner_ids, last_member_at__gte=now - THEME_ACTIVE_WINDOW)
+        .exclude(label="")
+        .order_by("-member_count", "id")
+        .values_list("scanner_id", "label")[:50]
+    )
+    per_scanner_cap = MAX_SUGGESTED_QUERIES if len(scanner_ids) == 1 else _PER_SCANNER_SUGGESTIONS
+    taken: dict[Any, int] = {}
+    queries: list[str] = []
+    for scanner_id, label in themes:
+        if label in queries or taken.get(scanner_id, 0) >= per_scanner_cap:
+            continue
+        taken[scanner_id] = taken.get(scanner_id, 0) + 1
+        queries.append(label)
+        if len(queries) == MAX_SUGGESTED_QUERIES:
+            break
+    return queries
