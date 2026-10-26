@@ -1,6 +1,6 @@
 """Canonical, documentation-sourced descriptions for Zero endpoints and columns.
 
-Sourced from the official Zero API reference (https://docs.zero.inc/features/api). Keyed by the
+Sourced from the official Zero API reference (https://docs.zero.inc/developers/api). Keyed by the
 resource names in `settings.py` `ENDPOINT_CONFIGS`, which match the `ExternalDataSchema.name` of a
 synced Zero table. Columns absent here fall back to LLM enrichment.
 """
@@ -29,7 +29,7 @@ def _columns(**overrides: str) -> dict[str, str]:
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "Workspaces": {
         "description": "The Zero workspace the connected API key belongs to.",
-        "docs_url": "https://docs.zero.inc/features/api/workspaces",
+        "docs_url": "https://docs.zero.inc/developers/api/workspaces",
         "columns": {
             "id": "Unique identifier for the workspace.",
             "name": "Name of the workspace.",
@@ -44,7 +44,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     },
     "Companies": {
         "description": "A company (account) tracked in the CRM, auto-captured from email and calendar activity.",
-        "docs_url": "https://docs.zero.inc/features/api/companies",
+        "docs_url": "https://docs.zero.inc/developers/api/companies",
         "columns": _columns(
             name="Name of the company.",
             domain="Primary domain of the company.",
@@ -60,7 +60,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     },
     "Contacts": {
         "description": "A person tracked in the CRM, auto-captured from email, calendar, and call activity.",
-        "docs_url": "https://docs.zero.inc/features/api/contacts",
+        "docs_url": "https://docs.zero.inc/developers/api/contacts",
         "columns": _columns(
             companyId="Identifier of the company the contact belongs to.",
             name="Full name of the contact.",
@@ -79,7 +79,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     },
     "Deals": {
         "description": "An opportunity moving through a sales pipeline.",
-        "docs_url": "https://docs.zero.inc/features/api/deals",
+        "docs_url": "https://docs.zero.inc/developers/api/deals",
         "columns": _columns(
             pipelineId="Identifier of the pipeline the deal belongs to.",
             companyId="Identifier of the company the deal is associated with.",
@@ -98,7 +98,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     },
     "Pipelines": {
         "description": "A sales pipeline used to track deals through a sequence of stages.",
-        "docs_url": "https://docs.zero.inc/features/api/pipelines",
+        "docs_url": "https://docs.zero.inc/developers/api/pipelines",
         "columns": _columns(
             name="Name of the pipeline.",
             description="Free-text description of the pipeline.",
@@ -111,7 +111,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     },
     "PipelineStages": {
         "description": "A stage within a sales pipeline (e.g. lead, in-progress, won, lost).",
-        "docs_url": "https://docs.zero.inc/features/api/pipeline-stages",
+        "docs_url": "https://docs.zero.inc/developers/api/pipeline-stages",
         "columns": _columns(
             pipelineId="Identifier of the pipeline this stage belongs to.",
             name="Name of the stage.",
@@ -125,7 +125,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     },
     "Notes": {
         "description": "A note attached to a company, contact, or deal.",
-        "docs_url": "https://docs.zero.inc/features/api/notes",
+        "docs_url": "https://docs.zero.inc/developers/api/notes",
         "columns": _columns(
             name="Title of the note.",
             emoji="Emoji icon shown for the note.",
@@ -137,7 +137,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     },
     "Tasks": {
         "description": "A to-do item, optionally linked to companies, contacts, or deals.",
-        "docs_url": "https://docs.zero.inc/features/api/tasks",
+        "docs_url": "https://docs.zero.inc/developers/api/tasks",
         "columns": _columns(
             name="Title of the task.",
             done="Whether the task has been completed.",
@@ -155,7 +155,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     },
     "Meetings": {
         "description": "A calendar event, optionally linked to companies, contacts, or deals.",
-        "docs_url": "https://docs.zero.inc/features/api/meetings",
+        "docs_url": "https://docs.zero.inc/developers/api/meetings",
         "columns": _columns(
             name="Title of the meeting.",
             startTime="Start time of the meeting.",
@@ -178,7 +178,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     },
     "Memberships": {
         "description": "A user's membership in the workspace, including their role.",
-        "docs_url": "https://docs.zero.inc/features/api/memberships",
+        "docs_url": "https://docs.zero.inc/developers/api/memberships",
         "columns": {
             "id": "Unique identifier for the membership.",
             "userId": "Identifier of the user who is a member of the workspace.",
@@ -192,7 +192,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     },
     "Users": {
         "description": "A user with access to the workspace.",
-        "docs_url": "https://docs.zero.inc/features/api/users",
+        "docs_url": "https://docs.zero.inc/developers/api/users",
         "columns": {
             "id": "Unique identifier for the user.",
             "name": "Full name of the user.",
@@ -206,5 +206,219 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "createdAt": "Time at which the user account was created.",
             "updatedAt": "Time at which the user account was last updated.",
         },
+    },
+    "MeetingTranscripts": {
+        "description": "One speaker turn from a recorded meeting. A meeting's full transcript is every segment with its calendarEventId, ordered by startTime.",
+        "docs_url": "https://docs.zero.inc/developers/api/meetings",
+        "columns": _columns(
+            calendarEventId="Identifier of the meeting (calendar event) this segment belongs to.",
+            integrationId="Identifier of the notetaker integration that produced this segment.",
+            speaker="Name of the speaker for this segment, or Unknown.",
+            content="The spoken text of this segment.",
+            startTime="Start offset of this segment, in milliseconds from the start of the meeting.",
+            endTime="End offset of this segment, in milliseconds from the start of the meeting.",
+            duration="Length of this segment in milliseconds.",
+            topic="Optional topic label for the segment.",
+            sentiment="Optional sentiment label for the segment.",
+        ),
+    },
+    "Products": {
+        "description": "A product in the workspace catalog, with its price variants.",
+        "docs_url": "https://docs.zero.inc/developers/api/products",
+        "columns": _columns(
+            name="Name of the product.",
+            description="Description of the product.",
+            sku="Stock keeping unit of the product.",
+            prices="Price variants of the product, each with a name, amount and currency.",
+            isDefault="Whether the product is prefilled as a line item on new quotes.",
+            defaultPriceId="Identifier of the entry in prices that is used when the product is prefilled on a new quote.",
+            order="Display order in the catalog.",
+        ),
+    },
+    "Quotes": {
+        "description": "A quote for a deal, with line items, contract term and totals.",
+        "docs_url": "https://docs.zero.inc/developers/api/quotes",
+        "columns": _columns(
+            companyId="Identifier of the company the quote is for.",
+            dealId="Identifier of the deal the quote is attached to.",
+            name="Name of the quote.",
+            status="Status of the quote: draft, sent, accepted, rejected or expired.",
+            lineItems="Line items of the quote.",
+            totalAmount="Total contract value over the contract term, in the quote's currency.",
+            totalAmountInWorkspaceCurrency="Total contract value converted to the workspace currency.",
+            currency="ISO 4217 currency code of the quote's amounts.",
+            mrr="Monthly recurring revenue portion of the quote.",
+            arr="Annual recurring revenue portion of the quote.",
+            mrrInWorkspaceCurrency="Monthly recurring revenue converted to the workspace currency.",
+            arrInWorkspaceCurrency="Annual recurring revenue converted to the workspace currency.",
+            termMonths="Contract term in months.",
+            sentAt="Time at which the quote was sent.",
+            expiresAt="Time at which the quote expires.",
+            acceptedAt="Time at which the quote was accepted.",
+            rejectedAt="Time at which the quote was rejected.",
+        ),
+    },
+    "Lists": {
+        "description": "A list that groups contacts, companies or deals. Regular lists hold added records; dynamic lists show the records that match their views' filters.",
+        "docs_url": "https://docs.zero.inc/developers/api/lists",
+        "columns": _columns(
+            name="Name of the list.",
+            entity="Type of records the list contains: contacts, companies or deals.",
+            filterBased="True for a dynamic list, false for a regular list.",
+            filters="Filters stored on the list. Dynamic list filters are on its views.",
+            icon="Icon of the list.",
+            color="Hex color code of the list.",
+            order="Display order of the list.",
+            listFolderId="Identifier of the folder the list belongs to, if any.",
+        ),
+    },
+    "Views": {
+        "description": "A view of a list, with its own filters and display settings.",
+        "docs_url": "https://docs.zero.inc/developers/api/views",
+        "columns": _columns(
+            listId="Identifier of the list the view belongs to.",
+            name="Name of the view.",
+            entity="Type of records the view shows: contacts, companies or deals.",
+            type="Display type of the view: grid or board.",
+            filters="Filters that decide which records the view shows.",
+            settings="Display settings of the view, such as columns and grouping.",
+            highlights="Highlight rules of the view.",
+            order="Display order of the view.",
+        ),
+    },
+    "Columns": {
+        "description": "A custom property definition. Companies, contacts and deals store custom values in their custom object, keyed by the column id.",
+        "docs_url": "https://docs.zero.inc/developers/api/columns",
+        "columns": _columns(
+            id="Unique identifier of the custom property. Records use it as the key in their custom object.",
+            entity="Record type the property belongs to: companies, contacts or deals.",
+            name="Name of the custom property.",
+            description="Help text of the custom property.",
+            key="Legacy key, usually empty.",
+            type="Data type of the custom property, such as text, number, select or date.",
+            options="Active options of a select or multiselect property.",
+            archivedOptions="Retired options of a select or multiselect property.",
+            settings="Type-specific display settings.",
+            ai="Whether AI fills the property from a prompt.",
+            aiPrompt="Prompt of an AI-filled property.",
+            aiSettings="Data sources the AI can use to fill the property.",
+            aiTriggers="Events that run the AI property again.",
+            aiContextIds="AI context documents attached to an AI-filled property.",
+            source="Import or integration that created the property, if any.",
+            importId="Identifier of the import that created the property, if any.",
+            archivedAt="Time at which the property was archived.",
+            archivedById="Identifier of the user who archived the property.",
+            updatedById="Identifier of the user who last updated the property.",
+        ),
+    },
+    "CustomActivities": {
+        "description": "A logged activity, such as a call or meeting, linked to companies, contacts and deals.",
+        "docs_url": "https://docs.zero.inc/developers/api/custom-activities",
+        "columns": _columns(
+            name="Title or summary of the activity.",
+            typeId="Identifier of the custom activity type.",
+            type="Legacy type name of the activity.",
+            time="Time at which the activity occurred.",
+            content="Structured activity data, such as call notes.",
+            custom="Values of the activity type's custom fields, keyed by field id.",
+            userId="Identifier of the user who performed the activity.",
+            userIds="Identifiers of the users associated with the activity.",
+            companyIds="Identifiers of the companies linked to the activity.",
+            contactIds="Identifiers of the contacts linked to the activity.",
+            dealIds="Identifiers of the deals linked to the activity.",
+            taskId="Identifier of the task a sequence call outcome came from.",
+            sequenceId="Identifier of the sequence associated with the originating call task.",
+        ),
+    },
+    "CustomActivityTypes": {
+        "description": "A type of activity that can be logged in the workspace, such as Call or Meeting, with its custom fields.",
+        "docs_url": "https://docs.zero.inc/developers/api/custom-activity-types",
+        "columns": _columns(
+            name="Display name of the activity type.",
+            icon="Icon of the activity type.",
+            color="Hex color code of the activity type.",
+            shortcut="Keyboard shortcut for logging this activity type.",
+            description="Description of the activity type.",
+            customFields="Custom field definitions for activities of this type.",
+        ),
+    },
+    "Files": {
+        "description": "A file uploaded to the workspace, optionally attached to a company, contact, deal, note or meeting.",
+        "docs_url": "https://docs.zero.inc/developers/api/files",
+        "columns": _columns(
+            companyId="Identifier of the company the file is attached to, if any.",
+            contactId="Identifier of the contact the file is attached to, if any.",
+            dealId="Identifier of the deal the file is attached to, if any.",
+            noteId="Identifier of the note the file is attached to, if any.",
+            calendarEventId="Identifier of the meeting the file is attached to, if any.",
+            placement="Placement or context label of the file.",
+            url="Storage URL of the file. Uploaded files need a signed download URL.",
+            thumbnailUrl="Thumbnail image URL, if the file type supports previews.",
+            previewUrl="Preview image URL, if the file type supports previews.",
+            name="Original file name.",
+            description="Description of the file.",
+            size="File size in bytes.",
+            type="MIME type of the file.",
+            metadata="Media metadata extracted on upload.",
+            importId="Identifier of the import that created the file, if any.",
+            archivedById="Identifier of the user who archived the file.",
+            updatedById="Identifier of the user who last updated the file.",
+        ),
+    },
+    "Sequences": {
+        "description": "A multi-step outreach sequence (cadence).",
+        "docs_url": "https://docs.zero.inc/developers/api/sequences",
+        "columns": _columns(
+            name="Name of the sequence.",
+            status="Lifecycle state of the sequence: draft, active, paused or archived.",
+            listId="Identifier of the source list. Adding a contact to this list enrolls the contact.",
+            mailboxId="Identifier of the default sending mailbox for email steps.",
+            linkedinAccountId="Identifier of the LinkedIn account the sequence uses.",
+            sequenceFolderId="Identifier of the folder the sequence belongs to, if any.",
+            icon="Icon of the sequence.",
+            color="Color of the sequence.",
+            order="Display order of the sequence.",
+            settings="Sequence-level settings.",
+            updatedById="Identifier of the user who last updated the sequence.",
+        ),
+    },
+    "SequenceSteps": {
+        "description": "A single step of an outreach sequence, such as an email, a LinkedIn message, a task or a delay.",
+        "docs_url": "https://docs.zero.inc/developers/api/sequences",
+        "columns": _columns(
+            sequenceId="Identifier of the sequence the step belongs to.",
+            type="Step type, such as sendEmail, addTask or delay.",
+            name="Name of the step.",
+            subject="Email subject line of a sendEmail step.",
+            content="Body of the step.",
+            settings="Type-specific configuration of the step.",
+            triggerSettings="Timing configuration of the step.",
+            templateId="Identifier of the template the step uses, if any.",
+            order="Position of the step in the sequence.",
+            updatedById="Identifier of the user who last updated the step.",
+        ),
+    },
+    "SequenceEnrollments": {
+        "description": "One contact's progress through one sequence, with its current step and outcome.",
+        "docs_url": "https://docs.zero.inc/developers/api/sequence-enrollments",
+        "columns": _columns(
+            sequenceId="Identifier of the sequence.",
+            listId="Identifier of the source list the contact was enrolled through.",
+            contactId="Identifier of the enrolled contact.",
+            status="Status of the enrollment, such as active, paused, completed or stopped.",
+            outcomeReason="Reason the enrollment ended, such as responded, bounced or unsubscribed.",
+            outcomeStepId="Identifier of the step the contact was on when the outcome was recorded.",
+            responseCategorisation="Category of the contact's reply: positive, negative or automated.",
+            errorMessage="Error message, if the enrollment hit an error.",
+            currentStepId="Identifier of the step the contact is on.",
+            waitingOn="What the enrollment is waiting on before the next action.",
+            lastCompletedStepId="Identifier of the last completed step.",
+            lastCompletedStepName="Name of the last completed step.",
+            nextActionAt="Time of the next scheduled action.",
+            startedAt="Time at which the enrollment started.",
+            endedAt="Time at which the enrollment ended.",
+            outcomeAt="Time at which the outcome was recorded.",
+            lastUpdatedAt="Time at which the enrollment's state last changed.",
+        ),
     },
 }

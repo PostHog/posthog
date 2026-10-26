@@ -160,7 +160,6 @@ UNKNOWN_SCHEMA_NOT_CHECKABLE: dict[str, str] = {
     "Trino": "config",
     "TwitterAds": "database",
     "YouTubeAnalytics": "database",
-    "Zero": "request",
 }
 
 # Sources that reject an unknown schema before any request, but whose error does not name the schema.

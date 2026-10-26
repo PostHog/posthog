@@ -23,7 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.zero.settings import ENDPOINTS, INCREMENTAL_FIELDS
 from products.warehouse_sources.backend.temporal.data_imports.sources.zero.zero import (
     ZeroResumeConfig,
-    validate_credentials as validate_zero_credentials,
+    check_credentials,
     zero_source,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -34,7 +34,7 @@ class ZeroSource(ResumableSource[ZeroSourceConfig, ZeroResumeConfig]):
     codebase_detection = NOT_DETECTABLE
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
-    api_docs_url = "https://docs.zero.inc/features/api"
+    api_docs_url = "https://docs.zero.inc/developers/api"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -42,8 +42,8 @@ class ZeroSource(ResumableSource[ZeroSourceConfig, ZeroResumeConfig]):
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            "401 Client Error": "Your Zero API key is invalid or has been revoked. Generate a new key in workspace settings and reconnect.",
-            "403 Client Error": "Your Zero API key is invalid or has been revoked. Generate a new key in workspace settings and reconnect.",
+            "401 Client Error: Unauthorized for url: https://api.zero.inc": "Your Zero API key is invalid, expired or revoked. Generate a new key under Settings > Connections > API keys in Zero, then reconnect the source.",
+            "403 Client Error: Forbidden for url: https://api.zero.inc": "Your Zero API key can't read this table. Check that your Zero account has access to this data, or turn off this table.",
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
@@ -71,9 +71,18 @@ class ZeroSource(ResumableSource[ZeroSourceConfig, ZeroResumeConfig]):
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        if validate_zero_credentials(config.api_key):
-            return True, None
-        return False, "Invalid API key. Check that you copied it from Workspace settings > API keys."
+        check = check_credentials(config.api_key)
+        if check.status in (401, 403):
+            return False, "Zero rejected the API key. Check that the key is correct and hasn't expired."
+        if check.status != 200:
+            return False, "Could not reach the Zero API with that key. Check the key and try again."
+        workspace_id = (config.workspace_id or "").strip()
+        if workspace_id and workspace_id not in check.workspace_ids:
+            return (
+                False,
+                "This API key can't access that workspace. Check the workspace ID in Zero under Settings > Connections > API keys.",
+            )
+        return True, None
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[ZeroResumeConfig]:
         return ResumableSourceManager[ZeroResumeConfig](inputs, ZeroResumeConfig)
@@ -84,23 +93,17 @@ class ZeroSource(ResumableSource[ZeroSourceConfig, ZeroResumeConfig]):
         resumable_source_manager: ResumableSourceManager[ZeroResumeConfig],
         inputs: SourceInputs,
     ) -> SourceResponse:
-        resource = zero_source(
+        return zero_source(
             api_key=config.api_key,
+            workspace_id=(config.workspace_id or "").strip() or None,
             endpoint=inputs.schema_name,
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
-            should_use_incremental_field=inputs.should_use_incremental_field,
-            incremental_field=inputs.incremental_field,
+            incremental_field=inputs.incremental_field if inputs.should_use_incremental_field else None,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
             else None,
-        )
-        return SourceResponse(
-            name=resource.name,
-            items=lambda: resource,
-            primary_keys=["id"],
-            column_hints=resource.column_hints,
         )
 
     @property
@@ -110,8 +113,8 @@ class ZeroSource(ResumableSource[ZeroSourceConfig, ZeroResumeConfig]):
             category=DataWarehouseSourceCategory.CRM,
             releaseStatus=ReleaseStatus.GA,
             label="Zero",
-            caption="Connect Zero to sync companies, contacts, deals, and activity into your warehouse. "
-            "Create an API key at [Workspace settings > API keys](https://app.zero.inc/settings/workspace/api).",
+            caption="Sync your Zero companies, contacts, deals, activity, quotes and sequences into the PostHog Data warehouse. "
+            "Create an API key in Zero under **Settings > Connections > API keys**. The same page shows your workspace ID.",
             docsUrl="https://posthog.com/docs/cdp/sources/zero",
             iconPath="/static/services/zero.png",
             fields=cast(
@@ -124,6 +127,14 @@ class ZeroSource(ResumableSource[ZeroSourceConfig, ZeroResumeConfig]):
                         required=True,
                         placeholder="",
                         secret=True,
+                    ),
+                    SourceFieldInputConfig(
+                        name="workspace_id",
+                        label="Workspace ID",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=False,
+                        placeholder="Leave empty to sync every workspace the key can access",
+                        secret=False,
                     ),
                 ],
             ),
