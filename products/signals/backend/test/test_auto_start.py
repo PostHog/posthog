@@ -14,6 +14,7 @@ from social_django.models import UserSocialAuth
 
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, Team, User
+from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import team_scope
 from posthog.temporal.oauth import grants_scratchpad_write
@@ -32,6 +33,7 @@ from products.signals.backend.artefact_schemas import (
 from products.signals.backend.auto_start import (
     NO_SUPERSEDE,
     ImplementationReportContent,
+    ImplementationResume,
     ReportChangedDuringAutostart,
     ReportSteering,
     ReviewerContent,
@@ -84,6 +86,92 @@ from products.tasks.backend.facade import api as tasks_facade
 SCOUT_SKILL = "signals-scout-error-tracking"
 
 
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "case",
+    ["eligible", "historical", "superseded", "changed", "dismissed", "quota", "disabled", "runner", "repository"],
+)
+def test_suspended_implementation_rechecks_current_eligibility(organization, team, case):
+    organization.is_ai_data_processing_approved = True
+    organization.save(update_fields=["is_ai_data_processing_approved"])
+    user = _create_org_member_with_github("runner@example.com", organization, "runner")
+    SignalTeamConfig.objects.create(team=team, autostart_enabled=case != "disabled")
+    report = SignalReport.objects.create(
+        team=team,
+        title="Report",
+        summary="Summary",
+        status=SignalReport.Status.SUPPRESSED if case == "dismissed" else SignalReport.Status.READY,
+        run_count=2 if case == "changed" else 1,
+        implemented_at_run_count=1,
+    )
+    Task = apps.get_model("tasks", "Task")
+    if case == "historical":
+        previous = Task.objects.create(team=team, title="Earlier implementation", created_by=user)
+        artefact = SignalReportArtefact.objects.create(
+            team=team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.TASK_RUN,
+            content=TaskRunArtefact(
+                task_id=str(previous.id), product="signals", type="implementation"
+            ).model_dump_json(),
+        )
+        SignalReportArtefact.objects.filter(pk=artefact.pk).update(created_at=timezone.now() - timedelta(days=1))
+    task = Task.objects.create(team=team, title="Implementation", created_by=user)
+    SignalReportArtefact.objects.create(
+        team=team,
+        report=report,
+        type=SignalReportArtefact.ArtefactType.TASK_RUN,
+        content=TaskRunArtefact(task_id=str(task.id), product="signals", type="implementation").model_dump_json(),
+    )
+    if case == "superseded":
+        replacement = Task.objects.create(team=team, title="Replacement", created_by=user)
+        artefact = SignalReportArtefact.objects.create(
+            team=team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.TASK_RUN,
+            content=TaskRunArtefact(
+                task_id=str(replacement.id), product="signals", type="implementation"
+            ).model_dump_json(),
+        )
+        SignalReportArtefact.objects.filter(pk=artefact.pk).update(created_at=timezone.now() + timedelta(minutes=1))
+    with (
+        patch(
+            "products.signals.backend.auto_start.database_sync_to_async",
+            side_effect=lambda f, **kw: sync_to_async(f, thread_sensitive=True),
+        ),
+        patch(
+            "products.signals.backend.auto_start.self_driving_quota_gate",
+            return_value=SimpleNamespace(limited=case == "quota", enforced=case == "quota"),
+        ),
+        patch("products.signals.backend.auto_start.capture_signal_report_quota_paused"),
+        patch("products.signals.backend.auto_start.self_driving_free_trial_enabled", return_value=False),
+        patch.object(tasks_facade, "create_and_run_task") as create,
+    ):
+        result = async_to_sync(maybe_autostart_implementation_task)(
+            team_id=team.id,
+            report_id=str(report.id),
+            repository="example/repo",
+            title="Report",
+            summary="Summary",
+            actionability=ActionabilityAssessment(
+                explanation="A fix is available.",
+                actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE,
+                already_addressed=False,
+            ),
+            reviewers_content=[],
+            triggering_user_id=user.id,
+            priority=PriorityAssessment(explanation="Affects usage.", priority=Priority.P2),
+            github_recovery=True,
+            resume=ImplementationResume(
+                task_id=str(task.id),
+                user_id=user.id + 1 if case == "runner" else user.id,
+                repository="example/changed" if case == "repository" else "example/repo",
+            ),
+        )
+    assert (result.status == "queued") is (case in {"eligible", "historical"}), result
+    create.assert_not_called()
+
+
 @pytest.fixture
 def organization():
     org = Organization.objects.create(name="test-auto-start-org")
@@ -91,9 +179,22 @@ def organization():
     org.delete()
 
 
+def _connect_github(team: Team) -> None:
+    Integration.objects.create(
+        team=team,
+        kind="github",
+        integration_id="123",
+        config={"installation_id": "123"},
+        repository_cache=[{"id": 1, "name": "repo", "full_name": "example/repo"}],
+        repository_cache_updated_at=timezone.now(),
+    )
+
+
 @pytest.fixture
 def team(organization):
-    return Team.objects.create(organization=organization, name="test-auto-start-team")
+    team = Team.objects.create(organization=organization, name="test-auto-start-team")
+    _connect_github(team)
+    return team
 
 
 def _create_org_member_with_github(email: str, organization: Organization, login: str) -> User:
@@ -815,6 +916,57 @@ def test_create_implementation_task_freezes_billing_exemption(
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize("creation_fails", [True, False])
+def test_github_recovery_markers_clear_only_with_the_implementation_task(organization, team, creation_fails):
+    Task = apps.get_model("tasks", "Task")
+    TaskRun = apps.get_model("tasks", "TaskRun")
+    user = _create_org_member_with_github("octocat@example.com", organization, "OctoCat")
+    blocked_at = timezone.now() - timedelta(days=1)
+    report = SignalReport.objects.create(
+        team=team,
+        status=SignalReport.Status.READY,
+        title="t",
+        summary="s",
+        signal_count=0,
+        total_weight=0.0,
+        implementation_blocked_reason="temporarily_unavailable",
+        implementation_blocked_at=blocked_at,
+    )
+
+    def _fake_create_and_run_task(**kwargs):
+        if creation_fails:
+            raise RuntimeError("worker lost")
+        task = Task.objects.create(
+            team=team, title=kwargs["title"], created_by=user, origin_product=Task.OriginProduct.SIGNAL_REPORT
+        )
+        run = TaskRun.objects.create(task=task, team=team)
+        return SimpleNamespace(task_id=task.id, team_id=team.id, latest_run=SimpleNamespace(id=run.id))
+
+    with patch.object(tasks_facade, "create_and_run_task", side_effect=_fake_create_and_run_task):
+        try:
+            _create_implementation_task_if_absent(
+                team_id=team.id,
+                report_id=str(report.id),
+                title="t",
+                description="d",
+                expected_content=ImplementationReportContent.from_report(report),
+                user_id=user.id,
+                repository="owner/repo",
+                base_branch=None,
+            )
+        except RuntimeError:
+            assert creation_fails
+
+    report.refresh_from_db()
+    if creation_fails:
+        assert report.implementation_blocked_reason == "temporarily_unavailable"
+        assert report.implementation_blocked_at == blocked_at
+    else:
+        assert report.implementation_blocked_reason is None
+        assert report.implementation_blocked_at is None
+
+
+@pytest.mark.django_db
 def test_create_implementation_task_threads_resolved_runtime(organization, team):
     Task = apps.get_model("tasks", "Task")
     TaskRun = apps.get_model("tasks", "TaskRun")
@@ -860,9 +1012,10 @@ def test_create_implementation_task_threads_resolved_runtime(organization, team)
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.parametrize(
-    ("autostart_enabled", "concurrent_edit"), [(True, False), (False, False), (None, False), (True, True)]
+    ("autostart_enabled", "concurrent_edit", "github_connected"),
+    [(True, False, True), (False, False, True), (None, False, True), (True, True, True), (True, False, False)],
 )
-async def test_team_autostart_switch_gates_reviewerless_fallback(autostart_enabled, concurrent_edit):
+async def test_team_autostart_switch_gates_reviewerless_fallback(autostart_enabled, concurrent_edit, github_connected):
     # The master switch must gate the reviewer-less fallback — the path email-login teams (no linked
     # GitHub) hit. An actionable, prioritized report with no resolvable reviewer auto-starts under the
     # team's signals enabler unless the switch is an explicit False (null leaves autostart on); committed
@@ -873,6 +1026,9 @@ async def test_team_autostart_switch_gates_reviewerless_fallback(autostart_enabl
     def _setup() -> tuple[Team, SignalReport]:
         organization = Organization.objects.create(name="switch-org")
         team = Team.objects.create(organization=organization, name="switch-team")
+        _connect_github(team)
+        if not github_connected:
+            Integration.objects.filter(team=team, kind="github").delete()
         enabler = User.objects.create(email="enabler@example.com")
         OrganizationMembership.objects.create(user=enabler, organization=organization)
         SignalSourceConfig.objects.create(
@@ -936,7 +1092,11 @@ async def test_team_autostart_switch_gates_reviewerless_fallback(autostart_enabl
             priority=PriorityAssessment(explanation="Affects many sessions.", priority=Priority.P2),
         )
 
-    assert (mock_create.call_count == 1) is (autostart_enabled is not False)
+    assert (mock_create.call_count == 1) is (autostart_enabled is not False and github_connected)
+    if not github_connected:
+        await sync_to_async(report.refresh_from_db)()
+        assert report.implementation_blocked_reason == "not_connected"
+        assert report.status == SignalReport.Status.READY
 
     if concurrent_edit:
         assert "A newer fix" in mock_create.call_args.kwargs["description"]
@@ -958,6 +1118,7 @@ async def test_already_addressed_report_does_not_autostart(already_addressed):
     def _setup() -> tuple[Team, SignalReport]:
         organization = Organization.objects.create(name="addressed-org")
         team = Team.objects.create(organization=organization, name="addressed-team")
+        _connect_github(team)
         enabler = User.objects.create(email="addressed-enabler@example.com")
         OrganizationMembership.objects.create(user=enabler, organization=organization)
         SignalSourceConfig.objects.create(
@@ -1218,6 +1379,7 @@ async def test_typed_links_hold_back_autostart(link, expect_skip_reason, link_be
     def _setup() -> tuple[Team, SignalReport]:
         organization = Organization.objects.create(name=f"links-org-{link}")
         team = Team.objects.create(organization=organization, name="links-team")
+        _connect_github(team)
         enabler = User.objects.create(email=f"links-enabler-{link}@example.com")
         OrganizationMembership.objects.create(user=enabler, organization=organization)
         SignalSourceConfig.objects.create(
@@ -1387,6 +1549,7 @@ async def test_a_non_link_skip_is_counted_under_its_own_reason_without_a_log_ent
     def _setup() -> tuple[Team, SignalReport]:
         organization = Organization.objects.create(name="skip-count-org")
         team = Team.objects.create(organization=organization, name="skip-count-team")
+        _connect_github(team)
         report = SignalReport.objects.create(
             team=team, status=SignalReport.Status.READY, title="t", summary="s", signal_count=0, total_weight=0.0
         )
@@ -1435,6 +1598,7 @@ async def test_quota_gate_blocks_autostart_only_when_enforced(enforced):
     def _setup() -> tuple[Team, SignalReport]:
         organization = Organization.objects.create(name="quota-org")
         team = Team.objects.create(organization=organization, name="quota-team")
+        _connect_github(team)
         enabler = User.objects.create(email="quota-enabler@example.com")
         OrganizationMembership.objects.create(user=enabler, organization=organization)
         SignalSourceConfig.objects.create(
@@ -1507,6 +1671,7 @@ async def test_free_trial_gate_blocks_autostart(
     def _setup() -> tuple[Team, SignalReport]:
         organization = Organization.objects.create(name="trial-org")
         team = Team.objects.create(organization=organization, name="trial-team")
+        _connect_github(team)
         enabler = User.objects.create(email="trial-enabler@example.com")
         OrganizationMembership.objects.create(user=enabler, organization=organization)
         SignalSourceConfig.objects.create(
@@ -1569,6 +1734,7 @@ async def test_repo_selection_eligibility_reaches_autostart(autostart_eligible):
     def _setup() -> tuple[Team, SignalReport]:
         organization = Organization.objects.create(name="inferred-org")
         team = Team.objects.create(organization=organization, name="inferred-team")
+        _connect_github(team)
         report = SignalReport.objects.create(
             team=team, status=SignalReport.Status.READY, title="t", summary="s", signal_count=0, total_weight=0.0
         )
@@ -1622,6 +1788,7 @@ async def test_background_scout_reports_never_reach_autostart(run_origin, config
     def _setup() -> tuple[Team, SignalReport]:
         organization = Organization.objects.create(name="background-org")
         team = Team.objects.create(organization=organization, name="background-team")
+        _connect_github(team)
         report = SignalReport.objects.create(
             team=team, status=SignalReport.Status.READY, title="t", summary="s", signal_count=0, total_weight=0.0
         )
@@ -1701,6 +1868,7 @@ async def test_inferred_repository_only_blocks_the_reviewerless_fallback(
     def _setup() -> tuple[Team, SignalReport, User]:
         organization = Organization.objects.create(name="inferred-org")
         team = Team.objects.create(organization=organization, name="inferred-team")
+        _connect_github(team)
         enabler = User.objects.create(email="inferred-enabler@example.com")
         OrganizationMembership.objects.create(user=enabler, organization=organization)
         SignalSourceConfig.objects.create(
@@ -1811,6 +1979,7 @@ async def test_only_the_current_passs_implementation_decision_is_read(written_du
     def _setup() -> tuple[Team, SignalReport]:
         organization = Organization.objects.create(name="stale-decision-org")
         team = Team.objects.create(organization=organization, name="stale-decision-team")
+        _connect_github(team)
         run_started_at = timezone.now() - timedelta(minutes=10)
         report = SignalReport.objects.create(
             team=team,

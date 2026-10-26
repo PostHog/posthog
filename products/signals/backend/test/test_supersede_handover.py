@@ -12,6 +12,8 @@ from django.utils import timezone
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
+from posthog.models.integration import Integration
+
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import (
     ImplementationDecision,
@@ -53,6 +55,15 @@ NEW_PR = "https://github.com/example/repo/pull/3"
 class TestSupersedeHandover(BaseTest):
     def setUp(self) -> None:
         super().setUp()
+        # Starting implementation work requires a usable GitHub connection.
+        Integration.objects.create(
+            team=self.team,
+            kind="github",
+            integration_id="self-driving-github",
+            config={"installation_id": "self-driving-github"},
+            repository_cache=[{"id": 1, "name": "repo", "full_name": "example/repo"}],
+            repository_cache_updated_at=timezone.now(),
+        )
         self.report = SignalReport.objects.create(
             team=self.team,
             status="ready",

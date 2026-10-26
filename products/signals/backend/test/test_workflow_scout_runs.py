@@ -18,6 +18,7 @@ from parameterized import parameterized
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.models import Team
+from posthog.models.integration import Integration
 
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.scout_harness.limits import TRIGGERED_BY_WORKFLOW, WORKFLOW_RUN_COOLDOWN_S
@@ -39,6 +40,14 @@ class TestWorkflowScoutRunDispatch(APIBaseTest):
 
     def setUp(self) -> None:
         super().setUp()
+        Integration.objects.create(
+            team=self.team,
+            kind="github",
+            integration_id="123",
+            config={"installation_id": "123"},
+            repository_cache=[{"id": 1, "name": "repo", "full_name": "example/repo"}],
+            repository_cache_updated_at=timezone.now(),
+        )
         # A workflow fire honours the same enrolment kill switch and daily budget the coordinator
         # does, so enrol this team by default and let the cases below exercise the gates they are
         # actually about. `test_rejects_an_unenrolled_project` overrides it.
@@ -54,6 +63,12 @@ class TestWorkflowScoutRunDispatch(APIBaseTest):
         flag = patch(_FLAG, return_value=payload)
         flag.start()
         self.addCleanup(flag.stop)
+
+    def test_refuses_dispatch_without_github_access(self) -> None:
+        Integration.objects.filter(team=self.team, kind="github").delete()
+        with self.assertRaises(WorkflowScoutRunRejected) as caught:
+            self._run()
+        self.assertEqual(caught.exception.rejection.reason, "github_not_connected")
 
     def _run(
         self,

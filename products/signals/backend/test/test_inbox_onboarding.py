@@ -624,6 +624,18 @@ class TestInboxOnboarding(APIBaseTest):
 
 
 class TestInboxOnboardingActivation(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        # Starting implementation work requires a usable GitHub connection.
+        Integration.objects.create(
+            team=self.team,
+            kind="github",
+            integration_id="self-driving-github",
+            config={"installation_id": "self-driving-github"},
+            repository_cache=[{"id": 1, "name": "repo", "full_name": "example/repo"}],
+            repository_cache_updated_at=timezone.now(),
+        )
+
     @parameterized.expand([("scout", 0), ("scout", 5), ("recommendations", 0), ("recommendations", 5)])
     def test_dispatch_retries_use_one_workflow_and_preserve_completed_jobs(self, job: str, retry_count: int) -> None:
         self.organization.is_ai_data_processing_approved = True

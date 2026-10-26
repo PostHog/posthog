@@ -5,6 +5,7 @@ import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, Mock, patch
 
+from django.apps import apps
 from django.utils import timezone
 
 from asgiref.sync import async_to_sync, sync_to_async
@@ -19,11 +20,18 @@ from posthog.models.user_integration import UserIntegration
 
 from products.signals.backend.github_readiness import (
     LEGACY_GITHUB_BLOCKERS,
+    check_implementation_github_readiness,
     check_report_github_readiness,
     enabled_recovery_signals,
 )
 from products.signals.backend.github_readiness_tasks import resume_github_blocked_reports
-from products.signals.backend.models import SignalReport, SignalSourceConfig
+from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalScoutRun, SignalSourceConfig
+from products.signals.backend.scout_harness.run_gates import (
+    check_github_gate,
+    github_may_be_ready,
+    restore_schedule_after_github_rejection,
+)
+from products.signals.backend.scout_harness.runner import arun_signals_scout
 from products.signals.backend.temporal.signal_queries import (
     FetchSignalsForReportInput,
     fetch_signals_for_report_activity,
@@ -390,3 +398,132 @@ class TestGitHubReadiness(BaseTest):
         with patch(f"{TASKS}.get_team_github_readiness") as readiness:
             resume_github_blocked_reports(self.team.id)
         readiness.assert_not_called()
+
+    def test_scout_cannot_run_without_github_or_create_a_run_row(self) -> None:
+        self.integration.delete()
+        rejection = check_github_gate(self.team.id)
+        assert rejection is not None
+        self.assertEqual(rejection.reason, "github_not_connected")
+        with (
+            patch("products.signals.backend.scout_harness.runner._get_team", return_value=self.team),
+            patch("products.signals.backend.scout_harness.runner.check_github_gate", return_value=rejection),
+            patch("products.signals.backend.scout_harness.runner.sync_canonical_skills") as seed,
+        ):
+            result = async_to_sync(arun_signals_scout)(team_id=self.team.id, skill_name="signals-scout-example")
+        self.assertIsNone(result.run_id)
+        self.assertEqual(result.skip_reason, "github_not_connected")
+        seed.assert_not_called()
+
+    def test_fleet_planning_reads_cached_github_state_without_calling_github(self) -> None:
+        self.integration.repository_cache = []
+        self.integration.repository_cache_updated_at = timezone.now() - timedelta(hours=2)
+        self.integration.save(update_fields=["repository_cache", "repository_cache_updated_at"])
+        with (
+            patch.object(GitHubIntegration, "sync_repository_cache") as refresh,
+            patch.object(GitHubIntegration, "refresh_access_token") as mint,
+        ):
+            # A temporary state is left to the runner's live check in the dispatched child.
+            self.assertTrue(github_may_be_ready(self.team.id))
+            self.integration.delete()
+            self.assertFalse(github_may_be_ready(self.team.id))
+        refresh.assert_not_called()
+        mint.assert_not_called()
+
+    @parameterized.expand([(False, True), (True, False)])
+    def test_github_rejected_scheduled_run_keeps_the_scout_due(self, newer_dispatch_ran: bool, restored: bool) -> None:
+        previous = timezone.now() - timedelta(days=1)
+        config = SignalScoutConfig.objects.create(
+            team=self.team, skill_name="signals-scout-example", enabled=True, last_run_at=timezone.now()
+        )
+        if newer_dispatch_ran:
+            Task = apps.get_model("tasks", "Task")
+            TaskRun = apps.get_model("tasks", "TaskRun")
+            task = Task.objects.create(
+                team=self.team, title="Scout run", origin_product=Task.OriginProduct.SIGNALS_SCOUT
+            )
+            SignalScoutRun.all_teams.create(
+                task_run=TaskRun.objects.create(task=task, team=self.team),
+                team=self.team,
+                scout_config=config,
+                skill_name=config.skill_name,
+                skill_version=1,
+            )
+        self.assertEqual(restore_schedule_after_github_rejection(self.team.id, config.skill_name, previous), restored)
+        config.refresh_from_db()
+        self.assertEqual(config.last_run_at, previous if restored else timezone.now())
+
+    def test_implementation_blocker_stays_retryable_until_the_task_starts(self) -> None:
+        report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY)
+        with patch(
+            f"{MODULE}.get_team_github_readiness",
+            return_value=GitHubReadiness(status=GitHubReadinessStatus.RECONNECT_REQUIRED),
+        ):
+            check_implementation_github_readiness(self.team.id, str(report.id))
+        report.refresh_from_db()
+        self.assertEqual(report.implementation_blocked_reason, "reconnect_required")
+        self.assertEqual(report.implementation_blocked_at, timezone.now())
+        self.assertEqual(report.status, SignalReport.Status.READY)
+        with patch(
+            f"{MODULE}.get_team_github_readiness", return_value=GitHubReadiness(status=GitHubReadinessStatus.READY)
+        ):
+            check_implementation_github_readiness(self.team.id, str(report.id), recovery=True)
+        report.refresh_from_db()
+        # The task does not exist yet, so a failed start must stay visible to the periodic sweep.
+        self.assertEqual(report.implementation_blocked_reason, "temporarily_unavailable")
+        self.assertEqual(report.implementation_blocked_at, timezone.now())
+
+    @parameterized.expand(
+        [
+            ("not_connected", False, 1, False),
+            ("not_connected", True, 6, True),
+            ("not_connected", True, 7, False),
+            ("temporarily_unavailable", False, 1, True),
+        ]
+    )
+    def test_implementation_rechecks_only_on_reconnect_or_temporary_retry(
+        self, reason: str, recovery: bool, age_days: int, resumes: bool
+    ) -> None:
+        report = SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.READY,
+            implementation_blocked_reason=reason,
+            implementation_blocked_at=timezone.now() - timedelta(days=age_days),
+        )
+        with patch(
+            f"{MODULE}.get_team_github_readiness", return_value=GitHubReadiness(status=GitHubReadinessStatus.READY)
+        ) as check:
+            result = check_implementation_github_readiness(self.team.id, str(report.id), recovery=recovery)
+        self.assertEqual(result.status == GitHubReadinessStatus.READY, resumes)
+        self.assertEqual(check.call_count, int(resumes))
+
+    # The daily report limit holds back research recovery only. A ready proposal creates no report.
+    @parameterized.expand([(False,), (True,)])
+    def test_recovery_rechecks_implementation_without_researching_again(self, daily_limited: bool) -> None:
+        report = SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.READY,
+            implementation_blocked_reason="not_connected",
+            implementation_blocked_at=timezone.now(),
+        )
+        if daily_limited:
+            SignalReport.objects.create(
+                team=self.team,
+                status=SignalReport.Status.CANDIDATE,
+                research_blocked_reason="not_connected",
+                research_blocked_at=timezone.now(),
+            )
+        with (
+            patch(f"{TASKS}.self_driving_quota_gate", return_value=Mock(enforced=False)),
+            patch(f"{TASKS}.daily_report_limit_gate", return_value=Mock(limited=daily_limited)),
+            patch(
+                f"{TASKS}.get_team_github_readiness", return_value=GitHubReadiness(status=GitHubReadinessStatus.READY)
+            ),
+            patch(
+                "products.signals.backend.auto_start.maybe_autostart_from_report_artefacts", new_callable=AsyncMock
+            ) as start,
+            patch(f"{TASKS}.start_recovered_report", new_callable=AsyncMock) as research,
+        ):
+            resume_github_blocked_reports(self.team.id, connection_restored=True)
+        assert start.await_args is not None
+        self.assertEqual(start.await_args.kwargs["report_id"], str(report.id))
+        research.assert_not_called()

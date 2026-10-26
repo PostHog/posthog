@@ -41,6 +41,7 @@ from products.signals.backend.github_readiness import (
     CheckReportGitHubReadinessInput,
     ReleaseGitHubRecoveryInput,
     check_report_github_readiness_activity,
+    clear_expired_implementation_block,
     release_github_recovery_activity,
 )
 from products.signals.backend.models import (
@@ -1069,7 +1070,8 @@ async def mark_report_ready_activity(input: MarkReportReadyInput) -> bool:
             report.signals_researched = (
                 input.processed_signal_count if input.researched_signal_count is None else input.researched_signal_count
             )
-            updated_fields = [*updated_fields, "signals_researched"]
+            # Fresh research replaces the proposal, so an expired implementation block must not hold it.
+            updated_fields = [*updated_fields, "signals_researched", *clear_expired_implementation_block(report)]
             if input.charts is not None:
                 report.charts = input.charts
                 updated_fields = [*updated_fields, "charts"]

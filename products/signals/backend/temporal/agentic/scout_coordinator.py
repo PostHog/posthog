@@ -4,7 +4,7 @@ import json
 import asyncio
 import hashlib
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta, tzinfo
 from typing import Any
 from uuid import UUID
@@ -64,6 +64,7 @@ from products.signals.backend.scout_harness.limits import (
     DUE_GRACE_SECONDS,
     dispatch_ticks_per_interval,
 )
+from products.signals.backend.scout_harness.run_gates import github_may_be_ready
 
 # Per-team cap resolution + the flag-payload read live in the temporalio-free `team_limits` module
 # so the HTTP metadata surface can share them. Imported by name so the planning code below calls
@@ -135,6 +136,9 @@ class PlannedRun:
     skill_name: str
     # How long the child sleeps before it starts work. See `_start_delay_seconds`.
     start_delay_seconds: int = 0
+    # The config's `last_run_at` before this dispatch stamped it. See `_DueRun`. Dispatch context,
+    # not identity, so two plans for the same (team, skill) still compare equal.
+    previous_last_run_at: datetime | None = field(default=None, compare=False)
 
 
 @dataclass
@@ -545,6 +549,8 @@ class _DueRun:
     team_id: int
     skill_name: str
     start_delay_s: int = 0
+    # The schedule stamp before this dispatch. The child restores it if GitHub access stops the run.
+    previous_last_run_at: datetime | None = field(default=None, compare=False)
 
 
 @dataclass(frozen=True)
@@ -679,6 +685,7 @@ def _collect_planned_runs(
                     team.id,
                     config.skill_name,
                     _config_start_delay_seconds(config, start_delay_spread_seconds),
+                    config.last_run_at,
                 )
             )
         due.extend(_collect_probe_runs(paused_by_team.get(team.id, []), live_skills, now))
@@ -689,6 +696,8 @@ def _collect_planned_runs(
             team_count=skipped_without_consent,
         )
 
+    github_ready = {team_id: github_may_be_ready(team_id) for team_id in {run.team_id for run in due}}
+    due = [run for run in due if github_ready[run.team_id]]
     background_due: list[_BackgroundDueRun] = []
     runs_last_24h: int | None = None
     if background is not None and background.enabled:
@@ -700,6 +709,9 @@ def _collect_planned_runs(
             now,
             start_delay_spread_seconds=start_delay_spread_seconds,
         )
+        for team_id in {item.run.team_id for item in background_due} - github_ready.keys():
+            github_ready[team_id] = github_may_be_ready(team_id)
+        background_due = [item for item in background_due if github_ready[item.run.team_id]]
         admitted = [d.run for d in background_due]
         if background.budget is not None and background_due:
             runs_last_24h = _background_runs_since(background, background_team_ids, now - DAILY_BUDGET_WINDOW)
@@ -722,7 +734,13 @@ def _collect_planned_runs(
     if background is not None and background.enabled:
         _capture_background_tick(background_due, selected, background.budget, runs_last_24h)
     planned = [
-        PlannedRun(team_id=d.team_id, skill_name=d.skill_name, start_delay_seconds=d.start_delay_s) for d in selected
+        PlannedRun(
+            team_id=d.team_id,
+            skill_name=d.skill_name,
+            start_delay_seconds=d.start_delay_s,
+            previous_last_run_at=d.previous_last_run_at,
+        )
+        for d in selected
     ]
     # Stable order for predictable child-workflow ids within the tick.
     planned.sort(key=lambda p: (p.team_id, p.skill_name))
@@ -1183,7 +1201,11 @@ def _collect_probe_runs(paused_configs: list[SignalScoutConfig], live_skills: se
             skill_name=config.skill_name,
             consecutive_failure_count=config.consecutive_failure_count,
         )
-        probes.append(_DueRun(overdue_s, str(config.pk), config.team_id, config.skill_name))
+        probes.append(
+            _DueRun(
+                overdue_s, str(config.pk), config.team_id, config.skill_name, previous_last_run_at=config.last_run_at
+            )
+        )
     return probes
 
 
@@ -1469,6 +1491,7 @@ def _collect_background_runs(
                         config.team_id,
                         config.skill_name,
                         _config_start_delay_seconds(config, start_delay_spread_seconds),
+                        config.last_run_at,
                     )
                 ]
             )
@@ -1735,6 +1758,7 @@ async def _start_child(*, planned: PlannedRun, tick_id: str, idx: int) -> bool:
                 team_id=planned.team_id,
                 skill_name=planned.skill_name,
                 start_delay_seconds=planned.start_delay_seconds,
+                previous_last_run_at=planned.previous_last_run_at,
             ),
             id=child_id,
             id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE,
