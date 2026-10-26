@@ -24,6 +24,7 @@ from posthog.permissions import (
 from products.approvals.backend.exceptions import AlreadyVotedError, InvalidStateError, ReasonRequiredError
 from products.approvals.backend.experiment_policy_sync import SYNCED_ACTION_KEYS
 from products.approvals.backend.models import ApprovalPolicy, ChangeRequest
+from products.approvals.backend.ownership import scope_by_owner_enabled
 from products.approvals.backend.permissions import CanApprove, CanCancel
 from products.approvals.backend.serializers import (
     ApprovalPolicySerializer,
@@ -184,9 +185,11 @@ class ApprovalPolicyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     premium_feature_on_cloud = AvailableFeature.APPROVALS
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
-        # TODO(experiment-approval-policies): temporary. Experiment policies are hidden mirrors of flag policies
-        # until they are enforced. See experiment_policy_sync.py.
-        queryset = queryset.exclude(action_key__in=SYNCED_ACTION_KEYS)
+        # TODO(experiment-approval-policies): temporary. Until an organization evaluates policies by
+        # flag owner, its experiment policies are hidden mirrors of its flag policies, and showing
+        # them would offer an edit that the next sync run overwrites. See experiment_policy_sync.py.
+        if not scope_by_owner_enabled(self.organization):
+            queryset = queryset.exclude(action_key__in=SYNCED_ACTION_KEYS)
         filters = self.request.query_params
 
         if "action_key" in filters:
@@ -215,8 +218,10 @@ class ApprovalPolicyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 organization=self.organization,
                 team=self.team,
             )
-            # TODO(experiment-approval-policies): ignore hidden mirrors so this error cannot reveal them.
-            .exclude(action_key__in=SYNCED_ACTION_KEYS)
+            # TODO(experiment-approval-policies): ignore hidden mirrors so this error cannot reveal
+            # them. Once the organization evaluates policies by flag owner its mirrors are its own
+            # policies, and a second one for the same action is the duplicate this check refuses.
+            .exclude(action_key__in=() if scope_by_owner_enabled(self.organization) else SYNCED_ACTION_KEYS)
             .exists()
         ):
             raise exceptions.ValidationError(

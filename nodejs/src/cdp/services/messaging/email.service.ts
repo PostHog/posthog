@@ -21,7 +21,7 @@ import { RecipientManagerRecipient, RecipientsManagerService } from '../managers
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
 import { selectEmailSenderIntegrationId } from './email-sender-selection'
-import { EmailSuppressionService } from './email-suppression.service'
+import { EmailSuppressionService, SuppressionCheckOptions } from './email-suppression.service'
 import {
     addTrackingToEmail,
     resolveEmailEngagementDistinctId,
@@ -515,7 +515,9 @@ export class EmailService {
             // of whether the invocation came from a workflow action or an email destination hog
             // function. Checking here means callers can't bypass it by taking a different upstream
             // route. Covers `to`, `cc`, and `bcc`; a suppressed address anywhere blocks the send.
-            const skipReason = await this.buildSuppressionSkipReason(invocation.teamId, params)
+            const skipReason = await this.buildSuppressionSkipReason(invocation.teamId, params, {
+                transactional: invocation.hogFunction?.metadata?.message_category_type === 'transactional',
+            })
             if (skipReason) {
                 addLog('info', skipReason)
                 result.emailSendResult = { status: 'skipped', reason: skipReason }
@@ -866,7 +868,8 @@ export class EmailService {
     // matching against the normalized suppression identifier.
     private async buildSuppressionSkipReason(
         teamId: number,
-        params: CyclotronInvocationQueueParametersEmailType
+        params: CyclotronInvocationQueueParametersEmailType,
+        options: SuppressionCheckOptions
     ): Promise<string | null> {
         const recipients: string[] = []
         if (params.to?.email && params.to.email.trim()) {
@@ -881,7 +884,7 @@ export class EmailService {
         const results = await Promise.all(
             recipients.map(async (email) => ({
                 email,
-                suppressed: await this.emailSuppressionService.isSuppressed(teamId, email),
+                suppressed: await this.emailSuppressionService.isSuppressed(teamId, email, options),
             }))
         )
         const suppressed = results.filter((r) => r.suppressed).map((r) => r.email)
