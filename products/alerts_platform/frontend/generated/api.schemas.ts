@@ -169,6 +169,16 @@ export interface PlatformAlertApi {
  */
 export type PlatformAlertConfigurationApiSourceConfig = { [key: string]: unknown }
 
+/**
+ * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.
+ */
+export type PlatformAlertConfigurationApiLabels = { [key: string]: string }
+
+/**
+ * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://.
+ */
+export type PlatformAlertConfigurationApiAnnotations = { [key: string]: string }
+
 export interface PlatformAlertConfigurationApi {
     /** Unique identifier of the alert configuration. */
     readonly id: string
@@ -244,6 +254,10 @@ export interface PlatformAlertConfigurationApi {
     readonly updated_at: string
     /** Runtime state for each result group of this configuration. */
     readonly alerts: readonly PlatformAlertApi[]
+    /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. */
+    readonly labels: PlatformAlertConfigurationApiLabels
+    /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
+    readonly annotations: PlatformAlertConfigurationApiAnnotations
 }
 
 export interface PaginatedPlatformAlertConfigurationListApi {
@@ -693,6 +707,16 @@ export interface LogsPlatformAlertSourceConfigApi {
 }
 
 /**
+ * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.
+ */
+export type LogsPlatformAlertConfigurationCreateApiLabels = { [key: string]: string }
+
+/**
+ * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://.
+ */
+export type LogsPlatformAlertConfigurationCreateApiAnnotations = { [key: string]: string }
+
+/**
  * The settings of a new alert. Every one but source_config has a default, which is stored.
  */
 export interface LogsPlatformAlertConfigurationCreateApi {
@@ -729,6 +753,10 @@ export interface LogsPlatformAlertConfigurationCreateApi {
      * @maximum 2147483647
      */
     cooldown_minutes?: number
+    /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. */
+    labels?: LogsPlatformAlertConfigurationCreateApiLabels
+    /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
+    annotations?: LogsPlatformAlertConfigurationCreateApiAnnotations
 }
 
 export type PlatformAlertConfigurationCreateApi = LogsPlatformAlertConfigurationCreateApi
@@ -795,6 +823,16 @@ export interface InsightPlatformAlertSourceConfigApi {
 }
 
 /**
+ * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.
+ */
+export type InsightPlatformAlertConfigurationEditApiLabels = { [key: string]: string }
+
+/**
+ * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://.
+ */
+export type InsightPlatformAlertConfigurationEditApiAnnotations = { [key: string]: string }
+
+/**
  * The settings an edit can change. Each source kind subclasses it with a typed `source_config`.
  */
 export interface InsightPlatformAlertConfigurationEditApi {
@@ -831,6 +869,10 @@ export interface InsightPlatformAlertConfigurationEditApi {
      * @maximum 2147483647
      */
     cooldown_minutes: number
+    /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. */
+    labels?: InsightPlatformAlertConfigurationEditApiLabels
+    /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
+    annotations?: InsightPlatformAlertConfigurationEditApiAnnotations
 }
 
 /**
@@ -842,6 +884,16 @@ export type LogsPlatformAlertConfigurationEditApiSourceKind =
 export const LogsPlatformAlertConfigurationEditApiSourceKind = {
     Logs: 'logs',
 } as const
+
+/**
+ * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.
+ */
+export type LogsPlatformAlertConfigurationEditApiLabels = { [key: string]: string }
+
+/**
+ * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://.
+ */
+export type LogsPlatformAlertConfigurationEditApiAnnotations = { [key: string]: string }
 
 /**
  * The settings an edit can change. Each source kind subclasses it with a typed `source_config`.
@@ -880,6 +932,10 @@ export interface LogsPlatformAlertConfigurationEditApi {
      * @maximum 2147483647
      */
     cooldown_minutes: number
+    /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. */
+    labels?: LogsPlatformAlertConfigurationEditApiLabels
+    /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
+    annotations?: LogsPlatformAlertConfigurationEditApiAnnotations
 }
 
 export type PlatformAlertConfigurationEditApi =
@@ -895,6 +951,16 @@ export type PatchedInsightPlatformAlertConfigurationEditApiSourceKind =
 export const PatchedInsightPlatformAlertConfigurationEditApiSourceKind = {
     Insight: 'insight',
 } as const
+
+/**
+ * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.
+ */
+export type PatchedInsightPlatformAlertConfigurationEditApiLabels = { [key: string]: string }
+
+/**
+ * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://.
+ */
+export type PatchedInsightPlatformAlertConfigurationEditApiAnnotations = { [key: string]: string }
 
 /**
  * The settings an edit can change. Each source kind subclasses it with a typed `source_config`.
@@ -933,6 +999,10 @@ export interface PatchedInsightPlatformAlertConfigurationEditApi {
      * @maximum 2147483647
      */
     cooldown_minutes?: number
+    /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. */
+    labels?: PatchedInsightPlatformAlertConfigurationEditApiLabels
+    /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
+    annotations?: PatchedInsightPlatformAlertConfigurationEditApiAnnotations
 }
 
 /**
@@ -944,6 +1014,16 @@ export type PatchedLogsPlatformAlertConfigurationEditApiSourceKind =
 export const PatchedLogsPlatformAlertConfigurationEditApiSourceKind = {
     Logs: 'logs',
 } as const
+
+/**
+ * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.
+ */
+export type PatchedLogsPlatformAlertConfigurationEditApiLabels = { [key: string]: string }
+
+/**
+ * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://.
+ */
+export type PatchedLogsPlatformAlertConfigurationEditApiAnnotations = { [key: string]: string }
 
 /**
  * The settings an edit can change. Each source kind subclasses it with a typed `source_config`.
@@ -982,6 +1062,10 @@ export interface PatchedLogsPlatformAlertConfigurationEditApi {
      * @maximum 2147483647
      */
     cooldown_minutes?: number
+    /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. */
+    labels?: PatchedLogsPlatformAlertConfigurationEditApiLabels
+    /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
+    annotations?: PatchedLogsPlatformAlertConfigurationEditApiAnnotations
 }
 
 export type PatchedPlatformAlertConfigurationEditApi =

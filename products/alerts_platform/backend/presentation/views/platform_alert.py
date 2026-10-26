@@ -346,8 +346,6 @@ CREATE_DEFAULTS: dict[str, tuple[Any, str]] = {
     "evaluation_periods": (1, "Defaults to 1."),
     "datapoints_to_alarm": (1, "Defaults to 1."),
     "cooldown_minutes": (0, "Defaults to 0."),
-    "labels": (dict, "Defaults to no labels."),
-    "annotations": (dict, "Defaults to no annotations."),
 }
 
 

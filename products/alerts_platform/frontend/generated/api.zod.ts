@@ -173,6 +173,18 @@ export const PlatformAlertsCreateBody = /* @__PURE__ */ zod
             .max(platformAlertsCreateBodyOneCooldownMinutesMax)
             .default(platformAlertsCreateBodyOneCooldownMinutesDefault)
             .describe('Minimum minutes between notifications for the same alert. Defaults to 0.'),
+        labels: zod
+            .record(zod.string(), zod.string())
+            .optional()
+            .describe(
+                'Labels that say who owns the alert and how urgent it is, such as {\"team\": \"checkout\", \"severity\": \"critical\"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.'
+            ),
+        annotations: zod
+            .record(zod.string(), zod.string())
+            .optional()
+            .describe(
+                'Context for whoever responds, such as {\"runbook_url\": \"https:\/\/...\"}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https:\/\/.'
+            ),
     })
     .describe('The settings of a new alert. Every one but source_config has a default, which is stored.')
 
@@ -345,6 +357,18 @@ export const PlatformAlertsUpdateBody = /* @__PURE__ */ zod.union([
                 .min(platformAlertsUpdateBodyOneCooldownMinutesMin)
                 .max(platformAlertsUpdateBodyOneCooldownMinutesMax)
                 .describe('Minimum minutes between notifications for the same alert.'),
+            labels: zod
+                .record(zod.string(), zod.string())
+                .optional()
+                .describe(
+                    'Labels that say who owns the alert and how urgent it is, such as {\"team\": \"checkout\", \"severity\": \"critical\"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.'
+                ),
+            annotations: zod
+                .record(zod.string(), zod.string())
+                .optional()
+                .describe(
+                    'Context for whoever responds, such as {\"runbook_url\": \"https:\/\/...\"}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https:\/\/.'
+                ),
         })
         .describe('The settings an edit can change. Each source kind subclasses it with a typed `source_config`.'),
     zod
@@ -486,6 +510,18 @@ export const PlatformAlertsUpdateBody = /* @__PURE__ */ zod.union([
                 .min(platformAlertsUpdateBodyTwoCooldownMinutesMin)
                 .max(platformAlertsUpdateBodyTwoCooldownMinutesMax)
                 .describe('Minimum minutes between notifications for the same alert.'),
+            labels: zod
+                .record(zod.string(), zod.string())
+                .optional()
+                .describe(
+                    'Labels that say who owns the alert and how urgent it is, such as {\"team\": \"checkout\", \"severity\": \"critical\"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.'
+                ),
+            annotations: zod
+                .record(zod.string(), zod.string())
+                .optional()
+                .describe(
+                    'Context for whoever responds, such as {\"runbook_url\": \"https:\/\/...\"}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https:\/\/.'
+                ),
         })
         .describe('The settings an edit can change. Each source kind subclasses it with a typed `source_config`.'),
 ])
@@ -669,6 +705,18 @@ export const PlatformAlertsPartialUpdateBody = /* @__PURE__ */ zod.union([
                 .max(platformAlertsPartialUpdateBodyOneCooldownMinutesMax)
                 .optional()
                 .describe('Minimum minutes between notifications for the same alert.'),
+            labels: zod
+                .record(zod.string(), zod.string())
+                .optional()
+                .describe(
+                    'Labels that say who owns the alert and how urgent it is, such as {\"team\": \"checkout\", \"severity\": \"critical\"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.'
+                ),
+            annotations: zod
+                .record(zod.string(), zod.string())
+                .optional()
+                .describe(
+                    'Context for whoever responds, such as {\"runbook_url\": \"https:\/\/...\"}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https:\/\/.'
+                ),
         })
         .describe('The settings an edit can change. Each source kind subclasses it with a typed `source_config`.'),
     zod
@@ -820,6 +868,18 @@ export const PlatformAlertsPartialUpdateBody = /* @__PURE__ */ zod.union([
                 .max(platformAlertsPartialUpdateBodyTwoCooldownMinutesMax)
                 .optional()
                 .describe('Minimum minutes between notifications for the same alert.'),
+            labels: zod
+                .record(zod.string(), zod.string())
+                .optional()
+                .describe(
+                    'Labels that say who owns the alert and how urgent it is, such as {\"team\": \"checkout\", \"severity\": \"critical\"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.'
+                ),
+            annotations: zod
+                .record(zod.string(), zod.string())
+                .optional()
+                .describe(
+                    'Context for whoever responds, such as {\"runbook_url\": \"https:\/\/...\"}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https:\/\/.'
+                ),
         })
         .describe('The settings an edit can change. Each source kind subclasses it with a typed `source_config`.'),
 ])
