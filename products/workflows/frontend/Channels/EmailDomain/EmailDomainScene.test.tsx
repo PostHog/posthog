@@ -369,6 +369,20 @@ describe('EmailDomainScene', () => {
             expectProgress('8 of 8 found')
         })
 
+        it('opens the records on the waiting page for a teammate when some settings are already found', async () => {
+            seedSender()
+            backend.publishRecords(DOMAIN, (_, index) => index === 0)
+            await open(urls.workflowsEmailDomain(SENDER_ID))
+            expectStep('Checking your settings…')
+            await share('link')
+            cleanup()
+
+            const link = new URL(clipboard.mock.calls[0][0])
+            await open(`${link.pathname}${link.search}`)
+            expectStep('Checking your settings…')
+            expect(screen.getAllByText('Not found yet')).toHaveLength(7)
+        })
+
         it('offers nothing to send once the domain is ready', async () => {
             seedSender()
             backend.verifyDomain(DOMAIN)

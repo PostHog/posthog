@@ -135,6 +135,7 @@ export function VerifyingStep(): JSX.Element {
     const { status, pollingStopped, missingRecords, foundCount, records, allRecordsFound } =
         useValues(emailDomainStatusLogic)
     const { verificationSteps } = useValues(emailDomainLogic)
+    const { sharedRecordsShown } = useValues(emailDomainManualSetupLogic)
     const stuck = (pollingStopped && !allRecordsFound) || status?.status === 'failed'
     const temporaryFailure = status?.status === 'temporary_failure'
     return (
@@ -166,7 +167,11 @@ export function VerifyingStep(): JSX.Element {
                 </LemonBanner>
             )}
             <Actions />
-            <DnsRecordsSummary missing={missingRecords} needsAttention={stuck || temporaryFailure} />
+            <DnsRecordsSummary
+                missing={missingRecords}
+                needsAttention={stuck || temporaryFailure}
+                shared={sharedRecordsShown}
+            />
         </div>
     )
 }

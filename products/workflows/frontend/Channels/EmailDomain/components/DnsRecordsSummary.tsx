@@ -14,6 +14,8 @@ interface DnsRecordsSummaryProps {
     missing: EmailDomainStatusRecordApi[]
     /** Opens the records, because the person has to fix some of them. */
     needsAttention: boolean
+    /** Opens the records for a teammate who came from a shared link. */
+    shared?: boolean
 }
 
 function SummaryIcon({ needsAttention }: { needsAttention: boolean }): JSX.Element {
@@ -25,7 +27,7 @@ function SummaryIcon({ needsAttention }: { needsAttention: boolean }): JSX.Eleme
 }
 
 /** The DNS records behind one summary line, which a person expands to copy a record. */
-export function DnsRecordsSummary({ missing, needsAttention }: DnsRecordsSummaryProps): JSX.Element {
+export function DnsRecordsSummary({ missing, needsAttention, shared = false }: DnsRecordsSummaryProps): JSX.Element {
     const { records, foundCount, allRecordsFound } = useValues(emailDomainStatusLogic)
     const { hostName } = useValues(emailDomainAutoConfigureLogic)
     const host = hostName ?? 'your DNS host'
@@ -33,7 +35,7 @@ export function DnsRecordsSummary({ missing, needsAttention }: DnsRecordsSummary
         <LemonCollapse
             // Remounts when the records start to need attention, so they open for the person to fix.
             key={needsAttention ? 'needs-attention' : 'in-progress'}
-            defaultActiveKey={needsAttention ? 'records' : undefined}
+            defaultActiveKey={needsAttention || shared ? 'records' : undefined}
             panels={[
                 {
                     key: 'records',
