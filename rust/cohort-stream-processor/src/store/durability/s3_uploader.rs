@@ -198,11 +198,11 @@ impl S3Uploader {
         Ok(())
     }
 
-    async fn upload_bytes(&self, s3_key: &str, data: Vec<u8>) -> Result<()> {
+    async fn upload_bytes(&self, s3_key: &str, payload: PutPayload) -> Result<()> {
         let path = ObjectPath::from(s3_key);
 
         self.store
-            .put(&path, PutPayload::from(data))
+            .put(&path, payload)
             .await
             .with_context(|| format!("Failed to upload to S3 key: {s3_key}"))?;
 
@@ -301,11 +301,13 @@ impl CheckpointUploader for S3Uploader {
             }
         }
 
-        let metadata_json = plan.info.metadata.to_json()?;
+        let metadata = PutPayload::from(plan.info.metadata.to_json()?);
         let metadata_key = plan.info.get_metadata_key();
-        self.upload_bytes(&metadata_key, metadata_json.into_bytes())
-            .await
-            .with_context(|| format!("Failed to upload metadata to S3 key: {metadata_key}"))?;
+        retry_file(&metadata_key, &upload_token, || {
+            self.upload_bytes(&metadata_key, metadata.clone())
+        })
+        .await
+        .with_context(|| format!("Failed to upload metadata to S3 key: {metadata_key}"))?;
 
         info!(
             "Uploaded {} files and metadata file to s3://{}/{}",
@@ -353,24 +355,34 @@ mod tests {
             None,
         )
         .unwrap();
-        let sst_key = plan.info.get_file_key("000007.sst");
-        let store = Arc::new(FlakyStore::new(InMemory::new(), &sst_key));
-        let uploader = S3Uploader {
-            store: store.clone(),
-            config: DurabilityConfig::default(),
-        };
+        let metadata = plan.info.metadata.to_json().unwrap();
+        let cases = [
+            (
+                plan.info.get_file_key("000007.sst"),
+                b"sst bytes".as_slice(),
+            ),
+            (plan.info.get_metadata_key(), metadata.as_bytes()),
+        ];
 
-        uploader.upload_checkpoint_with_plan(&plan).await.unwrap();
+        for (flaky_key, body) in cases {
+            let store = Arc::new(FlakyStore::new(InMemory::new(), &flaky_key));
+            let uploader = S3Uploader {
+                store: store.clone(),
+                config: DurabilityConfig::default(),
+            };
 
-        assert!(store.tripped());
-        let uploaded = store
-            .get(&ObjectPath::from(sst_key))
-            .await
-            .unwrap()
-            .bytes()
-            .await
-            .unwrap();
-        assert_eq!(uploaded.as_ref(), b"sst bytes");
+            uploader.upload_checkpoint_with_plan(&plan).await.unwrap();
+
+            assert!(store.tripped(), "{flaky_key}");
+            let uploaded = store
+                .get(&ObjectPath::from(flaky_key.as_str()))
+                .await
+                .unwrap()
+                .bytes()
+                .await
+                .unwrap();
+            assert_eq!(uploaded.as_ref(), body, "{flaky_key}");
+        }
     }
 
     #[tokio::test]
