@@ -25,12 +25,16 @@ with workflow.unsafe.imports_passed_through():
 
     from posthog.schema_enums import AlertCalculationInterval
     from posthog.temporal.alerts.retry_policy import alert_timeouts
+    from posthog.temporal.common.errors import (
+        MAX_ERROR_MESSAGE_CHARS,
+        truncate_for_temporal_payload,
+        unwrap_temporal_cause,
+    )
+    from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
     from posthog.temporal.common.utils import close_db_connections
 
     from products.alerts_platform.backend.facade.contracts import (
         RECORD_OUTCOMES_ACTIVITY,
-        AlertDeliveryRequest,
-        PlatformAlertOutcome,
         SourceBatchEvaluation,
         SourceEvaluationInputs,
         SourceKind,
@@ -54,9 +58,13 @@ _REAL_TIME_TIMEOUTS = alert_timeouts(AlertCalculationInterval.REAL_TIME)
 REAL_TIME_CHECK_START_TO_CLOSE = _REAL_TIME_TIMEOUTS.evaluate_start_to_close
 REAL_TIME_CHECK_SCHEDULE_TO_CLOSE = _REAL_TIME_TIMEOUTS.activity_schedule_to_close + CHECK_QUEUE_TOLERANCE
 REAL_TIME_CHECK_RETRY_POLICY = _REAL_TIME_TIMEOUTS.evaluate_retry_policy
+# Production's real-time heartbeat, so a check whose worker died is retried inside its budget.
+REAL_TIME_CHECK_HEARTBEAT_TIMEOUT = _REAL_TIME_TIMEOUTS.heartbeat_timeout
 # Production's retries for an AI detector check, inside the default budget. A judge that reaches
 # no verdict raises for another attempt, and the last attempt records the failure.
 LLM_CHECK_RETRY_POLICY = alert_timeouts(None).evaluate_retry_policy
+FAIL_START_TO_CLOSE = dt.timedelta(seconds=10)
+FAIL_SCHEDULE_TO_CLOSE = dt.timedelta(seconds=20)
 RECORD_START_TO_CLOSE = dt.timedelta(seconds=8)
 RECORD_SCHEDULE_TO_CLOSE = dt.timedelta(seconds=12)
 # The pool admits once per round, so a batch that admits only once evaluates at most one pool of
@@ -70,6 +78,7 @@ EVALUATION_BUDGET = (
     PLAN_SCHEDULE_TO_CLOSE
     + ADMISSION_RUN_BUDGET
     + max(CHECK_SCHEDULE_TO_CLOSE, REAL_TIME_CHECK_SCHEDULE_TO_CLOSE)
+    + FAIL_SCHEDULE_TO_CLOSE
     + RECORD_SCHEDULE_TO_CLOSE
 )
 _PATCH_READMISSION = "platform-insight-readmission-2026-10"
@@ -80,6 +89,8 @@ _PATCH_CHECK_BUDGETS = "platform-insight-check-budgets-2026-10"
 # Runs started before it evaluated every check on this queue. A plan can return an AI detector
 # check into such a run during a deploy, and replay must schedule the activity that run recorded.
 _PATCH_AI_DETECTOR_QUEUE = "platform-insight-ai-detector-queue-2026-10"
+# Runs started before it recorded every outcome once the whole batch ended, and failed checks left none.
+_PATCH_RECORD_AS_FINISHED = "platform-insight-record-as-finished-2026-10"
 
 
 @frozen
@@ -105,6 +116,16 @@ class InsightCheckInputs:
     held_until: float
     # The worker this check was routed to. Only the AI queue's worker holds the model credentials.
     uses_llm_detector: bool = False
+
+
+@frozen
+class FailedInsightCheckInputs:
+    evaluation: SourceEvaluationInputs
+    configuration_id: str
+    error_message: str
+    error_type: str | None = None
+    # The queries the check's attempts ran under, any of which may still run.
+    query_ids: tuple[str, ...] = ()
 
 
 @activity.defn
@@ -207,8 +228,28 @@ def _evaluate_check(
 @activity.defn
 @close_db_connections
 def evaluate_platform_insight_check_activity(inputs: InsightCheckInputs) -> SourceBatchEvaluation | None:
-    """Sync, so the thread this blocks is a slot Temporal is accounting for."""
-    return _evaluate_check(inputs, activity.info(), final_attempt=True)
+    """Sync, so the thread this blocks is a slot Temporal is accounting for. Heartbeats only when the
+    workflow set a heartbeat timeout."""
+    with HeartbeaterSync():
+        return _evaluate_check(inputs, activity.info(), final_attempt=True)
+
+
+@activity.defn
+@close_db_connections
+def fail_platform_insight_check_activity(inputs: FailedInsightCheckInputs) -> SourceBatchEvaluation | None:
+    """The errored outcome of a check whose every attempt ended without one."""
+    from products.alerts.backend.platform_source_cycle import fail_insight_check  # noqa: PLC0415
+
+    key = inputs.evaluation.batch_key
+    return fail_insight_check(
+        key.team_id,
+        key.slot,
+        dt.datetime.fromisoformat(inputs.evaluation.cutoff),
+        inputs.configuration_id,
+        error_message=inputs.error_message,
+        error_type=inputs.error_type,
+        query_ids=inputs.query_ids,
+    )
 
 
 @activity.defn
@@ -255,6 +296,8 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
         # From the workflow's clock, so a retried plan reuses the expiry and gets its slots back. A
         # check releases its slot only while the slot still carries this expiry.
         expires_at = (workflow.now() + source_evaluation_timeout(SourceKind.INSIGHT)).timestamp()
+        if workflow.patched(_PATCH_READMISSION) and workflow.patched(_PATCH_RECORD_AS_FINISHED):
+            return await self._evaluate_and_record_in_rounds(inputs, expires_at)
         if workflow.patched(_PATCH_READMISSION):
             settled = await self._evaluate_in_rounds(inputs, expires_at)
         else:
@@ -277,8 +320,7 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
             if isinstance(result, BaseException) and not isinstance(result, ActivityError):
                 raise result
         evaluations = [result for result in settled if isinstance(result, SourceBatchEvaluation)]
-        outcomes: tuple[PlatformAlertOutcome, ...] = tuple(o for e in evaluations for o in e.outcomes)
-        deliveries: tuple[AlertDeliveryRequest, ...] = tuple(d for e in evaluations for d in e.deliveries)
+        outcomes = tuple(outcome for evaluation in evaluations for outcome in evaluation.outcomes)
         if len(outcomes) < len(settled):
             workflow.logger.warning(
                 "%d of %d platform insight checks reached no outcome", len(settled) - len(outcomes), len(settled)
@@ -286,21 +328,7 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
             safe_record(increment_checks_unfinished, SourceKind.INSIGHT.value, len(settled) - len(outcomes))
         if not outcomes:
             return 0
-
-        # Each check's result fits a payload on its own, but the batch's together may not. A chunk's
-        # deliveries start after its own record, so a later chunk that fails cannot strand them.
-        chunks = outcome_chunks(outcomes) if workflow.patched(_PATCH_CHUNKED_RECORD) else [outcomes]
-        for chunk in chunks:
-            await workflow.execute_activity(
-                RECORD_OUTCOMES_ACTIVITY,
-                SourceOutcomeInputs(team_id=inputs.batch_key.team_id, cutoff=inputs.cutoff, outcomes=chunk),
-                start_to_close_timeout=RECORD_START_TO_CLOSE,
-                schedule_to_close_timeout=RECORD_SCHEDULE_TO_CLOSE,
-                retry_policy=RetryPolicy(maximum_attempts=3),
-            )
-            # Started only after the record, because a delivery reads the history row the record writes.
-            recorded = {str(outcome.configuration_id) for outcome in chunk}
-            await start_deliveries([delivery for delivery in deliveries if delivery.configuration_id in recorded])
+        await self._record(inputs, evaluations, chunked=workflow.patched(_PATCH_CHUNKED_RECORD))
         return len(outcomes)
 
     async def _plan(
@@ -340,10 +368,11 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
                 check_inputs,
                 start_to_close_timeout=REAL_TIME_CHECK_START_TO_CLOSE,
                 schedule_to_close_timeout=REAL_TIME_CHECK_SCHEDULE_TO_CLOSE,
+                heartbeat_timeout=REAL_TIME_CHECK_HEARTBEAT_TIMEOUT,
                 retry_policy=REAL_TIME_CHECK_RETRY_POLICY,
             )
-        # One attempt each. A check that does not finish leaves no outcome, so it keeps its due time
-        # and a later tick evaluates it again, the way a cohort the logs budget left out behaves.
+        # One attempt each. In a run that records as checks finish, a check that does not finish is
+        # recorded as errored. In an older run it leaves no outcome and keeps its due time.
         return await workflow.execute_activity(
             evaluate_platform_insight_check_activity,
             check_inputs,
@@ -395,6 +424,141 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
             )
         return await asyncio.gather(*started.values(), return_exceptions=True)
 
+    async def _evaluate_and_record_in_rounds(self, inputs: SourceEvaluationInputs, expires_at: float) -> int:
+        """`_evaluate_in_rounds`, but the checks that ended are recorded and delivered at each poll, so
+        a slow check in the batch never holds back another's state, schedule or delivery. A check
+        whose every attempt failed is recorded as errored. Returns how many outcomes it recorded.
+
+        One record per poll rather than per check, because each record is a transaction and a
+        ClickHouse insert of its own.
+        """
+        started: dict[str, AdmittedInsightCheck] = {}
+        unrecorded: dict[str, asyncio.Task[SourceBatchEvaluation | None]] = {}
+        recorded = 0
+        admitting = True
+        deadline = workflow.now() + ADMISSION_RUN_BUDGET
+        next_record_at = workflow.now()
+        while True:
+            added = False
+            if admitting:
+                try:
+                    admitted = await self._plan_round(inputs, expires_at, exclude=tuple(started), budgeted=True)
+                except ActivityError:
+                    if not started:
+                        raise
+                    workflow.logger.warning("Stopped admitting platform insight checks after a failed plan")
+                    admitting = False
+                else:
+                    added = bool(admitted)
+                    for check in admitted:
+                        started[check.configuration_id] = check
+                        unrecorded[check.configuration_id] = asyncio.create_task(self._check(inputs, check, expires_at))
+            finished = {configuration_id: task for configuration_id, task in unrecorded.items() if task.done()}
+            if finished and (workflow.now() >= next_record_at or all(task.done() for task in unrecorded.values())):
+                next_record_at = workflow.now() + ADMISSION_POLL_INTERVAL
+                for configuration_id in finished:
+                    del unrecorded[configuration_id]
+                recorded += await self._record_finished(
+                    inputs, {started[configuration_id]: task for configuration_id, task in finished.items()}
+                )
+            if workflow.now() >= deadline:
+                admitting = False
+            if not unrecorded:
+                # The checks a round added can end while earlier ones record, and free slots for more.
+                if admitting and added:
+                    continue
+                return recorded
+            running = [task for task in unrecorded.values() if not task.done()]
+            if not running:
+                continue
+            # While admitting, wake at each poll to refill the pool. After that, wake when a check
+            # ends, or when the checks that already ended are due their record. An idle timer would
+            # add history events for the whole of a slow check.
+            if admitting:
+                timeout: float | None = ADMISSION_POLL_INTERVAL.total_seconds()
+            elif len(running) < len(unrecorded):
+                timeout = max((next_record_at - workflow.now()).total_seconds(), 0)
+            else:
+                timeout = None
+            await asyncio.wait(running, timeout=timeout, return_when=asyncio.FIRST_COMPLETED)
+
+    async def _record_finished(
+        self,
+        inputs: SourceEvaluationInputs,
+        finished: dict[AdmittedInsightCheck, "asyncio.Task[SourceBatchEvaluation | None]"],
+    ) -> int:
+        evaluations: list[SourceBatchEvaluation] = []
+        failures: dict[AdmittedInsightCheck, ActivityError] = {}
+        for check, task in finished.items():
+            error = task.exception()
+            if isinstance(error, ActivityError):
+                failures[check] = error
+            elif error is not None:
+                # Only a check's own failure is a missing outcome. A bug in this workflow ends the run.
+                raise error
+            elif (evaluation := task.result()) is not None:
+                evaluations.append(evaluation)
+        failed = await asyncio.gather(*(self._fail(inputs, check, error) for check, error in failures.items()))
+        evaluations.extend(evaluation for evaluation in failed if evaluation is not None)
+        recorded = await self._record(inputs, evaluations, chunked=True)
+        if recorded < len(finished):
+            safe_record(increment_checks_unfinished, SourceKind.INSIGHT.value, len(finished) - recorded)
+        return recorded
+
+    async def _fail(
+        self, inputs: SourceEvaluationInputs, check: AdmittedInsightCheck, error: ActivityError
+    ) -> SourceBatchEvaluation | None:
+        # The reason the owner reads, unwrapped from Temporal's failure and bounded for the payload.
+        cause = unwrap_temporal_cause(error)
+        message = cause.message if cause is not None else str(error.cause or error)
+        # Each attempt queries under `{run}:{activity}:{attempt}`, as `_evaluate_check` names it.
+        evaluation_id = f"{workflow.info().run_id}:{error.activity_id}"
+        return await workflow.execute_activity(
+            fail_platform_insight_check_activity,
+            FailedInsightCheckInputs(
+                evaluation=inputs,
+                configuration_id=check.configuration_id,
+                error_message=truncate_for_temporal_payload(message, MAX_ERROR_MESSAGE_CHARS),
+                # Temporal rebuilds a remote error as an ApplicationError carrying the class name on `type`.
+                error_type=cause.type if cause is not None else None,
+                query_ids=tuple(f"{evaluation_id}:{attempt}" for attempt in range(1, _maximum_attempts(check) + 1)),
+            ),
+            start_to_close_timeout=FAIL_START_TO_CLOSE,
+            schedule_to_close_timeout=FAIL_SCHEDULE_TO_CLOSE,
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+
+    async def _record(
+        self, inputs: SourceEvaluationInputs, evaluations: list[SourceBatchEvaluation], *, chunked: bool
+    ) -> int:
+        """Records the outcomes, then starts their deliveries. Returns how many outcomes it recorded."""
+        outcomes = tuple(outcome for evaluation in evaluations for outcome in evaluation.outcomes)
+        if not outcomes:
+            return 0
+        deliveries = tuple(delivery for evaluation in evaluations for delivery in evaluation.deliveries)
+        # Each check's result fits a payload on its own, but the batch's together may not. A chunk's
+        # deliveries start after its own record, so a later chunk that fails cannot strand them.
+        for chunk in outcome_chunks(outcomes) if chunked else [outcomes]:
+            await workflow.execute_activity(
+                RECORD_OUTCOMES_ACTIVITY,
+                SourceOutcomeInputs(team_id=inputs.batch_key.team_id, cutoff=inputs.cutoff, outcomes=chunk),
+                start_to_close_timeout=RECORD_START_TO_CLOSE,
+                schedule_to_close_timeout=RECORD_SCHEDULE_TO_CLOSE,
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+            # Started only after the record, because a delivery reads the history row the record writes.
+            recorded = {str(outcome.configuration_id) for outcome in chunk}
+            await start_deliveries([delivery for delivery in deliveries if delivery.configuration_id in recorded])
+        return len(outcomes)
+
+
+def _maximum_attempts(check: AdmittedInsightCheck) -> int:
+    if check.uses_llm_detector:
+        return LLM_CHECK_RETRY_POLICY.maximum_attempts
+    if check.real_time:
+        return REAL_TIME_CHECK_RETRY_POLICY.maximum_attempts
+    return 1
+
 
 PLATFORM_EVALUATION_WORKFLOWS = [InsightAlertPlatformEvaluateWorkflow]
 # Registered on the AI queue's worker, which holds the model credentials.
@@ -404,4 +568,5 @@ PLATFORM_EVALUATION_ACTIVITIES = [
     plan_platform_insight_round_activity,
     plan_platform_insight_checks_activity,
     evaluate_platform_insight_check_activity,
+    fail_platform_insight_check_activity,
 ]

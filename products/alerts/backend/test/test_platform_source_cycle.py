@@ -36,7 +36,9 @@ from products.alerts.backend.platform_source_cycle import (
     CAPACITY_REJECTED,
     INFLIGHT_KEY,
     MAX_BREACH_CHARS,
+    QUERY_ID_PREFIX,
     evaluate_insight_check,
+    fail_insight_check,
     plan_insight_batch,
     readmit_retried_check,
 )
@@ -507,6 +509,58 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             LLM_DETECTOR_UNAVAILABLE_MESSAGE,
             False,
         )
+
+    @parameterized.expand(
+        [
+            ("enabled", True, None, (AlertEventKind.ERRORED, "errored", "activity timed out", False, 1)),
+            # The raw transport error is not the owner's configuration.
+            (
+                "judge_unreachable",
+                True,
+                "LLMDetectorUnavailableError",
+                (AlertEventKind.ERRORED, "errored", LLM_DETECTOR_UNAVAILABLE_MESSAGE, False, 1),
+            ),
+            # As production: switching an alert off mid-check is not a failure of the alert.
+            ("switched_off", False, None, None),
+        ]
+    )
+    def test_a_check_whose_every_attempt_failed_stops_its_queries_and_records_an_error(
+        self,
+        _name: str,
+        enabled: bool,
+        error_type: str | None,
+        expected: tuple[AlertEventKind, str, str, bool, int] | None,
+    ) -> None:
+        configuration = self._copy(self._alert(enabled=enabled), owner=PlatformAlertOwner.PLATFORM)
+
+        with patch("posthog.clickhouse.cancel.cancel_query_on_cluster") as cancel:
+            evaluation = fail_insight_check(
+                self.team.id,
+                slot_of(configuration.next_check_at, CUTOFF),
+                CUTOFF,
+                str(configuration.id),
+                error_message="activity timed out",
+                error_type=error_type,
+                query_ids=("run:1:1", "run:1:2"),
+            )
+
+        # A timed-out attempt's thread can still run its query, which nothing else stops.
+        assert [call.args for call in cancel.call_args_list] == [
+            (self.team.id, f"{QUERY_ID_PREFIX}run:1:1"),
+            (self.team.id, f"{QUERY_ID_PREFIX}run:1:2"),
+        ]
+        actual = None
+        if evaluation is not None:
+            (outcome,) = evaluation.outcomes
+            assert outcome.failure is not None
+            actual = (
+                outcome.failure.kind,
+                outcome.failure.new_state,
+                outcome.error_message,
+                outcome.disable,
+                len(evaluation.deliveries),
+            )
+        assert actual == expected
 
     @override_settings(ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS=1)
     def test_a_retry_stops_the_timed_out_query_and_runs_only_inside_the_pool(self) -> None:
