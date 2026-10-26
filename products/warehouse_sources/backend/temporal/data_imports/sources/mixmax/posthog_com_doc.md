@@ -37,6 +37,8 @@ Mixmax's API does not expose a server-side "modified since" filter, so every tab
 
 The `live_feed_events` table makes one request per live feed message, so it is not selected by default. Enable it only if you need per-event detail, and expect a large live feed to take a while to sync.
 
+The `sequence_recipients` table makes at least one request per sequence, and `team_members` makes one request per team. Mixmax lists at most 10,000 recipients per sequence through the API, so recipients past that limit are not synced.
+
 ## Configuration
 
 <SourceParameters />

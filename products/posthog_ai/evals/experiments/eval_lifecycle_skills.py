@@ -42,6 +42,8 @@ from products.posthog_ai.evals.experiments.scorers import (
 from products.posthog_ai.evals.experiments.seeders import ROLLOUT_EXPERIMENT_NAME, seed_running_experiment
 from products.posthog_ai.evals.offline_config import offline_suite
 
+NO_SEND_LOGS = True
+
 
 # Keep the cases in one experiment so their scores can be compared together.
 async def eval_lifecycle_skills(ctx: EvalContext) -> None:
@@ -84,6 +86,7 @@ async def eval_lifecycle_skills(ctx: EvalContext) -> None:
     ]
 
     await SandboxedPrivateEval(
+        no_send_logs=NO_SEND_LOGS,
         experiment_name="sandboxed-experiments-lifecycle-cli",
         send_to_posthog=True,
         offline_suite=offline_suite(

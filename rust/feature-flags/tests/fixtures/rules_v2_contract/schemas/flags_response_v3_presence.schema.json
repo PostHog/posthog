@@ -70,11 +70,6 @@
                             "required": [
                               "variant_key"
                             ]
-                          },
-                          {
-                            "required": [
-                              "holdout_id"
-                            ]
                           }
                         ]
                       },
@@ -129,11 +124,6 @@
                             "required": [
                               "variant_key"
                             ]
-                          },
-                          {
-                            "required": [
-                              "holdout_id"
-                            ]
                           }
                         ]
                       },
@@ -176,14 +166,13 @@
                         "has_experiment",
                         "rule_type",
                         "rule_id",
-                        "experiment_id",
                         "variant_key"
                       ],
                       "not": {
                         "anyOf": [
                           {
                             "required": [
-                              "holdout_id"
+                              "experiment_id"
                             ]
                           }
                         ]
@@ -239,11 +228,6 @@
                             "required": [
                               "variant_key"
                             ]
-                          },
-                          {
-                            "required": [
-                              "holdout_id"
-                            ]
                           }
                         ]
                       },
@@ -277,19 +261,18 @@
                       "required": [
                         "has_experiment",
                         "rule_type",
-                        "rule_id",
-                        "experiment_id"
+                        "rule_id"
                       ],
                       "not": {
                         "anyOf": [
                           {
                             "required": [
-                              "variant_key"
+                              "experiment_id"
                             ]
                           },
                           {
                             "required": [
-                              "holdout_id"
+                              "variant_key"
                             ]
                           }
                         ]
@@ -324,19 +307,18 @@
                       "required": [
                         "has_experiment",
                         "rule_type",
-                        "rule_id",
-                        "experiment_id"
+                        "rule_id"
                       ],
                       "not": {
                         "anyOf": [
                           {
                             "required": [
-                              "variant_key"
+                              "experiment_id"
                             ]
                           },
                           {
                             "required": [
-                              "holdout_id"
+                              "variant_key"
                             ]
                           }
                         ]
@@ -371,12 +353,15 @@
                       "required": [
                         "has_experiment",
                         "rule_type",
-                        "rule_id",
-                        "experiment_id",
-                        "holdout_id"
+                        "rule_id"
                       ],
                       "not": {
                         "anyOf": [
+                          {
+                            "required": [
+                              "experiment_id"
+                            ]
+                          },
                           {
                             "required": [
                               "variant_key"
@@ -434,11 +419,6 @@
                             "required": [
                               "variant_key"
                             ]
-                          },
-                          {
-                            "required": [
-                              "holdout_id"
-                            ]
                           }
                         ]
                       }
@@ -486,11 +466,6 @@
                           {
                             "required": [
                               "variant_key"
-                            ]
-                          },
-                          {
-                            "required": [
-                              "holdout_id"
                             ]
                           }
                         ]
@@ -540,11 +515,6 @@
                             "required": [
                               "variant_key"
                             ]
-                          },
-                          {
-                            "required": [
-                              "holdout_id"
-                            ]
                           }
                         ]
                       }
@@ -591,11 +561,6 @@
                             "required": [
                               "variant_key"
                             ]
-                          },
-                          {
-                            "required": [
-                              "holdout_id"
-                            ]
                           }
                         ]
                       }
@@ -625,11 +590,6 @@
                       {
                         "required": [
                           "rule_id"
-                        ]
-                      },
-                      {
-                        "required": [
-                          "holdout_id"
                         ]
                       }
                     ]

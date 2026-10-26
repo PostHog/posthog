@@ -62,6 +62,8 @@ PROTOC_VERSION=28.3
 PROTOC_SHA256_AMD64=0ad949f04a6a174da83cdcbdb36dee0a4925272a5b6d83f79a6bf9852076d53f
 PROTOC_SHA256_ARM64=1de522032a8b194002fe35cab86d747848238b5e4de4f99648372079f5b46f9a
 SQLX_CLI_VERSION=0.8.3
+ACTIONLINT_VERSION=1.7.12
+SEMGREP_VERSION=1.175.0
 
 export RUSTUP_HOME=/opt/rust/rustup
 export CARGO_HOME=/opt/rust/cargo
@@ -107,6 +109,7 @@ log "installing dev toolchain (brotli, phrocs, go, rust)"
 # need their toolchains.
 apt-get update
 apt-get install -y --no-install-recommends brotli make unzip build-essential libssl-dev pkg-config cmake libclang-dev
+apt-get install -y --no-install-recommends ffmpeg shellcheck
 rm -rf /var/lib/apt/lists/*
 
 case "$(uname -m)" in
@@ -136,6 +139,19 @@ echo "${GO_SHA256}  /tmp/go.tar.gz" | sha256sum -c -
 tar -xzf /tmp/go.tar.gz -C /usr/local
 rm /tmp/go.tar.gz
 ln -sf /usr/local/go/bin/go /usr/local/go/bin/gofmt /usr/local/bin/
+
+log "installing actionlint ${ACTIONLINT_VERSION} and semgrep ${SEMGREP_VERSION} (same pins as CI)"
+GOBIN=/usr/local/bin go install "github.com/rhysd/actionlint/cmd/actionlint@v${ACTIONLINT_VERSION}"
+actionlint -version
+UV_TOOL_DIR=/opt/uv-tools UV_TOOL_BIN_DIR=/opt/uv-tools/bin uv tool install "semgrep==${SEMGREP_VERSION}"
+printf '%s\n' \
+    '#!/bin/sh' \
+    'for name in HTTP_PROXY HTTPS_PROXY ALL_PROXY http_proxy https_proxy all_proxy SSL_CERT_FILE SSL_CERT_DIR; do' \
+    '    eval "[ -n \"\${$name:-}\" ] || unset $name"' \
+    'done' \
+    'exec /opt/uv-tools/bin/semgrep "$@"' > /usr/local/bin/semgrep
+chmod +x /usr/local/bin/semgrep
+semgrep --version
 
 # phrocs is built from this checkout rather than downloaded via tools/phrocs/install.sh:
 # the phrocs-latest release that installer trusts is mutable and ships checksums.txt

@@ -6,6 +6,7 @@ import { LemonBanner, LemonButton, LemonCard, LemonLabel, LemonSelect, LemonTag,
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { MemberSelect } from 'lib/components/MemberSelect'
 import { TZLabel } from 'lib/components/TZLabel'
 import { urls } from 'scenes/urls'
 
@@ -138,6 +139,32 @@ export function OfflineScorerHistory(props: OfflineScorerHistoryProps): JSX.Elem
                             <div>
                                 <LemonLabel>Tags</LemonLabel>
                                 <ResourceTagFilter filters={filters} onChange={setFilters} />
+                            </div>
+                            <div data-attr="offline-history-author-filter">
+                                <LemonLabel>Author</LemonLabel>
+                                <MemberSelect
+                                    value={filters.created_by ?? null}
+                                    size="medium"
+                                    defaultLabel="Any author"
+                                    extraOptions={[
+                                        {
+                                            label: 'No author',
+                                            onClick: () =>
+                                                setFilters({ created_by: undefined, created_by_is_null: true }),
+                                        },
+                                    ]}
+                                    onChange={(user) =>
+                                        setFilters({ created_by: user?.id, created_by_is_null: undefined })
+                                    }
+                                >
+                                    {filters.created_by_is_null
+                                        ? () => (
+                                              <LemonButton type="secondary" size="medium">
+                                                  No author
+                                              </LemonButton>
+                                          )
+                                        : undefined}
+                                </MemberSelect>
                             </div>
                             <div>
                                 <LemonLabel>Version</LemonLabel>

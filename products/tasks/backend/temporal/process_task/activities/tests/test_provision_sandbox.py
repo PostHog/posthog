@@ -13,10 +13,13 @@ from django.test import override_settings
 
 from asgiref.sync import async_to_sync
 
+from posthog.temporal.common.posthog_client import is_expected_activity_failure
+
 from products.tasks.backend.constants import SNAPSHOT_KIND_DIRECTORY, SNAPSHOT_KIND_FILESYSTEM
 from products.tasks.backend.exceptions import (
     ComputeBillingLimitError,
     OrganizationExecutionError,
+    RepositoryAccessError,
     RepositoryCloneError,
     SandboxCleanupError,
     SandboxRateLimitedError,
@@ -608,6 +611,63 @@ def test_clone_failure_records_failed_latency_and_captures_command_result(mocker
         }
     ]
     assert str(capture_exception.call_args.args[0]) == "clone output"
+
+
+@pytest.mark.parametrize(
+    "stderr, expected_error",
+    [
+        (
+            "Cloning into 'repo'...\nfatal: could not read Username for 'https://github.com': No such device or address\n",
+            RepositoryAccessError,
+        ),
+        (
+            "Cloning into 'repo'...\nremote: Repository not found.\nfatal: repository 'https://github.com/acme/repo.git/' not found\n",
+            RepositoryAccessError,
+        ),
+        (
+            "Cloning into 'repo'...\nfatal: unable to access 'https://github.com/acme/repo.git/': Could not resolve host: github.com\n",
+            RepositoryCloneError,
+        ),
+    ],
+)
+def test_clone_failure_stops_retries_only_when_github_denies_access(
+    mocker, activity_environment, stderr, expected_error
+):
+    context = TaskProcessingContext(
+        task_id="task-id",
+        run_id="run-id",
+        team_id=1,
+        team_uuid="team-uuid",
+        organization_id="organization-id",
+        github_integration_id=123,
+        repository="acme/repo",
+        distinct_id="distinct-id",
+        state={},
+    )
+    sandbox = mocker.Mock()
+    sandbox.clone_repository.return_value = ExecutionResult(stdout="", stderr=stderr, exit_code=128, error=None)
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_sandbox_class_for_sandbox_id",
+        return_value=mocker.Mock(get_by_id=mocker.Mock(return_value=sandbox)),
+    )
+    capture_exception = mocker.patch("products.tasks.backend.exceptions.capture_exception")
+
+    with pytest.raises(expected_error) as error:
+        async_to_sync(activity_environment.run)(
+            clone_repository_in_sandbox,
+            CloneRepositoryInSandboxInput(
+                context=context,
+                sandbox_id="sandbox-id",
+                repository="acme/repo",
+                github_token="",
+                shallow_clone=True,
+            ),
+        )
+
+    access_denied = expected_error is RepositoryAccessError
+    assert error.value.non_retryable is access_denied
+    assert is_expected_activity_failure(error.value) is access_denied
+    assert capture_exception.called is not access_denied
 
 
 def _prepared_for_create() -> PrepareSandboxForRepositoryOutput:

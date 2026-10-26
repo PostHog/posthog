@@ -1105,9 +1105,17 @@ def _check_scores_footer(parquet: pq.ParquetFile, *, expected_rows: int) -> None
         raise SandboxInferenceError(f"scores.parquet distinct_id must be a string column, got {id_type}")
     if not (pa.types.is_floating(p_type) or pa.types.is_integer(p_type)):
         raise SandboxInferenceError(f"scores.parquet p_y must be a numeric column, got {p_type}")
+    metadata = parquet.metadata
+    # pyarrow decodes Brotli with a bundled copy of the C library that CVE-2026-111497 affects, and
+    # predict.py picks the codec. Remove this check when pyarrow bundles Brotli 1.2.1 or later.
+    if any(
+        metadata.row_group(g).column(c).compression == "BROTLI"
+        for g in range(metadata.num_row_groups)
+        for c in range(metadata.num_columns)
+    ):
+        raise SandboxInferenceError("scores.parquet must not use Brotli compression; write it with the default codec")
     # The compressed file passed the readback cap; the decoded columns must fit it too, or
     # a highly compressible table expands in the worker before any value is checked.
-    metadata = parquet.metadata
     decoded_bytes = sum(
         metadata.row_group(g).column(c).total_uncompressed_size
         for g in range(metadata.num_row_groups)

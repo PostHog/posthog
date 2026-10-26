@@ -31,6 +31,7 @@ class TestListUserTaskSummaries(BaseTest):
         self._task("scout run", origin="signals_scout")
         self._task("someone else's task", user=User.objects.create(email="other@example.com"))
         self._task("too old", days_ago=40)
+        self._task("[sandbox_prompt:repo_selection] pick a repository", days_ago=1)
 
         summaries = list_user_task_summaries(
             team_ids=[self.team.id],
@@ -38,7 +39,8 @@ class TestListUserTaskSummaries(BaseTest):
             start=NOW - timedelta(days=28),
             end=NOW,
             origin_products=["slack", "posthog_ai", "user_created"],
-            limit=10,
+            limit=1,
+            exclude_title_prefixes=["[sandbox_prompt:"],
         )
 
         assert [(s.title, s.summary, s.tags) for s in summaries] == [

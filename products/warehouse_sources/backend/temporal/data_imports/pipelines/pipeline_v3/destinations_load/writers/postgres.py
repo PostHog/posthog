@@ -291,23 +291,21 @@ class PostgresDestinationWriter:
     async def _client(self) -> AsyncIterator[PostgreSQLClient]:
         client = await self._make_client()
 
-        # The pre-check resolves the host only to classify it; `connect()` resolves it again.
+        # The pre-check resolves the host only to classify it. `connect()` resolves it again,
+        # checks those addresses, and dials only them.
         host_detail = await host_configuration_error_detail(client.host, client.port)
         if host_detail is not None:
             raise DestinationConfigurationError(self._ctx.destination_name, host_detail)
 
-        # `connect()` resolves and dials the integration's hostname with no connection-time
-        # address validation or pinning, same as batch exports' own Postgres destination on
-        # this same client. An editor-controlled hostname could DNS-rebind to a private address
-        # between resolution and connect; closing that needs pinning inside `PostgreSQLClient`
-        # itself (posthog#86986 review discussion), which this product can't reach into, so
-        # every caller of this shared client is fixed together rather than patched here alone.
         async with AsyncExitStack() as stack:
             # Entered apart from the body, so only a failure to connect is classified here, never
             # an error the caller raises while it holds the connection.
             try:
                 await stack.enter_async_context(client.connect(is_error_retryable=_is_connect_error_retryable))
             except PostgreSQLConnectionError as err:
+                # The client's host check refused the address. Its message hides which check failed.
+                if isinstance(err.__cause__, ValueError):
+                    raise DestinationConfigurationError(self._ctx.destination_name, str(err)) from err
                 detail = connect_configuration_error_detail(err.__cause__) if err.__cause__ else None
                 if detail is not None:
                     raise DestinationConfigurationError(self._ctx.destination_name, detail) from err

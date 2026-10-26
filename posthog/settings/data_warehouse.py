@@ -103,6 +103,18 @@ DATA_WAREHOUSE_MERGE_TARGET_PARTITION_BYTES = get_from_env(
     "DATA_WAREHOUSE_MERGE_TARGET_PARTITION_BYTES", 2_000_000_000, type_cast=int
 )
 
+# Coarsening of md5 tables that upsert on a primary key. Such an upsert rewrites at least one file in
+# every md5 partition, so the partition count, not the partition size, sets the merge cost. For these
+# tables the coarsening path uses the merge budget above, and picks the divisor of the current count
+# nearest to TARGET, never below MIN. MIN is the memory governor's cap on the partitions that one upsert
+# merges in parallel, so a coarser table keeps all of its merge parallelism. TARGET is twice that cap,
+# so the parallel partition tasks still share the work when one partition is slow.
+# The automatic path uses this policy only when the `data-warehouse-merge-auto-coarsen` feature flag is on
+# for the schema. Otherwise it coarsens these tables on the base budget as for any other table.
+# A `stage_warehouse_coarsening` nomination always uses this policy.
+DATA_WAREHOUSE_MERGE_MD5_PARTITION_TARGET = get_from_env("DATA_WAREHOUSE_MERGE_MD5_PARTITION_TARGET", 8, type_cast=int)
+DATA_WAREHOUSE_MERGE_MD5_PARTITION_MIN = get_from_env("DATA_WAREHOUSE_MERGE_MD5_PARTITION_MIN", 4, type_cast=int)
+
 # How often each sync activity self-reports its workload (phase, buffer bytes, RSS) to the warehouse
 # Redis, for post-mortem enrichment of silent worker deaths. Zero or negative disables reporting
 # entirely (the fleet kill switch — hooks become no-ops and no thread starts).
@@ -173,6 +185,26 @@ DATA_WAREHOUSE_DELTALITE_COMPACTION = get_from_env("DATA_WAREHOUSE_DELTALITE_COM
 DATA_WAREHOUSE_DELTALITE_MAX_ROW_GROUP_BYTES = get_from_env(
     "DATA_WAREHOUSE_DELTALITE_MAX_ROW_GROUP_BYTES", 16 * 1024 * 1024, type_cast=int
 )
+# Size each deltalite reader by the largest row group of its file instead of by the whole file. The
+# writer reads the footers of the candidate files only when the whole-file sizes keep the governor's plan
+# narrow. A footer that cannot be read keeps the whole-file size. False turns the footer reads off.
+DATA_WAREHOUSE_DELTALITE_GOVERNOR_ROW_GROUP_SIZING = get_from_env(
+    "DATA_WAREHOUSE_DELTALITE_GOVERNOR_ROW_GROUP_SIZING", True, type_cast=str_to_bool
+)
+# Lets a deltalite upsert whose slice-sized plan is narrower than the widest plan borrow idle pod memory,
+# up to DATA_WAREHOUSE_DELTALITE_GOVERNOR_BORROW_MAX_SLICES slices, and run more partition workers and
+# readers. A borrow takes at most half of the free pod memory and never happens while an upsert waits for
+# room. "advisory" logs the borrowed plan and keeps the slice-sized plan. "enforce" runs the borrowed plan,
+# and needs DELTALITE_GOVERNOR_MODE=enforce. "off" computes nothing.
+DATA_WAREHOUSE_DELTALITE_GOVERNOR_BORROW = get_from_env("DATA_WAREHOUSE_DELTALITE_GOVERNOR_BORROW", "advisory")
+DATA_WAREHOUSE_DELTALITE_GOVERNOR_BORROW_MAX_SLICES = get_from_env(
+    "DATA_WAREHOUSE_DELTALITE_GOVERNOR_BORROW_MAX_SLICES", 4.0, type_cast=float
+)
+# deltalite keeps the primary keys of the data files that a merge reads or writes in a per-process cache,
+# so a later merge into the same table decides most files without a read from object storage. The cache
+# size comes from the DELTALITE_PROBE_CACHE_BYTES environment variable (default 128 MiB per process). False makes every merge read each
+# candidate file again, and needs a deltalite build that has the probe cache.
+DATA_WAREHOUSE_DELTALITE_PROBE_CACHE = get_from_env("DATA_WAREHOUSE_DELTALITE_PROBE_CACHE", True, type_cast=str_to_bool)
 # A rebuild run (first sync, reset, full refresh) compacts its own files once a compaction would remove
 # this many, so a long rebuild does not leave one post-load pass that outlasts the stuck-batch timeout.
 DATA_WAREHOUSE_REBUILD_COMPACT_MIN_REMOVABLE_FILES = get_from_env(

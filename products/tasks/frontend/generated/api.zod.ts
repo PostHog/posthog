@@ -3075,6 +3075,10 @@ export const TasksMeConfigAgentInstructionsCreateBody = /* @__PURE__ */ zod
 /**
  * Update your per-project defaults for new tasks. Fields you leave out keep their stored value.
  */
+export const tasksMeConfigTaskDefaultsCreateBodyDefaultCloudTargetRegExp = new RegExp(
+    '^(environment|image):[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+)
+
 export const TasksMeConfigTaskDefaultsCreateBody = /* @__PURE__ */ zod
     .object({
         start_in_plan_mode: zod
@@ -3088,6 +3092,13 @@ export const TasksMeConfigTaskDefaultsCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'When true, a cloud run that changes code always opens a draft pull request. Null when you never set it.'
+            ),
+        default_cloud_target: zod
+            .string()
+            .regex(tasksMeConfigTaskDefaultsCreateBodyDefaultCloudTargetRegExp)
+            .nullish()
+            .describe(
+                'The cloud target new tasks start on, as `environment:<sandbox environment id>` or `image:<custom image id>`. Null means the default sandbox. Clients fall back to the default sandbox when the target no longer exists.'
             ),
     })
     .describe("A partial update of the requesting user's task defaults. Fields left out keep their stored value.")

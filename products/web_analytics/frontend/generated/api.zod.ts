@@ -10,14 +10,53 @@
 import * as zod from 'zod'
 
 /**
- * @summary Turn an AEO prompt on or off
+ * Turns a prompt on or off, changes its topic, archives or restores it, or changes its text. A text change adds the next version and makes it current, and current_version moves back to an earlier one. The prompt keeps its id, and past checks are always kept.
+ * @summary Update an AEO prompt
  */
+export const aeoPromptsPartialUpdateBodyTopicMax = 200
+
+export const aeoPromptsPartialUpdateBodyPromptMax = 10000
+
+export const aeoPromptsPartialUpdateBodyVersionDescriptionMax = 400
+
 export const AeoPromptsPartialUpdateBody = /* @__PURE__ */ zod.object({
-    active: zod.boolean().optional().describe('Turn the prompt on or off for future runs.'),
+    active: zod.boolean().nullish().describe('Turn the prompt on or off for future runs.'),
+    topic: zod
+        .string()
+        .max(aeoPromptsPartialUpdateBodyTopicMax)
+        .optional()
+        .describe(
+            'New topic for the prompt. An empty string removes the topic. Past checks keep the topic they ran with.'
+        ),
+    prompt: zod
+        .string()
+        .max(aeoPromptsPartialUpdateBodyPromptMax)
+        .optional()
+        .describe(
+            'New text for the prompt. A change adds the next version and makes it current; the prompt keeps its id and its check history, and each check records the version that ran. A change of case or whitespace only adds no version. Fails with 409 when another prompt in the set already has the text.'
+        ),
+    version_description: zod
+        .string()
+        .max(aeoPromptsPartialUpdateBodyVersionDescriptionMax)
+        .optional()
+        .describe("Optional note on what the text change does, stored on the new version. Send it with 'prompt'."),
+    current_version: zod
+        .number()
+        .min(1)
+        .nullish()
+        .describe(
+            'Make an existing version current again, for example to roll back a text change. Adds no version. Fails with 400 when the version does not exist, and with 409 when another prompt has its text.'
+        ),
+    archived: zod
+        .boolean()
+        .nullish()
+        .describe(
+            "True archives the prompt: it is turned off, never runs again, and keeps its check history. Send it without other fields. False restores an archived prompt. A restored prompt stays off unless 'active' is true in the same request. An archived prompt accepts no other change until it is restored."
+        ),
 })
 
 /**
- * Adds prompts to the project's AEO prompt set, or updates the topic and visibility of prompts that already exist. Existing prompts keep their active state.
+ * Adds prompts to the project's AEO prompt set, or updates the topic and visibility of prompts that already exist. Existing prompts keep their active state. Prompts whose text matches an archived prompt are skipped.
  * @summary Import AEO prompts
  */
 export const aeoPromptsBulkImportBodyPromptsItemPromptMax = 10000

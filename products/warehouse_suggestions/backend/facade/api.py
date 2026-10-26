@@ -1,9 +1,12 @@
 """Facade for warehouse_suggestions."""
 
 from collections.abc import Sequence
-from datetime import timedelta
+from dataclasses import asdict
 from typing import TYPE_CHECKING
 from uuid import UUID
+
+from products.warehouse_sources.backend.facade.api import source_locations_for_tables
+from products.warehouse_sources.backend.facade.contracts import TableSourceLocation
 
 from ..logic import accept, suggestions
 from ..logic.access import SubjectAccess, readable_table_ids, visible_suggestions
@@ -13,6 +16,7 @@ from ..logic.payloads import payload_from_json, payload_view, source_table_ids
 from ..logic.rules import RULES
 from ..models import WarehouseSuggestion, WarehouseSuggestionTeamConfig
 from .contracts import (
+    AcceptOptions,
     CatalogEditAccessRequiredError,
     SubjectEditAccessRequiredError,
     SubjectKinds,
@@ -142,7 +146,7 @@ def accept_suggestion(
     suggestion_id: UUID,
     *,
     user: "User",
-    refresh_interval: timedelta | None,
+    options: AcceptOptions,
     was_impersonated: bool,
     subject_kinds: SubjectKinds,
 ) -> Suggestion:
@@ -151,12 +155,16 @@ def accept_suggestion(
     outcome = accept.accept(
         team.pk,
         row.id,
-        accept.AcceptRequest(
-            team=team, user=user, refresh_interval=refresh_interval, was_impersonated=was_impersonated
-        ),
+        accept.AcceptRequest(team=team, user=user, options=options, was_impersonated=was_impersonated),
     )
     if outcome.newly_accepted:
-        report_outcomes(SuggestionOutcome.ACCEPTED, [outcome.suggestion], team=team, user=user)
+        report_outcomes(
+            SuggestionOutcome.ACCEPTED,
+            [outcome.suggestion],
+            team=team,
+            user=user,
+            properties={"changed_fields": list(outcome.changed_fields), **asdict(outcome.savings)},
+        )
     return _single_contract(team.pk, user_access_control, outcome.suggestion, access)
 
 
@@ -211,10 +219,19 @@ def _to_contracts(
         row.id: payload_from_json(WarehouseSuggestionKind(row.kind), row.payload_version, row.payload) for row in rows
     }
     readable = readable_table_ids(team_id, user_access_control, source_table_ids(stored.values()))
-    return [_to_contract(row, access, payload_view(stored[row.id], readable)) for row in rows]
+    table_ids = {row.subject_id for row in rows if row.subject_kind == WarehouseSuggestionSubjectKind.TABLE}
+    locations = source_locations_for_tables(team_id, table_ids)
+    return [
+        _to_contract(row, access, payload_view(stored[row.id], readable), locations.get(row.subject_id)) for row in rows
+    ]
 
 
-def _to_contract(row: WarehouseSuggestion, access: SubjectAccess, payload: SuggestionPayloadView) -> Suggestion:
+def _to_contract(
+    row: WarehouseSuggestion,
+    access: SubjectAccess,
+    payload: SuggestionPayloadView,
+    location: TableSourceLocation | None,
+) -> Suggestion:
     return Suggestion(
         id=row.id,
         kind=WarehouseSuggestionKind(row.kind),
@@ -234,7 +251,11 @@ def _to_contract(row: WarehouseSuggestion, access: SubjectAccess, payload: Sugge
         dismissal_note=row.dismissal_note,
         created_asset=row.created_asset,
         asset_outcome=WarehouseSuggestionAssetOutcome(row.asset_outcome) if row.asset_outcome else None,
+        realized_seconds_saved_per_month=row.realized_seconds_saved_per_month,
+        realized_bytes_saved_per_month=row.realized_bytes_saved_per_month,
         can_act=access.can_act_on(row),
+        subject_source_id=location.source_id if location else None,
+        subject_schema_id=location.schema_id if location else None,
     )
 
 

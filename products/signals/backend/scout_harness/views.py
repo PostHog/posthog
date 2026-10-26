@@ -70,6 +70,7 @@ from posthog.temporal.oauth import SCOUT_DEFAULT_WRITE_SCOPES, SCOUT_GRANTABLE_W
 from posthog.user_permissions import UserPermissions
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.signals.backend.artefact_schemas import ReviewerState
 from products.signals.backend.background_pilot import OPT_OUT_DELETED, capture_background_scout_opted_out
 from products.signals.backend.models import (
     SignalProjectProfile,
@@ -84,6 +85,7 @@ from products.signals.backend.presentation.scout_permissions import ScoutCanonic
 from products.signals.backend.report_access import may_read_reports
 from products.signals.backend.report_charts import ChartSize
 from products.signals.backend.report_generation.resolve_reviewers import MAX_PROJECT_MEMBERS, list_project_members
+from products.signals.backend.reviewer_rules import ReviewerProposal, ReviewerWriteError
 from products.signals.backend.scout_harness.config_registry import enabled_scout_count, ensure_scout_category
 from products.signals.backend.scout_harness.create_access import can_create_scout
 from products.signals.backend.scout_harness.deprecation import deprecation_metadata_of
@@ -537,10 +539,8 @@ def _to_report_links(entries: list[dict] | None) -> list[ReportLinkInput] | None
 
 
 def _to_reviewer_inputs(entries: list[dict] | None) -> list[ReviewerInput] | None:
-    """Map validated `suggested_reviewers` entries to `ReviewerInput`s for the report tools. `user_uuid`
-    is a `UUID` (from `UUIDField`) — stringified here so the tool layer has no DRF dependency. Empty/None
-    yields None so the tool treats it as "no reviewers supplied"."""
-    if not entries:
+    """Convert serializer UUIDs to tool inputs, keeping an empty selection distinct from an omitted field."""
+    if entries is None:
         return None
     return [
         ReviewerInput(
@@ -1362,6 +1362,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 suggested_prompts=data.get("suggested_prompts"),
                 links=_to_report_links(data.get("links")),
                 idempotency_key=data.get("idempotency_key"),
+                tags=data.get("tags"),
             )
         except InvalidScoutReportError as exc:
             raise exceptions.ValidationError({"detail": str(exc)})
@@ -1400,7 +1401,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "named did not land. "
             "Set `actionability` and/or `priority` (each with its explanation) when new evidence changed "
             "your judgment: each replaces the report's decision and re-runs autostart, without changing "
-            "the report's inbox status. "
+            "the report's inbox status. `tags` replaces the report's slug tags, and an omitted `tags` keeps them. "
             "Title/summary edits are best-effort: the pipeline may later re-research them. "
             "Set `supersedes_implementation` alongside a rewrite when the fix changed. Verified automated "
             "predecessor PRs close only after the replacement completes with verified open PRs."
@@ -1420,11 +1421,20 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         run = self._resolve_in_progress_run(kwargs, required_tool="edit_report")
         data = request.validated_data
         try:
+            proposal = None
+            if data.get("expected_reviewers") is not None:
+                proposal = ReviewerProposal(
+                    expected_state=ReviewerState.model_validate(data["expected_reviewers"]),
+                    source="scout_edit",
+                    outcome=data.get("reviewer_outcome", "selected"),
+                    retry_reason=data.get("reviewer_retry_reason"),
+                )
             result = edit_report_sync(
                 # Canonical team, as in `emit_report` above — avoids a child-env `_assert_team_owns_run` trip.
                 team=run.team,
                 author=ScoutRunReportAuthor(run=run),
                 report_id=data["report_id"],
+                reviewer_proposal=proposal,
                 title=data.get("title"),
                 summary=data.get("summary"),
                 append_note=data.get("append_note"),
@@ -1442,8 +1452,9 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 already_addressed=data.get("already_addressed"),
                 priority=data.get("priority"),
                 priority_explanation=data.get("priority_explanation"),
+                tags=data.get("tags"),
             )
-        except InvalidScoutReportError as exc:
+        except (InvalidScoutReportError, ReviewerWriteError, ValueError) as exc:
             raise exceptions.ValidationError({"detail": str(exc)})
         return Response(
             EditReportResponseSerializer(
@@ -1459,6 +1470,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     "charts_set": result.charts_set,
                     "metrics_set": result.metrics_set,
                     "suggested_prompts_set": result.suggested_prompts_set,
+                    "tags_set": result.tags_set,
                     "is_content_revision": result.is_content_revision,
                     "content_revision_count": result.content_revision_count,
                     "supersedes_implementation": result.supersedes_implementation,

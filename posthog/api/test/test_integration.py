@@ -2,6 +2,7 @@ import hmac
 import json
 import time
 import hashlib
+from collections.abc import Callable
 from contextlib import nullcontext
 from datetime import timedelta
 from typing import Any, cast
@@ -46,6 +47,11 @@ from posthog.api.github_callback.team_services import (
 from posthog.api.github_callback.types import FlowKind, GitHubAuthorizeState
 from posthog.api.integration import IntegrationSerializer, IntegrationViewSet
 from posthog.constants import AvailableFeature
+from posthog.credentials_service.errors import (
+    CredentialsServiceFailure,
+    CredentialsServiceUnreachableError,
+    SecretInRecoveryError,
+)
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted
 from posthog.egress.limiter.policies import Priority
 from posthog.models.activity_logging.activity_log import ActivityLog, apply_activity_visibility_restrictions
@@ -68,6 +74,7 @@ from posthog.models.integration import (
     StripeIntegration,
     github_account_type,
 )
+from posthog.models.integration.databricks import NOT_A_DATABRICKS_HOST_MESSAGE
 from posthog.models.integration.github_audit import GitHubAudit, GitHubAuditPayload
 from posthog.models.integration.twitter_ads import TwitterAdsIntegration
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
@@ -851,7 +858,7 @@ class TestDatabricksIntegration:
             {
                 "kind": "databricks",
                 "config": {
-                    "server_hostname": "databricks.com",
+                    "server_hostname": "dbc-a1b2c3d4-e5f6.cloud.databricks.com",
                     "client_id": "client_id",
                     "client_secret": "client_secret",
                 },
@@ -867,22 +874,22 @@ class TestDatabricksIntegration:
         integration = Integration.objects.get(id=id)
         assert integration.kind == "databricks"
         assert integration.team == self.team
-        assert integration.config == {"server_hostname": "databricks.com"}
+        assert integration.config == {"server_hostname": "dbc-a1b2c3d4-e5f6.cloud.databricks.com"}
         assert integration.sensitive_config == {"client_id": "client_id", "client_secret": "client_secret"}
         assert integration.created_by == self.user
-        assert integration.integration_id == "databricks.com"
+        assert integration.integration_id == "dbc-a1b2c3d4-e5f6.cloud.databricks.com"
 
     @pytest.mark.parametrize(
         "invalid_config,expected_error_message",
         [
             # missing client_secret
             (
-                {"server_hostname": "databricks.com", "client_id": "client_id"},
+                {"server_hostname": "dbc-a1b2c3d4-e5f6.cloud.databricks.com", "client_id": "client_id"},
                 "Server hostname, client ID, and client secret must be provided",
             ),
             # missing client_id
             (
-                {"server_hostname": "databricks.com", "client_secret": "client_secret"},
+                {"server_hostname": "dbc-a1b2c3d4-e5f6.cloud.databricks.com", "client_secret": "client_secret"},
                 "Server hostname, client ID, and client secret must be provided",
             ),
             # missing server_hostname
@@ -894,7 +901,11 @@ class TestDatabricksIntegration:
             ({}, "Server hostname, client ID, and client secret must be provided"),
             # wrong type for client_secret
             (
-                {"server_hostname": "databricks.com", "client_id": "client_id", "client_secret": 1},
+                {
+                    "server_hostname": "dbc-a1b2c3d4-e5f6.cloud.databricks.com",
+                    "client_id": "client_id",
+                    "client_secret": 1,
+                },
                 "Server hostname, client ID, and client secret must be strings",
             ),
         ],
@@ -926,17 +937,17 @@ class TestDatabricksIntegration:
             "127.0.0.1",
             "10.0.0.1",
             "192.168.1.1",
+            "evil.example.com",
         ],
     )
     # FORCE_URL_VALIDATION exercises the real SSRF guard; otherwise is_url_allowed short-circuits
     # in dev/DEBUG, which is on under tests.
     @override_settings(FORCE_URL_VALIDATION=True)
-    def test_integration_from_config_rejects_internal_host(
+    def test_integration_from_config_rejects_non_databricks_host(
         self,
         host,
         client: HttpClient,
     ):
-        """Member-supplied Databricks hosts that resolve to internal IPs must be rejected (SSRF guard)."""
         client.force_login(self.user)
 
         response = client.post(
@@ -953,7 +964,7 @@ class TestDatabricksIntegration:
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert host in response.json()["detail"]
+        assert response.json()["detail"] == NOT_A_DATABRICKS_HOST_MESSAGE
         assert not Integration.objects.filter(team=self.team, kind="databricks").exists()
 
 
@@ -1545,12 +1556,12 @@ class TestAzureBlobIntegration:
         ],
     )
     @override_settings(FORCE_URL_VALIDATION=True)
-    @patch("posthog.models.integration.azure_blob.is_url_allowed")
+    @patch("dns.resolver.Resolver.resolve_name")
     def test_create_azure_blob_integration(
-        self, mock_is_url_allowed: MagicMock, connection_string: str, client: HttpClient
+        self, mock_resolve_name: MagicMock, connection_string: str, client: HttpClient
     ) -> None:
         # Required mock otherwise we need a valid hostname for tests
-        mock_is_url_allowed.return_value = (True, None)
+        mock_resolve_name.return_value = MagicMock(addresses=MagicMock(return_value=["93.184.216.34"]))
         client.force_login(self.user)
 
         response = client.post(
@@ -1689,24 +1700,14 @@ class TestIntegrationAPIKeyAccess:
         assert response.json()["kind"] == "twilio"
 
     @patch(
-        "posthog.models.integration.oauth.get_instance_settings",
+        "posthog.credentials_service.instance_settings.get_instance_settings",
         return_value={
             "SLACK_APP_CLIENT_ID": "test-client-id",
             "SLACK_APP_CLIENT_SECRET": "test-client-secret",
             "SLACK_APP_SIGNING_SECRET": "test-signing-secret",
         },
     )
-    @patch(
-        "posthog.models.integration.slack.get_instance_settings",
-        return_value={
-            "SLACK_APP_CLIENT_ID": "test-client-id",
-            "SLACK_APP_CLIENT_SECRET": "test-client-secret",
-            "SLACK_APP_SIGNING_SECRET": "test-signing-secret",
-        },
-    )
-    def test_retrieve_slack_integration_with_scope_succeeds(
-        self, _mock_settings, _mock_oauth_settings, client: HttpClient
-    ):
+    def test_retrieve_slack_integration_with_scope_succeeds(self, _mock_settings, client: HttpClient):
         slack_integration = Integration.objects.create(
             team=self.team,
             kind="slack",
@@ -5808,6 +5809,13 @@ class TestOauthIntegrationRevokeOnDisconnect:
         mock_post.assert_not_called()
 
 
+def _stripe_app_ids(orchestrator: str, settings_mock: MagicMock) -> Callable[[str, object], str]:
+    def resolve(key: str, _caller: object) -> str:
+        return orchestrator if key == "STRIPE_POSTHOG_OAUTH_CLIENT_ID" else getattr(settings_mock, key)
+
+    return resolve
+
+
 class TestStripeIntegrationOAuthTokens:
     @pytest.fixture(autouse=True)
     def setup(self, db):
@@ -5849,9 +5857,12 @@ class TestStripeIntegrationOAuthTokens:
         )
         return integration, access_token, refresh_token
 
+    @patch("posthog.models.integration.stripe.get_or_settings")
     @patch("posthog.models.integration.stripe.settings")
-    def test_destroy_oauth_tokens_deletes_tokens(self, mock_settings):
-        mock_settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID = "orchestrator_client_id"
+    def test_destroy_oauth_tokens_deletes_tokens(
+        self, mock_settings: MagicMock, mock_get_or_settings: MagicMock
+    ) -> None:
+        mock_get_or_settings.side_effect = _stripe_app_ids("orchestrator_client_id", mock_settings)
         mock_settings.STRIPE_MARKETPLACE_OAUTH_CLIENT_ID = self.oauth_app.client_id
         integration, access_token, refresh_token = self._create_integration_with_tokens()
         unlinked_refresh_token = OAuthRefreshToken.objects.create(
@@ -5871,9 +5882,12 @@ class TestStripeIntegrationOAuthTokens:
         assert not OAuthRefreshToken.objects.filter(pk=unlinked_refresh_token.pk).exists()
 
     @pytest.mark.parametrize("other_credential", ["other_team_only", "shared_with_this_team"])
+    @patch("posthog.models.integration.stripe.get_or_settings")
     @patch("posthog.models.integration.stripe.settings")
-    def test_destroy_oauth_tokens_only_affects_same_team(self, mock_settings, other_credential):
-        mock_settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID = "orchestrator_client_id"
+    def test_destroy_oauth_tokens_only_affects_same_team(
+        self, mock_settings: MagicMock, mock_get_or_settings: MagicMock, other_credential: str
+    ) -> None:
+        mock_get_or_settings.side_effect = _stripe_app_ids("orchestrator_client_id", mock_settings)
         mock_settings.STRIPE_MARKETPLACE_OAUTH_CLIENT_ID = self.oauth_app.client_id
         integration, _, _ = self._create_integration_with_tokens()
 
@@ -5906,9 +5920,12 @@ class TestStripeIntegrationOAuthTokens:
         assert other_access_token.scoped_teams == [other_team.pk]
         assert other_refresh_token.scoped_teams == [other_team.pk]
 
+    @patch("posthog.models.integration.stripe.get_or_settings")
     @patch("posthog.models.integration.stripe.settings")
-    def test_destroy_oauth_tokens_noop_when_no_oauth_app(self, mock_settings):
-        mock_settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID = None
+    def test_destroy_oauth_tokens_noop_when_no_oauth_app(
+        self, mock_settings: MagicMock, mock_get_or_settings: MagicMock
+    ) -> None:
+        mock_get_or_settings.side_effect = _stripe_app_ids("", mock_settings)
         mock_settings.STRIPE_MARKETPLACE_OAUTH_CLIENT_ID = None
         integration, access_token, refresh_token = self._create_integration_with_tokens()
         stripe_int = StripeIntegration(integration)
@@ -5919,12 +5936,17 @@ class TestStripeIntegrationOAuthTokens:
         assert OAuthRefreshToken.objects.filter(pk=refresh_token.pk).exists()
 
     @pytest.mark.parametrize("marketplace_setting", ["configured", "unset", "equal_to_orchestrator"])
+    @override_settings(STRIPE_APP_CLIENT_ID="stripe_app_client_id", STRIPE_APP_SECRET_KEY="sk_test")
     @patch("stripe.StripeClient")
-    @patch("posthog.models.integration.oauth.settings")
+    @patch("posthog.models.integration.stripe.get_or_settings")
     @patch("posthog.models.integration.stripe.settings")
     def test_marketplace_token_never_mints_on_the_orchestrator_application(
-        self, mock_settings, mock_oauth_settings, MockStripeClient, marketplace_setting
-    ):
+        self,
+        mock_settings: MagicMock,
+        mock_get_or_settings: MagicMock,
+        MockStripeClient: MagicMock,
+        marketplace_setting: str,
+    ) -> None:
         orchestrator_app = OAuthApplication.objects.create(
             name="Stripe orchestrator",
             client_id="orchestrator_client_id",
@@ -5933,14 +5955,12 @@ class TestStripeIntegrationOAuthTokens:
             redirect_uris="https://example.com/callback",
             algorithm="RS256",
         )
-        mock_settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID = orchestrator_app.client_id
+        mock_get_or_settings.side_effect = _stripe_app_ids(orchestrator_app.client_id, mock_settings)
         mock_settings.STRIPE_MARKETPLACE_OAUTH_CLIENT_ID = {
             "configured": self.oauth_app.client_id,
             "unset": "",
             "equal_to_orchestrator": orchestrator_app.client_id,
         }[marketplace_setting]
-        mock_oauth_settings.STRIPE_APP_CLIENT_ID = "stripe_app_client_id"
-        mock_oauth_settings.STRIPE_APP_SECRET_KEY = "sk_test"
         MockStripeClient.return_value = MagicMock()
 
         integration = Integration.objects.create(
@@ -5964,8 +5984,11 @@ class TestStripeIntegrationOAuthTokens:
             assert not minted.exists()
 
     @patch("posthog.models.integration.stripe.lock_oauth_connection")
+    @patch("posthog.models.integration.stripe.get_or_settings")
     @patch("posthog.models.integration.stripe.settings")
-    def test_destroy_oauth_tokens_spans_the_pre_split_application(self, mock_settings, mock_lock):
+    def test_destroy_oauth_tokens_spans_the_pre_split_application(
+        self, mock_settings: MagicMock, mock_get_or_settings: MagicMock, mock_lock: MagicMock
+    ) -> None:
         marketplace_app = OAuthApplication.objects.create(
             name="Stripe marketplace",
             client_id="marketplace_client_id",
@@ -5974,7 +5997,7 @@ class TestStripeIntegrationOAuthTokens:
             redirect_uris="https://example.com/callback",
             algorithm="RS256",
         )
-        mock_settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID = self.oauth_app.client_id
+        mock_get_or_settings.side_effect = _stripe_app_ids(self.oauth_app.client_id, mock_settings)
         mock_settings.STRIPE_MARKETPLACE_OAUTH_CLIENT_ID = marketplace_app.client_id
 
         integration, legacy_access, legacy_refresh = self._create_integration_with_tokens()
@@ -6001,14 +6024,15 @@ class TestStripeIntegrationOAuthTokens:
         locked_pairs = {(call.kwargs["user_id"], call.kwargs["application_id"]) for call in mock_lock.call_args_list}
         assert locked_pairs == {(self.user.pk, marketplace_app.id), (self.user.pk, self.oauth_app.id)}
 
+    @override_settings(STRIPE_APP_CLIENT_ID="stripe_app_client_id", STRIPE_APP_SECRET_KEY="sk_test")
     @patch("stripe.StripeClient")
-    @patch("posthog.models.integration.oauth.settings")
+    @patch("posthog.models.integration.stripe.get_or_settings")
     @patch("posthog.models.integration.stripe.settings")
-    def test_write_posthog_secrets_uses_account_scope(self, mock_settings, mock_oauth_settings, MockStripeClient):
-        mock_settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID = "orchestrator_client_id"
+    def test_write_posthog_secrets_uses_account_scope(
+        self, mock_settings: MagicMock, mock_get_or_settings: MagicMock, MockStripeClient: MagicMock
+    ) -> None:
+        mock_get_or_settings.side_effect = _stripe_app_ids("orchestrator_client_id", mock_settings)
         mock_settings.STRIPE_MARKETPLACE_OAUTH_CLIENT_ID = self.oauth_app.client_id
-        mock_oauth_settings.STRIPE_APP_CLIENT_ID = "stripe_app_client_id"
-        mock_oauth_settings.STRIPE_APP_SECRET_KEY = "sk_test"
         mock_client = MagicMock()
         MockStripeClient.return_value = mock_client
 
@@ -6033,14 +6057,15 @@ class TestStripeIntegrationOAuthTokens:
         assert secret_payloads["posthog_project_id"] == str(self.team.pk)
         assert secret_payloads["posthog_oauth_client_id"] == self.oauth_app.client_id
 
+    @override_settings(STRIPE_APP_CLIENT_ID="stripe_app_client_id", STRIPE_APP_SECRET_KEY="sk_test")
     @patch("stripe.StripeClient")
-    @patch("posthog.models.integration.oauth.settings")
+    @patch("posthog.models.integration.stripe.get_or_settings")
     @patch("posthog.models.integration.stripe.settings")
-    def test_write_posthog_secrets_mints_read_only_token(self, mock_settings, mock_oauth_settings, MockStripeClient):
-        mock_settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID = "orchestrator_client_id"
+    def test_write_posthog_secrets_mints_read_only_token(
+        self, mock_settings: MagicMock, mock_get_or_settings: MagicMock, MockStripeClient: MagicMock
+    ) -> None:
+        mock_get_or_settings.side_effect = _stripe_app_ids("orchestrator_client_id", mock_settings)
         mock_settings.STRIPE_MARKETPLACE_OAUTH_CLIENT_ID = self.oauth_app.client_id
-        mock_oauth_settings.STRIPE_APP_CLIENT_ID = "stripe_app_client_id"
-        mock_oauth_settings.STRIPE_APP_SECRET_KEY = "sk_test"
         MockStripeClient.return_value = MagicMock()
 
         integration = Integration.objects.create(
@@ -6066,13 +6091,14 @@ class TestStripeIntegrationOAuthTokens:
         assert token.scoped_teams == [self.team.pk]
         assert OAuthRefreshToken.objects.get(access_token=token).scoped_teams == [self.team.pk]
 
+    @override_settings(STRIPE_APP_CLIENT_ID="stripe_app_client_id", STRIPE_APP_SECRET_KEY="sk_test")
     @patch("stripe.StripeClient")
-    @patch("posthog.models.integration.oauth.settings")
+    @patch("posthog.models.integration.stripe.get_or_settings")
     @patch("posthog.models.integration.stripe.settings")
-    def test_clear_posthog_secrets_uses_account_scope(self, mock_settings, mock_oauth_settings, MockStripeClient):
-        mock_oauth_settings.STRIPE_APP_CLIENT_ID = "stripe_app_client_id"
-        mock_oauth_settings.STRIPE_APP_SECRET_KEY = "sk_test"
-        mock_settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID = None
+    def test_clear_posthog_secrets_uses_account_scope(
+        self, mock_settings: MagicMock, mock_get_or_settings: MagicMock, MockStripeClient: MagicMock
+    ) -> None:
+        mock_get_or_settings.side_effect = _stripe_app_ids("", mock_settings)
         mock_settings.STRIPE_MARKETPLACE_OAUTH_CLIENT_ID = None
         mock_client = MagicMock()
         MockStripeClient.return_value = mock_client
@@ -6100,16 +6126,20 @@ class TestStripeIntegrationOAuthTokens:
             ("clear", "clear_posthog_secrets"),
         ]
     )
+    @override_settings(STRIPE_APP_CLIENT_ID="stripe_app_client_id", STRIPE_APP_SECRET_KEY="sk_live")
     @patch("stripe.StripeClient")
-    @patch("posthog.models.integration.oauth.settings")
+    @patch("posthog.models.integration.stripe.get_or_settings")
     @patch("posthog.models.integration.stripe.settings")
     def test_stripe_client_uses_live_secret(
-        self, _name, method_name, mock_settings, mock_oauth_settings, MockStripeClient
-    ):
-        mock_settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID = "orchestrator_client_id"
+        self,
+        _name: str,
+        method_name: str,
+        mock_settings: MagicMock,
+        mock_get_or_settings: MagicMock,
+        MockStripeClient: MagicMock,
+    ) -> None:
+        mock_get_or_settings.side_effect = _stripe_app_ids("orchestrator_client_id", mock_settings)
         mock_settings.STRIPE_MARKETPLACE_OAUTH_CLIENT_ID = self.oauth_app.client_id
-        mock_oauth_settings.STRIPE_APP_CLIENT_ID = "stripe_app_client_id"
-        mock_oauth_settings.STRIPE_APP_SECRET_KEY = "sk_live"
         MockStripeClient.return_value = MagicMock()
 
         integration = Integration.objects.create(
@@ -6128,17 +6158,20 @@ class TestStripeIntegrationOAuthTokens:
 
         MockStripeClient.assert_called_once_with("sk_live")
 
+    @override_settings(STRIPE_APP_CLIENT_ID="", STRIPE_APP_SECRET_KEY="")
     @patch("posthog.models.integration.stripe.capture_exception")
     @patch("stripe.StripeClient")
-    @patch("posthog.models.integration.oauth.settings")
+    @patch("posthog.models.integration.stripe.get_or_settings")
     @patch("posthog.models.integration.stripe.settings")
     def test_write_posthog_secrets_skips_when_keys_missing(
-        self, mock_settings, mock_oauth_settings, MockStripeClient, mock_capture
-    ):
-        mock_settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID = "orchestrator_client_id"
+        self,
+        mock_settings: MagicMock,
+        mock_get_or_settings: MagicMock,
+        MockStripeClient: MagicMock,
+        mock_capture: MagicMock,
+    ) -> None:
+        mock_get_or_settings.side_effect = _stripe_app_ids("orchestrator_client_id", mock_settings)
         mock_settings.STRIPE_MARKETPLACE_OAUTH_CLIENT_ID = self.oauth_app.client_id
-        mock_oauth_settings.STRIPE_APP_CLIENT_ID = None
-        mock_oauth_settings.STRIPE_APP_SECRET_KEY = None
         MockStripeClient.return_value = MagicMock()
 
         integration = Integration.objects.create(
@@ -6166,16 +6199,20 @@ class TestStripeIntegrationOAuthTokens:
         ],
         ids=["every_write_fails", "refresh_token_write_fails"],
     )
+    @override_settings(STRIPE_APP_CLIENT_ID="stripe_app_client_id", STRIPE_APP_SECRET_KEY="sk_test")
     @patch("stripe.StripeClient")
-    @patch("posthog.models.integration.oauth.settings")
+    @patch("posthog.models.integration.stripe.get_or_settings")
     @patch("posthog.models.integration.stripe.settings")
     def test_write_posthog_secrets_keeps_the_credential_only_when_a_secret_reaches_stripe(
-        self, mock_settings, mock_oauth_settings, MockStripeClient, failing_secrets, credential_kept
-    ):
-        mock_settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID = "orchestrator_client_id"
+        self,
+        mock_settings: MagicMock,
+        mock_get_or_settings: MagicMock,
+        MockStripeClient: MagicMock,
+        failing_secrets: tuple[str, ...],
+        credential_kept: bool,
+    ) -> None:
+        mock_get_or_settings.side_effect = _stripe_app_ids("orchestrator_client_id", mock_settings)
         mock_settings.STRIPE_MARKETPLACE_OAUTH_CLIENT_ID = self.oauth_app.client_id
-        mock_oauth_settings.STRIPE_APP_CLIENT_ID = "stripe_app_client_id"
-        mock_oauth_settings.STRIPE_APP_SECRET_KEY = "sk_test"
 
         def create_secret(params, options):
             if params["name"] in failing_secrets:
@@ -6197,17 +6234,20 @@ class TestStripeIntegrationOAuthTokens:
         assert OAuthAccessToken.objects.filter(scoped_teams__contains=[self.team.pk]).exists() is credential_kept
         assert OAuthRefreshToken.objects.filter(scoped_teams__contains=[self.team.pk]).exists() is credential_kept
 
+    @override_settings(STRIPE_APP_CLIENT_ID="", STRIPE_APP_SECRET_KEY="")
     @patch("posthog.models.integration.stripe.capture_exception")
     @patch("stripe.StripeClient")
-    @patch("posthog.models.integration.oauth.settings")
+    @patch("posthog.models.integration.stripe.get_or_settings")
     @patch("posthog.models.integration.stripe.settings")
     def test_clear_posthog_secrets_skips_and_revokes_tokens_when_keys_missing(
-        self, mock_settings, mock_oauth_settings, MockStripeClient, mock_capture
-    ):
-        mock_settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID = "orchestrator_client_id"
+        self,
+        mock_settings: MagicMock,
+        mock_get_or_settings: MagicMock,
+        MockStripeClient: MagicMock,
+        mock_capture: MagicMock,
+    ) -> None:
+        mock_get_or_settings.side_effect = _stripe_app_ids("orchestrator_client_id", mock_settings)
         mock_settings.STRIPE_MARKETPLACE_OAUTH_CLIENT_ID = self.oauth_app.client_id
-        mock_oauth_settings.STRIPE_APP_CLIENT_ID = None
-        mock_oauth_settings.STRIPE_APP_SECRET_KEY = None
         MockStripeClient.return_value = MagicMock()
 
         integration, access_token, refresh_token = self._create_integration_with_tokens()
@@ -6217,6 +6257,37 @@ class TestStripeIntegrationOAuthTokens:
 
         MockStripeClient.assert_not_called()
         mock_capture.assert_called_once()
+        assert not OAuthAccessToken.objects.filter(pk=access_token.pk).exists()
+        assert not OAuthRefreshToken.objects.filter(pk=refresh_token.pk).exists()
+
+    @parameterized.expand(
+        [
+            ("unreachable", CredentialsServiceUnreachableError("credentials service down")),
+            ("in_recovery", SecretInRecoveryError("STRIPE_APP_SECRET_KEY")),
+        ]
+    )
+    @patch("stripe.StripeClient")
+    @patch("posthog.models.integration.stripe.get_or_settings")
+    @patch("posthog.models.integration.stripe.settings")
+    def test_clear_posthog_secrets_revokes_tokens_when_credential_lookup_raises(
+        self,
+        _name: str,
+        error: CredentialsServiceFailure,
+        mock_settings: MagicMock,
+        mock_get_or_settings: MagicMock,
+        MockStripeClient: MagicMock,
+    ) -> None:
+        mock_get_or_settings.side_effect = error
+        mock_settings.STRIPE_MARKETPLACE_OAUTH_CLIENT_ID = self.oauth_app.client_id
+        mock_settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID = "orchestrator_client_id"
+
+        integration, access_token, refresh_token = self._create_integration_with_tokens()
+
+        with patch("posthog.models.integration.oauth.OauthIntegration.client_credentials_for_kind", side_effect=error):
+            with pytest.raises(type(error)):
+                StripeIntegration(integration).clear_posthog_secrets()
+
+        MockStripeClient.assert_not_called()
         assert not OAuthAccessToken.objects.filter(pk=access_token.pk).exists()
         assert not OAuthRefreshToken.objects.filter(pk=refresh_token.pk).exists()
 
@@ -7816,7 +7887,7 @@ class TestIntegrationSerializerFilesWriteRequestable(APIBaseTest):
         integration = Integration.objects.create(team=self.team, kind=kind, config=config)
         with (
             patch(
-                "posthog.models.integration.oauth.get_instance_settings",
+                "posthog.credentials_service.instance_settings.get_instance_settings",
                 return_value={
                     "SLACK_APP_CLIENT_ID": "test-client-id",
                     "SLACK_APP_CLIENT_SECRET": "test-client-secret",

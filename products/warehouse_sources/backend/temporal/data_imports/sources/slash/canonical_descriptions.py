@@ -77,4 +77,49 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "archivedAt": "Time when the contact was archived. Empty for active contacts.",
         },
     },
+    "virtual_accounts": {
+        "description": "Virtual accounts under each Slash account, including the primary account and closed accounts.",
+        "docs_url": "https://docs.slash.com/api-reference/virtual-account-get",
+        "columns": {
+            "id": "Unique virtual account identifier, copied from the nested virtual account object.",
+            "virtualAccount": "The virtual account, with its name, account ID, account type, and close time.",
+            "balance": "Total balance of the virtual account, in cents.",
+            "spend": "Total spend of the virtual account, in cents.",
+            "commissionRule": "Commission rule applied to the virtual account, if any.",
+        },
+    },
+    "card_groups": {
+        "description": "Active card groups that share a spending constraint.",
+        "docs_url": "https://docs.slash.com/api-reference/card-group-get",
+        "columns": {
+            "id": "Unique card group identifier.",
+            "name": "Name of the card group.",
+            "virtualAccountId": "Deprecated legacy virtual account association. Empty when none exists.",
+            "spendingConstraint": "Spending rules that apply to the cards in the group.",
+        },
+    },
+    "customers": {
+        "description": "Billing recipients for invoices of the legal entity.",
+        "docs_url": "https://docs.slash.com/api-reference/customer-get",
+        "columns": {
+            "id": "Unique customer identifier.",
+            "name": "Display name of the customer.",
+            "email": "Email address of the customer.",
+            "phone": "Phone number of the customer.",
+            "address": "Address of the customer.",
+            "customMetadata": "Custom metadata associated with the customer.",
+            "status": "Whether the customer is active or archived.",
+        },
+    },
+    "account_balances": {
+        "description": "Current balances of each Slash account. Charge card accounts have cash and credit balances.",
+        "docs_url": "https://docs.slash.com/api-reference/account-balance-get",
+        "columns": {
+            "accountId": "Identifier of the account associated with the balance.",
+            "type": "Balance type: cash, credit, or debit.",
+            "available": "Amount in cents that is available to use immediately.",
+            "posted": "Amount in cents posted to the balance. Pending transactions are not included.",
+            "timestamp": "UTC time when Slash computed the balance.",
+        },
+    },
 }

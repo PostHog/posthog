@@ -55,6 +55,11 @@ from posthog.api.log_entries import LogEntryMixin
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.api.tagged_item import (
+    BulkUpdateTagsUUIDRequestSerializer,
+    BulkUpdateTagsUUIDResponseSerializer,
+    TaggedItemViewSetMixin,
+)
 from posthog.auth import InternalAPIAuthentication
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.dataclasses import frozen
@@ -79,6 +84,7 @@ from posthog.plugins.plugin_server_api import (
     get_hog_flow_in_flight_count,
     rerun_hog_invocations,
 )
+from posthog.scopes import scopes_not_covered
 from posthog.synthetic_user import SyntheticUser
 from posthog.user_permissions import UserPermissions
 from posthog.utils import relative_date_parse_with_delta_mapping
@@ -124,6 +130,7 @@ from products.cdp.backend.presentation.serializers import (
     require_viewer_access_to_added_actions,
 )
 from products.cohorts.backend.facade.api import get_cohort_ref
+from products.messaging.backend.facade.categories import MessageCategoryMissing, get_category
 from products.messaging.backend.presentation.views.serializers import DesignOperationSerializer
 from products.notifications.backend.facade.api import publish_resource_edited
 from products.replay_vision.backend.facade.api import (
@@ -145,6 +152,11 @@ from products.workflows.backend.facade.activity import (
     log_workflow_activity,
     log_workflow_schedule_activity,
     resume_workflow_email_sending,
+)
+from products.workflows.backend.facade.api import (
+    load_team_utm_defaults,
+    release_edited_email_utm_keys,
+    seed_new_email_steps_with_utm_defaults,
 )
 from products.workflows.backend.facade.batch_jobs import (
     create_batch_job,
@@ -290,21 +302,26 @@ from products.workflows.backend.facade.validation import (
 )
 from products.workflows.backend.facade.workflows import (
     ADD_TO_STATIC_COHORT_TEMPLATE_ID,
+    ALL_MARKETING_CATEGORY_ID,
     BILLABLE_ACTION_TYPES,
     BROADCAST_STATUSES,
     COHORT_TRIGGER_TRANSITIONS,
+    OPT_OUT_OF_MESSAGES_TEMPLATE_ID,
     PERSON_DEPENDENT_ACTION_TYPES,
     ROW_SCOPED_TRIGGER_TYPES,
     SUPPORTED_ACTION_TYPES,
     WORKFLOW_FIELD_FILTER_PARAMS,
     WORKFLOW_SAFE_INTERNAL_EVENTS,
     WORKFLOW_TYPES,
+    exit_condition_that_runs,
     get_team_workflow_edit_state,
     get_workflow,
     get_workflow_edit_state,
     get_workflow_ref,
     list_workflows,
+    literal_opt_out_category_id,
     literal_static_cohort_id,
+    opt_out_category_ids,
     static_cohort_ids,
     workflow_from_fields,
     workflow_publish_impact,
@@ -1078,6 +1095,30 @@ def _existing_email_from_by_action(instance: WorkflowEditState) -> dict[str, lis
     return result
 
 
+def _run_scout_note(inputs: object) -> str:
+    """The "Run scout" step's note template, normalized to bare text. Blank is no note."""
+    note_input = inputs.get("note") if isinstance(inputs, dict) else None
+    value = note_input.get("value") if isinstance(note_input, dict) else None
+    return value.strip() if isinstance(value, str) else ""
+
+
+def _live_run_scout_notes_by_action(instance: WorkflowEditState) -> dict[str, str]:
+    """Live "Run scout" note templates keyed by action id. The draft is not read: restoring a
+    revision and approving a suggestion write the draft without this check, so a note found only
+    in the draft has no proof that someone with skill editor access wrote it."""
+    result: dict[str, str] = {}
+    for stored_action in instance.actions or []:
+        if not isinstance(stored_action, dict) or not stored_action.get("id"):
+            continue
+        config = stored_action.get("config") or {}
+        if config.get("template_id") != _RUN_SCOUT_TEMPLATE_ID:
+            continue
+        note = _run_scout_note(config.get("inputs"))
+        if note:
+            result[stored_action["id"]] = note
+    return result
+
+
 def _event_config_has_event_or_action(event_config: dict) -> bool:
     # An "events to wait for" / conversion entry that targets neither events nor actions compiles to
     # always-true bytecode and would fire on every incoming event. Action-based entries (events empty,
@@ -1703,6 +1744,48 @@ class HogFlowActionSerializer(serializers.Serializer):
                 {"inputs": {"cohort_id": "You need edit access to this cohort to add people to it."}}
             )
 
+    def _validate_opt_out_of_messages_action(self, inputs: dict, *, strict: bool) -> None:
+        """The step edits the team-wide opt-out list as a service, so whoever saves it needs the access that list needs.
+
+        Runs on lenient draft saves too, because the callback endpoint accepts only the categories the saved
+        workflow names. A draft save may keep a category that no longer exists, but never a transactional one."""
+        category_id = literal_opt_out_category_id(inputs)
+        if category_id is None:
+            if strict:
+                raise serializers.ValidationError({"inputs": {"category_id": "Choose a message category."}})
+            return
+        get_team = self.context.get("get_team")
+        if get_team is None:
+            return
+        team = get_team()
+        user = getattr(self.context.get("request"), "user", None)
+        # Same resource-level check as the opt-out list API: access to one workflow isn't access to the team's list.
+        # Someone already passed it for a category the saved workflow names, so other editors can keep saving.
+        if (
+            category_id not in (self.context.get("stored_opt_out_category_ids") or set())
+            and user is not None
+            and user.is_authenticated
+            and not isinstance(user, SyntheticUser)
+            and not UserAccessControl(user=user, team=team).check_access_level_for_resource("hog_flow", "editor")
+        ):
+            raise serializers.ValidationError(
+                {"inputs": {"category_id": "You need edit access to all workflows to change the opt-out list."}}
+            )
+        if category_id == ALL_MARKETING_CATEGORY_ID:
+            return
+        try:
+            category = get_category(team.id, category_id)
+        except MessageCategoryMissing:
+            if strict:
+                raise serializers.ValidationError(
+                    {"inputs": {"category_id": "This message category doesn't exist. Choose another category."}}
+                )
+            return
+        if category.category_type != "marketing":
+            raise serializers.ValidationError(
+                {"inputs": {"category_id": "Transactional messages ignore opt-outs. Choose a marketing category."}}
+            )
+
     def _validate_run_scout_action(self) -> None:
         """Save-time check for the "Run scout" step: reject it in a child environment, matching
         the runtime refusal in start_workflow_scout_run, so a broken step fails at save instead of
@@ -1725,6 +1808,44 @@ class HogFlowActionSerializer(serializers.Serializer):
         serializer = WorkflowClassificationRequestSerializer(data=data, partial=True)
         if not serializer.is_valid():
             raise serializers.ValidationError({"inputs": serializer.errors})
+
+    def _validate_run_scout_note(self, action_id: object, inputs: object) -> None:
+        """A note puts event-derived prose in front of a scout agent on every fire, so writing or
+        changing one needs the same two legs as a manual run's note: the `llm_skill:write` key
+        scope and skill editor access. A note already live on the step keeps validating, so a
+        person without that access can still edit the rest of the workflow."""
+        note = _run_scout_note(inputs)
+        if not note:
+            return
+        if note == (self.context.get("live_run_scout_notes") or {}).get(action_id):
+            return
+        get_team = self.context.get("get_team")
+        # No team outside a request (internal re-saves), so nothing new is being authored.
+        if get_team is None:
+            return
+        request = self.context.get("request")
+        scopes = get_authenticator_scopes(getattr(request, "successful_authenticator", None))
+        if scopes is not None and "*" not in scopes and scopes_not_covered(scopes, ["llm_skill:write"]):
+            raise serializers.ValidationError(
+                {"inputs": {"note": "Adding a note to Run scout needs a key with the llm_skill:write scope."}}
+            )
+        user = getattr(request, "user", None)
+        if user is None or not user.is_authenticated or isinstance(user, SyntheticUser):
+            return
+        team = get_team()
+        if not UserAccessControl(user=user, team=team.parent_team or team).check_access_level_for_resource(
+            "llm_skill", "editor"
+        ):
+            raise serializers.ValidationError(
+                {
+                    "inputs": {
+                        "note": (
+                            "Adding a note to Run scout requires editor access to skills, because the scout "
+                            "reads it on every run. Remove the note, or ask an admin for skill editor access."
+                        )
+                    }
+                }
+            )
 
     def validate(self, data):
         is_draft = self.context.get("is_draft")
@@ -1943,6 +2064,8 @@ class HogFlowActionSerializer(serializers.Serializer):
             # validation but still stores the cohort ID that the callback later trusts.
             if data.get("type") == "function" and template_id == ADD_TO_STATIC_COHORT_TEMPLATE_ID:
                 self._validate_add_to_static_cohort_action(config.get("inputs") or {}, strict=strict)
+            if data.get("type") == "function" and template_id == OPT_OUT_OF_MESSAGES_TEMPLATE_ID:
+                self._validate_opt_out_of_messages_action(config.get("inputs") or {}, strict=strict)
             template = get_function_template_schema(template_id)
             gating_flag = FLAG_GATED_TEMPLATE_IDS.get(template_id)
             already_stored = data.get("id") in (self.context.get("stored_gated_template_action_ids") or set())
@@ -2007,6 +2130,8 @@ class HogFlowActionSerializer(serializers.Serializer):
                     self._validate_classify_action(data["config"]["inputs"])
                 if template_id == _REPLAY_VISION_TEMPLATE_ID:
                     self._validate_replay_vision_action(data["config"].get("inputs") or {}, strict=strict)
+                if template_id == _RUN_SCOUT_TEMPLATE_ID:
+                    self._validate_run_scout_note(data.get("id"), data["config"].get("inputs"))
 
         # Branch types fan out via 'branch' edges indexed into these arrays; a node stored without
         # its array crashes the editor panel and assigns nothing at runtime. Presence is only
@@ -3015,6 +3140,7 @@ class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.Ser
             "last_run",
             "pending_suggestions",
             "suggestions_enabled",
+            "tags",
         ]
         read_only_fields = fields
 
@@ -3159,7 +3285,10 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "exit_only_at_end: only at exit node (default). "
             "exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). "
             "exit_on_trigger_not_matched: also when trigger filter stops matching. "
-            "exit_on_trigger_not_matched_or_conversion: both (needs 'conversion')."
+            "exit_on_trigger_not_matched_or_conversion: both (needs 'conversion'). "
+            "Only event and cohort triggers are re-checked, so on any other trigger these two are stored as "
+            "exit_only_at_end and exit_on_conversion. A cohort trigger no longer matches once the person "
+            "leaves the cohort (or rejoins it, for a 'left' trigger)."
         ),
     )
     email_sending_rate_limit = HogFlowEmailSendingRateLimitSerializer(
@@ -3323,6 +3452,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         }
 
         self.context["stored_static_cohort_ids"] = static_cohort_ids(instance.actions if instance else None)
+        self.context["stored_opt_out_category_ids"] = opt_out_category_ids(instance.actions if instance else None)
 
         self.context["stored_cohort_triggers"] = {
             action["id"]: {
@@ -3389,6 +3519,8 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             # newly written custom sender addresses to the verified-domain rule. Draft wins over
             # live for the same reason as secrets: it is the value the client last saw.
             self.context["existing_action_email_from"] = _existing_email_from_by_action(instance)
+            # Live "Run scout" notes, so only a new or changed note needs skill editor access.
+            self.context["live_run_scout_notes"] = _live_run_scout_notes_by_action(instance)
 
         # Warehouse-table triggers are row-scoped: step inputs may use the `{record.x}` alias for the
         # synced row. Flag it before child action validation so function-input compilation rewrites it.
@@ -3436,10 +3568,12 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "email_sending_pause_requires_support",
             "email_sending_resumed_at",
             "last_run",
+            "tags",
         ]
         read_only_fields = [
             "id",
             "version",
+            "tags",
             "created_at",
             "created_by",
             "updated_at",
@@ -3484,6 +3618,28 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             {"actions": stored.actions, "conversion": stored.conversion} if stored else None,
         )
 
+        get_team = self.context.get("get_team")
+        if isinstance(submitted_actions, list) and get_team is not None:
+            # A test invocation passes the workflow through the context rather than as the instance.
+            stored_actions = stored.actions if stored and isinstance(stored.actions, list) else []
+            # A step saved only in the staged draft of an active workflow already exists too, so it is never seeded.
+            draft_actions = (stored.draft or {}).get("actions") if stored else None
+            existing_ids = [
+                str(a["id"])
+                for a in [*stored_actions, *(draft_actions if isinstance(draft_actions, list) else [])]
+                if isinstance(a, dict) and a.get("id")
+            ]
+            utm_defaults = load_team_utm_defaults(get_team().id)
+            seed_new_email_steps_with_utm_defaults(actions, existing_ids, utm_defaults)
+            if stored:
+                release_edited_email_utm_keys(
+                    actions,
+                    stored_actions,
+                    stored.draft,
+                    utm_defaults,
+                    saving_draft=stored.status == HogFlowState.ACTIVE,
+                )
+
         # A Replay Vision step can read its session from a variable, so changing variables alone changes what
         # it scans. Submitted actions get this check through HogFlowActionSerializer.
         if instance and "variables" in data and "actions" not in data:
@@ -3515,6 +3671,14 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             raise serializers.ValidationError({"actions": "Exactly one trigger action is required"})
 
         data["trigger"] = trigger_actions[0]["config"]
+
+        # Store the exit condition that actually runs rather than reject one that never fires. The builder
+        # shows the exit options only for event triggers, so a value kept from before a trigger change has
+        # no control the author could use to clear it, and a rejection would block every save.
+        exit_condition = data.get("exit_condition", instance.exit_condition if instance else None)
+        runs = exit_condition_that_runs(data["trigger"].get("type"), exit_condition)
+        if runs != exit_condition:
+            data["exit_condition"] = runs
 
         # Some triggers are person-less ("row-scoped"): a synced warehouse row, a materialized view row,
         # and a Slack poster are all things no PostHog person is attached to. Person-dependent steps and
@@ -4753,9 +4917,19 @@ class HogFlowVersionMetricsRequestSerializer(AppMetricsRequestSerializer):
             ),
         ]
     ),
+    # The mixin action's default schema documents integer ids; workflows are keyed by UUID.
+    bulk_update_tags=extend_schema(
+        request=BulkUpdateTagsUUIDRequestSerializer,
+        responses={200: BulkUpdateTagsUUIDResponseSerializer},
+    ),
 )
 class HogFlowViewSet(
-    TeamAndOrgViewSetMixin, AccessControlViewSetMixin, LogEntryMixin, AppMetricsMixin, viewsets.ModelViewSet
+    TaggedItemViewSetMixin,
+    TeamAndOrgViewSetMixin,
+    AccessControlViewSetMixin,
+    LogEntryMixin,
+    AppMetricsMixin,
+    viewsets.ModelViewSet,
 ):
     scope_object = "hog_flow"
     scope_object_read_actions = [
@@ -4800,8 +4974,11 @@ class HogFlowViewSet(
         "convert_to_broadcast",
         "approve_proposal",
         "reject_proposal",
+        "bulk_update_tags",
     ]
     queryset = HogFlow.objects.all()
+    bulk_update_tags_request_serializer_class = BulkUpdateTagsUUIDRequestSerializer
+    bulk_tag_activity_scope = "HogFlow"
     pagination_class = HogFlowPagination
     log_source = "hog_flow"
     app_source = "hog_flow"
@@ -5377,6 +5554,7 @@ class HogFlowViewSet(
                 includes_staged_draft=bool(self.request.data.get("includes_staged_draft"))
                 and WRITABLE_DRAFT_CONTENT_FIELDS <= self.request.data.keys(),
                 validated_status=serializer.instance.status,
+                requested_exit_condition=serializer.initial_data.get("exit_condition"),
             )
         except WorkflowStale:
             raise StaleWorkflowUpdateError()

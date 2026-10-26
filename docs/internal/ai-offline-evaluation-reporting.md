@@ -1,7 +1,7 @@
 # Offline evaluation result reporting
 
 The evaluation harness in `products/posthog_ai/eval_harness/` reports public-suite scorer results to Braintrust.
-Public suites under `products/posthog_ai/evals/` and `products/slack_app/evals/` also publish those results to PostHog's offline experiment API when configured.
+Suites under `products/posthog_ai/evals/` and the product-owned `products/*/evals/` trees also publish those results to PostHog's offline experiment API when a publishing credential is configured.
 The Signals pytest suites reuse the same publisher for their completed results.
 Agent and judge trace capture remains available.
 Reporting does not run the agent or scorers again.
@@ -14,6 +14,12 @@ Use `hogli evals` to run PostHog AI 2.0 suites. See the [eval harness guide](../
 `SandboxedPrivateEval` sets `no_send_logs=True` and uploads to neither service by default; local logs are still written.
 Set `send_to_posthog=True` alongside `offline_suite` to publish results to PostHog while keeping Braintrust uploads disabled.
 Set `send_to_posthog=False` to disable PostHog result uploads independently. The same options apply to one-shot suites.
+
+Suites that disable Braintrust uploads declare `NO_SEND_LOGS = True` at module level and pass `no_send_logs=NO_SEND_LOGS` to their runner.
+Discovery uses this declaration to validate credentials before starting infrastructure; the enrollment test checks that it matches the runner.
+`BRAINTRUST_API_KEY` is required for reporting only when at least one selected suite enables Braintrust uploads.
+PostHog-only suites still use the Braintrust library locally, without authenticating to its experiment service.
+Scorer model credentials remain separate: using Braintrust's model proxy still needs its credential, while other providers use their own keys.
 
 Offline API uploads run through the Python SDK independently of `TEST` and `OPT_OUT_CAPTURE`.
 The shared trace client retains its existing `TEST` and `OPT_OUT_CAPTURE` guards for `$ai_generation`, `$ai_span`, and `$ai_trace` events.
@@ -30,6 +36,10 @@ Case names stay the same across trials.
 For a repeatable smoke comparison, use the [Claude and Codex command pair](../../products/posthog_ai/eval_harness/README.md#claude-and-codex-smoke-comparison).
 Both commands select the same MCP case and record the model, runtime, delivery mode, and checkout.
 Compare completed coverage and infrastructure errors alongside named scores and duration.
+Add `--compare` to one selected sandboxed run to execute both default models and save a combined local comparison.
+Repeated `--compare-model RUNTIME:MODEL` options select explicit models. The comparison checks both configurations
+before running agents, retains each model's results, and reports case or scorer selection differences.
+This local comparison does not change the suite's upload or capture settings.
 Trial metadata and local summaries also record phase durations in seconds.
 The scoring phase includes time waiting for the experiment results, rather than scorer execution alone.
 A failed final metadata upload produces a warning and keeps the completed results available locally.
@@ -37,14 +47,16 @@ A scorer failure marks the case as an error. Statistics still include scores fro
 
 ## Configured offline experiment suites
 
-Configured public PostHog AI and Slack app suites opt into the offline experiment publisher, including both sandboxed and one-shot suites.
-The 11 experiment-skill suites retain `no_send_logs=True` and explicitly set `send_to_posthog=True`, publishing results only to PostHog.
+Shared-harness suites are enrolled in the offline experiment publisher, including both sandboxed and one-shot suites, except for `logs/eval_agent_observability::eval_agent_observability`, which currently reports only to Braintrust.
+The experiment-skill, Feature Flags, Dashboards, turn-suggestion and Business Knowledge retrieval suites retain `no_send_logs=True` and explicitly set `send_to_posthog=True`, publishing results only to PostHog.
+Public suites retain their Braintrust uploads during enrollment. Braintrust also remains the execution engine for every shared-harness suite, including those whose results publish only to PostHog.
 After scoring, the harness prepares the completed results in memory and queues delivery through the Python SDK's `AsyncOfflineEvaluations` client. It does not execute another agent run or judge call.
 Without an explicit `send_to_posthog` override, `no_send_logs=True` suppresses this upload too.
 
-The [PostHog AI catalog](../../products/posthog_ai/evals/offline_config.py) and [Slack app catalog](../../products/slack_app/evals/offline_config.py) pin destination project `2`, scorer kinds, immutable version UUIDs, and component tags.
+The [PostHog AI catalog](../../products/posthog_ai/evals/offline_config.py) and each product's `evals/offline_config.py` pin destination project `2`, scorer kinds, immutable version UUIDs, and component tags.
 Suites select their own metrics from the catalog; sandboxed suites also include the harness-provided `exit_code_zero` metric.
 The SQL suite retains its seven existing scorer versions.
+The discovery-wide enrollment test checks every enrolled suite's publishing flag, stable key, scorer coverage, pinned UUIDs and ownership tags without executing agents or judges. It also checks that the Logs agent-observability suite retains its Braintrust-only reporting configuration.
 Provide the API key through the environment before running the suite:
 
 | Variable                       | Purpose                                                                                                                                                                                                                                  |
@@ -54,6 +66,34 @@ Provide the API key through the environment before running the suite:
 
 The publisher normalizes the cloud ingestion hosts (`us.i.posthog.com`, `eu.i.posthog.com`) and the legacy `app.posthog.com` host to their app origins.
 Uploads, result links, and trace-destination checks use that same origin.
+
+Experiments submitted with a personal API key are attributed to that user. Project secret API key submissions
+have no author. Attribution is recorded on the first accepted submission and stays unchanged on retries.
+The offline evaluations overview shows the author and supports filtering experiments and score trends by author,
+including experiments with no author. Choose "Any author" to clear the filter.
+Scorer history includes the same author control, so filters carried from the overview remain visible and can be cleared.
+API requests cannot combine `created_by` with `created_by_is_null=true`.
+Each scorer chart displays the loaded versions with results in the selected date range and filters as separate series,
+while the summary defaults to the latest matching version. The version arrows change only the summary.
+Opening a scorer's history preserves the author and date filters and selects the version shown in the summary.
+The scorer list shows each scorer's creator and last editor, and can be filtered by creator.
+By default, scorers are sorted by last updated, newest first.
+Creating and editing scorers stays under Evaluations → Scorers, with a detail heading and a back link to the list.
+Successful creation and edits return to the scorer list; failed saves keep the form open with your changes.
+
+Online evals, offline experiments, datasets, and scorers have independent setup states. The Evaluations tabs
+stay available when no online evaluations exist, and the offline Experiments and Datasets tabs remain visible
+during dataset setup. The experiments setup links to the [offline evals guide](https://posthog.com/docs/ai-evals/offline-evals).
+The offline setup preview compares prompt and model combinations with multiple scorers. Scorer setup shows how
+numeric, boolean, and categorical definitions are shared by offline experiments and
+[manual trace reviews](https://posthog.com/docs/ai-observability/trace-reviews). Archived scorers remain accessible
+from the setup screen; filtered lists keep their filters and results table.
+Dataset setup appears only when there are no active or archived datasets, so projects with only archived
+datasets can still browse and restore them from the list.
+
+Scorers have an optional **Short name** (up to 40 characters) for experiment table headers and other compact views.
+These views use the full name when the short name is blank. Editing or clearing a short name updates existing
+experiment displays without creating a scorer version or changing scoring rules. Versions appear in a separate badge.
 
 The SQL suite uses these existing scorers:
 
@@ -82,6 +122,34 @@ Invalid configuration produces a warning and skips this destination; Braintrust 
 An upload failure also warns without changing the evaluation's score gate.
 The final summary shows a PostHog results link only after a successful offline upload; otherwise it shows the upload status.
 
+### Testing uploads against local PostHog
+
+Set `POSTHOG_OFFLINE_EVAL_HOST=http://localhost:8010` and use a personal API key created in that local instance.
+HTTP is accepted only for `localhost`, `127.0.0.1`, and `::1`; other hosts require HTTPS.
+The eval harness's temporary test database is separate from the development instance receiving uploads.
+
+The suite catalogs contain production project and scorer-version IDs. To use local scorers without editing those catalogs, set
+`POSTHOG_OFFLINE_EVAL_LOCAL_CONFIG=.env.local.offline-evals.json` in `.env.local`. The JSON file selects a local project and maps
+each catalog scorer-version UUID to a version created in that local project:
+
+```json
+{
+  "project_id": 2,
+  "scorer_versions": {
+    "00000000-0000-4000-8000-000000000002": "00000000-0000-4000-8000-000000000003"
+  }
+}
+```
+
+The UUIDs above are placeholders. Create the needed scorers under **Evaluations → Scorers**, matching each catalog metric's kind,
+and use their immutable version IDs. Include every scorer used by the selected suites; a single file can cover multiple suites.
+The file is gitignored by the `.env*` rule. Local configuration is accepted only with a loopback upload host.
+An unreadable, invalid, or incomplete file disables the upload with an error; it never falls back to the production catalog.
+
+Run through `hogli evals` to load `.env.local`; existing shell variables take precedence.
+For PostHog-only testing, select suites declaring `NO_SEND_LOGS = True`, such as Feature Flags or Dashboards.
+Set `OPT_OUT_CAPTURE=1` to suppress ordinary SDK/trace capture while retaining explicit offline-result uploads.
+
 ### Scorer and experiment tags
 
 Score definitions and experiment runs use the same team and component tags:
@@ -90,6 +158,12 @@ Score definitions and experiment runs use the same team and component tags:
 | -------------------- | ------------------------------------------------------------------------------------------- |
 | PostHog AI           | `team:surfaces`, `component:posthog-ai/<domain>` (for example `sql` or `product-analytics`) |
 | Slack app            | `team:surfaces`, `component:slack-app/<area>` (for example `followup-classifier`)           |
+| Conversations        | `team:conversations`, `component:conversations`                                             |
+| Business Knowledge   | `team:conversations`, `component:business-knowledge`                                        |
+| Data Catalog         | `team:data-modeling`, `component:data-catalog`                                              |
+| Notebooks            | `team:data-tools`, `component:notebooks`                                                    |
+| Feature Flags        | `team:feature-flags`, `component:feature-flags`                                             |
+| Dashboards           | `team:product-analytics`, `component:dashboards`                                            |
 | Signals grouping     | `team:self-driving`, `component:signals/grouping`                                           |
 | Signals scout safety | `team:self-driving`, `component:signals/scout-safety`                                       |
 
@@ -98,6 +172,34 @@ Score definitions and experiment runs use the same team and component tags:
 To upload **and tag** experiments, `POSTHOG_OFFLINE_EVAL_API_KEY` must be a personal API key with both `offline_evaluation_ingestion:write` and `evaluation:write`. An ingestion-only personal or project secret key can still upload results, but the tag update will warn. Tagging failures, timeouts, and shutdown interruptions retain the successful upload status and results link and do not change the evaluation score gate.
 
 Each prepared experiment's tag update is attempted once per publisher, including when delivery pauses and resumes. A failed or interrupted replacement is not repeated automatically, because it may already have succeeded or someone may have edited the tags afterward. Inspect the experiment's tags before manually retrying a replacement.
+
+### Additional one-shot suites
+
+Run these through the same harness and publishing lifecycle:
+
+```bash
+hogli evals turn_suggestions/eval_turn_suggestions::eval_turn_suggestions
+hogli evals business_knowledge/eval_retrieval::eval_retrieval
+hogli evals conversations/eval_support_reply::eval_support_reply
+```
+
+Turn suggestions reuse the labeled benchmark cases and the configured System One judge, once per case.
+`TURN_SUGGESTIONS_EVAL_THRESHOLD` overrides the production show threshold for the run; it must be between 0 and 1.
+Case metadata records the threshold and requested judge model, and outputs retain the selected offer, probability, outcome and duration.
+An accepted optional offer counts as correct; an unavailable judgment reports an error.
+The existing `turn_suggestions_benchmark` command remains available for multi-endpoint comparisons and threshold sweeps; those modes are not part of this suite.
+
+Business Knowledge retrieval reuses the labeled `retrieval_eval.yaml` corpus and queries.
+Each case seeds an isolated team, searches the corpus and cleans up the team.
+Its boolean score checks the existing found/not-found expectation, including queries expected to return no results.
+It does not score source relevance or replace the ordinary retrieval unit tests.
+
+Support reply retains its existing behavior: mocked by default, or live when `SUPPORT_REPLY_EVAL_LIVE=1`.
+Both case metadata and output identify the mode so runs can be compared within the same mode.
+
+These suites use the existing one-shot infrastructure and credential prerequisites described in the harness guide.
+The turn-suggestion judge additionally needs its existing System One configuration; selecting the suite does not configure that service.
+MCP saved-report grading, semantic-layer canary commands and ReviewHog campaigns retain their separate workflows and are not enrolled by these wrappers.
 
 ### CI configuration
 
@@ -145,7 +247,7 @@ Existing local logs, enabled case exports, and Braintrust results remain availab
 Both `SandboxedEval` and `OneShotEval` accept `offline_suite=OfflineEvalSuite(...)`.
 Each suite declares its destination `project_id`, selects at least one metric in `scorer_kinds`, and pins the corresponding immutable version UUIDs in `scorer_versions`.
 These fields belong to `OfflineEvalSuite` in code. Scorer version UUIDs must be distinct for the suite's enrolled metrics.
-The AI and Slack catalog helpers add `exit_code_zero` for sandboxed suites. One-shot suites pass `suite_kind=SUITE_KIND` to enroll only their declared metrics.
+Catalog helpers add `exit_code_zero` for sandboxed suites. One-shot suites pass `suite_kind=SUITE_KIND` to enroll only their declared metrics.
 Numeric scores can use the domain of their configured scorer version. The API validates bounds and steps; the harness does not restrict every numeric metric to `[0, 1]`.
 
 `OfflineEvalSuite.experiment_options` accepts the SDK's `ExperimentOptions` for external dataset identifiers, `prompt_version`, model/application versions, and `run_source`.
@@ -468,9 +570,28 @@ Opening those resources requires their own permissions.
 ## Inspecting offline results
 
 Open **Evaluations → Offline evals** to see the newest experiments and chosen score trends.
+When offline evaluations are enabled, **Experiments** is selected by default. **Datasets** opens the list on the same page
+with `tab=datasets` in the query string. MCP-generated dataset-list links retain this tab selector.
+Existing `/ai-evals/datasets` and `/llm-analytics/datasets`
+links redirect there, preserving filters and pagination. Dataset creation and detail pages live at
+`/ai-evals/evaluations/offline/datasets/:id`, within the Offline evals navigation. Both legacy dataset
+detail routes redirect there, preserving item deep links, revisions, tabs, filters, and hashes.
+The Evaluations heading and navigation stay in place on dataset creation and detail pages. Dataset items appear
+directly in the detail view; **Details** opens the dataset metadata without replacing the items table.
+The back arrow beside the dataset name returns to the list and preserves its filters, including after creating a dataset.
+Creation and editing actions appear below the dataset form. Switching from Experiments to Datasets clears
+experiment search and filters and restores the saved dataset tag selection.
+Projects with Datasets enabled but without offline evaluations open **Datasets** automatically,
+including from experiment-list links. **Experiments** stays visible with a disabled **Coming soon** label.
+When Datasets is disabled, its tab stays disabled and direct list links show an availability message.
+The chevron beside **Score trends** collapses or expands the charts. It starts expanded and remembers
+your choice in local storage. Charts load on the first expansion if the page opens collapsed, and
+keep their data when collapsed and expanded again. Refresh or a filter change updates loaded charts.
 A shared time range, run source, and upload state filter applies to both the score charts and the experiment list.
 The overview starts with the last 30 days and all upload states. Uploading and failed runs can show partial score summaries.
-Projects without experiments show setup steps; a filter with no matching experiments keeps the overview available.
+Projects without experiments show a full setup screen with example results and a link to the offline evals guide;
+a filter with no matching experiments keeps the overview available. The offline evaluations description and tabs
+stay visible on both the experiments and datasets setup screens.
 Datasets, suites, and traces are optional context and are not required to display an experiment.
 The compact experiment list shows the execution source in its own column and item/scorer counts together; hover over coverage for result and scorer-version counts.
 
@@ -479,11 +600,11 @@ When no scores are selected, the overview selects up to three from recent comple
 These choices are stored in local storage, scoped to the user and exact project/environment, and persist in that browser.
 Shared URL selections and dates take precedence for that view without replacing saved choices until the user saves a customization.
 The shared date picker supports presets, custom ranges, and all time.
-History pages are bounded; the scorer history shows how many matching points are loaded.
+History pages are bounded; each overview card loads at most five pages of 100 experiment/version results. The scorer history shows how many matching points are loaded.
 Overview cards show the loaded count and date span when history is incomplete, and explain that earlier experiments and scorer versions may not be shown.
 Different scorer versions retain their pinned configurations and are not averaged together.
-Overview cards show one version at a time, with arrows to browse versions that have results in the selected period.
-The card summary aggregates the loaded experiments in the selected period for the displayed scorer version, using the same history points as the chart.
+Overview charts show each loaded scorer version as a separate series. Arrows browse version summaries without changing the chart.
+The card summary aggregates the loaded experiments in the selected period for the selected scorer version, using the same history points as the chart. When history is partial, summaries cover only those loaded experiments.
 Numeric means are weighted by successful result counts; boolean and category rates pool their counts across successful results.
 Boolean charts show the passing rate, with true passing by default when polarity is omitted.
 Numeric charts keep the mean as their primary metric and show the configured threshold with faint passing and failing regions. Series retain their identity colors.

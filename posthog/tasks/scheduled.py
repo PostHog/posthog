@@ -997,7 +997,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
             name="delete expired delegation invites",
         )
 
-        from ee.tasks.scim_request_log_cleanup import cleanup_old_scim_request_logs
+        from posthog.tasks.scim_request_log_cleanup import cleanup_old_scim_request_logs
 
         add_periodic_task_with_expiry(
             sender,

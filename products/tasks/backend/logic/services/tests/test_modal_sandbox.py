@@ -22,6 +22,7 @@ from modal.exception import (
     ServiceError as ModalServiceError,
     TimeoutError as ModalTimeoutError,
 )
+from modal_proto import api_pb2
 from parameterized import parameterized
 from python_socks import ProxyError as SocksProxyError
 from requests.exceptions import (
@@ -1606,6 +1607,25 @@ class TestModalSandboxAgentServerStartupHelpers:
         sandbox.config = SandboxConfig(name="test")
         sandbox._sandbox = MagicMock()
         return sandbox
+
+    @pytest.mark.parametrize(
+        "poll_result,status,expected",
+        [
+            (None, api_pb2.GenericResult.GENERIC_STATUS_UNSPECIFIED, "running"),
+            (RuntimeError("provider unavailable"), api_pb2.GenericResult.GENERIC_STATUS_UNSPECIFIED, "unknown"),
+            (137, api_pb2.GenericResult.GENERIC_STATUS_MEMORY_MANAGER_EVICTION, "memory_manager_eviction"),
+            (0, api_pb2.GenericResult.GENERIC_STATUS_IDLE_TIMEOUT, "idle_timeout"),
+        ],
+    )
+    def test_exit_status_reads_modal_generic_status(self, poll_result, status, expected):
+        sandbox = self._make_sandbox()
+        if isinstance(poll_result, Exception):
+            sandbox._sandbox.poll.side_effect = poll_result
+        else:
+            sandbox._sandbox.poll.return_value = poll_result
+        sandbox._sandbox._result.status = status
+
+        assert sandbox.exit_status() == expected
 
     def test_free_agent_server_port_terminates_existing_process(self):
         sandbox = self._make_sandbox()

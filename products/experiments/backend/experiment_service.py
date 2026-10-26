@@ -52,7 +52,6 @@ from posthog.models.user import User
 from posthog.utils import str_to_bool
 
 from products.cohorts.backend.models.cohort import Cohort
-from products.event_definitions.backend.models import EventDefinition, effective_project_id_expr
 from products.experiments.backend.facade.contracts import ExperimentHealthFinding
 from products.experiments.backend.facade.launch_signals import experiment_launched
 from products.experiments.backend.flag_cleanup import build_cleanup_prompt, cleanup_plan
@@ -82,6 +81,7 @@ from products.experiments.backend.metric_calculation.results import MetricResult
 from products.experiments.backend.metric_resolution import MetricRole
 from products.experiments.backend.metric_utils import filter_metric_group_ids_by_event
 from products.experiments.backend.metric_validation import (
+    defined_event_names,
     extract_entity_nodes,
     parse_and_validate_metric,
     validate_metric_action_ids,
@@ -1080,10 +1080,10 @@ class ExperimentService:
         use, so an update can be checked for what it introduces rather than for
         everything it resends. See ``update_experiment``.
 
-        Scope must match the picker: the EventDefinition list endpoint is
-        project-scoped (see posthog/api/event_definition.py), so a user in a
-        multi-team project can pick an event ingested by a sibling team. We
-        mirror that scope here to avoid rejecting legitimate selections.
+        The lookup is `defined_event_names`, which the experiment health checks
+        also read. They count only the definitions that ingestion has seen, but
+        this accepts the events Wizard planned, so they can be picked before the
+        code that sends them ships.
         """
         all_event_names, _ = extract_entity_nodes(metrics)
         event_names = all_event_names - known_event_names if known_event_names else all_event_names
@@ -1091,17 +1091,7 @@ class ExperimentService:
             return
 
         project_id = self.team.project_id
-        # `COALESCE(project_id, team_id)` falls back to `team_id` (not self.team.id)
-        # on purpose: legacy EventDefinitions (project_id IS NULL) belong to the
-        # *primary* team, and primary_team.id == project.id by convention. This
-        # mirrors the picker SQL in posthog/api/event_definition.py so sibling
-        # teams can validate against legacy primary-team events the picker shows.
-        existing = set(
-            EventDefinition.objects.alias(effective_project_id=effective_project_id_expr())
-            .filter(effective_project_id=project_id, name__in=event_names)
-            .values_list("name", flat=True)
-        )
-        unknown = event_names - existing
+        unknown = event_names - defined_event_names(project_id, event_names)
         if unknown:
             # Capture the rejected payload shape so we can identify clients
             # that send malformed metrics (e.g. event="").
