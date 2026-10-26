@@ -307,7 +307,7 @@ def legacy_alerts_of(
         if check.legacy_configuration_id is not None
     }
     alerts = AlertConfiguration.objects.filter(team_id=team_id, id__in=list(legacy_ids)).only(
-        "id", "calculation_interval", "detector_config"
+        "id", "calculation_interval", "detector_config", "owner"
     )
     return {legacy_ids[alert.id]: alert for alert in alerts}
 

@@ -64553,16 +64553,18 @@ export namespace Schemas {
       depth?: InsightDataChecksDepthEnum;
     }
 
+    /**
+     * The anomaly detector the alert uses in place of its threshold, or null for a threshold alert. It can't change through this API.
+     */
+    export type InsightPlatformAlertConditionDetector = { [key: string]: unknown } | null;
+
     export interface InsightPlatformAlertCondition {
       /** The bounds the insight's value is checked against, absolute or as a percentage change. */
       threshold: InsightThreshold | null;
       /** How the value is compared: as it is, or as an increase or decrease from the previous interval. */
       comparison: AlertCondition;
-      /**
-         * Always null. The platform owns threshold alerts only, so no detector applies.
-         * @nullable
-         */
-      detector?: null;
+      /** The anomaly detector the alert uses in place of its threshold, or null for a threshold alert. It can't change through this API. */
+      detector?: InsightPlatformAlertConditionDetector;
     }
 
     /**
