@@ -72,13 +72,8 @@ def probe_assets(base_url: str, paths: list[str], session: requests.Session) -> 
         return dict(zip(paths, pool.map(probe, paths)))
 
 
-def check_result(statuses: dict[str, AssetStatus]) -> str:
-    values = set(statuses.values())
-    if AssetStatus.MISSING in values:
-        return "missing"
-    if AssetStatus.UNREACHABLE in values:
-        return "unreachable"
-    return "ok"
+def _paths_with(statuses: dict[str, AssetStatus], status: AssetStatus) -> list[str]:
+    return [path for path, path_status in statuses.items() if path_status == status]
 
 
 def _report_frontend_assets() -> None:
@@ -99,13 +94,15 @@ def _check_and_report() -> None:
     with requests.Session() as session:
         statuses = probe_assets(settings.JS_URL, files, session)
         for delay in RETRY_DELAYS_SECONDS:
-            missing = [path for path, status in statuses.items() if status == AssetStatus.MISSING]
+            missing = _paths_with(statuses, AssetStatus.MISSING)
             if not missing:
                 break
             time.sleep(delay)
             statuses |= probe_assets(settings.JS_URL, missing, session)
 
-    result = check_result(statuses)
+    missing = _paths_with(statuses, AssetStatus.MISSING)
+    unreachable = _paths_with(statuses, AssetStatus.UNREACHABLE)
+    result = "missing" if missing else "unreachable" if unreachable else "ok"
     FRONTEND_ASSETS_CHECK.labels(result=result).inc()
     log = logger.info if result == "ok" else logger.warning
     log(
@@ -113,8 +110,8 @@ def _check_and_report() -> None:
         result=result,
         js_url=settings.JS_URL,
         checked=len(files),
-        missing=[path for path, status in statuses.items() if status == AssetStatus.MISSING],
-        unreachable=[path for path, status in statuses.items() if status == AssetStatus.UNREACHABLE],
+        missing=missing,
+        unreachable=unreachable,
     )
 
 
@@ -134,4 +131,9 @@ def start_frontend_assets_check() -> None:
         if _started:
             return
         _started = True
-    threading.Thread(target=_report_frontend_assets, name="frontend-assets-check", daemon=True).start()
+    # This runs inside the readiness probe, so a failure to start must never reach the probe response.
+    try:
+        threading.Thread(target=_report_frontend_assets, name="frontend-assets-check", daemon=True).start()
+    except Exception:
+        FRONTEND_ASSETS_CHECK.labels(result="error").inc()
+        logger.exception("frontend_assets_check_start_error")

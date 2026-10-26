@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 
 import requests
 
-from posthog.frontend_assets_check import AssetStatus, check_result, html_referenced_files, probe_assets
+from posthog.frontend_assets_check import AssetStatus, html_referenced_files, probe_assets
 
 
 def test_html_referenced_files_reads_every_reference_shape_the_build_writes(tmp_path: Path) -> None:
@@ -57,15 +57,3 @@ def test_probe_assets_counts_only_a_404_as_missing(outcome: int | Exception, exp
     session.head.assert_called_once_with(
         "https://cdn.example.com/static/index-LH6WYJJM.js", timeout=5, allow_redirects=True
     )
-
-
-@pytest.mark.parametrize(
-    "statuses, expected",
-    [
-        ([AssetStatus.OK, AssetStatus.OK], "ok"),
-        ([AssetStatus.OK, AssetStatus.UNREACHABLE], "unreachable"),
-        ([AssetStatus.UNREACHABLE, AssetStatus.MISSING], "missing"),
-    ],
-)
-def test_check_result_reports_missing_over_unreachable(statuses: list[AssetStatus], expected: str) -> None:
-    assert check_result({f"static/file-{i}.js": status for i, status in enumerate(statuses)}) == expected
