@@ -10,18 +10,15 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { colorForString } from 'lib/utils/colors'
 
 import { defaultEvaluationContextsLogic } from './defaultEvaluationContextsLogic'
-import { featureFlagEvaluationContextsLogic } from './featureFlagEvaluationContextsLogic'
+import {
+    FeatureFlagEvaluationContextsLogicProps,
+    featureFlagEvaluationContextsLogic,
+} from './featureFlagEvaluationContextsLogic'
 import { featureFlagLogic } from './featureFlagLogic'
 
-interface FeatureFlagEvaluationContextsProps {
-    tags: string[]
-    evaluationContexts: string[]
+interface FeatureFlagEvaluationContextsProps extends FeatureFlagEvaluationContextsLogicProps {
     tagsAvailable?: string[]
     className?: string
-    /** Required, because the editing state is keyed per flag. */
-    flagId: number | string | null
-    /** Differentiates multiple instances for the same flag (e.g., 'sidebar' vs 'form') */
-    context: 'sidebar' | 'form' | 'static'
     /** Form mode: parent handles persistence. Mutually exclusive with onSave. */
     onChange?: (tags: string[], evaluationContexts: string[]) => void
     /** Sidebar mode: component handles persistence. Mutually exclusive with onChange. */

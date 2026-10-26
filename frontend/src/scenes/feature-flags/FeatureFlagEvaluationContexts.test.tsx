@@ -56,7 +56,7 @@ describe('FeatureFlagEvaluationContexts', () => {
         }
     )
 
-    it('does not show the tags of the flag edited before', () => {
+    it('keeps the tag editing state of each flag behind the flag id', () => {
         const Harness = ({ flagId, tags }: { flagId: number; tags: string[] }): JSX.Element => (
             <Provider>
                 <BindLogic logic={featureFlagLogic} props={{ id: flagId }}>
