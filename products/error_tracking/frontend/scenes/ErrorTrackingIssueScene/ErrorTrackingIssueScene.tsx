@@ -59,6 +59,7 @@ import { ErrorTrackingIssueSceneLogicProps, errorTrackingIssueSceneLogic } from 
 import { IssueEmailMenu } from './IssueEmailMenu'
 import { IssueEmailMenuItems } from './IssueEmailMenuItems'
 import { IssueEventsPanel } from './IssueEventsPanel'
+import { issueRecordingFilterLogic } from './issueRecordingFilterLogic'
 import { IssueSummary } from './IssueSummary'
 import { LinkedReports } from './LinkedReports'
 import { ErrorTrackingIssueScenePanel } from './ScenePanel'
@@ -329,10 +330,12 @@ const RightHandColumn = ({
     isOpen: boolean
     onClose: () => void
 }): JSX.Element | null => {
-    const { issue, issueLoading, selectedEvent, initialEvent, initialEventLoading, summary } =
+    const { issue, issueId, issueLoading, selectedEvent, initialEvent, initialEventLoading, summary } =
         useValues(errorTrackingIssueSceneLogic)
+    const { setOnlyWithRecording } = useActions(issueRecordingFilterLogic({ issueId }))
     const tagRenderer = useErrorTagRenderer()
     const detailEvent = selectedEvent ?? initialEvent
+    const showOnlyWithRecording = useCallback(() => setOnlyWithRecording(true), [setOnlyWithRecording])
 
     if (isMobile && !isOpen) {
         return null
@@ -361,6 +364,7 @@ const RightHandColumn = ({
                     issueName={issue?.name ?? null}
                     loading={issueLoading || initialEventLoading}
                     event={detailEvent ?? undefined}
+                    onShowOnlyWithRecording={showOnlyWithRecording}
                     eventMarkerColor={
                         detailEvent
                             ? getEventMarkerColor(detailEvent.uuid, summary?.first_event_uuid, summary?.last_event_uuid)

@@ -136,6 +136,20 @@ def get_import_handoffs_per_run_metric(source_type: str | None) -> MetricHistogr
     )
 
 
+def get_import_attempt_duration_metric(source_type: str | None, outcome: str) -> MetricHistogramFloat:
+    # One observation per attempt of the import activity. `outcome` is `completed`, `handed_off`,
+    # `cancelled` or `failed`.
+    return (
+        activity.metric_meter()
+        .with_additional_attributes({"source_type": source_type or "unknown", "outcome": outcome})
+        .create_histogram_float(
+            "warehouse_import_attempt_duration_seconds",
+            "Seconds from the start to the exit of one attempt of the import activity.",
+            "s",
+        )
+    )
+
+
 def get_import_preempted_metric(source_type: str | None, reason: str) -> MetricCounter:
     # `reason` is why the run could continue on another worker (see `PreemptionDecision`).
     return (
