@@ -613,7 +613,7 @@ class FetchSignalsForReportInput:
     enabled_sources_only: bool = False
 
 
-@dataclass
+@dataclass(frozen=True)
 class FetchSignalsForReportOutput:
     signals: list[SignalData]
     # Signals assigned to the report before the disabled-source filter. Research progress counts
