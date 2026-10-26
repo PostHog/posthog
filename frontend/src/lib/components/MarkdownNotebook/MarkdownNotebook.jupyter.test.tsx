@@ -1,6 +1,7 @@
 import { act, fireEvent, render, waitFor, within } from '@testing-library/react'
 import { createElement, useCallback } from 'react'
 
+import { useComponentPanelState } from './componentPanelContext'
 import { usePublishNotebookComponentRunHandler } from './componentRunHandlers'
 import { MarkdownNotebookJupyterModeConfig, NotebookJupyterCommands, useNotebookJupyterCommands } from './jupyterMode'
 import { MarkdownNotebook } from './MarkdownNotebook'
@@ -38,7 +39,7 @@ const registry = createMarkdownNotebookRegistry([
         category: 'Code',
         defaultProps: { code: '' },
         insertCommand: {},
-        ViewComponent: () => createElement('div', null, 'output'),
+        ViewComponent: () => createElement('div', null, 'output', useComponentPanelState()?.jupyterOutputControls),
         EditComponent: CodeEditorStandIn,
         ToolbarComponent: RunPublisher,
     },
@@ -48,7 +49,7 @@ const registry = createMarkdownNotebookRegistry([
         category: 'Code',
         defaultProps: { code: '' },
         insertCommand: {},
-        ViewComponent: () => createElement('div', null, 'output'),
+        ViewComponent: () => createElement('div', null, 'output', useComponentPanelState()?.jupyterOutputControls),
         EditComponent: CodeEditorStandIn,
     },
 ])

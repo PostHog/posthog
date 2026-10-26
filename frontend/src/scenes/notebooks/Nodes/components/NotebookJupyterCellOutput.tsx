@@ -1,6 +1,8 @@
 import clsx from 'clsx'
 import { ReactNode } from 'react'
 
+import { useComponentPanelState } from 'lib/components/MarkdownNotebook/componentPanelContext'
+
 import type { NotebookNodeSQLV2Result } from '../NotebookNodeSQLV2'
 import { NotebookDataframeResult } from '../pythonExecution'
 import { NotebookJupyterDataframe, NotebookJupyterDataframeProps } from './NotebookJupyterDataframe'
@@ -22,15 +24,20 @@ export type NotebookJupyterCellOutputProps = {
 function OutputRow({
     prompt,
     className,
+    controls,
     children,
 }: {
     prompt?: string
     className?: string
+    controls?: ReactNode
     children: ReactNode
 }): JSX.Element {
     return (
         <div className="MarkdownNotebook__jupyter-output-row">
-            <div className="MarkdownNotebook__jupyter-prompt MarkdownNotebook__jupyter-prompt--output">{prompt}</div>
+            <div className="MarkdownNotebook__jupyter-prompt MarkdownNotebook__jupyter-prompt--output">
+                <span>{prompt}</span>
+                {controls}
+            </div>
             <div className={clsx('MarkdownNotebook__jupyter-output-area', className)}>{children}</div>
         </div>
     )
@@ -53,6 +60,7 @@ export function NotebookJupyterCellOutput({
     valueOverride,
     footerExtra,
 }: NotebookJupyterCellOutputProps): JSX.Element | null {
+    const controls = useComponentPanelState()?.jupyterOutputControls
     const outPrompt = `Out[${executionCount ?? ' '}]:`
     const media = result?.media ?? []
     const firstPageLength = result?.first_page?.length ?? 0
@@ -61,41 +69,62 @@ export function NotebookJupyterCellOutput({
     const totalRowCount = result && !result.has_more && result.row_count >= firstPageLength ? result.row_count : null
     const resultText = !dataframeResult && !runError ? result?.result_text : undefined
     const hasValue = !!dataframeResult || media.length > 0 || !!resultText
+    const hasValueRow = !!resultText || (!!dataframeResult && !runError)
+    const leadingPrompt = controls && !hasValueRow ? { prompt: outPrompt, controls } : {}
 
     if (!status && !result?.stdout && !result?.stderr && !runError && !hasValue) {
-        return null
+        return controls ? (
+            <OutputRow prompt={outPrompt} controls={controls}>
+                {null}
+            </OutputRow>
+        ) : null
     }
 
     return (
         <div className="py-0.5" onClick={(event) => event.stopPropagation()}>
-            {status ? <OutputRow className="MarkdownNotebook__jupyter-output-area--muted">{status}</OutputRow> : null}
+            {status ? (
+                <OutputRow {...leadingPrompt} className="MarkdownNotebook__jupyter-output-area--muted">
+                    {status}
+                </OutputRow>
+            ) : null}
             {result?.stdout ? (
-                <OutputRow>
+                <OutputRow {...(!status ? leadingPrompt : {})}>
                     <pre>{result.stdout}</pre>
                 </OutputRow>
             ) : null}
             {result?.stderr ? (
-                <OutputRow className="MarkdownNotebook__jupyter-output-area--stderr">
+                <OutputRow
+                    {...(!status && !result?.stdout ? leadingPrompt : {})}
+                    className="MarkdownNotebook__jupyter-output-area--stderr"
+                >
                     <pre>{result.stderr}</pre>
                 </OutputRow>
             ) : null}
             {runError ? (
-                <OutputRow className="MarkdownNotebook__jupyter-output-area--error">
+                <OutputRow
+                    {...(!status && !result?.stdout && !result?.stderr ? leadingPrompt : {})}
+                    className="MarkdownNotebook__jupyter-output-area--error"
+                >
                     <pre>{runError}</pre>
                 </OutputRow>
             ) : null}
             {media.map((item, index) => (
-                <OutputRow key={index}>
+                <OutputRow
+                    key={index}
+                    {...(index === 0 && !status && !result?.stdout && !result?.stderr && !runError
+                        ? leadingPrompt
+                        : {})}
+                >
                     <img src={`data:${item.mime_type};base64,${item.data}`} alt="Cell output" />
                 </OutputRow>
             ))}
             {resultText ? (
-                <OutputRow prompt={outPrompt}>
+                <OutputRow prompt={outPrompt} controls={controls}>
                     <pre>{resultText}</pre>
                 </OutputRow>
             ) : null}
             {dataframeResult && !runError ? (
-                <OutputRow prompt={outPrompt}>
+                <OutputRow prompt={outPrompt} controls={controls}>
                     {valueOverride ?? (
                         <NotebookJupyterDataframe
                             {...dataframeProps}

@@ -2461,6 +2461,8 @@ button.MarkdownNotebook__component-title:focus-visible {
 }
 
 .MarkdownNotebook__jupyter-prompt {
+    position: relative;
+    z-index: 2;
     flex: 0 0 var(--jupyter-prompt-width);
     padding: 0.5rem 0.5rem 0 0;
     font-family: var(--font-mono);
@@ -2468,6 +2470,7 @@ button.MarkdownNotebook__component-title:focus-visible {
     line-height: 1.3;
     text-align: right;
     white-space: nowrap;
+    pointer-events: none;
     user-select: none;
     opacity: 0.8;
 }
@@ -2571,12 +2574,24 @@ button.MarkdownNotebook__component-title:focus-visible {
 
 .MarkdownNotebook__jupyter-visibility-controls {
     display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem;
-    margin: 0.125rem 0 0.25rem var(--jupyter-prompt-width);
+    flex-direction: column;
+    align-items: flex-end;
+    margin-top: 0.125rem;
+    pointer-events: auto;
 
     .LemonButton {
-        color: var(--color-text-secondary);
+        --lemon-button-font-size: var(--jupyter-prompt-font-size);
+        --lemon-button-color: var(--color-text-secondary);
+
+        font-family: var(--font-mono);
+
+        .LemonButton__chrome {
+            line-height: 1.3;
+        }
+
+        .LemonButton__content {
+            font-weight: 400;
+        }
     }
 }
 
