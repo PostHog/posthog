@@ -4,16 +4,21 @@ from django.db import transaction
 from django.utils import timezone
 
 from products.warehouse_sources.backend.migration.capabilities import source_capabilities
-from products.warehouse_sources.backend.migration.fivetran.client import (
-    FivetranAuthError,
-    FivetranClient,
-    FivetranCredentials,
-)
+from products.warehouse_sources.backend.migration.fivetran.client import FivetranClient, FivetranCredentials
 from products.warehouse_sources.backend.migration.fivetran.planner import CatalogLookup, PlannedItem, plan_items
 from products.warehouse_sources.backend.migration.fivetran.snapshot import fetch_snapshot
 from products.warehouse_sources.backend.models.warehouse_migration import WarehouseMigration, WarehouseMigrationItem
 
-_KEEP_ON_REFRESH = (WarehouseMigrationItem.Status.APPLIED, WarehouseMigrationItem.Status.SKIPPED)
+# A refresh must not touch an item that an apply has claimed or finished.
+_KEEP_ON_REFRESH = (
+    WarehouseMigrationItem.Status.APPLYING,
+    WarehouseMigrationItem.Status.APPLIED,
+    WarehouseMigrationItem.Status.SKIPPED,
+)
+_AUTH_FAILED_MESSAGE = (
+    "Fivetran rejected the API key. Check that the key is active and can read connections and destinations."
+)
+_CRAWL_FAILED_MESSAGE = "Reading the Fivetran account failed. Try again."
 
 
 class _NoCatalog:
@@ -30,45 +35,48 @@ PENDING_CATALOG: CatalogLookup = _NoCatalog()
 
 
 def crawl_migration(*, team_id: int, migration_id: UUID, catalog: CatalogLookup = PENDING_CATALOG) -> int:
-    """Read the vendor account, plan every connection, and store the result. Returns the item count."""
-    migration = WarehouseMigration.objects.for_team(team_id).get(id=migration_id)
-    _set_status(migration, WarehouseMigration.Status.CRAWLING, error="")
+    """Read the vendor account, plan every connection, and store the result. Returns the item count.
 
-    try:
-        snapshot = fetch_snapshot(FivetranClient(FivetranCredentials(**migration.credentials)))
-    except FivetranAuthError:
-        _set_status(
-            migration,
-            WarehouseMigration.Status.FAILED,
-            error="Fivetran rejected the API key. Check that the key is active and can read connections and destinations.",
-        )
-        raise
-    except Exception:
-        _set_status(
-            migration, WarehouseMigration.Status.FAILED, error="Reading the Fivetran account failed. Try again."
-        )
-        raise
+    A failure leaves the migration `crawling`: the workflow retries, then calls `mark_migration_failed`.
+    """
+    migration = WarehouseMigration.objects.for_team(team_id).filter(id=migration_id).first()
+    if migration is None:
+        # Deleted while the crawl waited to start.
+        return 0
+    migration.status = WarehouseMigration.Status.CRAWLING
+    migration.latest_error = ""
+    migration.save(update_fields=["status", "latest_error", "updated_at"])
 
+    snapshot = fetch_snapshot(FivetranClient(FivetranCredentials(**migration.credentials)))
     planned = plan_items(snapshot, catalog, source_capabilities)
     with transaction.atomic():
-        _save_items(migration, planned)
-        migration.snapshot = snapshot.to_json()
-        migration.account_name = snapshot.account_name or ""
-        migration.crawled_at = timezone.now()
-        migration.status = WarehouseMigration.Status.READY
-        migration.save(update_fields=["snapshot", "account_name", "crawled_at", "status", "updated_at"])
+        locked = WarehouseMigration.objects.for_team(team_id).select_for_update().filter(id=migration_id).first()
+        if locked is None or locked.status != WarehouseMigration.Status.CRAWLING:
+            # Deleted, or a newer crawl or a failure mark already won.
+            return 0
+        _save_items(locked, planned)
+        locked.snapshot = snapshot.to_json()
+        locked.account_name = snapshot.account_name or ""
+        locked.crawled_at = timezone.now()
+        locked.status = WarehouseMigration.Status.READY
+        locked.save(update_fields=["snapshot", "account_name", "crawled_at", "status", "updated_at"])
     return len(planned)
 
 
-def _set_status(migration: WarehouseMigration, status: WarehouseMigration.Status, *, error: str) -> None:
-    migration.status = status
-    migration.latest_error = error
-    migration.save(update_fields=["status", "latest_error", "updated_at"])
+def mark_migration_failed(*, team_id: int, migration_id: UUID, auth_failed: bool) -> None:
+    WarehouseMigration.objects.for_team(team_id).filter(
+        id=migration_id, status__in=(WarehouseMigration.Status.PENDING, WarehouseMigration.Status.CRAWLING)
+    ).update(
+        status=WarehouseMigration.Status.FAILED,
+        latest_error=_AUTH_FAILED_MESSAGE if auth_failed else _CRAWL_FAILED_MESSAGE,
+        updated_at=timezone.now(),
+    )
 
 
 def _save_items(migration: WarehouseMigration, planned: tuple[PlannedItem, ...]) -> None:
     items = WarehouseMigrationItem.objects.for_team(migration.team_id).filter(migration=migration)
-    existing = {item.vendor_connection_id: item for item in items}
+    # Locked so an apply cannot claim an item between this read and the save below.
+    existing = {item.vendor_connection_id: item for item in items.select_for_update()}
 
     for plan in planned:
         item = existing.get(plan.vendor_connection_id)

@@ -2,10 +2,10 @@ from django.db import models
 
 from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
-from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
+from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel, sane_repr
 
 
-class WarehouseMigration(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
+class WarehouseMigration(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     """One import of a team's Fivetran account setup into PostHog sources.
 
     `credentials` holds the customer's read-only vendor API key, encrypted, and is never returned by the
@@ -38,7 +38,7 @@ class WarehouseMigration(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFiel
     __repr__ = sane_repr("id", "team_id", "provider", "status")
 
 
-class WarehouseMigrationItem(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
+class WarehouseMigrationItem(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     """One vendor connection inside a `WarehouseMigration`, with what PostHog plans to create for it."""
 
     class Verdict(models.TextChoices):

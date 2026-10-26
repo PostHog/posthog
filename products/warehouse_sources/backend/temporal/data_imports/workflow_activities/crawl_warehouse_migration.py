@@ -15,6 +15,7 @@ from asgiref.sync import async_to_sync
 from temporalio import activity, workflow
 from temporalio.client import Client
 from temporalio.common import RetryPolicy, WorkflowIDConflictPolicy, WorkflowIDReusePolicy
+from temporalio.exceptions import ActivityError, ApplicationError
 
 from posthog.dataclasses import frozen
 from posthog.sync import database_sync_to_async
@@ -22,7 +23,7 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.heartbeat import LivenessHeartbeater as Heartbeater
 
-from products.warehouse_sources.backend.migration.crawl import crawl_migration
+from products.warehouse_sources.backend.migration.crawl import crawl_migration, mark_migration_failed
 
 WORKFLOW_NAME = "warehouse-migration-crawl"
 
@@ -41,6 +42,20 @@ async def crawl_warehouse_migration_activity(inputs: CrawlWarehouseMigrationInpu
         )
 
 
+@frozen
+class MarkWarehouseMigrationFailedInputs:
+    team_id: int
+    migration_id: uuid.UUID
+    auth_failed: bool
+
+
+@activity.defn
+async def mark_warehouse_migration_failed_activity(inputs: MarkWarehouseMigrationFailedInputs) -> None:
+    await database_sync_to_async(mark_migration_failed, thread_sensitive=False)(
+        team_id=inputs.team_id, migration_id=inputs.migration_id, auth_failed=inputs.auth_failed
+    )
+
+
 @workflow.defn(name=WORKFLOW_NAME)
 class CrawlWarehouseMigrationWorkflow(PostHogWorkflow):
     @staticmethod
@@ -50,14 +65,28 @@ class CrawlWarehouseMigrationWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, inputs: CrawlWarehouseMigrationInputs) -> int:
-        return await workflow.execute_activity(
-            crawl_warehouse_migration_activity,
-            inputs,
-            # One account can hold hundreds of connections at two API calls each.
-            start_to_close_timeout=timedelta(minutes=30),
-            heartbeat_timeout=timedelta(minutes=2),
-            retry_policy=RetryPolicy(maximum_attempts=3, non_retryable_error_types=["FivetranAuthError"]),
-        )
+        try:
+            return await workflow.execute_activity(
+                crawl_warehouse_migration_activity,
+                inputs,
+                # One account can hold hundreds of connections at two API calls each.
+                start_to_close_timeout=timedelta(minutes=30),
+                heartbeat_timeout=timedelta(minutes=2),
+                retry_policy=RetryPolicy(maximum_attempts=3, non_retryable_error_types=["FivetranAuthError"]),
+            )
+        except ActivityError as error:
+            # Covers timeouts and lost workers too, so a migration never stays `crawling`.
+            await workflow.execute_activity(
+                mark_warehouse_migration_failed_activity,
+                MarkWarehouseMigrationFailedInputs(
+                    team_id=inputs.team_id,
+                    migration_id=inputs.migration_id,
+                    auth_failed=isinstance(error.cause, ApplicationError) and error.cause.type == "FivetranAuthError",
+                ),
+                start_to_close_timeout=timedelta(minutes=1),
+                retry_policy=RetryPolicy(maximum_attempts=5),
+            )
+            raise
 
 
 @async_to_sync

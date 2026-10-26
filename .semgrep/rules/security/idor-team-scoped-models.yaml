@@ -473,6 +473,8 @@ rules:
                               |WikiPageProposal
                               |WarehouseColumnAnnotation
                               |WarehouseColumnStatistics
+                              |WarehouseMigration
+                              |WarehouseMigrationItem
                               |WarehouseSuggestion
                               |WebAnalyticsAchievementProgress
                               |WebAnalyticsFilterPreset
@@ -944,6 +946,8 @@ rules:
                         |WikiPageProposal
                         |WarehouseColumnAnnotation
                         |WarehouseColumnStatistics
+                        |WarehouseMigration
+                        |WarehouseMigrationItem
                         |WarehouseSuggestion
                         |WebAnalyticsAchievementProgress
                         |WebAnalyticsFilterPreset

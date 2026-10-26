@@ -4,8 +4,9 @@ import pytest
 from posthog.test.base import BaseTest
 
 import requests_mock
+from parameterized import parameterized
 
-from products.warehouse_sources.backend.migration.crawl import crawl_migration
+from products.warehouse_sources.backend.migration.crawl import crawl_migration, mark_migration_failed
 from products.warehouse_sources.backend.migration.fivetran.client import FIVETRAN_API_URL, FivetranAuthError
 from products.warehouse_sources.backend.migration.fivetran.planner import SourceMatchLike
 from products.warehouse_sources.backend.migration.types import Verdict
@@ -56,7 +57,16 @@ class TestCrawlMigration(BaseTest):
         items = WarehouseMigrationItem.objects.for_team(self.team.pk).filter(migration=migration)
         return {item.vendor_connection_id: item for item in items}
 
-    def test_refresh_keeps_applied_items_and_replaces_the_rest(self) -> None:
+    @parameterized.expand(
+        [
+            ("applying", WarehouseMigrationItem.Status.APPLYING),
+            ("applied", WarehouseMigrationItem.Status.APPLIED),
+            ("skipped", WarehouseMigrationItem.Status.SKIPPED),
+        ]
+    )
+    def test_refresh_keeps_claimed_and_finished_items_and_replaces_the_rest(
+        self, _name: str, kept_status: WarehouseMigrationItem.Status
+    ) -> None:
         migration = self._migration()
         with requests_mock.Mocker() as m:
             _mock_account(m, ["conn_applied", "conn_pending", "conn_removed"])
@@ -64,7 +74,7 @@ class TestCrawlMigration(BaseTest):
 
         items = self._items(migration)
         applied = items["conn_applied"]
-        applied.status = WarehouseMigrationItem.Status.APPLIED
+        applied.status = kept_status
         applied.caveats = ["kept from the first crawl"]
         applied.save()
 
@@ -77,18 +87,29 @@ class TestCrawlMigration(BaseTest):
         assert migration.status == WarehouseMigration.Status.READY
         assert migration.account_name == "Example Co"
         assert set(items) == {"conn_applied", "conn_pending", "conn_new"}
-        assert items["conn_applied"].caveats == ["kept from the first crawl"]
+        assert (items["conn_applied"].status, items["conn_applied"].caveats) == (
+            kept_status,
+            ["kept from the first crawl"],
+        )
         assert items["conn_new"].verdict == Verdict.CAVEATS
         assert items["conn_new"].proposal is not None
         assert items["conn_new"].proposal["source_type"] == ExternalDataSourceType.HUBSPOT
 
-    def test_rejected_key_marks_the_migration_failed(self) -> None:
+    @parameterized.expand([("auth_failed", True, "rejected the API key"), ("other_failure", False, "Try again")])
+    def test_failed_crawl_is_marked_failed_once_retries_run_out(
+        self, _name: str, auth_failed: bool, expected_error: str
+    ) -> None:
         migration = self._migration()
         with requests_mock.Mocker() as m:
             m.get(f"{FIVETRAN_API_URL}/account/info", status_code=401, json={"message": "Unauthorized"})
             with pytest.raises(FivetranAuthError):
                 crawl_migration(team_id=self.team.pk, migration_id=migration.id, catalog=_HubspotOnly())
+        migration.refresh_from_db()
+        # Temporal may still retry, so the attempt itself does not mark the migration failed.
+        assert migration.status == WarehouseMigration.Status.CRAWLING
+
+        mark_migration_failed(team_id=self.team.pk, migration_id=migration.id, auth_failed=auth_failed)
 
         migration.refresh_from_db()
         assert migration.status == WarehouseMigration.Status.FAILED
-        assert "rejected the API key" in migration.latest_error
+        assert expected_error in migration.latest_error
