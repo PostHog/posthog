@@ -7,6 +7,9 @@ import {
     DropdownMenuContent,
     DropdownMenuItem,
     DropdownMenuTrigger,
+    Tooltip,
+    TooltipContent,
+    TooltipTrigger,
 } from '@posthog/quill-primitives'
 
 import { useComposerFilePicker } from '../../../components/composer/useComposerFilePicker'
@@ -27,19 +30,28 @@ export function TaskComposerAddMenu({
         <>
             {fileInput}
             <DropdownMenu>
-                <DropdownMenuTrigger
-                    render={
-                        <Button
-                            variant="default"
-                            size="icon-sm"
-                            aria-label="Add files or a repository"
-                            className={isOver ? 'ring-1 ring-ring' : undefined}
-                            data-attr="task-composer-add-menu"
-                        >
-                            <IconPlus />
-                        </Button>
-                    }
-                />
+                <Tooltip>
+                    <TooltipTrigger
+                        render={
+                            <DropdownMenuTrigger
+                                render={
+                                    <Button
+                                        variant="default"
+                                        size="icon-sm"
+                                        aria-label="Add files or a repository"
+                                        className={isOver ? 'ring-1 ring-ring' : undefined}
+                                        data-attr="task-composer-add-menu"
+                                    >
+                                        <IconPlus />
+                                    </Button>
+                                }
+                            />
+                        }
+                    />
+                    <TooltipContent>
+                        {addDisabledReason ?? (isOver ? 'Drop to attach' : 'Attach files or add a repository')}
+                    </TooltipContent>
+                </Tooltip>
                 <DropdownMenuContent align="start" side="top" sideOffset={6} className="min-w-fit">
                     <DropdownMenuItem
                         disabled={!!addDisabledReason}

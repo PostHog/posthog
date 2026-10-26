@@ -33,6 +33,7 @@ export interface GitHubRepositoryComboboxProps {
     fullWidth?: boolean
     /** Open the picker on mount, for a picker the user just asked for. */
     defaultOpen?: boolean
+    onOpenChange?: (open: boolean) => void
 }
 
 /**
@@ -55,6 +56,7 @@ export function GitHubRepositoryCombobox({
     loadAll = false,
     fullWidth = false,
     defaultOpen = false,
+    onOpenChange,
 }: GitHubRepositoryComboboxProps): JSX.Element {
     const logic = githubRepositorySearchLogic({ id: integrationId, loadAll })
     const { repositories, loading, hasMore, searchQuery, error } = useValues(logic)
@@ -84,6 +86,7 @@ export function GitHubRepositoryCombobox({
             open={open}
             onOpenChange={(nextOpen: boolean) => {
                 setOpen(nextOpen)
+                onOpenChange?.(nextOpen)
                 // Reset back to the full list on the next open rather than on close: clearing the search
                 // while closing would empty the list and flip the trigger to a loading state for the
                 // debounce window, flickering the picker every time it's dismissed after a search.
