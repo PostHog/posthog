@@ -28,7 +28,6 @@ RESERVED_LABELS: Final = frozenset({"alertname"})
 
 URL_SUFFIX: Final = "_url"
 
-_TEMPLATE: Final = re2.compile(r"(?s)\{\{(.*?)\}\}")
 _LABEL_REFERENCE: Final = re2.compile(r"\s*\$labels\.([a-zA-Z_][a-zA-Z0-9_]*)\s*")
 _VALUE_REFERENCE: Final = re2.compile(r"\s*\$value\s*")
 
@@ -69,8 +68,7 @@ def validate_annotations(annotations: Mapping[str, str], known_labels: Collectio
 def referenced_labels(name: str, value: str) -> list[str]:
     """The label names a template references. Raises for anything but `$labels.<name>` and `$value`."""
     references: list[str] = []
-    for match in _TEMPLATE.finditer(value):
-        body = match.group(1)
+    for body in _template_bodies(name, value):
         if label := _LABEL_REFERENCE.fullmatch(body):
             references.append(label.group(1))
         elif not _VALUE_REFERENCE.fullmatch(body):
@@ -79,6 +77,20 @@ def referenced_labels(name: str, value: str) -> list[str]:
                 "Use {{ $labels.<name> }} or {{ $value }}."
             )
     return references
+
+
+def _template_bodies(name: str, value: str) -> list[str]:
+    # A scan with `find` reads each character once. An unclosed `{{` would otherwise slip past a
+    # pattern that needs both delimiters, and skip every check on what follows it.
+    bodies: list[str] = []
+    position = 0
+    while (start := value.find("{{", position)) != -1:
+        end = value.find("}}", start + 2)
+        if end == -1:
+            raise InvalidRuleMetadata(f"Annotation `{name}` has a `{{{{` with no closing `}}}}`.")
+        bodies.append(value[start + 2 : end])
+        position = end + 2
+    return bodies
 
 
 def _check_name(name: str, kind: str) -> None:

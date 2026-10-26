@@ -286,14 +286,17 @@ class PlatformAlertConfigurationEditSerializer(serializers.Serializer):
         max_value=MAX_STORED_INTEGER,
         help_text="Minimum minutes between notifications for the same alert.",
     )
+    # Optional, so a full update written before these fields existed keeps working and keeps what is stored.
     labels = serializers.DictField(
         child=serializers.CharField(),
+        required=False,
         help_text='Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. '
         "Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. "
         "Values cannot use templates.",
     )
     annotations = serializers.DictField(
         child=serializers.CharField(),
+        required=False,
         help_text='Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use '
         "{{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation "
         "whose name ends in _url must start with https://.",

@@ -406,6 +406,25 @@ class TestPlatformAlertAPI(APIBaseTest):
         read = self.client.get(self._edit_url(configuration)).json()
         assert (read["labels"], read["annotations"]) == (labels, annotations)
 
+        full_update = {
+            key: read[key]
+            for key in (
+                "source_kind",
+                "name",
+                "enabled",
+                "source_config",
+                "grouping",
+                "schedule_restriction",
+                "evaluation_periods",
+                "datapoints_to_alarm",
+                "cooldown_minutes",
+            )
+        }
+        response = self.client.put(self._edit_url(configuration), {**full_update, "name": "Renamed"}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert (response.json()["labels"], response.json()["annotations"]) == (labels, annotations)
+
     @parameterized.expand(
         [
             ("alert_scope_only", ["alert:write"], status.HTTP_404_NOT_FOUND),

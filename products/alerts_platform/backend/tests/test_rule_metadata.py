@@ -29,6 +29,8 @@ def test_templates_reference_labels_by_name(_name: str, value: str, expected: li
         ("function", "{{ humanize $value }}"),
         ("control_flow", '{{ if eq $labels.team "a" }}a{{ end }}'),
         ("index_syntax", '{{ index $labels "team" }}'),
+        ("unclosed", "{{ $labels.team is down"),
+        ("unclosed_after_a_valid_one", "{{ $value }} then {{ humanize $value"),
     ]
 )
 def test_a_template_beyond_substitution_is_refused(_name: str, value: str) -> None:
