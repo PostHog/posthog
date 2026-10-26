@@ -4983,9 +4983,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                     data-attr="delete-removed-insight"
                                     className="!m-0"
                                     onClick={() => {
-                                        dashboardEventsLogic.actions.reportDashboardInsightDeleteAfterRemovalClicked(
-                                            otherDashboardIds.size
-                                        )
+                                        // The toast can outlive the dashboard scene, so dashboardEventsLogic may
+                                        // already be unmounted by the time this is clicked.
+                                        if (dashboardEventsLogic.isMounted()) {
+                                            dashboardEventsLogic.actions.reportDashboardInsightDeleteAfterRemovalClicked(
+                                                otherDashboardIds.size
+                                            )
+                                        }
                                         deleteInsight()
                                     }}
                                 >
@@ -5124,7 +5128,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 dashboardsModel.actions.updateDashboardSuccess(dashboard, {
                     layoutsPersisted: true,
                 })
-                dashboardEventsLogic.actions.reportDashboardTileDensityConfigured(tileSpacing)
+                // The user can navigate away mid-save, unmounting dashboardEventsLogic before the report fires.
+                if (dashboardEventsLogic.isMounted()) {
+                    dashboardEventsLogic.actions.reportDashboardTileDensityConfigured(tileSpacing)
+                }
             } catch {
                 if (!cache.pendingDashboardTileSpacing) {
                     actions.setDashboardTileSpacing(persistedTileSpacing)
