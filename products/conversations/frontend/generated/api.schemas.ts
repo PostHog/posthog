@@ -752,6 +752,8 @@ export const TicketSlaFilterEnumApi = {
  * * `escalated_with_best` - escalated_with_best
  * * `escalated_no_reply` - escalated_no_reply
  * * `skipped_unactionable` - skipped_unactionable
+ * * `skipped_team_replied` - skipped_team_replied
+ * * `skipped_channel_excluded` - skipped_channel_excluded
  * * `blocked_unsafe` - blocked_unsafe
  * * `blocked_unsafe_reply` - blocked_unsafe_reply
  * * `clarified` - clarified
@@ -767,6 +769,8 @@ export const AiTriageResultEnumApi = {
     EscalatedWithBest: 'escalated_with_best',
     EscalatedNoReply: 'escalated_no_reply',
     SkippedUnactionable: 'skipped_unactionable',
+    SkippedTeamReplied: 'skipped_team_replied',
+    SkippedChannelExcluded: 'skipped_channel_excluded',
     BlockedUnsafe: 'blocked_unsafe',
     BlockedUnsafeReply: 'blocked_unsafe_reply',
     Clarified: 'clarified',
@@ -839,7 +843,7 @@ export interface TicketViewFiltersApi {
      * * `on-track` - on-track
      * * `all` - all */
     sla?: TicketSlaFilterEnumApi
-    /** AI triage outcomes to include. 'in_progress' matches tickets still being triaged. Valid values: persisted, suggested, escalated_with_findings, escalated_with_best, escalated_no_reply, skipped_unactionable, blocked_unsafe, blocked_unsafe_reply, clarified, suggested_clarification, in_progress. */
+    /** AI triage outcomes to include. 'in_progress' matches tickets still being triaged. Valid values: persisted, suggested, escalated_with_findings, escalated_with_best, escalated_no_reply, skipped_unactionable, skipped_team_replied, skipped_channel_excluded, blocked_unsafe, blocked_unsafe_reply, clarified, suggested_clarification, in_progress. */
     aiTriageResult?: AiTriageResultEnumApi[]
     /** Assignees to match (any of): 'unassigned', 'me' (resolved to the requesting user), or an object with type ('user' or 'role') and id. Send a list. Views saved earlier can hold a single value instead of a list, or the value 'all'. Wrap a single value in a list, and replace 'all' with an empty list to apply no assignee filter. */
     assignee?: TicketViewFiltersApiAssigneeItem[]
@@ -1062,7 +1066,7 @@ export interface ZendeskImportErrorApi {
 
 export type ConversationsTicketsListParams = {
     /**
-     * Filter by AI triage outcome. Accepts a single value or a comma-separated list. Valid values: `persisted`, `suggested`, `escalated_with_findings`, `escalated_with_best`, `escalated_no_reply`, `skipped_unactionable`, `blocked_unsafe`, `blocked_unsafe_reply`, `clarified`, `suggested_clarification`, `in_progress`.
+     * Filter by AI triage outcome. Accepts a single value or a comma-separated list. Valid values: `persisted`, `suggested`, `escalated_with_findings`, `escalated_with_best`, `escalated_no_reply`, `skipped_unactionable`, `skipped_team_replied`, `skipped_channel_excluded`, `blocked_unsafe`, `blocked_unsafe_reply`, `clarified`, `suggested_clarification`, `in_progress`.
      */
     ai_triage_result?: string
     /**
