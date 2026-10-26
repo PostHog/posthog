@@ -76,7 +76,7 @@ The scratchpad has no tags — entries are durable per-team prose keyed by strin
 | `allowlist:`  | Vetted entities the scout should never re-surface.                                                                                   |
 | `not-in-use:` | Close-out memo for "product not in use on this team".                                                                                |
 
-Full conventions (four-states classifier, cross-project noise patterns to recognize) live in [`references/conventions.md`](references/conventions.md).
+Full conventions (four-states classifier, the funnel step-order check, cross-project noise patterns to recognize) live in [`references/conventions.md`](references/conventions.md). Read the funnel step-order check before you report a funnel drop as a product defect.
 
 ## Avoid lens-lock
 
