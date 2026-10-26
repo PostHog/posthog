@@ -7,9 +7,13 @@ below. Every call site wraps these in `safe_record`: a metric must never fail a 
 
 import datetime as dt
 from collections.abc import Callable
+from functools import cache
+from typing import Literal
+
+from prometheus_client import Counter, Histogram
 
 from posthog.temporal.common.logger import get_write_only_logger
-from posthog.temporal.common.metrics import get_metric_meter
+from posthog.temporal.common.metrics import Attributes, get_metric_meter
 
 logger = get_write_only_logger(__name__)
 
@@ -18,6 +22,7 @@ logger = get_write_only_logger(__name__)
 ALERTS_PLATFORM_LATENCY_HISTOGRAM_METRICS = (
     "alerts_platform_batch_duration_ms",
     "alerts_platform_scheduler_lag_ms",
+    "alerts_platform_delivery_lag_ms",
 )
 
 ALERTS_PLATFORM_LATENCY_HISTOGRAM_BUCKETS = [
@@ -192,6 +197,61 @@ def record_batch_duration(source: str, duration_ms: int) -> None:
         description="Wall time for one batch key's evaluation, queries included",
         unit="ms",
     ).record(dt.timedelta(milliseconds=duration_ms))
+
+
+DeliveryOutcomeLabel = Literal["sent", "failed", "already_delivered", "busy", "no_transport"]
+
+_DELIVERIES_DESCRIPTION = "Transitions a delivery handled, by provider, delivery path and outcome"
+_DELIVERY_LAG_DESCRIPTION = "Delay between the check that decided a transition and the send that announced it"
+
+
+# A web process sends inline, outside any worker, when Temporal is unreachable or a deleted alert's
+# resolve cannot wait. It has no Temporal meter, so it records the same series in its own registry.
+# Created on first use, never at import: a worker exports this registry beside Temporal's meter, and
+# the same family declared twice makes Prometheus reject the worker's whole scrape.
+@cache
+def _inline_deliveries() -> Counter:
+    return Counter("alerts_platform_deliveries", _DELIVERIES_DESCRIPTION, ["source", "provider", "path", "outcome"])
+
+
+@cache
+def _inline_delivery_lag() -> Histogram:
+    return Histogram(
+        "alerts_platform_delivery_lag_ms",
+        _DELIVERY_LAG_DESCRIPTION,
+        ["source", "provider"],
+        buckets=ALERTS_PLATFORM_LATENCY_HISTOGRAM_BUCKETS,
+    )
+
+
+def increment_deliveries(source: str, provider: str, path: str, outcome: DeliveryOutcomeLabel, count: int = 1) -> None:
+    """What happened to each transition a delivery carried, per destination provider.
+
+    `already_delivered` is a retry finding its send done, and `busy` a send that waits on another
+    one holding the thread. Neither sent anything, so a rising `sent` with a flat `failed` is the
+    only reading that says alerts reach people.
+    """
+    labels: Attributes = {"source": source, "provider": provider, "path": path, "outcome": outcome}
+    try:
+        meter = get_metric_meter(labels)
+    except RuntimeError:
+        _inline_deliveries().labels(**labels).inc(count)
+        return
+    meter.create_counter("alerts_platform_deliveries_total", _DELIVERIES_DESCRIPTION).add(count)
+
+
+def record_delivery_lag(source: str, provider: str, lag_ms: int) -> None:
+    """How long after the check decided a transition its message went out. Evaluation metrics
+    cannot see a delivery queue that stalls, so this is the one that does."""
+    labels: Attributes = {"source": source, "provider": provider}
+    try:
+        meter = get_metric_meter(labels)
+    except RuntimeError:
+        _inline_delivery_lag().labels(**labels).observe(lag_ms)
+        return
+    meter.create_histogram_timedelta(
+        name="alerts_platform_delivery_lag_ms", description=_DELIVERY_LAG_DESCRIPTION, unit="ms"
+    ).record(dt.timedelta(milliseconds=lag_ms))
 
 
 def record_scheduler_lag(source: str, lag_ms: int) -> None:

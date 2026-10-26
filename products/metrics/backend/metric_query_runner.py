@@ -7,9 +7,10 @@ Filters use fingerprints, and group-by joins labels after reduction.
 
 import re
 import math
+import bisect
 import datetime as dt
-from collections.abc import Sequence
-from typing import Any, Literal
+from collections.abc import Iterator, Sequence
+from typing import Any, Literal, NamedTuple
 from zoneinfo import ZoneInfo
 
 from posthog.hogql import ast
@@ -19,9 +20,10 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
+from posthog.dataclasses import frozen
 from posthog.models import Team
 
-from products.metrics.backend.facade.contracts import MetricFilter, MetricGroupBy
+from products.metrics.backend.facade.contracts import MetricFilter, MetricGroupBy, MetricQueryTooManyRowsError
 from products.metrics.backend.facade.enums import FilterOp, MetricType
 from products.metrics.backend.metrics4_samples import metric_name_expr, samples_points_query
 
@@ -154,6 +156,169 @@ def _histogram_quantile(quantile: float, bounds: list[float], counts: list[float
     return bounds[-1]
 
 
+class MergedDistribution(NamedTuple):
+    bounds: list[float]
+    counts: list[float]
+    # The edges the quantile estimate is accurate to; see `_resolution_edges`.
+    resolution_bounds: list[float]
+    fingerprints: set[int]
+
+
+@frozen
+class _Histogram:
+    bounds: list[float]
+    counts: list[float]
+
+
+@frozen
+class _SourceBucket:
+    lower: float
+    upper: float
+    count: float
+
+
+def _exponential_upper_edges(bounds: list[float], counts: list[Any]) -> tuple[list[float], list[Any]]:
+    """Convert an exponential histogram's stored edges into ascending upper edges for the quantile.
+
+    Ingest stores the zero bucket as 0, then for each negative bucket `[-base**(i+1), -base**i)` its edge
+    nearest zero, then for each positive bucket `(base**i, base**(i+1)]` its lower edge. Consecutive
+    stored edges give `base`. A sign with only one bucket gives no `base`, so that bucket becomes zero-width
+    at its stored edge, which is inside its true range. Empty buckets fill the gaps between ranges.
+
+    A bucket shares its inner edge with its neighbor, so that edge reuses the neighbor's exact stored
+    value instead of recomputing it as `bound * base`: the two can differ in the last bit, which makes
+    the edges stop being sorted. Only the outermost bucket on each side has no neighbor to reuse, so it
+    falls back to the computed edge.
+    """
+    negative = [(bound, count) for bound, count in zip(bounds, counts) if bound < 0]
+    positive = [(bound, count) for bound, count in zip(bounds, counts) if bound > 0]
+    buckets: list[tuple[float, float, Any]] = [(0.0, 0.0, count) for bound, count in zip(bounds, counts) if bound == 0]
+    if negative:
+        base = negative[1][0] / negative[0][0] if len(negative) > 1 else 1.0
+        buckets += [
+            (negative[i + 1][0] if i + 1 < len(negative) else bound * base, bound, count)
+            for i, (bound, count) in enumerate(negative)
+        ]
+    if positive:
+        base = positive[1][0] / positive[0][0] if len(positive) > 1 else 1.0
+        buckets += [
+            (bound, positive[i + 1][0] if i + 1 < len(positive) else bound * base, count)
+            for i, (bound, count) in enumerate(positive)
+        ]
+    buckets.sort(key=lambda bucket: (bucket[1], bucket[0]))
+
+    edges: list[float] = []
+    ascending: list[Any] = []
+    for lower, upper, count in buckets:
+        previous = edges[-1] if edges else min(0.0, upper)
+        if lower != previous:
+            edges.append(lower)
+            ascending.append(0)
+        edges.append(upper)
+        ascending.append(count)
+    return edges, ascending
+
+
+def _source_buckets(bounds: Sequence[float], counts: Sequence[float]) -> Iterator[_SourceBucket]:
+    """Yield the edges and count of each bucket that holds observations.
+
+    Counts past the last edge are the overflow bucket, whose upper edge is infinite. With no edges at
+    all, every observation is in one bucket that is open at both ends.
+    """
+    for index, count in enumerate(counts):
+        if not count:
+            continue
+        if index >= len(bounds):
+            yield _SourceBucket(lower=bounds[-1] if bounds else -math.inf, upper=math.inf, count=count)
+        else:
+            yield _SourceBucket(
+                lower=bounds[index - 1] if index > 0 else min(0.0, bounds[0]), upper=bounds[index], count=count
+            )
+
+
+def _row_distribution(row: Sequence[Any], group_count: int) -> _Histogram:
+    """Bounds and counts for one `_build_histogram_query` row, as ascending upper edges.
+
+    Converts an exponential histogram's stored lower edges to upper edges; other layouts are
+    already upper edges and pass through unchanged.
+    """
+    bounds, counts = list(row[1 + group_count]), list(row[2 + group_count])
+    if row[4 + group_count] == MetricType.EXPONENTIAL_HISTOGRAM.value:
+        bounds, counts = _exponential_upper_edges(bounds, counts)
+    return _Histogram(bounds=bounds, counts=counts)
+
+
+def _merge_histograms(distributions: Sequence[_Histogram]) -> _Histogram:
+    """Merge bucket counts of different layouts onto the union of their edges.
+
+    A source bucket spreads over the union buckets it covers, in proportion to their width, which is the
+    same linear assumption the quantile interpolation makes. A source overflow bucket goes to the next
+    union bucket above its lowest edge, so its quantile stays near that edge as Prometheus reports it.
+    One sweep over the bucket ends keeps the work near-linear in the number of source buckets.
+    """
+    layouts = {tuple(distribution.bounds) for distribution in distributions}
+    if len(layouts) == 1:
+        width = max(len(distribution.counts) for distribution in distributions)
+        merged = [0.0] * width
+        for distribution in distributions:
+            for index, count in enumerate(distribution.counts):
+                merged[index] += count
+        return _Histogram(bounds=list(next(iter(layouts))), counts=merged)
+
+    edges = sorted({bound for layout in layouts for bound in layout})
+    merged = [0.0] * (len(edges) + 1)
+    density_changes: dict[float, float] = {}
+    open_changes: dict[float, int] = {}
+    for distribution in distributions:
+        for bucket in _source_buckets(distribution.bounds, distribution.counts):
+            lower, upper = bucket.lower, bucket.upper
+            if upper == math.inf:
+                merged[bisect.bisect_right(edges, lower)] += bucket.count
+            elif upper <= lower:
+                merged[bisect.bisect_left(edges, upper)] += bucket.count
+            else:
+                density = bucket.count / (upper - lower)
+                density_changes[lower] = density_changes.get(lower, 0.0) + density
+                density_changes[upper] = density_changes.get(upper, 0.0) - density
+                open_changes[lower] = open_changes.get(lower, 0) + 1
+                open_changes[upper] = open_changes.get(upper, 0) - 1
+
+    density = 0.0
+    open_buckets = 0
+    # The union edges split the sweep too, so each segment lies inside one union bucket.
+    positions = sorted({*density_changes, *edges})
+    for position, following in zip(positions, positions[1:]):
+        open_buckets += open_changes.get(position, 0)
+        # Reset when no bucket is open, so float error cannot leave a tiny density behind.
+        density = density + density_changes.get(position, 0.0) if open_buckets else 0.0
+        if density > 0:
+            merged[bisect.bisect_left(edges, following)] += density * (following - position)
+    return _Histogram(bounds=edges, counts=merged)
+
+
+def _resolution_edges(distributions: Sequence[_Histogram], edges: list[float]) -> list[float]:
+    """The merged edges that no source bucket with observations straddles.
+
+    Splitting a coarse bucket onto finer edges adds no precision, so only these edges tell how close
+    the quantile estimate is to the true value.
+    """
+    coverage = [0] * (len(edges) + 1)
+    for distribution in distributions:
+        for bucket in _source_buckets(distribution.bounds, distribution.counts):
+            start = bisect.bisect_right(edges, bucket.lower)
+            end = len(edges) if bucket.upper == math.inf else bisect.bisect_left(edges, bucket.upper)
+            if start < end:
+                coverage[start] += 1
+                coverage[end] -= 1
+    resolution: list[float] = []
+    straddled = 0
+    for index, edge in enumerate(edges):
+        straddled += coverage[index]
+        if not straddled:
+            resolution.append(edge)
+    return resolution
+
+
 # Target about 60 chart buckets.
 _TARGET_BUCKET_COUNT = 60
 
@@ -175,11 +340,13 @@ _INTERVAL_LADDER: list[tuple[str, dt.timedelta, ast.Call]] = [
 ]
 
 
-def _pick_interval(date_from: dt.datetime, date_to: dt.datetime) -> str:
+def _pick_interval(
+    date_from: dt.datetime, date_to: dt.datetime, target_bucket_count: int = _TARGET_BUCKET_COUNT
+) -> str:
     """Pick the finest interval that keeps bucket count at or below the target."""
     span = date_to - date_from
     for name, step, _ in _INTERVAL_LADDER:
-        if span / step <= _TARGET_BUCKET_COUNT:
+        if span / step <= target_bucket_count:
             return name
     return _INTERVAL_LADDER[-1][0]
 
@@ -584,35 +751,63 @@ class MetricQueryRunner:
         )
         self._raise_on_truncation(response.results)
 
-        group_count = len(self.group_by)
-        distinct_bounds = {tuple(variant) for row in response.results for variant in row[2 + group_count] if variant}
-        if len(distinct_bounds) > 1:
-            raise ValueError(
-                "histogram bounds differ across the selected series/time range; "
-                "narrow the query with filters so all series share one bucket layout"
-            )
-
         rows: list[dict[str, Any]] = []
-        for row in response.results:
-            bounds = list(row[1 + group_count])
-            counts = list(row[3 + group_count])
+        for key, merged in self.merged_distributions(response.results).items():
+            bounds, counts = merged.bounds, merged.counts
             if sum(counts) <= 0:
                 # The bucket has no computable increase. Return a gap, not zero.
                 continue
             rows.append(
                 {
-                    "time": row[0].isoformat() if isinstance(row[0], dt.datetime) else row[0],
+                    "time": key[0].isoformat() if isinstance(key[0], dt.datetime) else key[0],
                     "value": _finite_or_none(_histogram_quantile(self.quantile, bounds, counts)),
-                    "labels": {group.key: row[1 + index] for index, group in enumerate(self.group_by)},
-                    "series_fingerprints": row[4 + group_count],
+                    "labels": {group.key: key[1 + index] for index, group in enumerate(self.group_by)},
+                    "series_fingerprints": sorted(merged.fingerprints),
+                    "histogram_bounds": merged.resolution_bounds,
                 }
             )
         return rows
 
+    def merged_distributions(
+        self, results: list[Any], edges: Sequence[float] = ()
+    ) -> dict[tuple[Any, ...], MergedDistribution]:
+        """Merge the rows of `_build_histogram_query` into one distribution per (time, *group labels).
+
+        Each row holds one bucket layout. Exponential layouts move between emissions and custom
+        buckets differ per series, so the layouts of one time bucket merge before the quantile.
+        Pass `edges` to merge every distribution onto at least those edges.
+        """
+        group_count = len(self.group_by)
+        layouts: dict[tuple[Any, ...], list[_Histogram]] = {}
+        fingerprints: dict[tuple[Any, ...], set[int]] = {}
+        for row in results:
+            key = tuple(row[: 1 + group_count])
+            layouts.setdefault(key, []).append(_row_distribution(row, group_count))
+            fingerprints.setdefault(key, set()).update(row[3 + group_count])
+        extra = [_Histogram(bounds=list(edges), counts=[0.0] * (len(edges) + 1))] if edges else []
+        merged: dict[tuple[Any, ...], MergedDistribution] = {}
+        for key, distributions in layouts.items():
+            histogram = _merge_histograms([*distributions, *extra])
+            merged[key] = MergedDistribution(
+                bounds=histogram.bounds,
+                counts=histogram.counts,
+                resolution_bounds=_resolution_edges(distributions, histogram.bounds),
+                fingerprints=fingerprints[key],
+            )
+        return merged
+
+    def histogram_edges(self, results: list[Any]) -> list[float]:
+        """The union of the bucket upper edges in the rows of `_build_histogram_query`."""
+        group_count = len(self.group_by)
+        edges: set[float] = set()
+        for row in results:
+            edges.update(_row_distribution(row, group_count).bounds)
+        return sorted(edges)
+
     def _raise_on_truncation(self, results: list[Any]) -> None:
         """Raise an error when the row limit drops recent buckets."""
         if len(results) >= self._row_limit:
-            raise ValueError(
+            raise MetricQueryTooManyRowsError(
                 "query produced too many (time bucket, series) rows; "
                 "use a coarser interval, a narrower range, an aggregation, or a lower-cardinality group_by"
             )
@@ -793,19 +988,21 @@ class MetricQueryRunner:
             """
                 SELECT
                     toStartOfInterval(sample_timestamp, {interval}) AS time,
-                    any(histogram_bounds) AS bounds,
-                    groupUniqArray(histogram_bounds) AS bounds_variants,
+                    s.histogram_bounds AS bounds,
                     sumForEach(contribution_counts) AS counts,
-                    groupUniqArray(s.series_fingerprint) AS series_fingerprints
+                    groupUniqArray(s.series_fingerprint) AS series_fingerprints,
+                    s.metric_type AS metric_type
                 FROM (
                     SELECT
                         timestamp AS sample_timestamp,
                         series_fingerprint AS series_fingerprint,
                         histogram_bounds AS histogram_bounds,
+                        metric_type AS metric_type,
                         multiIf(
                             aggregation_temporality = 'delta', counts_f,
                             empty(prev_counts), arrayMap(x -> 0.0, counts_f),
-                            length(prev_counts) != length(counts_f), counts_f,
+                            prev_bounds != histogram_bounds OR length(prev_counts) != length(counts_f),
+                                arrayMap(x -> 0.0, counts_f),
                             arrayAll((c, p) -> c >= p, counts_f, prev_counts), arrayMap((c, p) -> c - p, counts_f, prev_counts),
                             counts_f
                         ) AS contribution_counts
@@ -815,17 +1012,23 @@ class MetricQueryRunner:
                             series_fingerprint,
                             aggregation_temporality,
                             histogram_bounds,
+                            metric_type,
                             arrayMap(x -> toFloat(x), histogram_counts) AS counts_f,
                             lagInFrame(arrayMap(x -> toFloat(x), histogram_counts)) OVER (
                                 PARTITION BY {series_key}
                                 ORDER BY timestamp ASC
                                 ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING
-                            ) AS prev_counts
+                            ) AS prev_counts,
+                            lagInFrame(histogram_bounds) OVER (
+                                PARTITION BY {series_key}
+                                ORDER BY timestamp ASC
+                                ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING
+                            ) AS prev_bounds
                         FROM {points}
                     )
                 ) AS s
                 WHERE sample_timestamp >= {date_from}
-                GROUP BY time
+                GROUP BY time, bounds, metric_type
                 ORDER BY time ASC
                 LIMIT {row_limit}
             """,
@@ -839,6 +1042,7 @@ class MetricQueryRunner:
                         "aggregation_temporality",
                         "histogram_bounds",
                         "histogram_counts",
+                        "metric_type",
                     ),
                     point_filters=(parse_expr("notEmpty(histogram_counts)"),),
                 ),

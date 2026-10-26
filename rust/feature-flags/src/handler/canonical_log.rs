@@ -187,7 +187,7 @@ pub struct FlagsCanonicalLogLine {
     pub lib: Option<String>,
     pub lib_version: Option<String>,
     pub api_version: Option<String>,
-    /// The response shape served, such as `FlagsV2` or `FlagsV3`.
+    /// The response shape served, such as `FlagsV2` or `FlagsV4`.
     pub response_format: Option<&'static str>,
 
     // Populated during authentication
@@ -733,7 +733,7 @@ mod tests {
         log.lib = Some("posthog-python".to_string());
         log.lib_version = Some("1.0.0".to_string());
         log.api_version = Some("3".to_string());
-        log.response_format = Some("FlagsV3");
+        log.response_format = Some("FlagsV4");
         log.team_id = Some(123);
         log.distinct_id = Some("user_abc".to_string());
         log.device_id = Some("device_123".to_string());

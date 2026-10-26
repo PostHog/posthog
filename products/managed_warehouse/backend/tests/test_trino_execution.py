@@ -64,11 +64,23 @@ async def test_success_preserves_result() -> None:
 
 
 @pytest.mark.asyncio
+async def test_reports_cpu_time() -> None:
+    cpu_milliseconds: list[int] = []
+
+    def execute(control: execution.TrinoQueryControl) -> int:
+        control.record_cpu_milliseconds(25)
+        return 42
+
+    assert await execution.run_trino_model(execute, query_seconds=60, on_cpu_milliseconds=cpu_milliseconds.append) == 42
+    assert cpu_milliseconds == [25]
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "error_name,expected_attempts",
-    [("CLUSTER_OUT_OF_MEMORY", 2), ("EXCEEDED_LOCAL_MEMORY_LIMIT", 1)],
+    [("CLUSTER_OUT_OF_MEMORY", 2), ("TOO_MANY_REQUESTS_FAILED", 2), ("EXCEEDED_LOCAL_MEMORY_LIMIT", 1)],
 )
-async def test_retries_only_cluster_out_of_memory(error_name: str, expected_attempts: int) -> None:
+async def test_retries_only_transient_trino_errors(error_name: str, expected_attempts: int) -> None:
     attempts = 0
     processed: list[int] = []
 

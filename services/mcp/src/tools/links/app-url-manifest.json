@@ -589,6 +589,11 @@
         "params": ["name"],
         "scope": "project"
     },
+    "dataCatalogNewMetric": {
+        "template": "/data-catalog/new-metric",
+        "params": [],
+        "scope": "project"
+    },
     "dataManagementHistory": {
         "template": "/data-management/history",
         "params": [],
@@ -2017,6 +2022,11 @@
     "workflows": {
         "template": "/workflows",
         "params": [],
+        "scope": "project"
+    },
+    "workflowsEmailDomain": {
+        "template": "/workflows/channels/email/{id}",
+        "params": ["id"],
         "scope": "project"
     },
     "workflowsLibraryMessage": {

@@ -8,7 +8,7 @@ the feedback as a `SignalScoutNote`, which every run reads by name at cold start
 (`scout-notes-list`, see the run prompt's *Notes left for you* section).
 
 Dismissing, snoozing, and restoring forward; resolving does not, see `_FORWARDED_OUTCOMES`.
-A `wrong_repo` dismissal forwards even with no note: the repositories it names are the feedback.
+`wrong_assignee` and `wrong_repo` dismissals forward even with no note because the reason itself is feedback.
 
 Forwarding, not promotion: promotion here is the pipeline moving a report up to `candidate`, and
 nothing in this path changes a report's standing.
@@ -40,7 +40,11 @@ from posthog.models import Team, User
 from posthog.permissions import get_authenticator_scoped_team_ids
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.signals.backend.artefact_schemas import DISMISSAL_REASON_WRONG_REPO, Dismissal
+from products.signals.backend.artefact_schemas import (
+    DISMISSAL_REASON_WRONG_ASSIGNEE,
+    DISMISSAL_REASON_WRONG_REPO,
+    Dismissal,
+)
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalScoutNote
 from products.signals.backend.repo_corrections import sanitized_repository
 from products.signals.backend.scout_authorship import resolve_authoring_skill_names
@@ -110,9 +114,7 @@ def forward_dismissal_note(
     read the database.
     """
     text = (note or "").strip()
-    # A wrong-repo verdict carries its feedback in the repositories it names, so it forwards with no
-    # prose. Every other reason has nothing to tell a scout without the note.
-    if not reports or (not text and reason != DISMISSAL_REASON_WRONG_REPO):
+    if not reports or (not text and reason not in {DISMISSAL_REASON_WRONG_ASSIGNEE, DISMISSAL_REASON_WRONG_REPO}):
         return []
     try:
         return _forward(team=team, reports=reports, reason=reason, note=text, request=request)

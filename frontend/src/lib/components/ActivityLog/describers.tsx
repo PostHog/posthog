@@ -31,6 +31,7 @@ import {
 import { surveyActivityDescriber } from 'scenes/surveys/surveyActivityDescriber'
 import { teamActivityDescriber } from 'scenes/team-activity/teamActivityDescriber'
 
+import { accessControlActivityDescriber } from '~/layout/navigation-3000/sidepanel/panels/access_control/accessControlActivityDescriber'
 import { ActivityScope } from '~/types'
 
 import { actionActivityDescriber } from 'products/actions/frontend/actionActivityDescriber'
@@ -49,10 +50,13 @@ import { insightActivityDescriber } from 'products/product_analytics/frontend/in
 import { signalScoutConfigActivityDescriber } from 'products/signals/frontend/activityDescriber'
 import { skillActivityDescriber } from 'products/skills/frontend/activityDescriber'
 import { stamphogRepoConfigActivityDescriber } from 'products/stamphog/frontend/activityDescriber'
+import { warehouseSuggestionActivityDescriber } from 'products/warehouse_suggestions/frontend/warehouseSuggestionActivityDescriber'
 import { workflowActivityDescriber } from 'products/workflows/frontend/Workflows/misc/workflowActivityDescriber'
 
 export const describerFor = (logItem?: ActivityLogItem): Describer | undefined => {
     switch (logItem?.scope) {
+        case ActivityScope.ACCESS_CONTROL:
+            return accessControlActivityDescriber
         case ActivityScope.ACTION:
             return actionActivityDescriber
         case ActivityScope.ALERT_CONFIGURATION:
@@ -116,6 +120,8 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
             return errorTrackingActivityDescriber
         case ActivityScope.DATA_WAREHOUSE_SAVED_QUERY:
             return dataWarehouseSavedQueryActivityDescriber
+        case ActivityScope.WAREHOUSE_SUGGESTION:
+            return warehouseSuggestionActivityDescriber
         case ActivityScope.REPLAY:
             return replayActivityDescriber
         case ActivityScope.HEATMAP:

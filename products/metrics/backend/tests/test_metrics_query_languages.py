@@ -222,7 +222,7 @@ class TestMetricsSqlMode(ClickhouseTestMixin, APIBaseTest):
                         if value is not None and actual_value is not None:
                             assert math.isclose(actual_value, value, rel_tol=1e-6, abs_tol=1e-9), (name, key, time)
 
-    def test_mixed_histogram_bounds_fail_in_both_languages(self) -> None:
+    def test_mixed_histogram_bounds_merge_in_builder_but_fail_in_sql(self) -> None:
         start = NOW - dt.timedelta(minutes=30)
         for bounds, service in (([10.0], "api"), ([100.0], "worker")):
             for m in range(0, 30):
@@ -237,8 +237,10 @@ class TestMetricsSqlMode(ClickhouseTestMixin, APIBaseTest):
                 )
         fixture = FIXTURES["histogram p99"]
 
-        with pytest.raises(ExposedHogQLError, match="histogram bounds differ"):
-            self._run(clauses=[MetricsQueryClause(**clause) for clause in fixture["builder"]["clauses"]])
+        # The builder merges the layouts onto their union edges. SQL mode still asks for one layout.
+        results = self._run(clauses=[MetricsQueryClause(**clause) for clause in fixture["builder"]["clauses"]])
+        # The worker's (0, 100] bucket straddles the api's 10 edge, so the estimate is only accurate to 100.
+        assert results[0].histogramBounds == [100.0]
         with pytest.raises(Exception, match="different histogram bounds"):
             self._run(clauses=[], language="sql", sql=fixture["sql"])
 
