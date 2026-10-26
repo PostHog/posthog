@@ -67,8 +67,8 @@ USER_CREATABLE_TYPES = frozenset(DESTINATION_INTEGRATION_KINDS)
 
 class DestinationConnectLinkQuerySerializer(serializers.Serializer):
     destination_type = serializers.ChoiceField(
-        choices=ExternalDataDestination.Type.choices,
-        help_text="The destination type to connect, e.g. 'Snowflake' or 'S3'. The PostHog warehouse needs no connection.",
+        choices=[choice for choice in ExternalDataDestination.Type.choices if choice[0] in USER_CREATABLE_TYPES],
+        help_text="The destination type to connect, e.g. 'Snowflake' or 'S3'.",
     )
     integration_kind = serializers.CharField(
         required=False,
@@ -80,10 +80,6 @@ class DestinationConnectLinkQuerySerializer(serializers.Serializer):
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         destination_type = attrs["destination_type"]
-        if destination_type not in USER_CREATABLE_TYPES:
-            raise ValidationError(
-                {"destination_type": "The PostHog warehouse is managed for you, so it has nothing to connect."}
-            )
         allowed_kinds = DESTINATION_INTEGRATION_KINDS[destination_type]
         kind = attrs.get("integration_kind") or allowed_kinds[0]
         if kind not in allowed_kinds:
@@ -570,12 +566,14 @@ class ExternalDataDestinationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
             ),
             "instructions": (
                 f"Share this link with the user. They enter their {destination_type} credentials directly in "
-                "PostHog. Never ask them to paste passwords, keys or tokens into the chat. The page only saves the "
-                "connection as an integration and does not create the destination. Once the user confirms they are "
-                f"done, find the integration id with integrations-list (kind='{kind}', newest first) or use the id "
-                f"the page shows. Then call external-data-destinations-create with type='{destination_type}', a "
-                "name, that integration id, and the target config (database, schema, dataset, bucket or prefix). "
-                "Creating the destination tests the connection, so a wrong target fails at that step."
+                "PostHog. Never ask them to paste passwords, keys or tokens into the chat. The page saves the "
+                "connection as an integration and shows its id. It does not create the destination. When the user "
+                "says they are done, ask them for that id. If they cannot give it, call integrations-list with "
+                f"kind='{kind}' and take the entry with the latest created_at (the list is oldest first), then "
+                "confirm its display_name with the user. Then call external-data-destinations-create with "
+                f"type='{destination_type}', a name, that integration id, and the target config (database, schema, "
+                "dataset, bucket or prefix). Creating the destination tests the connection, so a wrong target fails "
+                "at that step."
             ),
         }
         return Response(DestinationConnectLinkSerializer(data).data)

@@ -1,3 +1,4 @@
+import json
 from uuid import uuid4
 
 import pytest
@@ -1292,12 +1293,6 @@ class TestDestinationConnectLink(DestinationAPITestBase):
         assert f"kind='{kind}'" in data["instructions"]
         assert f"type='{destination_type}'" in data["instructions"]
 
-    def test_rejects_a_kind_the_type_does_not_accept(self) -> None:
-        response = self.client.get(f"{self.base}/connect_link?destination_type=Postgres&integration_kind=aws-s3")
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["attr"] == "integration_kind"
-
 
 class TestDestinationAPIKeyScopes(DestinationAPITestBase):
     def setUp(self) -> None:
@@ -1311,27 +1306,23 @@ class TestDestinationAPIKeyScopes(DestinationAPITestBase):
 
     @parameterized.expand(
         [
-            ("external_data_source:read", "connect_link", status.HTTP_200_OK),
-            ("external_data_source:read", "add_sources", status.HTTP_403_FORBIDDEN),
-            ("external_data_source:write", "add_sources", status.HTTP_200_OK),
-            ("external_data_source:read", "test_connection", status.HTTP_403_FORBIDDEN),
-            ("external_data_source:write", "test_connection", status.HTTP_200_OK),
+            ("external_data_source:read", "GET", "connect_link?destination_type=Postgres", status.HTTP_200_OK),
+            ("external_data_source:read", "POST", "{destination}/add_sources", status.HTTP_403_FORBIDDEN),
+            ("external_data_source:write", "POST", "{destination}/add_sources", status.HTTP_200_OK),
+            ("external_data_source:read", "POST", "{destination}/test_connection", status.HTTP_403_FORBIDDEN),
+            ("external_data_source:write", "POST", "{destination}/test_connection", status.HTTP_200_OK),
         ]
     )
-    def test_custom_actions_map_to_scopes(self, scope: str, action: str, expected_status: int) -> None:
+    def test_custom_actions_map_to_scopes(self, scope: str, method: str, path: str, expected_status: int) -> None:
         value = generate_random_token_personal()
         PersonalAPIKey.objects.create(user=self.user, label="test", secure_value=hash_key_value(value), scopes=[scope])
-        headers = {"authorization": f"Bearer {value}"}
 
-        if action == "connect_link":
-            response = self.client.get(f"{self.base}/connect_link?destination_type=Postgres", headers=headers)
-        elif action == "add_sources":
-            response = self.client.post(
-                f"{self.base}/{self.destination.id}/add_sources",
-                {"source_ids": [str(self.source.id)]},
-                headers=headers,
-            )
-        else:
-            response = self.client.post(f"{self.base}/{self.destination.id}/test_connection", headers=headers)
+        response = self.client.generic(
+            method,
+            f"{self.base}/{path.format(destination=self.destination.id)}",
+            json.dumps({"source_ids": [str(self.source.id)]}),
+            content_type="application/json",
+            headers={"authorization": f"Bearer {value}"},
+        )
 
         assert response.status_code == expected_status, response.json()

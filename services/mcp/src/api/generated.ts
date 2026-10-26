@@ -133652,9 +133652,8 @@ export namespace Schemas {
 
     export type ExternalDataDestinationsConnectLinkRetrieveParams = {
     /**
-     * The destination type to connect, e.g. 'Snowflake' or 'S3'. The PostHog warehouse needs no connection.
+     * The destination type to connect, e.g. 'Snowflake' or 'S3'.
      *
-     * * `PostHogWarehouse` - PostHog warehouse
      * * `Redshift` - Redshift
      * * `Snowflake` - Snowflake
      * * `BigQuery` - BigQuery
@@ -133676,7 +133675,6 @@ export namespace Schemas {
 
 
     export const ExternalDataDestinationsConnectLinkRetrieveDestinationType = {
-      PostHogWarehouse: 'PostHogWarehouse',
       Redshift: 'Redshift',
       Snowflake: 'Snowflake',
       BigQuery: 'BigQuery',
