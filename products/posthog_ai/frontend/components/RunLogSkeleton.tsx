@@ -47,8 +47,9 @@ function fadeInDelayMs(): number {
  * Loading state for "a run/task log is loading" — shared by the runner scene, the lazy `ReadonlyRunSurface`
  * chunk's Suspense fallback, and the `RunSurface` in-stream bootstrap. Built from the quill thread's own
  * parts (`ChatBubble`, `ThreadMarker`, the reserved message footer, `ThreadView`'s 16px row gap), so each turn
- * takes the same space as the turn that replaces it. It shows one turn at the bottom, where the loaded thread
- * opens on its latest turn, and leaves the rest empty, because more guessed turns only add noise. Kept free of the markdown and virtualization
+ * takes the same space as the turn that replaces it. It shows one turn at the top: a reopened thread lands
+ * with its last question at the top (`ThreadView`'s `anchorItemKey`), and a thread shorter than the screen
+ * starts at the top too. More guessed turns only add noise. Kept free of the markdown and virtualization
  * chunk, so it is safe as a fallback.
  */
 export const RunLogSkeleton = memo(function RunLogSkeleton({
@@ -70,7 +71,7 @@ export const RunLogSkeleton = memo(function RunLogSkeleton({
     }, [])
     return (
         <div
-            className={cn('RunLogSkeleton flex flex-col justify-end h-full min-h-0 w-full overflow-hidden', className)}
+            className={cn('RunLogSkeleton flex flex-col h-full min-h-0 w-full overflow-hidden', className)}
             data-attr="run-log-skeleton"
             style={{ animationDelay }}
             role="status"
