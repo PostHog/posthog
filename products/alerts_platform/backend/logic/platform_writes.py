@@ -340,8 +340,11 @@ def _delete_native(team_id: int, configuration_id: UUID, native: NativeAlertLife
     configurations = PlatformAlertConfiguration.objects.for_team(team_id, canonical=True).filter(id=configuration_id)
     # Before the destinations go, so an incident manager still gets the resolve for an open firing.
     _close_firings_now(lambda: configurations.select_for_update().first())
-    native.remove_destinations(team_id=team_id, configuration_id=configuration_id)
-    _delete_each(configurations)
+    # In the delete's transaction, so a delete that fails keeps the alert's destinations.
+    _delete_each(
+        configurations,
+        before_delete=lambda: native.remove_destinations(team_id=team_id, configuration_id=configuration_id),
+    )
 
 
 def delete_owned_copy(*, team_id: int, legacy_configuration_id: UUID) -> None:
@@ -353,12 +356,17 @@ def delete_owned_copy(*, team_id: int, legacy_configuration_id: UUID) -> None:
     )
 
 
-def _delete_each(configurations: QuerySet[PlatformAlertConfiguration]) -> None:
+def _delete_each(
+    configurations: QuerySet[PlatformAlertConfiguration], *, before_delete: Callable[[], None] | None = None
+) -> None:
     with transaction.atomic():
         # The configuration before its children, the order `record_outcomes` locks them in. The
         # cascade deletes the children first, so without this the two can deadlock. Each row goes
         # through the model's own delete, because a queryset delete skips the activity log.
-        for configuration in configurations.select_for_update():
+        locked = list(configurations.select_for_update())
+        if before_delete is not None:
+            before_delete()
+        for configuration in locked:
             configuration.delete()
 
 

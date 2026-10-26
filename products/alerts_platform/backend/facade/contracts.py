@@ -992,7 +992,7 @@ class NativeAlertRemoveDestinations(Protocol):
     """Removes the destinations of an alert that is about to be deleted.
 
     The alert's open incidents are closed before this runs, while the destinations their resolves go
-    to still exist. It runs outside any transaction.
+    to still exist. It runs in the delete's transaction, so a delete that fails keeps them.
     """
 
     def __call__(self, *, team_id: int, configuration_id: UUID) -> None: ...

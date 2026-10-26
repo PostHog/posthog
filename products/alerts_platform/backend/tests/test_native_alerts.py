@@ -141,3 +141,23 @@ class TestNativeAlerts(ClickhouseTestMixin, APIBaseTest):
         self.remove_destinations.assert_called_once_with(team_id=self.team.id, configuration_id=configuration_id)
         with team_scope(self.team.id):
             assert not PlatformAlertConfiguration.objects.filter(id=configuration_id).exists()
+
+    def test_a_native_delete_that_fails_keeps_what_removing_the_destinations_wrote(self) -> None:
+        configuration_id = self._create()
+
+        def remove_destinations(**_: object) -> None:
+            with team_scope(self.team.id):
+                PlatformAlertConfiguration.objects.filter(id=configuration_id).update(name="Destinations removed")
+
+        self.remove_destinations.side_effect = remove_destinations
+        with (
+            patch.object(PlatformAlertConfiguration, "delete", side_effect=RuntimeError("delete failed")),
+            pytest.raises(RuntimeError),
+            team_scope(self.team.id),
+        ):
+            platform_writes.delete_configuration(
+                team_id=self.team.id, source_kinds=[SourceKind.LOGS.value], configuration_id=configuration_id
+            )
+
+        with team_scope(self.team.id):
+            assert PlatformAlertConfiguration.objects.get(id=configuration_id).name == "Sync failures"
