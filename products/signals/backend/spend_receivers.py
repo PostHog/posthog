@@ -38,6 +38,7 @@ def task_run_created(*, instance: "TaskRun", created: bool, **kwargs: object) ->
                     "research",
                     "implementation",
                     "repo_selection",
+                    "monitoring_authored_check",
                 }
                 and not SignalReportTask.objects.filter(
                     team_id=instance.team_id, task_id=task.id, relationship="implementation"

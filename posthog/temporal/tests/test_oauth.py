@@ -110,6 +110,13 @@ class TestResolveScopes(SimpleTestCase):
 
         assert "signal_scout_internal:read" not in resolve_scopes("signals_research", include_internal_scopes=False)
 
+    def test_monitoring_tokens_cannot_write_through_direct_api_calls(self) -> None:
+        scopes = resolve_scopes("signals_monitoring")
+        assert "query:read" in scopes
+        assert "llm_gateway:read" in scopes
+        assert not any(scope.endswith(":write") for scope in scopes)
+        assert not has_write_scopes("signals_monitoring")
+
     @parameterized.expand([(preset, preset) for preset in MCP_SCOPE_PRESETS] + [("custom", ["feature_flag:read"])])
     def test_inbox_write_travels_with_task_write(self, _name: str, scopes: PosthogMcpScopes) -> None:
         result = resolve_scopes(scopes)

@@ -9,6 +9,7 @@ from asgiref.sync import async_to_sync
 from temporalio import activity, workflow
 from temporalio.client import Client
 from temporalio.common import RetryPolicy, WorkflowIDConflictPolicy, WorkflowIDReusePolicy
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.dataclasses import frozen
 from posthog.sync import database_sync_to_async
@@ -77,13 +78,17 @@ class MonitoringAgentWorkflow:
 
 
 @async_to_sync
-async def start_monitoring_agent(client: Client, *, team_id: int, evaluation_id: str) -> None:
-    await client.start_workflow(
-        MonitoringAgentWorkflow.run,
-        MonitoringAgentInput(team_id=team_id, evaluation_id=evaluation_id),
-        id=f"monitoring-agent-{team_id}-{evaluation_id}",
-        task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
-        id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE,
-        id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
-        execution_timeout=timedelta(seconds=WORKFLOW_HARD_CEILING_S + DEFAULT_MAX_RUNTIME_S),
-    )
+async def start_monitoring_agent(client: Client, *, team_id: int, evaluation_id: str) -> bool:
+    try:
+        await client.start_workflow(
+            MonitoringAgentWorkflow.run,
+            MonitoringAgentInput(team_id=team_id, evaluation_id=evaluation_id),
+            id=f"monitoring-agent-{team_id}-{evaluation_id}",
+            task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+            id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE,
+            id_conflict_policy=WorkflowIDConflictPolicy.FAIL,
+            execution_timeout=timedelta(seconds=WORKFLOW_HARD_CEILING_S + DEFAULT_MAX_RUNTIME_S),
+        )
+    except WorkflowAlreadyStartedError:
+        return False
+    return True

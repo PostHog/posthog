@@ -543,7 +543,7 @@ class TestSignalSpend(BaseTest):
         with self.captureOnCommitCallbacks(execute=True):
             task_run_cost_updated.send(sender=TaskRun, run_id=run.id, team_id=self.team.id)
 
-    @parameterized.expand([("research",), ("repo_selection",), ("implementation",)])
+    @parameterized.expand([("research",), ("repo_selection",), ("implementation",), ("monitoring_authored_check",)])
     def test_late_task_cost_updates_charge_driver_once_and_preserve_fractional_cents(self, resumed_stage: str) -> None:
         driver, other = str(uuid4()), str(uuid4())
         report = SignalReport.objects.create(team=self.team, triggering_signal_id=driver)

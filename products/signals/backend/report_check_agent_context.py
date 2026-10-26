@@ -10,7 +10,8 @@ from products.signals.backend.models import (
     SignalReportArtefact,
     SignalReportMonitoringResult,
 )
-from products.signals.backend.report_check_final_agents import _queries_for_attempt
+from products.signals.backend.report_check_final_agents import _assert_user_access, _queries_for_attempt
+from products.signals.backend.report_monitoring_results import InvalidMonitoringResult
 
 AGENT_MONITORING_PROMPT = """Evaluate one authored follow-up check after implementation completed.
 Read monitoring-check.json first. It contains the authored criteria, original findings,
@@ -55,6 +56,10 @@ def build_agent_context(evaluation: SignalReportAgentEvaluation) -> str:
         .order_by("created_at", "id")
         .values("id", "type", "content", "created_at")
     )
+    queries = _queries_for_attempt(report, artefacts=artefacts)
+    if evaluation.user_id is None:
+        raise InvalidMonitoringResult("The evaluation has no authorized user.")
+    _assert_user_access(report, evaluation.user_id, queries=queries)
     evidence = list(
         SignalReportMonitoringResult.objects.for_team(evaluation.team_id)
         .filter(report_id=report.id, attempt_id=evaluation.attempt_id)
@@ -106,7 +111,7 @@ def build_agent_context(evaluation: SignalReportAgentEvaluation) -> str:
             "history": artefacts,
             "current_attempt_results": evidence,
             "current_attempt_observations": observations,
-            "current_attempt_queries": _queries_for_attempt(report),
+            "current_attempt_queries": queries,
         },
         default=str,
     )

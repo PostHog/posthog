@@ -82,7 +82,7 @@ async def run_monitoring_agent(*, team_id: int, evaluation_id: UUID) -> None:
         team_id=team_id,
         user_id=evaluation.user_id,
         sandbox_environment_id=sandbox_env,
-        posthog_mcp_scopes="read_only",
+        posthog_mcp_scopes="signals_monitoring",
         github_read_access=True,
         model=runtime.model,
         runtime_adapter=runtime.runtime_adapter,

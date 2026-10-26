@@ -574,6 +574,15 @@ def test_workflow_run_scopes_never_exceed_request_or_snapshot(
             "signals_research",
             "signals_research",
         ),
+        *[
+            (
+                Task.OriginProduct.SIGNAL_REPORT,
+                {"ai_stage": "monitoring_authored_check", "pending_dispatch": {"posthog_mcp_scopes": "full"}},
+                requested,
+                "signals_monitoring",
+            )
+            for requested in (None, "signals_monitoring", "full")
+        ],
     ],
 )
 @patch("products.tasks.backend.temporal.oauth._create_oauth_access_token_for_user", return_value="token")

@@ -165,11 +165,19 @@ retry cannot overlap an existing live run. Technical failures use the existing l
 attempts and six-hour retry delay. Insufficient and unsupported evaluations remain final submissions
 for the check; they do not trigger another authored investigation.
 
+The coordinator selects due authored members directly and excludes settled results and live
+evaluations before claiming work. Each sweep has a 30-second deadline within the coordinator's
+remaining budget. Recovery has a separate bounded batch, rotates by the last dispatch attempt,
+and retries no sooner than one minute later. Existing workflows do not consume the new-dispatch
+allowance. Monitoring task runs participate in Signals spend accounting.
+
 The dedicated Monitoring workflow supplies the authored criteria, original findings, implementation
 history, and current-attempt evidence through a session attachment. The agent uses read-only tools
-as a user with access to the report's environment. Analytics context retains query permission
+as a user with access to the report's environment. Its `signals_monitoring` credential preset grants
+no write scopes, including on the provisioning token. Every attached measurement plan's query and
+eligibility query require analytics access, even for an agent-only attempt. Analytics context retains query permission
 markers on the TaskRun. A queued task rechecks Monitoring, the definition, user access, and execution
-controls before it starts paid work.
+controls at the provisioning boundary before it starts paid work.
 
 Only the bound run can stage an immutable structured response. Delivery uses `MonitoringEvaluation`
 and `save_monitoring_result`, preserving evidence qualification separately from expectation matching,

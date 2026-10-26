@@ -1,16 +1,26 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from datetime import timedelta
+from inspect import unwrap
+from types import SimpleNamespace
+from typing import cast
 from uuid import uuid4
 
 import time_machine
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
+from django.db import connection
+from django.test import SimpleTestCase
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
+from temporalio.client import Client
+from temporalio.exceptions import WorkflowAlreadyStartedError
+from temporalio.testing import ActivityEnvironment
 
 from posthog.constants import AvailableFeature
 from posthog.models import PropertyDefinition, Team
@@ -43,9 +53,32 @@ from products.signals.backend.report_check_final_agents import (
 from products.signals.backend.report_monitoring_attempts import check_definition_version, complete_implementation
 from products.signals.backend.report_monitoring_results import InvalidMonitoringResult, MonitoringResultConflict
 from products.signals.backend.scout_harness.run_gates import check_fleet_gates
+from products.signals.backend.temporal.agentic.monitoring_agents import start_monitoring_agent
 from products.signals.backend.test.report_metric_test_fixtures import trends_metric_query
 from products.skills.backend.models.skills import LLMSkill
+from products.tasks.backend.exceptions import TaskInvalidStateError
 from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import (
+    GetTaskProcessingContextInput,
+    TaskProcessingContext,
+    get_task_processing_context,
+)
+
+
+class TestMonitoringWorkflowDispatch(SimpleTestCase):
+    @parameterized.expand([(False,), (True,)])
+    def test_only_new_workflows_consume_dispatch_capacity(self, existing: bool) -> None:
+        client = cast(
+            Client,
+            SimpleNamespace(
+                start_workflow=AsyncMock(
+                    side_effect=WorkflowAlreadyStartedError("monitoring-test", "MonitoringAgentWorkflow")
+                    if existing
+                    else None,
+                )
+            ),
+        )
+        assert start_monitoring_agent(client, team_id=1, evaluation_id=str(uuid4())) is not existing
 
 
 class TestFinalAuthoredAgentChecks(BaseTest):
@@ -182,6 +215,9 @@ class TestFinalAuthoredAgentChecks(BaseTest):
         assert stored.outcome == outcome
         assert stored.evidence_refs == ["event:example-checkout", f"task-run:{self.task_run.id}"]
         assert stored.window_end == self.now - timedelta(hours=1)
+        with CaptureQueriesContext(connection) as queries:
+            assert run_due_agent_evaluations() == 0
+        assert not any("FOR UPDATE" in query["sql"] or "FOR NO KEY UPDATE" in query["sql"] for query in queries)
         with self.assertRaises(MonitoringResultConflict):
             stage_agent_result(
                 team_id=self.team.id,
@@ -274,21 +310,33 @@ class TestFinalAuthoredAgentChecks(BaseTest):
             patch("posthog.temporal.common.client.sync_connect", return_value=object()),
             patch(
                 "products.signals.backend.temporal.agentic.monitoring_agents.start_monitoring_agent",
-                side_effect=[RuntimeError("lost acknowledgement"), None],
+                side_effect=[RuntimeError("lost acknowledgement"), False],
             ) as start,
         ):
             run_due_agent_evaluations()
+            self.clock.shift(timedelta(minutes=1))
             run_due_agent_evaluations()
         assert start.call_count == 2
         assert start.call_args_list[0].kwargs == start.call_args_list[1].kwargs
         assert SignalReportAgentEvaluation.objects.for_team(self.team.id).count() == 1
 
-    def test_queued_work_rechecks_the_monitoring_flag(self) -> None:
+    @parameterized.expand([("flag",), ("scout",)])
+    def test_queued_work_rechecks_execution_controls_before_provisioning(self, control: str) -> None:
         evaluation = self.claim()
         self.bind(evaluation)
         assert monitoring_agent_start_refusal(str(self.task.id), self.team.id, self.user.id) is None
-        self.monitoring_flag.return_value = False
-        assert monitoring_agent_start_refusal(str(self.task.id), self.team.id, self.user.id) is not None
+        if control == "flag":
+            self.monitoring_flag.return_value = False
+        else:
+            self.scout.enabled = False
+            self.scout.save(update_fields=["enabled"])
+        self.task_run.status = TaskRun.Status.QUEUED
+        self.task_run.save(update_fields=["status"])
+        provision = cast(
+            Callable[[GetTaskProcessingContextInput], TaskProcessingContext], unwrap(get_task_processing_context)
+        )
+        with self.assertRaises(TaskInvalidStateError):
+            ActivityEnvironment().run(provision, GetTaskProcessingContextInput(run_id=str(self.task_run.id)))
 
     @parameterized.expand([(False,), (None,)])
     def test_disabled_or_unavailable_monitoring_never_dispatches(self, flag: bool | None) -> None:
@@ -319,9 +367,57 @@ class TestFinalAuthoredAgentChecks(BaseTest):
         start.assert_not_called()
         assert SignalReportMonitoringResult.objects.for_team(self.team.id).get().submission_id == evaluation.id
 
+    def test_queued_recoveries_leave_capacity_for_new_checks_and_rotate(self) -> None:
+        pending_ids = set()
+        for index in range(5):
+            check = SignalReportCheck.objects.for_team(self.team.id).create(
+                team_id=self.team.id,
+                report=self.report,
+                title=f"Check {index}",
+                kind="agent",
+                config=self.check.config,
+                soak_minutes=60,
+                next_run_at=self.now,
+                expires_at=self.now + timedelta(days=1),
+            )
+            self.attempt.check_versions[str(check.id)] = check_definition_version(check)
+        self.attempt.save(update_fields=["check_versions"])
+        for check_id in list(self.attempt.check_versions)[:3]:
+            evaluation = claim_agent_evaluation(team_id=self.team.id, report_id=self.report.id, check_id=check_id)
+            assert evaluation is not None
+            pending_ids.add(str(evaluation.id))
+        dispatched = []
+
+        def start(_client: object, *, team_id: int, evaluation_id: str) -> bool:
+            dispatched.append(evaluation_id)
+            return evaluation_id not in pending_ids
+
+        with (
+            patch("products.signals.backend.report_check_final_agents.MAX_AGENT_DISPATCHES_PER_TICK", 2),
+            patch("products.signals.backend.report_check_final_agents.MAX_AGENT_RECOVERIES_PER_TICK", 2),
+            patch("posthog.temporal.common.client.sync_connect", return_value=object()),
+            patch(
+                "products.signals.backend.temporal.agentic.monitoring_agents.start_monitoring_agent", side_effect=start
+            ),
+        ):
+            assert run_due_agent_evaluations() == 2
+            assert len(set(dispatched) - pending_ids) == 2
+            first_recovered = set(dispatched) & pending_ids
+            self.clock.shift(timedelta(minutes=1))
+            dispatched.clear()
+            run_due_agent_evaluations()
+        assert pending_ids - first_recovered <= set(dispatched)
+
+    def test_expired_sweep_budget_defers_new_dispatches(self) -> None:
+        with patch("products.signals.backend.report_check_final_agents.time.monotonic", return_value=10):
+            assert run_due_agent_evaluations(deadline=9) == 0
+        assert not SignalReportAgentEvaluation.objects.for_team(self.team.id).exists()
+
     def test_context_includes_only_current_attempt_observations(self) -> None:
         metric = self.metric_member()
         evaluation = self.claim()
+        self.bind(evaluation)
+        evaluation.refresh_from_db()
         for start in [evaluation.window_start - timedelta(days=1), evaluation.window_start]:
             SignalReportArtefact.add_log(
                 team_id=self.team.id,
@@ -362,6 +458,34 @@ class TestFinalAuthoredAgentChecks(BaseTest):
             self.bind(evaluation)
         evaluation.refresh_from_db()
         assert evaluation.task_run_id is None
+
+    @parameterized.expand([("query",), ("eligibility_query",)])
+    def test_agent_only_attempt_checks_permissions_on_all_attached_plans(self, field: str) -> None:
+        evaluation = self.claim()
+        self.bind(evaluation)
+        evaluation.refresh_from_db()
+        allowed_query = trends_metric_query(series=[{"kind": "EventsNode", "event": "$pageview"}])
+        restricted_query = trends_metric_query(series=[{"kind": "ActionsNode", "id": 42}])
+        plan = {"query": allowed_query, field: restricted_query}
+        SignalReportArtefact.objects.create(
+            team_id=self.team.id,
+            report=self.report,
+            type="impact_measurement_plan",
+            content=json.dumps(plan),
+        )
+        with patch(
+            "products.signals.backend.report_metric_access.ReportMetricAccessPolicy._may_read_resource_id",
+            return_value=False,
+        ):
+            with self.assertRaises(InvalidMonitoringResult):
+                build_agent_context(evaluation)
+            with self.assertRaises(InvalidMonitoringResult):
+                stage_agent_result(
+                    team_id=self.team.id,
+                    evaluation_id=evaluation.id,
+                    task_run_id=self.task_run.id,
+                    result=self.result(),
+                )
 
     def test_a_parent_project_run_cannot_answer_an_environment_check(self) -> None:
         environment = Team.objects.create(

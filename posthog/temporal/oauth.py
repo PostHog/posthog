@@ -117,6 +117,7 @@ McpScopePreset = Literal[
     "signals_scout_reports",
     "signals_scout_experiment",
     "signals_research",
+    "signals_monitoring",
     "signals_implementation",
 ]
 SandboxOAuthApplication = Literal["array", "posthog_ai", "signals"]
@@ -368,6 +369,7 @@ MCP_SCOPE_PRESETS = (
     "signals_scout_reports",
     "signals_scout_experiment",
     "signals_research",
+    "signals_monitoring",
     "signals_implementation",
 )
 
@@ -473,6 +475,8 @@ def resolve_scopes(
             if include_internal_scopes:
                 reads.append("signal_scout_internal:read")
             resolved = [*reads, *scratchpad]
+        elif scopes == "signals_monitoring":
+            resolved = [scope for scope in (*MCP_READ_SCOPES, *internal) if scope.endswith(":read")]
         elif scopes == "signals_scout_experiment":
             # Trials use a separate private Go token; their tool credential must not reach the legacy gateway.
             reads = [

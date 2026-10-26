@@ -2645,6 +2645,7 @@ class SignalReportAgentEvaluation(UUIDModel):
     output = models.JSONField(null=True)
     completed_at = models.DateTimeField(null=True)
     drained_at = models.DateTimeField(null=True)
+    last_dispatch_at = models.DateTimeField(null=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 import asyncio
 import hashlib
 from collections import Counter
@@ -208,9 +209,10 @@ async def run_due_signal_report_checks_activity(_input: RunDueChecksInput) -> Ru
         run_due_agent_evaluations,  # noqa: PLC0415 - keeps final-agent dispatch off the coordinator import path
     )
 
+    deadline = time.monotonic() + 180
     async with Heartbeater():
         summary = await database_sync_to_async(run_due_report_checks, thread_sensitive=False)()
-        await database_sync_to_async(run_due_agent_evaluations, thread_sensitive=False)()
+        await database_sync_to_async(run_due_agent_evaluations, thread_sensitive=False)(deadline=deadline)
     return RunDueChecksOutput(
         expired=summary.expired,
         passed=summary.passed,

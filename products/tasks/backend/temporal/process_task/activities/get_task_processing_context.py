@@ -49,6 +49,7 @@ from products.tasks.backend.exceptions import (
     TaskRunNotReadyError,
 )
 from products.tasks.backend.facade.api import ensure_task_run_session
+from products.tasks.backend.facade.task_run_signals import task_run_start_refusal
 from products.tasks.backend.feature_flags import own_subscription_cloud_enabled
 from products.tasks.backend.logic.model_access import ModelAccess, resolve_model_access
 from products.tasks.backend.logic.services.agent_instructions import agent_instructions_state_update
@@ -948,6 +949,13 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     trial_origin = task.is_scout_experiment
     with StepTimer("resolve_actor"):
         actor_user = get_task_run_credential_user(task, state)
+    refusal = task_run_start_refusal(str(task.id), task.team_id, actor_user.id if actor_user else None)
+    if refusal is not None:
+        raise TaskInvalidStateError(
+            refusal,
+            {"task_id": str(task.id), "run_id": run_id},
+            cause=RuntimeError(refusal),
+        )
     if is_slack_interaction_state(state) and actor_user is None:
         raise TaskInvalidStateError(
             f"Task {task.id} has no valid Slack actor",

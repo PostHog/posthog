@@ -141,6 +141,11 @@ def default_run_scopes(origin_product: str, state: dict[str, Any] | None) -> Pos
         parse_run_state,
     )
 
+    if (
+        origin_product == Task.OriginProduct.SIGNAL_REPORT
+        and (state or {}).get("ai_stage") == "monitoring_authored_check"
+    ):
+        return "signals_monitoring"
     if origin_product == Task.OriginProduct.SIGNALS_SCOUT:
         return "signals_scout_reports"
     if origin_product in (Task.OriginProduct.SIGNALS_SCOUT_SUGGESTIONS, Task.OriginProduct.LOOP):
@@ -260,6 +265,11 @@ def create_oauth_access_token_for_run(
         # `start_agent_server` mints its token with explicit scopes.
         if scopes == "signals_research":
             scopes = [*resolve_scopes(scopes), *RESEARCH_WITHHELD_SCOPES]
+    if (
+        task.origin_product == Task.OriginProduct.SIGNAL_REPORT
+        and (state or {}).get("ai_stage") == "monitoring_authored_check"
+    ):
+        scopes = "signals_monitoring"
     with transaction.atomic():
         locked_task = (
             Task.objects.select_for_update(of=("self",))

@@ -1,11 +1,27 @@
 from __future__ import annotations
 
+import json
+import time
+from collections.abc import Iterable, Mapping
 from datetime import timedelta
 from typing import Literal
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import (
+    Count,
+    DateTimeField,
+    Exists,
+    ExpressionWrapper,
+    F,
+    Func,
+    OuterRef,
+    Q,
+    Subquery,
+    TextField,
+    Value,
+)
+from django.db.models.functions import Cast, Coalesce
 from django.utils import timezone
 
 import structlog
@@ -18,6 +34,7 @@ from products.signals.backend.facade.metric_access import metric_context_reader
 from products.signals.backend.models import (
     SignalReport,
     SignalReportAgentEvaluation,
+    SignalReportArtefact,
     SignalReportCheck,
     SignalReportMonitoringResult,
 )
@@ -43,6 +60,10 @@ from products.tasks.backend.facade.cancellation import cancel_task_run
 
 logger = structlog.get_logger(__name__)
 MAX_AGENT_DISPATCHES_PER_TICK = 50
+MAX_AGENT_RECOVERIES_PER_TICK = 50
+AGENT_SWEEP_SECONDS = 30
+AGENT_RECOVERY_SECONDS = 10
+AGENT_DISPATCH_RETRY_AFTER = timedelta(minutes=1)
 
 
 class AgentMonitoringResult(BaseModel):
@@ -95,7 +116,9 @@ def _current_check(report: SignalReport, check_id: UUID, definition_version: str
     return check
 
 
-def _queries_for_attempt(report: SignalReport) -> list[dict[str, object]]:
+def _queries_for_attempt(
+    report: SignalReport, *, artefacts: Iterable[Mapping[str, object]] | None = None
+) -> list[dict[str, object]]:
     attempt = current_monitoring_attempt(report)
     if attempt is None:
         return []
@@ -109,15 +132,36 @@ def _queries_for_attempt(report: SignalReport) -> list[dict[str, object]]:
         if not isinstance(config, MetricThresholdConfig):
             raise InvalidMonitoringResult("The attempt's analytics context has no readable query definition.")
         queries.append(resolve_check_query(config, report))
+    if artefacts is None:
+        artefacts = SignalReportArtefact.objects.filter(
+            team_id=report.team_id, report_id=report.id, type="impact_measurement_plan"
+        ).values("type", "content")
+    for artefact in artefacts:
+        if artefact["type"] != "impact_measurement_plan":
+            continue
+        try:
+            content = artefact["content"]
+            plan = json.loads(content) if isinstance(content, str) else None
+        except ValueError as error:
+            raise InvalidMonitoringResult("The report's analytics attachment is unreadable.") from error
+        if not isinstance(plan, dict) or not isinstance(plan.get("query"), dict):
+            raise InvalidMonitoringResult("The report's analytics attachment has no readable query.")
+        queries.append(plan["query"])
+        if plan.get("eligibility_query") is not None:
+            if not isinstance(plan["eligibility_query"], dict):
+                raise InvalidMonitoringResult("The report's eligibility query is unreadable.")
+            queries.append(plan["eligibility_query"])
     return queries
 
 
-def _assert_user_access(report: SignalReport, user_id: int) -> None:
+def _assert_user_access(report: SignalReport, user_id: int, *, queries: list[dict[str, object]] | None = None) -> None:
     team = Team.objects.get(id=report.team_id)
     user = User.objects.filter(id=user_id, is_active=True).first()
     if user is None or not user_can_access_team(user, team):
         raise InvalidMonitoringResult("The evaluation user no longer has access to the report environment.")
-    if not metric_context_reader(team_id=report.team_id, user_id=user_id)(_queries_for_attempt(report)):
+    if not metric_context_reader(team_id=report.team_id, user_id=user_id)(
+        _queries_for_attempt(report) if queries is None else queries
+    ):
         raise InvalidMonitoringResult("The evaluation user cannot read the attempt's analytics context.")
 
 
@@ -131,7 +175,8 @@ def claim_agent_evaluation(*, team_id: int, report_id: UUID, check_id: UUID) -> 
         assert check.soak_minutes is not None
         if (
             SignalReportMonitoringResult.objects.for_team(team_id)
-            .filter(attempt_id=attempt.id, report_check_id=check_id, evidence_status="sufficient")
+            .filter(attempt_id=attempt.id, report_check_id=check_id)
+            .exclude(evidence_status="errored")
             .exists()
         ):
             return None
@@ -322,14 +367,23 @@ def fail_agent_evaluation(*, team_id: int, evaluation_id: UUID) -> None:
     deliver_agent_result(team_id=team_id, evaluation_id=evaluation_id)
 
 
-def run_due_agent_evaluations() -> int:
+def run_due_agent_evaluations(*, deadline: float | None = None) -> int:
     # Keep Temporal imports off the API and model startup paths.
     from posthog.temporal.common.client import sync_connect  # noqa: PLC0415
 
     from products.signals.backend.temporal.agentic.monitoring_agents import start_monitoring_agent  # noqa: PLC0415
 
+    deadline = (
+        min(deadline, time.monotonic() + AGENT_SWEEP_SECONDS)
+        if deadline is not None
+        else time.monotonic() + AGENT_SWEEP_SECONDS
+    )
+    recovery_deadline = min(deadline, time.monotonic() + AGENT_RECOVERY_SECONDS)
     started = 0
+    recovered = 0
     now = timezone.now()
+    if time.monotonic() >= deadline:
+        return 0
     for evaluation in (
         SignalReportAgentEvaluation.objects.unscoped()
         .filter(
@@ -337,51 +391,119 @@ def run_due_agent_evaluations() -> int:
             task_run_id__isnull=False,
             drained_at__isnull=True,
         )
-        .iterator()
+        .order_by("created_at", "id")[:MAX_AGENT_RECOVERIES_PER_TICK]
     ):
+        if time.monotonic() >= recovery_deadline:
+            break
         try:
             _stop_bound_run(evaluation)
         except Exception:
             logger.exception(
                 "signals.monitoring_agent.cancel_failed", team_id=evaluation.team_id, evaluation_id=str(evaluation.id)
             )
-    for report in (
-        SignalReport.objects.filter(status=SignalReport.Status.MONITORING).order_by("monitoring_started_at").iterator()
-    ):
-        if not team_report_monitoring_enabled(report.team_id):
-            continue
-        attempt = current_monitoring_attempt(report)
-        if attempt is None:
-            continue
-        checks = SignalReportCheck.objects.for_team(report.team_id).filter(
-            report_id=report.id, id__in=attempt.check_versions, kind=SignalReportCheck.Kind.AGENT
+    pending = (
+        SignalReportAgentEvaluation.objects.unscoped()
+        .filter(
+            Q(state="pending")
+            | Q(state="running", output__isnull=False)
+            | Q(state="running", created_at__lte=now - AGENT_CHECK_RESULT_WINDOW),
+            report__status=SignalReport.Status.MONITORING,
+            attempt__monitoring_started_at=F("report__monitoring_started_at"),
         )
-        for check in checks:
-            if check.soak_minutes is None or now < attempt.monitoring_started_at + timedelta(
-                minutes=check.soak_minutes
-            ):
+        .filter(Q(last_dispatch_at__isnull=True) | Q(last_dispatch_at__lte=now - AGENT_DISPATCH_RETRY_AFTER))
+        .order_by(F("last_dispatch_at").asc(nulls_first=True), "created_at", "id")[:MAX_AGENT_RECOVERIES_PER_TICK]
+    )
+    for evaluation in pending:
+        if time.monotonic() >= recovery_deadline:
+            break
+        SignalReportAgentEvaluation.objects.for_team(evaluation.team_id).filter(id=evaluation.id).update(
+            last_dispatch_at=now
+        )
+        try:
+            if not team_report_monitoring_enabled(evaluation.team_id):
                 continue
-            try:
-                due_evaluation = claim_agent_evaluation(team_id=report.team_id, report_id=report.id, check_id=check.id)
-                if due_evaluation is None:
-                    continue
-                if due_evaluation.output is not None:
-                    deliver_agent_result(team_id=report.team_id, evaluation_id=due_evaluation.id)
-                elif due_evaluation.created_at + AGENT_CHECK_RESULT_WINDOW <= now:
-                    _stop_bound_run(due_evaluation)
-                    fail_agent_evaluation(team_id=report.team_id, evaluation_id=due_evaluation.id)
-                else:
-                    start_monitoring_agent(sync_connect(), team_id=report.team_id, evaluation_id=str(due_evaluation.id))
+            if evaluation.output is not None:
+                deliver_agent_result(team_id=evaluation.team_id, evaluation_id=evaluation.id)
+                recovered += 1
+            elif evaluation.created_at + AGENT_CHECK_RESULT_WINDOW <= now:
+                _stop_bound_run(evaluation)
+                fail_agent_evaluation(team_id=evaluation.team_id, evaluation_id=evaluation.id)
+                recovered += 1
+            elif start_monitoring_agent(sync_connect(), team_id=evaluation.team_id, evaluation_id=str(evaluation.id)):
                 started += 1
-                if started >= MAX_AGENT_DISPATCHES_PER_TICK:
-                    return started
-            except (InvalidMonitoringResult, MonitoringResultConflict, ValueError):
+        except (InvalidMonitoringResult, MonitoringResultConflict, ValueError):
+            continue
+        except Exception:
+            logger.exception(
+                "signals.monitoring_agent.recovery_failed", team_id=evaluation.team_id, evaluation_id=str(evaluation.id)
+            )
+
+    if started >= MAX_AGENT_DISPATCHES_PER_TICK or time.monotonic() >= deadline:
+        return started + recovered
+    candidates = (
+        SignalReportCheck.all_teams.filter(
+            kind=SignalReportCheck.Kind.AGENT,
+            status__in=MONITORING_RESULT_ELIGIBLE_STATUSES,
+            soak_minutes__isnull=False,
+            report__status=SignalReport.Status.MONITORING,
+            report__monitoring_attempts__team_id=F("team_id"),
+            report__monitoring_attempts__monitoring_started_at=F("report__monitoring_started_at"),
+        )
+        .annotate(
+            _attempt_id=F("report__monitoring_attempts__id"),
+            _member_version=Func(
+                F("report__monitoring_attempts__check_versions"),
+                Cast(F("id"), output_field=TextField()),
+                function="jsonb_extract_path_text",
+                output_field=TextField(),
+            ),
+            _window_end=ExpressionWrapper(
+                F("report__monitoring_started_at") + F("soak_minutes") * Value(timedelta(minutes=1)),
+                output_field=DateTimeField(),
+            ),
+        )
+        .filter(_member_version__isnull=False, _window_end__lte=now)
+    )
+    evaluations = SignalReportAgentEvaluation.objects.unscoped().filter(
+        team_id=OuterRef("team_id"), attempt_id=OuterRef("_attempt_id"), report_check_id=OuterRef("id")
+    )
+    results = SignalReportMonitoringResult.objects.unscoped().filter(
+        team_id=OuterRef("team_id"), attempt_id=OuterRef("_attempt_id"), report_check_id=OuterRef("id")
+    )
+    errors = evaluations.filter(state="errored")
+    candidates = (
+        candidates.annotate(
+            _settled=Exists(results.exclude(evidence_status="errored")),
+            _inflight=Exists(evaluations.filter(state__in=["pending", "running", "submitted"])),
+            _error_count=Coalesce(
+                Subquery(errors.order_by().values("report_check_id").annotate(total=Count("id")).values("total")[:1]),
+                Value(0),
+            ),
+            _last_error_at=Subquery(errors.order_by("-sequence").values("completed_at")[:1]),
+        )
+        .filter(_settled=False, _inflight=False, _error_count__lt=MAX_CONSECUTIVE_CHECK_ERRORS)
+        .filter(Q(_error_count=0) | Q(_last_error_at__lte=now - CHECK_ERROR_RETRY_AFTER))
+        .order_by("_window_end", "id")
+    )
+    for check in candidates.iterator(chunk_size=MAX_AGENT_DISPATCHES_PER_TICK):
+        if started >= MAX_AGENT_DISPATCHES_PER_TICK or time.monotonic() >= deadline:
+            break
+        if not team_report_monitoring_enabled(check.team_id):
+            continue
+        try:
+            due_evaluation = claim_agent_evaluation(team_id=check.team_id, report_id=check.report_id, check_id=check.id)
+            if due_evaluation is None:
                 continue
-            except Exception:
-                logger.exception(
-                    "signals.monitoring_agent.dispatch_failed", team_id=report.team_id, check_id=str(check.id)
-                )
-    return started
+            SignalReportAgentEvaluation.objects.for_team(check.team_id).filter(id=due_evaluation.id).update(
+                last_dispatch_at=now
+            )
+            if start_monitoring_agent(sync_connect(), team_id=check.team_id, evaluation_id=str(due_evaluation.id)):
+                started += 1
+        except (InvalidMonitoringResult, MonitoringResultConflict, ValueError):
+            continue
+        except Exception:
+            logger.exception("signals.monitoring_agent.dispatch_failed", team_id=check.team_id, check_id=str(check.id))
+    return started + recovered
 
 
 def monitoring_agent_start_refusal(task_id: str, team_id: int, user_id: int | None) -> str | None:
