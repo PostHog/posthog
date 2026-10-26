@@ -10,7 +10,9 @@ from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
+import numpy as np
 import pyarrow as pa
+import pyarrow.compute as pc
 
 from posthog.temporal.data_modeling.activities.incremental_write import (
     IncrementalWriteError,
@@ -29,11 +31,26 @@ def _batch(ids: list[int | None], names: list[str | None]) -> pa.RecordBatch:
 @pytest.mark.parametrize(
     "batches,match",
     [
-        pytest.param([([1, 1], ["a", "b"])], "does not identify a single row", id="duplicate_within_a_batch"),
+        pytest.param([([1, 1], ["a", "b"])], "appears 2 times", id="duplicate_within_a_batch"),
         pytest.param(
             [([1], ["a"]), ([2], ["b"]), ([1], ["c"])],
-            "does not identify a single row",
+            "appears 2 times",
             id="duplicate_across_batches",
+        ),
+        pytest.param(
+            [([1], ["a"]), ([1, 1, 2], ["b", "c", "d"])],
+            "appears 3 times",
+            id="seen_key_repeated_within_a_later_batch",
+        ),
+        pytest.param(
+            [([1], ["a"]), ([1] * 5, ["b"] * 5)],
+            "appears 6 times",
+            id="seen_key_five_times_in_a_later_batch",
+        ),
+        pytest.param(
+            [([9], ["a"]), ([9] + [5] * 5, ["b"] * 6)],
+            "appears 5 times",
+            id="within_batch_count_outweighs_a_seen_key",
         ),
         pytest.param([([1, None], ["a", "b"])], "is null", id="null_key"),
     ],
@@ -73,10 +90,21 @@ def test_a_missing_key_column_names_the_column() -> None:
 
 def test_exceeding_the_memory_cap_fails_loudly() -> None:
     """The cap must fail the run, never silently stop checking."""
-    tracker = UniqueKeyTracker(("id",), max_bytes=8)
+    tracker = UniqueKeyTracker(("id",), max_bytes=24)
+    tracker.check(_batch([1, 2], ["a", "b"]))
 
-    with pytest.raises(IncrementalWriteError, match="too many unique keys"):
-        tracker.check(_batch([1, 2, 3, 4], ["a", "b", "c", "d"]))
+    with pytest.raises(IncrementalWriteError, match=r"too many unique keys to verify \(4 so far\)"):
+        tracker.check(_batch([3, 4], ["c", "d"]))
+
+
+def test_a_uuid_keyed_run_of_seven_million_rows_is_verified() -> None:
+    keys_per_batch = 1_000_000
+    tracker = UniqueKeyTracker(("id",))
+
+    for start in range(0, 7 * keys_per_batch, keys_per_batch):
+        ids = pa.array(np.arange(start, start + keys_per_batch, dtype=np.int64))
+        uuid_sized = pc.utf8_lpad(pc.cast(ids, pa.string()), width=36, padding="0")
+        tracker.check(pa.RecordBatch.from_arrays([uuid_sized], names=["id"]))
 
 
 @pytest.mark.parametrize(
