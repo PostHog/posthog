@@ -112,6 +112,8 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'hog_flow:write',
     'hog_function:read',
     'hog_function:write',
+    'inbox:read',
+    'inbox:write',
     'ingestion_warning:read',
     'ingestion_warning:write',
     'insight:read',
@@ -255,3 +257,8 @@ export const OAUTH_SCOPES_HIDDEN = [
     'wizard_session:read',
     'wizard_session:write',
 ] as const
+
+// A new scope object mapped to the legacy one it split off (mirrors LEGACY_SCOPE_FALLBACKS
+// in posthog/scopes.py). While old tokens carry only the legacy scope, a held
+// `<legacy>:<action>` satisfies a required `<new>:<action>`.
+export const LEGACY_SCOPE_FALLBACKS: ReadonlyMap<string, string> = new Map([['inbox', 'task']])

@@ -43,7 +43,9 @@ export function BIShelfStrip({
                     disabledReason={!config.source ? 'Select a data source first' : undefined}
                     onClick={() => editCalculatedField(undefined, shelf)}
                     data-attr={`bi-editor-${shelf}-add-field`}
-                />
+                >
+                    Field
+                </LemonButton>
             </div>
         </BIShelfDropTarget>
     )

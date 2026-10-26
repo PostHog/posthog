@@ -16,7 +16,13 @@ import { isDeterministicClientError, shouldCancelQuery } from 'lib/utils/request
 import { toParams } from 'lib/utils/url'
 
 import { isExpiredQueryStatusError, parseErrorMessage, pollForResults } from '~/queries/query'
-import { DashboardFilter, HogQLVariable, QueryStatus, TileFilters } from '~/queries/schema/schema-general'
+import {
+    DashboardFilter,
+    HogQLVariable,
+    MetricsDashboardVariable,
+    QueryStatus,
+    TileFilters,
+} from '~/queries/schema/schema-general'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -288,6 +294,49 @@ export async function runWithLimit<T>(tasks: (() => Promise<T>)[], limit: number
     }
 
     return results
+}
+
+/**
+ * Runs tasks in first-in, first-out order with at most `limit` tasks at the same time.
+ * A task whose signal aborts while it waits does not start, and its promise rejects with an AbortError.
+ */
+export class TaskQueue {
+    private running = 0
+    private readonly waiting: { start: () => void; drop: () => void }[] = []
+
+    constructor(private readonly limit: number) {}
+
+    run<T>(task: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+        return new Promise<T>((resolve, reject) => {
+            if (signal?.aborted) {
+                reject(new DOMException('Aborted', 'AbortError'))
+                return
+            }
+            const entry = {
+                start: (): void => {
+                    signal?.removeEventListener('abort', entry.drop)
+                    this.running++
+                    new Promise<T>((resolveTask) => resolveTask(task())).then(resolve, reject).finally(() => {
+                        this.running--
+                        this.startNext()
+                    })
+                },
+                drop: (): void => {
+                    this.waiting.splice(this.waiting.indexOf(entry), 1)
+                    reject(new DOMException('Aborted', 'AbortError'))
+                },
+            }
+            signal?.addEventListener('abort', entry.drop, { once: true })
+            this.waiting.push(entry)
+            this.startNext()
+        })
+    }
+
+    private startNext(): void {
+        while (this.running < this.limit && this.waiting.length > 0) {
+            this.waiting.shift()!.start()
+        }
+    }
 }
 
 export const layoutsByTile = (layouts: ResponsiveLayouts): Record<string, Record<DashboardLayoutSize, TileLayout>> => {
@@ -614,17 +663,73 @@ export const dashboardSearchParamsFromOverrides = (
  * An empty override must stay in the URL when it clears a saved dashboard filter. Without that explicit
  * value, a reload restores the saved filter. Empty overrides on unfiltered dashboards can be removed.
  */
+function withoutCurrent(variable: Partial<MetricsDashboardVariable>): Partial<MetricsDashboardVariable> {
+    const { current: _, ...definition } = variable
+    return definition
+}
+
+/** A saved metric variable goes into requests as its name and selection, and the server puts the saved definition back.
+ * A definition that is not saved yet goes in full, because the server does not know it. */
+export function withCompactMetricVariables(
+    filters: DashboardFilter,
+    saved: MetricsDashboardVariable[]
+): DashboardFilter {
+    if (!filters.metricVariables) {
+        return filters
+    }
+    return {
+        ...filters,
+        metricVariables: filters.metricVariables.map((variable) => {
+            const savedVariable = saved.find((other) => other.name === variable.name)
+            return savedVariable && equal(withoutCurrent(savedVariable), withoutCurrent(variable))
+                ? ({ name: variable.name, current: variable.current } as MetricsDashboardVariable)
+                : variable
+        }),
+    }
+}
+
+/** Saved filters with the filters from the URL on top. A metric variable that the URL names gets its saved definition. */
+export function combineSavedAndUrlFilters(saved: DashboardFilter, url: DashboardFilter): DashboardFilter {
+    // Until the dashboard loads, the saved definitions are unknown, so the server resolves the names.
+    if (!url.metricVariables || !saved.metricVariables) {
+        return combineDashboardFilters(saved, url)
+    }
+    const metricVariables = url.metricVariables.flatMap((variable) => {
+        if (variable.source) {
+            return [variable]
+        }
+        const savedVariable = saved.metricVariables?.find((other) => other.name === variable.name)
+        return savedVariable ? [{ ...savedVariable, current: variable.current }] : []
+    })
+    return combineDashboardFilters(saved, { ...url, metricVariables })
+}
+
+/** Analytics captures the page URL, so metric variables go into a URL as their names and selections only. A definition
+ * that is not saved yet stays in the page until the dashboard is saved. */
+function withMetricVariableSelections(filters: DashboardFilter): DashboardFilter {
+    if (!filters.metricVariables) {
+        return filters
+    }
+    return {
+        ...filters,
+        metricVariables: filters.metricVariables.map(
+            (variable) => ({ name: variable.name, current: variable.current }) as MetricsDashboardVariable
+        ),
+    }
+}
+
 export function searchParamsWithUrlFilters(
     searchParams: Record<string, any>,
     filters: DashboardFilter,
     persistedFilters: DashboardFilter = {}
 ): Record<string, any> {
     const nextSearchParams = { ...searchParams }
-    if (!dashboardFilterOverrideChangesFilters(filters, persistedFilters)) {
+    const compact = withMetricVariableSelections(filters)
+    if (!dashboardFilterOverrideChangesFilters(compact, withMetricVariableSelections(persistedFilters))) {
         delete nextSearchParams[SEARCH_PARAM_FILTERS_KEY]
         return nextSearchParams
     }
-    return { ...nextSearchParams, ...encodeURLFilters(filters) }
+    return { ...nextSearchParams, ...encodeURLFilters(compact) }
 }
 
 export function dashboardFilterOverrideChangesFilters(

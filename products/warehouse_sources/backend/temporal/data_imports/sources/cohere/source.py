@@ -39,11 +39,11 @@ class CohereSource(SimpleSource[CohereSourceConfig]):
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
-    # Cohere's v2 generation adds no route for anything this source reads: its own v2 reference
-    # documents datasets, models, and embed jobs at /v1/ paths. A "v2" pin would therefore name a
-    # wire Cohere does not serve for these tables. v1 is not sunset either - the 2025-09-15
-    # announcement retires individual endpoints, not the version - so v1 stays supported and
-    # undeprecated.
+    # Cohere's v2 reference documents datasets, models, and embed jobs at /v1/ paths, so a "v2" pin
+    # would name a wire Cohere does not serve for these tables. Batches exist only at /v2/, with no
+    # v1 route to choose between, so that endpoint's path version is fixed in settings and is not a
+    # version pin. v1 is not sunset either - the 2025-09-15 announcement retires individual
+    # endpoints, not the version - so v1 stays supported and undeprecated.
     supported_versions = (COHERE_API_VERSION_V1,)
     default_version = COHERE_API_VERSION_V1
     api_docs_url = "https://docs.cohere.com/reference/about"
@@ -58,7 +58,7 @@ class CohereSource(SimpleSource[CohereSourceConfig]):
             name=ExternalDataSourceType.COHERE,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Cohere",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Cohere API key to pull your Cohere assets and job history into the PostHog Data warehouse.
 
 Create an API key in your [Cohere dashboard](https://dashboard.cohere.com/api-keys). Prefer a production key: trial keys are capped at 1,000 API calls per month, which a recurring sync can exhaust.

@@ -59,7 +59,7 @@ class LaceworkSource(ResumableSource[LaceworkSourceConfig, LaceworkResumeConfig]
             name=ExternalDataSourceType.LACEWORK,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Lacework FortiCNAPP (Fortinet)",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["forticnapp", "fortinet", "cnapp", "cloud security"],
             caption="""Link your Lacework FortiCNAPP account to pull alerts, vulnerabilities, and compliance data into the PostHog Data warehouse.
 

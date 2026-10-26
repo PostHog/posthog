@@ -16,6 +16,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
+from django.db.models import Exists, OuterRef
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.utils import timezone as django_timezone
@@ -82,6 +83,7 @@ from posthog.cloud_utils import is_cloud
 from posthog.constants import INVITE_DAYS_VALIDITY, PERMITTED_FORUM_DOMAINS, AvailableFeature
 from posthog.email import is_email_available
 from posthog.event_usage import (
+    groups,
     report_user_deleted_account,
     report_user_email_change_requested,
     report_user_identity_change_refused,
@@ -115,9 +117,18 @@ from posthog.models.oauth import OAuthGrant, find_oauth_refresh_token, has_live_
 from posthog.models.onboarding_delegation import cancel_pending_delegation, clear_delegation_state
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
+from posthog.models.organization_integration import OrganizationIntegration
 from posthog.models.organization_notification_lock import notification_locks_for_users
+from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.personal_api_key import PersonalAPIKey
-from posthog.models.user import ROLE_CHOICES, Notifications, OnboardingSkippedReason, ShortcutPosition
+from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
+from posthog.models.user import (
+    ROLE_CHOICES,
+    Notifications,
+    OnboardingFlowVariant,
+    OnboardingSkippedReason,
+    ShortcutPosition,
+)
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.permissions import APIScopePermission, TimeSensitiveActionPermission, UserNoOrgMembershipDeletePermission
 from posthog.rate_limit import (
@@ -150,7 +161,7 @@ from posthog.tasks.email import (
     send_two_factor_auth_enabled_email,
 )
 from posthog.user_permissions import UserPermissions
-from posthog.utils import render_template
+from posthog.utils import get_safe_cache, render_template, safe_cache_set
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -164,6 +175,10 @@ NUM_2FA_BACKUP_CODES = 10
 # `product_intro_seen` is exempt from the re-auth gate, so it gets a ceiling of its own. Only a new key
 # is refused at the ceiling, so an intro the user already dismissed still reopens and closes.
 MAX_PRODUCT_INTROS_SEEN = 100
+
+# Building the person properties runs several queries. The user's own edits refresh them through
+# "user updated", so the per-request refresh only catches slower drift such as project counts.
+PERSON_PROPERTIES_REFRESH_INTERVAL_SECONDS = 60 * 60
 
 
 logger = structlog.get_logger(__name__)
@@ -229,6 +244,23 @@ class OnboardingSkipRequestSerializer(serializers.Serializer):
         max_length=64,
         help_text="Onboarding step key the user was on when skipping, for analytics only.",
     )
+    flow_variant = serializers.ChoiceField(
+        choices=OnboardingFlowVariant.choices,
+        required=False,
+        help_text="Which onboarding flow the user skipped from, for analytics only.",
+    )
+
+
+def _person_properties_refresh_due(user: User) -> bool:
+    # Store the last refreshed project, not one key per project. A project switch through
+    # AutoProjectMiddleware sends no "user updated", so a switch back to an earlier project
+    # must refresh too.
+    key = f"user_person_properties_refreshed:{user.id}"
+    context = f"{user.current_organization_id}:{user.current_team_id}"
+    if get_safe_cache(key) == context:
+        return False
+    safe_cache_set(key, context, timeout=PERSON_PROPERTIES_REFRESH_INTERVAL_SECONDS)
+    return True
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -307,9 +339,10 @@ class UserSerializer(serializers.ModelSerializer):
     )
     requires_credential_review = serializers.SerializerMethodField(
         help_text=(
-            "True if the user has at least one Personal API Key or passkey, or a third-party OAuth "
-            "application that can currently act as them, and has not yet acknowledged that access. "
-            "Used to gate a one-shot review screen on first post-provisioning login. Becomes False "
+            "True if the user belongs to an organization that a partner provisioned, has not yet "
+            "acknowledged the access on their account, and has at least one Personal API Key or passkey, "
+            "or a third-party OAuth application that can currently act as them. Used to gate a one-shot "
+            "review screen on first post-provisioning login. Becomes False "
             "once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only."
         ),
     )
@@ -516,6 +549,26 @@ class UserSerializer(serializers.ModelSerializer):
             return False
         # impersonating users shouldn't bounced into the credential review screen
         if is_impersonated(self.context.get("request")):
+            return False
+        # A self-signed-up user verifies their email before the first login, so nobody else can add
+        # credentials to the account first. TeamProvisioningConfig and a Vercel installation cover
+        # organizations provisioned before OrganizationProvisioning existed. A "connectable" Vercel
+        # integration links an organization the user already owned, so it does not count.
+        organization_id = OuterRef("organization_id")
+        if (
+            not OrganizationMembership.objects.filter(user=instance)
+            .filter(
+                Exists(OrganizationProvisioning.objects.filter(organization_id=organization_id))
+                | Exists(TeamProvisioningConfig.objects.filter(team__organization_id=organization_id))
+                | Exists(
+                    OrganizationIntegration.objects.filter(
+                        organization_id=organization_id,
+                        kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
+                    ).exclude(config__contains={"type": "connectable"})
+                )
+            )
+            .exists()
+        ):
             return False
         if PersonalAPIKey.objects.filter(user=instance).exists():
             return True
@@ -830,12 +883,13 @@ class UserSerializer(serializers.ModelSerializer):
         # was the whole reason for moving away from it. Server-side capture also keeps
         # working for clients running ad blockers, which a frontend-side identify would
         # silently miss.
-        with tracer.start_as_current_span("user_serializer.identify"):
-            posthoganalytics.capture(
-                distinct_id=instance.distinct_id,
-                event="update user properties",
-                properties={"$set": instance.get_analytics_metadata()},
-            )
+        if _person_properties_refresh_due(instance):
+            with tracer.start_as_current_span("user_serializer.identify"):
+                posthoganalytics.capture(
+                    distinct_id=instance.distinct_id,
+                    event="update user properties",
+                    properties={"$set": instance.get_analytics_metadata()},
+                )
 
         with tracer.start_as_current_span("user_serializer.default_fields"):
             data = super().to_representation(instance)
@@ -1050,7 +1104,9 @@ class UserViewSet(
         "scene_personalisation",
         "product_intro_seen",
     ]
-    time_sensitive_allow_actions = ["hedgehog_config"]
+    # These actions only dismiss a screen (the credential review, the onboarding redirect). Requiring a
+    # fresh session for them sends a user with an older session back to that screen on every load.
+    time_sensitive_allow_actions = ["hedgehog_config", "credentials_review_complete", "onboarding_skip"]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["is_staff", "email"]
     queryset = User.objects.filter(is_active=True).order_by("id")
@@ -1379,6 +1435,7 @@ class UserViewSet(
         non_delegated_reasons = {OnboardingSkippedReason.LATER, OnboardingSkippedReason.OTHER}
         reason = validated["reason"]
         step_at_skip = validated.get("step_at_skip") or ""
+        flow_variant = validated.get("flow_variant")
 
         with transaction.atomic():
             locked = User.objects.select_for_update().get(pk=instance.pk)
@@ -1443,6 +1500,7 @@ class UserViewSet(
                 # Fire analytics only after the transaction commits, so a rolled-back
                 # request doesn't produce a skip event the DB doesn't back.
                 distinct_id = str(instance.distinct_id)
+                analytics_groups = groups(instance.organization, instance.team)
 
                 def _fire_skip_analytics() -> None:
                     try:
@@ -1451,7 +1509,12 @@ class UserViewSet(
                         posthoganalytics.capture(
                             distinct_id=distinct_id,
                             event="onboarding skipped",
-                            properties={"step_at_skip": step_at_skip or None, "reason": reason},
+                            properties={
+                                "step_at_skip": step_at_skip or None,
+                                "reason": reason,
+                                "flow_variant": flow_variant,
+                            },
+                            groups=analytics_groups,
                         )
                     except Exception as exc:
                         capture_exception(exc)

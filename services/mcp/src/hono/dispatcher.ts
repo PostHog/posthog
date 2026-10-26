@@ -21,6 +21,7 @@ import GUIDELINES from '@shared/guidelines.md'
 import { randomUUID } from 'node:crypto'
 
 import { mapErrorToAuthResponse } from '@/lib/auth-errors'
+import { StateLookupCache } from '@/lib/cache/StateLookupCache'
 import { isLegacyDialectOnlyClient } from '@/lib/client-detection'
 import { MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@/lib/constants'
 import { McpSessionResetRequiredError, SESSION_RESET_REQUIRED_REASON } from '@/lib/errors'
@@ -108,6 +109,15 @@ function isRequest(msg: JSONRPCMessage): msg is JSONRPCRequest {
     )
 }
 
+// The SDK owns minting; only restore handles it accepts before resolving tool targets.
+const SDK_CONVERSATION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
+function echoedConversationId(request: JSONRPCRequest): string | undefined {
+    const value = (request.params?.arguments as { conversation_id?: unknown } | undefined)?.conversation_id
+    const id = typeof value === 'string' ? value.trim().toLowerCase() : undefined
+    return id && SDK_CONVERSATION_ID.test(id) ? id : undefined
+}
+
 type JsonRpcResultResponse = { jsonrpc: typeof JSONRPC_VERSION; id: number | string; result: unknown }
 type JsonRpcErrorResponse = {
     jsonrpc: typeof JSONRPC_VERSION
@@ -155,7 +165,10 @@ class McpDispatcher {
         this.resourceCatalog = new ResourceCatalog(env, redis)
         this.stateResolver = new RequestStateResolver(catalog, redis, env)
         this.instructionsBuilder = new InstructionsBuilder(GUIDELINES)
-        this.skillCatalogService = new SkillCatalogService(redis, { archiveUrl: env.POSTHOG_MCP_SKILLS_URL })
+        this.skillCatalogService = new SkillCatalogService(redis, {
+            archiveUrl: env.POSTHOG_MCP_SKILLS_URL,
+            expectedArchiveSha: env.POSTHOG_MCP_SKILLS_SHA256,
+        })
         this.toolExecutor = new ToolExecutor(catalog, this.instructionsBuilder, this.skillCatalogService)
         this.interviewRecruitment = new InterviewRecruitment(redis)
     }
@@ -244,6 +257,13 @@ class McpDispatcher {
 
         const requests = messages.filter(isRequest)
         if (requests.length === 0) {
+            const responses = messages.filter((message) => this.interviewRecruitment.isLegacyResponse(message))
+            if (!singleModern && responses.length > 0) {
+                const state = await this.stateResolver.resolve(props)
+                for (const response of responses) {
+                    await this.interviewRecruitment.receiveLegacyResponse(response, state, props.userHash)
+                }
+            }
             return new Response(null, { status: 202 })
         }
 
@@ -254,7 +274,14 @@ class McpDispatcher {
             props.mcpSessionId = randomUUID()
         }
 
-        const needsState = requests.some((r) => TRACKED_METHODS.has(r.method))
+        if (!props.mcpSessionId && requests.length === 1 && requests[0]!.method === Method.ToolsCall) {
+            props.mcpConversationId = echoedConversationId(requests[0]!) ?? props.mcpConversationId
+        }
+
+        const carriedContextHandle = Boolean(props.mcpSessionId || props.mcpConversationId)
+        const sessionlessBatch = wasArray && !props.mcpSessionId
+        const lookups = sessionlessBatch ? new StateLookupCache() : undefined
+        const needsState = !sessionlessBatch && requests.some((r) => TRACKED_METHODS.has(r.method))
         let state: ResolvedState | undefined
         try {
             state = needsState ? await this.stateResolver.resolve(props) : undefined
@@ -290,14 +317,69 @@ class McpDispatcher {
         }
 
         if (!wasArray && requests.length === 1) {
-            const result = await this.dispatch(requests[0]!, props, state, getPublicUrl(req).origin)
+            let elicitation: JSONRPCRequest | undefined
+            const canStream =
+                !singleModern &&
+                req.headers
+                    .get('accept')
+                    ?.split(',')
+                    .some((value) => value.trim().split(';')[0] === 'text/event-stream')
+            const result = await this.dispatch(
+                requests[0]!,
+                props,
+                state,
+                getPublicUrl(req).origin,
+                carriedContextHandle,
+                canStream
+                    ? (request) => {
+                          elicitation = request
+                      }
+                    : undefined
+            )
+            if (elicitation) {
+                const body = [elicitation, result]
+                    .map((message) => `event: message\ndata: ${JSON.stringify(message)}\n\n`)
+                    .join('')
+                return new Response(body, {
+                    headers: { ...headers, 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' },
+                })
+            }
             // SEP-2575: unsupported RPCs get HTTP 404 in the modern dialect.
             const status =
                 singleModern && 'error' in result && result.error.code === ErrorCode.MethodNotFound ? 404 : 200
             return new Response(JSON.stringify(result), { status, headers })
         }
 
-        const results = await Promise.all(requests.map((r) => this.dispatch(r, props, state, getPublicUrl(req).origin)))
+        const results = await Promise.all(
+            requests.map(async (request) => {
+                if (!sessionlessBatch) {
+                    return this.dispatch(request, props, state, getPublicUrl(req).origin, carriedContextHandle)
+                }
+                const itemProps = { ...props }
+                if (request.method === Method.ToolsCall) {
+                    itemProps.mcpConversationId = echoedConversationId(request) ?? props.mcpConversationId
+                }
+                let itemState: ResolvedState | undefined
+                try {
+                    itemState = TRACKED_METHODS.has(request.method)
+                        ? await this.stateResolver.resolve(itemProps, lookups)
+                        : undefined
+                } catch (error) {
+                    if (mapErrorToAuthResponse(error)) {
+                        throw error
+                    }
+                    console.error('[McpDispatcher] Internal error:', error)
+                    return jsonRpcMethodError(request.id, ErrorCode.InternalError, 'Internal error')
+                }
+                return this.dispatch(
+                    request,
+                    itemProps,
+                    itemState,
+                    getPublicUrl(req).origin,
+                    Boolean(itemProps.mcpSessionId || itemProps.mcpConversationId)
+                )
+            })
+        )
         return new Response(JSON.stringify(results), { status: 200, headers })
     }
 
@@ -305,7 +387,9 @@ class McpDispatcher {
         request: JSONRPCRequest,
         props: RequestProperties,
         state: ResolvedState | undefined,
-        requestOrigin: string
+        requestOrigin: string,
+        carriedContextHandle: boolean,
+        onLegacyElicitation?: (request: JSONRPCRequest) => void
     ): Promise<JsonRpcResponse> {
         const { id, method, params } = request
 
@@ -315,7 +399,17 @@ class McpDispatcher {
         const stateless = protocolMeta.protocolVersion === STATELESS_PROTOCOL_VERSION
 
         try {
-            const result = await this.dispatchMethod(method, params, props, state, stateless, id, requestOrigin)
+            const result = await this.dispatchMethod(
+                method,
+                params,
+                props,
+                state,
+                stateless,
+                id,
+                requestOrigin,
+                carriedContextHandle,
+                onLegacyElicitation
+            )
             if (result === METHOD_NOT_FOUND) {
                 return jsonRpcMethodError(id, ErrorCode.MethodNotFound, 'Method not found')
             }
@@ -337,7 +431,9 @@ class McpDispatcher {
         state: ResolvedState | undefined,
         stateless: boolean,
         requestId: string | number,
-        requestOrigin: string
+        requestOrigin: string,
+        carriedContextHandle: boolean,
+        onLegacyElicitation?: (request: JSONRPCRequest) => void
     ): Promise<unknown> {
         // SEP-2575 removed `initialize` and `ping` from the modern dialect.
         if (stateless && (method === Method.Initialize || method === Method.Ping)) {
@@ -354,17 +450,44 @@ class McpDispatcher {
                 return await this.toolExecutor.handleToolCall(
                     params,
                     state!,
-                    stateless && params
+                    params
                         ? {
+                              carriedContextHandle,
+                              resolveConversation: (conversationId) => {
+                                  props.mcpConversationId = conversationId
+                                  return this.stateResolver.resolve(props, state!.reqCtx.lookups)
+                              },
                               beforeExecute: (callState) =>
                                   this.interviewRecruitment.beforeToolCall(
                                       params,
                                       callState,
                                       props.userHash,
-                                      requestOrigin
+                                      requestOrigin,
+                                      onLegacyElicitation ? 'legacy' : 'stateless',
+                                      !!onLegacyElicitation
                                   ),
-                              afterExecute: (callState, result) =>
-                                  this.interviewRecruitment.afterToolCall(params, callState, result, requestId),
+                              afterExecute: async (callState, result) => {
+                                  if (onLegacyElicitation) {
+                                      const request = await this.interviewRecruitment.afterLegacyToolCall(
+                                          params,
+                                          callState,
+                                          result,
+                                          requestId,
+                                          props.userHash,
+                                          requestOrigin
+                                      )
+                                      if (request) {
+                                          onLegacyElicitation(request)
+                                      }
+                                  } else {
+                                      await this.interviewRecruitment.afterToolCall(
+                                          params,
+                                          callState,
+                                          result,
+                                          requestId
+                                      )
+                                  }
+                              },
                           }
                         : undefined
                 )

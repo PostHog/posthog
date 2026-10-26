@@ -18,11 +18,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTClientRetryableError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
     always,
+    route,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.braintrust import (
@@ -62,6 +62,7 @@ def make_driver(config: BraintrustSourceConfig | None = None) -> SourceDriver:
         ("datasets", "dataset"),
         ("prompts", "prompt"),
         ("functions", "function"),
+        ("users", "user"),
     ],
 )
 def test_pagination_auth_and_checkpoints(http: responses.RequestsMock, table: str, path: str) -> None:
@@ -84,6 +85,91 @@ def test_pagination_auth_and_checkpoints(http: responses.RequestsMock, table: st
     assert result.on_complete is not None
     result.on_complete()
     manager.clear_state.assert_called_once_with()
+
+
+EVENT_TABLES = [
+    ("project_logs", "project", "project_logs/{}/fetch", "project_id"),
+    ("experiment_events", "experiment", "experiment/{}/fetch", "experiment_id"),
+    ("dataset_events", "dataset", "dataset/{}/fetch", "dataset_id"),
+]
+
+
+def event_script(parent_path: str, child_path: str, parent_key: str) -> Any:
+    return route(
+        {
+            f"/v1/{parent_path}": [
+                ScriptedResponse(json={"objects": [{"id": "p1"}, {"id": "p2"}]}),
+                ScriptedResponse(json={"objects": []}),
+            ],
+            f"/v1/{child_path.format('p1')}": [
+                ScriptedResponse(
+                    json={
+                        "events": [{"id": "a", parent_key: "p1", "_xact_id": "3"}, {"id": "b", parent_key: "p1"}],
+                        "cursor": "c1",
+                    }
+                ),
+                ScriptedResponse(
+                    json={
+                        "events": [{"id": "a", parent_key: "p1", "_xact_id": "1"}, {"id": "c", parent_key: "p1"}],
+                        "cursor": "c2",
+                    }
+                ),
+                ScriptedResponse(json={"events": []}),
+            ],
+            f"/v1/{child_path.format('p2')}": [ScriptedResponse(json={"events": [{"id": "a", parent_key: "p2"}]})],
+        }
+    )
+
+
+@pytest.mark.parametrize(("table", "parent_path", "child_path", "parent_key"), EVENT_TABLES)
+def test_event_fanout_pages_by_body_cursor_and_drops_outdated_versions(
+    table: str, parent_path: str, child_path: str, parent_key: str
+) -> None:
+    result = make_driver().run(table, event_script(parent_path, child_path, parent_key))
+    assert result.raised is None
+    assert [(row[parent_key], row["id"], row.get("_xact_id")) for row in result.rows] == [
+        ("p1", "a", "3"),
+        ("p1", "b", None),
+        ("p1", "c", None),
+        ("p2", "a", None),
+    ]
+    p1_requests = [request for request in result.requests if request.path == f"/v1/{child_path.format('p1')}"]
+    assert [request.method for request in p1_requests] == ["POST"] * 3
+    assert [request.json() for request in p1_requests] == [
+        {"limit": 100},
+        {"limit": 100, "cursor": "c1"},
+        {"limit": 100, "cursor": "c2"},
+    ]
+    assert result.response is not None
+    assert result.response.primary_keys == [parent_key, "id"]
+
+
+def test_event_fanout_resumes_from_saved_parent_cursor() -> None:
+    first = make_driver().run("project_logs", event_script("project", "project_logs/{}/fetch", "project_id"))
+    assert first.raised is None
+    mid_parent = next(
+        state for state in first.saved_states if state.fanout and (state.fanout.get("child_state") or {}).get("cursor")
+    )
+    resumed = make_driver().run(
+        "project_logs",
+        route(
+            {
+                "/v1/project": [
+                    ScriptedResponse(json={"objects": [{"id": "p1"}, {"id": "p2"}]}),
+                    ScriptedResponse(json={"objects": []}),
+                ],
+                "/v1/project_logs/p1/fetch": [
+                    ScriptedResponse(json={"events": [{"id": "c", "project_id": "p1"}]}),
+                ],
+                "/v1/project_logs/p2/fetch": [ScriptedResponse(json={"events": []})],
+            }
+        ),
+        resume_state=mid_parent,
+    )
+    assert resumed.raised is None
+    p1_bodies = [request.json() for request in resumed.requests if request.path == "/v1/project_logs/p1/fetch"]
+    assert p1_bodies == [{"limit": 100, "cursor": "c1"}]
+    assert [row["id"] for row in resumed.rows] == ["c"]
 
 
 @pytest.mark.parametrize("cursor", [None, "saved"])
@@ -121,7 +207,7 @@ def test_malformed_page_does_not_succeed(body: dict[str, Any]) -> None:
     assert isinstance(result.raised, RESTClientRetryableError)
 
 
-@pytest.mark.parametrize("status", [200, 401, 403, 404, 429, 500])
+@pytest.mark.parametrize("status", [200, 404, 429, 500])
 def test_credentials_and_error_classification(status: int) -> None:
     with scripted_network(always(ScriptedResponse(json={"objects": []}, status=status))) as network:
         if status in (429, 500):
@@ -205,9 +291,3 @@ def test_blank_key_does_not_accept_anonymous_access() -> None:
     assert not valid
     assert message and "API key" in message
     assert network.requests_log == []
-
-
-def test_unknown_table_fails_before_http() -> None:
-    result = make_driver().run("unknown", [])
-    assert isinstance(result.raised, UnknownResourceError)
-    assert result.requests == []

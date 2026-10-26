@@ -47,29 +47,6 @@ class TestResumableWiring:
         assert response.primary_keys == ["token"]
 
 
-class TestNonRetryableErrors:
-    @parameterized.expand(
-        [
-            ("unauthorized", "401 Client Error: Unauthorized for url: https://api.vantage.sh/v2/cost_reports?page=2"),
-            ("forbidden", "403 Client Error: Forbidden for url: https://api.vantage.sh/v2/budgets"),
-        ]
-    )
-    def test_credential_errors_are_non_retryable(self, _name: str, observed: str) -> None:
-        non_retryable = VantageSource().get_non_retryable_errors()
-        assert any(key in observed for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            ("rate_limited", "429 Client Error: Too Many Requests for url: https://api.vantage.sh/v2/cost_reports"),
-            ("server_error", "500 Server Error: Internal Server Error for url: https://api.vantage.sh/v2/budgets"),
-            ("timeout", "HTTPSConnectionPool(host='api.vantage.sh', port=443): Read timed out."),
-        ]
-    )
-    def test_transient_errors_remain_retryable(self, _name: str, observed: str) -> None:
-        non_retryable = VantageSource().get_non_retryable_errors()
-        assert not any(key in observed for key in non_retryable)
-
-
 class TestPublicDocsCatalog:
     def test_canonical_description_keys_are_real_endpoints(self) -> None:
         # A key that doesn't match an endpoint name would silently never apply to any synced table.

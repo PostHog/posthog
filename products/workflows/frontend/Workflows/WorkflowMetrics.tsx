@@ -247,8 +247,11 @@ function BatchJobMetricsHeader({ job }: { job: HogFlowBatchJob }): JSX.Element {
     )
 }
 
-function BatchJobMetrics({ job }: { job: HogFlowBatchJob }): JSX.Element {
+function BatchJobMetrics({ job, requestedAction }: { job: HogFlowBatchJob; requestedAction?: string }): JSX.Element {
     const logicKey = `hog-flow-metrics-batch-${job.id}`
+    const { workflow, originalWorkflow, hogFunctionTemplatesById } = useValues(workflowLogic)
+    // A step a staged draft removes still has live metrics, and the overview links to it.
+    const knownActions = [...workflow.actions, ...(originalWorkflow?.actions ?? [])]
 
     const jobStart = dayjs(job.created_at).subtract(1, 'hour')
     const isFinished = job.status === 'completed' || job.status === 'cancelled' || job.status === 'failed'
@@ -261,6 +264,7 @@ function BatchJobMetrics({ job }: { job: HogFlowBatchJob }): JSX.Element {
         defaultParams: {
             dateFrom: jobStart.toISOString(),
             dateTo: jobEnd.toISOString(),
+            instanceId: knownActions.some((action) => action.id === requestedAction) ? requestedAction : undefined,
         },
         forceParams: {
             appSource: 'hog_flow',
@@ -268,10 +272,6 @@ function BatchJobMetrics({ job }: { job: HogFlowBatchJob }): JSX.Element {
             breakdownBy: 'metric_name',
         },
     })
-
-    const { workflow, originalWorkflow, hogFunctionTemplatesById } = useValues(workflowLogic)
-    // A step a staged draft removes still has live metrics, and the overview links to it.
-    const knownActions = [...workflow.actions, ...(originalWorkflow?.actions ?? [])]
 
     const { appMetricsTrendsLoading, appMetricsTrends, getSingleTrendSeries, params } = useValues(logic)
     const { setParams } = useActions(logic)
@@ -387,6 +387,10 @@ function BatchJobMetrics({ job }: { job: HogFlowBatchJob }): JSX.Element {
 
 function WorkflowBatchMetrics(props: WorkflowLogicProps): JSX.Element {
     const { jobs, batchWorkflowJobsLoading } = useValues(batchWorkflowJobsLogic(props))
+    const { searchParams } = useValues(router)
+    // The overview links to a step of one run with ?run= and ?action=, so open that run's panel on that step.
+    const requestedRun = jobs.find((job) => job.id === searchParams.run)?.id
+    const requestedAction = typeof searchParams.action === 'string' ? searchParams.action : undefined
 
     if (batchWorkflowJobsLoading) {
         return (
@@ -411,10 +415,16 @@ function WorkflowBatchMetrics(props: WorkflowLogicProps): JSX.Element {
     return (
         <div className="flex flex-col gap-2">
             <LemonCollapse
+                defaultActiveKey={requestedRun}
                 panels={jobs.map((job) => ({
                     key: job.id,
                     header: <BatchJobMetricsHeader job={job} />,
-                    content: <BatchJobMetrics job={job} />,
+                    content: (
+                        <BatchJobMetrics
+                            job={job}
+                            requestedAction={job.id === requestedRun ? requestedAction : undefined}
+                        />
+                    ),
                 }))}
             />
         </div>

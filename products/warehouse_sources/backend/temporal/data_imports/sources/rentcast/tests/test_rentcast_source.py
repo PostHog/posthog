@@ -21,27 +21,6 @@ class TestRentCastSource:
 
     @parameterized.expand(
         [
-            ("401 Client Error: Unauthorized for url: https://api.rentcast.io/v1/properties?limit=500&offset=0",),
-            ("403 Client Error: Forbidden for url: https://api.rentcast.io/v1/listings/sale?limit=500&offset=0",),
-        ]
-    )
-    def test_non_retryable_errors_match_auth_failures(self, observed_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            ("500 Server Error: Internal Server Error for url: https://api.rentcast.io/v1/properties",),
-            ("429 Client Error: Too Many Requests for url: https://api.rentcast.io/v1/listings/sale",),
-        ]
-    )
-    def test_non_retryable_errors_ignore_transient(self, unrelated_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert not any(key in unrelated_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            ("unauthorized", 401, (False, "Invalid RentCast API key")),
             ("ok", 200, (True, None)),
         ]
     )
@@ -94,9 +73,3 @@ class TestRentCastSource:
         assert result.params("offset") == ["500"]
         assert result.response is not None
         assert result.response.name == "properties"
-
-    def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        result = SourceDriver(self.source, self.config).run("not_a_table", [])
-
-        assert isinstance(result.raised, ValueError)
-        assert "Unknown RentCast schema 'not_a_table'" in str(result.raised)

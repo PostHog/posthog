@@ -227,7 +227,7 @@ export const DEFAULT_BI_CONFIG: BIConfig = {
     columns: [],
     values: [],
     filters: [],
-    limit: 1000,
+    limit: 50000,
     sort: null,
 }
 
@@ -693,6 +693,14 @@ export function parseBIEditorState(editorViewValue: unknown, configValue: unknow
     if (candidate.comparisonPeriod != null && candidate.comparisonPeriod !== 'previous') {
         return null
     }
+    if (
+        (candidate.querySnapshot != null &&
+            (candidate.querySnapshot.kind !== NodeKind.HogQLQuery ||
+                typeof candidate.querySnapshot.query !== 'string')) ||
+        (candidate.catalogMetric != null && typeof candidate.catalogMetric !== 'string')
+    ) {
+        return null
+    }
     if (!isBIAnalysisConfig(candidate)) {
         return null
     }
@@ -839,6 +847,8 @@ export function parseBIEditorState(editorViewValue: unknown, configValue: unknow
               }
             : {}),
         ...(candidate.colorBy === null || typeof candidate.colorBy === 'string' ? { colorBy: candidate.colorBy } : {}),
+        ...(candidate.querySnapshot ? { querySnapshot: candidate.querySnapshot } : {}),
+        ...(candidate.catalogMetric ? { catalogMetric: candidate.catalogMetric } : {}),
         ...(candidate.localFields ? { localFields: candidate.localFields } : {}),
         ...(candidate.hierarchies ? { hierarchies: candidate.hierarchies } : {}),
         ...(candidate.memberAliases ? { memberAliases: candidate.memberAliases } : {}),
@@ -1494,6 +1504,12 @@ function buildOrderByExpression(
 }
 
 export function buildBIQuery(config: BIConfig, probeForMoreRows = false): BIQueryBuildResult | null {
+    if (config.querySnapshot) {
+        return {
+            query: config.querySnapshot.query,
+            node: { kind: NodeKind.DataVisualizationNode, source: config.querySnapshot, display: config.chartType },
+        }
+    }
     config = normalizeBIConfig(config)
     if (
         !config.source ||

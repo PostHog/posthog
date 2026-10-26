@@ -3,7 +3,7 @@ import posixpath
 
 from posthog.temporal.common.logger import get_logger
 
-from products.batch_exports.backend.service import BatchExportModel
+from products.batch_exports.backend.service import BatchExportModelInput
 from products.batch_exports.backend.temporal.destinations.constants import (
     COMPRESSION_EXTENSIONS,
     FILE_FORMAT_EXTENSIONS,
@@ -14,7 +14,7 @@ EXTERNAL_LOGGER = get_logger("EXTERNAL")
 
 
 def get_allowed_template_variables(
-    data_interval_start: str | None, data_interval_end: str, batch_export_model: BatchExportModel | None
+    data_interval_start: str | None, data_interval_end: str, batch_export_model: BatchExportModelInput | None
 ) -> dict[str, str]:
     """Derive from inputs a dictionary of supported template variables for key prefixes."""
     export_datetime = dt.datetime.fromisoformat(data_interval_end)
@@ -33,7 +33,10 @@ def get_allowed_template_variables(
 
 
 def get_key_prefix(
-    prefix: str, data_interval_start: str | None, data_interval_end: str, batch_export_model: BatchExportModel | None
+    prefix: str,
+    data_interval_start: str | None,
+    data_interval_end: str,
+    batch_export_model: BatchExportModelInput | None,
 ) -> str:
     """Format a key prefix with template variables."""
     template_variables = get_allowed_template_variables(data_interval_start, data_interval_end, batch_export_model)
@@ -48,7 +51,10 @@ def get_key_prefix(
 
 
 def get_absolute_key_prefix(
-    prefix: str, data_interval_start: str | None, data_interval_end: str, batch_export_model: BatchExportModel | None
+    prefix: str,
+    data_interval_start: str | None,
+    data_interval_end: str,
+    batch_export_model: BatchExportModelInput | None,
 ) -> str:
     """Like `get_key_prefix`, but ensure key is absolute and ends on a slash."""
     key_prefix = get_key_prefix(prefix, data_interval_start, data_interval_end, batch_export_model)
@@ -66,7 +72,7 @@ def get_manifest_key(
     prefix: str,
     data_interval_start: str | None,
     data_interval_end: str | None,
-    batch_export_model: BatchExportModel | None,
+    batch_export_model: BatchExportModelInput | None,
     file_name_prefix: str | None = None,
 ) -> str:
     """Generate manifest file key."""
@@ -99,7 +105,7 @@ def get_object_key(
     prefix: str,
     data_interval_start: str | None,
     data_interval_end: str | None,
-    batch_export_model: BatchExportModel | None,
+    batch_export_model: BatchExportModelInput | None,
     file_format: str,
     compression: str | None = None,
     legacy_parquet_extension: bool = False,

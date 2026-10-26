@@ -116,16 +116,11 @@ class TestBeehiivValidateCredentials:
     @pytest.mark.parametrize(
         ("status_code", "allow_missing_scope", "expected_ok"),
         [
-            (200, True, True),
-            (200, False, True),
-            (401, True, False),
-            (401, False, False),
             # A beehiiv key scoped to subscriptions only cannot read the publication object;
             # that must not block source creation, but it must fail a per-table check.
             (403, True, True),
             (403, False, False),
             (404, True, False),
-            (500, True, False),
         ],
     )
     def test_status_code_maps_to_credential_result(

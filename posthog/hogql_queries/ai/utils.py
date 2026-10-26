@@ -8,6 +8,7 @@ import orjson
 from posthog.schema import PropertyOperator
 
 from posthog.hogql import ast
+from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.caching.utils import ThresholdMode, is_stale
 
@@ -184,3 +185,19 @@ class TaxonomyCacheMixin(ABC):
 
     def cache_target_age(self, last_refresh: Optional[datetime], lazy: bool = False) -> Optional[datetime]:
         return None
+
+
+class _GlobalInSubqueries(TraversingVisitor):
+    def visit_compare_operation(self, node: ast.CompareOperation) -> None:
+        if node.op == ast.CompareOperationOp.In and isinstance(node.right, ast.SelectQuery):
+            node.op = ast.CompareOperationOp.GlobalIn
+        super().visit_compare_operation(node)
+
+
+def with_global_in_subqueries(
+    query: ast.SelectQuery | ast.SelectSetQuery,
+) -> ast.SelectQuery | ast.SelectSetQuery:
+    """Turn `x IN (SELECT ...)` into GLOBAL IN. A plain IN subquery over the Distributed ai_events
+    table does not narrow the outer read, so the outer read scans the whole table."""
+    _GlobalInSubqueries().visit(query)
+    return query

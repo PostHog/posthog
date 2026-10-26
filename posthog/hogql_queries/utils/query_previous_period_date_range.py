@@ -20,7 +20,6 @@ _PREVIOUS_CALENDAR_UNITS = {
 }
 
 
-# Originally similar to the legacy QueryDateRange (now posthog/hogql_queries/properties_timeline/query_date_range.py) but rewritten to be used in HogQL queries
 class QueryPreviousPeriodDateRange(QueryDateRange):
     """Translation of the raw `date_from` and `date_to` filter values to datetimes."""
 

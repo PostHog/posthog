@@ -1,9 +1,11 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { IconPlusSmall } from '@posthog/icons'
+import { IconPlus, IconPlusSmall } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBadge } from 'lib/lemon-ui/LemonBadge'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -49,6 +51,7 @@ export function DataCatalogScene(): JSX.Element {
     const { proposedCount: certificationsPending } = useValues(certificationsLogic)
     const { openNewMetricModal: openMetricModal } = useActions(metricsLogic)
     const contextItems = useMemo(() => buildDataCatalogAgentContext(activeTab), [activeTab])
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     useSceneAgentPanel({
         sceneKey: 'data-catalog',
@@ -85,15 +88,26 @@ export function DataCatalogScene(): JSX.Element {
                     description="Review and manage governed metrics, certifications, and relationships for your data."
                     resourceType={{ type: 'data_warehouse' }}
                     actions={
-                        <LemonButton
-                            type="primary"
-                            size="small"
-                            icon={<IconPlusSmall />}
-                            onClick={openMetricModal}
-                            data-attr="data-catalog-new-metric-button"
-                        >
-                            New metric
-                        </LemonButton>
+                        todayRailNav ? (
+                            <Button
+                                variant="primary"
+                                onClick={openMetricModal}
+                                data-attr="data-catalog-new-metric-button"
+                            >
+                                <IconPlus />
+                                New metric
+                            </Button>
+                        ) : (
+                            <LemonButton
+                                type="primary"
+                                size="small"
+                                icon={<IconPlusSmall />}
+                                onClick={openMetricModal}
+                                data-attr="data-catalog-new-metric-button"
+                            >
+                                New metric
+                            </LemonButton>
+                        )
                     }
                 />
                 <LemonTabs

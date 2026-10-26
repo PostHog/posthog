@@ -5,7 +5,13 @@ import operator
 
 from posthog.temporal.common.clickhouse import ClickHouseClient
 
-from products.batch_exports.backend.service import BackfillDetails, BatchExportModel, BatchExportSchema
+from products.batch_exports.backend.service import (
+    AnyBatchExportModel,
+    BackfillDetails,
+    BatchExportEventsCustomModel,
+    BatchExportEventsModel,
+    BatchExportSchema,
+)
 from products.batch_exports.backend.temporal.destinations.workflows_batch_export import workflows_default_fields
 from products.batch_exports.backend.temporal.queue import RecordBatchQueue
 from products.batch_exports.backend.temporal.record_batch_model import SessionsRecordBatchModel
@@ -29,7 +35,7 @@ async def assert_clickhouse_records_were_handled(
     hog_function_id,
     team_id: int,
     sort_key: str,
-    batch_export_model: BatchExportModel | BatchExportSchema | None,
+    batch_export_model: AnyBatchExportModel | BatchExportSchema | None,
     batch_export_id: str,
     date_ranges: list[tuple[dt.datetime, dt.datetime]],
     backfill_details: BackfillDetails | None = None,
@@ -46,13 +52,16 @@ async def assert_clickhouse_records_were_handled(
     )
 
     if batch_export_model is not None:
-        if isinstance(batch_export_model, BatchExportModel):
+        if isinstance(batch_export_model, AnyBatchExportModel):
             model_name = batch_export_model.name
-            fields = batch_export_model.schema["fields"] if batch_export_model.schema is not None else None
-            filters = batch_export_model.filters
-            extra_query_parameters = (
-                batch_export_model.schema["values"] if batch_export_model.schema is not None else None
+            schema = batch_export_model.schema if isinstance(batch_export_model, BatchExportEventsCustomModel) else None
+            fields = schema["fields"] if schema is not None else None
+            filters = (
+                batch_export_model.filters
+                if isinstance(batch_export_model, BatchExportEventsModel | BatchExportEventsCustomModel)
+                else None
             )
+            extra_query_parameters = schema["values"] if schema is not None else None
         else:
             model_name = "events"
             fields = batch_export_model["fields"]

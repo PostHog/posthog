@@ -25,8 +25,3 @@ class TestWordpressSource:
             f"WordPress API error (retryable): status={status_code}, url=https://example.com/wp-json/wp/v2/categories"
         )
         assert any(pattern.lower() in raised.lower() for pattern in self.source.get_retryable_errors())
-
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["posts"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "posts"

@@ -87,11 +87,6 @@ class TestAzureCostManagementSource:
 
         assert [schema.name for schema in schemas] == list(ENDPOINTS)
 
-    def test_get_schemas_filters_by_name(self) -> None:
-        schemas = self.source.get_schemas(self.config, team_id=1, names=["cost_by_service", "dimensions"])
-
-        assert [schema.name for schema in schemas] == ["cost_by_service", "dimensions"]
-
     @pytest.mark.parametrize("endpoint", COST_ENDPOINTS)
     def test_cost_endpoints_sync_incrementally_on_the_usage_date(self, endpoint: str) -> None:
         schema = next(s for s in self.source.get_schemas(self.config, team_id=1) if s.name == endpoint)

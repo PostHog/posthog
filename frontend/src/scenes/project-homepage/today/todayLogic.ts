@@ -17,11 +17,11 @@ import { recentItemsModel } from '~/models/recentItemsModel'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { TeamPublicType, TeamType, UserType } from '~/types'
 
-import { signalsReportsForYouRetrieve, signalsReportsRetrieve } from 'products/signals/frontend/generated/api'
+import { signalsReportsList, signalsReportsRetrieve } from 'products/signals/frontend/generated/api'
 import {
     TodayReportList,
     TodayReportSnapshot,
-    captureTodayReportOpened,
+    captureTodayReportAction,
     captureTodayReportsImpressed,
 } from 'products/signals/frontend/inbox/inboxAnalytics'
 import { isActionCapableReport } from 'products/signals/frontend/inbox/inboxTaskKickoffLogic'
@@ -48,12 +48,25 @@ import { todayVerdictLogic } from './todayVerdictLogic'
 
 export const TOP_REPORT_COUNT = 5
 export const MORE_REPORTS_PAGE_SIZE = 20
+export const TODAY_REPORT_LIST_PARAMS = { view: 'for_you', sort: 'priority' } as const
 export const RECENT_OBJECT_COUNT = 4
 const RECENT_OBJECT_MORE_COUNT = 8
 const CLOCK_MS = 30_000
 
 /** Where a report was opened from, sent with the `today report opened` event. */
 export type TodayReportOpenSource = 'list' | 'more'
+
+/**
+ * The list position of a report the person opened from Today. The report page reads it once, and sends the
+ * `Inbox report opened` event with it. `step` is the previous / next control on a report page.
+ */
+export interface TodayReportOpenContext {
+    reportId: string
+    list: TodayReportList | null
+    rank: number | null
+    listSize: number | null
+    source: TodayReportOpenSource | 'step'
+}
 
 /** Where a question to PostHog AI came from, sent with the `today ai asked` event. */
 export type TodayAskSource = 'walk_through' | 'report_page'
@@ -118,7 +131,7 @@ async function currentReportContext(
     return { report: current ?? report, canAct: !!current && isActionCapableReport(current) }
 }
 
-function signalReportSnapshot(report: SignalReport): TodayReportSnapshot {
+export function signalReportSnapshot(report: SignalReport): TodayReportSnapshot {
     return {
         reportId: report.id,
         priority: report.priority ?? null,
@@ -173,6 +186,7 @@ export interface todayLogicValues {
     now: number
     recentObjects: FileSystemEntry[]
     reportId: string | null
+    reportOpenContext: TodayReportOpenContext | null
     reportPreviews: Record<string, TodayReportPreview>
     reports: SignalReport[]
     reportsBroken: boolean
@@ -276,6 +290,9 @@ export interface todayLogicActions {
     ) => {
         expanded: boolean
         list: TodayList
+    }
+    setReportOpenContext: (context: TodayReportOpenContext | null) => {
+        context: TodayReportOpenContext | null
     }
     setReturnFocusReportId: (reportId: string | null) => {
         reportId: string | null
@@ -389,6 +406,7 @@ export const todayLogic = kea<todayLogicType>([
         exploreOpened: (product: string, position: number) => ({ product, position }),
         setHomeScrollTop: (top: number | null) => ({ top }),
         setReturnFocusReportId: (reportId: string | null) => ({ reportId }),
+        setReportOpenContext: (context: TodayReportOpenContext | null) => ({ context }),
         setListExpanded: (list: TodayList, expanded: boolean) => ({ list, expanded }),
         showMoreForYou: true,
         retryFailedLoads: true,
@@ -407,12 +425,11 @@ export const todayLogic = kea<todayLogicType>([
                         return { results: [], count: 0 }
                     }
                     // The person's own reports, ranked and counted.
-                    // A P0 nobody owns belongs to the project, so Today leaves it to the Inbox.
                     let response
                     try {
-                        response = await signalsReportsForYouRetrieve(String(values.currentProjectId), {
+                        response = await signalsReportsList(String(values.currentProjectId), {
+                            ...TODAY_REPORT_LIST_PARAMS,
                             limit: TOP_REPORT_COUNT,
-                            include_unowned: false,
                         })
                     } catch (error) {
                         if (error instanceof ApiError && error.status === 403) {
@@ -436,11 +453,11 @@ export const todayLogic = kea<todayLogicType>([
                     }
                     const exclude = values.shownReportIds
                     const loaded = values.loadedMoreReports
-                    const response = await signalsReportsForYouRetrieve(String(values.currentProjectId), {
+                    const response = await signalsReportsList(String(values.currentProjectId), {
+                        ...TODAY_REPORT_LIST_PARAMS,
                         limit: MORE_REPORTS_PAGE_SIZE,
                         offset: loaded.length,
                         exclude: exclude.length > 0 ? exclude : undefined,
-                        include_unowned: false,
                     })
                     const results = [...loaded, ...(response.results as unknown as SignalReport[])]
                     return {
@@ -473,6 +490,10 @@ export const todayLogic = kea<todayLogicType>([
                 setHomeScrollTop: (_, { top }) => top,
                 locationChanged: (top, { pathname }) => (isTodayPath(pathname) ? top : null),
             },
+        ],
+        reportOpenContext: [
+            null as TodayReportOpenContext | null,
+            { setReportOpenContext: (_, { context }) => context },
         ],
         returnFocusReportId: [
             null as string | null,
@@ -686,6 +707,14 @@ export const todayLogic = kea<todayLogicType>([
                 moreRows.length
             )
         }
+        const capturePreview = (reportId: string, list: TodayReportList, rank: number): void => {
+            captureTodayReportAction({
+                reportId,
+                actionType: 'expand_preview',
+                todaySurface: 'list',
+                extra: { list, rank },
+            })
+        }
         return {
             askAi: async ({ prompt, source, report }, breakpoint) => {
                 let context: TodayAskContext
@@ -725,9 +754,9 @@ export const todayLogic = kea<todayLogicType>([
                     return
                 }
                 const { rows } = values.forYouRows
-                for (const [list, source] of [
-                    ['team', 'list'],
-                    ['more', 'more'],
+                for (const [list, source, reportList] of [
+                    ['team', 'list', 'briefing'],
+                    ['more', 'more', 'sidebar_more'],
                 ] as const) {
                     const listRows = reportRows(rows, source)
                     const index = listRows.findIndex((row) => row.report.id === reportId)
@@ -739,6 +768,7 @@ export const todayLogic = kea<todayLogicType>([
                             has_metric: !!listRows[index].report.metrics?.length,
                             surface: 'list',
                         })
+                        capturePreview(reportId, reportList, index + 1)
                         return
                     }
                 }
@@ -797,6 +827,15 @@ export const todayLogic = kea<todayLogicType>([
                 lemonToast.error('Couldn’t load more reports. Try again in a minute.')
             },
             reportOpened: ({ report, source }) => {
+                const listRows = reportRows(values.forYouRows.rows, source)
+                const rank = listRows.findIndex((row) => row.report.id === report.id) + 1
+                actions.setReportOpenContext({
+                    reportId: report.id,
+                    list: source === 'more' ? 'sidebar_more' : 'briefing',
+                    rank: rank || null,
+                    listSize: listRows.length,
+                    source,
+                })
                 if (values.useSampleData) {
                     return
                 }
@@ -805,15 +844,6 @@ export const todayLogic = kea<todayLogicType>([
                     report_id: report.id,
                     priority: report.priority ?? null,
                     has_pr: !!report.implementation_pr_url,
-                    source,
-                })
-                const listRows = reportRows(values.forYouRows.rows, source)
-                const rank = listRows.findIndex((row) => row.report.id === report.id) + 1
-                captureTodayReportOpened({
-                    report: signalReportSnapshot(report),
-                    list: source === 'more' ? 'sidebar_more' : 'briefing',
-                    rank: rank || null,
-                    listSize: listRows.length,
                     source,
                 })
             },

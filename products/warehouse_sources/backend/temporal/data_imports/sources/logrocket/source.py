@@ -85,7 +85,7 @@ class LogrocketSource(ResumableSource[LogrocketSourceConfig, LogrocketResumeConf
             label="LogRocket",
             iconPath="/static/services/logrocket.png",
             docsUrl="https://posthog.com/docs/cdp/sources/logrocket",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption=(
                 "Create an API key in LogRocket under Settings > API Keys. "
                 "Audit logging must be enabled by an admin on the Professional plan. "

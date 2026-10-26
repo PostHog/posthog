@@ -19,10 +19,11 @@ import structlog
 from posthog.dataclasses import frozen
 
 from products.alerts_platform.backend.facade.api import disable_configurations, upsert_configuration, upsert_if_running
-from products.alerts_platform.backend.facade.contracts import SOURCE_CONDITION_KEY, PlatformAlertUpsert, SourceKind
-from products.alerts_platform.backend.facade.enums import PlatformAlertState
+from products.alerts_platform.backend.facade.contracts import PlatformAlertUpsert, SourceKind
+from products.alerts_platform.backend.facade.enums import PlatformAlertOwner, PlatformAlertState
 from products.logs.backend.alert_state_machine import AlertState
 from products.logs.backend.models import LogsAlertConfiguration
+from products.logs.backend.platform_source_config import logs_source_config
 
 logger = structlog.get_logger(__name__)
 
@@ -33,6 +34,20 @@ class BackfillCounts:
     updated: int
     skipped: int
     failed: int
+
+
+# The settings a logs alert shares with its platform copy. The schedule stays the platform's own once
+# the copy exists, and `enabled` follows its own rules on each side.
+SETTINGS_FIELDS: Final = (
+    "name",
+    "source_config",
+    "evaluation_periods",
+    "datapoints_to_alarm",
+    "cooldown_minutes",
+    "schedule_restriction",
+)
+# The logs alert's columns that make up `source_config["condition"]` on the copy.
+CONDITION_FIELDS: Final = ("threshold_count", "threshold_operator", "window_minutes")
 
 
 def platform_upsert_of(alert: LogsAlertConfiguration) -> PlatformAlertUpsert:
@@ -47,14 +62,7 @@ def platform_upsert_of(alert: LogsAlertConfiguration) -> PlatformAlertUpsert:
         name=alert.name,
         enabled=alert.enabled,
         source_kind=SourceKind.LOGS,
-        source_config={
-            **alert.filters,
-            SOURCE_CONDITION_KEY: {
-                "threshold_count": alert.threshold_count,
-                "threshold_operator": alert.threshold_operator,
-                "window_minutes": alert.window_minutes,
-            },
-        },
+        source_config=logs_source_config(alert.filters, {field: getattr(alert, field) for field in CONDITION_FIELDS}),
         check_interval_minutes=alert.check_interval_minutes,
         evaluation_periods=alert.evaluation_periods,
         datapoints_to_alarm=alert.datapoints_to_alarm,
@@ -66,10 +74,12 @@ def platform_upsert_of(alert: LogsAlertConfiguration) -> PlatformAlertUpsert:
 
 
 # A muted logs alert is a state of its own. On the platform a mute only silences notifications,
-# so the copy keeps checking with the snooze carried on `snooze_until`. Firing states have no entry,
-# because a firing alert stays with logs until it resolves.
+# so the copy keeps checking with the snooze carried on `snooze_until`. A pending resolve is still
+# firing, because its incident stays open until the resolve completes.
 PLATFORM_HANDOVER_STATE: Final[dict[str, PlatformAlertState]] = {
     LogsAlertConfiguration.State.NOT_FIRING: PlatformAlertState.NOT_FIRING,
+    LogsAlertConfiguration.State.FIRING: PlatformAlertState.FIRING,
+    LogsAlertConfiguration.State.PENDING_RESOLVE: PlatformAlertState.FIRING,
     LogsAlertConfiguration.State.SNOOZED: PlatformAlertState.NOT_FIRING,
     LogsAlertConfiguration.State.ERRORED: PlatformAlertState.ERRORED,
     LogsAlertConfiguration.State.BROKEN: PlatformAlertState.BROKEN,
@@ -122,7 +132,8 @@ def backfill_platform_alert_configurations(
     """
     if not 1 <= sample_percent <= 100:
         raise ValueError("sample_percent must be between 1 and 100")
-    source = LogsAlertConfiguration.objects.all()
+    # The platform owns these, and every edit writes both rows already.
+    source = LogsAlertConfiguration.objects.exclude(owner=PlatformAlertOwner.PLATFORM)
     if team_id is not None:
         source = source.filter(team_id=team_id)
     if alert_ids is not None:

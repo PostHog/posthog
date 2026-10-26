@@ -70,6 +70,7 @@ export function SourceIntegrationChoice({
     ...props
 }: SourceIntegrationChoiceProps): JSX.Element {
     const { saveFormStateBeforeRedirect } = useActions(sourceWizardLogic)
+    const { oauthRedirectUrl } = useValues(sourceWizardLogic)
     const { location, searchParams } = useValues(router)
     const { integrations, integrationsLoading } = useValues(integrationsLogic)
     const integrationManagementRestriction = useIntegrationManagementRestriction()
@@ -113,8 +114,8 @@ export function SourceIntegrationChoice({
     // standalone new-source scene would drop the user out of the onboarding flow, so when we're
     // on an onboarding route we return to the current onboarding URL with the source kind instead.
     // InlineSourceSetup reads that kind on mount and resumes the wizard (credentials are restored
-    // from the state saved by beforeRedirect). Outside onboarding the standalone scene is correct.
-    const redirectUrl = sourceOAuthRedirectUrl(sourceKind, location.pathname, location.search)
+    // from the state saved by beforeRedirect). Other embedded hosts supply their own return URL.
+    const redirectUrl = oauthRedirectUrl ?? sourceOAuthRedirectUrl(sourceKind, location.pathname, location.search)
 
     return (
         <div className="flex flex-col gap-2">

@@ -32,7 +32,7 @@ describe('todayLogic', () => {
         reportResponse = null
         useMocks({
             get: {
-                '/api/projects/:team_id/signals/reports/for_you/': ({ request }) => {
+                '/api/projects/:team_id/signals/reports/': ({ request }) => {
                     listParams = new URL(request.url).searchParams
                     return listResponse
                 },
@@ -56,7 +56,10 @@ describe('todayLogic', () => {
     it.each([
         {
             shown: 'the report list',
-            expected: ['the page shows these reports', '](http://localhost/project/997/home/reports/r-1)'],
+            expected: [
+                'the page shows these reports',
+                '](http://localhost/project/997/home/reports/r-1?link_source=today)',
+            ],
         },
         {
             shown: 'the open report',
@@ -166,7 +169,12 @@ describe('todayLogic', () => {
         logic.actions.loadTopReports()
         await expectLogic(logic).toFinishAllListeners()
 
+        reportResponse = [200, report]
         logic.actions.reportOpened(report, 'list')
+        const reportLogic = todayReportLogic({ reportId: 'a' })
+        reportLogic.mount()
+        reportLogic.actions.reportVisited()
+        await expectLogic(reportLogic).toDispatchActions(['loadFullReportSuccess'])
         todayVerdictLogic.actions.setReportVerdict(
             { reportId: 'a', title: 'Signup form rejects emails', hasOpenPullRequest: false },
             'dismiss',
@@ -189,7 +197,13 @@ describe('todayLogic', () => {
                 ],
                 [
                     'Inbox report opened',
-                    expect.objectContaining({ report_id: 'a', surface: 'today', list: 'briefing', rank: 1 }),
+                    expect.objectContaining({
+                        report_id: 'a',
+                        surface: 'today',
+                        open_method: 'click',
+                        list: 'briefing',
+                        rank: 1,
+                    }),
                     undefined,
                 ],
                 [
@@ -209,7 +223,12 @@ describe('todayLogic', () => {
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
 
+        reportResponse = [200, b]
         logic.actions.reportOpened(b, 'list')
+        const reportLogic = todayReportLogic({ reportId: 'b' })
+        reportLogic.mount()
+        reportLogic.actions.reportVisited()
+        await expectLogic(reportLogic).toDispatchActions(['loadFullReportSuccess'])
 
         const events = capture.mock.calls.filter(([event]) => event.startsWith('Inbox '))
         expect(events).toEqual([
@@ -241,6 +260,19 @@ describe('todayLogic', () => {
 
         expect(capture.mock.calls.filter(([event]) => event === 'today report previewed')).toEqual([
             ['today report previewed', expect.objectContaining({ list: 'team', report_id: 'a', surface: 'list' })],
+        ])
+        expect(capture.mock.calls.filter(([event]) => event === 'Inbox report action')).toEqual([
+            [
+                'Inbox report action',
+                expect.objectContaining({
+                    report_id: 'a',
+                    action_type: 'expand_preview',
+                    surface: 'today',
+                    list: 'briefing',
+                    rank: 1,
+                }),
+                undefined,
+            ],
         ])
     })
 
@@ -284,8 +316,9 @@ describe('todayLogic', () => {
 
         await expectLogic(logic).toFinishAllListeners().toMatchValues({ reports, moreReportCount: 7 })
         expect(Object.fromEntries(listParams!.entries())).toEqual({
+            view: 'for_you',
+            sort: 'priority',
             limit: String(TOP_REPORT_COUNT),
-            include_unowned: 'false',
         })
     })
 
@@ -305,10 +338,11 @@ describe('todayLogic', () => {
             .toDispatchActions(['loadMoreReportsSuccess'])
             .toMatchValues({ loadedMoreReports: first, canLoadMoreReports: true, moreReportsInInbox: 0 })
         expect(Object.fromEntries(listParams!.entries())).toEqual({
+            view: 'for_you',
+            sort: 'priority',
             limit: String(MORE_REPORTS_PAGE_SIZE),
             offset: '0',
             exclude: 'a',
-            include_unowned: 'false',
         })
 
         const second = page('q', 3)

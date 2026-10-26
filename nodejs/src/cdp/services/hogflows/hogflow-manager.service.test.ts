@@ -7,6 +7,7 @@ import { PostgresUse } from '~/common/utils/db/postgres'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { createTeam, createTestTeamFixture } from '~/tests/helpers/sql'
+import { INVALID_TEAM_ID_KEYS } from '~/tests/helpers/team'
 import { Hub } from '~/types'
 
 import { insertHogFlow } from '../../_tests/fixtures-hogflows'
@@ -191,6 +192,17 @@ describe('HogFlowManager', () => {
             const result = await manager.getHogFlowIdsForTeams([nonExistentTeamId])
             expect(result[nonExistentTeamId]).toEqual([])
         })
+
+        it.each(INVALID_TEAM_ID_KEYS)(
+            'returns no ids for invalid team id %p without failing the valid team in the same load',
+            async (key) => {
+                const invalidTeamId = key as unknown as number
+                const result = await manager.getHogFlowIdsForTeams([teamId1, invalidTeamId])
+
+                expect(result[teamId1]).toHaveLength(2)
+                expect(result[invalidTeamId]).toEqual([])
+            }
+        )
 
         it('handles archived hog flows', async () => {
             const originalResult = await manager.getHogFlowIdsForTeams([teamId1, teamId2])

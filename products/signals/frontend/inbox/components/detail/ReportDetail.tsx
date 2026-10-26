@@ -51,10 +51,12 @@ import { ReportActivitySection } from './ReportActivitySection'
 import { ReportChart } from './ReportChart'
 import { ReportChartsContext } from './reportChartsContext'
 import { ReportChecksSection } from './ReportChecksSection'
+import { ReportClaimPill } from './ReportClaimPill'
 import { useReportDetailActions } from './ReportDetailActions'
 import { ReportExpectedImpact } from './ReportExpectedImpact'
 import { ReportFeedbackFooter } from './ReportFeedbackFooter'
 import { ReportImpactMetrics } from './ReportImpactMetrics'
+import { ReportPlanBlock } from './ReportPlanBlock'
 import { ReportPrimaryMetric } from './ReportPrimaryMetric'
 import { ReportSourceSuggestion } from './ReportSourceSuggestion'
 import { ReportStatusSection } from './ReportStatusSection'
@@ -237,6 +239,8 @@ export function InboxDetailFrame({
         reportChecks,
         reportChecksError,
         prioritySaving,
+        reportClaimant,
+        isClaimedByMe,
         report: currentReport,
     } = useValues(inboxReportDetailLogic(logicProps))
     const { setDetailTab, expandEvidence, collapseEvidence, updatePriority } = useActions(
@@ -328,6 +332,14 @@ export function InboxDetailFrame({
         </h1>
     )
 
+    const claimPill = (
+        <ReportClaimPill
+            claimant={reportClaimant}
+            isClaimedByMe={isClaimedByMe}
+            claimedAt={(currentReport ?? report).assignee?.claimed_at ?? null}
+        />
+    )
+
     // The report body: title, summary, charts, and the rating. On a PR-bearing report it is the
     // "Summary" tab; otherwise it sits under the "Report summary" header.
     // The key observation leads the evidence rail; the supporting tiles belong to the body's Impact section.
@@ -346,10 +358,14 @@ export function InboxDetailFrame({
         expectedImpactEnabled && !summaryPending && (reportChecks === null || reportChecksError || hasMeasurements) ? (
             <ReportExpectedImpact report={report} reportUrl={reportUrl} />
         ) : null
+    const planBlock = report.plan ? <ReportPlanBlock reportId={report.id} plan={report.plan} /> : null
 
     const summaryColumn = (
         <div className="flex flex-1 flex-col gap-6">
-            {titleHeading}
+            <div className="flex flex-col gap-2">
+                {titleHeading}
+                {claimPill}
+            </div>
 
             <ReportChartsContext.Provider value={chartsById}>
                 <div>
@@ -361,6 +377,7 @@ export function InboxDetailFrame({
                             pullRequestNote={pullRequestNote}
                             impactMetrics={impactMetrics}
                             expectedImpact={expectedImpact}
+                            planBlock={planBlock}
                         />
                     ) : (
                         <div className="flex flex-col gap-6">
@@ -370,6 +387,7 @@ export function InboxDetailFrame({
                             {pullRequestNote}
                             {impactMetrics}
                             {expectedImpact}
+                            {planBlock}
                         </div>
                     )}
                     {trailingCharts.length > 0 && (
@@ -400,6 +418,7 @@ export function InboxDetailFrame({
                 )}
                 {titleHeading}
             </div>
+            {claimPill}
             <div className="flex flex-wrap items-center gap-2 text-xs text-tertiary">
                 {diffStat && (
                     <>

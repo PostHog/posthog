@@ -224,7 +224,6 @@ export const manifest: ProductManifest = {
                 {
                     name: 'Reusable widgets',
                     href: urls.notebooks('widgets'),
-                    flag: FEATURE_FLAGS.NOTEBOOK_GENERATED_WIDGETS,
                 },
             ],
             sceneKey: 'Notebooks',

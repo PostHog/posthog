@@ -89,6 +89,8 @@ describe('RerunPaginatorService replay fidelity (hog_flow)', () => {
                 startedAtTimestamp: 999,
                 awaitingResume: { key: 'old-key', deadlineAt: '2020-01-01T00:00:00Z', dispatch: { id: 'old-task' } },
                 resumeResult: { key: 'old-key', status: 'failed' },
+                cohortLookupAttempts: 2,
+                cohortLookupFailed: true,
                 hogFunctionState: {
                     globals: { event: { uuid: 'evt-1' }, source: { name: 'Email', url: '' } },
                     timings: [],
@@ -96,6 +98,7 @@ describe('RerunPaginatorService replay fidelity (hog_flow)', () => {
                 },
             },
             personId: 'person-1',
+            messageOptOuts: [{ identifier: 'opted-out@example.com', categoryId: '$all' }],
         }
         const rows = [
             {
@@ -126,6 +129,7 @@ describe('RerunPaginatorService replay fidelity (hog_flow)', () => {
         // inputs re-render against the current config instead of the stale snapshot.
         expect(invocation.state?.currentAction).toEqual({ id: 'send_email', startedAtTimestamp: 999 })
         expect(invocation.state?.personId).toBe('person-1')
+        expect(invocation.state?.messageOptOuts).toEqual([{ identifier: 'opted-out@example.com', categoryId: '$all' }])
         expect(invocation.state?.actionStepCount).toBe(3)
         expect(invocation.state?.customerTaskIdempotencyVersion).toBe(version)
         expect(invocation.state?.variables).toEqual({ ticket_id: '123' })

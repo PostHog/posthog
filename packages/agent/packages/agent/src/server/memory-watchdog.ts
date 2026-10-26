@@ -98,7 +98,10 @@ export function toProcessKilledParams(
   }
   return {
     pid,
-    comm: record.comm,
+    comm:
+      typeof record.top_comm === "string" && record.top_comm
+        ? record.top_comm
+        : record.comm,
     treeRssBytes,
     memoryCurrentBytes,
     memoryLimitBytes,

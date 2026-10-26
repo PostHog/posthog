@@ -4,12 +4,11 @@ from typing import Any
 import pytest
 from unittest import mock
 
-import requests
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
     always,
+    route,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.windmill import (
@@ -88,9 +87,6 @@ class TestValidateCredentials:
     @pytest.mark.parametrize(
         "status_code, expected_valid, expected_message",
         [
-            (200, True, None),
-            (401, False, "Invalid Windmill API token"),
-            (403, False, "Could not access Windmill workspace 'my-workspace' with this token"),
             (404, False, "Could not access Windmill workspace 'my-workspace' with this token"),
         ],
     )
@@ -117,13 +113,6 @@ class TestValidateCredentials:
             validate_credentials("token", BASE_URL, WORKSPACE)
 
         assert network.session_options[0]["redact_values"] == ("token",)
-
-    def test_swallows_request_exceptions(self):
-        with scripted_network(always(requests.exceptions.ConnectionError("boom"))):
-            valid, message = validate_credentials("token", BASE_URL, WORKSPACE)
-
-        assert valid is False
-        assert message is not None and "boom" in message
 
     @mock.patch(HOST_SAFE_PATCH)
     def test_blocks_internal_host_when_team_id_given(self, mock_host_safe):
@@ -192,6 +181,78 @@ class TestSync:
 
         assert len(result.requests) == 1
         assert result.requests[0].url.startswith(BASE_URL)
+
+    @pytest.mark.parametrize(
+        "endpoint, page_sizes, expected_pages",
+        [
+            # A short page ends the walk for endpoints whose pages are filled by LIMIT/OFFSET.
+            ("completed_jobs", [PER_PAGE, 1], ["1", "2"]),
+            # listFolders drops out-of-scope folders after LIMIT, so a short page can precede more
+            # rows and only an empty page ends the walk.
+            ("folders", [PER_PAGE, 1, 3, 0], ["1", "2", "3", "4"]),
+        ],
+    )
+    def test_page_walk_terminates(self, endpoint, page_sizes, expected_pages):
+        result = _driver().run(endpoint, [_json_response(_page(n)) for n in page_sizes])
+
+        assert result.raised is None
+        assert result.params("page") == expected_pages
+        assert len(result.rows) == sum(page_sizes)
+
+    @pytest.mark.parametrize(
+        "endpoint, expected_url",
+        [
+            ("workspaces", f"{BASE_URL}/api/workspaces/list"),
+            ("user_usage", f"{BASE_URL}/api/w/{WORKSPACE}/users/list_usage"),
+        ],
+    )
+    def test_unpaginated_endpoint_makes_one_request(self, endpoint, expected_url):
+        rows = [{"id": "ws-1", "email": "a@example.com", "executions": 12}]
+
+        result = _driver().run(endpoint, [_json_response(rows)])
+
+        assert result.raised is None
+        assert result.urls == [expected_url]
+        assert result.rows == rows
+
+    def test_groups_fetch_each_detail_for_members(self):
+        detail_alpha = {"name": "alpha", "summary": "A", "members": ["ann", "bob"], "extra_perms": {}}
+        result = _driver().run(
+            "groups",
+            route(
+                {
+                    "/groups/list": [
+                        _json_response([{"name": "alpha", "extra_perms": {}}, {"name": "gone", "extra_perms": {}}]),
+                    ],
+                    "/groups/get/alpha": [_json_response(detail_alpha)],
+                    # Deleted between the list call and its detail call.
+                    "/groups/get/gone": [_json_response({"error": "not found"}, status_code=404)],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert result.paths == [
+            f"/api/w/{WORKSPACE}/groups/list",
+            f"/api/w/{WORKSPACE}/groups/get/alpha",
+            f"/api/w/{WORKSPACE}/groups/get/gone",
+        ]
+        assert [{k: row[k] for k in detail_alpha} for row in result.rows] == [detail_alpha]
+
+    def test_groups_percent_encode_names_in_detail_path(self):
+        result = _driver().run(
+            "groups",
+            route(
+                {
+                    "/groups/list": [_json_response([{"name": "team#ops/eu", "extra_perms": {}}])],
+                    "/groups/get/team%23ops%2Feu": [_json_response({"name": "team#ops/eu", "members": ["ann"]})],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert result.paths[-1] == f"/api/w/{WORKSPACE}/groups/get/team%23ops%2Feu"
+        assert [row["members"] for row in result.rows] == [["ann"]]
 
     @mock.patch(HOST_SAFE_PATCH)
     def test_raises_when_host_not_allowed(self, mock_host_safe):

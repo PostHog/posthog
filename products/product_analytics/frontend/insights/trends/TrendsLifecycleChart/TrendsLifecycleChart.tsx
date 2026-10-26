@@ -48,7 +48,7 @@ const handleChartError = makeChartErrorHandler('trends-lifecycle-chart')
 // Lifecycle rows label themselves by status ("New", "Returning", ...) — not by
 // the underlying event/action. The row's ribbon color already identifies the
 // series, so we render the label as plain text and skip InsightLabel (which
-// would otherwise prefer `action.name` like "$pageview").
+// would otherwise prefer the series name like "Pageview").
 const renderLifecycleSeriesLabel = (datum: SeriesDatum): React.ReactNode => datum.label
 
 export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLifecycleChartProps): JSX.Element | null {
@@ -74,7 +74,7 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
     } = useValues(trendsDataLogic(insightProps))
     const { timezone, weekStartDay, baseCurrency } = useValues(teamLogic)
 
-    // Lifecycle statuses all share the same resultCustomizationKey (same action.order), so
+    // Lifecycle statuses all share the same resultCustomizationKey (same series order), so
     // useInsightsLegendConfig can't distinguish them — build the config inline and let the
     // chart manage toggle state internally.
     const legendRenderItem = useChartLegendSeriesMenu({ surface: 'lifecycle', seriesCount: indexedResults.length })
@@ -112,6 +112,11 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
         [formatValue, showValuesOnSeries, showPercentagesOnSeries]
     )
 
+    const buildMeta = useCallback(
+        (r: IndexedTrendResult): TrendsSeriesMeta => buildTrendsSeriesMeta(r, querySource),
+        [querySource]
+    )
+
     const {
         series,
         labels,
@@ -120,7 +125,7 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
         () =>
             buildLifecycleChartModel<IndexedTrendResult, TrendsSeriesMeta>(indexedResults ?? [], {
                 getColor: (status) => getBarColorFromStatus((status ?? 'new') as LifecycleToggle),
-                buildMeta: buildTrendsSeriesMeta,
+                buildMeta,
                 // Bands are keyed by these strings, so they must be unique per point. Display
                 // labels are not (week and hour labels omit the year, so multi-year ranges
                 // repeat them); use the ISO days, which ticks and tooltips format from.
@@ -140,6 +145,7 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
             }),
         [
             indexedResults,
+            buildMeta,
             currentPeriodResult?.labels,
             currentPeriodResult?.days,
             isStacked,

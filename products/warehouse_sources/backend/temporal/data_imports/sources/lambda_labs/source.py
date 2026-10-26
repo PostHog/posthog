@@ -119,7 +119,7 @@ class LambdaLabsSource(ResumableSource[LambdaLabsSourceConfig, LambdaLabsResumeC
             name=ExternalDataSourceType.LAMBDALABS,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Lambda",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Lambda API key to pull your Lambda (Lambda Labs) GPU cloud data into the PostHog Data warehouse.
 
 You can create an API key in the [API keys section](https://cloud.lambda.ai/api-keys) of your Lambda dashboard. The key has account-wide access.""",

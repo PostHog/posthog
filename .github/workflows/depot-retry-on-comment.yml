@@ -1,0 +1,40 @@
+# A `/depot retry` comment on a pull request retries the failed and cancelled jobs of its newest Depot CI
+# run, without waiting for the rest of the run and without a push that reruns every workflow.
+#
+# This runs on GitHub Actions because Depot CI records a run for every comment, even a skipped one. See
+# "Reruns" in .agents/skills/depot-ci/references/posthog-check-run-semantics.md.
+#
+# issue_comment workflows run from the default branch, so pull request code never runs here.
+name: Retry Depot CI from a comment
+on:
+    issue_comment:
+        types: [created]
+permissions:
+    contents: read
+jobs:
+    retry:
+        name: Retry failed Depot CI jobs
+        # The repository is public, so only organization members and collaborators can start a retry.
+        if: >
+            github.event.issue.pull_request
+            && startsWith(github.event.comment.body, '/depot retry')
+            && contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association)
+        # On the job, not the workflow, so a skipped run for any other comment cannot cancel a queued retry.
+        # A second retry waits for the first, then finds its jobs requeued and retries nothing.
+        concurrency:
+            group: ${{ github.workflow }}-pr-${{ github.event.issue.number }}
+            cancel-in-progress: false
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: .github/scripts
+                  sparse-checkout-cone-mode: false
+            - uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
+            - name: Retry this PR's failed Depot jobs
+              env:
+                  DEPOT_TOKEN: ${{ secrets.DEPOT_TOKEN }}
+                  REPO: ${{ github.repository }}
+                  PR_NUMBER: ${{ github.event.issue.number }}
+              run: python3 .github/scripts/retry_depot_pr_run.py

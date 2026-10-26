@@ -9,16 +9,24 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 ENDPOINTS = (
     "appointment_types",
     "attendees",
+    "billable_items",
     "businesses",
+    "concession_types",
+    "contacts",
+    "daily_availabilities",
     "group_appointments",
     "individual_appointments",
     "invoice_items",
     "invoices",
+    "patient_cases",
     "patients",
     "practitioners",
+    "product_suppliers",
     "products",
+    "referral_source_types",
     "referral_sources",
     "treatment_notes",
+    "users",
 )
 
 # Every endpoint's records carry a `created_at` that never changes after creation, so it's a
