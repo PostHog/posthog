@@ -1,8 +1,5 @@
-//! Lets an internal PostHog service send logs that the logs consumer stores outside billing.
-//!
-//! The caller proves itself with a static key. This service then signs the Kafka batch, because
-//! only this service sees the final payload bytes. The consumer verifies that signature against
-//! the team it resolves from the token, so a caller that claims another team gets billed as normal.
+//! Signs here because only this service sees the final payload bytes. The consumer verifies the
+//! signature against the team it resolves from the token, so a false team id is billed as normal.
 
 use std::sync::Arc;
 
@@ -22,7 +19,6 @@ pub const SIGNATURE_KAFKA_HEADER: &str = "posthog-internal";
 const SIGNATURE_VERSION: &str = "v1";
 const OUTCOME_COUNTER: &str = "capture_logs_internal_requests_total";
 
-/// A verified internal request. Signing needs the payload, which exists only after the batch is encoded.
 #[derive(Clone, Debug)]
 pub struct InternalBatch {
     source: String,
@@ -57,7 +53,6 @@ pub struct InternalLogsSigner {
 }
 
 impl InternalLogsSigner {
-    /// Both lists are comma-separated, newest first. An empty list turns the feature off.
     pub fn new(caller_keys: &str, signing_keys: &str) -> Self {
         Self {
             caller_key_digests: parse_keys(caller_keys)
@@ -89,7 +84,6 @@ impl InternalLogsSigner {
             _ => return Err("not_configured"),
         };
         let digest: [u8; 32] = Sha256::digest(caller_key.as_bytes()).into();
-        // Every key is compared, so a rotation can add a key before callers switch to it.
         if !self
             .caller_key_digests
             .iter()
