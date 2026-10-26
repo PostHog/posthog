@@ -2,6 +2,7 @@ import React, { useCallback, useMemo } from 'react'
 
 import { ChartLegend } from '../../components/Legend/ChartLegend'
 import { useChartLegend } from '../../components/Legend/useChartLegend'
+import { ChartGroupContext } from '../../core/chart-group-context'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
 import type { RadialSlicePayload } from '../../core/hooks/useRadialInteraction'
 import type {
@@ -194,17 +195,20 @@ function ProportionBarInner<Meta = unknown>({
             <ChartLegend {...legendProps} items={legendItems} legendDataAttr="hog-chart-proportion-legend">
                 {/* eslint-disable-next-line react/forbid-dom-props -- dynamic pixel height from config */}
                 <div className="relative flex flex-col" style={{ height: barHeight }}>
-                    <BarChart
-                        series={barSeries}
-                        labels={BAND_LABELS}
-                        theme={theme}
-                        config={barConfig}
-                        tooltip={renderTooltip}
-                        onPointClick={onSliceClick ? handlePointClick : undefined}
-                        className={className}
-                        dataAttr={dataAttr}
-                        onError={onError}
-                    />
+                    {/* Every proportion bar shares one synthetic band label, so none joins a `ChartGroup`. */}
+                    <ChartGroupContext.Provider value={null}>
+                        <BarChart
+                            series={barSeries}
+                            labels={BAND_LABELS}
+                            theme={theme}
+                            config={barConfig}
+                            tooltip={renderTooltip}
+                            onPointClick={onSliceClick ? handlePointClick : undefined}
+                            className={className}
+                            dataAttr={dataAttr}
+                            onError={onError}
+                        />
+                    </ChartGroupContext.Provider>
                 </div>
             </ChartLegend>
         </div>

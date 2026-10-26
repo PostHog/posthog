@@ -1,6 +1,7 @@
-import React, { useEffect, useMemo } from 'react'
+import React, { useContext, useEffect, useMemo } from 'react'
 
 import { useChartHover } from '../../core/chart-context'
+import { ChartGroupContext } from '../../core/chart-group-context'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
 import { useLatest } from '../../core/hooks/useLatest'
 import type { BarChartConfig, ChartTheme, LineChartConfig, Series, TooltipContext, ValueDomain } from '../../core/types'
@@ -121,6 +122,8 @@ function SparklineInner({
     )
     const wrapperStyle = useMemo<React.CSSProperties | undefined>(() => (fill ? undefined : { height }), [fill, height])
 
+    // Index labels line up with nothing, so a sparkline without `labels` stays out of the group.
+    const groupContext = useContext(ChartGroupContext)
     const watcher = onHoverIndexChange ? <HoverWatcher onHoverChange={onHoverIndexChange} /> : null
     return (
         <div
@@ -128,15 +131,29 @@ function SparklineInner({
             style={wrapperStyle}
             data-attr={dataAttr}
         >
-            {type === 'bar' ? (
-                <BarChart series={chartSeries} labels={resolvedLabels} theme={theme} config={config} tooltip={tooltip}>
-                    {watcher}
-                </BarChart>
-            ) : (
-                <LineChart series={chartSeries} labels={resolvedLabels} theme={theme} config={config} tooltip={tooltip}>
-                    {watcher}
-                </LineChart>
-            )}
+            <ChartGroupContext.Provider value={labels != null ? groupContext : null}>
+                {type === 'bar' ? (
+                    <BarChart
+                        series={chartSeries}
+                        labels={resolvedLabels}
+                        theme={theme}
+                        config={config}
+                        tooltip={tooltip}
+                    >
+                        {watcher}
+                    </BarChart>
+                ) : (
+                    <LineChart
+                        series={chartSeries}
+                        labels={resolvedLabels}
+                        theme={theme}
+                        config={config}
+                        tooltip={tooltip}
+                    >
+                        {watcher}
+                    </LineChart>
+                )}
+            </ChartGroupContext.Provider>
         </div>
     )
 }

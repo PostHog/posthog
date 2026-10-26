@@ -102,6 +102,7 @@ Charts fill their container and need a parent with real dimensions — a zero-he
 - A custom overlay with its own hover or click needs `data-hog-charts-interactive-overlay` on its root, or the chart's tooltip fights it for the cursor.
 - The top/bottom legend height cap only resolves against an explicit container `height`, not a flex-derived one.
 - A new `Series[]` reference every render recomputes the scales and repaints the canvas. Memoize.
+- Inside a `ChartGroup`, time charts line up only on ISO labels. Formatted display labels ("May 1") match by exact string, so charts at different intervals never align. [docs/interactions.md](./src/docs/interactions.md#chart-groups)
 
 ## Testing
 

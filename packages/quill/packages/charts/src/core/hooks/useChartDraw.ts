@@ -11,7 +11,7 @@ import type {
     ResolvedSeries,
 } from '../types'
 import { clearAndPrepare } from './clearCanvas'
-import { useHoverAnimation } from './useHoverAnimation'
+import { useHoverAnimation, type ExternalHoverSource } from './useHoverAnimation'
 
 interface UseChartDrawOptions {
     /** Context for the static layer (grid, lines, areas, points). Redrawn only when chart inputs change. */
@@ -30,6 +30,8 @@ interface UseChartDrawOptions {
     drawHover: (args: ChartDrawArgs) => DrawHoverResult
     /** Duration (ms) of the hover-overlay fade-in/out. `0` disables. */
     hoverAnimationMs?: number
+    /** Hover mirrored from a `ChartGroup`, drawn while the pointer is elsewhere. */
+    externalHover?: ExternalHoverSource | null
 }
 
 export function useChartDraw({
@@ -46,6 +48,7 @@ export function useChartDraw({
     drawStatic,
     drawHover,
     hoverAnimationMs = 0,
+    externalHover = null,
 }: UseChartDrawOptions): void {
     // Cancel the prior RAF on effect re-run — relying on cleanup ordering alone leaves a
     // window where a stale RAF can paint after the new setup runs.
@@ -108,5 +111,6 @@ export function useChartDraw({
         dragRect,
         drawHover,
         hoverAnimationMs,
+        externalHover,
     })
 }

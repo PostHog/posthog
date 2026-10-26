@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react'
 
 import { Sparkline } from '../../charts/Sparkline/Sparkline'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
+import { useChartGroupHoverIndex } from '../../core/hooks/useChartGroupMember'
 import type { ChartTheme } from '../../core/types'
 import {
     type ChangeColor,
@@ -125,7 +126,8 @@ function MetricCardInner({
     const lastIndex = sparklineData ? sparklineData.length - 1 : -1
 
     const [hoverIndex, setHoverIndex] = useState(-1)
-    const intentIndex = useHoverIntent(hoverIndex, hoverIntentMs)
+    const groupHoverIndex = useChartGroupHoverIndex(sparklineData ? labels : undefined)
+    const intentIndex = useHoverIntent(hoverIndex >= 0 ? hoverIndex : groupHoverIndex, hoverIntentMs)
     const activeIndex = intentIndex >= 0 ? intentIndex : lastIndex
 
     const restingValue = value ?? (sparklineData ? sparklineData[lastIndex] : undefined)
@@ -133,6 +135,38 @@ function MetricCardInner({
     const animatedValue = useAnimatedNumber(animationTarget, animationMs)
 
     const baselineValue = useMemo(() => sparklineData?.find((v) => v !== 0 && Number.isFinite(v)), [sparklineData])
+
+    // The card re-renders on every hovered point, its own or the group's. Memoizing the sparkline keeps
+    // that re-render to the headline instead of the whole chart tree.
+    const sparkline = useMemo(
+        () =>
+            sparklineData && theme ? (
+                <Sparkline
+                    data={sparklineData}
+                    labels={labels}
+                    theme={theme}
+                    color={color}
+                    height={sparklineHeight}
+                    fill={sparklineFill}
+                    fillOpacity={sparklineFillOpacity}
+                    dashedFromIndex={sparklineDashedFromIndex}
+                    onHoverIndexChange={setHoverIndex}
+                    className={sparklineClassName}
+                    dataAttr="metric-card-sparkline"
+                />
+            ) : null,
+        [
+            sparklineData,
+            labels,
+            theme,
+            color,
+            sparklineHeight,
+            sparklineFill,
+            sparklineFillOpacity,
+            sparklineDashedFromIndex,
+            sparklineClassName,
+        ]
+    )
 
     if (restingValue == null) {
         return null
@@ -215,21 +249,7 @@ function MetricCardInner({
                 </div>
             )}
 
-            {sparklineData && theme && (
-                <Sparkline
-                    data={sparklineData}
-                    labels={labels}
-                    theme={theme}
-                    color={color}
-                    height={sparklineHeight}
-                    fill={sparklineFill}
-                    fillOpacity={sparklineFillOpacity}
-                    dashedFromIndex={sparklineDashedFromIndex}
-                    onHoverIndexChange={setHoverIndex}
-                    className={sparklineClassName}
-                    dataAttr="metric-card-sparkline"
-                />
-            )}
+            {sparkline}
         </div>
     )
 }

@@ -97,6 +97,20 @@ The cursor switches to `crosshair` while enabled, except over a
 clickable point (`onPointClick` set, and `isPointClickable` passes) where it stays `pointer`. A
 plain click without movement still pins the tooltip or fires `onPointClick`.
 
+## Chart groups
+
+Wrap charts in `<ChartGroup>` to share hover, crosshair, tooltip, zoom and selection between them.
+Charts line up by x value, so an hourly chart and a 5-minute chart show the same moment.
+
+```tsx
+<ChartGroup onZoom={({ from, to }) => updateDateRange(from, to)}>
+  <TimeSeriesLineChart series={latency} labels={minuteLabels} theme={THEME} />
+  <TimeSeriesBarChart series={errors} labels={fiveMinuteLabels} theme={THEME} />
+</ChartGroup>
+```
+
+Matching rules, keeping a chart out, and the rest: [docs/interactions.md](./docs/interactions.md#chart-groups).
+
 ## Custom overlays
 
 Render any React component as a child of the chart and read layout / hover state through hooks:

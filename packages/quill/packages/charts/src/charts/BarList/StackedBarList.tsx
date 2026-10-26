@@ -1,6 +1,7 @@
 /* eslint-disable react/forbid-dom-props -- row sizes and positions come from props */
 import React, { useMemo } from 'react'
 
+import { ChartGroupContext } from '../../core/chart-group-context'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
 import type {
     BarChartConfig,
@@ -124,18 +125,21 @@ function StackedBarListInner<Meta = unknown>({
         [barCornerRadius, barHeight, rowHeight, plotTop, resolvedValueDomain, tooltipConfig]
     )
 
+    // Rows are ranked categories, not a shared x axis, so the chart stays out of any `ChartGroup`.
     const chart =
         labels.length > 0 ? (
-            <BarChart
-                series={series}
-                labels={labels}
-                theme={theme}
-                config={barConfig}
-                tooltip={tooltip}
-                onPointClick={onPointClick}
-                dataAttr={dataAttr}
-                onError={onError}
-            />
+            <ChartGroupContext.Provider value={null}>
+                <BarChart
+                    series={series}
+                    labels={labels}
+                    theme={theme}
+                    config={barConfig}
+                    tooltip={tooltip}
+                    onPointClick={onPointClick}
+                    dataAttr={dataAttr}
+                    onError={onError}
+                />
+            </ChartGroupContext.Provider>
         ) : null
 
     if (labelPosition === 'top') {

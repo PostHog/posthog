@@ -58,6 +58,31 @@ describe('HighlightedRange', () => {
         expect(box.style.width).toBe('300px')
     })
 
+    it('keeps a single point visible on a line chart by spanning half the gap to its neighbors', () => {
+        const { container } = renderOverlayInChart(
+            <HighlightedRange start="Wed" end="Wed" />,
+            makeContext({ extent: undefined })
+        )
+        const box = fillBox(container)!
+        // Wed at 400, neighbors 150px away on each side.
+        expect(box.style.left).toBe('325px')
+        expect(box.style.width).toBe('150px')
+    })
+
+    it('spans the selected rows along the vertical category axis on a horizontal chart', () => {
+        const rowCenters: Record<string, number> = { Mon: 50, Tue: 120, Wed: 190, Thu: 260, Fri: 330 }
+        const ctx = makeOverlayContext(
+            { x: (label: string) => rowCenters[label], y: (v: number) => v, yTicks: () => [] },
+            { dimensions: DIMENSIONS, labels: LABELS, axisOrientation: 'horizontal' }
+        )
+        const box = fillBox(renderOverlayInChart(<HighlightedRange start="Tue" end="Thu" />, ctx).container)!
+        // Rows sit 70px apart, so each end extends 35px past its row center.
+        expect(box.style.top).toBe('85px')
+        expect(box.style.height).toBe('210px')
+        expect(box.style.left).toBe('48px')
+        expect(box.style.width).toBe('720px')
+    })
+
     it('resolves numeric endpoints as data indices into the labels array', () => {
         const { container } = renderOverlayInChart(<HighlightedRange start={1} end={3} />, makeContext())
         expect(fillBox(container)!.style.left).toBe('200px')

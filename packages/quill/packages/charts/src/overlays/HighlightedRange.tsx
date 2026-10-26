@@ -22,9 +22,11 @@ export interface HighlightedRangeProps {
 /** Translucent box spanning an x-axis label/index range — mirrors an external selection
  *  (e.g. the rows currently visible in a paired virtualized list) onto the chart. On band
  *  (bar) charts the box covers the full bands of both endpoints; on point (line) charts it
- *  runs from point to point. Composes as a chart child like {@link ReferenceLine}; renders
- *  null when an endpoint doesn't resolve to a positioned label. It draws no label, so name
- *  the range with a vertical {@link ReferenceLine} whose `value` is the start label. */
+ *  runs from point to point, and a single point gets half the gap to its neighbors on each
+ *  side so it stays visible. On horizontal charts it spans the selected rows. Composes as a
+ *  chart child like {@link ReferenceLine}; renders null when an endpoint doesn't resolve to a
+ *  positioned label. It draws no label, so name the range with a vertical
+ *  {@link ReferenceLine} whose `value` is the start label. */
 export function HighlightedRange({
     start,
     end,
@@ -32,36 +34,57 @@ export function HighlightedRange({
     fillOpacity = 0.1,
     borderOpacity = 0.8,
 }: HighlightedRangeProps): React.ReactElement | null {
-    const { labels, scales, dimensions } = useChartLayout()
+    const { labels, scales, dimensions, axis } = useChartLayout()
 
-    const startLabel = typeof start === 'number' ? labels[start] : start
-    const endLabel = typeof end === 'number' ? labels[end] : end
+    const startIndex = typeof start === 'number' ? start : labels.indexOf(start)
+    const endIndex = typeof end === 'number' ? end : labels.indexOf(end)
+    const startLabel = labels[startIndex]
+    const endLabel = labels[endIndex]
     if (startLabel == null || endLabel == null) {
         return null
     }
 
-    const startX = scales.x(startLabel)
-    const endX = scales.x(endLabel)
-    if (startX == null || endX == null || !isFinite(startX) || !isFinite(endX)) {
+    const startPos = scales.x(startLabel)
+    const endPos = scales.x(endLabel)
+    if (startPos == null || endPos == null || !isFinite(startPos) || !isFinite(endPos)) {
         return null
     }
 
-    // Expand each endpoint by half its band so the box covers whole bars; extent is
-    // unset on point-style (line) charts, where the box runs from point to point.
-    const startHalfBand = (scales.extent?.(startLabel) ?? 0) / 2
-    const endHalfBand = (scales.extent?.(endLabel) ?? 0) / 2
-    const lo = Math.min(startX - startHalfBand, endX - endHalfBand)
-    const hi = Math.max(startX + startHalfBand, endX + endHalfBand)
+    // Positions run along the categorical axis, which is y on a horizontal chart.
+    const horizontal = axis.orientation === 'horizontal'
+    // Half of each endpoint's band, so the box covers whole bars. Point-style charts have no
+    // extent: their box runs point to point, except a single point or a horizontal chart's rows,
+    // which take half the gap to the neighboring label instead.
+    const halfGap = (index: number): number => {
+        const here = scales.x(labels[index]) ?? 0
+        const neighbor = scales.x(labels[index + 1] ?? labels[index - 1] ?? '')
+        return neighbor != null && isFinite(neighbor) ? Math.abs(neighbor - here) / 2 : 0
+    }
+    const pointSpan = horizontal || startPos === endPos
+    const halfBand = (label: string, index: number): number => {
+        const extent = scales.extent?.(label)
+        if (extent != null) {
+            return extent / 2
+        }
+        return pointSpan ? halfGap(index) : 0
+    }
+    const startHalf = halfBand(startLabel, startIndex)
+    const endHalf = halfBand(endLabel, endIndex)
+    const lo = Math.min(startPos - startHalf, endPos - endHalf)
+    const hi = Math.max(startPos + startHalf, endPos + endHalf)
 
     const { plotLeft, plotTop, plotWidth, plotHeight } = dimensions
-    const plotRight = plotLeft + plotWidth
-    const left = Math.max(lo, plotLeft)
-    const right = Math.min(hi, plotRight)
-    if (right <= left) {
+    const axisStart = horizontal ? plotTop : plotLeft
+    const axisEnd = horizontal ? plotTop + plotHeight : plotLeft + plotWidth
+    const from = Math.max(lo, axisStart)
+    const to = Math.min(hi, axisEnd)
+    if (to <= from) {
         return null
     }
 
-    const rect: React.CSSProperties = { left, top: plotTop, width: right - left, height: plotHeight }
+    const rect: React.CSSProperties = horizontal
+        ? { left: plotLeft, top: from, width: plotWidth, height: to - from }
+        : { left: from, top: plotTop, width: to - from, height: plotHeight }
     return (
         <>
             <div

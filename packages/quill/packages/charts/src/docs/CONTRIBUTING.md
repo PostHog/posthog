@@ -47,8 +47,9 @@ export function BarChart({ series, labels, config, theme, ...props }: BarChartPr
     drawAxes({ ctx, dimensions }, { axisColor: resolveAxisLineColor(theme) })
   }, [])
 
-  const drawHover = useCallback(({ ctx, hoverIndex }: ChartDrawArgs) => {
-    // Highlight the hovered bar; return false when nothing was drawn
+  const drawHover = useCallback(({ ctx, hoverIndex, hoverSource }: ChartDrawArgs) => {
+    // Highlight the hovered bar; return false when nothing was drawn.
+    // hoverSource 'group' mirrors another chart in a ChartGroup: hoverPosition is null, so highlight the column.
   }, [])
 
   return (
