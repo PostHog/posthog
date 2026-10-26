@@ -46,7 +46,6 @@ _SYMBOLS: Final[dict[AlertEventKind, str]] = {
     AlertEventKind.BROKEN: "⚠️",
 }
 
-# A failed or turned-off check keeps the platform's wording, which says what went wrong with the check.
 _BREACH_KINDS: Final = (AlertEventKind.FIRING, AlertEventKind.RESOLVED)
 
 _SOURCE_LABELS: Final[dict[SourceKind, str]] = {

@@ -19,6 +19,8 @@ PROVIDER: Final = "teams"
 # Teams rejects a payload over about 28 KB, so the card's text stays under this as sent and leaves
 # room for the JSON envelope. Counting characters instead would let emoji or non-Latin text past.
 TEXT_BUDGET_BYTES: Final = 20_000
+HEADLINE_BUDGET_BYTES: Final = 1_000
+DESCRIPTION_BUDGET_BYTES: Final = 8_000
 
 # The alert name and a query error are user-written, and a TextBlock or a fact renders markdown.
 # Escaping links, emphasis and code stops `[x](https://...)` hiding where it goes, and a bare URL
@@ -50,10 +52,10 @@ def _clip(text: str, budget: int) -> str:
 
 
 def card_for(message: AlertMessage) -> dict[str, Any]:
-    headline = escape_markdown(message.title)
+    headline = _clip(escape_markdown(message.title), HEADLINE_BUDGET_BYTES)
     body: list[dict[str, Any]] = [{"type": "TextBlock", "text": headline, "weight": "Bolder", "wrap": True}]
     context = escape_markdown(" | ".join(message.context))
-    description = escape_markdown(message.description or "")
+    description = _clip(escape_markdown(message.description or ""), DESCRIPTION_BUDGET_BYTES)
     if description:
         body.append({"type": "TextBlock", "text": description, "wrap": True})
     if message.details:

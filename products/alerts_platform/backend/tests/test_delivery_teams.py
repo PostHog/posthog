@@ -73,11 +73,13 @@ class TestTeamsCard(SimpleTestCase):
 
     def test_a_query_error_cannot_push_the_card_past_what_teams_accepts(self) -> None:
         message = alert_message(
+            headline="x" * 4000,
+            annotations={"description": "\x01" * 40_000},
             details=(
                 MessageDetail(label="Error", value="\x01" * 50_000),
                 MessageDetail(label="Query", value="\x01" * 50_000),
                 MessageDetail(label="Failed checks", value="3"),
-            )
+            ),
         )
         target = cast(AlertDestinationData, {"type": "teams", "webhook_url": TEAMS_URL})
 
@@ -86,7 +88,7 @@ class TestTeamsCard(SimpleTestCase):
 
         sent = adapter.sent[-1].body
         assert isinstance(sent, bytes)
-        facts = json.loads(sent)["attachments"][0]["content"]["body"][1]["facts"]
+        facts = json.loads(sent)["attachments"][0]["content"]["body"][2]["facts"]
         assert len(sent) < 28_000
         assert facts[2] == {"title": "Failed checks", "value": "3"}
 

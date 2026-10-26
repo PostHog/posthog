@@ -13,10 +13,20 @@ from urllib.parse import quote
 import re2
 import structlog
 
+from posthog.dataclasses import frozen
+
 from products.alerts_platform.backend.facade.contracts import MessageLink
 from products.alerts_platform.backend.facade.grouping import UNSTORABLE, encoded_length
 
 logger = structlog.get_logger(__name__)
+
+
+@frozen
+class _Template:
+    start: int
+    end: int
+    body: str
+
 
 MAX_RULE_LABELS: Final = 20
 _MAX_RULE_ANNOTATIONS: Final = 20
@@ -121,25 +131,35 @@ def _link_label(name: str) -> str:
 
 
 def _render(name: str, template: str, labels: Mapping[str, str], value: float | None) -> str:
-    # Quoted, so a label value from query results cannot add a path segment or a query parameter.
     quote_values = name.endswith("_url")
     parts: list[str] = []
     position = 0
-    for start, end, body in _templates(name, template):
-        reference = _reference(name, body)
+    for template_part in _templates(name, template):
+        reference = _reference(name, template_part.body)
         if reference is None:
             filled = "" if value is None else f"{value:g}"
         else:
             filled = labels.get(reference, "")
-        parts.append(template[position:start])
+        parts.append(template[position : template_part.start])
         parts.append(quote(filled, safe="") if quote_values else filled)
-        position = end
+        position = template_part.end
     parts.append(template[position:])
-    return "".join(parts)
+    rendered = "".join(parts)
+    if quote_values and _has_dot_segment(rendered):
+        raise InvalidRuleMetadata(f"Annotation `{name}` renders a link that leaves its path.")
+    return rendered
+
+
+def _has_dot_segment(url: str) -> bool:
+    # Quoting stops a label value adding a segment, but a browser still resolves `..` and `%2e%2e`.
+    path = re2.split(r"[?#]", url, maxsplit=1)[0]
+    return any(segment.lower().replace("%2e", ".") in (".", "..") for segment in path.split("/")[3:])
 
 
 def _referenced_labels(name: str, value: str) -> list[str]:
-    return [reference for _, _, body in _templates(name, value) if (reference := _reference(name, body)) is not None]
+    return [
+        reference for template in _templates(name, value) if (reference := _reference(name, template.body)) is not None
+    ]
 
 
 def _reference(name: str, body: str) -> str | None:
@@ -154,17 +174,16 @@ def _reference(name: str, body: str) -> str | None:
     )
 
 
-def _templates(name: str, value: str) -> list[tuple[int, int, str]]:
-    """Each `{{ ... }}` as its start, its end past the closing braces, and the text between them."""
+def _templates(name: str, value: str) -> list[_Template]:
     # A pattern needing both delimiters would skip an unclosed `{{` and every check after it.
-    templates: list[tuple[int, int, str]] = []
+    templates: list[_Template] = []
     position = 0
     while (start := value.find("{{", position)) != -1:
         end = value.find("}}", start + 2)
         if end == -1:
             raise InvalidRuleMetadata(f"Annotation `{name}` has a `{{{{` with no closing `}}}}`.")
         position = end + 2
-        templates.append((start, position, value[start + 2 : end]))
+        templates.append(_Template(start=start, end=position, body=value[start + 2 : end]))
     return templates
 
 

@@ -87,10 +87,22 @@ def test_a_link_may_not_template_its_site(_name: str, value: str) -> None:
             "https://r.example.com/a%2F..%3Fx%3D1",
         ),
         ("template_that_no_longer_validates", "summary", "{{ humanize $value }}", None),
+        ("link_value_that_climbs_the_path", "runbook_url", "https://r.example.com/a/{{ $labels.up }}/b", None),
+        (
+            "link_value_beside_an_encoded_dot",
+            "runbook_url",
+            "https://r.example.com/a/%2E{{ $labels.dot }}/b",
+            None,
+        ),
+        ("link_value_beside_a_dot", "runbook_url", "https://r.example.com/a/{{ $labels.dot }}./b", None),
     ]
 )
 def test_an_annotation_renders_from_its_group(_name: str, name: str, template: str, expected: str | None) -> None:
-    rendered = render_annotations({name: template}, labels={"service": "checkout", "path": "a/..?x=1"}, value=312.0)
+    rendered = render_annotations(
+        {name: template},
+        labels={"service": "checkout", "path": "a/..?x=1", "up": "..", "dot": "."},
+        value=312.0,
+    )
 
     assert rendered.get(name) == expected
 

@@ -39,19 +39,30 @@ class TestDiscordMessage(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("long_error", (), None),
+            ("long_error", (), None, {}),
             (
                 "long_error_context_and_data_link",
                 ("Services: " + "api," * 400,) * 3,
                 MessageLink(label="View logs", url="https://app.example.com/logs?" + "q" * 3000),
+                {},
+            ),
+            (
+                "long_rule_summary_and_links",
+                ("Services: " + "api," * 400,),
+                None,
+                {
+                    "summary": "x" * 2100,
+                    **{f"link_{index}_url": "https://example.com/" + "q" * 440 for index in range(5)},
+                },
             ),
         ]
     )
     def test_a_long_message_stays_inside_what_discord_accepts(
-        self, _name: str, context: tuple[str, ...], data_link: MessageLink | None
+        self, _name: str, context: tuple[str, ...], data_link: MessageLink | None, annotations: dict[str, str]
     ) -> None:
         message = alert_message(
-            headline="API errors could not be checked",
+            headline=annotations.get("summary", "API errors could not be checked"),
+            annotations=annotations,
             details=(MessageDetail(label="Error", value="x" * 5000), MessageDetail(label="Failed checks", value="3")),
             context=context,
             data_link=data_link,
