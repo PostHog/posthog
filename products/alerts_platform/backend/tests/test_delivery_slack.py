@@ -1,3 +1,4 @@
+from dataclasses import replace
 from typing import Any, cast
 
 import pytest
@@ -18,6 +19,7 @@ from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
     AlertEventKind,
     MessageDetail,
+    MessageImage,
     MessageLink,
 )
 from products.alerts_platform.backend.tests.delivery_messages import ALERT_URL, alert_message, announced_transition
@@ -57,19 +59,23 @@ class TestSlackBlocks(SimpleTestCase):
         assert "*Failed checks:* 3" in section["text"]["text"]
 
     def test_user_text_cannot_speak_as_slack_markup(self) -> None:
-        message = alert_message(
-            headline="API errors could not be checked",
-            details=(MessageDetail(label="Error", value="no column <!channel> in <http://x|table>"),),
-            context=("Services: <!channel>",),
+        message = replace(
+            alert_message(
+                headline="API errors could not be checked",
+                details=(MessageDetail(label="Error", value="no column <!channel> in <http://x|table>"),),
+                context=("Services: <!channel>",),
+            ),
+            project=MessageLink(label="Prod <!channel>", url="https://app.example.com/project/2"),
         )
 
         blocks = blocks_for(message)
         body = blocks[1]["text"]["text"]
-        context = blocks[2]["elements"][0]["text"]
+        context, project = (element["text"] for element in blocks[2]["elements"])
 
-        assert "<!channel>" not in body + context
+        assert "<!channel>" not in body + context + project
         assert "&lt;!channel&gt;" in body
         assert context == "Services: &lt;!channel&gt;"
+        assert project == "Project: <https://app.example.com/project/2|Prod &lt;!channel&gt;>"
 
     def test_escaped_context_stays_inside_what_slack_accepts(self) -> None:
         message = alert_message(context=("&" * 300,) * 3)
@@ -83,6 +89,30 @@ class TestSlackBlocks(SimpleTestCase):
 
         assert [block["type"] for block in blocks] == ["header", "actions"]
         assert blocks[1]["elements"][0]["url"] == ALERT_URL
+
+    def test_a_source_image_sits_above_the_buttons(self) -> None:
+        # The state line a resolve adds goes above the last block, so the buttons have to stay last.
+        message = alert_message(
+            context=("Insight: Signups",),
+            image=MessageImage(url="https://app.example.com/chart.png", alt_text="Insight chart"),
+        )
+
+        blocks = blocks_for(message)
+
+        assert [block["type"] for block in blocks] == ["header", "context", "image", "actions"]
+        assert blocks[2] == {
+            "type": "image",
+            "image_url": "https://app.example.com/chart.png",
+            "alt_text": "Insight chart",
+        }
+
+    def test_a_source_slack_element_follows_the_buttons_in_their_block(self) -> None:
+        menu = {"type": "static_select", "action_id": "snooze"}
+
+        actions = blocks_for(replace(alert_message(), slack_elements=(menu,)))[-1]
+
+        assert [element["type"] for element in actions["elements"]] == ["button", menu["type"]]
+        assert actions["elements"][-1] is menu
 
     def test_the_source_data_link_comes_before_the_alert_link(self) -> None:
         data_url = "https://app.example.com/project/1/logs"
@@ -170,6 +200,19 @@ class TestSlackTransport(APIBaseTest):
             )
             with pytest.raises(DeliveryError):
                 SlackTransport().deliver(team_id=self.team.id, target=self.target, message=MESSAGE)
+
+    def test_a_message_whose_image_slack_cannot_fetch_goes_again_without_it(self) -> None:
+        message = alert_message(image=MessageImage(url="https://app.example.com/chart.png", alt_text="Insight chart"))
+        with patch("products.alerts_platform.backend.delivery.slack.SlackIntegration") as slack_integration:
+            post = slack_integration.return_value.client.chat_postMessage
+            post.side_effect = [SlackApiError("invalid_blocks", {"error": "invalid_blocks"}), {"ts": "1700000000.1"}]
+            handle = SlackTransport().deliver(team_id=self.team.id, target=self.target, message=message)
+
+        assert post.call_count == 2
+        assert "image" not in [block["type"] for block in post.call_args.kwargs["blocks"]]
+        # An edit restates what was posted, so it never names the image again.
+        assert handle is not None and handle.root_content is not None
+        assert handle.root_content["blocks"] == post.call_args.kwargs["blocks"]
 
     def test_a_destination_missing_its_channel_is_refused(self) -> None:
         target = cast(AlertDestinationData, {"type": "slack", "slack_workspace_id": self.integration.id})

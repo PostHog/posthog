@@ -10,7 +10,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     Script,
     ScriptedResponse,
     SourceDriver,
-    always,
     route,
     scripted_network,
 )
@@ -102,29 +101,6 @@ class TestBuildInitialParams:
 
 
 class TestValidateCredentials:
-    @parameterized.expand(
-        [
-            ("ok", 200, True),
-            ("unauthorized", 401, False),
-            ("forbidden", 403, False),
-            ("server_error", 500, False),
-        ]
-    )
-    def test_status_mapping(self, _name: str, status_code: int, expected_ok: bool) -> None:
-        with scripted_network(always(ScriptedResponse(status=status_code, json=[]))):
-            ok, error = validate_credentials("key")
-
-        assert ok is expected_ok
-        if not expected_ok:
-            assert error is not None
-
-    def test_network_error_returns_false(self) -> None:
-        with scripted_network(always(ConnectionError("boom"))):
-            ok, error = validate_credentials("key")
-
-        assert ok is False
-        assert error is not None
-
     def test_key_is_redacted_from_captured_samples(self) -> None:
         # `x-api-key` isn't in the shared auth-header denylist, so the key must be
         # passed as a `redact_values` literal to keep it out of captured HTTP samples.

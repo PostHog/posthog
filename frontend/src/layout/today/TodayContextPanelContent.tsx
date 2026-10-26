@@ -20,6 +20,11 @@ const QUILL_TAB_PANELS: Partial<Record<SidePanelTab, ComponentType>> = {
     [SidePanelTab.Support]: lazyWithRetry(() =>
         import('./TodaySupportPanel').then((m) => ({ default: m.TodaySupportPanel }))
     ),
+    [SidePanelTab.Activity]: lazyWithRetry(() =>
+        import('~/layout/navigation-3000/sidepanel/panels/activity/quill/QuillActivityPanel').then((m) => ({
+            default: m.QuillActivityPanel,
+        }))
+    ),
     [SidePanelTab.AccessControl]: lazyWithRetry(() =>
         import('~/layout/navigation-3000/sidepanel/panels/access_control/quill/QuillAccessControlPanel').then((m) => ({
             default: m.QuillAccessControlPanel,

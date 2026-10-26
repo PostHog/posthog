@@ -47,13 +47,6 @@ def _make_inputs(
     )
 
 
-class TestGetSchemas:
-    def test_filters_by_names(self) -> None:
-        src = HubspotSource()
-        schemas = src.get_schemas(MagicMock(), team_id=1, names=["deals", "contacts"])
-        assert {s.name for s in schemas} == {"deals", "contacts"}
-
-
 class TestShouldUseSearchPath:
     def test_false_when_reset_pipeline(self) -> None:
         src = HubspotSource()

@@ -20,6 +20,44 @@ import {
 export const errorTrackingIssueLinkHogTemplate = (medium: string): string =>
     `{project.url}/error-tracking/fingerprint/{replaceAll(replaceAll(encodeURLComponent(event.properties.fingerprint), '(', '%28'), ')', '%29')}?timestamp={event.properties.exception_timestamp}&utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=${medium}`
 
+const errorTrackingTicketCode = (value: string): string =>
+    `concat('\`', replaceAll(replaceAll(replaceAll(${value}, '\`', '\\''), '\\n', ' '), '\\r', ' '), '\`')`
+
+const errorTrackingTicketLine = (
+    label: string,
+    value: string,
+    condition = `notEmpty(${value})`,
+    formatted = errorTrackingTicketCode(value)
+): string => `{${condition} ? concat('\\n- ${label}: ', ${formatted}) : ''}`
+
+const errorTrackingTicketMessage = (message: string): string =>
+    `{notEmpty(${message}) ? concat('\`\`\`\\n', replaceAll(${message}, '\`', '\\''), '\\n\`\`\`') : ''}\n`
+const ERROR_TRACKING_SESSION_REPLAY_URL =
+    "concat(project.url, '/replay/', encodeURLComponent(event.properties.$session_id))"
+
+// Same shape as the Linear, GitHub and GitLab template defaults in nodejs/src/cdp/templates/error-tracking-ticket.ts,
+// but built from the issue name and description. When the event is too large for Kafka, the producer drops
+// exception_props (products/error_tracking/backend/temporal/lifecycle/side_effects.py), so $exception_types
+// and $exception_values are missing. The name and description still arrive, so the title still renders.
+const ERROR_TRACKING_TICKET_TITLE =
+    "{substring(replaceAll(notEmpty(event.properties.description) ? concat(event.properties.name, ': ', event.properties.description) : event.properties.name, '\\n', ' '), 1, 120)}"
+
+const ERROR_TRACKING_TICKET_DESCRIPTION = [
+    errorTrackingTicketMessage('event.properties.description'),
+    errorTrackingTicketLine(
+        'Browser',
+        "trim(concat(event.properties.$browser, ' ', event.properties.$browser_version))"
+    ),
+    errorTrackingTicketLine('OS', "trim(concat(event.properties.$os, ' ', event.properties.$os_version))"),
+    errorTrackingTicketLine('Release', 'event.properties.$exception_release.version'),
+    errorTrackingTicketLine(
+        'Session replay',
+        ERROR_TRACKING_SESSION_REPLAY_URL,
+        "notEmpty(event.properties.$session_id) and (empty(event.properties.$recording_status) or has(['active', 'sampled', 'buffering'], event.properties.$recording_status))",
+        ERROR_TRACKING_SESSION_REPLAY_URL
+    ),
+].join('')
+
 // PagerDuty has no high, medium or low severity, so the issue severity maps onto its scale.
 // The template sends error for an issue without a severity.
 const ERROR_TRACKING_PAGERDUTY_SEVERITY =
@@ -120,12 +158,6 @@ const BATCH_EXPORT_ALERT_MASKING_TTL_SECONDS = 60 * 60
 // batch_export_id, but HogMaskerService skips masking on falsy hashes, so fall back defensively.
 const BATCH_EXPORT_ALERT_MASKING_HASH =
     "{event.properties.batch_export_id ? event.properties.batch_export_id : 'unknown-batch-export'}"
-
-// A sync that runs every few minutes would post a message per run, so limit each table to one
-// completed-sync message per hour. HogMaskerService skips masking on falsy hashes, so fall back
-// defensively.
-const DWH_SYNC_COMPLETED_MASKING_TTL_SECONDS = 60 * 60
-const DWH_SYNC_COMPLETED_MASKING_HASH = "{event.properties.schema_id ? event.properties.schema_id : 'unknown-table'}"
 
 // The page a rageclick happened on: $pathname when posthog-js set it, else the full URL.
 const PA_RAGECLICK_PAGE_EXPR = 'event.properties.$pathname ? event.properties.$pathname : event.properties.$current_url'
@@ -300,42 +332,6 @@ export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
             threshold: null,
         },
         flag: FEATURE_FLAGS.BATCH_EXPORT_ALERTS,
-    },
-    'data-warehouse-sync-failed': {
-        sub_template_id: 'data-warehouse-sync-failed',
-        type: 'internal_destination',
-        context_id: 'data-warehouse-alerts',
-        filters: { source: 'internal-events', events: [{ id: '$data_warehouse_sync_failed', type: 'events' }] },
-        flag: FEATURE_FLAGS.DWH_SYNC_ALERTS,
-    },
-    'data-warehouse-sync-recovered': {
-        sub_template_id: 'data-warehouse-sync-recovered',
-        type: 'internal_destination',
-        context_id: 'data-warehouse-alerts',
-        filters: { source: 'internal-events', events: [{ id: '$data_warehouse_sync_recovered', type: 'events' }] },
-        flag: FEATURE_FLAGS.DWH_SYNC_ALERTS,
-    },
-    'data-warehouse-sync-completed': {
-        sub_template_id: 'data-warehouse-sync-completed',
-        type: 'internal_destination',
-        context_id: 'data-warehouse-alerts',
-        filters: { source: 'internal-events', events: [{ id: '$data_warehouse_sync_completed', type: 'events' }] },
-        masking: {
-            hash: DWH_SYNC_COMPLETED_MASKING_HASH,
-            ttl: DWH_SYNC_COMPLETED_MASKING_TTL_SECONDS,
-            threshold: null,
-        },
-        flag: FEATURE_FLAGS.DWH_SYNC_ALERTS,
-    },
-    'data-warehouse-billing-limit-reached': {
-        sub_template_id: 'data-warehouse-billing-limit-reached',
-        type: 'internal_destination',
-        context_id: 'data-warehouse-alerts',
-        filters: {
-            source: 'internal-events',
-            events: [{ id: '$data_warehouse_billing_limit_reached', type: 'events' }],
-        },
-        flag: FEATURE_FLAGS.DWH_SYNC_ALERTS,
     },
     'replay-vision-request-completed': {
         sub_template_id: 'replay-vision-request-completed',
@@ -718,53 +714,6 @@ function notificationVariants({
 const BATCH_EXPORT_NAME_SLACK = `{${slackEscapeExpr('event.properties.batch_export_name')}}`
 const BATCH_EXPORT_ERROR_SLACK = `{${slackEscapeExpr('event.properties.error', 1000)}}`
 
-// source_type, schema_name and error come from the source system, so they get the same escaping and
-// bounds as the other producer-controlled notification fields.
-interface DwhMessageFields {
-    sourceType: string
-    table: string
-    error: string
-}
-
-const DWH_SLACK_FIELDS: DwhMessageFields = {
-    sourceType: `{${slackEscapeExpr('event.properties.source_type', 100)}}`,
-    table: `{${slackEscapeExpr('event.properties.schema_name', 200)}}`,
-    error: `{${slackEscapeExpr('event.properties.error', 1000)}}`,
-}
-const DWH_MARKDOWN_FIELDS: DwhMessageFields = {
-    sourceType: `{${markdownEscapeExpr('event.properties.source_type', 100)}}`,
-    table: `{${markdownEscapeExpr('event.properties.schema_name', 200)}}`,
-    error: `{${markdownEscapeExpr('event.properties.error', 1000)}}`,
-}
-
-const DWH_TABLE_URL = '{event.properties.schema_url}'
-const DWH_SOURCE_URL = '{event.properties.source_url}'
-const DWH_MARKDOWN_TABLE_LINK = `[View table](${DWH_TABLE_URL})`
-const DWH_MARKDOWN_SOURCE_LINK = `[View source](${DWH_SOURCE_URL})`
-
-function dwhSyncFailedMessage(fields: DwhMessageFields, bold: string): string {
-    return (
-        `${bold}Sync failed${bold} for table ${bold}${fields.table}${bold} from ${fields.sourceType}.` +
-        `{event.properties.paused ? ' The table is paused.' : ''}\n` +
-        `${bold}Error:${bold} ${fields.error}`
-    )
-}
-
-function dwhSyncRecoveredMessage(fields: DwhMessageFields, bold: string): string {
-    return `Table ${bold}${fields.table}${bold} from ${fields.sourceType} is syncing again.`
-}
-
-function dwhSyncCompletedMessage(fields: DwhMessageFields, bold: string): string {
-    return `Table ${bold}${fields.table}${bold} from ${fields.sourceType} finished a sync. Rows synced: {event.properties.rows_synced}.`
-}
-
-function dwhBillingLimitMessage(fields: DwhMessageFields, bold: string): string {
-    return (
-        `{event.properties.kind == 'too_low' ? 'The billing limit is too low to sync' : 'The billing limit was reached, so this sync did not run for'} ` +
-        `table ${bold}${fields.table}${bold} from ${fields.sourceType}.`
-    )
-}
-
 export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, HogFunctionSubTemplateType[]> = {
     'mcp-tool-error': notificationVariants({
         subTemplateId: 'mcp-tool-error',
@@ -775,46 +724,6 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
         slackFallbackText: 'An MCP tool call failed',
         markdownMessage: `${MCP_TOOL_ERROR_MARKDOWN_MESSAGE}\n\n${MCP_TOOL_ERROR_LINK}`,
         slackButton: { url: MCP_TOOL_ERROR_LINK, label: MCP_NOTIFICATION_BUTTON_LABELS['mcp-tool-error'] },
-    }),
-    'data-warehouse-sync-failed': notificationVariants({
-        subTemplateId: 'data-warehouse-sync-failed',
-        nameSuffix: 'when a table sync fails',
-        description: 'Know when a table stops syncing and why',
-        webhookDescription: 'Send failed table syncs to your own endpoint',
-        slackMessage: dwhSyncFailedMessage(DWH_SLACK_FIELDS, '*'),
-        slackFallbackText: 'A table sync failed',
-        markdownMessage: `${dwhSyncFailedMessage(DWH_MARKDOWN_FIELDS, '**')}\n\n${DWH_MARKDOWN_TABLE_LINK}`,
-        slackButton: { url: DWH_TABLE_URL, label: 'View table' },
-    }),
-    'data-warehouse-sync-recovered': notificationVariants({
-        subTemplateId: 'data-warehouse-sync-recovered',
-        nameSuffix: 'when a table sync recovers',
-        description: 'Know when a table that failed is syncing again',
-        webhookDescription: 'Send recovered table syncs to your own endpoint',
-        slackMessage: dwhSyncRecoveredMessage(DWH_SLACK_FIELDS, '*'),
-        slackFallbackText: 'A table sync recovered',
-        markdownMessage: `${dwhSyncRecoveredMessage(DWH_MARKDOWN_FIELDS, '**')}\n\n${DWH_MARKDOWN_TABLE_LINK}`,
-        slackButton: { url: DWH_TABLE_URL, label: 'View table' },
-    }),
-    'data-warehouse-sync-completed': notificationVariants({
-        subTemplateId: 'data-warehouse-sync-completed',
-        nameSuffix: 'when a table sync completes',
-        description: 'Know when a table finishes syncing, at most once an hour for each table',
-        webhookDescription: 'Send completed table syncs to your own endpoint',
-        slackMessage: dwhSyncCompletedMessage(DWH_SLACK_FIELDS, '*'),
-        slackFallbackText: 'A table sync completed',
-        markdownMessage: `${dwhSyncCompletedMessage(DWH_MARKDOWN_FIELDS, '**')}\n\n${DWH_MARKDOWN_TABLE_LINK}`,
-        slackButton: { url: DWH_TABLE_URL, label: 'View table' },
-    }),
-    'data-warehouse-billing-limit-reached': notificationVariants({
-        subTemplateId: 'data-warehouse-billing-limit-reached',
-        nameSuffix: 'when the billing limit stops a sync',
-        description: 'Know when the data warehouse billing limit stops a table from syncing',
-        webhookDescription: 'Send billing limit events to your own endpoint',
-        slackMessage: dwhBillingLimitMessage(DWH_SLACK_FIELDS, '*'),
-        slackFallbackText: 'The billing limit stopped a table sync',
-        markdownMessage: `${dwhBillingLimitMessage(DWH_MARKDOWN_FIELDS, '**')}\n\n${DWH_MARKDOWN_SOURCE_LINK}`,
-        slackButton: { url: DWH_SOURCE_URL, label: 'View source' },
     }),
     'pa-rageclick': notificationVariants({
         subTemplateId: 'pa-rageclick',
@@ -1066,7 +975,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                             type: 'actions',
                             elements: [
                                 {
-                                    url: '{project.url}/feature_flags/{event.properties.item_id}',
+                                    url: '{project.url}/feature-flags/{event.properties.item_id}',
                                     text: { text: 'View feature flag', type: 'plain_text' },
                                     type: 'button',
                                 },
@@ -1221,10 +1130,10 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             description: 'Create an issue in Linear when an issue is created.',
             inputs: {
                 title: {
-                    value: '{event.properties.name}',
+                    value: ERROR_TRACKING_TICKET_TITLE,
                 },
                 description: {
-                    value: '{event.properties.description}',
+                    value: ERROR_TRACKING_TICKET_DESCRIPTION,
                 },
                 posthog_issue_id: {
                     value: '{event.distinct_id}',
@@ -1241,10 +1150,10 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             description: 'Create an issue in GitHub when an issue is created.',
             inputs: {
                 title: {
-                    value: '{event.properties.name}',
+                    value: ERROR_TRACKING_TICKET_TITLE,
                 },
                 description: {
-                    value: '{event.properties.description}',
+                    value: ERROR_TRACKING_TICKET_DESCRIPTION,
                 },
                 posthog_issue_id: {
                     value: '{event.distinct_id}',
@@ -1261,10 +1170,10 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             description: 'Create an issue in GitLab when an issue is created.',
             inputs: {
                 title: {
-                    value: '{event.properties.name}',
+                    value: ERROR_TRACKING_TICKET_TITLE,
                 },
                 description: {
-                    value: '{event.properties.description}',
+                    value: ERROR_TRACKING_TICKET_DESCRIPTION,
                 },
                 posthog_issue_id: {
                     value: '{event.distinct_id}',
@@ -1985,11 +1894,6 @@ export const eventToHogFunctionContextId = (event: string | undefined): HogFunct
             return 'health-alerts'
         case '$batch_export_run_failed':
             return 'batch-export-alerts'
-        case '$data_warehouse_sync_failed':
-        case '$data_warehouse_sync_recovered':
-        case '$data_warehouse_sync_completed':
-        case '$data_warehouse_billing_limit_reached':
-            return 'data-warehouse-alerts'
         case '$billing_alert_firing':
         case '$billing_alert_resolved':
         case '$billing_alert_errored':

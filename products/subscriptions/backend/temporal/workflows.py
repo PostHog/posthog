@@ -471,7 +471,7 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                             delivery_id=str(delivery_id),
                             exported_asset_ids=list(successful_asset_ids),
                         ),
-                        start_to_close_timeout=dt.timedelta(minutes=2),
+                        start_to_close_timeout=dt.timedelta(minutes=5),
                         heartbeat_timeout=dt.timedelta(seconds=60),
                         retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
                     )

@@ -55,7 +55,7 @@ export function WatchPicksStarterStatus(): JSX.Element | null {
                             )}
                             <LemonButton
                                 size="xsmall"
-                                to={urls.replayVisionTemplates()}
+                                to={urls.replayVisionNewScanner()}
                                 data-attr="vision-watch-picks-starter-another"
                             >
                                 Try another scanner

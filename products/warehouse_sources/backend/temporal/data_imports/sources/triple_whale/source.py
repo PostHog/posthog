@@ -138,7 +138,7 @@ class TripleWhaleSource(ResumableSource[TripleWhaleSourceConfig, TripleWhaleResu
             caption="Import order journeys and daily metrics. Full refresh captures changes to historical data.",
             docsUrl="https://posthog.com/docs/cdp/sources/triple-whale",
             iconPath="/static/services/triple_whale.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

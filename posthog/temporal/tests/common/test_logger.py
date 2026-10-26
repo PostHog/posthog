@@ -266,17 +266,11 @@ async def test_logger_renders_tracebacks(log_capture):
     for entry in log_capture.write_entries:
         entry_dict = json.loads(entry)
 
-        assert "exception" in entry_dict
-        assert isinstance(entry_dict["exception"], list)
-
-        exceptions = entry_dict["exception"]
-
-        assert len(exceptions) == 1
-
-        exception = exceptions[0]
-
-        assert exception["exc_type"] == "ValueError"
-        assert exception["exc_value"] == "Oh no!"
+        assert "exc_info" not in entry_dict
+        assert entry_dict["exception.type"] == "ValueError"
+        assert entry_dict["exception.message"] == "Oh no!"
+        assert entry_dict["exception.stacktrace"].startswith("Traceback (most recent call last):\n")
+        assert 'raise ValueError("Oh no!")' in entry_dict["exception.stacktrace"]
 
 
 async def test_logger_formats_positional_args(log_capture):

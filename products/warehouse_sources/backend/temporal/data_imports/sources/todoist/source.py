@@ -55,7 +55,7 @@ class TodoistSource(ResumableSource[TodoistSourceConfig, TodoistResumeConfig]):
             name=ExternalDataSourceType.TODOIST,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Todoist",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Todoist API token to automatically pull your Todoist data into the PostHog Data warehouse.
 
 You can find your personal API token in [Todoist's integration settings](https://app.todoist.com/app/settings/integrations/developer).""",

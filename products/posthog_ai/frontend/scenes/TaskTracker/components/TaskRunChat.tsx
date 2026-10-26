@@ -1,5 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { type MutableRefObject, useEffect, useRef } from 'react'
+import { type MutableRefObject, useEffect, useMemo, useRef } from 'react'
 
 import { cn } from 'lib/utils/css-classes'
 import { userLogic } from 'scenes/userLogic'
@@ -13,6 +13,7 @@ import { RunSurface } from 'products/posthog_ai/frontend/api/runSurface'
 import { RunEscapeBoundary, type RunEscapeBoundaryProps } from '../../../components/RunEscapeBoundary'
 import { useForegroundStream } from '../../../hooks/useForegroundStream'
 import { useThreadSkin } from '../../../hooks/useThreadSkin'
+import { resolveRunStreamKey } from '../../../logics/retainedLogics'
 import { runCancellationLogic } from '../../../logics/runCancellationLogic'
 import type { RunContinuationHandoff } from '../../../logics/runInteractionLogic'
 import type { AttachedContextItem } from '../../../types/contextTypes'
@@ -71,10 +72,11 @@ export function TaskRunChat({
     // the run's setup only when the two agree; a mismatch would launch the successor on another run's config.
     const runConfig = selectedRun?.id === runId ? selectedRun : undefined
     const pendingInteraction = interactionKey ? runInteractionLogic.findMounted(interactionKey) : undefined
+    const resolvedStreamKey = useMemo(() => resolveRunStreamKey(runId, streamKey), [runId, streamKey])
     const logicProps: RunInteractionLogicProps = {
         taskId,
         runId,
-        streamKey,
+        streamKey: resolvedStreamKey,
         interactionKey,
         initialDraft,
         onDraftAdopted,
@@ -160,6 +162,7 @@ function TaskRunChatContent({
             runId={logicProps.runId}
             streamKey={logicProps.streamKey}
             interaction="live"
+            retainAfterUnmount
         >
             <RunEscapeBoundary
                 scope={escapeScope}

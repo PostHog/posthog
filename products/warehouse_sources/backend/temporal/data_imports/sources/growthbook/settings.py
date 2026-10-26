@@ -36,6 +36,13 @@ ENDPOINTS: dict[str, GrowthBookEndpoint] = {
     "saved_groups": GrowthBookEndpoint(path="v1/saved-groups", data_selector="savedGroups"),
     "data_sources": GrowthBookEndpoint(path="v1/data-sources", data_selector="dataSources"),
     "members": GrowthBookEndpoint(path="v1/members", data_selector="members", partition_key=None),
+    "teams": GrowthBookEndpoint(path="v1/teams", data_selector="teams", paginated=False),
+    "namespaces": GrowthBookEndpoint(path="v1/namespaces", data_selector="namespaces", partition_key=None),
+    "holdouts": GrowthBookEndpoint(path="v1/holdouts", data_selector="holdouts", paginated=False),
+    # One row per experiment holding its latest non-dimension snapshot; pages can be empty while hasMore is true.
+    "experiment_results": GrowthBookEndpoint(
+        path="v1/experiments/results", data_selector="experimentResults", partition_key=None
+    ),
 }
 
 # Timestamp fields in responses do not imply server-side timestamp filtering.

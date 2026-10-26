@@ -10,6 +10,12 @@ a call writes nothing.
 
 A model that reads its team's project vectors gets the team's row of the day the manifest names,
 repeated for each report, through the same `project_inputs` the training dag builds them with.
+
+A model whose set declares the `priority` state column gets each report's latest priority judgment,
+read once per call and only when a model needs it. The sweep rescores a report when its vector or
+the manifest changes, not when its priority changes, so a priority edited in the inbox after scoring
+keeps the old score until the next vector. The summary workflow writes the first priority judgment
+before the rewrite that re-embeds the report, so a newborn's score normally sees that judgment.
 """
 
 from collections.abc import Mapping, Sequence
@@ -27,6 +33,7 @@ from products.signals.backend.artefact_schemas import RankingModelResult, Rankin
 from products.signals.backend.ranking.features import (
     EMBEDDING_COLUMN,
     EMBEDDING_INSERTED_AT_COLUMN,
+    PRIORITY_COLUMN,
     REPORT_EMBEDDINGS_EXTRA,
     FeatureSet,
     ProjectInputs,
@@ -44,6 +51,7 @@ from products.signals.backend.ranking.serving_manifest import ServingManifestEnt
 from products.signals.backend.ranking.sinks import persist_scores
 from products.signals.backend.report_embedding_reader import ReportVector, latest_report_vectors
 from products.signals.backend.report_embeddings import EMBEDDING_RENDERING_TITLE_SUMMARY
+from products.signals.backend.report_priority import latest_report_priorities
 
 logger = structlog.get_logger(__name__)
 
@@ -125,6 +133,16 @@ def pass_project_vectors(serving: ServingSet, team_ids: Sequence[int]) -> Projec
         return ProjectVectors(available=False, by_team={})
 
 
+def _state_rows(team_id: int, report_ids: Sequence[str], columns: set[str]) -> pd.DataFrame:
+    """The report-state columns of `columns` that the scorer can read, indexed by report id. A
+    column is read only when a model of the pass declares it."""
+    rows = pd.DataFrame(index=pd.Index(list(report_ids), name="report_id"))
+    if PRIORITY_COLUMN in columns:
+        priorities = latest_report_priorities(team_id, report_ids)
+        rows[PRIORITY_COLUMN] = [priorities.get(report_id) for report_id in report_ids]
+    return rows
+
+
 def _extras_frame(report_ids: Sequence[str], vectors: Mapping[str, ReportVector]) -> pd.DataFrame:
     present = [report_id for report_id in report_ids if report_id in vectors]
     return pd.DataFrame(
@@ -139,17 +157,25 @@ def _extras_frame(report_ids: Sequence[str], vectors: Mapping[str, ReportVector]
 def _score_model(
     model: LoadedModel,
     report_ids: Sequence[str],
+    rows: pd.DataFrame,
     vectors_by_extra: Mapping[str, Mapping[str, ReportVector]],
     team_project: ProjectInputs | None,
 ) -> _ModelScores:
+    """`rows` holds the report-state columns of the pass, one row per id of `report_ids`."""
     extra = _served_extra(model.feature_set)
     if extra is None:
         return _ModelScores(
             model=model, by_report={}, skip_reason=f"feature set {model.feature_set.name} is not served yet"
         )
+    unread = [column for column in model.feature_set.state_columns if column not in rows]
+    if unread:
+        return _ModelScores(
+            model=model,
+            by_report={},
+            skip_reason=f"state columns {unread} of {model.feature_set.name} are not served yet",
+        )
     if model.reads_project_vectors and team_project is None:
         return _ModelScores(model=model, by_report={}, skip_reason=NO_PROJECT_VECTORS)
-    rows = pd.DataFrame(index=pd.Index(list(report_ids), name="report_id"))
     extras = {extra: _extras_frame(report_ids, vectors_by_extra[extra])}
     # `as_of=None`: serving scores the latest vector, where training reads the one of its moment.
     buildable = model.feature_set.buildable(rows, extras, as_of=None).to_numpy()
@@ -247,7 +273,10 @@ def score_reports(
     vectors_by_extra = {
         extra: latest_report_vectors(team_id, ids, rendering=RENDERING_BY_EXTRA[extra]) for extra in needed_extras
     }
-    scored_models = {model.entry.key: _score_model(model, ids, vectors_by_extra, team_project) for model in models}
+    rows = _state_rows(team_id, ids, {column for model in models for column in model.feature_set.state_columns})
+    scored_models = {
+        model.entry.key: _score_model(model, ids, rows, vectors_by_extra, team_project) for model in models
+    }
     served_key = serving.manifest.served.key
     served_vectors = vectors_by_extra[served_extra]
 

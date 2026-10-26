@@ -52,6 +52,7 @@ export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: st
         name,
         lastRunQuery,
         insightLoading,
+        catalogMetricLoading,
         loadError,
         hasUnsavedChanges,
         saveDisabledReason,
@@ -83,6 +84,7 @@ export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: st
         navigateHierarchy,
         setSqlPreviewOpen,
         refreshInsightFromAgent,
+        runQuery,
     } = useActions(logic)
 
     const hierarchyParent = getBIHierarchyParent(worksheet)
@@ -132,8 +134,8 @@ export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: st
             <div className="flex h-full min-h-0 flex-col" data-attr="bi-worksheet">
                 <BISQLPreviewModal />
                 <header className="flex flex-wrap items-center gap-1 border-b px-2 py-1">
-                    <LemonButton size="small" to={urls.businessIntelligence()}>
-                        Worksheets
+                    <LemonButton size="small" to={urls.businessIntelligence()} tooltip="Back to Business Intelligence">
+                        BI
                     </LemonButton>
                     <LemonButton size="small" icon={<IconPlus />} to={`${urls.businessIntelligenceNew()}#q=`}>
                         New worksheet
@@ -192,7 +194,7 @@ export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: st
                             },
                             {
                                 label: 'Discard changes',
-                                onClick: discardChanges,
+                                onClick: () => discardChanges(),
                                 disabledReason: !hasUnsavedChanges ? 'No changes to discard' : undefined,
                                 'data-attr': 'bi-discard-changes',
                             },
@@ -233,9 +235,10 @@ export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: st
                 )}
                 {loadError ? (
                     <LemonBanner type="error">{loadError}</LemonBanner>
-                ) : insightLoading && !lastRunQuery ? (
-                    <div className="flex flex-1 items-center justify-center">
+                ) : catalogMetricLoading || (insightLoading && !lastRunQuery) ? (
+                    <div className="flex flex-1 flex-col items-center justify-center gap-2" role="status">
                         <Spinner />
+                        <span>Loading worksheet…</span>
                     </div>
                 ) : (
                     <BIEditor tabId={tabId} settingsPanelRef={setSettingsContainer}>
@@ -318,6 +321,16 @@ export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: st
                                               : 'Drag or double-click a field to start. Dimensions define groups; measures calculate a value for each group.'
                                           : 'Select a table and add fields to build your worksheet.'}
                                 </span>
+                                {generatedQuery && (
+                                    <LemonButton
+                                        type="primary"
+                                        onClick={runQuery}
+                                        aria-label="Run worksheet"
+                                        data-attr="bi-run-empty-worksheet"
+                                    >
+                                        Run
+                                    </LemonButton>
+                                )}
                                 {worksheet.config.source &&
                                     !worksheet.config.rows.length &&
                                     !worksheet.config.columns.length &&

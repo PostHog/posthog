@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable, Mapping
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import unquote, urlsplit
 
 from django.db.models import Q, QuerySet
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
+from posthog.ph_client import feature_enabled_or_false
 
 from products.data_warehouse.backend.facade.api import (
     DirectQueryEngine,
@@ -42,12 +43,20 @@ from products.warehouse_sources.backend.facade.source_management import (
 )
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType, ManagedWarehouseSQLMode
 
+if TYPE_CHECKING:
+    from posthog.models.team import Team
+
 REFRESH_SCHEMAS_FALLBACK_ERROR_MESSAGE = "Could not fetch schemas from source."
 
 RESERVED_SOURCE_NAME_MESSAGE = "This source name is reserved by PostHog."
 
 INVALID_CREDENTIALS_FALLBACK_MESSAGE = (
     "We couldn't validate those credentials. Check they're correct and have the required access, then try again."
+)
+
+UNSUPPORTED_CREDENTIAL_CHARACTER_MESSAGE = (
+    "One of the values you entered contains an unsupported character, such as a curly quote. "
+    "Copy the value again from your provider and paste only the value."
 )
 
 UNVERIFIED_CONNECTION_WARNING = (
@@ -62,6 +71,20 @@ def _source_unavailable_message(source_type: str) -> str:
     return (
         f"The {source_type} source isn't available to connect yet. "
         "Choose a different source, or contact support if you were expecting it."
+    )
+
+
+def source_feature_flag_missing(source: AnySource, team: Team) -> bool:
+    """Whether the team lacks the feature flag the source requires before the API serves it."""
+    flag = source.requires_team_feature_flag
+    if flag is None:
+        return False
+    organization_id = str(team.organization_id)
+    return not feature_enabled_or_false(
+        flag,
+        organization_id,
+        groups={"organization": organization_id, "project": str(team.id)},
+        group_properties={"organization": {"id": organization_id}},
     )
 
 
@@ -156,6 +179,10 @@ def _credentials_validation_failed(source: AnySource, team_id: int, error: Excep
     error, so capture it for us and hand back an actionable message — the same treatment schema
     discovery already gives an unexpected error just below the credential check."""
     capture_exception(error, {"source_type": str(source.source_type), "team_id": team_id})
+    # http.client encodes header values as latin-1, so a key pasted with a curly quote or similar
+    # character fails mid-request in any source that doesn't check the value up front.
+    if isinstance(error, UnicodeEncodeError):
+        return False, UNSUPPORTED_CREDENTIAL_CHARACTER_MESSAGE
     return False, INVALID_CREDENTIALS_FALLBACK_MESSAGE
 
 

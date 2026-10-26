@@ -1,6 +1,20 @@
 {
     "name": "HTTP server",
     "description": "Latency and in-flight requests of HTTP servers that report OpenTelemetry semantic conventions.",
+    "variables": [
+        {
+            "name": "service",
+            "label": "Service",
+            "source": "sql",
+            "query": "SELECT DISTINCT service_name FROM posthog.metric_names WHERE time_bucket >= toStartOfHour($__from) AND time_bucket < $__to",
+            "multi": false,
+            "includeAll": true,
+            "current": {
+                "values": [],
+                "all": true
+            }
+        }
+    ],
     "panels": [
         {
             "key": "p50",
@@ -12,7 +26,14 @@
                         "name": "a",
                         "metricName": "http.server.request.duration",
                         "aggregation": "histogram_quantile",
-                        "quantile": 0.5
+                        "quantile": 0.5,
+                        "filters": [
+                            {
+                                "key": "service_name",
+                                "op": "eq",
+                                "value": "$service"
+                            }
+                        ]
                     }
                 ],
                 "display": {
@@ -38,7 +59,14 @@
                         "name": "a",
                         "metricName": "http.server.request.duration",
                         "aggregation": "histogram_quantile",
-                        "quantile": 0.95
+                        "quantile": 0.95,
+                        "filters": [
+                            {
+                                "key": "service_name",
+                                "op": "eq",
+                                "value": "$service"
+                            }
+                        ]
                     }
                 ],
                 "display": {
@@ -64,7 +92,14 @@
                         "name": "a",
                         "metricName": "http.server.request.duration",
                         "aggregation": "histogram_quantile",
-                        "quantile": 0.99
+                        "quantile": 0.99,
+                        "filters": [
+                            {
+                                "key": "service_name",
+                                "op": "eq",
+                                "value": "$service"
+                            }
+                        ]
                     }
                 ],
                 "display": {
@@ -89,7 +124,14 @@
                     {
                         "name": "a",
                         "metricName": "http.server.active_requests",
-                        "aggregation": "sum"
+                        "aggregation": "sum",
+                        "filters": [
+                            {
+                                "key": "service_name",
+                                "op": "eq",
+                                "value": "$service"
+                            }
+                        ]
                     }
                 ],
                 "display": {
@@ -118,6 +160,13 @@
                         "groupBy": [
                             {
                                 "key": "http.route"
+                            }
+                        ],
+                        "filters": [
+                            {
+                                "key": "service_name",
+                                "op": "eq",
+                                "value": "$service"
                             }
                         ]
                     }
@@ -149,6 +198,13 @@
                             {
                                 "key": "service_name"
                             }
+                        ],
+                        "filters": [
+                            {
+                                "key": "service_name",
+                                "op": "eq",
+                                "value": "$service"
+                            }
                         ]
                     }
                 ],
@@ -179,6 +235,13 @@
                             {
                                 "key": "http.response.status_code"
                             }
+                        ],
+                        "filters": [
+                            {
+                                "key": "service_name",
+                                "op": "eq",
+                                "value": "$service"
+                            }
                         ]
                     }
                 ],
@@ -208,6 +271,13 @@
                             {
                                 "key": "service_name"
                             }
+                        ],
+                        "filters": [
+                            {
+                                "key": "service_name",
+                                "op": "eq",
+                                "value": "$service"
+                            }
                         ]
                     }
                 ],
@@ -228,7 +298,14 @@
             "query": {
                 "kind": "MetricsHistogramQuery",
                 "metricName": "http.server.request.duration",
-                "unit": "s"
+                "unit": "s",
+                "filters": [
+                    {
+                        "key": "service_name",
+                        "op": "eq",
+                        "value": "$service"
+                    }
+                ]
             },
             "layout": {
                 "x": 0,

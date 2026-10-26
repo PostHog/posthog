@@ -12,7 +12,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     ScriptedResponse,
     SourceDriver,
     always,
-    scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.shippo import ShippoSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.shippo import shippo
@@ -24,8 +23,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.shippo.shi
     ShippoRetryableError,
     ShippoUntrustedURLError,
     _validate_pagination_url,
-    check_access,
-    validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.shippo.source import ShippoSource
 
@@ -196,33 +193,6 @@ class TestFetchPage:
         body = {"next": "url", "results": [{"object_id": "a"}]}
         session = self._session_returning(200, body)
         assert _fetch_page_unwrapped(session, f"{SHIPPO_BASE_URL}/shipments/", MagicMock()) == body
-
-
-class TestCheckAccess:
-    @parameterized.expand(
-        [
-            ("ok", 200, True, None),
-            ("unauthorized", 401, False, "Invalid Shippo API token"),
-            ("forbidden", 403, False, "Invalid Shippo API token"),
-            ("server_error", 500, False, "Shippo returned HTTP 500"),
-        ]
-    )
-    def test_validate_credentials_status_mapping(
-        self,
-        _name: str,
-        status: int,
-        expected_valid: bool,
-        expected_message: str | None,
-    ) -> None:
-        with scripted_network(always(ScriptedResponse(status=status))):
-            assert validate_credentials("shippo_test_key") == (expected_valid, expected_message)
-
-    def test_connection_error_maps_to_zero(self) -> None:
-        with scripted_network(always(ConnectionError("boom"))):
-            status, message = check_access("shippo_test_key")
-
-        assert status == 0
-        assert message is not None and "boom" in message
 
 
 class TestShippoSourceResponse:

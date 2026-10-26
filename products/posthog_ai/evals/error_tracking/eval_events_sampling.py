@@ -33,6 +33,7 @@ from products.posthog_ai.evals.error_tracking.scorers import (
     IssueIdMatchesTarget,
 )
 from products.posthog_ai.evals.error_tracking.seeders import seed_error_tracking_issues
+from products.posthog_ai.evals.offline_config import offline_suite
 
 
 def _events_case(
@@ -107,6 +108,10 @@ async def eval_events_sampling(ctx: EvalContext) -> None:
 
     await SandboxedPublicEval(
         experiment_name="sandboxed-error-tracking-events-sampling-cli",
+        offline_suite=offline_suite(
+            "error_tracking/eval_events_sampling::eval_events_sampling",
+            metrics=["no_error_tracking_write", "events_tool_used", "events_args_alignment", "issue_id_matches_target"],
+        ),
         cases=cases,
         scorers=[
             NoToolCall(forbidden=ERROR_TRACKING_WRITE_TOOLS, name="no_error_tracking_write"),

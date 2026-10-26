@@ -16,7 +16,8 @@ from typing import Any, Optional
 
 from django.core.management.base import BaseCommand, CommandError
 
-from posthog.clickhouse.log_entries import LOG_ENTRIES_SHARDED_TABLE
+from posthog.clickhouse.log_entries import LOG_ENTRIES_DATA_TABLE
+from posthog.settings import CLICKHOUSE_AUX_CLUSTER
 
 from products.cdp.backend.services.destination_activity_logs import (
     ActivityLogScope,
@@ -89,8 +90,9 @@ class Command(BaseCommand):
             delete_debug_logs(scope, functions)
             self.stdout.write(
                 "debug-logs: delete submitted. Watch progress with: "
-                f"SELECT is_done, parts_to_do, latest_fail_reason FROM system.mutations "
-                f"WHERE table = '{LOG_ENTRIES_SHARDED_TABLE}' ORDER BY create_time DESC LIMIT 5"
+                f"SELECT hostName(), is_done, parts_to_do, latest_fail_reason "
+                f"FROM clusterAllReplicas('{CLICKHOUSE_AUX_CLUSTER}', system.mutations) "
+                f"WHERE table = '{LOG_ENTRIES_DATA_TABLE}' ORDER BY create_time DESC LIMIT 5"
             )
 
     def _activity_logs(self, scope: ActivityLogScope, commit: bool) -> None:

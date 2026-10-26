@@ -26,7 +26,7 @@ import {
     type ProductIntentContext,
     ProductKey,
 } from '~/queries/schema/schema-general'
-import { CorrelationConfigType, ProjectType, TeamPublicType, TeamType } from '~/types'
+import { ProjectType, TeamPublicType, TeamType } from '~/types'
 
 import type { FeatureFlagsSet } from '../lib/logic/featureFlagLogic'
 import { organizationLogic } from './organizationLogic'
@@ -111,7 +111,6 @@ export interface teamLogicValues {
     currentTeamLoading: boolean
     customerAnalyticsConfig: CustomerAnalyticsConfig
     demoOnlyProject: boolean
-    funnelCorrelationConfig: CorrelationConfigType
     hasOnboardedAnyProduct: boolean
     isCurrentTeamUnavailable: boolean
     isTeamTokenResetAvailable: boolean
@@ -130,6 +129,13 @@ export interface teamLogicActions {
     ) => {
         currentProject: ProjectType | null
         payload?: any
+    } // projectLogic
+    updateCurrentProjectSuccess: (
+        currentProject: ProjectType,
+        payload?: Partial<ProjectType> | undefined
+    ) => {
+        currentProject: ProjectType
+        payload?: Partial<ProjectType>
     } // projectLogic
     loadUser: (resetOnFailure?: boolean | undefined) => {
         resetOnFailure: boolean | undefined
@@ -328,7 +334,6 @@ export interface teamLogicMeta {
             currentTeam: TeamPublicType | TeamType | null,
             currentOrganization: null | import('~/types').OrganizationType
         ) => boolean
-        funnelCorrelationConfig: (currentTeam: TeamPublicType | TeamType | null) => CorrelationConfigType
         timezone: (currentTeam: TeamPublicType | TeamType | null) => string
         weekStartDay: (currentTeam: TeamPublicType | TeamType | null) => number
         isTeamTokenResetAvailable: (currentTeam: TeamPublicType | TeamType | null) => boolean
@@ -350,7 +355,7 @@ export const teamLogic = kea<teamLogicType>([
             organizationLogic,
             ['loadCurrentOrganization'],
             projectLogic,
-            ['loadCurrentProjectSuccess'],
+            ['loadCurrentProjectSuccess', 'updateCurrentProjectSuccess'],
         ],
     })),
     actions({
@@ -595,12 +600,6 @@ export const teamLogic = kea<teamLogicType>([
             ): boolean =>
                 (currentTeam?.is_demo && currentOrganization?.teams && currentOrganization.teams.length == 1) || false,
         ],
-        funnelCorrelationConfig: [
-            (selectors) => [selectors.currentTeam],
-            (currentTeam: TeamPublicType | TeamType | null): CorrelationConfigType => {
-                return currentTeam?.correlation_config || {}
-            },
-        ],
         timezone: [
             (selectors) => [selectors.currentTeam],
             (currentTeam: TeamPublicType | TeamType | null): string => currentTeam?.timezone || 'UTC',
@@ -647,10 +646,15 @@ export const teamLogic = kea<teamLogicType>([
                 currentTeam?.customer_analytics_config ?? ({} as CustomerAnalyticsConfig),
         ],
     })),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         loadCurrentTeamSuccess: ({ currentTeam }) => {
             if (currentTeam) {
                 ApiConfig.setCurrentTeamId(currentTeam.id)
+            }
+        },
+        updateCurrentProjectSuccess: ({ currentProject, payload }) => {
+            if (payload && 'name' in payload && values.currentTeam?.project_id === currentProject.id) {
+                actions.loadCurrentTeamSuccess({ ...values.currentTeam, name: currentProject.name })
             }
         },
         updateCurrentTeamSuccess: () => {

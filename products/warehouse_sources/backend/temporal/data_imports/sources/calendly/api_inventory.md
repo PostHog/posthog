@@ -8,29 +8,34 @@ Calendly REST API v2 — base URL `https://api.calendly.com`. Auth via a Persona
 - **Response shape:** list endpoints return `{"collection": [...], "pagination": {"count", "next_page", "next_page_token"}}`.
 - **Pagination:** cursor-based. Follow `pagination.next_page` (a fully-formed URL carrying all query params); a `null` value ends pagination.
 - **Scoping:** the top-level list endpoints require an `organization` URI, resolved once per sync from `GET /users/me` → `resource.current_organization`. `/contacts` is account-scoped and takes no such param; the fan-out children are scoped by their parent instead.
-- **Primary key:** every resource carries a stable `uri`.
-- **Partitioning:** all endpoints expose a stable `created_at`, used for datetime partitioning.
+- **Primary key:** every resource carries a stable `uri`, except outgoing communications (see below).
+- **Partitioning:** endpoints expose a stable `created_at`, used for datetime partitioning. Activity log entries use `occurred_at`, and transcripts have no timestamp, so they are not partitioned.
 
 ## Endpoints synced
 
-| Endpoint                   | Path                        | Incremental                        | Notes                                 |
-| -------------------------- | --------------------------- | ---------------------------------- | ------------------------------------- |
-| `event_types`              | `/event_types`              | full refresh                       | no server-side time filter            |
-| `scheduled_events`         | `/scheduled_events`         | `min_start_time` (on `start_time`) | `sort=start_time:asc`                 |
-| `groups`                   | `/groups`                   | full refresh                       | no server-side time filter            |
-| `organization_memberships` | `/organization_memberships` | full refresh                       | no server-side time filter            |
-| `routing_forms`            | `/routing_forms`            | full refresh                       | no server-side time filter            |
-| `contacts`                 | `/contacts`                 | full refresh                       | account-scoped, `sort=created_at:asc` |
+| Endpoint                   | Path                        | Incremental                          | Notes                                   |
+| -------------------------- | --------------------------- | ------------------------------------ | --------------------------------------- |
+| `event_types`              | `/event_types`              | full refresh                         | no server-side time filter              |
+| `scheduled_events`         | `/scheduled_events`         | `min_start_time` (on `start_time`)   | `sort=start_time:asc`                   |
+| `groups`                   | `/groups`                   | full refresh                         | no server-side time filter              |
+| `organization_memberships` | `/organization_memberships` | full refresh                         | no server-side time filter              |
+| `routing_forms`            | `/routing_forms`            | full refresh                         | no server-side time filter              |
+| `contacts`                 | `/contacts`                 | full refresh                         | account-scoped, `sort=created_at:asc`   |
+| `group_relationships`      | `/group_relationships`      | full refresh                         | no server-side time filter              |
+| `activity_log_entries`     | `/activity_log_entries`     | `min_occurred_at` (on `occurred_at`) | Enterprise plan, `sort=occurred_at:asc` |
+| `outgoing_communications`  | `/outgoing_communications`  | full refresh                         | Enterprise plan, no `uri`, no `sort`    |
+| `meeting_recaps`           | `/meeting_recaps`           | full refresh                         | account-scoped, `available` recaps only |
 
 ### Fanned out over a parent
 
-| Endpoint                   | Path                                  | Parent             | Notes                                                  |
-| -------------------------- | ------------------------------------- | ------------------ | ------------------------------------------------------ |
-| `invitees`                 | `/scheduled_events/{uuid}/invitees`   | `scheduled_events` | parent UUID in the path, `sort=created_at:asc`         |
-| `routing_form_submissions` | `/routing_form_submissions?form=`     | `routing_forms`    | parent URI as a query param, `sort=created_at:asc`     |
-| `event_type_memberships`   | `/event_type_memberships?event_type=` | `event_types`      | Calendly calls these event type hosts; takes no `sort` |
+| Endpoint                    | Path                                  | Parent             | Notes                                                  |
+| --------------------------- | ------------------------------------- | ------------------ | ------------------------------------------------------ |
+| `invitees`                  | `/scheduled_events/{uuid}/invitees`   | `scheduled_events` | parent UUID in the path, `sort=created_at:asc`         |
+| `routing_form_submissions`  | `/routing_form_submissions?form=`     | `routing_forms`    | parent URI as a query param, `sort=created_at:asc`     |
+| `event_type_memberships`    | `/event_type_memberships?event_type=` | `event_types`      | Calendly calls these event type hosts; takes no `sort` |
+| `meeting_recap_transcripts` | `/meeting_recaps/{uuid}/transcript`   | `meeting_recaps`   | one object per recap; a 404 skips the recap            |
 
-None of the four accepts a server-side timestamp filter, so all are full refresh and merge on `uri`.
+None of the five accepts a server-side timestamp filter, so all are full refresh and merge on `uri`.
 Each object's `uri` is globally unique — an invitee URI embeds its event's UUID — so no fan-out child
 needs its parent id in the primary key.
 
@@ -53,8 +58,14 @@ needs its parent id in the primary key.
   `get_non_retryable_errors` already turns into a permanent failure with a message, and only that table
   fails.
 
+- `/outgoing_communications` rows have no `uri` or other id. The primary key is
+  `type`, `to`, `event_uri` and `created_at`. The endpoint accepts `min_created_at` but no `sort`,
+  and its order is not documented, so the table is full refresh.
+- `/activity_log_entries` and `/outgoing_communications` need an Enterprise plan. Other plans get a
+  403, which fails only that table.
+- `/meeting_recaps` returns only `available` recaps when no `status` is passed. Recaps that are still
+  processing appear on a later sync.
+
 ## Not yet synced
 
-- `/group_relationships`, `/activity_log_entries`, `/outgoing_communications`,
-  `/user_availability_schedules`, the Notetaker recaps and transcripts, and
-  `/organizations/{uuid}/invitations`.
+- `/user_availability_schedules` and `/organizations/{uuid}/invitations`.
