@@ -1,1 +1,1 @@
-0128_replayobservation_rlo_scanner_ranked_idx
+0130_rom_small_asset_idx
