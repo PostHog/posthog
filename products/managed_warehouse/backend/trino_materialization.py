@@ -211,7 +211,9 @@ def _name_anonymous_row_fields(
     for column in cursor.description or []:
         name = escape_trino_identifier(column[0])
         reference = f"{escape_trino_identifier(_OUTPUT_ALIAS)}.{name}"
-        type_text = column[1] if len(column) > 1 and isinstance(column[1], str) else None
+        # The DB-API stubs type this as an int code; the Trino client returns the type name.
+        type_code: object = column[1] if len(column) > 1 else None
+        type_text = type_code if isinstance(type_code, str) else None
         named_type = _named_row_type(type_text) if type_text is not None else None
         if named_type is None:
             projections.append(f"{reference} AS {name}")

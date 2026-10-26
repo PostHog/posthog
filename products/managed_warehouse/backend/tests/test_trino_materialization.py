@@ -393,7 +393,7 @@ class _ScriptedCursor:
         processed_bytes: int = 0,
         cpu_milliseconds: int = 0,
         unreachable_from: str | None = None,
-        output_types: list[tuple[str, str]] | None = None,
+        output_types: list[tuple[str, ...]] | None = None,
     ) -> None:
         self.output_types = output_types
         self.table_exists = table_exists
