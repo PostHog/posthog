@@ -42,6 +42,10 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
     companion_resource_name,
     history_naming_of,
 )
+from products.warehouse_sources.backend.temporal.data_imports.cdc.history_table import (
+    HistoryTableNameTakenError,
+    not_another_schemas_table,
+)
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.db_retry import (
     retry_on_operational_error,
@@ -694,12 +698,17 @@ async def register_cdc_companion_table(
             # when the cluster is degraded, so holding a Postgres transaction open across them is
             # what produced minutes-long "idle in transaction" connections.
             # Find existing companion table (not schema.table) by name
-            companion_table: DataWarehouseTable | None = DataWarehouseTable.objects.filter(
+            same_name = DataWarehouseTable.objects.filter(
                 team_id=team_id,
                 name=companion_table_name,
                 external_data_source_id=job.pipeline.id,
                 deleted=False,
-            ).first()
+            )
+            companion_table: DataWarehouseTable | None = not_another_schemas_table(same_name, schema_id).first()
+            if companion_table is None and same_name.exists():
+                # Another schema's table has this name. Taking its record would point it at this history,
+                # and a second record of the same name would hide one of them.
+                raise HistoryTableNameTakenError(f"{companion_table_name} is the table of another schema")
 
             previous_queryable_folder = companion_table.queryable_folder if companion_table else None
             storage_delta_mib = _storage_delta_mib(companion_table, live_size_mib)

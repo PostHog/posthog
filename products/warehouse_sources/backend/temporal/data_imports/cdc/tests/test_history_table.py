@@ -1,7 +1,10 @@
 import uuid
+from io import StringIO
 
 import pytest
 from posthog.test.base import BaseTest
+
+from django.core.management import call_command
 
 from parameterized import parameterized
 
@@ -63,6 +66,13 @@ class TestHistoryNaming(BaseTest):
 
         assert history_naming(self.schema) == expected
 
+    def test_a_sibling_source_table_named_like_the_legacy_table_is_not_its_history(self) -> None:
+        sibling = ExternalDataSchema.objects.create(name="orders_cdc", team=self.team, source=self.source)
+        sibling.table = self._table("orders_cdc")
+        sibling.save()
+
+        assert history_naming(self.schema) == HISTORY_NAMING
+
     def test_refuses_a_name_another_table_holds(self) -> None:
         self._table("orders_history")
 
@@ -81,9 +91,18 @@ class TestHistoryNaming(BaseTest):
         else:
             assert history_naming(self.schema) == HISTORY_NAMING
 
-    def test_a_schema_cannot_take_the_name_of_another_schemas_history_table(self) -> None:
-        self._table("orders_history", {"history_table": True, "history_naming": "ph_validity"})
-        sibling = ExternalDataSchema.objects.create(name="orders_history", team=self.team, source=self.source)
+    @parameterized.expand(
+        [
+            ("new_table", "orders_history", {"history_table": True, "history_naming": "ph_validity"}),
+            # A history table that stopped syncing before the marker existed never got it.
+            ("unmarked_legacy_table", "orders_cdc", {}),
+        ]
+    )
+    def test_a_schema_cannot_take_the_name_of_another_schemas_history_table(
+        self, _name: str, storage_name: str, options: dict
+    ) -> None:
+        self._table(storage_name, options)
+        sibling = ExternalDataSchema.objects.create(name=storage_name, team=self.team, source=self.source)
 
         assert is_another_schemas_history_table(sibling)
         assert not is_another_schemas_history_table(self.schema)
@@ -93,5 +112,23 @@ class TestHistoryNaming(BaseTest):
         marked = self._table("other_history", {"history_table": True})
         self._table("orders")
         self._table("customer_cdc")
+        # `items_cdc` is a source table of its own, not the history of `items`.
+        ExternalDataSchema.objects.create(name="items", team=self.team, source=self.source)
+        ExternalDataSchema.objects.create(name="items_cdc", team=self.team, source=self.source)
+        self._table("items_cdc")
 
         assert set(history_tables(self.source)) == {legacy, marked}
+
+    @parameterized.expand([("preview", False), ("live_run", True)])
+    def test_backfill_marks_unmarked_legacy_history_tables(self, _name: str, live_run: bool) -> None:
+        legacy = self._table("orders_cdc")
+        ExternalDataSchema.objects.create(name="items", team=self.team, source=self.source)
+        ExternalDataSchema.objects.create(name="items_cdc", team=self.team, source=self.source)
+        own_table = self._table("items_cdc")
+
+        call_command("backfill_history_table_marker", *(["--live-run"] if live_run else []), stdout=StringIO())
+
+        legacy.refresh_from_db()
+        own_table.refresh_from_db()
+        assert legacy.is_history_table is live_run
+        assert not own_table.is_history_table
