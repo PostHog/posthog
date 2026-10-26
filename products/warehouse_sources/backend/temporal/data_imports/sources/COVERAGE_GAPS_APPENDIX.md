@@ -8808,10 +8808,10 @@ Today (9): `device_510k`, `device_enforcement`, `device_events`, `drug_enforceme
 
 Diffed against: <https://api.fda.gov/download.json>
 
-- [ ] `device/classification` — lookup resolving device product codes, classes and regulation numbers referenced by 510k, UDI and device events (high)
-- [ ] `drug/drugsfda` — drug approvals and applications - the core regulatory fact table, absent entirely (high)
-- [ ] `device/udi` — device identifier registry, the lookup that resolves devices named in adverse events and recalls (high)
-- [ ] `drug/shortages` — current and resolved drug shortage records, a headline supply-chain signal (medium)
+- [x] `device/classification` — lookup resolving device product codes, classes and regulation numbers referenced by 510k, UDI and device events (high)
+- [x] `drug/drugsfda` — drug approvals and applications - the core regulatory fact table, absent entirely (high)
+- [x] `device/udi` — device identifier registry, the lookup that resolves devices named in adverse events and recalls (high)
+- [x] `drug/shortages` — current and resolved drug shortage records, a headline supply-chain signal (medium)
 - [ ] `device/recall` — recall records distinct from the enforcement reports already synced (medium)
 - [ ] `device/pma` — premarket approval submissions, the higher-risk counterpart to 510k (medium)
 - [ ] `device/registrationlisting` — establishment registrations, the manufacturer lookup behind device records (medium)
