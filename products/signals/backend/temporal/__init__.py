@@ -10,7 +10,10 @@ from products.signals.backend.anomaly_scores.tick import (
     plan_anomaly_scoring_tick_activity,
     score_anomaly_insight_activity,
 )
-from products.signals.backend.github_readiness import check_report_github_readiness_activity
+from products.signals.backend.github_readiness import (
+    check_report_github_readiness_activity,
+    release_github_recovery_activity,
+)
 from products.signals.backend.ranking.sweep import InboxRankingScoringWorkflow, score_inbox_reports_activity
 from products.signals.backend.temporal.agentic.report import run_agentic_report_activity
 from products.signals.backend.temporal.agentic.scout_coordinator import (
@@ -196,6 +199,7 @@ ACTIVITIES = [
     check_report_quota_gate_activity,
     mark_report_in_progress_activity,
     check_report_github_readiness_activity,
+    release_github_recovery_activity,
     mark_report_pending_input_activity,
     mark_report_ready_activity,
     maybe_autostart_implementation_activity,

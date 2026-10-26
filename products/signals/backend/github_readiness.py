@@ -29,6 +29,12 @@ if TYPE_CHECKING:
 
 
 @frozen
+class ReleaseGitHubRecoveryInput:
+    team_id: int
+    report_id: str
+
+
+@frozen
 class CheckReportGitHubReadinessInput:
     team_id: int
     report_id: str
@@ -127,3 +133,18 @@ async def check_report_github_readiness_activity(input: CheckReportGitHubReadine
     return await database_sync_to_async(check_report_github_readiness, thread_sensitive=False)(
         input.team_id, input.report_id, input.reason, recovery=input.recovery
     )
+
+
+def release_github_recovery(team_id: int, report_id: str) -> None:
+    """Remove a candidate report from GitHub recovery. `research_blocked_at` stays, so the original
+    recovery deadline still applies if the report is blocked again."""
+    SignalReport.objects.filter(
+        team_id=team_id, id=report_id, status=SignalReport.Status.CANDIDATE, research_blocked_reason__isnull=False
+    ).update(research_blocked_reason=None)
+
+
+@activity.defn
+@scoped_temporal()
+@close_db_connections
+async def release_github_recovery_activity(input: ReleaseGitHubRecoveryInput) -> None:
+    await database_sync_to_async(release_github_recovery, thread_sensitive=False)(input.team_id, input.report_id)

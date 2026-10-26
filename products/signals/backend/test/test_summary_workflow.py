@@ -17,6 +17,7 @@ from posthog.models import Organization, Team
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.daily_limit import DailyReportLimitGate
+from products.signals.backend.github_readiness import CheckReportGitHubReadinessInput, ReleaseGitHubRecoveryInput
 from products.signals.backend.models import SignalReport
 from products.signals.backend.quota import SelfDrivingQuotaGate
 from products.signals.backend.report_generation.research import ActionabilityChoice
@@ -183,8 +184,11 @@ class _Recorder:
         research_metrics: list[dict[str, object]] | None = None,
         checks_snapshot: dict[str, str] | None = None,
         selected_repository: str | None = "owner/repo",
+        fetched_signal_count: int | None = None,
     ) -> None:
         self.gate_answers = gate_answers or {}
+        self.fetched_signal_count = fetched_signal_count
+        self.recovery_releases = 0
         self.fetch_results = fetch_results or [[_signal_data()]]
         self.has_assigned_signals = has_assigned_signals
         self.research_choice = research_choice
@@ -251,7 +255,15 @@ async def _run_summary_workflow(recorder: _Recorder) -> None:
     async def fake_fetch(input: FetchSignalsForReportInput) -> FetchSignalsForReportOutput:
         signals = recorder.fetch_results[min(recorder.fetches, len(recorder.fetch_results) - 1)]
         recorder.fetches += 1
-        return FetchSignalsForReportOutput(signals=signals)
+        return FetchSignalsForReportOutput(signals=signals, fetched_signal_count=recorder.fetched_signal_count)
+
+    @activity.defn(name="check_report_github_readiness_activity")
+    async def fake_github_readiness(input: CheckReportGitHubReadinessInput) -> bool:
+        return True
+
+    @activity.defn(name="release_github_recovery_activity")
+    async def fake_release_recovery(input: ReleaseGitHubRecoveryInput) -> None:
+        recorder.recovery_releases += 1
 
     @activity.defn(name="report_has_assigned_signals_activity")
     async def fake_has_assigned_signals(input: ReportHasAssignedSignalsInput) -> bool:
@@ -329,6 +341,8 @@ async def _run_summary_workflow(recorder: _Recorder) -> None:
             workflows=[SignalReportSummaryWorkflow],
             activities=[
                 fake_quota,
+                fake_github_readiness,
+                fake_release_recovery,
                 fake_fetch,
                 fake_has_assigned_signals,
                 fake_mark_in_progress,
@@ -460,6 +474,26 @@ async def test_persistently_empty_fetch_leaves_report_for_repromotion_when_signa
     assert recorder.marks_in_progress == 0
     assert recorder.researches == 0
     assert recorder.failures == 0
+
+
+@pytest.mark.asyncio
+async def test_fetch_emptied_by_disabled_sources_leaves_github_recovery_without_retrying():
+    recorder = _Recorder(fetch_results=[[]], fetched_signal_count=2)
+    await _run_summary_workflow(recorder)
+    assert recorder.fetches == 1
+    assert recorder.recovery_releases == 1
+    assert recorder.assigned_signal_checks == 0
+    assert recorder.marks_in_progress == 0
+    assert recorder.failures == 0
+
+
+@pytest.mark.asyncio
+async def test_research_progress_counts_signals_skipped_for_disabled_sources():
+    recorder = _Recorder(research_choice=ActionabilityChoice.IMMEDIATELY_ACTIONABLE, fetched_signal_count=2)
+    await _run_summary_workflow(recorder)
+    assert len(recorder.ready_inputs) == 1
+    assert recorder.ready_inputs[0].processed_signal_count == 1
+    assert recorder.ready_inputs[0].researched_signal_count == 2
 
 
 @pytest.mark.asyncio

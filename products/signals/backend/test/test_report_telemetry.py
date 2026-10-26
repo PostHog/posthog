@@ -406,23 +406,25 @@ def _seed_check_lane(team: Team) -> None:
 @pytest.mark.asyncio
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    ("run_count", "processed_signal_count", "signal_count", "expected_loop", "has_pending_driver"),
+    ("run_count", "processed_signal_count", "signal_count", "expected_loop", "has_pending_driver", "researched"),
     [
         # Signals landed mid-run and carried the report to its next bucket: loop rather than make
         # them wait for a signal that arrives after the run.
-        (1, 1, 2, True, True),
-        (1, 1, 9, True, True),
-        (1, 1, 2, True, False),
+        (1, 1, 2, True, True, None),
+        (1, 1, 9, True, True, None),
+        (1, 1, 2, True, False, None),
         # Signals landed but the report is still short of its next bucket, so the run settles.
-        (2, 2, 3, False, False),
-        (3, 4, 9, False, False),
+        (2, 2, 3, False, False, None),
+        (3, 4, 9, False, False, None),
         # No new signals at all.
-        (2, 2, 2, False, False),
+        (2, 2, 2, False, False, None),
         # This pass covered the last bucket: the report stays READY however far past it grew.
-        (4, 10, 15, False, False),
+        (4, 10, 15, False, False, None),
         # Attempts are not passes: a report whose run_count was spent on runs that paused before
         # researching still loops when this pass leaves it at a bucket.
-        (9, 1, 2, True, True),
+        (9, 1, 2, True, True, None),
+        # Recovery skipped a signal from a disabled source. That signal is not a new one.
+        (1, 1, 2, False, False, 2),
     ],
 )
 async def test_ready_loops_only_when_the_run_reached_the_next_bucket(
@@ -432,6 +434,7 @@ async def test_ready_loops_only_when_the_run_reached_the_next_bucket(
     signal_count: int,
     expected_loop: bool,
     has_pending_driver: bool,
+    researched: int | None,
 ) -> None:
     driver, pending_driver = uuid4(), uuid4()
     await database_sync_to_async(_seed_check_lane)(ateam)
@@ -454,6 +457,7 @@ async def test_ready_loops_only_when_the_run_reached_the_next_bucket(
                 title="title",
                 summary="summary",
                 processed_signal_count=processed_signal_count,
+                researched_signal_count=researched,
                 source_products=["zendesk"],
                 checks=[
                     {
@@ -478,4 +482,4 @@ async def test_ready_loops_only_when_the_run_reached_the_next_bucket(
     assert refreshed.triggering_signal_id == (pending_driver if has_pending_driver else driver)
     # Stamped by the pass that just completed, so the next bucket is measured against what this run
     # actually covered rather than against how many times the workflow has started.
-    assert refreshed.signals_researched == processed_signal_count
+    assert refreshed.signals_researched == (researched or processed_signal_count)

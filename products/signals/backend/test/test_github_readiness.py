@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 from django.utils import timezone
 
+from asgiref.sync import async_to_sync, sync_to_async
 from parameterized import parameterized
 
 from posthog.egress.limiter.policies import Priority
@@ -23,11 +24,16 @@ from products.signals.backend.github_readiness import (
 )
 from products.signals.backend.github_readiness_tasks import resume_github_blocked_reports
 from products.signals.backend.models import SignalReport, SignalSourceConfig
+from products.signals.backend.temporal.signal_queries import (
+    FetchSignalsForReportInput,
+    fetch_signals_for_report_activity,
+)
 from products.signals.backend.temporal.types import SignalData
 from products.tasks.backend.facade.repo_selection import get_team_github_readiness, resolve_team_github_integration
 
 MODULE = "products.signals.backend.github_readiness"
 TASKS = "products.signals.backend.github_readiness_tasks"
+QUERIES = "products.signals.backend.temporal.signal_queries"
 
 
 @time_machine.travel("2026-01-15T12:00:00Z", tick=False)
@@ -296,7 +302,8 @@ class TestGitHubReadiness(BaseTest):
         self.assertEqual(dismissed.status, SignalReport.Status.SUPPRESSED)
         self.assertEqual(human.status, SignalReport.Status.PENDING_INPUT)
 
-    def test_recovery_filters_disabled_sources(self) -> None:
+    @parameterized.expand([(None, 2), ("temporarily_unavailable", 1)])
+    def test_recovery_filters_disabled_sources(self, blocked_reason: str | None, fetched: int) -> None:
         enabled = SignalData(
             signal_id=str(uuid4()),
             source_product="error_tracking",
@@ -320,6 +327,24 @@ class TestGitHubReadiness(BaseTest):
         )
         SignalSourceConfig.objects.create(team=self.team, source_product="linear", source_type="issue", enabled=False)
         self.assertEqual(enabled_recovery_signals(self.team.id, [enabled, disabled]), [enabled])
+        # A new matching signal restarts a blocked report without the recovery input, so the
+        # persisted blocker alone has to select the filter.
+        report = SignalReport.objects.create(
+            team=self.team, status=SignalReport.Status.CANDIDATE, research_blocked_reason=blocked_reason
+        )
+        with (
+            patch(
+                f"{QUERIES}.execute_hogql_query_with_retry", AsyncMock(return_value=Mock(results=[enabled, disabled]))
+            ),
+            patch(f"{QUERIES}._parse_signal_row", side_effect=lambda row: row),
+            # The test transaction is visible only on this thread.
+            patch(f"{QUERIES}.database_sync_to_async", lambda fn, **_: sync_to_async(fn, thread_sensitive=True)),
+        ):
+            result = async_to_sync(fetch_signals_for_report_activity)(
+                FetchSignalsForReportInput(team_id=self.team.id, report_id=str(report.id))
+            )
+        self.assertEqual(len(result.signals), fetched)
+        self.assertEqual(result.fetched_signal_count, 2)
 
     def test_periodic_recovery_stops_when_the_connection_is_removed(self) -> None:
         self.integration.delete()
