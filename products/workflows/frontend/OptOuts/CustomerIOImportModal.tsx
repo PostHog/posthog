@@ -97,6 +97,16 @@ function Step1Content(): JSX.Element {
                                 ).toLocaleString()}
                             </LemonTag>
                         </div>
+                        <div className="flex items-center justify-between">
+                            <span>Suppressed addresses:</span>
+                            <LemonTag>
+                                {(
+                                    displayResult?.suppressions_imported ??
+                                    persistedResult?.suppressions_imported ??
+                                    0
+                                ).toLocaleString()}
+                            </LemonTag>
+                        </div>
                     </div>
                 </>
             )}
@@ -554,7 +564,7 @@ export function CustomerIOImportModal(): JSX.Element {
     return (
         <LemonModal
             title="Customer.io integration"
-            description="Import categories and unsubscribed users from Customer.io."
+            description="Import categories, unsubscribed users and suppressed addresses from Customer.io."
             isOpen={isImportModalOpen}
             onClose={closeImportModal}
             width={640}
@@ -585,7 +595,7 @@ export function CustomerIOImportModal(): JSX.Element {
                                 key: 'step1',
                                 header: (
                                     <div className="flex items-center justify-between w-full">
-                                        <span>1. Import categories & global opt-outs</span>
+                                        <span>1. Import categories, opt-outs & suppressions</span>
                                         <StepBadge status={stepCompletion.step1} />
                                     </div>
                                 ),
