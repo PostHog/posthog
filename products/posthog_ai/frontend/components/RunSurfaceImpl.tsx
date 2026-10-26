@@ -148,7 +148,7 @@ function RunSurfaceRoot({
             )
         }
         if (!hasThreadItems && !hasOptimisticClientStream) {
-            return <RunLogSkeleton />
+            return <RunLogSkeleton listClassName="py-4" rowClassName="px-4" />
         }
     }
 

@@ -22,13 +22,13 @@ export const RunLogSkeleton = memo(function RunLogSkeleton({
 }): JSX.Element {
     return (
         <div className={cn('flex flex-col h-full min-h-0 w-full', className)} data-attr="run-log-skeleton">
-            <div className={cn('flex flex-col gap-4 w-full max-w-180 mx-auto pt-4 px-3', listClassName)}>
+            <div className={cn('flex flex-col gap-10 w-full max-w-180 mx-auto pt-4', listClassName)}>
                 <div className={cn('flex justify-end w-full', rowClassName)}>
                     <Skeleton className="h-9 w-48 max-w-[80%] rounded-lg" />
                 </div>
                 <div className={cn('flex flex-col gap-3 w-full', rowClassName)}>
-                    <SkeletonText lines={3} className="text-sm" />
-                    <SkeletonText lines={2} className="text-sm" maxWidth={90} />
+                    <SkeletonText lines={3} className="text-sm leading-[1.625]" />
+                    <SkeletonText lines={2} className="text-sm leading-[1.625]" maxWidth={90} />
                 </div>
             </div>
         </div>
