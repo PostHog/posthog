@@ -14,6 +14,8 @@ import { RecordingUniversalFilters } from '~/types'
 
 import { FilterChips } from './FilterChips'
 import { playlistFiltersLogic } from './playlistFiltersLogic'
+import { stripSessionIds } from './playlistUtils'
+import { savedFilterToFilters } from './savedFilterApply'
 import { SavedFilterEditedBar } from './SavedFilterEditedBar'
 import { SavedFilterSelect } from './SavedFilterSelect'
 import { sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
@@ -51,7 +53,7 @@ export function ReplayFilterBar({
     })
     const [saveModalOpen, setSaveModalOpen] = useState(false)
 
-    const edited = !!appliedSavedFilter && !equal(appliedSavedFilter.filters, filters)
+    const edited = !!appliedSavedFilter && !equal(savedFilterToFilters(appliedSavedFilter), stripSessionIds(filters))
 
     return (
         <div className="flex flex-col gap-1">

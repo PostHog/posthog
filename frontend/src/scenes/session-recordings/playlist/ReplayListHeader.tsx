@@ -17,12 +17,17 @@ export function ReplayListHeader({
     filters,
     setFilters,
     collapseButton,
+    type = 'filters',
+    shortId,
 }: {
     filters: RecordingUniversalFilters
     setFilters: (filters: Partial<RecordingUniversalFilters>) => void
     collapseButton: ReactNode
+    type?: 'filters' | 'collection'
+    shortId?: string
 }): JSX.Element {
-    const { selectedRecordingsIds, otherRecordings, listSort, selectMode } = useValues(sessionRecordingsPlaylistLogic)
+    const { selectedRecordingsIds, otherRecordings, visiblePinnedRecordings, listSort, selectMode } =
+        useValues(sessionRecordingsPlaylistLogic)
     const { handleSelectUnselectAll, setSelectMode } = useActions(sessionRecordingsPlaylistLogic)
     const viewItems = useWatchViewMenuItems(filters, setFilters)
     const settingsItems = useWatchSettingsMenuItems()
@@ -41,11 +46,12 @@ export function ReplayListHeader({
         return () => document.removeEventListener('keydown', onKeyDown)
     }, [selectMode, setSelectMode])
 
-    const allSelected = otherRecordings.length > 0 && selectedRecordingsIds.length === otherRecordings.length
+    const recordings = type === 'filters' ? otherRecordings : visiblePinnedRecordings
+    const allSelected = recordings.length > 0 && selectedRecordingsIds.length === recordings.length
     const selectAllDisabledReason =
-        otherRecordings.length === 0
+        recordings.length === 0
             ? 'No recordings'
-            : otherRecordings.length > MAX_SELECTED_RECORDINGS
+            : recordings.length > MAX_SELECTED_RECORDINGS
               ? `Cannot select more than ${MAX_SELECTED_RECORDINGS} recordings at once`
               : undefined
 
@@ -61,7 +67,7 @@ export function ReplayListHeader({
                             <LemonCheckbox
                                 disabledReason={selectAllDisabledReason}
                                 checked={allSelected}
-                                onChange={(checked) => handleSelectUnselectAll(checked, 'filters')}
+                                onChange={(checked) => handleSelectUnselectAll(checked, type)}
                                 stopPropagation
                                 data-attr="select-all-recordings"
                                 aria-label="Select all recordings"
@@ -69,7 +75,7 @@ export function ReplayListHeader({
                         </span>
                     </Tooltip>
                     {selectedRecordingsIds.length > 0 ? (
-                        <ReplayBulkBar type="filters" />
+                        <ReplayBulkBar type={type} shortId={shortId} />
                     ) : (
                         <span className="text-secondary px-1">Select recordings</span>
                     )}
@@ -91,7 +97,7 @@ export function ReplayListHeader({
                         icon={<IconCheckbox />}
                         className="ml-1"
                         onClick={() => setSelectMode(true)}
-                        disabledReason={otherRecordings.length === 0 ? 'No recordings' : undefined}
+                        disabledReason={recordings.length === 0 ? 'No recordings' : undefined}
                         data-attr="list-select-mode"
                     >
                         Select

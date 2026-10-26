@@ -114,7 +114,8 @@ export function Playlist({
 
     const notebookNode = useNotebookNode()
     const embedded = !!notebookNode
-    const watchFilterBar = newLayout && !notebookNode && type !== 'collection'
+    const watchListHeader = newLayout && !notebookNode
+    const watchFilterBar = watchListHeader && type !== 'collection'
 
     // bound outside here
     const {
@@ -360,14 +361,16 @@ export function Playlist({
                 >
                     <div className="flex flex-col relative w-full bg-bg-light overflow-hidden h-full Playlist__list">
                         <div className="relative">
-                            {watchFilterBar && (
+                            {watchListHeader && (
                                 <ReplayListHeader
                                     filters={filters}
                                     setFilters={setFilters}
                                     collapseButton={collapseButton}
+                                    type={type}
+                                    shortId={type === 'collection' ? logicKey : undefined}
                                 />
                             )}
-                            {!watchFilterBar && (
+                            {!watchListHeader && (
                                 <DraggableToNotebook href={urls.replay(ReplayTabs.Home, filters)}>
                                     <div className="shrink-0 bg-bg-3000 flex justify-between items-center gap-0.5 whitespace-nowrap border-b">
                                         {title && <TitleWithCount title={title} count={itemsCount} />}

@@ -408,26 +408,27 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             if (inspectorSideBarOpen && inspectorSideBarOpen !== values.sidebarOpen) {
                 actions.setSidebarOpen(inspectorSideBarOpen)
             }
+            if (searchParams.debug === true && !values.debugMode) {
+                actions.setDebugMode(true)
+            }
         },
     })),
 
     actionToUrl(() => {
-        const withInspectorParam = (
-            payload: Record<string, any>
+        const withSearchParam = (
+            key: string,
+            value: boolean | undefined
         ): [string, Record<string, any>, Record<string, any>] => {
             const { currentLocation } = router.values
             return [
                 currentLocation.pathname,
-                {
-                    ...currentLocation.searchParams,
-                    inspectorSideBar: payload.open,
-                },
+                { ...currentLocation.searchParams, [key]: value },
                 currentLocation.hashParams,
             ]
         }
         return {
-            setSidebarOpen: withInspectorParam,
-            setDebugMode: withInspectorParam,
+            setSidebarOpen: ({ open }) => withSearchParam('inspectorSideBar', open),
+            setDebugMode: ({ open }) => withSearchParam('debug', open || undefined),
         }
     }),
 ])
