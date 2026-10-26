@@ -9469,7 +9469,7 @@ export namespace Schemas {
      * * `semver_caret` - semver_caret
      * * `semver_wildcard` - semver_wildcard
      */
-    export type FeatureFlagFilterPropertySemverSchemaOperatorEnum =
+    export type SemverOperatorEnum =
         | "semver_eq"
         | "semver_neq"
         | "semver_gt"
@@ -9500,7 +9500,7 @@ export namespace Schemas {
          * * `semver_caret` - semver_caret
          * * `semver_wildcard` - semver_wildcard
          */
-        operator: FeatureFlagFilterPropertySemverSchemaOperatorEnum;
+        operator: SemverOperatorEnum;
         /**
          * Semantic version string.
          */

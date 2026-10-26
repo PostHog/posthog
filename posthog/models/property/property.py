@@ -4,6 +4,8 @@ from enum import StrEnum
 from functools import cached_property
 from typing import Any, Literal, Optional, Union, cast
 
+from django.db import models
+
 from posthog.constants import PropertyOperatorType
 from posthog.models.filters.utils import GroupTypeIndex, validate_group_type_index
 
@@ -90,7 +92,12 @@ NEGATED_OPERATORS = ["is_not", "not_icontains", "not_starts_with", "not_ends_wit
 # Single source of truth for the starts_with/ends_with operator family, so each backend
 # allowlist (feature flags, logs, tracing, sessions) stays in sync without hand-copying.
 STRING_PREFIX_SUFFIX_OPERATORS: tuple[str, ...] = ("starts_with", "not_starts_with", "ends_with", "not_ends_with")
-SEMVER_OPERATORS: tuple[str, ...] = tuple(op.value for op in PropertyOperator if op.value.startswith("semver_"))
+# Built from the generated PropertyOperator enum so a new semver operator needs no edit here.
+# A Choices class, so an API ChoiceField gets a stable OpenAPI enum name from it.
+SemverOperator = models.TextChoices(
+    "SemverOperator", [(op.name, (op.value, op.value)) for op in PropertyOperator if op.value.startswith("semver_")]
+)
+SEMVER_OPERATORS: tuple[str, ...] = tuple(SemverOperator.values)
 CLICKHOUSE_ONLY_PROPERTY_TYPES = [
     "static-cohort",
     "dynamic-cohort",

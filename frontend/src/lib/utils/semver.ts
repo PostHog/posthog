@@ -35,12 +35,16 @@ export function parseVersion(version: string): SemanticVersion {
 // `parseVersion` because that one accepts a leading `v`, which the backend's `int()` rejects.
 // `allowWildcard` handles patterns like `1.2.*` by dropping the trailing `.`/`*`, matching the
 // backend's `rstrip('.*')` for the wildcard operator.
-// `requireFullVersion` rejects a short version such as `2.0`, because the exact and ordering
-// comparisons compare the filter value as written and so never match a stored `2.0.0`.
-export function isValidSemverValue(
-    value: string,
-    options?: { allowWildcard?: boolean; requireFullVersion?: boolean }
-): boolean {
+// Mirrors STRICT_SEMVER_REGEX in posthog/hogql/property.py, which matches the flag service's
+// semver parser: a full X.Y.Z with no leading zeros, an optional `v` and an optional `-`/`+` suffix.
+// The exact and ordering operators compare the whole version, so a short `2.0` never equals `2.0.0`.
+const STRICT_SEMVER_PATTERN = /^\s*v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:[-+]\S*)?\s*$/
+
+export function isStrictSemverValue(value: string): boolean {
+    return STRICT_SEMVER_PATTERN.test(value)
+}
+
+export function isValidSemverValue(value: string, options?: { allowWildcard?: boolean }): boolean {
     let candidate = value.trim()
     if (options?.allowWildcard) {
         candidate = candidate.replace(/[.*]+$/, '')
@@ -48,7 +52,7 @@ export function isValidSemverValue(
     // Strip any pre-release / build suffix (everything after the first hyphen), matching the backend.
     const base = candidate.split('-')[0]
     const parts = base.split('.')
-    if (parts[0] === '' || (options?.requireFullVersion && parts.length !== 3)) {
+    if (parts[0] === '') {
         return false
     }
     // Missing minor/patch default to "0" (e.g. "1" -> 1.0.0); extra parts are ignored, as on the backend.

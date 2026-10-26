@@ -671,10 +671,9 @@ export interface FeatureFlagFilterPropertyDateSchemaApi {
  * * `semver_caret` - semver_caret
  * * `semver_wildcard` - semver_wildcard
  */
-export type FeatureFlagFilterPropertySemverSchemaOperatorEnumApi =
-    (typeof FeatureFlagFilterPropertySemverSchemaOperatorEnumApi)[keyof typeof FeatureFlagFilterPropertySemverSchemaOperatorEnumApi]
+export type SemverOperatorEnumApi = (typeof SemverOperatorEnumApi)[keyof typeof SemverOperatorEnumApi]
 
-export const FeatureFlagFilterPropertySemverSchemaOperatorEnumApi = {
+export const SemverOperatorEnumApi = {
     SemverEq: 'semver_eq',
     SemverNeq: 'semver_neq',
     SemverGt: 'semver_gt',
@@ -716,7 +715,7 @@ export interface FeatureFlagFilterPropertySemverSchemaApi {
      * * `semver_tilde` - semver_tilde
      * * `semver_caret` - semver_caret
      * * `semver_wildcard` - semver_wildcard */
-    operator: FeatureFlagFilterPropertySemverSchemaOperatorEnumApi
+    operator: SemverOperatorEnumApi
     /** Semantic version string. */
     value: string
 }

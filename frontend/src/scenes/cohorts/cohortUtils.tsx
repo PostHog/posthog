@@ -14,7 +14,7 @@ import { calculateDays } from 'lib/utils/durations'
 import { isNumeric } from 'lib/utils/guards'
 import { areObjectValuesEmpty } from 'lib/utils/objects'
 import { isOperatorDate, isOperatorSemver } from 'lib/utils/operators'
-import { isValidSemverValue } from 'lib/utils/semver'
+import { isStrictSemverValue, isValidSemverValue } from 'lib/utils/semver'
 import {
     BEHAVIORAL_TYPE_TO_LABEL,
     CRITERIA_VALIDATIONS,
@@ -342,13 +342,14 @@ export function validateGroup(
         if (!c.operator || !isOperatorSemver(c.operator)) {
             return {}
         }
-        const value = 'value_property' in c ? c.value_property : null
+        const rawValue = 'value_property' in c ? c.value_property : null
+        // Older cohorts can store one value as a one-item list; the API unwraps it on save.
+        const value = Array.isArray(rawValue) && rawValue.length === 1 ? rawValue[0] : rawValue
         const isValid =
             typeof value === 'string' &&
-            isValidSemverValue(value, {
-                allowWildcard: c.operator === PropertyOperator.SemverWildcard,
-                requireFullVersion: !SEMVER_RANGE_OPERATORS.has(c.operator),
-            })
+            (SEMVER_RANGE_OPERATORS.has(c.operator)
+                ? isValidSemverValue(value, { allowWildcard: c.operator === PropertyOperator.SemverWildcard })
+                : isStrictSemverValue(value))
         return isValid
             ? {}
             : { id: CohortClientErrors.InvalidSemverValue, value_property: CohortClientErrors.InvalidSemverValue }

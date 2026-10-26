@@ -46465,10 +46465,10 @@ export namespace Schemas {
      * * `semver_caret` - semver_caret
      * * `semver_wildcard` - semver_wildcard
      */
-    export type FeatureFlagFilterPropertySemverSchemaOperatorEnum = typeof FeatureFlagFilterPropertySemverSchemaOperatorEnum[keyof typeof FeatureFlagFilterPropertySemverSchemaOperatorEnum];
+    export type SemverOperatorEnum = typeof SemverOperatorEnum[keyof typeof SemverOperatorEnum];
 
 
-    export const FeatureFlagFilterPropertySemverSchemaOperatorEnum = {
+    export const SemverOperatorEnum = {
       SemverEq: 'semver_eq',
       SemverNeq: 'semver_neq',
       SemverGt: 'semver_gt',
@@ -46510,7 +46510,7 @@ export namespace Schemas {
        * * `semver_tilde` - semver_tilde
        * * `semver_caret` - semver_caret
        * * `semver_wildcard` - semver_wildcard */
-      operator: FeatureFlagFilterPropertySemverSchemaOperatorEnum;
+      operator: SemverOperatorEnum;
       /** Semantic version string. */
       value: string;
     }

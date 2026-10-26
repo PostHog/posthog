@@ -36,9 +36,13 @@ describe('validateGroup', () => {
         }
     }
 
-    it.each<[PropertyOperator, string, boolean]>([
+    it.each<[PropertyOperator, string | string[], boolean]>([
         [PropertyOperator.SemverGte, '1.2.3', true],
         [PropertyOperator.SemverEq, '1.2.3-beta.1', true],
+        [PropertyOperator.SemverEq, '1.2.3+build.42', true],
+        [PropertyOperator.SemverEq, 'v1.2.3', true],
+        [PropertyOperator.SemverEq, ['1.2.3'], true],
+        [PropertyOperator.SemverGte, '01.2.3', false],
         [PropertyOperator.SemverGte, '2.0', false],
         [PropertyOperator.SemverLt, 'latest', false],
         [PropertyOperator.SemverTilde, '1.2', true],
