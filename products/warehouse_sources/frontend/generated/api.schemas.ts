@@ -14779,6 +14779,15 @@ export interface WarehouseMigrationApi {
     item_counts: WarehouseMigrationItemCountsApi
 }
 
+export interface PaginatedWarehouseMigrationListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: WarehouseMigrationApi[]
+}
+
 export interface WarehouseMigrationCreateApi {
     /** The ETL vendor to import from.
      *
@@ -15108,6 +15117,17 @@ export type WarehouseColumnStatisticsListParams = {
      * Only return statistics for this data warehouse table.
      */
     table_id?: string
+}
+
+export type WarehouseMigrationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }
 
 export type WarehouseMigrationsConnectLinkRetrieveParams = {
