@@ -11,6 +11,7 @@ from django.urls.base import reverse
 import jwt
 import structlog
 import posthoganalytics
+import redis.exceptions as redis_exceptions
 from jwt.algorithms import RSAAlgorithm
 from onelogin.saml2.xml_utils import OneLogin_Saml2_XML
 from rest_framework import authentication
@@ -89,9 +90,8 @@ def saml_metadata_view(request, *args, **kwargs):
         return HttpResponse(content=metadata, content_type="text/xml")
 
 
-# OASIS SAML bindings cap RelayState at 80 bytes, and `next` can be a full `/oauth/authorize` URL
-# of several hundred characters. So the IdP only ever sees an opaque key, and the state it stands
-# for lives in Redis. The TTL only has to outlast the round trip through the IdP.
+# OASIS SAML bindings cap RelayState at 80 bytes; the cache TTL only needs to outlast the IdP round trip.
+SAML_RELAY_STATE_MAX_BYTES = 80
 SAML_RELAY_STATE_CACHE_TTL_SECONDS = 60 * 10
 
 
@@ -101,12 +101,20 @@ def _saml_relay_state_cache_key(key: str) -> str:
 
 def _store_saml_relay_state(state: dict[str, Any]) -> str:
     key = str(uuid4())
-    get_client().setex(_saml_relay_state_cache_key(key), SAML_RELAY_STATE_CACHE_TTL_SECONDS, json.dumps(state))
+    try:
+        get_client().setex(_saml_relay_state_cache_key(key), SAML_RELAY_STATE_CACHE_TTL_SECONDS, json.dumps(state))
+    except redis_exceptions.RedisError:
+        # Sessions are DB-backed, so a Redis outage must not block login. Fall back to the payload
+        # this code sent before the cache existed, even though it can exceed the cap.
+        return json.dumps(state)
     return key
 
 
 def _load_saml_relay_state(key: str) -> dict[str, Any] | None:
-    raw = get_client().get(_saml_relay_state_cache_key(key))
+    try:
+        raw = get_client().get(_saml_relay_state_cache_key(key))
+    except redis_exceptions.RedisError:
+        return None
     if not raw:
         return None
     state = json.loads(raw)
@@ -186,10 +194,16 @@ class MultitenantSAMLAuth(SAMLAuth):
         strategy.request.POST = mutable_post  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
 
     def parse_relay_state(self, relay_state_str: str) -> dict:
-        # RelayState is either the opaque key `auth_url` stored server-side, or a value the IdP
-        # supplies itself (its own app launch URL, or the config's `saml_relay_state` as a default
-        # relay state), which the base parser handles. An expired key falls through to that same
-        # legacy path, so a slow login degrades to the IdP-initiated recovery instead of failing.
+        # JSON first: a login started on an older worker, or during a Redis outage, carries the
+        # legacy payload. Anything else is our opaque key, a value the IdP supplies itself (its
+        # launch URL or the config's `saml_relay_state`), or an expired key, all of which the base
+        # parser already routes to the IdP-initiated recovery.
+        try:
+            legacy = json.loads(relay_state_str)
+        except ValueError:
+            legacy = None
+        if isinstance(legacy, dict):
+            return legacy
         stored = _load_saml_relay_state(relay_state_str)
         return stored if stored is not None else super().parse_relay_state(relay_state_str)
 
@@ -303,6 +317,11 @@ class MultitenantSAMLAuth(SAMLAuth):
         # RelayState: it would be disclosed to the (potentially attacker-controlled) IdP in the
         # redirect, and `next` alone is enough to recover the redirect without it.
         relay_state = {"idp": identity_provider.name, "next": self.data.get("next")}
+        encoded = json.dumps(relay_state)
+        # Keep the wire format unchanged wherever it fits, so only a long `next` (an OAuth
+        # authorize URL) takes the opaque-key path that older workers cannot parse.
+        if len(encoded) <= SAML_RELAY_STATE_MAX_BYTES:
+            return auth.login(return_to=encoded)
         return auth.login(return_to=_store_saml_relay_state(relay_state))
 
     def _get_attr(

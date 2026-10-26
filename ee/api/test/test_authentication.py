@@ -21,6 +21,7 @@ from django.utils import timezone
 
 import jwt
 import responses
+import redis.exceptions as redis_exceptions
 from cryptography.hazmat.primitives.asymmetric import rsa
 from parameterized import parameterized
 from requests import Response
@@ -1372,10 +1373,23 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
         relay_state = parse_qs(urlparse(response.headers["Location"]).query)["RelayState"][0]
         # OASIS SAML bindings cap RelayState at 80 bytes, so a long `next` cannot travel in it.
         self.assertLessEqual(len(relay_state), 80)
-        stored = json.loads(get_client().get(f"saml_relay_state:{relay_state}"))
+        cached = get_client().get(f"saml_relay_state:{relay_state}")
+        assert cached is not None
         # The identifier comes off the IdP config. It currently equals the domain's id, so asserting
         # against the domain would pass just as well if this regressed to reading the domain.
-        self.assertEqual(stored, {"idp": config.saml_relay_state, "next": next_url})
+        self.assertEqual(json.loads(cached), {"idp": config.saml_relay_state, "next": next_url})
+
+    def test_relay_state_stays_in_the_clear_when_it_fits(self):
+        # Only a payload over the 80-byte cap needs the cache, so keep the legacy wire format for
+        # everything else and let older workers finish their logins during a rolling deploy.
+        response = self.client.get("/login/saml/?email=hellohello@posthog.com&next=/insights")
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+
+        config = self.organization_domain.saml_identity_provider_configs.first()
+        assert config is not None
+        relay_state = parse_qs(urlparse(response.headers["Location"]).query)["RelayState"][0]
+        self.assertEqual(json.loads(relay_state), {"idp": config.saml_relay_state, "next": "/insights"})
+        self.assertIsNone(get_client().get(f"saml_relay_state:{relay_state}"))
 
     def test_cannot_initiate_saml_flow_without_target_email_address(self):
         """
@@ -1504,6 +1518,18 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
 
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
         self.assertEqual(response.headers["Location"], "/settings/organization/authentication")
+
+    def test_relay_state_parses_when_redis_is_unavailable(self):
+        # A Redis outage must not turn a SAML callback into a 500: the legacy payload needs no cache,
+        # and a value that misses the cache keeps routing through the base parser.
+        auth = object.__new__(MultitenantSAMLAuth)
+        legacy = {"idp": str(self.organization_domain.id), "next": "/settings/organization/authentication"}
+
+        with patch("ee.api.authentication.get_client", side_effect=redis_exceptions.ConnectionError("down")):
+            self.assertEqual(auth.parse_relay_state(json.dumps(legacy)), legacy)
+            self.assertEqual(
+                auth.parse_relay_state("https://idp.hogflix.io/launch"), {"idp": "https://idp.hogflix.io/launch"}
+            )
 
     @time_machine.travel("2021-08-25T22:09:14.252Z", tick=False)  # Ensures the SAML timestamp validation passes
     def test_saml_login_accepts_a_json_relay_state_from_a_login_started_before_a_deploy(self):
