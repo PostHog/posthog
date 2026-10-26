@@ -1,3 +1,8 @@
+import {
+    PENDING_OAUTH_CONNECTION_FIXTURE,
+    setPendingOAuthConnectionCookie,
+} from 'scenes/authentication/shared/pendingOAuthConnection.mock'
+
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
@@ -59,27 +64,27 @@ describe('authLogic', () => {
         expect(canSignUpWithEmail(precheck, preflight)).toEqual(expected)
     })
 
-    it.each<[string, Partial<PreflightStatus>, string | undefined, string | null]>([
+    const US = { cloud: true, region: 'US' as PreflightStatus['region'] }
+    it.each<[string, Partial<PreflightStatus>, string | undefined, boolean, string | null]>([
         [
             'sends a US signup to the EU with its email',
-            { cloud: true, region: 'US' as PreflightStatus['region'] },
+            US,
             'eu',
+            false,
             'https://eu.posthog.com/signup?maintenanceRedirect=true&email=person%40example.com',
         ],
         [
             'keeps a signup in the region that takes them',
-            { cloud: true, region: 'EU' as PreflightStatus['region'] },
+            { ...US, region: 'EU' as PreflightStatus['region'] },
             'eu',
+            false,
             null,
         ],
-        [
-            'keeps a signup when the flag is off',
-            { cloud: true, region: 'US' as PreflightStatus['region'] },
-            undefined,
-            null,
-        ],
-        ['keeps a self-hosted signup', { cloud: false, region: 'US' as PreflightStatus['region'] }, 'eu', null],
-    ])('maintenance redirect %s', (_name, preflight, flag, expected) => {
+        ['keeps a signup when the flag is off', US, undefined, false, null],
+        ['keeps a self-hosted signup', { ...US, cloud: false }, 'eu', false, null],
+        ['keeps a signup with a pending OAuth connection', US, 'eu', true, null],
+    ])('maintenance redirect %s', (_name, preflight, flag, pendingOAuthConnection, expected) => {
+        setPendingOAuthConnectionCookie(pendingOAuthConnection ? PENDING_OAUTH_CONNECTION_FIXTURE : null)
         const featureFlags = flag ? { 'redirect-signups-to-instance': flag } : {}
         expect(
             maintenanceSignupRedirectUrl({ ...PREFLIGHT, ...preflight }, featureFlags, 'person@example.com')

@@ -267,13 +267,17 @@ function maintenanceSignupRegion(
 
 /**
  * Where to send a signup on this instance while the other region takes all signups, or null to stay.
- * The `email` carries over, so the person does not type it again on the other instance.
+ * The `email` carries over, so the person does not type it again on the other instance. A pending
+ * OAuth connection always stays, because its client is registered in this region.
  */
 export function maintenanceSignupRedirectUrl(
     preflight: PreflightStatus | null,
     featureFlags: FeatureFlagsSet,
     email?: string
 ): string | null {
+    if (readPendingOAuthConnection()) {
+        return null
+    }
     const region = maintenanceSignupRegion(preflight, featureFlags)
     // KLUDGE: the backend can technically return null, and we don't want to redirect to the app
     // unless the preflight region is valid

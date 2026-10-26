@@ -4,14 +4,12 @@ import { router, urlToAction } from 'kea-router'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isEmail } from 'lib/utils/url'
 import { AuthEntry, AuthStep } from 'scenes/authentication/shared/authStepViewed'
-import { pendingOAuthConnectionLogic } from 'scenes/authentication/shared/pendingOAuthConnectionLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
 import type { PreflightStatus } from '~/types'
 
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
-import type { PendingOAuthConnection } from '../shared/pendingOAuthConnectionLogic'
 import { LoginForm, PrecheckResponseType, loginLogic } from './loginLogic'
 import { PendingInvite, maintenanceSignupRedirectUrl, signupLogic } from './signupLogic'
 
@@ -48,7 +46,6 @@ export interface authLogicValues {
     codeVerificationRequired: boolean // loginLogic
     login: LoginForm // loginLogic
     precheckResponse: PrecheckResponseType // loginLogic
-    pendingConnection: PendingOAuthConnection | null // pendingOAuthConnectionLogic
     preflight: PreflightStatus | null // preflightLogic
     isSignupEmailChecking: boolean // signupLogic
     panel: number // signupLogic
@@ -170,8 +167,6 @@ export const authLogic = kea<authLogicType>([
             ['preflight'],
             featureFlagLogic,
             ['featureFlags'],
-            pendingOAuthConnectionLogic,
-            ['pendingConnection'],
             loginLogic,
             ['login', 'codeVerificationRequired', 'precheckResponse'],
             signupLogic,
@@ -314,10 +309,7 @@ export const authLogic = kea<authLogicType>([
                 return
             }
             const email = values.login.email.trim()
-            // A pending OAuth connection belongs to this region, so it never moves
-            const maintenanceRedirectUrl = values.pendingConnection
-                ? null
-                : maintenanceSignupRedirectUrl(values.preflight, values.featureFlags, email)
+            const maintenanceRedirectUrl = maintenanceSignupRedirectUrl(values.preflight, values.featureFlags, email)
             if (maintenanceRedirectUrl) {
                 window.location.href = maintenanceRedirectUrl
                 return
