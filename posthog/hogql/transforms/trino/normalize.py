@@ -5,6 +5,8 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DatabaseField
 from posthog.hogql.database.schema.numbers import NumbersTable
 from posthog.hogql.database.trino_unnest_table import TRINO_UNNEST_TABLE_NAME
+from posthog.hogql.errors import QueryError
+from posthog.hogql.resolver_utils import lookup_field_by_name
 from posthog.hogql.transforms.trino.any_join import lower_trino_any_joins
 from posthog.hogql.transforms.trino.asof_join import TrinoAsOfJoinLowerer
 from posthog.hogql.transforms.trino.errors import TrinoLoweringError
@@ -258,8 +260,10 @@ class TrinoScalarCTELowerer(CloningVisitor):
 
 
 class TrinoSelectAliasLowerer(CloningVisitor):
-    def __init__(self, budget: TrinoCompilationBudget) -> None:
+    def __init__(self, context: HogQLContext, budget: TrinoCompilationBudget) -> None:
         super().__init__(clear_types=False)
+        self.context = context
+        self.lambda_scopes: list[ast.SelectQueryType | None] = []
         self.aliases: dict[str, ast.Expr] = {}
         self.alias_positions: dict[str, int] = {}
         self.expanding: set[str] = set()
@@ -338,6 +342,13 @@ class TrinoSelectAliasLowerer(CloningVisitor):
             if not already_expanding:
                 self.expanding.remove(node.alias)
 
+    def visit_lambda(self, node: ast.Lambda) -> ast.Lambda:
+        self.lambda_scopes.append(node.type if isinstance(node.type, ast.SelectQueryType) else None)
+        try:
+            return super().visit_lambda(node)
+        finally:
+            self.lambda_scopes.pop()
+
     def visit_join_expr(self, node: ast.JoinExpr) -> ast.JoinExpr:
         outer_aliases = self.aliases
         next_join = node.next_join
@@ -388,13 +399,36 @@ class TrinoSelectAliasLowerer(CloningVisitor):
             and isinstance(node.type.table_type, ast.TableAliasType)
         ):
             return None
+        qualifier = node.type.table_type.alias
+        if self.lambda_scopes and self._lambda_reads_qualifier_as_field(qualifier):
+            raise TrinoLoweringError(
+                "TRINO_LAMBDA_QUALIFIER_AMBIGUOUS",
+                "a lambda reading a column shadowed by a projection alias",
+                node,
+                detail=(
+                    f"Inside a lambda, the table alias `{qualifier}` also names a column or alias, "
+                    "so the Trino query could read the wrong value. Rename the table alias."
+                ),
+            )
         return ast.Field(
             start=node.start,
             end=node.end,
-            chain=[node.type.table_type.alias, node.chain[0]],
+            chain=[qualifier, node.chain[0]],
             type=node.type,
             from_asterisk=node.from_asterisk,
         )
+
+    def _lambda_reads_qualifier_as_field(self, qualifier: str) -> bool:
+        # Inside a lambda the resolver looks up the head of a chain as a field before it tries table aliases, so the
+        # second pass would bind `qualifier.column` to a field named like the qualifier. Without a lambda scope to
+        # check, assume a collision.
+        scope = self.lambda_scopes[-1]
+        if scope is None:
+            return True
+        try:
+            return lookup_field_by_name(scope, qualifier, self.context) is not None
+        except QueryError:
+            return True
 
 
 class TrinoPhysicalProjectionAliasLowerer(CloningVisitor):
@@ -637,7 +671,7 @@ def normalize_trino_ast(node: ast.AST, context: HogQLContext, *, physical_names:
     lowered = TrinoAsOfJoinLowerer().visit(lowered)
     lowered = lower_trino_any_joins(lowered, physical_names=physical_names)
     lowered = lower_trino_query_wrappers(lowered)
-    lowered = TrinoSelectAliasLowerer(budget).visit(lowered)
+    lowered = TrinoSelectAliasLowerer(context, budget).visit(lowered)
     lowered = TrinoPhysicalProjectionAliasLowerer(context).visit(lowered)
     TrinoNormalizer(context).visit(lowered)
     return lowered

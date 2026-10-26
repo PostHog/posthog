@@ -2761,6 +2761,12 @@ def test_removes_noop_sample_one_for_trino() -> None:
             "SELECT * FROM users UNPIVOT((value1, value2) FOR (key1, key2) IN ((user_id, id)))",
             "TRINO_UNPIVOT_SHAPE_UNSUPPORTED",
         ),
+        # Inside a lambda, a qualifier that is also a column name would read that column instead of the table.
+        ("SELECT arrayMap(x -> x + id, [1]) AS id FROM users AS properties", "TRINO_LAMBDA_QUALIFIER_AMBIGUOUS"),
+        (
+            "SELECT arrayMap(x -> concat(x, user_id), ['a']) AS user_id FROM users AS id",
+            "TRINO_LAMBDA_QUALIFIER_AMBIGUOUS",
+        ),
     ],
 )
 def test_rejects_clickhouse_query_clauses_without_safe_trino_semantics(query: str, feature_code: str) -> None:
