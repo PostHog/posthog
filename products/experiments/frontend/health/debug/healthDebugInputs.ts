@@ -311,7 +311,7 @@ export function buildMetricFacts(
         {
             label: 'Metric queries',
             value: serverValue(state, (inputs) => describeMetricCompiles(inputs.metric_compiles)),
-            help: "The metric calculation check compiles each metric's query as you, without running it. The answer is cached per reader for a day, or an hour when a metric fails.",
+            help: "The metric queries check compiles each metric's query as you, without running it. The answer is cached per reader for a day, or an hour when a metric fails.",
         },
         ...(state.inputs?.metric_compiles?.failures ?? []).map((failure) => ({
             label: `Doesn't compile: ${failure.name} (${failure.role})`,

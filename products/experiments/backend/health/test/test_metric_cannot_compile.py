@@ -61,6 +61,10 @@ def _mean(source: dict[str, Any], **fields: Any) -> dict[str, Any]:
     }
 
 
+def _filtered(event_filter: dict[str, Any]) -> dict[str, Any]:
+    return _mean(_events(properties=[event_filter]))
+
+
 def _cohort(cohort_id: int) -> dict[str, Any]:
     return {"key": "id", "type": "cohort", "value": cohort_id}
 
@@ -122,12 +126,6 @@ class TestMetricCannotCompile(BaseTest):
                 ("aggregation_arguments", WARNING, "Use uniq, and set the condition as a filter"),
             ),
             (
-                "function_arguments",
-                "metrics",
-                _mean(_hogql("sum(round(properties.revenue, 1, 2))")),
-                ("function_arguments", WARNING, "calls round with 3 arguments, and round takes at most 2"),
-            ),
-            (
                 "unknown_function",
                 "metrics",
                 _mean(_hogql("sum(toFlot(properties.revenue))")),
@@ -160,54 +158,27 @@ class TestMetricCannotCompile(BaseTest):
             (
                 "lookahead_regex",
                 "metrics",
-                _mean(
-                    _events(
-                        properties=[{"key": "$current_url", "type": "event", "operator": "regex", "value": "^/a(?!b)"}]
-                    )
-                ),
+                _filtered({"key": "$current_url", "type": "event", "operator": "regex", "value": "^/a(?!b)"}),
                 ("invalid_regex", WARNING, '"^/a(?!b)"'),
             ),
             (
                 "element_selector_operator",
                 "metrics",
-                _mean(
-                    _events(
-                        properties=[{"key": "selector", "type": "element", "operator": "icontains", "value": "button"}]
-                    )
-                ),
+                _filtered({"key": "selector", "type": "element", "operator": "icontains", "value": "button"}),
                 ("unsupported_element_operator", WARNING, "on the element's CSS selector"),
             ),
             (
                 "behavioral_filter_without_a_time_range",
                 "metrics",
-                _mean(
-                    _events(
-                        properties=[
-                            {
-                                "key": "$pageview",
-                                "type": "behavioral",
-                                "value": "performed_event",
-                                "event_type": "events",
-                            }
-                        ]
-                    )
+                _filtered(
+                    {"key": "$pageview", "type": "behavioral", "value": "performed_event", "event_type": "events"}
                 ),
                 ("incomplete_behavioral_filter", WARNING, "behavioral filter of the metric is incomplete"),
             ),
             (
                 "missing_warehouse_table",
                 "metrics",
-                _mean(
-                    {
-                        "kind": "ExperimentDataWarehouseNode",
-                        "table_name": "stripe_charges",
-                        "timestamp_field": "created",
-                        "events_join_key": "person.properties.email",
-                        "data_warehouse_join_key": "email",
-                        "math": "sum",
-                        "math_property": "amount",
-                    }
-                ),
+                _warehouse_sum("stripe_charges"),
                 ("missing_warehouse_table", WARNING, '"stripe_charges"'),
             ),
             (

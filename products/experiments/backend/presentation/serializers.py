@@ -3469,7 +3469,7 @@ class ExperimentHealthInputsSerializer(serializers.Serializer):
     metric_compiles = ExperimentHealthInputsMetricCompilesSerializer(
         allow_null=True,
         help_text=(
-            "The compile of each metric's query without running it, as the reader, which the metric calculation check "
+            "The compile of each metric's query without running it, as the reader, which the metric queries check "
             "reads. Cached per reader for a day, or an hour when a metric fails. Null when the compile itself failed."
         ),
     )

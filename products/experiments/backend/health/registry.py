@@ -92,7 +92,7 @@ EXPERIMENT_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
     ),
     HealthCheck(
         key=ExperimentHealthCheckKey.METRIC_CANNOT_COMPILE,
-        name="Metric calculation",
+        name="Metric queries",
         run=metric_cannot_compile,
     ),
     HealthCheck(

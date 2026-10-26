@@ -28,7 +28,6 @@ class MetricCompileError(StrEnum):
     # pinned: the finding's subcode and `evidence.metric_N_error`.
     COMPOUND_AGGREGATION = "compound_aggregation"
     AGGREGATION_ARGUMENTS = "aggregation_arguments"
-    FUNCTION_ARGUMENTS = "function_arguments"
     UNKNOWN_FUNCTION = "unknown_function"
     UNKNOWN_FIELD = "unknown_field"
     SYNTAX_ERROR = "syntax_error"
@@ -188,15 +187,6 @@ def _aggregation_arguments(match: re.Match[str], _message: str) -> _Wording:
     )
 
 
-def _function_arguments(match: re.Match[str], _message: str) -> _Wording:
-    name, found = match.group("name"), int(match.group("found"))
-    return _Wording(
-        error=MetricCompileError.FUNCTION_ARGUMENTS,
-        explanation=f"Its SQL expression calls {name} with {found} argument{'' if found == 1 else 's'}, and {name} "
-        f"takes {match.group('bound')}{match.group('expected')}. Correct the arguments.",
-    )
-
-
 def _unknown_function(match: re.Match[str], _message: str) -> _Wording:
     suggestion = match.group("suggestion")
     return _Wording(
@@ -275,14 +265,6 @@ _QUERY_RULES: tuple[tuple[re.Pattern[str], str | None, Callable[[re.Match[str], 
     (re.compile(r"Aggregation '(?P<name>\w+)' expects"), "name", _aggregation_arguments),
     (
         re.compile(
-            r"Function '(?P<name>\w+)' expects (?P<bound>at least |at most |)(?P<expected>\d+) arguments?, "
-            r"found (?P<found>\d+)"
-        ),
-        "name",
-        _function_arguments,
-    ),
-    (
-        re.compile(
             r"Unsupported function call '(?P<name>[^'(]+)\(\.\.\.\)'"
             r"(?:\. Perhaps you meant '(?P<suggestion>[^'(]+)\(\.\.\.\)'\?)?"
         ),
@@ -290,8 +272,7 @@ _QUERY_RULES: tuple[tuple[re.Pattern[str], str | None, Callable[[re.Match[str], 
         _unknown_function,
     ),
     (re.compile(r"(?:Unable to resolve field|Field not found): `?(?P<name>[^\s`.]+)"), "name", _unknown_field),
-    (re.compile(r"Cohort (?P<id>\d+) does not exist"), "id", _deleted_cohort),
-    (re.compile(r"Could not find cohort with ID (?P<id>\d+)"), "id", _deleted_cohort),
+    (re.compile(r"(?:Cohort |Could not find cohort with ID )(?P<id>\d+)"), "id", _deleted_cohort),
     (re.compile(r"Invalid regular expression: '(?P<regex>.*)'"), "regex", _invalid_regex),
     (re.compile(r"Invalid behavioral property filter"), None, _incomplete_behavioral_filter),
     (re.compile(r"property_to_expr for element (?P<key>\w+) only supports"), None, _unsupported_element_operator),
