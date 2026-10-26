@@ -6,6 +6,7 @@ import dns.resolver
 import dns.exception
 from dns.rdtypes.ANY.NS import NS
 
+from posthog.cloud_utils import is_cloud
 from posthog.dataclasses import frozen
 from posthog.security.oob_domains import matched_oob_domain
 
@@ -62,8 +63,11 @@ def lookup_dns_host(root_domain: str) -> DnsHost | None:
     if cached is not None:
         return cached or None
 
-    if (oob_domain := matched_oob_domain(root_domain)) is not None:
+    if is_cloud() and (oob_domain := matched_oob_domain(root_domain)) is not None:
         logger.info("security.oob_domain_seen domain=%s guard=dns_hosts", oob_domain)
+        # The lookup alone confirms the path to whoever runs the collaborator, so the name is
+        # refused rather than resolved. No DNS host is reported for it.
+        return None
     nameservers = _nameservers(root_domain)
     if nameservers is None:
         return None

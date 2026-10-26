@@ -219,33 +219,50 @@ repository does not. When the copy is there, start with these paths:
 `posthog/security/crosslang/oob_domains.json` lists the services that capture out-of-band
 interactions, such as Interactsh and Burp Collaborator, and the DNS rebinding services.
 
-Today the guards only log a match. Nothing is refused yet.
+A guard refuses a listed name, on the name alone, before any resolve. The matcher reports the
+match and the guard decides the refusal, so each surface can report it the way its caller expects.
 
-The warehouse guards emit the `oob_domain` stage of `data_imports.host_check`, which carries
-`team_id`, and the `oob_domain_resolved` stage when the caller resolved the host first. The HTTP
-adapter emits `security.oob_domain_seen` and takes its team from the activity's bound log context.
-`posthog/security/url_validation.py` emits the same event with no team at all, because no team is
-in scope there, so those lines are attributable to a host and not to a project.
+The warehouse guards emit the `oob_domain` stage of `data_imports.host_check` with the `block`
+decision, which carries `team_id`, and the `oob_domain_resolved` stage when the caller resolved
+the host first. The HTTP adapter emits `security.oob_domain_seen` and raises
+`OutOfBandDomainError`. `posthog/security/url_validation.py` emits the same event and returns a
+`BlockedName`, so every caller of `is_url_allowed`, `validate_external_url` and
+`validate_external_host` refuses the host.
+
+Three DNS helpers refuse the name and report nothing for it: `posthog/dns_hosts.py` finds no DNS
+host, `email_domain_dns.find_published_records` publishes no record so the domain never verifies,
+and `existing_email_tools.lookup_existing_email_tools` reports no tool.
+
+A refusal must be final, because the host sits in the customer's own config and every retry
+replays it. The warehouse refusals carry a prefix `Any_Source_Errors` matches, so the schema
+pauses, and they subclass `NonReportableError`, so the retries stay out of error tracking.
+`OutOfBandDomainError` is deliberately not a `RequestException`: the sources catch that broadly
+and several retry on it.
+
+`TeamAndOrgViewSetMixin` binds `team_id` into the log context of every team-scoped view, so a line
+from a guard reached through the API names the project that drove it.
 
 In Node, `validateHostnameIPLiteral` (`nodejs/src/common/utils/request.ts`) and `EmailValidationService.getSkipReason` emit `security.oob_domain_seen` too, under the guard `node_request` or `node_email_validation`.
 Both read the hand-written mirror in `nodejs/src/common/utils/oob-domains.ts`, which a parity test holds against the JSON.
 Both log `team_id`, the field the Python guards bind.
 The email guard always has a team.
 The request guard has one only when the fetch runs under `fetchAttribution`, as a CDP destination fetch and a recording export's stylesheet fetch do, and logs `team_id: null` for any other caller.
-`noteOobDomain` logs one line per host, team and guard every 15 minutes, because a retrying destination would otherwise log per attempt.
+`checkOobDomain` logs one line per host, team and guard every 15 minutes, because a retrying destination would otherwise log per attempt.
+The window gates the log line and nothing else, so every match is refused.
 
-The Rust guards call `common_dns::oob_domains::note_oob_domain` and emit `security.oob_domain_seen` under three guard names.
+The Rust guards call `common_dns::oob_domains::check_oob_domain` and emit `security.oob_domain_seen` under three guard names.
 They read the hand-written mirror in `rust/common/dns/src/oob_domains.rs`, which a parity test holds against the JSON.
-`note_oob_domain` takes the team as an `Option`, logs one line per host, team and guard every 15 minutes, and omits the `team_id` field rather than printing an empty one.
+`check_oob_domain` takes the team as an `Option`, logs one line per host, team and guard every 15 minutes, and omits the `team_id` field rather than printing an empty one.
 `cymbal_sourcemap` names the team on the source and sourcemap fetches, and omits it on a redirect hop, because one HTTP client serves every team.
 `batch_import_s3_endpoint` always names the team, which the job model carries.
 `common_dns_resolver` never names one: it fires inside the shared reqwest and Smithy resolvers, which no caller passes a team to.
 
-Every check runs on cloud only, and each runs before its guard's own DNS resolution, because the lookup alone confirms the path to whoever runs the collaborator.
+Every check runs on cloud only, so a self-hosted deployment reaches these names as it always did. Each runs before its guard's own DNS resolution, because the lookup alone confirms the path to whoever runs the collaborator.
 
 It stops the default scanner configuration. It does not stop a determined attacker, who points a
 CNAME at the collaborator or runs their own server. The IP checks and the address pinning remain
-the real controls.
+the real controls. Refusing the name closes the window in which a rebinding record answers public
+for the IP check and private for the connect, on the paths that do not pin the address.
 
 ## Content Security Policy
 

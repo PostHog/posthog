@@ -946,8 +946,8 @@ class TestCheckResolvedAddresses(SimpleTestCase):
         assert resolution.addresses == ("10.0.0.5",)
 
 
-class TestOOBDomainDetection(SimpleTestCase):
-    def test_logs_before_the_exemption_so_an_allowlisted_team_is_recorded(self):
+class TestOOBDomainGuard(SimpleTestCase):
+    def test_refuses_before_the_exemption_so_an_allowlisted_team_is_refused_too(self):
         with (
             patch(f"{_MIXINS_MODULE}.is_cloud", return_value=True),
             patch(f"{_MIXINS_MODULE}._host_check_exemption", return_value="team_allowlist"),
@@ -957,7 +957,7 @@ class TestOOBDomainDetection(SimpleTestCase):
 
         stages = [call.args[3] for call in log_host_check.call_args_list]
         assert "oob_domain" in stages
-        assert resolution.connect_host is not None
+        assert resolution.connect_host is None
 
     def test_records_the_matched_domain_as_the_reason(self):
         with (
@@ -969,6 +969,7 @@ class TestOOBDomainDetection(SimpleTestCase):
 
         oob_calls = [call for call in log_host_check.call_args_list if call.args[3] == "oob_domain"]
         assert [call.args[4] for call in oob_calls] == ["oast.live"]
+        assert [call.args[2] for call in oob_calls] == ["block"]
 
     def test_does_not_log_off_cloud(self):
         with (
@@ -992,22 +993,22 @@ class TestOOBDomainDetection(SimpleTestCase):
         assert "oob_domain" not in stages
 
 
-class TestOOBDomainDetectionOnThePinnedPath(SimpleTestCase):
-    def test_logs_before_it_resolves(self):
+class TestOOBDomainGuardOnThePinnedPath(SimpleTestCase):
+    def test_refuses_before_it_resolves(self):
         with (
             patch(f"{_MIXINS_MODULE}.is_cloud", return_value=True),
             patch(f"{_MIXINS_MODULE}.host_lookup_is_skipped", return_value=False),
             patch(f"{_MIXINS_MODULE}._resolve_hostaddr_with_timeout", side_effect=AssertionError("resolved first")),
             patch(f"{_MIXINS_MODULE}._log_host_check") as log_host_check,
         ):
-            with pytest.raises(AssertionError):
+            with pytest.raises(HostNotAllowedError):
                 pinned_host_kwargs("abc.oast.live", port=5432, connect_timeout=1.0, team_id=2)
 
         stages = [call.args[3] for call in log_host_check.call_args_list]
         assert "oob_domain" in stages
 
 
-class TestOOBDomainDetectionDetail(SimpleTestCase):
+class TestOOBDomainGuardDetail(SimpleTestCase):
     def test_the_two_call_sites_are_distinguishable(self):
         with (
             patch(f"{_MIXINS_MODULE}.is_cloud", return_value=True),
@@ -1030,7 +1031,7 @@ class TestOOBDomainDetectionDetail(SimpleTestCase):
         stages = [call.args[3] for call in log_host_check.call_args_list]
         assert "oob_domain" not in stages
 
-    def test_the_real_team_allowlist_does_not_swallow_the_detection(self):
+    def test_the_real_team_allowlist_does_not_swallow_the_refusal(self):
         with (
             patch(f"{_MIXINS_MODULE}.is_cloud", return_value=True),
             patch(f"{_MIXINS_MODULE}.get_instance_region", return_value="US"),
@@ -1039,6 +1040,5 @@ class TestOOBDomainDetectionDetail(SimpleTestCase):
             resolution = resolve_safe_host("abc.oast.live", 2)
 
         stages = [call.args[3] for call in log_host_check.call_args_list]
-        assert stages[0] == "oob_domain"
-        assert "team_allowlist" in stages
-        assert resolution.connect_host is not None
+        assert stages == ["oob_domain"]
+        assert resolution.connect_host is None

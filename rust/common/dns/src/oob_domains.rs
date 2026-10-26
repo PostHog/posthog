@@ -2,10 +2,10 @@
 //!
 //! Every other host guard here is IP-based, and an out-of-band interaction domain resolves to
 //! an ordinary public IP, so the lookup alone confirms the path to whoever runs the collaborator.
-//! The guards log a match. Nothing is refused yet.
+//! The guards refuse a match on the name, before any resolve.
 
 use std::collections::HashMap;
-#[cfg(feature = "test-util")]
+#[cfg(any(test, feature = "test-util"))]
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
@@ -57,7 +57,7 @@ pub fn matched_oob_domain(host: &str) -> Option<&'static str> {
 const CLOUD_DEPLOYMENTS: &[&str] = &["EU", "US", "DEV", "E2E"];
 
 /// A test cannot use `set_var`: it races libc environment reads from DNS lookups on other threads.
-#[cfg(feature = "test-util")]
+#[cfg(any(test, feature = "test-util"))]
 static FORCE_CLOUD: AtomicBool = AtomicBool::new(false);
 
 /// Whether this deployment is PostHog Cloud. The python and node guards read the same variable.
@@ -65,7 +65,7 @@ static FORCE_CLOUD: AtomicBool = AtomicBool::new(false);
 /// Read per call rather than cached, because it is only reached once a host already matched, which
 /// is rare.
 fn is_cloud() -> bool {
-    #[cfg(feature = "test-util")]
+    #[cfg(any(test, feature = "test-util"))]
     if FORCE_CLOUD.load(Ordering::Relaxed) {
         return true;
     }
@@ -80,7 +80,7 @@ fn is_cloud_deployment(value: Option<&str>) -> bool {
     })
 }
 
-#[cfg(feature = "test-util")]
+#[cfg(any(test, feature = "test-util"))]
 pub fn force_cloud() {
     FORCE_CLOUD.store(true, Ordering::Relaxed);
 }
@@ -102,7 +102,7 @@ fn seen_map() -> std::sync::MutexGuard<'static, SeenMap> {
 }
 
 /// Forget every recorded sighting, so one test cannot suppress the next one's log line.
-#[cfg(feature = "test-util")]
+#[cfg(any(test, feature = "test-util"))]
 pub fn reset_dedupe() {
     seen_map().clear();
 }
@@ -133,25 +133,31 @@ fn first_sight_in_window(
     true
 }
 
-/// Log that a guard holds a listed host. Detection only: the caller still proceeds.
+/// The listed out-of-band interaction domain this host belongs to, or None.
+///
+/// The caller refuses the host. This function only matches and records.
 ///
 /// A guard that knows the project passes its id. The shared resolvers and a redirect hop do not
 /// have one, so they pass `None` and the line carries no `team_id`.
-pub fn note_oob_domain(host: &str, guard: &'static str, team_id: Option<i32>) {
+pub fn check_oob_domain(
+    host: &str,
+    guard: &'static str,
+    team_id: Option<i32>,
+) -> Option<&'static str> {
     // Match first: almost every host misses, and the miss costs a few string comparisons, which
     // keeps the environment read and the lock off the common path.
-    let Some(domain) = matched_oob_domain(host) else {
-        return;
-    };
+    let domain = matched_oob_domain(host)?;
     if !is_cloud() {
-        return;
+        return None;
     }
-    if !first_sight_in_window(guard, team_id, host, Instant::now()) {
-        return;
+    // The window gates the log line and nothing else. Every match is refused, including the ones
+    // whose line it suppresses.
+    if first_sight_in_window(guard, team_id, host, Instant::now()) {
+        // `Option` records the inner value and omits the field for `None`, so a line either names
+        // a team or carries no `team_id` field at all.
+        info!(team_id, host, domain, guard, "security.oob_domain_seen");
     }
-    // `Option` records the inner value and omits the field for `None`, so a line either names a
-    // team or carries no `team_id` field at all.
-    info!(team_id, host, domain, guard, "security.oob_domain_seen");
+    Some(domain)
 }
 
 /// Whether the host is the domain itself, or sits under it on a label boundary. A plain suffix
@@ -166,7 +172,10 @@ fn is_same_or_subdomain(host: &str, domain: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{first_sight_in_window, is_cloud_deployment, matched_oob_domain};
+    use super::{
+        check_oob_domain, first_sight_in_window, force_cloud, is_cloud_deployment,
+        matched_oob_domain, reset_dedupe,
+    };
     use std::time::Instant;
 
     #[test]
@@ -220,6 +229,18 @@ mod tests {
             matched_oob_domain(&format!("x.oast.me{}", ".".repeat(300))),
             None
         );
+    }
+
+    #[test]
+    fn the_window_suppresses_the_log_line_and_not_the_match() {
+        // The window exists to keep a retrying caller out of the logs. A refusal that read the
+        // window instead would let every request after the first one through.
+        force_cloud();
+        reset_dedupe();
+        let host = "window-does-not-gate-the-match.oast.me";
+
+        assert_eq!(check_oob_domain(host, "g", Some(7)), Some("oast.me"));
+        assert_eq!(check_oob_domain(host, "g", Some(7)), Some("oast.me"));
     }
 
     #[test]

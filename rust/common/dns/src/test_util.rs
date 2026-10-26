@@ -29,7 +29,7 @@ impl<'a> MakeWriter<'a> for Sink {
 
 /// Run `work` as cloud with the tracing output captured, and return that output.
 ///
-/// `note_oob_domain` logs on cloud only, so a guard test has to look like cloud. The override is
+/// `check_oob_domain` logs on cloud only, so a guard test has to look like cloud. The override is
 /// set for the rest of the process rather than restored, because the tests in a binary run in
 /// parallel and a restore would race one that is still inside `work`.
 pub fn capture_oob_logs(work: impl FnOnce()) -> String {

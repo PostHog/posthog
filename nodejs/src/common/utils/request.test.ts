@@ -181,31 +181,28 @@ describe('fetch', () => {
 
         // Both modes run the check, because it sits above the `allowUnsafe` early return. Every
         // caller passes `!isProdEnv()`, so a check below that return never runs in a test.
-        it.each(['production', 'test'])(
-            'logs a listed host in NODE_ENV=%s and still allows the request',
-            async (nodeEnv) => {
-                const originalNodeEnv = process.env.NODE_ENV
-                process.env.NODE_ENV = nodeEnv
-                try {
-                    // A host per case: noteOobDomain logs one line per host, team and guard per
-                    // window, so a shared host would suppress the second case.
-                    await expect(
-                        raiseIfUserProvidedUrlUnsafe(`https://${nodeEnv}.abc.oast.me/path`)
-                    ).resolves.not.toThrow()
-                } finally {
-                    process.env.NODE_ENV = originalNodeEnv
-                }
-
-                expect(info).toHaveBeenCalledWith(
-                    'security.oob_domain_seen',
-                    expect.objectContaining({
-                        host: `${nodeEnv}.abc.oast.me`,
-                        domain: 'oast.me',
-                        guard: 'node_request',
-                    })
+        it.each(['production', 'test'])('refuses a listed host in NODE_ENV=%s', async (nodeEnv) => {
+            const originalNodeEnv = process.env.NODE_ENV
+            process.env.NODE_ENV = nodeEnv
+            try {
+                // A host per case: checkOobDomain logs one line per host, team and guard per
+                // window, so a shared host would suppress the second case.
+                await expect(raiseIfUserProvidedUrlUnsafe(`https://${nodeEnv}.abc.oast.me/path`)).rejects.toThrow(
+                    'Hostname is not allowed'
                 )
+            } finally {
+                process.env.NODE_ENV = originalNodeEnv
             }
-        )
+
+            expect(info).toHaveBeenCalledWith(
+                'security.oob_domain_seen',
+                expect.objectContaining({
+                    host: `${nodeEnv}.abc.oast.me`,
+                    domain: 'oast.me',
+                    guard: 'node_request',
+                })
+            )
+        })
     })
 
     describe('fetch call', () => {

@@ -28,7 +28,7 @@ import { isProdEnv } from './env-utils'
 import { fetchAttribution } from './fetch-attribution'
 import { parseJSON } from './json-parse'
 import { logger } from './logger'
-import { noteOobDomain } from './oob-domains'
+import { checkOobDomain } from './oob-domains'
 
 const requestConfig = getExternalRequestConfig()
 
@@ -212,8 +212,12 @@ function validateUrl(url: string): URL {
  */
 function validateHostnameIPLiteral(hostname: string, allowUnsafe: boolean): void {
     // Above the early return on purpose: every caller passes `!isProdEnv()`, so a check below it
-    // would never run in a test and would reach production unexercised.
-    noteOobDomain(hostname, 'node_request', fetchAttribution.getStore())
+    // would never run in a test and would reach production unexercised. The check is cloud-only,
+    // so the escape hatch it sits above still holds off cloud.
+    if (checkOobDomain(hostname, 'node_request', fetchAttribution.getStore()) !== null) {
+        unsafeRequestCounter.inc({ reason: 'oob_domain' })
+        throw new SecureRequestError('Hostname is not allowed')
+    }
 
     if (allowUnsafe) {
         return

@@ -256,7 +256,7 @@ describe('EmailValidationService', () => {
             }
         })
 
-        it('logs a listed recipient domain and still lets the send through', async () => {
+        it('refuses a listed recipient domain before it looks the domain up', async () => {
             const reason = await service.getSkipReason(emailInvocation('probe@abc.oast.me'), emailAction)
 
             expect(info).toHaveBeenCalledWith(
@@ -267,8 +267,8 @@ describe('EmailValidationService', () => {
                     guard: 'node_email_validation',
                 })
             )
-            expect(mockResolveMx).toHaveBeenCalledWith('abc.oast.me')
-            expect(reason).toBeNull()
+            expect(mockResolveMx).not.toHaveBeenCalled()
+            expect(reason).toContain('abc.oast.me')
         })
     })
 })

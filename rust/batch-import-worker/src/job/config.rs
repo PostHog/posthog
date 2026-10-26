@@ -416,8 +416,8 @@ impl S3SourceConfig {
     /// Reject endpoint URLs that point to private/internal IPs.
     /// Catches literal IP addresses that would bypass DNS-level SSRF protection.
     ///
-    /// A listed out-of-band interaction domain is logged above the escape hatch below, so a
-    /// probe is recorded whatever `allow_internal_ips` says. That check refuses nothing.
+    /// A listed out-of-band interaction domain is refused above the escape hatch below, so a
+    /// probe is stopped whatever `allow_internal_ips` says.
     fn validate_endpoint_url(
         url: &str,
         allow_internal_ips: bool,
@@ -429,11 +429,15 @@ impl S3SourceConfig {
 
         if let Ok(ref parsed) = parsed {
             if let Some(url::Host::Domain(host)) = parsed.host() {
-                common_dns::oob_domains::note_oob_domain(
+                if common_dns::oob_domains::check_oob_domain(
                     host,
                     "batch_import_s3_endpoint",
                     Some(team_id),
-                );
+                )
+                .is_some()
+                {
+                    return Err(Error::msg(format!("Endpoint host '{}' is not allowed", host)));
+                }
             }
         }
 
@@ -1363,7 +1367,7 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_endpoint_url_logs_an_out_of_band_domain_and_still_accepts_it() {
+    fn test_validate_endpoint_url_refuses_an_out_of_band_domain() {
         for (url, listed) in [
             ("https://bucket.oast.live:9000", true),
             ("https://notoast.me:9000", false),
@@ -1371,10 +1375,11 @@ mod tests {
             // The check sits above the internal-ip escape hatch, so it runs under both values.
             for allow_internal_ips in [false, true] {
                 let logs = capture_oob_logs(|| {
-                    assert!(
+                    assert_eq!(
                         S3SourceConfig::validate_endpoint_url(url, allow_internal_ips, 4242)
-                            .is_ok(),
-                        "detection must not refuse {url}"
+                            .is_err(),
+                        listed,
+                        "unexpected verdict for {url}"
                     );
                 });
                 let seen = logs.contains("security.oob_domain_seen")
