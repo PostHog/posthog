@@ -713,7 +713,6 @@ describe('HogFunctionHandler', () => {
             warehouseWebhookPayloads: [],
             messageAssets: [],
             conversionWatchers: [],
-            conversionWatcherVersionUpdates: [],
         })
 
         const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
@@ -742,7 +741,6 @@ describe('HogFunctionHandler', () => {
             warehouseWebhookPayloads: [],
             messageAssets: [],
             conversionWatchers: [],
-            conversionWatcherVersionUpdates: [],
         })
 
         const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
@@ -975,7 +973,6 @@ describe('HogFunctionHandler', () => {
                 warehouseWebhookPayloads: [],
                 messageAssets: [],
                 conversionWatchers: [],
-                conversionWatcherVersionUpdates: [],
             })
             const before = DateTime.now()
 
@@ -1011,7 +1008,6 @@ describe('HogFunctionHandler', () => {
                 warehouseWebhookPayloads: [],
                 messageAssets: [],
                 conversionWatchers: [],
-                conversionWatcherVersionUpdates: [],
             })
 
             const { handlerResult, invocationResult } = await execute()

@@ -90,9 +90,10 @@ export class ConversionWatchersService {
             if (result.conversionWatchers.length) {
                 this.queuedRows.push(...result.conversionWatchers)
             }
-            for (const update of result.conversionWatcherVersionUpdates) {
-                const queuedVersion = this.queuedVersionUpdates.get(update.id) ?? update.flow_version
-                this.queuedVersionUpdates.set(update.id, Math.max(queuedVersion, update.flow_version))
+            const version = result.conversionWatcherVersion
+            if (version !== undefined) {
+                const queuedVersion = this.queuedVersionUpdates.get(result.invocation.id) ?? version
+                this.queuedVersionUpdates.set(result.invocation.id, Math.max(queuedVersion, version))
             }
         }
         gaugeConversionWatchersPending.set(this.queuedRows.length)

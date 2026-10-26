@@ -466,7 +466,6 @@ export class HogFunctionHandler implements ActionHandler {
                 warehouseWebhookPayloads: [],
                 messageAssets: [],
                 conversionWatchers: [],
-                conversionWatcherVersionUpdates: [],
             }
         }
 
@@ -498,7 +497,6 @@ export class HogFunctionHandler implements ActionHandler {
                 warehouseWebhookPayloads: [],
                 messageAssets: [],
                 conversionWatchers: [],
-                conversionWatcherVersionUpdates: [],
             }
         }
 
@@ -533,7 +531,6 @@ export class HogFunctionHandler implements ActionHandler {
                 warehouseWebhookPayloads: [],
                 messageAssets: [],
                 conversionWatchers: [],
-                conversionWatcherVersionUpdates: [],
             }
         }
 

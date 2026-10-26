@@ -5,7 +5,7 @@ import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
 import { createExampleHogFlowInvocation } from '~/cdp/_tests/fixtures-hogflows'
 import { createInvocationResult } from '~/cdp/utils/invocation-utils'
 
-import { ConversionWatcherRow, ConversionWatcherVersionUpdate, CyclotronJobInvocationResult } from '../../types'
+import { ConversionWatcherRow, CyclotronJobInvocationResult } from '../../types'
 import { ConversionWatchersService } from './conversion-watchers.service'
 
 const DB_URL = 'postgres://posthog:posthog@localhost:5432/test_cyclotron_node'
@@ -43,15 +43,19 @@ describe('ConversionWatchersService', () => {
         expires_at: new Date(Date.now() + 3_600_000),
     })
 
-    const resultWith = (
-        conversionWatchers: ConversionWatcherRow[],
-        conversionWatcherVersionUpdates: ConversionWatcherVersionUpdate[]
-    ): CyclotronJobInvocationResult =>
-        createInvocationResult(
-            createExampleHogFlowInvocation(new FixtureHogFlowBuilder().build()),
-            {},
-            { conversionWatchers, conversionWatcherVersionUpdates }
-        )
+    const resultFor = (
+        runId: string,
+        params: Pick<Partial<CyclotronJobInvocationResult>, 'conversionWatchers' | 'conversionWatcherVersion'>
+    ): CyclotronJobInvocationResult => {
+        const invocation = { ...createExampleHogFlowInvocation(new FixtureHogFlowBuilder().build()), id: runId }
+        return createInvocationResult(invocation, {}, params)
+    }
+
+    const enrollment = (runId: string): CyclotronJobInvocationResult =>
+        resultFor(runId, { conversionWatchers: [watcherRow(runId)] })
+
+    const sendUnder = (runId: string, version: number): CyclotronJobInvocationResult =>
+        resultFor(runId, { conversionWatcherVersion: version })
 
     const storedVersions = async (ids: string[]): Promise<Record<string, number | null>> => {
         const { rows } = await assertPool.query(
@@ -66,14 +70,13 @@ describe('ConversionWatchersService', () => {
         { name: 'the same flush', sameFlush: true },
     ])('moves a watcher to the version a send re-pinned in $name', async ({ sameFlush }) => {
         const id = uuidv7()
-        const update = { id, flow_version: 2 }
 
         if (sameFlush) {
-            service.queueInvocationResults([resultWith([watcherRow(id)], []), resultWith([], [update])])
+            service.queueInvocationResults([enrollment(id), sendUnder(id, 2)])
         } else {
-            service.queueInvocationResults([resultWith([watcherRow(id)], [])])
+            service.queueInvocationResults([enrollment(id)])
             await service.flush()
-            service.queueInvocationResults([resultWith([], [update])])
+            service.queueInvocationResults([sendUnder(id, 2)])
         }
         await service.flush()
 
@@ -85,13 +88,13 @@ describe('ConversionWatchersService', () => {
         { name: 'the same flush', sameFlush: true },
     ])('keeps the newer version when an update from an earlier send lands in $name', async ({ sameFlush }) => {
         const id = uuidv7()
-        const newer = resultWith([watcherRow(id)], [{ id, flow_version: 3 }])
-        const stale = resultWith([], [{ id, flow_version: 2 }])
+        const newer = sendUnder(id, 3)
+        const stale = sendUnder(id, 2)
 
         if (sameFlush) {
-            service.queueInvocationResults([newer, stale])
+            service.queueInvocationResults([enrollment(id), newer, stale])
         } else {
-            service.queueInvocationResults([newer])
+            service.queueInvocationResults([enrollment(id), newer])
             await service.flush()
             service.queueInvocationResults([stale])
         }
@@ -102,11 +105,11 @@ describe('ConversionWatchersService', () => {
 
     it('does not bring back a watcher the matcher already claimed', async () => {
         const id = uuidv7()
-        service.queueInvocationResults([resultWith([watcherRow(id)], [])])
+        service.queueInvocationResults([enrollment(id)])
         await service.flush()
         await assertPool.query(`DELETE FROM conversion_watchers WHERE id = $1`, [id])
 
-        service.queueInvocationResults([resultWith([], [{ id, flow_version: 2 }])])
+        service.queueInvocationResults([sendUnder(id, 2)])
         await service.flush()
 
         expect(await storedVersions([id])).toEqual({})

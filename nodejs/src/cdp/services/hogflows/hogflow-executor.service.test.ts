@@ -310,7 +310,6 @@ describe('Hogflow Executor', () => {
                 warehouseWebhookPayloads: [],
                 messageAssets: [],
                 conversionWatchers: [],
-                conversionWatcherVersionUpdates: [],
                 invocation: {
                     state: {
                         actionStepCount: 1,
@@ -3313,18 +3312,18 @@ describe('Hogflow Executor', () => {
             expect(enrollment.conversionWatchers).toEqual([
                 expect.objectContaining({ id: invocation.id, flow_version: 1 }),
             ])
-            expect(enrollment.conversionWatcherVersionUpdates).toEqual([])
+            expect(enrollment.conversionWatcherVersion).toBeUndefined()
 
             enrollment.invocation.hogFlow = { ...hogFlow, version: 2 }
             let send = await executor.execute(enrollment.invocation)
-            const versionUpdates = [...send.conversionWatcherVersionUpdates]
+            const raisedVersions = [send.conversionWatcherVersion]
             while (!send.finished) {
                 send = await executor.execute(send.invocation)
-                versionUpdates.push(...send.conversionWatcherVersionUpdates)
+                raisedVersions.push(send.conversionWatcherVersion)
             }
 
             expect(send.metrics.filter((m) => m.metric_name === 'email_sent')).toHaveLength(1)
-            expect(versionUpdates).toEqual([{ id: invocation.id, flow_version: 2 }])
+            expect(raisedVersions.filter((version) => version !== undefined)).toEqual([2])
         })
     })
 })

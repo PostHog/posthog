@@ -54,7 +54,6 @@ describe('CyclotronJobQueuePostgresV2', () => {
             warehouseWebhookPayloads: [],
             messageAssets: [],
             conversionWatchers: [],
-            conversionWatcherVersionUpdates: [],
             ...overrides,
         }
     }

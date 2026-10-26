@@ -2,12 +2,7 @@ import { Counter } from 'prom-client'
 
 import { HogFlow } from '~/cdp/schema/hogflow'
 
-import {
-    ConversionWatcherRow,
-    ConversionWatcherVersionUpdate,
-    CyclotronJobInvocationHogFlow,
-    PinnedConversionGoal,
-} from '../../types'
+import { ConversionWatcherRow, CyclotronJobInvocationHogFlow, PinnedConversionGoal } from '../../types'
 import { durationSeconds } from './duration'
 import { hasEventOrActionTarget } from './hogflow-utils'
 
@@ -66,17 +61,6 @@ export function buildConversionWatcher(invocation: CyclotronJobInvocationHogFlow
         goal,
         expires_at: new Date(Date.now() + conversionWindowMinutes(invocation.hogFlow) * 60_000),
     }
-}
-
-export function buildConversionWatcherVersionUpdates(
-    runId: string,
-    versionBefore: number | undefined,
-    versionAfter: number | undefined
-): ConversionWatcherVersionUpdate[] {
-    if (versionAfter === undefined || versionAfter === versionBefore) {
-        return []
-    }
-    return [{ id: runId, flow_version: versionAfter }]
 }
 
 // What a workflow measures when it sets no explicit window. This answers "how long after entering the

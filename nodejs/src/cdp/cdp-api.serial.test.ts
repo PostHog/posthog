@@ -2779,7 +2779,6 @@ describe('CDP API', () => {
                         warehouseWebhookPayloads: [],
                         messageAssets: [],
                         conversionWatchers: [],
-                        conversionWatcherVersionUpdates: [],
                     })
                 )
         })
