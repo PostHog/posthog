@@ -81,6 +81,16 @@ By default, scorers are sorted by last updated, newest first.
 Creating and editing scorers stays under Evaluations → Scorers, with a detail heading and a back link to the list.
 Successful creation and edits return to the scorer list; failed saves keep the form open with your changes.
 
+Online evals, offline experiments, datasets, and scorers have independent setup states. The Evaluations tabs
+stay available when no online evaluations exist, and the offline Experiments and Datasets tabs remain visible
+during dataset setup. The experiments setup links to the [offline evals guide](https://posthog.com/docs/ai-evals/offline-evals).
+The offline setup preview compares prompt and model combinations with multiple scorers. Scorer setup shows how
+numeric, boolean, and categorical definitions are shared by offline experiments and
+[manual trace reviews](https://posthog.com/docs/ai-observability/trace-reviews). Archived scorers remain accessible
+from the setup screen; filtered lists keep their filters and results table.
+Dataset setup appears only when there are no active or archived datasets, so projects with only archived
+datasets can still browse and restore them from the list.
+
 Scorers have an optional **Short name** (up to 40 characters) for experiment table headers and other compact views.
 These views use the full name when the short name is blank. Editing or clearing a short name updates existing
 experiment displays without creating a scorer version or changing scoring rules. Versions appear in a separate badge.
@@ -579,7 +589,9 @@ your choice in local storage. Charts load on the first expansion if the page ope
 keep their data when collapsed and expanded again. Refresh or a filter change updates loaded charts.
 A shared time range, run source, and upload state filter applies to both the score charts and the experiment list.
 The overview starts with the last 30 days and all upload states. Uploading and failed runs can show partial score summaries.
-Projects without experiments show setup steps; a filter with no matching experiments keeps the overview available.
+Projects without experiments show a full setup screen with example results and a link to the offline evals guide;
+a filter with no matching experiments keeps the overview available. The offline evaluations description and tabs
+stay visible on both the experiments and datasets setup screens.
 Datasets, suites, and traces are optional context and are not required to display an experiment.
 The compact experiment list shows the execution source in its own column and item/scorer counts together; hover over coverage for result and scorer-version counts.
 

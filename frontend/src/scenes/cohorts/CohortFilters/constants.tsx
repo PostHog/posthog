@@ -976,6 +976,7 @@ export const renderField: Record<FilterType, (props: CohortFieldProps) => JSX.El
         return (
             <CohortTaxonomicField
                 {...(p as CohortTaxonomicFieldProps)}
+                hideUnsupportedRecentOperators
                 taxonomicGroupTypes={[
                     TaxonomicFilterGroupType.PersonProperties,
                     TaxonomicFilterGroupType.PersonMetadata,

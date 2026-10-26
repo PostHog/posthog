@@ -43,7 +43,7 @@ import type {
 } from '../../generated/api.schemas'
 import type { InboxOnboardingStepEnumApi } from '../../generated/api.schemas'
 import type { AgentRosterSource } from '../components/config/agentRosterMeta'
-import { captureSignalSourceConnected } from '../inboxAnalytics'
+import { captureInboxWelcomeManualSetupClicked, captureSignalSourceConnected } from '../inboxAnalytics'
 import { signalSourcesLogic, WAREHOUSE_SOURCE_SETUP, type WarehouseBackedSource } from '../signalSourcesLogic'
 import type { SourceProductStatus } from '../signalSourcesLogic'
 import type { SignalSourceConfig } from '../types'
@@ -708,6 +708,9 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
             continueFromWelcome: () => {
                 if (values.inProgress) {
                     return
+                }
+                if (!values.isTreatment) {
+                    captureInboxWelcomeManualSetupClicked()
                 }
                 capture('self-driving onboarding welcome continued')
                 actions.openSetup()
