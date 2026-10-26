@@ -7976,6 +7976,8 @@ export namespace Schemas {
     }
 
     export interface ScanEstimate {
+      /** False when the query reads a table somewhere the estimate does not follow, such as a subquery in WHERE or in the select list, so `rows` leaves that read out. */
+      complete: boolean;
       /** Sum of the rows of every table entry that has one. */
       rows: number;
       tables: TableScanEstimate[];
@@ -7996,7 +7998,7 @@ export namespace Schemas {
       /** Best-effort output schema, without executing the query. Only included when includeOutputTypes is requested and inference succeeds. */
       output_columns?: HogQLMetadataColumn[] | null;
       query?: string | null;
-      /** Present when the query reads at least one table, directly or through subqueries, CTEs, UNIONs and joins. Absent when the FROM tree cannot be walked. */
+      /** Present when the estimator walked the query; `tables` is empty for a query that reads no table. Absent when the FROM tree cannot be walked or the estimator failed. */
       scan_estimate?: ScanEstimate | null;
       table_names?: string[] | null;
       warnings: HogQLNotice[];
@@ -98312,7 +98314,7 @@ export namespace Schemas {
       /** Best-effort output schema, without executing the query. Only included when includeOutputTypes is requested and inference succeeds. */
       output_columns?: HogQLMetadataColumn[] | null;
       query?: string | null;
-      /** Present when the query reads at least one table, directly or through subqueries, CTEs, UNIONs and joins. Absent when the FROM tree cannot be walked. */
+      /** Present when the estimator walked the query; `tables` is empty for a query that reads no table. Absent when the FROM tree cannot be walked or the estimator failed. */
       scan_estimate?: ScanEstimate | null;
       table_names?: string[] | null;
       warnings: HogQLNotice[];

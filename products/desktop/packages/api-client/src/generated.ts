@@ -4302,6 +4302,10 @@ export namespace Schemas {
     };
     export type ScanEstimate = {
         /**
+         * False when the query reads a table somewhere the estimate does not follow, such as a subquery in WHERE or in the select list, so `rows` leaves that read out.
+         */
+        complete: boolean;
+        /**
          * Sum of the rows of every table entry that has one.
          */
         rows: number;

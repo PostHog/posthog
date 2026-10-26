@@ -128,6 +128,7 @@ export const RefreshingAfterAnEdit: Story = {
 const SMALL_SCAN: ScanEstimate = {
     rows: 42_000_000,
     upper_bound: false,
+    complete: true,
     tables: [
         {
             name: 'events',
@@ -143,6 +144,7 @@ const SMALL_SCAN: ScanEstimate = {
 const LARGE_OPEN_SCAN: ScanEstimate = {
     rows: 2_100_000_000,
     upper_bound: true,
+    complete: true,
     tables: [
         {
             name: 'events',
@@ -158,6 +160,7 @@ const LARGE_OPEN_SCAN: ScanEstimate = {
 const MULTI_TABLE_SCAN: ScanEstimate = {
     rows: 42_200_000,
     upper_bound: true,
+    complete: true,
     tables: [
         {
             name: 'events',

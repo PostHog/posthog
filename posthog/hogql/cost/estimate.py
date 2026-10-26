@@ -26,12 +26,13 @@ bound means "the whole window", an unrecognised event predicate means "all event
 outer select never narrows the subquery it reads from.
 """
 
+import dataclasses
 from collections.abc import Mapping
 from datetime import UTC, date, datetime, timedelta
 from typing import Literal
 
 from posthog.hogql import ast
-from posthog.hogql.base import CTE
+from posthog.hogql.base import AST, CTE
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.cost.statistics import EventVolume, StatisticsProvider
 from posthog.hogql.database.direct_sql_table import DirectSQLTable
@@ -166,7 +167,12 @@ def estimate_scan(
     *,
     now: datetime | None = None,
 ) -> ScanEstimate | None:
-    """Estimate what a resolved query reads, or None when it reads no table or its FROM tree cannot be walked."""
+    """Estimate what a resolved query reads, or None when its FROM tree cannot be walked.
+
+    A query that reads no table gets an empty estimate, so a caller can tell "nothing to read" from "could not
+    estimate". Its ``complete`` flag still says whether a subquery outside FROM reads something. A FROM tree
+    the walk cannot model, such as a recursive CTE, is None like a failure, never an empty estimate.
+    """
     if context.team_id is None:
         return None
     now = now or datetime.now(UTC)
@@ -181,10 +187,12 @@ def estimate_scan(
         scans = _table_scans(node, now, context, ctes={}, budget=_ScanBudget())
     except _TooManyScans:
         return None
-    if not scans:
+    if scans is None:
         return None
-    has_join = _JoinFinder.found_in(node)
     complete = not _SubqueryOutsideFromFinder.found_in(node)
+    if not scans:
+        return ScanEstimate(rows=0, upper_bound=False, tables=(), complete=complete)
+    has_join = _JoinFinder.found_in(node)
 
     volume: EventVolume | None = None
     if any(isinstance(scan, _EventsScan) for scan in scans):
@@ -217,7 +225,8 @@ def estimate_scan(
 
 
 class _SubqueryOutsideFromFinder(TraversingVisitor):
-    """Whether a select reads a table anywhere but its FROM clause: a subquery in WHERE, HAVING or the select list."""
+    """Whether a select reads a table anywhere but its FROM clause: a subquery in the select list, WHERE, GROUP
+    BY, ORDER BY, a join constraint, or any other expression clause."""
 
     def __init__(self) -> None:
         super().__init__()
@@ -230,20 +239,37 @@ class _SubqueryOutsideFromFinder(TraversingVisitor):
         return finder.found
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
-        for expr in (*node.select, node.where, node.prewhere, node.having):
-            if expr is not None and _holds_select(expr):
+        # Every clause but FROM is checked, whatever its name, so a clause added to the AST later is covered.
+        for field in dataclasses.fields(node):
+            name, value = field.name, getattr(node, field.name)
+            if name not in ("type", "select_from", "ctes") and _holds_select_in(value):
                 self.found = True
+        # A CTE body is a select of its own, with its own clauses to check, whether or not FROM refers to it.
+        for cte in (node.ctes or {}).values():
+            self.visit(cte.expr)
         if node.select_from is not None:
             self.visit(node.select_from)
 
     def visit_join_expr(self, node: ast.JoinExpr) -> None:
         # A subquery in FROM is walked by the estimator; only its own clauses are checked here.
         self.visit(node.table)
+        if _holds_select_in(node.table_args) or _holds_select_in(node.constraint):
+            self.found = True
         if node.next_join is not None:
             self.visit(node.next_join)
 
 
-def _holds_select(expr: ast.Expr) -> bool:
+def _holds_select_in(value: object) -> bool:
+    if isinstance(value, AST):
+        return _holds_select(value)
+    if isinstance(value, list | tuple):
+        return any(_holds_select_in(item) for item in value)
+    if isinstance(value, dict):
+        return any(_holds_select_in(item) for item in value.values())
+    return False
+
+
+def _holds_select(expr: AST) -> bool:
     class Finder(TraversingVisitor):
         def __init__(self) -> None:
             super().__init__()
@@ -607,7 +633,8 @@ class _WherePredicates(TraversingVisitor):
         # in one join must not share a range.
         self._lower_bounds: dict[tuple[str, str | None], datetime] = {}
         self._upper_bounds: dict[tuple[str, str | None], datetime] = {}
-        self._events: dict[str | None, set[str]] = {}
+        # None for an alias whose event list the walk could not read whole, which means every event.
+        self._events: dict[str | None, set[str] | None] = {}
         self._property_filters: dict[str | None, list[_PropertyFilter]] = {}
         # Set when an indexed filter cannot be pinned to one scan or modelled. It applies to every scan of
         # the select, because a filter under OR or on a joined table cannot be attributed to one alias.
@@ -634,7 +661,7 @@ class _WherePredicates(TraversingVisitor):
             alias=alias,
             days=days,
             bounded=bounded,
-            events=frozenset(self._events.get(alias, ())),
+            events=frozenset(self._events.get(alias) or ()),
             property_filters=tuple(self._property_filters.get(alias, ())),
             unmodelled_filter=self._unmodelled_filter,
         )
@@ -692,7 +719,7 @@ class _WherePredicates(TraversingVisitor):
                 if column == "timestamp":
                     self._record_timestamp(("events", ref.alias), node.op, value_side, flipped)
                 elif column == "event" and node.op in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.In):
-                    self._events.setdefault(ref.alias, set()).update(_string_constants(value_side))
+                    self._record_events(ref.alias, _string_constants(value_side))
             elif column in _SESSION_START_COLUMNS.get(type(ref.table), ()):
                 self._record_timestamp(("sessions", ref.alias), node.op, value_side, flipped)
         self._record_property_filter(node)
@@ -720,6 +747,17 @@ class _WherePredicates(TraversingVisitor):
         self._property_filters.setdefault(table.alias, []).append(
             _PropertyFilter(property_name=plan.access.property_name, operator=plan.operator, values=values)
         )
+
+    def _record_events(self, alias: str | None, names: list[str] | None) -> None:
+        # A list with a member the walk cannot read, such as ``concat('a', 'b')``, may name any event, so the
+        # scan keeps every event. Narrowing on the members it can read would undercount by the ones it cannot.
+        if names is None:
+            self._events[alias] = None
+            return
+        known = self._events.get(alias, set())
+        if known is not None:
+            known.update(names)
+            self._events[alias] = known
 
     def _record_timestamp(
         self, key: tuple[str, str | None], op: ast.CompareOperationOp, value: ast.Expr, flipped: bool
@@ -782,12 +820,19 @@ def _table_column(expr: ast.Expr) -> tuple[_TableRef, str] | None:
     return table, field_type.name
 
 
-def _string_constants(expr: ast.Expr) -> list[str]:
+def _string_constants(expr: ast.Expr) -> list[str] | None:
+    """The string literals ``expr`` lists, or None when any member is not one."""
     if isinstance(expr, ast.Constant):
-        return [expr.value] if isinstance(expr.value, str) else []
+        return [expr.value] if isinstance(expr.value, str) else None
     if isinstance(expr, ast.Tuple | ast.Array):
-        return [value for item in expr.exprs for value in _string_constants(item)]
-    return []
+        names: list[str] = []
+        for item in expr.exprs:
+            members = _string_constants(item)
+            if members is None:
+                return None
+            names.extend(members)
+        return names
+    return None
 
 
 def _constant_count(expr: ast.Expr) -> int:
