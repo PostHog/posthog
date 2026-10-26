@@ -17,7 +17,7 @@ import { loaders } from 'kea-loaders'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { ApiConfig } from 'lib/api'
-import { ApiError } from 'lib/api-error'
+import { ApiError, readableErrorMessage } from 'lib/api-error'
 import { dayjs } from 'lib/dayjs'
 import { SignalNode } from 'scenes/debug/signals/types'
 import { personalIntegrationsLogic } from 'scenes/settings/user/personalIntegrationsLogic'
@@ -46,6 +46,7 @@ import {
     signalsReportsPriorityUpdate,
     signalsReportsStateCreate,
     signalsReportsReviewersUpdate,
+    signalsReviewerExclusionsCreate,
 } from 'products/signals/frontend/generated/api'
 import type {
     CommitDiffResponseApi,
@@ -85,6 +86,7 @@ import { EnrichedReviewer, ReviewerRemoval, SignalReport, SignalReportArtefact, 
 import { ChartPlacements, resolveChartPlacements } from '../utils/chartPlacement'
 import { isReportClaimable, reportClaimant, reportClaimRequest } from '../utils/reportClaim'
 import { reportPullRequests, primaryReportPullRequest, type ReportPullRequest } from '../utils/reportPullRequests'
+import { ReviewerExclusionArea, reviewerExclusionAreaLabel } from '../utils/reviewerExclusionAreas'
 import { inboxBulkActionsLogic } from './inboxBulkActionsLogic'
 
 /** Run statuses that count as terminal. Mirrors desktop `isTerminalStatus` / `ReportTasksSection`. */
@@ -651,6 +653,13 @@ export interface inboxReportDetailLogicActions {
     setSelectedTaskId: (taskId: string | null) => {
         taskId: string | null
     }
+    stayOffArea: (
+        area: ReviewerExclusionArea,
+        instruction: string
+    ) => {
+        area: ReviewerExclusionArea
+        instruction: string
+    }
     submitFeedbackNote: (
         note: string,
         surface?: InboxReportActionSurface
@@ -822,6 +831,8 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             removal,
         }),
         setOptimisticReviewers: (reviewers: EnrichedReviewer[] | null) => ({ reviewers }),
+        // Save a standing rule that keeps the current user off automatic reviewer picks in an area.
+        stayOffArea: (area: ReviewerExclusionArea, instruction: string) => ({ area, instruction }),
         // Debounced server-side org-member search for the add-reviewer picker.
         searchAvailableReviewers: (query: string) => ({ query }),
         // Which linked task's run log the detail view shows; null falls back to `primaryTask`.
@@ -1758,6 +1769,35 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         searchAvailableReviewers: async ({ query }, breakpoint) => {
             await breakpoint(300)
             actions.loadAvailableReviewers({ query: query.trim() || undefined })
+        },
+        stayOffArea: async ({ area, instruction }) => {
+            const report = values.report
+            let saved = false
+            try {
+                const result = await signalsReviewerExclusionsCreate(String(ApiConfig.getCurrentProjectId()), {
+                    repository: area.repository,
+                    path_prefix: area.pathPrefix,
+                    instruction,
+                })
+                saved = result.instruction_saved
+                if (saved) {
+                    lemonToast.success(`Automatic reviewer picks now skip you in ${reviewerExclusionAreaLabel(area)}.`)
+                } else {
+                    lemonToast.error(result.detail)
+                }
+            } catch (error) {
+                lemonToast.error(
+                    (error instanceof ApiError && readableErrorMessage(error.data)) ||
+                        "Couldn't save the area you stay off. Try again from the report."
+                )
+            }
+            captureInboxReportAction({
+                report,
+                actionType: 'add_reviewer_exclusion',
+                surface: 'detail_pane',
+                // pinned: analytics property names — renaming breaks dashboards
+                extra: { exclusion_scope: area.pathPrefix ? 'path' : 'repository', saved },
+            })
         },
         updateReviewers: async ({ content, optimistic, action, removal }) => {
             if (cache.reviewerWriteInFlight) {

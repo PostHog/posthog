@@ -182,6 +182,7 @@ export type InboxReportActionType =
     | 'collapse_section'
     | 'add_suggested_reviewer'
     | 'remove_suggested_reviewer'
+    | 'add_reviewer_exclusion'
     | 'claim'
     | 'unclaim'
     | 'expand_preview'

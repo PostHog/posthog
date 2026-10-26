@@ -11,6 +11,7 @@ import {
     Link,
 } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { GitHubBranchCombobox } from 'lib/integrations/GitHubBranchCombobox'
 import { GitHubRepositoryCombobox } from 'lib/integrations/GitHubRepositoryCombobox'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
@@ -26,6 +27,7 @@ import { DEFAULT_PULL_REQUEST_LABEL, GITHUB_LABEL_NAME_MAX_LENGTH, SignalReportP
 import { AUTONOMY_PRIORITY_OPTIONS } from '../../utils/autonomyPriorityOptions'
 import { AutonomySettingGroup } from './AutonomySettingGroup'
 import { AutonomySettingRow } from './AutonomySettingRow'
+import { ReviewerExclusionsRow } from './ReviewerExclusionsRow'
 
 const MY_THRESHOLD_DEFAULT_VALUE = '__default__'
 const MY_THRESHOLD_SEGMENTS = [{ value: MY_THRESHOLD_DEFAULT_VALUE, label: 'Default' }, ...AUTONOMY_PRIORITY_OPTIONS]
@@ -784,6 +786,7 @@ function PullRequestGenerationRow(): JSX.Element {
  */
 export function SelfDrivingSection(): JSX.Element {
     const { teamConfig, teamConfigLoading } = useValues(signalTeamConfigLogic)
+    const exclusionsEnabled = useFeatureFlag('SIGNALS_REVIEWER_EXCLUSIONS_UI')
 
     if (teamConfigLoading && teamConfig === null) {
         return <LemonSkeleton className="h-20 w-full rounded" />
@@ -806,6 +809,7 @@ export function SelfDrivingSection(): JSX.Element {
                 <MyThresholdRow />
                 <MyPullRequestStateRow />
                 <GitHubAssignmentRow />
+                {exclusionsEnabled && <ReviewerExclusionsRow />}
             </AutonomySettingGroup>
             <AutonomySettingGroup title="Reports" description="Applies to everyone in this project.">
                 <DailyReportLimitRow />

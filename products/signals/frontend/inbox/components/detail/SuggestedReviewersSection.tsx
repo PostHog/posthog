@@ -4,11 +4,13 @@ import { useState } from 'react'
 import { IconPlus } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 import { userLogic } from 'scenes/userLogic'
 
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { EnrichedReviewer, SignalReport } from '../../types'
+import { reviewerExclusionAreas } from '../../utils/reviewerExclusionAreas'
 import { openRemoveReviewerDialog } from './RemoveReviewerDialog'
 import { getReviewerDisplayName } from './reviewerDisplay'
 import { removeSuggestedReviewers, ReviewerSearchList } from './ReviewerSearchList'
@@ -18,7 +20,8 @@ export function SuggestedReviewersSection({ report }: { report: SignalReport }):
     const logic = inboxReportDetailLogic({ reportId: report.id, report })
     const { displayReviewers, isUpdatingReviewers, reportArtefacts, reportClaimant, isReportClaimable, claimSaving } =
         useValues(logic)
-    const { updateReviewers, setReportClaimed } = useActions(logic)
+    const { updateReviewers, setReportClaimed, stayOffArea } = useActions(logic)
+    const exclusionsEnabled = useFeatureFlag('SIGNALS_REVIEWER_EXCLUSIONS_UI')
     const { user } = useValues(userLogic)
 
     const [addOpen, setAddOpen] = useState(false)
@@ -37,7 +40,8 @@ export function SuggestedReviewersSection({ report }: { report: SignalReport }):
         openRemoveReviewerDialog({
             reviewerName: targets.map(getReviewerDisplayName).join(', '),
             isSelf: !!user?.uuid && targets.every((target) => (target.user?.uuid ?? target.user_uuid) === user.uuid),
-            onConfirm: (removal) =>
+            exclusionAreas: exclusionsEnabled ? reviewerExclusionAreas(reportArtefacts) : [],
+            onConfirm: (removal, stayOff) => {
                 removeSuggestedReviewers({
                     report,
                     surface: 'detail_pane',
@@ -45,7 +49,11 @@ export function SuggestedReviewersSection({ report }: { report: SignalReport }):
                     reviewers: baseReviewers,
                     updateReviewers,
                     removal,
-                }),
+                })
+                if (stayOff) {
+                    stayOffArea(stayOff, removal.note.trim() || "This isn't my area.")
+                }
+            },
         })
 
     return (
