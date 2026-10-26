@@ -18,6 +18,8 @@ interface MetricTab {
     /** Which direction of change is good. Null for a count, where neither direction is good or bad on its own. */
     goodDirection: 'up' | 'down' | null
     changeTooltip: string
+    /** Why the value is missing, shown on the tab when there is no value. */
+    emptyMessage: string
 }
 
 function percentChange(current: number, previous: number): number | null {
@@ -47,7 +49,7 @@ function ChangePill({ tab }: { tab: MetricTab }): JSX.Element | null {
 }
 
 export function EvaluationMetricTabs(): JSX.Element {
-    const { overview, rows, metric } = useValues(evaluationsOverviewLogic)
+    const { overview, metric, sentimentRow } = useValues(evaluationsOverviewLogic)
     const { selectCard } = useActions(evaluationsOverviewLogic)
     const passRates = overview?.passRateOverview
     const totals = overview?.totals
@@ -64,6 +66,9 @@ export function EvaluationMetricTabs(): JSX.Element {
             formatChange: formatPoints,
             goodDirection: 'up',
             changeTooltip: 'Change in the median against the previous period, for evaluations with results in both',
+            emptyMessage: passRates?.entries.length
+                ? 'Too few graded results yet'
+                : 'No evaluation with a pass rate has results yet',
         },
         {
             metric: 'graded',
@@ -75,20 +80,20 @@ export function EvaluationMetricTabs(): JSX.Element {
             formatChange: (value) => `${value.toFixed(1)}%`,
             goodDirection: null,
             changeTooltip: 'Change against the previous period, for evaluations with results in both',
+            emptyMessage: 'No graded results in this range',
         },
     ]
-    if (rows.some((row) => row.summary.kind === 'sentiment')) {
+    // The chart falls back to pass rates without sentiment results, so the tab would do nothing.
+    if (sentiment && sentimentRow) {
         tabs.push({
             metric: 'sentiment',
             label: 'Negative sentiment',
-            value: sentiment ? `${Math.round(sentiment.negativeShare)}%` : '-',
-            change:
-                sentiment && sentiment.previousShare !== null
-                    ? sentiment.negativeShare - sentiment.previousShare
-                    : null,
+            value: `${Math.round(sentiment.negativeShare)}%`,
+            change: sentiment.previousShare !== null ? sentiment.negativeShare - sentiment.previousShare : null,
             formatChange: formatPoints,
             goodDirection: 'down',
             changeTooltip: 'Change in the share of negative user messages against the previous period',
+            emptyMessage: 'No messages classified in this range',
         })
     }
 
@@ -108,6 +113,7 @@ export function EvaluationMetricTabs(): JSX.Element {
                         </span>
                     </span>
                 ),
+                tooltip: tab.value === '-' ? tab.emptyMessage : undefined,
                 'data-attr': `evaluation-overview-tab-${tab.metric}`,
             }))}
         />

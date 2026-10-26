@@ -10,7 +10,14 @@ import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import type { EvaluationResultApi } from '../../generated/api.schemas'
 import { EvaluationBackfillHint } from './EvaluationBackfillHint'
-import { formatBucket, hasIsolatedPoints, hourTick, toChartValues, trackedCategory } from './evaluationOverviewDisplay'
+import {
+    formatBucket,
+    hasIsolatedPoints,
+    hourTick,
+    passFailCounts,
+    toChartValues,
+    trackedCategory,
+} from './evaluationOverviewDisplay'
 import { evaluationsOverviewLogic } from './evaluationsOverviewLogic'
 
 const VOLUME_KEY = 'volume'
@@ -44,23 +51,16 @@ export function EvaluationResultTrendChart({ row }: { row: EvaluationResultApi }
     const isScore = summary.kind === 'score'
     const label = trackedCategory(row)?.label ?? HEADLINE_LABELS[summary.kind]
     const values = useMemo(() => toChartValues(trend.values), [trend])
-    // The pass rate is passed / (passed + failed), so the two counts come back exactly from the rate and the volume.
-    const passed = useMemo(
-        () =>
-            summary.kind === 'pass_rate'
-                ? trend.volume.map((volume, index) => Math.round((volume * (trend.values[index] ?? 0)) / 100))
-                : null,
-        [summary.kind, trend]
-    )
+    const counts = useMemo(() => passFailCounts(row), [row])
 
     const series = useMemo<Series[]>(() => {
         // Pass rates split the bars into passed and failed, because a rate can drop while failures stay flat.
-        const volumeBars: Series[] = passed
+        const volumeBars: Series[] = counts
             ? [
                   {
                       key: PASSED_KEY,
                       label: 'Passed',
-                      data: passed,
+                      data: counts.passed,
                       type: 'bar',
                       yAxisId: VOLUME_KEY,
                       color: withAlpha(getColorVar('success'), 0.35),
@@ -68,7 +68,7 @@ export function EvaluationResultTrendChart({ row }: { row: EvaluationResultApi }
                   {
                       key: FAILED_KEY,
                       label: 'Failed',
-                      data: trend.volume.map((volume, index) => volume - passed[index]),
+                      data: counts.failed,
                       type: 'bar',
                       yAxisId: VOLUME_KEY,
                       color: withAlpha(getColorVar('danger'), 0.35),
@@ -107,7 +107,7 @@ export function EvaluationResultTrendChart({ row }: { row: EvaluationResultApi }
                 points: { radius: 3 },
             },
         ]
-    }, [trend, values, passed, label, theme])
+    }, [trend, values, counts, label, theme])
 
     const config = useMemo<TimeSeriesComboChartConfig>(() => {
         const finite = values.filter(Number.isFinite)
@@ -145,18 +145,18 @@ export function EvaluationResultTrendChart({ row }: { row: EvaluationResultApi }
                 ) : (
                     <div className="mt-1 opacity-70">No graded results</div>
                 )}
-                {passed ? (
+                {counts ? (
                     <>
                         <div className="flex items-center gap-2 opacity-70">
                             <span>Passed</span>
                             <span className="ml-auto tabular-nums">
-                                {humanFriendlyNumber(passed[ctx.dataIndex] ?? 0)}
+                                {humanFriendlyNumber(counts.passed[ctx.dataIndex] ?? 0)}
                             </span>
                         </div>
                         <div className="flex items-center gap-2 opacity-70">
                             <span>Failed</span>
                             <span className="ml-auto tabular-nums">
-                                {humanFriendlyNumber((trend.volume[ctx.dataIndex] ?? 0) - (passed[ctx.dataIndex] ?? 0))}
+                                {humanFriendlyNumber(counts.failed[ctx.dataIndex] ?? 0)}
                             </span>
                         </div>
                     </>
@@ -184,7 +184,7 @@ export function EvaluationResultTrendChart({ row }: { row: EvaluationResultApi }
                 />
             </div>
             <div className="text-xs text-secondary">
-                {passed
+                {counts
                     ? `Bars show how many results passed and failed each ${interval}.`
                     : `Shaded bars show how many results were graded each ${interval}.`}
             </div>

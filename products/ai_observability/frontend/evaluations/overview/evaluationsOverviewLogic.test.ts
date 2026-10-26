@@ -10,7 +10,7 @@ import { initKeaTests } from '~/test/init'
 
 import type { EvaluationApi, EvaluationResultApi } from '../../generated/api.schemas'
 import { llmEvaluationsLogic } from '../llmEvaluationsLogic'
-import { hasIsolatedPoints } from './evaluationOverviewDisplay'
+import { hasIsolatedPoints, passFailCounts } from './evaluationOverviewDisplay'
 import { evaluationResultDrawerLogic } from './evaluationResultDrawerLogic'
 import {
     evaluationsOverviewLogic,
@@ -146,6 +146,11 @@ describe('evaluationsOverviewLogic', () => {
     ])('finds isolated points in %s', (_, values, expected) => {
         const sparse = { ...ROWS[0], trend: { values, volume: values.map((value) => (value === null ? 0 : 10)) } }
         expect(hasIsolatedPoints(sparse)).toBe(expected)
+    })
+
+    it('splits pass rate volume into exact passed and failed counts, with empty buckets as zero', () => {
+        const row = { ...ROWS[0], trend: { values: [(2 / 3) * 100, null, 100], volume: [3, 0, 7] } }
+        expect(passFailCounts(row)).toEqual({ passed: [2, 0, 7], failed: [1, 0, 0] })
     })
 
     let requests: URLSearchParams[]

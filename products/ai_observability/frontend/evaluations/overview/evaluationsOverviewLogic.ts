@@ -53,7 +53,6 @@ const FEW_EVALUATIONS_MAX = 3
 const OVERVIEW_MAX_DAYS = 90
 /** How many evaluations the chart picks on its first render. People can pick more. */
 const DEFAULT_COMPARED = 3
-/** The anchor the "Needs attention" card scrolls to, right above the evaluations table. */
 
 /** A rolling relative start such as "-24h", "-14d" or "-3w", without a Start or End clip. */
 const ROLLING_RANGE = /^-(\d+)([hdwmqy])$/

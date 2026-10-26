@@ -26,6 +26,7 @@ export interface EvaluationDetails {
 }
 
 export type DetailsTrigger = 'open' | 'prefetch'
+export type BackfillHintSource = 'drawer' | 'compare_chart'
 export type DetailsLoad =
     | { status: 'loading' }
     | { status: 'ready'; details: EvaluationDetails }
@@ -91,8 +92,8 @@ export interface evaluationResultDrawerLogicActions {
     resetDetails: () => {
         value: true
     }
-    trackBackfillHint: (source: string) => {
-        source: string
+    trackBackfillHint: (source: BackfillHintSource) => {
+        source: BackfillHintSource
     }
     trackEmptyStateAction: (
         action: string,
@@ -135,7 +136,7 @@ export const evaluationResultDrawerLogic = kea<evaluationResultDrawerLogicType>(
         openDrawer: (evaluationId: string) => ({ evaluationId }),
         closeDrawer: true,
         trackEmptyStateAction: (action: string, state: string) => ({ action, state }),
-        trackBackfillHint: (source: string) => ({ source }),
+        trackBackfillHint: (source: BackfillHintSource) => ({ source }),
         prefetchDetails: (evaluationId: string) => ({ evaluationId }),
         loadDetails: (evaluationId: string, trigger: DetailsTrigger) => ({ evaluationId, trigger }),
         detailsRequested: (key: string, evaluationId: string) => ({ key, evaluationId }),
