@@ -520,6 +520,7 @@ pr_metadata.head_branch` is threaded (as explicit kwargs, alongside `team_id` / 
     The body's Other-findings section uses the same heading, then the file and lines, then the same paragraph.
     The outcome sweep (`find_finding_comment`) matches a finding to its comment by the whole first line, for any P level and for the older `### {title}` heading.
     A reply or reaction counts as engagement unless ReviewHog's own app left it (`engagement_method`), so the resolution stage's 👀 queue marker never marks a finding `reacted`.
+    The outcome also records the kind of those reactions and when the first came (`reaction_summary`: `reactions_thumbs_up`, `reactions_thumbs_down`, `reactions_other`, `first_reaction_at`), because `reacted` alone cannot tell a 👍 from a 👎. They are null when the finding has no comment or its reactions were past the per-report read limit.
     The validator's argumentation stays out of GitHub; the reviews API returns it as `validator_note`.
     When every publishable finding posts inline, a Deep review body is only the hidden publish marker, because the tally repeats the comments.
     A Standard review body then carries one summary line instead (`render_review_summary`, "PostHog Review · Standard · reviewed `abc1234`: 1 Must fix."), because Standard has no status comment.

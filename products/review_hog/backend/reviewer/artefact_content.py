@@ -169,6 +169,14 @@ class FindingOutcomeArtefact(BaseModel):
     judge_model: str | None = Field(
         default=None, description="Model that judged whether the change addressed the finding, when the judge ran."
     )
+    reactions_thumbs_up: int | None = Field(
+        default=None, description="👍 reactions on the finding's comment, ReviewHog's own excluded. None when unread."
+    )
+    reactions_thumbs_down: int | None = Field(default=None, description="👎 reactions, like `reactions_thumbs_up`.")
+    reactions_other: int | None = Field(default=None, description="Every other reaction, like `reactions_thumbs_up`.")
+    first_reaction_at: str | None = Field(
+        default=None, description="When the first of those reactions came (ISO 8601)."
+    )
 
     @field_validator("issue_key", "reviewed_head", "final_head")
     @classmethod

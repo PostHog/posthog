@@ -44,12 +44,14 @@ from products.review_hog.backend.reviewer.outcomes.classify import (
     _gather_report_inputs,
     _load_persisted_outcomes,
     _mark_outcomes_emitted,
+    _persist_outcomes,
     _PublishedFinding,
     _ReportInputs,
     _SkipReport,
     classify_report,
     classify_team,
 )
+from products.review_hog.backend.reviewer.outcomes.comment_signal import ReactionSummary
 from products.review_hog.backend.reviewer.outcomes.discovery import unclassified_published_reports
 from products.review_hog.backend.reviewer.outcomes.judge import OutcomeJudgeVerdict
 from products.signals.backend.artefact_attribution import ArtefactAttribution
@@ -134,18 +136,44 @@ class TestClassifyReportDecision:
         [
             # A reaction settles the finding as `reacted` before we spend a judge call — even though the
             # diff also touched its lines. Precedence inversion here would waste tokens and mislabel.
-            ("someone_reacted", {"login": "alice", "type": "User"}, "reacted", "comment_reaction"),
-            ("only_our_queue_marker", {"login": "reviewhog[bot]", "type": "Bot"}, "addressed", "judge_confirmed"),
+            # The kind and time of a reaction are kept, so a 👎 can be told from a 👍 later.
+            (
+                "someone_reacted",
+                {"login": "alice", "type": "User"},
+                "reacted",
+                "comment_reaction",
+                (0, 1, 0, "2026-10-20T10:00:00Z"),
+            ),
+            (
+                "only_our_queue_marker",
+                {"login": "reviewhog[bot]", "type": "Bot"},
+                "addressed",
+                "judge_confirmed",
+                (0, 0, 0, None),
+            ),
         ]
     )
     def test_a_reaction_takes_precedence_unless_it_is_ours(
-        self, _name: str, reactor: dict[str, Any], outcome: str, method: str
+        self,
+        _name: str,
+        reactor: dict[str, Any],
+        outcome: str,
+        method: str,
+        reactions_up_down_other_first: tuple[int, int, int, str | None],
     ):
         comment = {"id": 1, "path": "f.py", "body": "### Off-by-one\n\nbody", "reactions": {"total_count": 1}}
-        reactions = [{"user": reactor, "content": "eyes"}]
+        content = "eyes" if reactor["type"] == "Bot" else "-1"
+        reactions = [{"user": reactor, "content": content, "created_at": "2026-10-20T10:00:00Z"}]
         captured, _judge = self._run(inputs=self._inputs(comment=comment, compare_files=_TOUCHING, reactions=reactions))
-        assert captured[0]["properties"]["outcome"] == outcome
-        assert captured[0]["properties"]["classification_method"] == method
+        props = captured[0]["properties"]
+        assert props["outcome"] == outcome
+        assert props["classification_method"] == method
+        assert (
+            props["reactions_thumbs_up"],
+            props["reactions_thumbs_down"],
+            props["reactions_other"],
+            props["first_reaction_at"],
+        ) == reactions_up_down_other_first
 
     def test_addressed_when_touched_and_judge_confirms(self):
         captured, judge = self._run(inputs=self._inputs(comment=None, compare_files=_TOUCHING), judge_return=True)
@@ -773,18 +801,21 @@ class TestGatherAndIdempotency(BaseTest):
         # here (or a bad join back to the finding/verdict) would make the crash-window re-emit differ
         # from the original event.
         report = self._report()
-        ReviewReportArtefact.add_finding_outcome(
+        reactions = ReactionSummary(thumbs_up=2, thumbs_down=0, other=1, first_reaction_at="2026-10-20T10:00:00Z")
+        _persist_outcomes(
             team_id=self.team.id,
             report_id=str(report.id),
-            content=FindingOutcomeArtefact(
-                issue_key=_ISSUE_KEY,
-                run_index=1,
-                outcome="reacted",
-                method="comment_reply",
-                reviewed_head="base_sha",
-                final_head="head_sha",
-            ),
-            attribution=ArtefactAttribution.system(),
+            outcomes=[
+                _ClassifiedOutcome(
+                    finding=_finding(),
+                    verdict=_verdict(),
+                    outcome="reacted",
+                    method="comment_reply",
+                    reviewed_head="base_sha",
+                    final_head="head_sha",
+                    reactions=reactions,
+                )
+            ],
         )
 
         outcomes, distinct_id = _load_persisted_outcomes(team_id=self.team.id, report=report)
@@ -795,3 +826,4 @@ class TestGatherAndIdempotency(BaseTest):
         assert (outcome.reviewed_head, outcome.final_head) == ("base_sha", "head_sha")
         assert outcome.finding.issue_key == _ISSUE_KEY
         assert outcome.verdict.category == "bug"
+        assert outcome.reactions == reactions

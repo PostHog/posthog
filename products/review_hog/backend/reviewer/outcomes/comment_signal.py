@@ -10,6 +10,8 @@ one more read to see who left it (``fetch_comment_reactions``).
 
 from typing import Any
 
+from posthog.dataclasses import frozen
+
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding
 from products.review_hog.backend.reviewer.constants import (
     LEGACY_FLASH_MODE_MESSAGE_PREFIX,
@@ -87,3 +89,33 @@ def engagement_method(
     if any(not matches_app_bot(rc.get("user"), app_login) for rc in replies):
         return "comment_reply_agent"
     return None
+
+
+@frozen
+class ReactionSummary:
+    """The reactions other people left on a finding's comment: which kind, and when the first one came."""
+
+    thumbs_up: int
+    thumbs_down: int
+    other: int
+    first_reaction_at: str | None
+
+
+NO_REACTIONS = ReactionSummary(thumbs_up=0, thumbs_down=0, other=0, first_reaction_at=None)
+
+
+def reaction_summary(*, reactions: list[dict[str, Any]], app_login: str | None) -> ReactionSummary:
+    """Count ``reactions`` by kind, leaving out ReviewHog's own, like `engagement_method` does.
+
+    A 👍 and a 👎 both count as engagement, so only the kind tells a finding someone agreed with from one
+    someone rejected.
+    """
+    theirs = [reaction for reaction in reactions if not matches_app_bot(reaction.get("user"), app_login)]
+    contents = [reaction.get("content") for reaction in theirs]
+    times = [reaction["created_at"] for reaction in theirs if reaction.get("created_at")]
+    return ReactionSummary(
+        thumbs_up=contents.count("+1"),
+        thumbs_down=contents.count("-1"),
+        other=len(contents) - contents.count("+1") - contents.count("-1"),
+        first_reaction_at=min(times) if times else None,
+    )
