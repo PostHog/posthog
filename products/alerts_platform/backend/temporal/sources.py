@@ -56,6 +56,19 @@ SOURCE_BINDINGS: dict[SourceKind, SourceBinding] = {
         # only start workflows that find the pool full.
         discovery_limit=settings.ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS,
     ),
+    # One workflow serves both warehouse kinds. Its checks read Postgres rows, so they finish in seconds.
+    SourceKind.WAREHOUSE_SOURCE: SourceBinding(
+        workflow="warehouse-alert-evaluate",
+        task_queue=settings.ALERTS_PLATFORM_EVALUATION_TASK_QUEUE,
+        evaluation_timeout=dt.timedelta(seconds=60),
+        discovery_limit=DISCOVERY_LIMIT_PER_SOURCE,
+    ),
+    SourceKind.WAREHOUSE_DESTINATION: SourceBinding(
+        workflow="warehouse-alert-evaluate",
+        task_queue=settings.ALERTS_PLATFORM_EVALUATION_TASK_QUEUE,
+        evaluation_timeout=dt.timedelta(seconds=60),
+        discovery_limit=DISCOVERY_LIMIT_PER_SOURCE,
+    ),
 }
 
 
