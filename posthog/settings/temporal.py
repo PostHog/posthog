@@ -268,13 +268,27 @@ CLICKHOUSE_MAX_BLOCK_SIZE_OVERRIDES: dict[int, int] = dict(
 # Temporal has a limitation where a worker can only listen to a single queue.
 # To avoid running multiple workers, when running locally (DEBUG=True), we use a single queue for all tasks.
 # In production (DEBUG=False), we use separate queues for each worker type.
-def _set_temporal_task_queue(task_queue: str) -> str:
-    if DEBUG:
-        return "development-task-queue"
+# Self-hosted stacks that run one temporal-django-worker (hobby) opt into the same collapse with
+# TEMPORAL_USE_SINGLE_TASK_QUEUE, so every workflow is scheduled on the queue that worker polls
+# instead of on queues nothing services.
+TEMPORAL_USE_SINGLE_TASK_QUEUE: bool = get_from_env("TEMPORAL_USE_SINGLE_TASK_QUEUE", False, type_cast=str_to_bool)
+default_task_queue = os.getenv("TEMPORAL_TASK_QUEUE", "general-purpose-task-queue")
+
+
+# Use for queues that stay separate even in local development. A single-worker stack has no
+# second worker to poll them, so it still collapses them.
+def _set_isolated_temporal_task_queue(task_queue: str) -> str:
+    if TEMPORAL_USE_SINGLE_TASK_QUEUE and not DEBUG:
+        return default_task_queue
     return task_queue
 
 
-default_task_queue = os.getenv("TEMPORAL_TASK_QUEUE", "general-purpose-task-queue")
+def _set_temporal_task_queue(task_queue: str) -> str:
+    if DEBUG:
+        return "development-task-queue"
+    return _set_isolated_temporal_task_queue(task_queue)
+
+
 TEMPORAL_TASK_QUEUE: str = _set_temporal_task_queue(default_task_queue)
 DATA_WAREHOUSE_TASK_QUEUE = _set_temporal_task_queue("data-warehouse-task-queue")
 DATA_WAREHOUSE_CDP_PRODUCER_TASK_QUEUE = _set_temporal_task_queue("data-warehouse-cdp-producer-task-queue")
@@ -377,9 +391,11 @@ USAGE_REPORT_AGGREGATION_TASK_QUEUE = _set_temporal_task_queue("billing-task-que
 VIDEO_EXPORT_TASK_QUEUE = _set_temporal_task_queue("video-export-task-queue")
 ANALYTICS_PLATFORM_TASK_QUEUE = _set_temporal_task_queue("analytics-platform-task-queue")
 # Keep the smoke fleets separate in local development as well as deployed environments.
-ALERTS_PLATFORM_SHARED_ORCHESTRATION_TASK_QUEUE = "alerts-platform-shared-orchestration-task-queue"
-ALERTS_PLATFORM_EVALUATION_TASK_QUEUE = "alerts-platform-evaluation-task-queue"
-ALERTS_PLATFORM_DELIVERY_TASK_QUEUE = "alerts-platform-delivery-task-queue"
+ALERTS_PLATFORM_SHARED_ORCHESTRATION_TASK_QUEUE = _set_isolated_temporal_task_queue(
+    "alerts-platform-shared-orchestration-task-queue"
+)
+ALERTS_PLATFORM_EVALUATION_TASK_QUEUE = _set_isolated_temporal_task_queue("alerts-platform-evaluation-task-queue")
+ALERTS_PLATFORM_DELIVERY_TASK_QUEUE = _set_isolated_temporal_task_queue("alerts-platform-delivery-task-queue")
 # The platform's parallel insight checks allowed to run at once, across every team. A pool of its
 # own, so the parallel run never takes a slot from `ALERTS_MAX_INFLIGHT_EVALUATIONS`.
 ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS: int = get_from_env(
