@@ -53,10 +53,12 @@ describe('slack template', () => {
 
         const fetchResponse = await tester.invokeFetchResponse(response.invocation, {
             status: 200,
-            body: { ok: true },
+            body: { ok: true, channel: 'C0123ABC', ts: '1700000000.000200', message: { text: 'hello' } },
         })
         expect(fetchResponse.finished).toBe(true)
         expect(fetchResponse.error).toBeUndefined()
+        // A later workflow step reads the ts to reply in the thread of this message.
+        expect(fetchResponse.execResult).toEqual({ channel: 'C0123ABC', ts: '1700000000.000200' })
     })
 
     it.each([

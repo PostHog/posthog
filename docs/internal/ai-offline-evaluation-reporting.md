@@ -48,7 +48,9 @@ A scorer failure marks the case as an error. Statistics still include scores fro
 ## Configured offline experiment suites
 
 Shared-harness suites are enrolled in the offline experiment publisher, including both sandboxed and one-shot suites, except for `logs/eval_agent_observability::eval_agent_observability`, which currently reports only to Braintrust.
-The experiment-skill, Feature Flags, Dashboards, turn-suggestion and Business Knowledge retrieval suites retain `no_send_logs=True` and explicitly set `send_to_posthog=True`, publishing results only to PostHog.
+The experiment-skill, Feature Flags, Dashboards, turn-suggestion, Business Knowledge retrieval and Signals first-report suites retain `no_send_logs=True` and explicitly set `send_to_posthog=True`, publishing results only to PostHog.
+
+The [first-report scout suite](../../products/posthog_ai/eval_harness/README.md#scout-evals) records the persisted report and structured scout outcome alongside context, progress, and first-visible-report timings. Its seeded regression, matched control, and sparse-data cases separate useful report delivery from unsupported findings and justified abstention. Compare quality, the five-minute qualified-report rate, and planted-issue recall separately; sparse cases are excluded from report-quality and report-latency scores because they should not produce a report.
 Public suites retain their Braintrust uploads during enrollment. Braintrust also remains the execution engine for every shared-harness suite, including those whose results publish only to PostHog.
 After scoring, the harness prepares the completed results in memory and queues delivery through the Python SDK's `AsyncOfflineEvaluations` client. It does not execute another agent run or judge call.
 Without an explicit `send_to_posthog` override, `no_send_logs=True` suppresses this upload too.

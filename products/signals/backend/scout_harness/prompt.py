@@ -10,7 +10,9 @@ from typing import TYPE_CHECKING
 from pydantic import BaseModel, Field
 
 from products.signals.backend.artefact_schemas import MAX_SOURCE_SUGGESTION_REASON_LENGTH
+from products.signals.backend.constants import FIRST_REPORT_SCOUT
 from products.signals.backend.enums import SuggestedSourceProduct
+from products.signals.backend.first_report_scout_types import FirstReportScoutResult
 from products.signals.backend.report_actionability import ACTIONABILITY_CRITERIA
 from products.signals.backend.report_charts import MAX_REPORT_CHARTS, WHEN_TO_CHART
 from products.signals.backend.report_links import PLAIN_TEXT_FIELDS_RULE, PULL_REQUEST_LINK_RULE
@@ -27,6 +29,7 @@ from products.signals.backend.scout_harness.limits import (
     MAX_PRECHECK_ROWS_BYTES,
     TRIGGERED_BY_CHECK,
     TRIGGERED_BY_MANUAL,
+    TRIGGERED_BY_ONBOARDING,
     TRIGGERED_BY_SCHEDULE,
     TRIGGERED_BY_WORKFLOW,
 )
@@ -115,6 +118,12 @@ class SignalScoutRunSummary(BaseModel):
             "empty findings list is a real outcome, so say so plainly. Not one long "
             "paragraph."
         )
+    )
+
+
+class FirstReportScoutRunSummary(SignalScoutRunSummary):
+    first_report_result: FirstReportScoutResult = Field(
+        description="The outcome of the one-time investigation. A report must exist before reporting success."
     )
 
 
@@ -1459,6 +1468,8 @@ def _run_note_section(
             return _WORKFLOW_NO_NOTE_SECTION
     if not note:
         return ""
+    if triggered_by == TRIGGERED_BY_ONBOARDING:
+        return note
     if triggered_by == TRIGGERED_BY_CHECK:
         return _CHECK_NOTE_TEMPLATE.format(
             note=note,
@@ -1476,6 +1487,7 @@ _TRIGGERED_BY_MEANINGS: dict[str, str] = {
     TRIGGERED_BY_MANUAL: "a person started this run by hand",
     TRIGGERED_BY_WORKFLOW: "a workflow started this run",
     TRIGGERED_BY_CHECK: "the coordinator started this run to answer a report check",
+    TRIGGERED_BY_ONBOARDING: "Self-Driving onboarding started this one-time run",
     "experiment": "a private trial started this run to compare scout prompts or models",
 }
 
@@ -1645,7 +1657,8 @@ def build_run_prompt(
     channel-matched with the same fail-closed rule as everything else.
     """
     started_at_iso = started_at.replace(microsecond=0).isoformat()
-    schema_json = json.dumps(SignalScoutRunSummary.model_json_schema(), indent=2)
+    summary_model = FirstReportScoutRunSummary if skill.name == FIRST_REPORT_SCOUT else SignalScoutRunSummary
+    schema_json = json.dumps(summary_model.model_json_schema(), indent=2)
     allowed_tools = skill.allowed_tools or []
     can_emit_report = "emit_report" in allowed_tools
     can_edit_report = "edit_report" in allowed_tools
@@ -1748,9 +1761,7 @@ The body tells you what to investigate, in what order, with what hypotheses. Pul
 
 # Then: orient on this project
 
-Once you've read your skill, call:
-
-    scout-project-profile-get
+Once you have read your skill, call scout-project-profile-get unless your skill provides a different orientation procedure.
 
 That returns a deterministic snapshot of this team, worth 4-5 discovery calls in one: products in use, connected integrations, warehouse sources, signal source configs (split enabled/disabled), the `scout_fleet` roster of which other scouts run here, and counts of existing inbox reports. It's computed from authoritative tables, so treat it as ground truth, as distinct from the scout-inferred notes in `scout-scratchpad-search`.
 
