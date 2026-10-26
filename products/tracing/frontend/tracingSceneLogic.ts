@@ -540,8 +540,7 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
             }
         },
         // Flags resolve asynchronously, so one that arrives after the Operations fetch would show
-        // the Sessions and Users columns over rows fetched without them. Mirrors the heatmap's
-        // late-flag refetch in tracingDataLogic.
+        // the Sessions and Users columns over rows fetched without them.
         setFeatureFlags: () => {
             if (
                 values.activeTracingTab === 'operations' &&
