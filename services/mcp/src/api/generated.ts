@@ -29768,6 +29768,14 @@ export namespace Schemas {
     }
 
     /**
+     * Input for approving one metric.
+     */
+    export interface DataCatalogMetricApproveRequest {
+      /** The metric's `updated_at` as last seen by the approver. When the metric changed since then, the API returns 409 and leaves it proposed. Omit to approve the current version. */
+      expected_updated_at?: string;
+    }
+
+    /**
      * A metric the bulk action did not act on, and why.
      */
     export interface DataCatalogMetricBulkSkip {
