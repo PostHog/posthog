@@ -1,16 +1,15 @@
 export { dimensions, ensureJsdom, makeSeries, mockRect, setupJsdom, setupSyncRaf } from './jsdom'
 export { clickAtIndex, dragSelection, hoverAtIndex, hoverUntilTooltip, rawDrag } from './interactions'
-export { getHogChart } from './accessor'
-export type { GetHogChartOptions, HogChart, TooltipSnapshot } from './accessor'
-export { renderHogChart } from './render'
-export type { RenderHogChartOptions } from './render'
+export { getChart } from './accessor'
+export type { GetChartOptions, ChartAccessor, TooltipSnapshot } from './accessor'
+export { renderChart } from './render'
+export type { RenderChartOptions } from './render'
 export { makeOverlayContext, renderOverlayInChart } from './overlay'
 export type { OverlayContextOverrides } from './overlay'
 export {
     createDefaultTooltipAccessor,
-    createHogChartTooltip,
-    getHogChartTooltip,
-    HOG_CHARTS_TOOLTIP_SELECTOR,
-    waitForHogChartTooltip,
+    createChartTooltipAccessor,
+    getChartTooltip,
+    waitForChartTooltip,
 } from './tooltip'
-export type { DefaultTooltipAccessor, HogChartTooltip } from './tooltip'
+export type { DefaultTooltipAccessor, ChartTooltipAccessor } from './tooltip'
