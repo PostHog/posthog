@@ -58,6 +58,9 @@ class MedusaEndpointConfig:
     # incremental runs. None means the list route documents no timestamp filters, so the
     # endpoint is full refresh only.
     incremental_field_name: str | None = "updated_at"
+    # Columns to add to the route's default response fields via `fields=+a,+b`. Needed where the
+    # defaults omit the timestamps the cursor and the partition key read.
+    extra_fields: tuple[str, ...] = ()
 
     @property
     def incremental_fields(self) -> list[IncrementalField]:
@@ -91,6 +94,17 @@ MEDUSA_ENDPOINTS: dict[str, MedusaEndpointConfig] = {
     ),
     "InventoryItems": MedusaEndpointConfig(
         name="InventoryItems", path="/inventory-items", data_selector="inventory_items", incremental_field_name=None
+    ),
+    "Reservations": MedusaEndpointConfig(name="Reservations", path="/reservations", data_selector="reservations"),
+    "Payments": MedusaEndpointConfig(
+        name="Payments",
+        path="/payments",
+        data_selector="payments",
+        extra_fields=("created_at", "updated_at", "canceled_at", "provider_id", "metadata"),
+    ),
+    "Promotions": MedusaEndpointConfig(name="Promotions", path="/promotions", data_selector="promotions"),
+    "ProductCategories": MedusaEndpointConfig(
+        name="ProductCategories", path="/product-categories", data_selector="product_categories"
     ),
 }
 

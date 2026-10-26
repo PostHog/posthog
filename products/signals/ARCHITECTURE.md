@@ -236,9 +236,19 @@ On re-promotion:
 - **Auto-start is deduplicated per report** by a legacy `SignalReportTask` implementation link (alongside the protected `task_run` log), checked inside the report-row `select_for_update`
 - **Workflow ID** includes `run_count` on reruns to avoid Temporal ID collisions with earlier executions
 
-#### First report email
+#### First report onboarding and email
 
-Guided and quick onboarding create a `SignalFirstReportNotification` in the activation transaction, preserving the activating user for that environment. The first report that becomes `ready`, immediately actionable, and not already addressed after activation triggers a transactional email to that user's email address, tracked against their distinct ID. Control onboarding does not identify an activator and does not enroll a recipient.
+The `signals-scout-first-report` engine performs a bounded investigation of existing product or warehouse data. Its context includes configured products, observed data volumes, and accessible warehouse tables. The skill owns investigation policy and orientation; the shared prompt defers to its procedure. The skill searches across products and validates evidence before authoring at most one report, enforced by a project-scoped idempotency key. Early replay and persistence use that same key, so a saved report is returned before checking changed emission gates or repeating the safety judge.
+
+This system scout is excluded from scheduled registration and suggestions and accepts only onboarding dispatches. Its template remains visible in the Skills store like other canonical scout skills. Its structured close-out distinguishes insufficient data, no actionable finding, and incomplete execution. The engine exposes persisted state and task IDs for onboarding consumers; activation and customer progress presentation are integrated separately.
+
+The project-group experiment `self-driving-banger-scout` decides whether the first-report scout runs and which model it uses: `control` runs no first-report scout, `test-sol` selects GPT-6.1 Sol on Codex with high reasoning and priority service, and `test-deepseek` selects DeepSeek Flash 1017 Fast on Pi. Both test arms use the same scout skill. The runner refuses a control assignment. Disabled, unknown, and unavailable flag values prevent production first-report runs; explicit eval and private-trial runtime overrides bypass enrollment. Assignment is evaluated once per run, recorded on the run, and attached to lifecycle and report events. Exposure starts before sandbox creation, after dispatch guards, so setup failures remain in the experiment denominator.
+
+`signals_scout_run_finished` records the structured first-report outcome, whether a report became visible, and its latency from task creation. A persisted visible report still counts when the agent subsequently fails. The experiment's exposure-to-report funnel includes the earlier setup interval; its five-minute delivery metric measures delivery, not report quality. Compare grounding and actionability separately, and join `task_run_id` to gateway usage for model cost; missing usage is unknown, never zero. Turning the experiment flag off prevents future first-report sandbox starts; already-running investigations may finish.
+
+Pi scouts require the Tasks worker's `SANDBOX_AI_GATEWAY_URL`, `SANDBOX_AI_GATEWAY_MINT_KEY`, and an entry in `SANDBOX_AI_GATEWAY_PRODUCTS` matching the scout, such as `signals_scout:first-report`. Only internally created scout tasks may mint these tokens. Pi provisioning fails when routing, minting, or recording the model pin fails; it never falls back to the legacy gateway. Before launching the experiment, verify the deployed Go gateway serves `posthog/deepseek-ai/deepseek-v4.1-flash-1017-fast` for `signals_scout`, with the Baseten host configured. The existing internal scout budget and paying-project configuration still apply.
+
+Guided and quick onboarding create a `SignalFirstReportNotification` in the activation transaction, preserving the activating user for that environment. The first report that becomes `ready`, immediately actionable, and not already addressed after activation triggers a transactional email to that user's email address, tracked against their distinct ID. When the parent project's first investigation records this environment as its activation origin, email delivery selects the parent's reports and links while retaining the environment's recipient and notification preferences. The recipient must retain access to both projects. Other environment notifications keep their own report scope. Control onboarding does not identify an activator and does not enroll a recipient.
 
 Sending requires the organization-scoped `signals-first-report-email` feature flag and is cloud-only. A disabled, missing, or unavailable flag leaves notifications pending without claiming or cancelling them, including in DEBUG. Sending also remains disabled until the dedicated `POSTHOG_TRANSACTIONAL_EMAIL_API_KEY` is configured. `SIGNALS_FIRST_REPORT_EMAIL_TEMPLATE_ID` in `backend/constants.py` selects the first-report transactional email template. The shared `POSTHOG_PROJECT_ID` and `POSTHOG_HOST` settings default to `2` and `https://us.posthog.com`, independently of the recipient's region. Both support optional environment overrides to select another sending project or host. The API key must be a project secret API key with `hog_flow:write` for that sending project, and the template must be an active transactional email template with a verified sender. Sending uses the shared transactional email client synchronously inside the notification task so the notification row can record the API's acceptance. Template creation and deployment configuration are separate from this code.
 
@@ -1383,7 +1393,13 @@ Every self-driving pull request opens with no assignee, so it never reaches a Gi
 
 This governs what the rule adds. Nobody is ever unassigned, so a person can still assign three people by hand.
 
-"Assignee" here means GitHub's assignee, the person responsible. Each suggested reviewer with a connected GitHub account also receives an individual review request, in bounded batches of 15. The worker does not request a review from the pull request author, an assignee, or an existing requested reviewer. A separate app can still request the owning team for review.
+"Assignee" here means GitHub's assignee, the person responsible.
+A single assignee receives a review request even when another person or team request exists.
+Without a single owner, the worker requests the highest-ranked eligible report reviewer only when no request exists.
+Each attempt requests at most one person and preserves other requests.
+The worker skips the author, pending recipients, completed reviewers, and people whose review request was removed.
+Incomplete review or removal history prevents a new request.
+A separate app can still request the owning team for review.
 
 Under the `signals-pr-dri-assignee` flag, the candidates are, most responsible first:
 

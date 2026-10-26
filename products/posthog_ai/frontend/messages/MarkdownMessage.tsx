@@ -2,7 +2,7 @@ import { marked } from 'marked'
 import { memo, useMemo } from 'react'
 
 import { rewriteAgentObjectTags } from 'lib/components/AgentObjectTags/rewriteAgentObjectTags'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { LemonMarkdown, type LemonMarkdownComponents, type LemonMarkdownProps } from 'lib/lemon-ui/LemonMarkdown'
 import { getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
 import { urls } from 'scenes/urls'
 
@@ -28,10 +28,16 @@ export const MarkdownMessage = memo(function MarkdownMessage({
     content,
     id,
     className,
+    components,
+    renderCodeBlock,
 }: {
     content: string
     id: string
     className?: string
+    /** Element renderers that replace LemonMarkdown's own. Pass a stable (module-level) object. */
+    components?: LemonMarkdownComponents
+    /** Renderer for fenced code blocks. Pass a stable (module-level) function. */
+    renderCodeBlock?: LemonMarkdownProps['renderCodeBlock']
 }): JSX.Element {
     // The team id is a memo dependency so a project switch re-points existing links.
     const teamId = getCurrentTeamIdOrNone()
@@ -39,7 +45,13 @@ export const MarkdownMessage = memo(function MarkdownMessage({
     return (
         <LemonMarkdown.Container className={className}>
             {blocks.map((block, index) => (
-                <LemonMarkdown.Renderer key={`${id}-block_${index}`}>{block}</LemonMarkdown.Renderer>
+                <LemonMarkdown.Renderer
+                    key={`${id}-block_${index}`}
+                    components={components}
+                    renderCodeBlock={renderCodeBlock}
+                >
+                    {block}
+                </LemonMarkdown.Renderer>
             ))}
         </LemonMarkdown.Container>
     )

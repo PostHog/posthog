@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-10-23 10:05:59 UTC
+// Generated at: 2026-10-23 20:03:12 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -119,6 +119,7 @@ export type CanonicalProvider =
     | 'inference-net-bf16'
     | 'inference-net-fast'
     | 'inference-net-fp4'
+    | 'inference-net-fp4-us'
     | 'inference-net-fp8'
     | 'inference-net-us'
     | 'inference-net-us-fast'
@@ -171,6 +172,7 @@ export type CanonicalProvider =
     | 'nextbit-int4'
     | 'novita'
     | 'novita-bf16'
+    | 'novita-fp16'
     | 'novita-fp4'
     | 'novita-fp8'
     | 'novita-int4'
@@ -185,7 +187,6 @@ export type CanonicalProvider =
     | 'openai-ultrafast'
     | 'parasail'
     | 'parasail-bf16'
-    | 'parasail-fast'
     | 'parasail-fp16'
     | 'parasail-fp4'
     | 'parasail-fp8'
