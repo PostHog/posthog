@@ -21,7 +21,6 @@ from asgiref.sync import async_to_sync
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser
-from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
@@ -78,7 +77,7 @@ def _stored_vectors(
     for attempt in range(_CAPACITY_RETRY_ATTEMPTS - 1):
         try:
             return _read_stored_vectors(team_id, scanner_id, observation_ids, since)
-        except (ClickHouseAtCapacity, ConcurrencyLimitExceeded):
+        except ClickHouseAtCapacity:
             delay = _CAPACITY_RETRY_BASE_S * 2**attempt
             wait = random.uniform(delay, 2 * delay)
             logger.info("replay_vision.watch_rank_backfill.capacity_wait", team_id=team_id, attempt=attempt, wait=wait)

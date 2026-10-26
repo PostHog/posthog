@@ -363,6 +363,23 @@ def _embedding_group_root() -> Coalesce:
     return Coalesce(KeyTextTransform("duplicate_of", "watch_rank"), Cast("id", CharField()), output_field=CharField())
 
 
+def _cap_duplicate_groups(rows: list[dict[str, Any]], cap: int) -> dict[Any, dict[str, Any]]:
+    """The first `cap` rows, keeping a few per duplicate group so the ranker can still pick a readable, unseen one.
+
+    A group never spans scanners, so the pick order meets each group's rows best first.
+    """
+    picked: dict[Any, dict[str, Any]] = {}
+    group_rows: Counter[str] = Counter()
+    for row in rows:
+        if group_rows[row["watch_group_root"]] >= WATCH_PICK_GROUP_CANDIDATES:
+            continue
+        group_rows[row["watch_group_root"]] += 1
+        picked[row["id"]] = row
+        if len(picked) >= cap:
+            break
+    return picked
+
+
 def select_embedding_picks(
     walkable: QuerySet[ReplayObservation],
     scanner_ids: list[Any],
@@ -414,19 +431,15 @@ def select_embedding_picks(
             watch_group_root=group_root,
         )
         .filter(issue_scanner_rows__gte=WATCH_PICK_MIN_SCANNER_ROWS, watch_percentile__gte=WATCH_PICK_MIN_PERCENTILE)
-        .order_by("scanner_rank", "-watch_percentile", "-created_at")
+        .order_by("scanner_rank", "-watch_percentile", "-created_at", "-id")
         .values("id", "watch_percentile", "watch_group_root")
     )
-    # A few rows per duplicate group reach the cap; a group never spans scanners, so this order meets its best first.
-    window_values: dict[Any, dict[str, Any]] = {}
-    group_rows: Counter[str] = Counter()
-    for row in qualifying.iterator():
-        if group_rows[row["watch_group_root"]] >= WATCH_PICK_GROUP_CANDIDATES:
-            continue
-        group_rows[row["watch_group_root"]] += 1
-        window_values[row["id"]] = row
-        if len(window_values) >= cap:
-            break
+    # Bounds the fetch, since a client-side cursor buffers every row; only a window full of copies needs the rest.
+    fetch_limit = cap * (WATCH_PICK_GROUP_CANDIDATES + 1)
+    rows = list(qualifying[:fetch_limit])
+    window_values = _cap_duplicate_groups(rows, cap)
+    if len(window_values) < cap and len(rows) == fetch_limit:
+        window_values = _cap_duplicate_groups(list(qualifying), cap)
     if not window_values:
         return []
     # Counted over readable rows only, so a group never reveals how many restricted sessions it holds. Duplicates

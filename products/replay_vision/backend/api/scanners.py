@@ -2728,9 +2728,9 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         # Before ranking, so a row the viewer marked not useful neither takes a slot nor shifts the window baselines.
         # Views and dismissals after `as_of` wait for the next load, so later pages of this one do not shift.
         walkable = candidates.exclude(
-            id__in=ReplayObservationFeedDismissal.objects.filter(
-                team_id=self.team_id, user_id=viewer_id, created_at__lte=as_of
-            ).values("observation_id")
+            id__in=ReplayObservationFeedDismissal.objects.filter(user_id=viewer_id, created_at__lte=as_of).values(
+                "observation_id"
+            )
         )
         # Row-gate on each row's snapshot experiment before ranking, so a restricted row can't take a feed slot.
         candidates = accessible_observations(
