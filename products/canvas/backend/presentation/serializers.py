@@ -1189,7 +1189,10 @@ class CanvasActionsResponseSerializer(serializers.Serializer):
 class CanvasActionInvokeSerializer(serializers.Serializer):
     """Payload for invoking one action verb."""
 
-    verb = serializers.CharField(max_length=64, help_text="Registered verb to invoke, e.g. 'tasks.create'.")
+    # Untrimmed, so the scope check and the dispatch read the same verb.
+    verb = serializers.CharField(
+        max_length=64, trim_whitespace=False, help_text="Registered verb to invoke, e.g. 'tasks.create'."
+    )
     payload = serializers.DictField(
         required=False,
         default=dict,
@@ -1209,7 +1212,10 @@ class CanvasActionResultSerializer(serializers.Serializer):
 class CanvasToolInvokeSerializer(serializers.Serializer):
     """Payload for running one PostHog MCP tool."""
 
-    tool = serializers.CharField(max_length=200, help_text="MCP tool to run, e.g. 'feature-flag-enable'.")
+    # Untrimmed, so the scope check and the dispatch read the same name.
+    tool = serializers.CharField(
+        max_length=200, trim_whitespace=False, help_text="MCP tool to run, e.g. 'feature-flag-enable'."
+    )
     arguments = serializers.DictField(
         required=False,
         default=dict,

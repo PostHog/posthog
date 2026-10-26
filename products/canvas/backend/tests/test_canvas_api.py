@@ -1361,6 +1361,7 @@ class TestCanvasActivityLog(CanvasAPIBaseTest):
                 "captureEvents": [],
                 "state": [],
                 "actions": [],
+                "tools": [],
                 "agentRequests": False,
             },
             "network": {"origins": []},
@@ -1373,6 +1374,7 @@ class TestCanvasActivityLog(CanvasAPIBaseTest):
                 "captureEvents": [],
                 "state": [],
                 "actions": [],
+                "tools": [],
                 "agentRequests": False,
             },
             "network": {"origins": []},
@@ -2397,10 +2399,12 @@ class TestCanvasActions(CanvasAPIBaseTest):
             ("cloud_canvas_scope_only", "tasks.create_and_run", ["canvas:write"], status.HTTP_403_FORBIDDEN),
             ("workflow_canvas_scope_only", "workflows.pause", ["canvas:write"], status.HTTP_403_FORBIDDEN),
             ("workflow_scope_held", "workflows.pause", ["canvas:write", "hog_flow:write"], status.HTTP_200_OK),
+            # A padded verb must not slip past the scope check and run once trimmed.
+            ("padded_verb", " tasks.create ", ["canvas:write"], status.HTTP_400_BAD_REQUEST),
         ]
     )
     def test_scoped_keys_need_the_verbs_target_scope(self, _name, verb, scopes, expected_status):
-        canvas_id = self._actions_canvas(verbs=(verb,))
+        canvas_id = self._actions_canvas(verbs=(verb.strip(),))
         raw_key = generate_random_token_personal()
         PersonalAPIKey.objects.create(
             label="canvas-actions", user=self.user, secure_value=hash_key_value(raw_key), scopes=scopes
@@ -2890,21 +2894,31 @@ class TestCanvasTools(CanvasAPIBaseTest):
     @parameterized.expand(
         [
             # canvas:write alone is not consent to change feature flags.
-            ("canvas_scope_only", ["canvas:write"], status.HTTP_403_FORBIDDEN),
-            ("target_scope_held", ["canvas:write", "feature_flag:write"], status.HTTP_200_OK),
+            ("canvas_scope_only", "feature-flag-enable", ["canvas:write"], status.HTTP_403_FORBIDDEN),
+            ("target_scope_held", "feature-flag-enable", ["canvas:write", "feature_flag:write"], status.HTTP_200_OK),
+            # A padded name must not slip past the scope check and run once trimmed.
+            ("padded_tool_name", " feature-flag-enable ", ["canvas:write"], status.HTTP_400_BAD_REQUEST),
+            # A board viewer reads flags without write access to the canvas.
+            (
+                "read_tool_read_scopes",
+                "feature-flag-get-definition",
+                ["canvas:read", "feature_flag:read"],
+                status.HTTP_200_OK,
+            ),
         ]
     )
-    def test_scoped_keys_need_the_tools_scope(self, _name, scopes, expected_status):
-        canvas_id = self._tools_canvas()
+    def test_scoped_keys_need_the_tools_scope(self, _name, tool, scopes, expected_status):
+        canvas_id = self._tools_canvas(("feature-flag-enable", "feature-flag-get-definition"))
         raw_key = generate_random_token_personal()
         PersonalAPIKey.objects.create(
             label="canvas-tools", user=self.user, secure_value=hash_key_value(raw_key), scopes=scopes
         )
         self.client.logout()
 
-        response = self._invoke(canvas_id, "feature-flag-enable", {"id": 7}, HTTP_AUTHORIZATION=f"Bearer {raw_key}")
+        response = self._invoke(canvas_id, tool, {"id": 7}, HTTP_AUTHORIZATION=f"Bearer {raw_key}")
 
         assert response.status_code == expected_status, response.json()
+        assert self.call_tool.called is (expected_status == status.HTTP_200_OK)
 
 
 class TestTaskCreatePayloadSerializer(SimpleTestCase):

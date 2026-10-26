@@ -167,7 +167,10 @@ def list_tools() -> list[dict[str, Any]]:
 def tool_required_scopes(tool: str) -> list[str] | None:
     """The API scopes a scoped credential needs to run `tool`, or None for a tool canvases may not run."""
     definition = canvas_mcp_tool(tool)
-    return ["canvas:write", *definition.required_scopes] if definition is not None else None
+    if definition is None:
+        return None
+    # A read-only tool needs only read access to the canvas, so a viewer-level member can load a board.
+    return ["canvas:read" if definition.read_only else "canvas:write", *definition.required_scopes]
 
 
 def validate_tool(capabilities: dict[str, Any] | None, tool: str) -> None:
