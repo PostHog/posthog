@@ -132,7 +132,8 @@ export interface LemonTableProps<T extends Record<string, any>, K extends BulkSe
     allowContentScroll?: boolean
     /** Requires a bounded scroll container. Expandable rows use the normal rendering path. */
     virtualized?: boolean
-    /** Fixed column width in pixels for horizontal virtualization of flat, non-spanning tables.
+    /** Default column width in pixels for horizontal virtualization of flat, non-spanning tables.
+     * Columns with a numeric `width` keep that width instead.
      * Grouped, expandable, pinned, selectable, and resizable tables use the normal rendering path. */
     virtualizedColumnWidth?: number
     /**
@@ -445,27 +446,41 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
         !bulkSelection &&
         !rowActions &&
         !columns.some((column) => column.resizable)
+    const getVirtualizedColumnWidth = (column: LemonTableColumn<T, keyof T | undefined> | undefined): number =>
+        typeof column?.width === 'number' ? column.width : (virtualizedColumnWidth ?? 192)
     const columnVirtualizer = useVirtualizer<HTMLDivElement, HTMLTableCellElement>({
         count: visibleColumns.length,
         getScrollElement: () => scrollRef.current,
-        estimateSize: () => virtualizedColumnWidth ?? 192,
+        estimateSize: (index) => getVirtualizedColumnWidth(visibleColumns[index]),
         horizontal: true,
         overscan: 3,
         enabled: virtualizeColumns,
     })
+    // The virtualizer caches estimated sizes, so measure again when the column widths change
+    const virtualizedColumnWidthsKey = virtualizeColumns
+        ? visibleColumns.map((column) => getVirtualizedColumnWidth(column)).join(',')
+        : ''
+    useEffect(() => {
+        if (virtualizedColumnWidthsKey) {
+            columnVirtualizer.measure()
+        }
+    }, [virtualizedColumnWidthsKey, columnVirtualizer])
     const virtualColumns = columnVirtualizer.getVirtualItems()
     const firstColumnIndex = virtualColumns[0]?.index ?? 0
     const lastColumnIndex = virtualColumns.at(-1)?.index ?? -1
+    const columnsStart = virtualColumns[0]?.start ?? 0
+    const columnsEnd = virtualColumns.at(-1)?.end ?? 0
+    const columnsTotalSize = columnVirtualizer.getTotalSize()
     const columnWindow = useMemo(
         () =>
             virtualizeColumns
                 ? {
                       startIndex: firstColumnIndex,
-                      paddingLeft: firstColumnIndex * virtualizedColumnWidth!,
-                      paddingRight: (visibleColumns.length - lastColumnIndex - 1) * virtualizedColumnWidth!,
+                      paddingLeft: columnsStart,
+                      paddingRight: Math.max(0, columnsTotalSize - columnsEnd),
                   }
                 : undefined,
-        [virtualizeColumns, firstColumnIndex, lastColumnIndex, virtualizedColumnWidth, visibleColumns.length]
+        [virtualizeColumns, firstColumnIndex, columnsStart, columnsEnd, columnsTotalSize]
     )
     const renderedColumnGroups = useMemo(
         () =>
@@ -580,8 +595,8 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                                 virtualizeColumns
                                     ? {
                                           ...tableStyle,
-                                          width: columnVirtualizer.getTotalSize(),
-                                          minWidth: columnVirtualizer.getTotalSize(),
+                                          width: columnsTotalSize,
+                                          minWidth: columnsTotalSize,
                                       }
                                     : tableStyle
                             }
@@ -603,7 +618,7 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                                             // width:1% is a standard workaround to shrink a column to its content.
                                             style={{
                                                 width: virtualizeColumns
-                                                    ? virtualizedColumnWidth
+                                                    ? getVirtualizedColumnWidth(column)
                                                     : column.width === 0
                                                       ? '1%'
                                                       : column.width,
