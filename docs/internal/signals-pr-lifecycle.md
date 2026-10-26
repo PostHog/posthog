@@ -533,6 +533,8 @@ The owner stores no request inventory or pending-work list. Owners that already 
 
 User-started report tasks use PostHog AI billing and its credit limit. Continuing automated work requires a new run: cloud resume rejects reopening the original automated report or scout run. The Task keeps its report link; each new manual TaskRun records `state.billing_product = "posthog_ai"`, which selects the matching gateway product and OAuth application. These runs do not join a SignalSpend owner or trigger the flat report charge. Automated research, repository selection and implementation keep Signals accounting. Unmarked historical runs keep their existing billing treatment, and prewarmed runs created with the old credentials are not reused for new manual work.
 
+The task-bound PostHog AI token can read that task's artifacts and comments, using the same sandbox application allowlist as other task agents. The task binding, project scope and endpoint scopes still apply.
+
 ## Usage-based billing rollout
 
 The shared usage counter evaluates `self-driving-usage-based-billing` with the organization's ID and group on every reporting or quota refresh. Its result must be a date variant in `YYYY-MM-DD` format, interpreted as midnight UTC. Reports created before that cutoff retain report-based billing. Spend owners created before it remain excluded, even if their work finishes later or triggers a newer report. A missing match, Boolean result, invalid date or unavailable local evaluation falls back to report-based billing. There is no saved billing-mode field.

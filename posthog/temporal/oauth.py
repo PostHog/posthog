@@ -73,17 +73,6 @@ SIGNALS_OAUTH_APP_CLIENT_IDS = frozenset(
     }
 )
 
-# Apps that mint tokens for a cloud task's own coding agent, which is what the task-comment
-# channel is restricted to. Signals joined when its runs moved off the Array app; PostHog AI is
-# deliberately absent, as it was before. The `sandbox_task_id` binding on the token is what
-# actually scopes access to one task — this set only keeps unrelated first-party tokens out.
-TASK_AGENT_OAUTH_APP_CLIENT_IDS = frozenset(
-    {
-        *POSTHOG_CODE_OAUTH_APP_CLIENT_IDS,
-        *SIGNALS_OAUTH_APP_CLIENT_IDS,
-    }
-)
-
 SANDBOX_OAUTH_APP_CLIENT_IDS = frozenset(
     {
         *POSTHOG_CODE_OAUTH_APP_CLIENT_IDS,
