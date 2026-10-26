@@ -22,6 +22,9 @@ export interface QuillSceneStaticNameProps {
 export function QuillSceneStaticName({ name, icon, description, className }: QuillSceneStaticNameProps): JSX.Element {
     const copyableName = typeof name === 'string' && name ? name : undefined
     const [copied, setCopied] = useState(false)
+    // Clicking the trigger dismisses the tooltip, so it is controlled: `copied` holds it open over the dismissal
+    // until the confirmation has had its moment.
+    const [open, setOpen] = useState(false)
     const copiedTimeout = useRef<ReturnType<typeof setTimeout>>()
     useEffect(() => () => clearTimeout(copiedTimeout.current), [])
 
@@ -63,7 +66,7 @@ export function QuillSceneStaticName({ name, icon, description, className }: Qui
     }
 
     return (
-        <Tooltip disableHoverablePopup>
+        <Tooltip disableHoverablePopup open={open || copied} onOpenChange={setOpen}>
             <TooltipTrigger delay={300} render={crumb} />
             <TooltipContent className="max-w-80">
                 {description && <div>{description}</div>}
