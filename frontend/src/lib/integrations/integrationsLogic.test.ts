@@ -32,6 +32,7 @@ const githubIntegration = (overrides: Partial<IntegrationType> = {}): Integratio
         errors: '',
         installation_shared: false,
         installation_status: 'connected',
+        github_readiness: 'ready',
         ...overrides,
     }) as IntegrationType
 
@@ -76,6 +77,27 @@ describe('integrationsLogic', () => {
     afterEach(() => {
         jest.useRealTimers()
         jest.restoreAllMocks()
+    })
+
+    it.each(['ready', 'reconnect_required', 'no_repositories', 'temporarily_unavailable'] as const)(
+        'exposes the server GitHub readiness: %s',
+        async (readiness) => {
+            integrationsPayload = [githubIntegration({ github_readiness: readiness })]
+            await expectLogic(logic, () => logic.actions.loadIntegrations()).toDispatchActions([
+                'loadIntegrationsSuccess',
+            ])
+            expect(logic.values.githubReadiness).toBe(readiness)
+        }
+    )
+
+    it('distinguishes a failed connection lookup from no connection', async () => {
+        useMocks({ get: { '/api/projects/:team_id/integrations/': () => [503, { detail: 'Unavailable' }] } })
+        await expectLogic(logic, () => logic.actions.loadIntegrations()).toDispatchActions(['loadIntegrationsFailure'])
+        expect(logic.values.integrationsLoadFailed).toBe(true)
+        useMocks({ get: { '/api/projects/:team_id/integrations/': { results: [] } } })
+        await expectLogic(logic, () => logic.actions.loadIntegrations()).toDispatchActions(['loadIntegrationsSuccess'])
+        expect(logic.values.integrationsLoadFailed).toBe(false)
+        expect(logic.values.githubReadiness).toBe('not_connected')
     })
 
     describe('GitHub discovery freshness', () => {

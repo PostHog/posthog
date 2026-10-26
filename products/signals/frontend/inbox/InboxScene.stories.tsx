@@ -106,6 +106,19 @@ type Story = StoryObj
 
 export const Inbox: Story = {}
 
+export const GitHubDisconnected: Story = {
+    decorators: [
+        routeTo(urls.inbox('scouts')),
+        mswDecorator({
+            get: {
+                '/api/projects/:id/signals/config': { ...mockTeamConfig, github_readiness: 'not_connected' },
+                '/api/projects/:id/signals/scout/configs': () => [200, mockScoutConfigs],
+                '/api/projects/:id/signals/scout/runs/recent-per-scout': () => [200, mockScoutRuns(mockScoutConfigs)],
+            },
+        }),
+    ],
+}
+
 const valueSummaryMocks = mswDecorator({
     get: {
         '/api/projects/:team_id/signals/inbox_summary/': {
