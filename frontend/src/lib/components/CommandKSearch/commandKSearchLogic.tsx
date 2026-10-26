@@ -337,7 +337,8 @@ export interface commandKSearchLogicMeta {
             displayedQuery: {
                 query: SectionsQuery
                 stale: boolean
-            }
+            },
+            featureFlags: FeatureFlagsSet
         ) => CommandKSection[]
         selectableRows: (sections: CommandKSection[]) => CommandKRow[]
         highlightedRow: (selectableRows: CommandKRow[], highlightedKey: string | null) => CommandKRow | null
