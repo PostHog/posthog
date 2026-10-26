@@ -17,6 +17,7 @@ import type { RepositoryConfig } from '../../../types/taskTypes'
 export interface RepositorySelectorProps {
     value: RepositoryConfig
     onChange: (config: RepositoryConfig) => void
+    autoOpen?: boolean
 }
 
 const githubAuthorizeUrl = api.integrations.authorizeUrl({ kind: 'github', next: urls.taskTracker() })
@@ -26,7 +27,7 @@ const githubAuthorizeUrl = api.integrations.authorizeUrl({ kind: 'github', next:
  * with one or more it shows a joined [repo ▾][branch ▾] ButtonGroup (matching the posthog/code
  * composer), plus a leading integration switcher when several GitHub orgs are connected.
  */
-export function RepositorySelector({ value, onChange }: RepositorySelectorProps): JSX.Element {
+export function RepositorySelector({ value, onChange, autoOpen = false }: RepositorySelectorProps): JSX.Element {
     const { getIntegrationsByKind, integrationsLoading } = useValues(integrationsLogic)
     const { reportIntegrationConnectClicked } = useActions(eventUsageLogic)
     const githubIntegrations = getIntegrationsByKind(['github'])
@@ -119,6 +120,7 @@ export function RepositorySelector({ value, onChange }: RepositorySelectorProps)
                     value={value}
                     onRepositoryChange={handleRepositoryChange}
                     onBranchChange={handleBranchChange}
+                    autoOpen={autoOpen}
                 />
             ) : null}
         </div>
@@ -130,6 +132,7 @@ interface RepositoryBranchPickersProps {
     value: RepositoryConfig
     onRepositoryChange: (repository: string | null) => void
     onBranchChange: (branch: string | null) => void
+    autoOpen: boolean
 }
 
 /**
@@ -143,6 +146,7 @@ function RepositoryBranchPickers({
     value,
     onRepositoryChange,
     onBranchChange,
+    autoOpen,
 }: RepositoryBranchPickersProps): JSX.Element {
     // Same keyed instance GitHubRepositoryCombobox mounts, so this shares its load state — no extra fetch.
     const { loading: repositoriesLoading } = useValues(githubRepositorySearchLogic({ id: integrationId }))
@@ -155,6 +159,7 @@ function RepositoryBranchPickers({
                 onChange={onRepositoryChange}
                 placeholder="No repo"
                 showNoneOption
+                defaultOpen={autoOpen && !value.repository}
             />
             {value.repository && !repositoriesLoading ? (
                 <GitHubBranchCombobox

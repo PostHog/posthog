@@ -31,6 +31,8 @@ export interface GitHubRepositoryComboboxProps {
     /** Load every page. The default picker stops after the first page and waits for "Load more". */
     loadAll?: boolean
     fullWidth?: boolean
+    /** Open the picker on mount, for a picker the user just asked for. */
+    defaultOpen?: boolean
 }
 
 /**
@@ -52,6 +54,7 @@ export function GitHubRepositoryCombobox({
     repositoryFilter,
     loadAll = false,
     fullWidth = false,
+    defaultOpen = false,
 }: GitHubRepositoryComboboxProps): JSX.Element {
     const logic = githubRepositorySearchLogic({ id: integrationId, loadAll })
     const { repositories, loading, hasMore, searchQuery, error } = useValues(logic)
@@ -63,7 +66,7 @@ export function GitHubRepositoryCombobox({
     const triggerRef = useRef<HTMLButtonElement>(null)
     const disabledReasonId = useId()
     const isDisabled = disabled || !!disabledReason
-    const [open, setOpen] = useState(false)
+    const [open, setOpen] = useState(defaultOpen)
 
     const trimmedSearchQuery = searchQuery.trim()
     // Keep the selected target visible while searching, loading, or refreshing.
