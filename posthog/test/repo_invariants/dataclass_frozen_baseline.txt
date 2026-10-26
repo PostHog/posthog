@@ -814,8 +814,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/onepagecrm/onepagecrm.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/onepassword/onepassword.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/onepassword/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/onfleet/onfleet.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/onfleet/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/open_exchange_rates/open_exchange_rates.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/open_exchange_rates/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/open_meteo/open_meteo.py
@@ -825,7 +823,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/openai_ads/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/openalex/openalex.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/openaq/openaq.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/openaq/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/openfda/openfda.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/openweather/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/opinion_stage/opinion_stage.py
