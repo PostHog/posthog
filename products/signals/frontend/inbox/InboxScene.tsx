@@ -287,7 +287,9 @@ export function InboxScene(): JSX.Element {
                         isn't set up, the list view itself swaps in the welcome page; the banner sits
                         above the otherwise-normal inbox when there's already work to keep. */}
                     {onboardingMode === 'banner' && <InboxOnboardingBanner />}
-                    {onboardingMode !== 'takeover' && onboardingMode !== 'pending' && <GitHubConnectionNotice />}
+                    {activeTab !== 'reports' && onboardingMode !== 'takeover' && onboardingMode !== 'pending' && (
+                        <GitHubConnectionNotice className="mx-4 mb-3 mt-2 shrink-0" />
+                    )}
                     {onboardingMode !== 'takeover' && onboardingMode !== 'pending' && (
                         <InboxValueSummary visible={!showDetail} />
                     )}
@@ -297,7 +299,7 @@ export function InboxScene(): JSX.Element {
 
             {showDetail && (
                 <div className="flex flex-col -mx-4 flex-1 min-h-0">
-                    <GitHubConnectionNotice />
+                    <GitHubConnectionNotice className="mx-4 mb-3 mt-2 shrink-0" />
                     {isTriageOpen ? (
                         <InboxTriageView />
                     ) : isFindingsOpen ? (

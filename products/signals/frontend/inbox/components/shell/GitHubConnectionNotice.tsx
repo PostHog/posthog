@@ -7,7 +7,11 @@ import { urls } from 'scenes/urls'
 
 import { signalTeamConfigLogic } from '../../logics/signalTeamConfigLogic'
 
-export function GitHubConnectionNotice(): JSX.Element | null {
+interface GitHubConnectionNoticeProps {
+    className?: string
+}
+
+export function GitHubConnectionNotice({ className }: GitHubConnectionNoticeProps): JSX.Element | null {
     const { githubConnectionIssue } = useValues(signalTeamConfigLogic)
 
     if (!githubConnectionIssue) {
@@ -29,7 +33,7 @@ export function GitHubConnectionNotice(): JSX.Element | null {
         <LemonBanner
             type="warning"
             icon={<IconGithub className="size-5 shrink-0" />}
-            className="mx-4 mb-3 mt-2 shrink-0"
+            className={className}
             action={{
                 children: actionLabel,
                 to: urls.settings('environment-integrations', 'integration-github'),
