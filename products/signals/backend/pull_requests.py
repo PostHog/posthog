@@ -69,7 +69,11 @@ def reconcile_reports_for_pull_request(*, team_id: int, pr_id: str) -> None:
     pr = SignalReportPullRequest.objects.for_team(team_id).get(id=pr_id)
     report_ids = report_ids_for_implementation_pr(team_id=team_id, repository=pr.repository, pr_number=pr.number)
     with transaction.atomic():
-        reports = SignalReport.objects.select_for_update().filter(team_id=team_id, id__in=report_ids).order_by("id")
+        reports = (
+            SignalReport.objects.select_for_update(no_key=True)
+            .filter(team_id=team_id, id__in=report_ids)
+            .order_by("id")
+        )
         for report in reports:
             apply_report_completion(report)
             schedule_report_replacements(team_id, str(report.id))
@@ -107,20 +111,26 @@ def link_pull_request(
         defaults={"url": details.url},
     )
     pr = SignalReportPullRequest.objects.for_team(report.team_id).select_for_update().get(id=pr.id)
+    previous_state = pr.state
+    update_fields: list[str] = []
     if pr.state != SignalReportPullRequest.State.MERGED and details.state != SignalReportPullRequest.State.UNKNOWN:
         # Imported/task snapshots must not overwrite a state already verified with GitHub.
         if state_source == PullRequestStateSource.GITHUB or pr.checked_at is None:
-            previous_state = pr.state
             pr.state = details.state
             if state_source == PullRequestStateSource.GITHUB:
                 pr.checked_at = timezone.now()
-            pr.save(update_fields=["state", "checked_at", "updated_at"])
-            # Wait for the complete PR batch and release its locks before locking shared reports.
-            transaction.on_commit(partial(reconcile_reports_for_pull_request, team_id=report.team_id, pr_id=str(pr.id)))
-            if state_source != PullRequestStateSource.LEGACY_ASSIGNMENT:
-                from products.signals.backend.inbox_push_notifications import schedule_pull_request_ready_push
+            update_fields.extend(["state", "checked_at"])
+    if pr.state == SignalReportPullRequest.State.MERGED and pr.merged_at is None and details.merged_at is not None:
+        pr.merged_at = details.merged_at
+        update_fields.append("merged_at")
+    if update_fields:
+        pr.save(update_fields=[*update_fields, "updated_at"])
+        # Wait for the complete PR batch and release its locks before locking shared reports.
+        transaction.on_commit(partial(reconcile_reports_for_pull_request, team_id=report.team_id, pr_id=str(pr.id)))
+        if state_source != PullRequestStateSource.LEGACY_ASSIGNMENT:
+            from products.signals.backend.inbox_push_notifications import schedule_pull_request_ready_push
 
-                schedule_pull_request_ready_push(pr, previous_state=previous_state)
+            schedule_pull_request_ready_push(pr, previous_state=previous_state)
     links = SignalReportArtefact.objects.filter(
         team_id=report.team_id,
         report_id=report.id,
@@ -180,16 +190,18 @@ def apply_report_completion(report: SignalReport) -> None:
     from products.signals.backend.report_assignments import _apply_pr_report_state
     from products.signals.backend.supersession import pending_replacement
 
-    if pending_replacement(report.team_id, str(report.id)) is not None:
+    if pending_replacement(report.team_id, str(report.id), using="default") is not None:
         return
 
-    states = [
-        pr.state
-        for pr in fetch_implementation_prs_for_reports([str(report.id)], team_id=report.team_id).get(str(report.id), [])
-    ]
-    state = completion_state(states)
+    prs = fetch_implementation_prs_for_reports([str(report.id)], team_id=report.team_id, using="default").get(
+        str(report.id), []
+    )
+    state = completion_state([pr.state for pr in prs])
     if state is not None:
-        _apply_pr_report_state(report, state)
+        merged_prs = [pr for pr in prs if pr.state == "merged"]
+        merge_times = [pr.merged_at for pr in merged_prs if pr.merged_at is not None]
+        merged_at = max(merge_times) if merge_times and len(merge_times) == len(merged_prs) else None
+        _apply_pr_report_state(report, state, merged_at=merged_at)
 
 
 def import_report_pull_requests(report: SignalReport, *, notify_reviewers: bool = False) -> None:
@@ -279,7 +291,9 @@ def update_pull_request_state(
     ).values_list("report_id", flat=True)
     with transaction.atomic():
         reports = list(
-            SignalReport.objects.select_for_update().filter(team_id=team_id, id__in=report_ids).order_by("id")
+            SignalReport.objects.select_for_update(no_key=True)
+            .filter(team_id=team_id, id__in=report_ids)
+            .order_by("id")
         )
         pr = (
             SignalReportPullRequest.objects.for_team(team_id)
@@ -296,7 +310,7 @@ def update_pull_request_state(
         if pr.state != SignalReportPullRequest.State.MERGED:
             pr.state = state
         update_fields = ["state", "checked_at", "updated_at"]
-        if merged_at is not None:
+        if state == SignalReportPullRequest.State.MERGED and pr.merged_at is None and merged_at is not None:
             pr.merged_at = merged_at
             update_fields.append("merged_at")
         pr.checked_at = timezone.now()
