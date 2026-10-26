@@ -15,8 +15,7 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
-AWS_AUTH_FIELD_NAME = "aws_auth"
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import AWS_AUTH_FIELD_NAME
 
 MISSING_ACCESS_KEYS_ERROR = "Enter both an AWS access key ID and a secret access key."
 MISSING_ROLE_ERROR = "Select an AWS connection that holds your IAM role."

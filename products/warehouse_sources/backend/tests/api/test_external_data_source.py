@@ -3297,11 +3297,27 @@ class TestExternalDataSource(APIBaseTest):
         source.refresh_from_db()
         assert source.job_inputs["auth_method"]["personal_access_token"] == "ghp_secret"
 
+    @parameterized.expand(
+        [
+            # The settings form resubmits what GET returned, with the secrets left out.
+            ("form_resubmit", None, "AKIAEXAMPLE", "example-secret", False),
+            # An API client still on the old shape rotates the keys at the top level.
+            (
+                "flat_rotation",
+                {"aws_access_key_id": "AKIAROTATED", "aws_secret_access_key": "rotated-secret"},
+                "AKIAROTATED",
+                "rotated-secret",
+                True,
+            ),
+        ]
+    )
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.aws_config.source.AwsConfigSource.validate_credentials",
         return_value=(True, None),
     )
-    def test_update_after_get_keeps_keys_stored_before_the_auth_select(self, mock_validate):
+    def test_update_of_keys_stored_before_the_auth_select(
+        self, _name, submitted, expected_key_id, expected_secret, expect_probe, mock_validate
+    ):
         source = ExternalDataSource.objects.create(
             team_id=self.team.pk,
             source_id=str(uuid.uuid4()),
@@ -3327,19 +3343,43 @@ class TestExternalDataSource(APIBaseTest):
 
         patch_response = self.client.patch(
             f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
-            data={"job_inputs": get_response.json()["job_inputs"]},
+            data={"job_inputs": submitted or get_response.json()["job_inputs"]},
         )
         assert patch_response.status_code == 200
 
         source.refresh_from_db()
         assert source.job_inputs["aws_auth"] == {
             "selection": "access_keys",
-            "aws_access_key_id": "AKIAEXAMPLE",
-            "aws_secret_access_key": "example-secret",
+            "aws_access_key_id": expected_key_id,
+            "aws_secret_access_key": expected_secret,
             "aws_session_token": "example-session",
             "aws_integration_id": None,
         }
-        mock_validate.assert_not_called()
+        assert mock_validate.called is expect_probe
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.aws_config.source.AwsConfigSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_create_with_access_keys_at_the_top_level(self, _mock_validate):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "AwsConfig",
+                "created_via": "api",
+                "payload": {
+                    "aws_access_key_id": "AKIAEXAMPLE",
+                    "aws_secret_access_key": "example-secret",
+                    "region": "eu-west-1",
+                    "schemas": [{"name": "config_rules", "should_sync": True, "sync_type": "full_refresh"}],
+                },
+            },
+        )
+
+        assert response.status_code == 201, response.json()
+        source = ExternalDataSource.objects.get(id=response.json()["id"])
+        assert source.job_inputs["aws_auth"]["selection"] == "access_keys"
+        assert source.job_inputs["aws_auth"]["aws_secret_access_key"] == "example-secret"
 
     def test_update_with_malformed_auth_method_returns_400(self):
         source = self._create_external_data_source()

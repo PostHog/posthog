@@ -72,6 +72,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     history_column_collisions,
     is_history_table_mode,
     is_team_allowlisted_for_internal_hosts,
+    nest_flat_select_containers,
     new_source_requires_ssl,
     sql_schema_metadata,
     validate_and_coerce_row_filters,
@@ -283,7 +284,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             if "require_tls" not in tunnel:
                 tunnel["require_tls"] = {"enabled": True}
 
-        job_inputs = helpers.nest_flat_select_containers(job_inputs, source.get_source_config.fields)
+        job_inputs = nest_flat_select_containers(job_inputs, source.get_source_config.fields)
         stripped = helpers.strip_sensitive_from_dict(job_inputs, nonsensitive, split.sensitive)
         declared = helpers.get_declared_field_names(source.get_source_config.fields)
         representation["job_inputs"] = helpers.restore_declared_field_names(stripped, declared.hyphenated)
@@ -399,12 +400,12 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             validated_data["prefix"] = instance.prefix
 
         job_inputs_were_submitted = "job_inputs" in validated_data
-        incoming_job_inputs = validated_data.get("job_inputs", {})
 
         source_type_model = ExternalDataSourceType(instance.source_type)
         source = SourceRegistry.get_source(source_type_model)
-        existing_job_inputs = helpers.nest_flat_select_containers(
-            instance.job_inputs or {}, source.get_source_config.fields
+        existing_job_inputs = nest_flat_select_containers(instance.job_inputs or {}, source.get_source_config.fields)
+        incoming_job_inputs = nest_flat_select_containers(
+            validated_data.get("job_inputs", {}), source.get_source_config.fields
         )
         sensitive_fields = helpers.get_sensitive_field_names(source.get_source_config.fields)
         declared_field_names = helpers.get_declared_field_names(source.get_source_config.fields)
