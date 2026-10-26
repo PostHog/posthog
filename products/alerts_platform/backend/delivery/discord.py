@@ -59,7 +59,6 @@ def _body(message: AlertMessage, limit: int) -> str:
     headline = f"**{escape_markdown(message.title)}**"
     lines = [f"**{detail.label}:** {escape_markdown(detail.value)}" for detail in message.details]
     if message.description:
-        # A line of its own in the clip, so a long description cannot crowd out every detail.
         lines.insert(0, escape_markdown(message.description))
     if not lines:
         return headline

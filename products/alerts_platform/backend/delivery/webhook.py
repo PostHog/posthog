@@ -65,7 +65,7 @@ def alertmanager_body(message: AlertMessage) -> dict[str, Any]:
         "posthog_configuration_id": configuration_id,
         "posthog_source_kind": message.source.value,
     }
-    # The platform's own labels come last, so a source or rule label with the same name cannot replace them.
+    # The platform's own labels come last, so a source label with the same name cannot replace them.
     labels = {**message.labels, **group_labels, "posthog_event_kind": transition.kind.value}
     annotations = _annotations(message)
     return {
