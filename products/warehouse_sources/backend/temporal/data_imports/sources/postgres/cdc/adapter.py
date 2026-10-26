@@ -12,9 +12,13 @@ import structlog
 from sshtunnel import BaseSSHTunnelForwarderError
 
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import cdc_error_info
+from products.warehouse_sources.backend.temporal.data_imports.cdc.types import CDCLag
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import HostNotAllowedError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.tls import tls_options
-from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.config import PostgresCDCConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.config import (
+    PostgresCDCConfig,
+    PostgresSetupNames,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.errors import (
     classify_postgres_cdc_error,
 )
@@ -156,34 +160,36 @@ class PostgresCDCAdapter:
         management_mode: Literal["posthog", "self_managed"],
         tables: list[str],
         schema: str,
-        slot_name: str | None,
-        publication_name: str | None,
+        setup: Mapping[str, Any],
     ) -> list[str]:
         from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.prerequisite_validator import (
             validate_cdc_prerequisites,
         )
 
+        names = PostgresSetupNames.from_setup(setup)
         with self.management_connection(source) as conn:
             return validate_cdc_prerequisites(
                 conn=conn,
                 management_mode=management_mode,
                 tables=tables,
                 schema=schema,
-                slot_name=slot_name,
-                publication_name=publication_name,
+                slot_name=names.slot_name,
+                publication_name=names.publication_name,
             )
 
-    def drop_resources(self, conn: Any, slot_name: str, pub_name: str) -> None:
-        drop_slot_and_publication(conn, slot_name, pub_name)
+    def drop_stream(self, conn: Any, source: ExternalDataSource) -> None:
+        cdc_config = self.parse_cdc_config(source)
+        drop_slot_and_publication(conn, cdc_config.slot_name, cdc_config.publication_name)
 
-    def slot_exists(self, conn: Any, slot_name: str) -> bool:
-        return slot_exists(conn, slot_name)
+    def stream_exists(self, conn: Any, source: ExternalDataSource) -> bool:
+        return slot_exists(conn, self.parse_cdc_config(source).slot_name)
 
-    def get_lag_bytes(self, conn: Any, slot_name: str) -> int | None:
-        return get_slot_lag_bytes(conn, slot_name)
-
-    def get_retention_cap_mb(self, conn: Any) -> int | None:
-        return get_max_slot_wal_keep_size_mb(conn)
+    def get_lag(self, conn: Any, source: ExternalDataSource) -> CDCLag | None:
+        lag_bytes = get_slot_lag_bytes(conn, self.parse_cdc_config(source).slot_name)
+        retention_cap_mb = get_max_slot_wal_keep_size_mb(conn)
+        if lag_bytes is None:
+            return None
+        return CDCLag(behind_bytes=lag_bytes, retention_cap_mb=retention_cap_mb)
 
     def is_slot_invalidation_error(self, exc: BaseException) -> bool:
         return is_slot_invalidation_error(exc)
@@ -203,7 +209,7 @@ class PostgresCDCAdapter:
         category = classify_postgres_cdc_error(exc)
         return cdc_error_info(category) if category is not None else None
 
-    def recreate_slot(self, source: ExternalDataSource, tables: list[str]) -> dict[str, Any]:
+    def recreate_stream(self, source: ExternalDataSource, tables: list[str]) -> dict[str, Any]:
         """Drop the dead replication slot and create a fresh one against the existing
         publication, recreating the publication first when PostHog owns it and it's gone.
 
@@ -406,6 +412,9 @@ class PostgresCDCAdapter:
                 table,
                 source.id,
             )
+
+    def manages_capture_set(self, source: ExternalDataSource) -> bool:
+        return self._managed_publication_name(source) is not None
 
     def _alter_publication_membership(self, source: ExternalDataSource, schema: str, table: str, add: bool) -> None:
         publication_name = self._managed_publication_name(source)

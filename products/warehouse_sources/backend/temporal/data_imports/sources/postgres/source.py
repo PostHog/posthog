@@ -57,6 +57,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.postgres import (
     PostgresSourceConfig,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.config import PostgresSetupNames
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.client_deadline import (
     CLIENT_DEADLINE_ERROR,
 )
@@ -2079,8 +2080,7 @@ class PostgresSource(
         config: PostgresSourceConfig,
         management_mode: str,
         tables: list[str],
-        slot_name: str | None = None,
-        publication_name: str | None = None,
+        setup: Mapping[str, Any],
         require_ssl: bool = True,
         team_id: int | None = None,
     ) -> list[str]:
@@ -2096,6 +2096,7 @@ class PostgresSource(
             _connect_to_postgres,
         )
 
+        names = PostgresSetupNames.from_setup(setup)
         with self.with_ssh_tunnel(config, team_id, POSTGRES_HOST_CHECK_SOURCE_TYPE) as (host, port):
             conn = _connect_to_postgres(
                 host=host,
@@ -2116,8 +2117,8 @@ class PostgresSource(
                     management_mode=management_mode,  # type: ignore[arg-type]
                     tables=tables,
                     schema=schema,
-                    slot_name=slot_name,
-                    publication_name=publication_name,
+                    slot_name=names.slot_name,
+                    publication_name=names.publication_name,
                 )
             finally:
                 conn.close()

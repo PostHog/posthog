@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol, TypeVar
 
 from posthog.exceptions_capture import capture_exception
 
-from products.warehouse_sources.backend.temporal.data_imports.cdc.types import CDCConfig
+from products.warehouse_sources.backend.temporal.data_imports.cdc.types import CDCConfig, CDCLag
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter import PostgresCDCAdapter
 from products.warehouse_sources.backend.types import CDCEngine, ExternalDataSourceType
 
@@ -60,24 +60,25 @@ class CDCSourceAdapter(Protocol[CDCConfigT_co]):
         management_mode: Literal["posthog", "self_managed"],
         tables: list[str],
         schema: str,
-        slot_name: str | None,
-        publication_name: str | None,
-    ) -> list[str]: ...
+        setup: Mapping[str, Any],
+    ) -> list[str]:
+        """Check the source database against the engine's CDC prerequisites. ``setup`` holds the
+        engine's own ``cdc_*`` setup fields from the request (PG: the slot and publication names)."""
+        ...
 
-    def drop_resources(self, conn: Any, slot_name: str, pub_name: str) -> None: ...
+    def drop_stream(self, conn: Any, source: ExternalDataSource) -> None:
+        """Best-effort drop of the source's engine-side change stream and the resources PostHog owns
+        with it (PG: the slot and the publication). Logs a refused drop instead of raising."""
+        ...
 
-    def slot_exists(self, conn: Any, slot_name: str) -> bool:
+    def stream_exists(self, conn: Any, source: ExternalDataSource) -> bool:
         """Whether the change-stream resource still exists on the source database. Callers use it to
         confirm a best-effort drop actually removed it before acting as if it were gone."""
         ...
 
-    def get_lag_bytes(self, conn: Any, slot_name: str) -> int | None: ...
-
-    def get_retention_cap_mb(self, conn: Any) -> int | None:
-        """Engine-enforced cap on retained change-stream backlog in MB (PG:
-        max_slot_wal_keep_size). None when unlimited or unknown. Once the backlog
-        crosses this cap the engine invalidates the slot itself, so safety nets
-        must act below it."""
+    def get_lag(self, conn: Any, source: ExternalDataSource) -> CDCLag | None:
+        """How far capture is behind the change stream, or None when the stream is missing or reports
+        no position."""
         ...
 
     def is_slot_invalidation_error(self, exc: BaseException) -> bool:
@@ -106,7 +107,7 @@ class CDCSourceAdapter(Protocol[CDCConfigT_co]):
         ``is_slot_invalidation_error``: keeps psycopg/engine specifics out of the shared layer."""
         ...
 
-    def recreate_slot(self, source: ExternalDataSource, tables: list[str]) -> dict[str, Any]:
+    def recreate_stream(self, source: ExternalDataSource, tables: list[str]) -> dict[str, Any]:
         """Drop and recreate the change-stream resource after invalidation, against the
         existing capture definition (recreating it when PostHog owns it). ``tables`` is
         the schema-qualified (``schema.table``) capture set used if the definition must be
@@ -169,6 +170,11 @@ class CDCSourceAdapter(Protocol[CDCConfigT_co]):
 
     def remove_table(self, source: ExternalDataSource, schema: str, table: str) -> None:
         """Best-effort exclude a table from the change-capture set. Inverse of ``add_table``."""
+        ...
+
+    def manages_capture_set(self, source: ExternalDataSource) -> bool:
+        """Whether PostHog owns the source's change-capture set (PG: a PostHog-managed publication),
+        so ``add_table`` and ``remove_table`` change it."""
         ...
 
 
