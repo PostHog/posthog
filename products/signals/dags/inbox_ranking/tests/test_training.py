@@ -45,6 +45,8 @@ from products.signals.backend.ranking.serving_manifest import (
     ONNX_MODEL_FILE,
     ONNX_MODEL_KIND,
     PINNED_ROLE,
+    PROJECT_VECTORS_ENGAGEMENT_DATE_METADATA_KEY,
+    PROJECT_VECTORS_SCHEMA_VERSION_METADATA_KEY,
     RECENT_ROLE,
     SERVED_ROLE,
     ServingManifest,
@@ -58,6 +60,7 @@ from products.signals.backend.ranking.serving_manifest import (
 from products.signals.backend.ranking.sinks import REPORT_SCORED_EVENT
 from products.signals.dags.inbox_ranking.common import partition_object_key
 from products.signals.dags.inbox_ranking.dataset.dag import LABELS_TABLE, PROJECT_VECTORS_TABLE, STATE_TABLE
+from products.signals.dags.inbox_ranking.dataset.project_vectors import PROJECT_VECTORS_SCHEMA_VERSION
 from products.signals.dags.inbox_ranking.training.calibration import (
     BUCKETS,
     calibration_buckets,
@@ -67,6 +70,9 @@ from products.signals.dags.inbox_ranking.training.classification import classifi
 from products.signals.dags.inbox_ranking.training.dag import (
     _STATE_READ_COLUMNS,
     METADATA_FILE,
+    NO_FRESH_PROJECT_VECTORS,
+    STALE_ENGAGEMENT_EXPORT,
+    UNKNOWN_SCHEMA_VERSION,
     _delete_other_objects,
     _pinned_models,
     _publish_manifest,
@@ -2157,14 +2163,22 @@ def test_a_model_published_before_model_kind_existed_reads_as_xgboost():
 class _AppObjectStore:
     """The deployment's object store, the one the Temporal workers can reach."""
 
-    def __init__(self, existing: dict[str, bytes] | None = None, fail_on: str | None = None):
+    def __init__(
+        self,
+        existing: dict[str, bytes] | None = None,
+        fail_on: str | None = None,
+        metadata: dict[str, dict[str, str]] | None = None,
+    ):
         self.objects = dict(existing or {})
+        self.metadata = dict(metadata or {})
         self.fail_on = fail_on
         self.written: list[str] = []
         self.extras: dict[str, dict[str, str] | None] = {}
 
-    def head_object(self, bucket: str, file_key: str) -> dict[str, int] | None:
-        return {"ContentLength": len(self.objects[file_key])} if file_key in self.objects else None
+    def head_object(self, bucket: str, file_key: str) -> dict[str, Any] | None:
+        if file_key not in self.objects:
+            return None
+        return {"ContentLength": len(self.objects[file_key]), "Metadata": self.metadata.get(file_key, {})}
 
     def write(self, bucket: str, key: str, content: str | bytes, extras: dict[str, str] | None) -> None:
         if self.fail_on is not None and self.fail_on in key:
@@ -2334,6 +2348,91 @@ def test_project_vectors_are_published_before_the_manifest_that_names_them(
         # Team-level vectors stay in the deployment that owns the teams, and a served model that
         # reads them could not score there, so the mirror keeps its previous manifest.
         assert mirror.objects == {}
+
+
+_MIRROR_PARTITION = "2026-08-19"
+
+
+def _mirror_day(offset: int) -> str:
+    return (datetime.date.fromisoformat(_MIRROR_PARTITION) - datetime.timedelta(days=offset)).isoformat()
+
+
+def _mirror_vectors_metadata(engagement_offset: int, schema_version: int = PROJECT_VECTORS_SCHEMA_VERSION):
+    return {
+        PROJECT_VECTORS_SCHEMA_VERSION_METADATA_KEY: str(schema_version),
+        PROJECT_VECTORS_ENGAGEMENT_DATE_METADATA_KEY: _mirror_day(engagement_offset),
+    }
+
+
+@pytest.mark.parametrize(
+    "mirror_days,expected_offset,skip_reason",
+    [
+        ({0: _mirror_vectors_metadata(1)}, 0, None),
+        ({1: _mirror_vectors_metadata(2)}, 1, None),
+        (
+            {
+                0: _mirror_vectors_metadata(1, schema_version=PROJECT_VECTORS_SCHEMA_VERSION + 1),
+                1: _mirror_vectors_metadata(2),
+            },
+            1,
+            None,
+        ),
+        ({}, None, NO_FRESH_PROJECT_VECTORS),
+        ({4: _mirror_vectors_metadata(5)}, None, NO_FRESH_PROJECT_VECTORS),
+        (
+            {0: _mirror_vectors_metadata(1, schema_version=PROJECT_VECTORS_SCHEMA_VERSION + 1)},
+            None,
+            UNKNOWN_SCHEMA_VERSION,
+        ),
+        ({0: _mirror_vectors_metadata(4)}, None, STALE_ENGAGEMENT_EXPORT),
+        (
+            {0: {PROJECT_VECTORS_SCHEMA_VERSION_METADATA_KEY: str(PROJECT_VECTORS_SCHEMA_VERSION)}},
+            None,
+            STALE_ENGAGEMENT_EXPORT,
+        ),
+    ],
+)
+def test_the_mirror_manifest_names_the_mirror_regions_own_fresh_project_vectors(
+    monkeypatch: pytest.MonkeyPatch,
+    mirror_days: dict[int, dict[str, str]],
+    expected_offset: int | None,
+    skip_reason: str | None,
+) -> None:
+    prefix = settings.INBOX_RANKING_DATASET_S3_PREFIX
+    mirror_keys = {offset: serving_project_vectors_key(prefix, _mirror_day(offset)) for offset in mirror_days}
+    # The fake has no read method, so a publish that read a mirror object body would fail the mirror.
+    mirror = _AppObjectStore(
+        dict.fromkeys(mirror_keys.values(), b"mirror region vectors"),
+        metadata={key: mirror_days[offset] for offset, key in mirror_keys.items()},
+    )
+    before = dict(mirror.objects)
+    dataset = _serving_dataset_s3(
+        prefix,
+        _MIRROR_PARTITION,
+        model_kind=ONNX_MODEL_KIND,
+        project_vector_kinds=("typical", "open", "action", "dismiss"),
+    )
+    dataset.objects[partition_object_key(prefix, PROJECT_VECTORS_TABLE, _MIRROR_PARTITION)] = b"this region vectors"
+    capture = _run_serving_manifest(monkeypatch, _AppObjectStore(), mirror=mirror, dataset_client=dataset)
+
+    event = _manifest_event(capture)
+    assert b"this region vectors" not in mirror.objects.values()
+    assert not any("/project_vectors/" in key for key in mirror.written)
+    if expected_offset is None:
+        assert mirror.objects == before
+        assert event["mirror_published"] is False
+        assert event["mirror_skip_reason"] == skip_reason
+        assert event["mirror_project_vectors_key"] is None
+        return
+    manifest = ServingManifest.model_validate_json(mirror.objects[serving_manifest_key(prefix)])
+    assert manifest.served.reads_project_vectors
+    assert manifest.project_vectors == mirror_keys[expected_offset]
+    assert mirror.written[-1] == serving_manifest_key(prefix)
+    assert event["mirror_published"] is True
+    assert "mirror_skip_reason" not in event
+    assert event["mirror_project_vectors_key"] == mirror_keys[expected_offset]
+    assert event["mirror_project_vectors_date"] == _mirror_day(expected_offset)
+    assert event["mirror_engagement_export_date"] == _mirror_day(expected_offset + 1)
 
 
 def test_recent_versions_and_challengers_come_from_the_window_and_skip_a_version_missing_its_booster(monkeypatch):

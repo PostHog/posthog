@@ -132,7 +132,6 @@ def _subscription_title(
     if is_new_subscription:
         return (
             f"This channel has been subscribed to {display_name} on PostHog! 🎉\n\n"
-            f"This subscription is {subscription.summary}.\n"
             f"The next one will be sent on {next_delivery_date_display(subscription)}"
         )
     return f"Your subscription to {display_name} is ready! 🎉"
@@ -163,10 +162,6 @@ def _subscription_header_blocks(
         {
             "type": "context",
             "elements": [{"type": "plain_text", "text": f"{resource_icon} {resource_info.kind}: {resource_info.name}"}],
-        },
-        {
-            "type": "context",
-            "elements": [{"type": "plain_text", "text": f"🕒 {subscription.summary.removeprefix('sent ')}"}],
         },
     ]
 
@@ -324,7 +319,7 @@ def _prepare_slack_gallery(
             unattached_assets.append(asset)
             continue
         file_uploads.append({"content": content, "filename": asset.filename, "title": _insight_name(asset)})
-        if asset.insight:
+        if subscription.dashboard_id and asset.insight:
             if insight_links:
                 insight_links.append({"type": "text", "text": " · "})
             insight_links.append({"type": "link", "url": asset.insight.url, "text": _insight_name(asset)})
@@ -381,7 +376,7 @@ def _prepare_slack_gallery(
     )
 
 
-def _blocks_for_asset(asset: ExportedAsset, resource_url: str) -> list[dict]:
+def _blocks_for_asset(asset: ExportedAsset, resource_url: str, *, include_insight_link: bool = True) -> list[dict]:
     if _has_asset_failed(asset):
         details = failed_asset_details(asset)
         support_url = subscription_support_url(resource_url)
@@ -447,8 +442,9 @@ def _blocks_for_asset(asset: ExportedAsset, resource_url: str) -> list[dict]:
         image_url = DEBUG_PLACEHOLDER_IMAGE_URL
 
     blocks = []
-    if link := _insight_link_block(asset):
-        blocks.append(link)
+    if include_insight_link:
+        if link := _insight_link_block(asset):
+            blocks.append(link)
     blocks.append({"type": "image", "image_url": image_url, "alt_text": alt_text})
     return blocks
 
@@ -508,7 +504,11 @@ def _prepare_slack_message(
         notice = summary_skipped_over_budget_message(f"<{billing_url}|Billing settings>")
         blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": f"_{notice}_"}]})
 
-    blocks.extend(_blocks_for_asset(first_asset, resource_url=resource_info.url))
+    blocks.extend(
+        _blocks_for_asset(
+            first_asset, resource_url=resource_info.url, include_insight_link=bool(subscription.dashboard_id)
+        )
+    )
 
     if other_assets:
         blocks.append(
@@ -523,7 +523,9 @@ def _prepare_slack_message(
     # Prepare additional messages for thread
     thread_messages = []
     for asset in other_assets:
-        asset_blocks = _blocks_for_asset(asset, resource_url=resource_info.url)
+        asset_blocks = _blocks_for_asset(
+            asset, resource_url=resource_info.url, include_insight_link=bool(subscription.dashboard_id)
+        )
         thread_messages.append({"blocks": asset_blocks})
 
     if total_asset_count > len(assets):

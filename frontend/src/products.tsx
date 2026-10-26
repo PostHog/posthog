@@ -159,6 +159,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/data-management/warehouse-properties/:tab': ['WarehouseProperties', 'warehouseProperties'],
     '/data-catalog': ['DataCatalog', 'dataCatalog'],
     '/data-catalog/metrics/:name': ['DataCatalogMetric', 'dataCatalogMetric'],
+    '/data-catalog/new-metric': ['DataCatalogNewMetric', 'dataCatalogNewMetric'],
     '/models': ['Models', 'models'],
     '/models/:id': ['NodeDetail', 'nodeDetail'],
     '/models/:id/:tab': ['NodeDetail', 'nodeDetail'],
@@ -368,6 +369,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/wizard/runs': ['WizardRuns', 'wizardRuns'],
     '/workflows': ['Workflows', 'workflows'],
     '/workflows/:tab': ['Workflows', 'workflows'],
+    '/workflows/channels/email/:id': ['WorkflowsEmailDomain', 'workflowsEmailDomain'],
     '/workflows/:id/:tab': ['Workflow', 'workflowTab'],
     '/workflows/library/templates/:id': ['WorkflowsLibraryTemplate', 'workflowsLibraryTemplate'],
     '/workflows/library/templates/new': ['WorkflowsLibraryTemplate', 'workflowsLibraryTemplate'],
@@ -651,6 +653,7 @@ export const productConfiguration: Record<string, any> = {
     AIObservabilityOfflineExperiments: {
         projectBased: true,
         name: 'Offline evals',
+        description: 'Manage datasets, follow score trends, and inspect offline experiment results.',
         layout: 'app-container',
         iconType: 'llm_evaluations',
     },
@@ -854,6 +857,7 @@ export const productConfiguration: Record<string, any> = {
         docsHref: 'https://posthog.com/docs/semantic-layer',
     },
     DataCatalogMetric: { projectBased: true, name: 'Metric' },
+    DataCatalogNewMetric: { projectBased: true, name: 'New metric' },
     Models: {
         name: 'Models',
         projectBased: true,
@@ -1318,6 +1322,7 @@ export const productConfiguration: Record<string, any> = {
         projectBased: true,
         description: 'Send a one-time or scheduled email to a group of people',
     },
+    WorkflowsEmailDomain: { name: 'Workflows', iconType: 'workflows', projectBased: true },
 }
 
 /** This const is auto-generated, as is the whole file */
@@ -1505,6 +1510,7 @@ export const productUrls = {
         `/dashboard/${id}/subscriptions/${subscriptionId}`,
     sharedDashboard: (shareToken: string): string => `/shared_dashboard/${shareToken}`,
     dataCatalog: (tab?: string): string => `/data-catalog${tab ? `?tab=${tab}` : ''}`,
+    dataCatalogNewMetric: (): string => '/data-catalog/new-metric',
     dataCatalogMetric: (name: string, tab?: 'definition' | 'data-quality' | 'lineage'): string =>
         `/data-catalog/metrics/${name}${tab && tab !== 'definition' ? `?tab=${tab}` : ''}`,
     models: (tab?: ModelsSceneTab): string => (tab && tab !== 'overview' ? `/models?tab=${tab}` : '/models'),
@@ -1991,6 +1997,7 @@ export const productUrls = {
     workflows: (tab?: WorkflowsSceneTab): string => `/workflows${tab ? `/${tab}` : ''}`,
     workflow: (id: string, tab: string): string => `/workflows/${id}/${tab}`,
     workflowNew: (): string => '/workflows/new/workflow',
+    workflowsEmailDomain: (id: string | number): string => `/workflows/channels/email/${id}`,
     workflowsLibraryMessage: (id: string): string => `/workflows/library/messages/${id}`,
     workflowsLibraryTemplate: (id?: string): string => `/workflows/library/templates/${id}`,
     workflowsLibraryTemplateNew: (): string => '/workflows/library/templates/new',
@@ -2417,7 +2424,14 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'broadcasts',
         iconColor: ['var(--color-product-broadcasts-light)', 'var(--color-product-broadcasts-dark)'],
         sceneKey: 'Broadcasts',
-        sceneKeys: ['Workflows', 'Workflow', 'WorkflowsLibraryTemplate', 'Broadcasts', 'Broadcast'],
+        sceneKeys: [
+            'Workflows',
+            'Workflow',
+            'WorkflowsLibraryTemplate',
+            'Broadcasts',
+            'Broadcast',
+            'WorkflowsEmailDomain',
+        ],
     },
     {
         path: 'Business intelligence',
@@ -2578,7 +2592,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             { name: 'Certifications', href: urls.dataCatalog('certifications') },
         ],
         sceneKey: 'DataCatalog',
-        sceneKeys: ['DataCatalog', 'DataCatalogMetric'],
+        sceneKeys: ['DataCatalog', 'DataCatalogMetric', 'DataCatalogNewMetric'],
     },
     {
         path: 'Data warehouse',
@@ -3351,7 +3365,14 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'workflows',
         iconColor: ['var(--color-product-workflows-light)'] as FileSystemIconColor,
         sceneKey: 'Workflows',
-        sceneKeys: ['Workflows', 'Workflow', 'WorkflowsLibraryTemplate', 'Broadcasts', 'Broadcast'],
+        sceneKeys: [
+            'Workflows',
+            'Workflow',
+            'WorkflowsLibraryTemplate',
+            'Broadcasts',
+            'Broadcast',
+            'WorkflowsEmailDomain',
+        ],
     },
 ]
 
