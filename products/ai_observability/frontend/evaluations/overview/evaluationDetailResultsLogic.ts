@@ -3,8 +3,10 @@ import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
 import { dayjs } from 'lib/dayjs'
+import { uuid } from 'lib/utils/dom'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { cancelQueryOnServer } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { performQuery } from '~/queries/query'
 import { DateRange, NodeKind, TrendsQuery, TrendsQueryResponse } from '~/queries/schema/schema-general'
 import { escapeHogQLString, escapePropertyAsHogQLIdentifier } from '~/queries/utils'
@@ -286,7 +288,7 @@ export const evaluationDetailResultsLogic = kea<evaluationDetailResultsLogicType
         runOnPastData: true,
         setBreakdownProperty: (property: string | null) => ({ property }),
     }),
-    loaders(({ values, props, actions }) => ({
+    loaders(({ values, props, actions, cache }) => ({
         results: [
             null as EvaluationDetailResults | null,
             {
@@ -332,10 +334,27 @@ export const evaluationDetailResultsLogic = kea<evaluationDetailResultsLogicType
                     const mode = refresh ? 'force_blocking' : undefined
                     const run = (
                         q: TrendsQuery
-                    ): Promise<Map<string, BreakdownCounts> | { failure: OverviewFailure }> =>
-                        performQuery(q, undefined, mode).then(breakdownCounts, (error) => ({
-                            failure: failureOf(error),
-                        }))
+                    ): Promise<Map<string, BreakdownCounts> | { failure: OverviewFailure }> => {
+                        const controller = new AbortController()
+                        const queryId = uuid()
+                        let finished = false
+                        // A newer load or an unmount stops this query, here and on the server.
+                        cache.disposables.add(
+                            () => () => {
+                                controller.abort()
+                                if (!finished) {
+                                    void cancelQueryOnServer(values.currentTeamId, queryId)
+                                }
+                            },
+                            'breakdownQuery',
+                            { pauseOnPageHidden: false }
+                        )
+                        return performQuery(q, { signal: controller.signal }, mode, queryId)
+                            .finally(() => {
+                                finished = true
+                            })
+                            .then(breakdownCounts, (error) => ({ failure: failureOf(error) }))
+                    }
                     let byValue = await run(query)
                     breakpoint()
                     if (!('failure' in byValue)) {
