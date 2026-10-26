@@ -30,6 +30,7 @@ class TestCatalog:
             ("name_match", "fivetran", "google_ads", ExternalDataSourceType.GOOGLEADS),
             ("managed_database_flavor", "fivetran", "postgres_rds", ExternalDataSourceType.POSTGRES),
             ("rejected_name_match", "fivetran", "light_speed_retail", None),
+            ("curated_override_of_name_match", "fivetran", "confluent_cloud", ExternalDataSourceType.KAFKA),
             ("unknown_service", "fivetran", "not_a_service", None),
             ("unknown_provider", "airbyte", "postgres", None),
         ]

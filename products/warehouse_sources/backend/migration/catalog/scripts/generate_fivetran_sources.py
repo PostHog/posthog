@@ -10,8 +10,9 @@ Fivetran publishes with its Terraform provider. Download it, then run from the r
     ruff format products/warehouse_sources/backend/migration/catalog/fivetran_sources.py
 
 A service id matches a source type when both reduce to the same letters (`google_ads` and
-`GoogleAds`). `_EXTRA_MATCHES` adds the pairs that name matching cannot find, and `_REJECTED`
-removes name matches that point at a different product of the same vendor.
+`GoogleAds`). `_EXTRA_MATCHES` adds the pairs that name matching cannot find, and also overrides
+a name match that points at the wrong PostHog source. `_REJECTED` removes name matches that point
+at a different product of the same vendor.
 """
 
 import sys
@@ -61,6 +62,7 @@ _EXTRA_MATCHES: dict[str, T] = {
     "singlestore_source": T.SINGLESTORE,
     "snowflake_db": T.SNOWFLAKE,
     "apache_kafka": T.KAFKA,
+    # A name match gives the PostHog Confluent Cloud source, which reads the Metrics API, not topics.
     "confluent_cloud": T.KAFKA,
     "aws_msk": T.KAFKA,
     "heroku_kafka": T.KAFKA,
@@ -97,6 +99,7 @@ _EXTRA_MATCHES: dict[str, T] = {
     "concur": T.SAPCONCUR,
     "dbt_cloud": T.DBT,
     "double_click_campaign_manager": T.CAMPAIGNMANAGER360,
+    "double_click_publishers": T.GOOGLEADMANAGER,
     "facebook_ads": T.METAADS,
     "float": T.FLOATAPP,
     "freshdesk_contact_center": T.FRESHCALLER,
