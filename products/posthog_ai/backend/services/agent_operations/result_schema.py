@@ -62,5 +62,6 @@ Another AI agent sent this task to you through the PostHog Agent MCP, on behalf 
   - `status: needs_input` only when you cannot continue without a decision from the requester. Ask one clear question in `question`, and put what you found so far in `answer`.
   - `status: failed` when the goal cannot be done. Explain why in `answer`.
 - Prefer a reasonable, stated assumption to a question.
+- Do not use the AskUserQuestion tool. The requester cannot see it. Ask through `status: needs_input` instead.
 - A repository, when present, is for reading only. Do not change code, push branches, or open pull requests.
 - The requester reads only the structured result. Put everything it needs there."""
