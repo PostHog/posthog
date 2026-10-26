@@ -31,6 +31,7 @@ from posthog.hogql.database.models import DatabaseField, FieldOrTable, StructDat
 from posthog.hogql.database.s3_table import (
     DataWarehouseTable as HogQLDataWarehouseTable,
     build_function_call,
+    compression_for_url_pattern,
 )
 from posthog.hogql.escape_sql import (
     backquote_clickhouse_identifier,
@@ -747,11 +748,30 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         """
         return read_format != DataWarehouseTableFormat.Delta or self.credential_id is None
 
+    def _chdb_compression(self, read_format: str) -> str | None:
+        compression = compression_for_url_pattern(self.url_pattern)
+        # A wrong codec fails a Parquet read, which falls back to the cluster, but a CSV or JSON read
+        # can infer a wrong schema instead.
+        if compression is None and read_format == DataWarehouseTableFormat.Parquet:
+            return "none"
+        return compression
+
     def _describe_with_chdb(
-        self, s3_table_func: str, placeholder_context: HogQLContext, describe_settings: dict[str, str | int]
+        self, read_format: str, compression: str, describe_settings: dict[str, str | int]
     ) -> list[tuple[str, ...]] | None:
         """The DESCRIBE rows read by the embedded engine, or None when it cannot answer and
         ClickHouse has to."""
+        placeholder_context = HogQLContext(team_id=self.team.pk)
+        s3_table_func = build_function_call(
+            url=self.url_pattern,
+            queryable_folder=self.queryable_folder,
+            format=read_format,
+            access_key=self.credential.access_key if self.credential else None,
+            access_secret=self.credential.access_secret if self.credential else None,
+            context=placeholder_context,
+            table_size_mib=0,
+            compression=compression,
+        )
         try:
             quoted_placeholders = {k: escape_param_clickhouse(v) for k, v in placeholder_context.values.items()}
             # chdb doesn't support parameterized queries
@@ -782,9 +802,10 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             context=placeholder_context,
             table_size_mib=0,  # Use the non-cluster s3 table function for chdb
         )
+        chdb_compression = self._chdb_compression(describe_format)
         # chdb hangs in CI during tests
-        if not TEST and self._chdb_may_read(describe_format):
-            result = self._describe_with_chdb(s3_table_func, placeholder_context, describe_settings)
+        if not TEST and chdb_compression is not None and self._chdb_may_read(describe_format):
+            result = self._describe_with_chdb(describe_format, chdb_compression, describe_settings)
 
         if result is None:
             tag_queries(
@@ -892,7 +913,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         """
         return self.size_in_s3_mib is None or self.size_in_s3_mib < S3_CLUSTER_TABLE_SIZE_MIB
 
-    def _count_with_chdb(self) -> int | None:
+    def _count_with_chdb(self, compression: str) -> int | None:
         """The row count read by the embedded engine, or None when it cannot answer and ClickHouse
         has to."""
         placeholder_context = HogQLContext(team_id=self.team.pk)
@@ -904,6 +925,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             access_secret=self.credential.access_secret if self.credential else None,
             context=placeholder_context,
             table_size_mib=0,  # Use the non-cluster s3 table function for chdb
+            compression=compression,
         )
         try:
             quoted_placeholders = {k: escape_param_clickhouse(v) for k, v in placeholder_context.values.items()}
@@ -922,9 +944,15 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         return int(rows[0][0]) if rows else None
 
     def get_count(self, safe_expose_ch_error=True) -> int:
+        chdb_compression = self._chdb_compression(self.format)
         # chdb hangs in CI during tests
-        if not TEST and self._count_fits_the_chdb_budget() and self._chdb_may_read(self.format):
-            chdb_count = self._count_with_chdb()
+        if (
+            not TEST
+            and chdb_compression is not None
+            and self._count_fits_the_chdb_budget()
+            and self._chdb_may_read(self.format)
+        ):
+            chdb_count = self._count_with_chdb(chdb_compression)
             if chdb_count is not None:
                 return chdb_count
 

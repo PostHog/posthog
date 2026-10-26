@@ -15,6 +15,10 @@ export const dashboardTemplatesCreateBodyDashboardDescriptionMax = 400
 
 export const dashboardTemplatesCreateBodyTagsItemMax = 255
 
+export const dashboardTemplatesCreateBodyCustomizationOneGroupsTitleMax = 200
+
+export const dashboardTemplatesCreateBodyCustomizationOneGroupTitlesMaxOne = 200
+
 export const dashboardTemplatesCreateBodyImageUrlMax = 8201
 
 export const dashboardTemplatesCreateBodyAvailabilityContextsItemMax = 255
@@ -26,6 +30,84 @@ export const DashboardTemplatesCreateBody = /* @__PURE__ */ zod.object({
     tags: zod.array(zod.string().max(dashboardTemplatesCreateBodyTagsItemMax)).nullish(),
     tiles: zod.unknown().optional(),
     variables: zod.unknown().optional(),
+    customization: zod
+        .union([
+            zod.object({
+                tile_spacing: zod
+                    .enum(['tight', 'condensed', 'standard', 'relaxed', 'wide'])
+                    .describe(
+                        '\* `tight` - tight\n\* `condensed` - condensed\n\* `standard` - standard\n\* `relaxed` - relaxed\n\* `wide` - wide'
+                    )
+                    .optional()
+                    .describe(
+                        'Named tile density preset.\n\n\* `tight` - tight\n\* `condensed` - condensed\n\* `standard` - standard\n\* `relaxed` - relaxed\n\* `wide` - wide'
+                    ),
+                layout_compaction: zod
+                    .enum(['vertical', 'horizontal', 'stable'])
+                    .describe('\* `vertical` - vertical\n\* `horizontal` - horizontal\n\* `stable` - stable')
+                    .optional()
+                    .describe(
+                        'How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles to the left, and stable preserves positions while moving colliding tiles.\n\n\* `vertical` - vertical\n\* `horizontal` - horizontal\n\* `stable` - stable'
+                    ),
+                group_display: zod
+                    .enum(['sections', 'tabs'])
+                    .describe('\* `sections` - sections\n\* `tabs` - tabs')
+                    .optional()
+                    .describe(
+                        'How tile groups show. sections shows each group as a band that opens and closes. tabs shows one group at a time, and tiles outside any group get their own first tab.\n\n\* `sections` - sections\n\* `tabs` - tabs'
+                    ),
+                groups: zod
+                    .record(
+                        zod.string(),
+                        zod.object({
+                            title: zod
+                                .string()
+                                .max(dashboardTemplatesCreateBodyCustomizationOneGroupsTitleMax)
+                                .optional()
+                                .describe(
+                                    'Heading for the group. When it is blank or omitted, the heading shows the number of tiles.'
+                                ),
+                            collapsed: zod
+                                .boolean()
+                                .optional()
+                                .describe(
+                                    'Whether the group starts closed. Defaults to false. When a viewer opens or closes the group, their browser keeps that choice and it wins over this default. A closed group loads its tiles when a viewer opens it.'
+                                ),
+                            color: zod
+                                .union([
+                                    zod
+                                        .enum(['blue', 'purple', 'green', 'yellow', 'orange', 'red'])
+                                        .describe(
+                                            '\* `blue` - Blue\n\* `purple` - Purple\n\* `green` - Green\n\* `yellow` - Yellow\n\* `orange` - Orange\n\* `red` - Red'
+                                        ),
+                                    zod.null(),
+                                ])
+                                .optional()
+                                .describe(
+                                    'Color of a dot before the group heading. Null or omitted shows no dot.\n\n\* `blue` - Blue\n\* `purple` - Purple\n\* `green` - Green\n\* `yellow` - Yellow\n\* `orange` - Orange\n\* `red` - Red'
+                                ),
+                        })
+                    )
+                    .optional()
+                    .describe(
+                        "Settings for tile groups, keyed by the tiles' group_key. Each group shows as a band of its tiles under a heading that viewers can open and close. Viewers who do not have bands yet see only the group title above its tiles. A write replaces the whole map. Send an empty object or null to remove all group settings."
+                    ),
+                group_titles: zod
+                    .record(
+                        zod.string(),
+                        zod.string().max(dashboardTemplatesCreateBodyCustomizationOneGroupTitlesMaxOne)
+                    )
+                    .optional()
+                    .describe(
+                        'Deprecated: use groups. Titles for tile groups, keyed by group_key. A write replaces all titles and keeps the other group settings. Send an empty object or null to clear titles. Do not send it with groups.'
+                    ),
+            }),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Display settings that a dashboard made from this template starts with: tile spacing, layout compaction, and the tile groups that tiles join through their group_key.'
+        ),
     deleted: zod.boolean().nullish(),
     image_url: zod.string().max(dashboardTemplatesCreateBodyImageUrlMax).nullish(),
     scope: zod
@@ -51,6 +133,10 @@ export const dashboardTemplatesUpdateBodyDashboardDescriptionMax = 400
 
 export const dashboardTemplatesUpdateBodyTagsItemMax = 255
 
+export const dashboardTemplatesUpdateBodyCustomizationOneGroupsTitleMax = 200
+
+export const dashboardTemplatesUpdateBodyCustomizationOneGroupTitlesMaxOne = 200
+
 export const dashboardTemplatesUpdateBodyImageUrlMax = 8201
 
 export const dashboardTemplatesUpdateBodyAvailabilityContextsItemMax = 255
@@ -62,6 +148,84 @@ export const DashboardTemplatesUpdateBody = /* @__PURE__ */ zod.object({
     tags: zod.array(zod.string().max(dashboardTemplatesUpdateBodyTagsItemMax)).nullish(),
     tiles: zod.unknown().optional(),
     variables: zod.unknown().optional(),
+    customization: zod
+        .union([
+            zod.object({
+                tile_spacing: zod
+                    .enum(['tight', 'condensed', 'standard', 'relaxed', 'wide'])
+                    .describe(
+                        '\* `tight` - tight\n\* `condensed` - condensed\n\* `standard` - standard\n\* `relaxed` - relaxed\n\* `wide` - wide'
+                    )
+                    .optional()
+                    .describe(
+                        'Named tile density preset.\n\n\* `tight` - tight\n\* `condensed` - condensed\n\* `standard` - standard\n\* `relaxed` - relaxed\n\* `wide` - wide'
+                    ),
+                layout_compaction: zod
+                    .enum(['vertical', 'horizontal', 'stable'])
+                    .describe('\* `vertical` - vertical\n\* `horizontal` - horizontal\n\* `stable` - stable')
+                    .optional()
+                    .describe(
+                        'How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles to the left, and stable preserves positions while moving colliding tiles.\n\n\* `vertical` - vertical\n\* `horizontal` - horizontal\n\* `stable` - stable'
+                    ),
+                group_display: zod
+                    .enum(['sections', 'tabs'])
+                    .describe('\* `sections` - sections\n\* `tabs` - tabs')
+                    .optional()
+                    .describe(
+                        'How tile groups show. sections shows each group as a band that opens and closes. tabs shows one group at a time, and tiles outside any group get their own first tab.\n\n\* `sections` - sections\n\* `tabs` - tabs'
+                    ),
+                groups: zod
+                    .record(
+                        zod.string(),
+                        zod.object({
+                            title: zod
+                                .string()
+                                .max(dashboardTemplatesUpdateBodyCustomizationOneGroupsTitleMax)
+                                .optional()
+                                .describe(
+                                    'Heading for the group. When it is blank or omitted, the heading shows the number of tiles.'
+                                ),
+                            collapsed: zod
+                                .boolean()
+                                .optional()
+                                .describe(
+                                    'Whether the group starts closed. Defaults to false. When a viewer opens or closes the group, their browser keeps that choice and it wins over this default. A closed group loads its tiles when a viewer opens it.'
+                                ),
+                            color: zod
+                                .union([
+                                    zod
+                                        .enum(['blue', 'purple', 'green', 'yellow', 'orange', 'red'])
+                                        .describe(
+                                            '\* `blue` - Blue\n\* `purple` - Purple\n\* `green` - Green\n\* `yellow` - Yellow\n\* `orange` - Orange\n\* `red` - Red'
+                                        ),
+                                    zod.null(),
+                                ])
+                                .optional()
+                                .describe(
+                                    'Color of a dot before the group heading. Null or omitted shows no dot.\n\n\* `blue` - Blue\n\* `purple` - Purple\n\* `green` - Green\n\* `yellow` - Yellow\n\* `orange` - Orange\n\* `red` - Red'
+                                ),
+                        })
+                    )
+                    .optional()
+                    .describe(
+                        "Settings for tile groups, keyed by the tiles' group_key. Each group shows as a band of its tiles under a heading that viewers can open and close. Viewers who do not have bands yet see only the group title above its tiles. A write replaces the whole map. Send an empty object or null to remove all group settings."
+                    ),
+                group_titles: zod
+                    .record(
+                        zod.string(),
+                        zod.string().max(dashboardTemplatesUpdateBodyCustomizationOneGroupTitlesMaxOne)
+                    )
+                    .optional()
+                    .describe(
+                        'Deprecated: use groups. Titles for tile groups, keyed by group_key. A write replaces all titles and keeps the other group settings. Send an empty object or null to clear titles. Do not send it with groups.'
+                    ),
+            }),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Display settings that a dashboard made from this template starts with: tile spacing, layout compaction, and the tile groups that tiles join through their group_key.'
+        ),
     deleted: zod.boolean().nullish(),
     image_url: zod.string().max(dashboardTemplatesUpdateBodyImageUrlMax).nullish(),
     scope: zod
@@ -87,6 +251,10 @@ export const dashboardTemplatesPartialUpdateBodyDashboardDescriptionMax = 400
 
 export const dashboardTemplatesPartialUpdateBodyTagsItemMax = 255
 
+export const dashboardTemplatesPartialUpdateBodyCustomizationOneGroupsTitleMax = 200
+
+export const dashboardTemplatesPartialUpdateBodyCustomizationOneGroupTitlesMaxOne = 200
+
 export const dashboardTemplatesPartialUpdateBodyImageUrlMax = 8201
 
 export const dashboardTemplatesPartialUpdateBodyAvailabilityContextsItemMax = 255
@@ -98,6 +266,84 @@ export const DashboardTemplatesPartialUpdateBody = /* @__PURE__ */ zod.object({
     tags: zod.array(zod.string().max(dashboardTemplatesPartialUpdateBodyTagsItemMax)).nullish(),
     tiles: zod.unknown().optional(),
     variables: zod.unknown().optional(),
+    customization: zod
+        .union([
+            zod.object({
+                tile_spacing: zod
+                    .enum(['tight', 'condensed', 'standard', 'relaxed', 'wide'])
+                    .describe(
+                        '\* `tight` - tight\n\* `condensed` - condensed\n\* `standard` - standard\n\* `relaxed` - relaxed\n\* `wide` - wide'
+                    )
+                    .optional()
+                    .describe(
+                        'Named tile density preset.\n\n\* `tight` - tight\n\* `condensed` - condensed\n\* `standard` - standard\n\* `relaxed` - relaxed\n\* `wide` - wide'
+                    ),
+                layout_compaction: zod
+                    .enum(['vertical', 'horizontal', 'stable'])
+                    .describe('\* `vertical` - vertical\n\* `horizontal` - horizontal\n\* `stable` - stable')
+                    .optional()
+                    .describe(
+                        'How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles to the left, and stable preserves positions while moving colliding tiles.\n\n\* `vertical` - vertical\n\* `horizontal` - horizontal\n\* `stable` - stable'
+                    ),
+                group_display: zod
+                    .enum(['sections', 'tabs'])
+                    .describe('\* `sections` - sections\n\* `tabs` - tabs')
+                    .optional()
+                    .describe(
+                        'How tile groups show. sections shows each group as a band that opens and closes. tabs shows one group at a time, and tiles outside any group get their own first tab.\n\n\* `sections` - sections\n\* `tabs` - tabs'
+                    ),
+                groups: zod
+                    .record(
+                        zod.string(),
+                        zod.object({
+                            title: zod
+                                .string()
+                                .max(dashboardTemplatesPartialUpdateBodyCustomizationOneGroupsTitleMax)
+                                .optional()
+                                .describe(
+                                    'Heading for the group. When it is blank or omitted, the heading shows the number of tiles.'
+                                ),
+                            collapsed: zod
+                                .boolean()
+                                .optional()
+                                .describe(
+                                    'Whether the group starts closed. Defaults to false. When a viewer opens or closes the group, their browser keeps that choice and it wins over this default. A closed group loads its tiles when a viewer opens it.'
+                                ),
+                            color: zod
+                                .union([
+                                    zod
+                                        .enum(['blue', 'purple', 'green', 'yellow', 'orange', 'red'])
+                                        .describe(
+                                            '\* `blue` - Blue\n\* `purple` - Purple\n\* `green` - Green\n\* `yellow` - Yellow\n\* `orange` - Orange\n\* `red` - Red'
+                                        ),
+                                    zod.null(),
+                                ])
+                                .optional()
+                                .describe(
+                                    'Color of a dot before the group heading. Null or omitted shows no dot.\n\n\* `blue` - Blue\n\* `purple` - Purple\n\* `green` - Green\n\* `yellow` - Yellow\n\* `orange` - Orange\n\* `red` - Red'
+                                ),
+                        })
+                    )
+                    .optional()
+                    .describe(
+                        "Settings for tile groups, keyed by the tiles' group_key. Each group shows as a band of its tiles under a heading that viewers can open and close. Viewers who do not have bands yet see only the group title above its tiles. A write replaces the whole map. Send an empty object or null to remove all group settings."
+                    ),
+                group_titles: zod
+                    .record(
+                        zod.string(),
+                        zod.string().max(dashboardTemplatesPartialUpdateBodyCustomizationOneGroupTitlesMaxOne)
+                    )
+                    .optional()
+                    .describe(
+                        'Deprecated: use groups. Titles for tile groups, keyed by group_key. A write replaces all titles and keeps the other group settings. Send an empty object or null to clear titles. Do not send it with groups.'
+                    ),
+            }),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Display settings that a dashboard made from this template starts with: tile spacing, layout compaction, and the tile groups that tiles join through their group_key.'
+        ),
     deleted: zod.boolean().nullish(),
     image_url: zod.string().max(dashboardTemplatesPartialUpdateBodyImageUrlMax).nullish(),
     scope: zod
@@ -207,6 +453,13 @@ export const DashboardsCreateBody = /* @__PURE__ */ zod
             .describe(
                 'How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles to the left, and stable preserves positions while moving colliding tiles.\n\n\* `vertical` - vertical\n\* `horizontal` - horizontal\n\* `stable` - stable'
             ),
+        group_display: zod
+            .enum(['sections', 'tabs'])
+            .describe('\* `sections` - sections\n\* `tabs` - tabs')
+            .optional()
+            .describe(
+                'How tile groups show. sections shows each group as a band that opens and closes. tabs shows one group at a time, and tiles outside any group get their own first tab.\n\n\* `sections` - sections\n\* `tabs` - tabs'
+            ),
         groups: zod
             .record(
                 zod.string(),
@@ -222,7 +475,7 @@ export const DashboardsCreateBody = /* @__PURE__ */ zod
                         .boolean()
                         .optional()
                         .describe(
-                            'Whether the group starts closed. Defaults to false. When a viewer opens or closes the group, their browser keeps that choice and it wins over this default.'
+                            'Whether the group starts closed. Defaults to false. When a viewer opens or closes the group, their browser keeps that choice and it wins over this default. A closed group loads its tiles when a viewer opens it.'
                         ),
                     color: zod
                         .union([
@@ -340,6 +593,13 @@ export const DashboardsUpdateBody = /* @__PURE__ */ zod
             .describe(
                 'How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles to the left, and stable preserves positions while moving colliding tiles.\n\n\* `vertical` - vertical\n\* `horizontal` - horizontal\n\* `stable` - stable'
             ),
+        group_display: zod
+            .enum(['sections', 'tabs'])
+            .describe('\* `sections` - sections\n\* `tabs` - tabs')
+            .optional()
+            .describe(
+                'How tile groups show. sections shows each group as a band that opens and closes. tabs shows one group at a time, and tiles outside any group get their own first tab.\n\n\* `sections` - sections\n\* `tabs` - tabs'
+            ),
         groups: zod
             .record(
                 zod.string(),
@@ -355,7 +615,7 @@ export const DashboardsUpdateBody = /* @__PURE__ */ zod
                         .boolean()
                         .optional()
                         .describe(
-                            'Whether the group starts closed. Defaults to false. When a viewer opens or closes the group, their browser keeps that choice and it wins over this default.'
+                            'Whether the group starts closed. Defaults to false. When a viewer opens or closes the group, their browser keeps that choice and it wins over this default. A closed group loads its tiles when a viewer opens it.'
                         ),
                     color: zod
                         .union([
@@ -474,6 +734,31 @@ export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneNineSearchMax
 
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneNineSavedViewIdOneMax = 12
 
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneGroupByOneMax = 200
+
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneColumnsItemLabelMax = 40
+
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneColumnsItemMetricNameMax = 200
+
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneColumnsItemQuantileOneExclusiveMin = 0
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneColumnsItemQuantileOneExclusiveMax = 1
+
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneColumnsItemFiltersItemKeyMax = 200
+
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneColumnsItemFiltersItemOpDefault = `eq`
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneColumnsItemFiltersItemValueMax = 400
+
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneColumnsItemFiltersMax = 5
+
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneColumnsMax = 6
+
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneOrderByColumnDefault = 0
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneOrderByColumnMin = 0
+
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneOrderDirectionDefault = `DESC`
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneLimitDefault = 25
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneLimitMax = 100
+
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneNameMax = 400
 
 export const dashboardsPartialUpdateBodyDeleteInsightsDefault = false
@@ -573,6 +858,13 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
             .describe(
                 'How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles to the left, and stable preserves positions while moving colliding tiles.\n\n\* `vertical` - vertical\n\* `horizontal` - horizontal\n\* `stable` - stable'
             ),
+        group_display: zod
+            .enum(['sections', 'tabs'])
+            .describe('\* `sections` - sections\n\* `tabs` - tabs')
+            .optional()
+            .describe(
+                'How tile groups show. sections shows each group as a band that opens and closes. tabs shows one group at a time, and tiles outside any group get their own first tab.\n\n\* `sections` - sections\n\* `tabs` - tabs'
+            ),
         groups: zod
             .record(
                 zod.string(),
@@ -588,7 +880,7 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
                         .boolean()
                         .optional()
                         .describe(
-                            'Whether the group starts closed. Defaults to false. When a viewer opens or closes the group, their browser keeps that choice and it wins over this default.'
+                            'Whether the group starts closed. Defaults to false. When a viewer opens or closes the group, their browser keeps that choice and it wins over this default. A closed group loads its tiles when a viewer opens it.'
                         ),
                     color: zod
                         .union([
@@ -708,16 +1000,17 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
                                     'experiment_results',
                                     'experiments_list',
                                     'logs_list',
+                                    'metrics_table',
                                     'notebook_widget',
                                     'session_replay_list',
                                     'survey_results',
                                 ])
                                 .describe(
-                                    '\* `activity_events_list` - Activity Events List\n\* `canvas_app` - Canvas App\n\* `conversations_recent_tickets` - Conversations Recent Tickets\n\* `error_tracking_list` - Error Tracking List\n\* `experiment_results` - Experiment Results\n\* `experiments_list` - Experiments List\n\* `logs_list` - Logs List\n\* `notebook_widget` - Notebook Widget\n\* `session_replay_list` - Session Replay List\n\* `survey_results` - Survey Results'
+                                    '\* `activity_events_list` - Activity Events List\n\* `canvas_app` - Canvas App\n\* `conversations_recent_tickets` - Conversations Recent Tickets\n\* `error_tracking_list` - Error Tracking List\n\* `experiment_results` - Experiment Results\n\* `experiments_list` - Experiments List\n\* `logs_list` - Logs List\n\* `metrics_table` - Metrics Table\n\* `notebook_widget` - Notebook Widget\n\* `session_replay_list` - Session Replay List\n\* `survey_results` - Survey Results'
                                 )
                                 .optional()
                                 .describe(
-                                    'Widget type identifier (cannot be changed on update).\n\n\* `activity_events_list` - Activity Events List\n\* `canvas_app` - Canvas App\n\* `conversations_recent_tickets` - Conversations Recent Tickets\n\* `error_tracking_list` - Error Tracking List\n\* `experiment_results` - Experiment Results\n\* `experiments_list` - Experiments List\n\* `logs_list` - Logs List\n\* `notebook_widget` - Notebook Widget\n\* `session_replay_list` - Session Replay List\n\* `survey_results` - Survey Results'
+                                    'Widget type identifier (cannot be changed on update).\n\n\* `activity_events_list` - Activity Events List\n\* `canvas_app` - Canvas App\n\* `conversations_recent_tickets` - Conversations Recent Tickets\n\* `error_tracking_list` - Error Tracking List\n\* `experiment_results` - Experiment Results\n\* `experiments_list` - Experiments List\n\* `logs_list` - Logs List\n\* `metrics_table` - Metrics Table\n\* `notebook_widget` - Notebook Widget\n\* `session_replay_list` - Session Replay List\n\* `survey_results` - Survey Results'
                                 ),
                             config: zod
                                 .union([
@@ -1420,6 +1713,165 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
                                                 'Canvas to render in the tile. Null until the user picks one in the widget settings.'
                                             ),
                                     }),
+                                    zod.object({
+                                        dateRange: zod
+                                            .union([
+                                                zod.object({
+                                                    date_from: zod
+                                                        .union([
+                                                            zod.enum([
+                                                                '-1M',
+                                                                '-30M',
+                                                                '-1h',
+                                                                '-3h',
+                                                                '-24h',
+                                                                '-7d',
+                                                                '-14d',
+                                                                '-30d',
+                                                                '-90d',
+                                                            ]),
+                                                            zod.null(),
+                                                        ])
+                                                        .optional(),
+                                                }),
+                                                zod.null(),
+                                            ])
+                                            .optional(),
+                                        groupBy: zod
+                                            .union([
+                                                zod
+                                                    .string()
+                                                    .min(1)
+                                                    .max(
+                                                        dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneGroupByOneMax
+                                                    ),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe(
+                                                'Label that makes one row per value, e.g. `http.route`. Null until the user sets it.'
+                                            ),
+                                        columns: zod
+                                            .array(
+                                                zod.object({
+                                                    label: zod
+                                                        .string()
+                                                        .min(1)
+                                                        .max(
+                                                            dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneColumnsItemLabelMax
+                                                        )
+                                                        .describe('Column header, e.g. `Requests\/s`.'),
+                                                    metricName: zod
+                                                        .string()
+                                                        .min(1)
+                                                        .max(
+                                                            dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneColumnsItemMetricNameMax
+                                                        )
+                                                        .describe('Name of the metric this column reads.'),
+                                                    aggregation: zod
+                                                        .enum([
+                                                            'rate',
+                                                            'increase',
+                                                            'sum',
+                                                            'avg',
+                                                            'min',
+                                                            'max',
+                                                            'histogram_quantile',
+                                                        ])
+                                                        .describe(
+                                                            'How each time bucket of a row is computed. `rate` and `increase` read counters.'
+                                                        ),
+                                                    quantile: zod
+                                                        .union([
+                                                            zod
+                                                                .number()
+                                                                .gt(
+                                                                    dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneColumnsItemQuantileOneExclusiveMin
+                                                                )
+                                                                .lt(
+                                                                    dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneColumnsItemQuantileOneExclusiveMax
+                                                                ),
+                                                            zod.null(),
+                                                        ])
+                                                        .optional()
+                                                        .describe(
+                                                            'Required for `histogram_quantile`, e.g. 0.95 for p95.'
+                                                        ),
+                                                    filters: zod
+                                                        .array(
+                                                            zod.object({
+                                                                key: zod
+                                                                    .string()
+                                                                    .min(1)
+                                                                    .max(
+                                                                        dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneColumnsItemFiltersItemKeyMax
+                                                                    )
+                                                                    .describe(
+                                                                        'Label key to filter on, e.g. `http.response.status_code`.'
+                                                                    ),
+                                                                op: zod
+                                                                    .enum(['eq', 'neq', 'regex', 'not_regex'])
+                                                                    .default(
+                                                                        dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneColumnsItemFiltersItemOpDefault
+                                                                    )
+                                                                    .describe('How the label value is compared.'),
+                                                                value: zod
+                                                                    .string()
+                                                                    .max(
+                                                                        dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneColumnsItemFiltersItemValueMax
+                                                                    )
+                                                                    .describe(
+                                                                        'Label value, or a regular expression for `regex` and `not_regex`.'
+                                                                    ),
+                                                            })
+                                                        )
+                                                        .max(
+                                                            dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneColumnsItemFiltersMax
+                                                        )
+                                                        .optional()
+                                                        .describe(
+                                                            'Label filters for this column only, e.g. 5xx status codes for an errors column.'
+                                                        ),
+                                                })
+                                            )
+                                            .max(dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneColumnsMax)
+                                            .optional()
+                                            .describe(
+                                                "One metric per column. Each row shows the column's average over the date range and a sparkline."
+                                            ),
+                                        interval: zod
+                                            .union([
+                                                zod.enum(['minute', 'minute_5', 'minute_15', 'hour', 'day']),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe(
+                                                'Time between the points of the full charts that open from a row. Null picks one from the date range. The table sparklines always use at most 30 points.'
+                                            ),
+                                        orderByColumn: zod
+                                            .number()
+                                            .min(
+                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneOrderByColumnMin
+                                            )
+                                            .default(
+                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneOrderByColumnDefault
+                                            )
+                                            .describe('Index of the column that sorts the rows.'),
+                                        orderDirection: zod
+                                            .enum(['ASC', 'DESC'])
+                                            .default(
+                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneOrderDirectionDefault
+                                            )
+                                            .describe('Sort direction for orderByColumn.'),
+                                        limit: zod
+                                            .number()
+                                            .min(1)
+                                            .max(dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneLimitMax)
+                                            .default(
+                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneLimitDefault
+                                            )
+                                            .describe('Maximum number of rows to show.'),
+                                    }),
                                 ])
                                 .optional()
                                 .describe("Widget-specific configuration. Shape depends on the tile's widget_type."),
@@ -1709,15 +2161,16 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
                             'experiment_results',
                             'experiments_list',
                             'logs_list',
+                            'metrics_table',
                             'notebook_widget',
                             'session_replay_list',
                             'survey_results',
                         ])
                         .describe(
-                            '\* `activity_events_list` - Activity Events List\n\* `canvas_app` - Canvas App\n\* `conversations_recent_tickets` - Conversations Recent Tickets\n\* `error_tracking_list` - Error Tracking List\n\* `experiment_results` - Experiment Results\n\* `experiments_list` - Experiments List\n\* `logs_list` - Logs List\n\* `notebook_widget` - Notebook Widget\n\* `session_replay_list` - Session Replay List\n\* `survey_results` - Survey Results'
+                            '\* `activity_events_list` - Activity Events List\n\* `canvas_app` - Canvas App\n\* `conversations_recent_tickets` - Conversations Recent Tickets\n\* `error_tracking_list` - Error Tracking List\n\* `experiment_results` - Experiment Results\n\* `experiments_list` - Experiments List\n\* `logs_list` - Logs List\n\* `metrics_table` - Metrics Table\n\* `notebook_widget` - Notebook Widget\n\* `session_replay_list` - Session Replay List\n\* `survey_results` - Survey Results'
                         )
                         .describe(
-                            'Widget type to add. Use dashboard-widget-catalog-list to pick one.\n\n\* `activity_events_list` - Activity Events List\n\* `canvas_app` - Canvas App\n\* `conversations_recent_tickets` - Conversations Recent Tickets\n\* `error_tracking_list` - Error Tracking List\n\* `experiment_results` - Experiment Results\n\* `experiments_list` - Experiments List\n\* `logs_list` - Logs List\n\* `notebook_widget` - Notebook Widget\n\* `session_replay_list` - Session Replay List\n\* `survey_results` - Survey Results'
+                            'Widget type to add. Use dashboard-widget-catalog-list to pick one.\n\n\* `activity_events_list` - Activity Events List\n\* `canvas_app` - Canvas App\n\* `conversations_recent_tickets` - Conversations Recent Tickets\n\* `error_tracking_list` - Error Tracking List\n\* `experiment_results` - Experiment Results\n\* `experiments_list` - Experiments List\n\* `logs_list` - Logs List\n\* `metrics_table` - Metrics Table\n\* `notebook_widget` - Notebook Widget\n\* `session_replay_list` - Session Replay List\n\* `survey_results` - Survey Results'
                         ),
                     config: zod
                         .record(zod.string(), zod.unknown())
@@ -1729,7 +2182,7 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
             .min(1)
             .max(dashboardsWidgetsBatchCreateBodyWidgetsMax)
             .describe(
-                'Widget tiles to add atomically. Supported widget_type values: activity_events_list, canvas_app, conversations_recent_tickets, error_tracking_list, experiment_results, experiments_list, logs_list, notebook_widget, session_replay_list, survey_results. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).'
+                'Widget tiles to add atomically. Supported widget_type values: activity_events_list, canvas_app, conversations_recent_tickets, error_tracking_list, experiment_results, experiments_list, logs_list, metrics_table, notebook_widget, session_replay_list, survey_results. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).'
             ),
     })
     .describe('OpenAPI-only batch-add schema with widget_type-discriminated config shapes for agents.')
@@ -1775,16 +2228,17 @@ export const DashboardsUpdateWidgetsBatchBody = /* @__PURE__ */ zod
                             'experiment_results',
                             'experiments_list',
                             'logs_list',
+                            'metrics_table',
                             'notebook_widget',
                             'session_replay_list',
                             'survey_results',
                         ])
                         .describe(
-                            '\* `activity_events_list` - Activity Events List\n\* `canvas_app` - Canvas App\n\* `conversations_recent_tickets` - Conversations Recent Tickets\n\* `error_tracking_list` - Error Tracking List\n\* `experiment_results` - Experiment Results\n\* `experiments_list` - Experiments List\n\* `logs_list` - Logs List\n\* `notebook_widget` - Notebook Widget\n\* `session_replay_list` - Session Replay List\n\* `survey_results` - Survey Results'
+                            '\* `activity_events_list` - Activity Events List\n\* `canvas_app` - Canvas App\n\* `conversations_recent_tickets` - Conversations Recent Tickets\n\* `error_tracking_list` - Error Tracking List\n\* `experiment_results` - Experiment Results\n\* `experiments_list` - Experiments List\n\* `logs_list` - Logs List\n\* `metrics_table` - Metrics Table\n\* `notebook_widget` - Notebook Widget\n\* `session_replay_list` - Session Replay List\n\* `survey_results` - Survey Results'
                         )
                         .optional()
                         .describe(
-                            "The tile's widget type. It cannot be changed, so omit it or pass the current type.\n\n\* `activity_events_list` - Activity Events List\n\* `canvas_app` - Canvas App\n\* `conversations_recent_tickets` - Conversations Recent Tickets\n\* `error_tracking_list` - Error Tracking List\n\* `experiment_results` - Experiment Results\n\* `experiments_list` - Experiments List\n\* `logs_list` - Logs List\n\* `notebook_widget` - Notebook Widget\n\* `session_replay_list` - Session Replay List\n\* `survey_results` - Survey Results"
+                            "The tile's widget type. It cannot be changed, so omit it or pass the current type.\n\n\* `activity_events_list` - Activity Events List\n\* `canvas_app` - Canvas App\n\* `conversations_recent_tickets` - Conversations Recent Tickets\n\* `error_tracking_list` - Error Tracking List\n\* `experiment_results` - Experiment Results\n\* `experiments_list` - Experiments List\n\* `logs_list` - Logs List\n\* `metrics_table` - Metrics Table\n\* `notebook_widget` - Notebook Widget\n\* `session_replay_list` - Session Replay List\n\* `survey_results` - Survey Results"
                         ),
                     config: zod
                         .record(zod.string(), zod.unknown())
@@ -1944,6 +2398,13 @@ export const DashboardsCreateFromTemplateJsonCreateBody = /* @__PURE__ */ zod
             .describe(
                 'How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles to the left, and stable preserves positions while moving colliding tiles.\n\n\* `vertical` - vertical\n\* `horizontal` - horizontal\n\* `stable` - stable'
             ),
+        group_display: zod
+            .enum(['sections', 'tabs'])
+            .describe('\* `sections` - sections\n\* `tabs` - tabs')
+            .optional()
+            .describe(
+                'How tile groups show. sections shows each group as a band that opens and closes. tabs shows one group at a time, and tiles outside any group get their own first tab.\n\n\* `sections` - sections\n\* `tabs` - tabs'
+            ),
         groups: zod
             .record(
                 zod.string(),
@@ -1959,7 +2420,7 @@ export const DashboardsCreateFromTemplateJsonCreateBody = /* @__PURE__ */ zod
                         .boolean()
                         .optional()
                         .describe(
-                            'Whether the group starts closed. Defaults to false. When a viewer opens or closes the group, their browser keeps that choice and it wins over this default.'
+                            'Whether the group starts closed. Defaults to false. When a viewer opens or closes the group, their browser keeps that choice and it wins over this default. A closed group loads its tiles when a viewer opens it.'
                         ),
                     color: zod
                         .union([
@@ -2084,6 +2545,13 @@ export const DashboardsCreateUnlistedDashboardCreateBody = /* @__PURE__ */ zod
             .describe(
                 'How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles to the left, and stable preserves positions while moving colliding tiles.\n\n\* `vertical` - vertical\n\* `horizontal` - horizontal\n\* `stable` - stable'
             ),
+        group_display: zod
+            .enum(['sections', 'tabs'])
+            .describe('\* `sections` - sections\n\* `tabs` - tabs')
+            .optional()
+            .describe(
+                'How tile groups show. sections shows each group as a band that opens and closes. tabs shows one group at a time, and tiles outside any group get their own first tab.\n\n\* `sections` - sections\n\* `tabs` - tabs'
+            ),
         groups: zod
             .record(
                 zod.string(),
@@ -2099,7 +2567,7 @@ export const DashboardsCreateUnlistedDashboardCreateBody = /* @__PURE__ */ zod
                         .boolean()
                         .optional()
                         .describe(
-                            'Whether the group starts closed. Defaults to false. When a viewer opens or closes the group, their browser keeps that choice and it wins over this default.'
+                            'Whether the group starts closed. Defaults to false. When a viewer opens or closes the group, their browser keeps that choice and it wins over this default. A closed group loads its tiles when a viewer opens it.'
                         ),
                     color: zod
                         .union([

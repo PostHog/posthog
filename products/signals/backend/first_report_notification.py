@@ -146,6 +146,10 @@ def deliver_first_report_email(team_id: int) -> None:
             message_data=notification.message_data,
         )
     except (TransactionalEmailRetryableError, TransactionalEmailRejected, ImproperlyConfigured) as error:
+        if isinstance(error, TransactionalEmailRejected) and error.code == "recipient_suppressed":
+            # The API refuses every later send to this address too, so a retry on each sweep can't succeed.
+            record.update(send_started_at=None, cancelled_at=timezone.now(), last_error="recipient_suppressed")
+            return
         # These failures occur before the workflow accepts a send, so they can safely retry.
         retry_after = error.retry_after if isinstance(error, TransactionalEmailRetryableError) else None
         record.update(

@@ -200,6 +200,8 @@ class TestMaterializeViewManagedWarehouseActivity:
         def execute_trino_model(**kwargs: Any) -> DuckLakeTableResult:
             kwargs["on_processed_bytes"](300)
             kwargs["on_processed_bytes"](45)
+            kwargs["on_cpu_milliseconds"](20)
+            kwargs["on_cpu_milliseconds"](5)
             if compile_error is not None:
                 raise compile_error
             return DuckLakeTableResult(schema_name="shadow_models", table_name="test_model", row_count=12)
@@ -233,10 +235,13 @@ class TestMaterializeViewManagedWarehouseActivity:
             source_query=executable_query,
             incremental=None,
             on_processed_bytes=unittest.mock.ANY,
+            on_cpu_milliseconds=unittest.mock.ANY,
         )
         legacy_execute.assert_not_called()
         await database_sync_to_async(ajob.refresh_from_db)()
-        assert ajob.bytes_read == 345
+        assert ajob.read_bytes == 345
+        assert ajob.cpu_microseconds == 25_000
+        assert ajob.usage_updated_at is not None
         assert capture.called is error_tracked
         if compile_error is not None:
             reconcile_aliases.assert_not_awaited()

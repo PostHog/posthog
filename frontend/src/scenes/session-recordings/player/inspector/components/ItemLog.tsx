@@ -1,11 +1,12 @@
 import clsx from 'clsx'
 import { useValues } from 'kea'
+import { useMemo } from 'react'
 
 import { IconLive } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { SimpleKeyValueList } from 'lib/components/SimpleKeyValueList'
+import { JSONViewer } from 'lib/components/JSONViewer'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
@@ -14,12 +15,22 @@ import { useViewLogsButton } from 'products/logs/frontend/components/ViewLogsBut
 import { ItemTimeDisplay } from '../../../components/ItemTimeDisplay'
 import { miniFiltersLogic } from '../miniFiltersLogic'
 import { InspectorListItemLog } from '../playerInspectorLogic'
+import { ItemLogAttributes } from './ItemLogAttributes'
 
 export interface ItemLogProps {
     item: InspectorListItemLog
     groupCount?: number
     groupedItems?: InspectorListItemLog[]
     sessionId?: string
+}
+
+function parseJsonObject(body: string): object | null {
+    try {
+        const parsed = JSON.parse(body)
+        return parsed && typeof parsed === 'object' ? parsed : null
+    } catch {
+        return null
+    }
 }
 
 const levelColors: Record<string, string> = {
@@ -76,15 +87,8 @@ export function ItemLogDetail({ item, groupedItems, sessionId }: ItemLogProps): 
         openedFrom: 'recording',
     })
 
-    const attributes =
-        item.data.attributes && typeof item.data.attributes === 'object'
-            ? Object.fromEntries(
-                  Object.entries(item.data.attributes).map(([key, value]) => [
-                      key,
-                      typeof value === 'string' ? value : JSON.stringify(value),
-                  ])
-              )
-            : {}
+    const parsedBody = useMemo(() => parseJsonObject(item.data.body), [item.data.body])
+    const serviceName = item.data.resource_attributes?.['service.name'] || item.data.instrumentation_scope
 
     return (
         <div className="w-full font-light" data-attr="item-log-detail">
@@ -134,25 +138,28 @@ export function ItemLogDetail({ item, groupedItems, sessionId }: ItemLogProps): 
                     </>
                 ) : null}
 
-                <CodeSnippet language={Language.Text} wrap thing="log message">
-                    {item.data.body}
-                </CodeSnippet>
+                {parsedBody ? (
+                    <div className="p-2 bg-bg-light rounded border border-border">
+                        <JSONViewer src={parsedBody} collapsed={2} />
+                    </div>
+                ) : (
+                    <CodeSnippet language={Language.Text} wrap thing="log message">
+                        {item.data.body}
+                    </CodeSnippet>
+                )}
 
-                {item.data.instrumentation_scope ? (
+                {serviceName ? (
                     <>
                         <LemonDivider dashed />
                         <LemonLabel>Service</LemonLabel>
-                        <div className="font-mono text-xs">{item.data.instrumentation_scope}</div>
+                        <div className="font-mono text-xs">{serviceName}</div>
                     </>
                 ) : null}
 
-                {Object.keys(attributes).length > 0 ? (
-                    <>
-                        <LemonDivider dashed />
-                        <LemonLabel>Attributes</LemonLabel>
-                        <SimpleKeyValueList item={attributes} />
-                    </>
-                ) : null}
+                <div className="flex flex-col gap-2 mt-2">
+                    <ItemLogAttributes attributes={item.data.attributes} title="Log attributes" />
+                    <ItemLogAttributes attributes={item.data.resource_attributes} title="Resource attributes" />
+                </div>
             </div>
         </div>
     )

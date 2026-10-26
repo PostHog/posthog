@@ -1112,6 +1112,7 @@ describe('Tool Filtering - Feature Flags', () => {
             'logs-agent-tools',
             'workflows-transactional-email-api',
             'activity-summary',
+            'anomalies-search',
         ]
         expect(allFlags).toEqual(expect.arrayContaining(branchFlags))
         // The flags branches add are asserted on the line above and held out of the list and
@@ -1154,11 +1155,12 @@ describe('Tool Filtering - Feature Flags', () => {
                 'subscription-source-summaries',
                 'workflows-mcp-onboarding',
                 'warehouse-migration-import',
+                'aeo-citation-tracking',
             ])
         )
         expect(flags).toContain('ai-observability-offline-evaluations')
         expect(allFlags).not.toContain('dashboard-widgets')
-        expect(flags).toHaveLength(35)
+        expect(flags).toHaveLength(36)
     })
 
     it('keeps human and task context wiki tools on separate scopes', () => {
