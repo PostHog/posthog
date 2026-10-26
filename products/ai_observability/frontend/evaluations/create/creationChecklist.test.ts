@@ -84,6 +84,7 @@ describe('creationChecklist', () => {
         ['Handed off to a human', 'handed-off-to-a-human'],
         ['  Partly resolved (needs follow-up)! ', 'partly-resolved-needs-follow-up'],
         ['snake_case label', 'snake-case-label'],
+        ['已解决', 'category-ef9uq'],
     ])('turns the category label %j into the stored key %j', (label, key) => {
         expect(categoryKey(label)).toBe(key)
         expect(key).toMatch(/^[a-z0-9]+(?:[_-][a-z0-9]+)*$/)

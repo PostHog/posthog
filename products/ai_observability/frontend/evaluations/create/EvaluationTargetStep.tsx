@@ -19,7 +19,7 @@ const TARGET_HINTS: Record<EvaluationTarget, string> = {
     generation: 'Runs on each matching generation as soon as it arrives.',
     trace: 'Runs once per trace, after the trace has had time to finish. Only generations sent with a trace ID count.',
     session:
-        'Runs once per session, after the session has had time to finish. Only generations sent with a session ID count.',
+        'Runs once per session, after the session has had time to finish. Only generations sent with a session ID and a trace ID count.',
 }
 
 /** Step three: the live traffic the evaluation runs on, and how much of it. */

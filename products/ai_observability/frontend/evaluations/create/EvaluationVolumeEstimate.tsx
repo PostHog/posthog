@@ -38,7 +38,10 @@ export function EvaluationVolumeEstimate(): JSX.Element | null {
         )
     }
     if (volume.target !== 'generation' && volume.matchingUnits === 0) {
-        const property = volume.target === 'trace' ? '$ai_trace_id' : '$ai_session_id'
+        const ids =
+            volume.target === 'trace'
+                ? 'a trace ID ($ai_trace_id)'
+                : 'both a session ID ($ai_session_id) and a trace ID ($ai_trace_id)'
         return (
             <LemonBanner
                 type="warning"
@@ -48,7 +51,7 @@ export function EvaluationVolumeEstimate(): JSX.Element | null {
                     'data-attr': 'llma-evaluation-create-use-generation',
                 }}
             >
-                {`Generations matched, but none were sent with a ${volume.target} ID (${property}), so this ${volume.target} evaluation would not run.`}
+                {`Generations matched, but none were sent with ${ids}, so this ${volume.target} evaluation would not run.`}
             </LemonBanner>
         )
     }

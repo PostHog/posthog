@@ -8,10 +8,12 @@ import type { EvaluationConditionSet, EvaluationTarget } from './types'
 /** How far back the estimate looks. A week covers weekday and weekend traffic. */
 export const VOLUME_LOOKBACK_DAYS = 7
 
-/** The property that groups generations into one unit of the target. Generations need no grouping. */
-const UNIT_PROPERTY: Record<Exclude<EvaluationTarget, 'generation'>, string> = {
-    trace: '$ai_trace_id',
-    session: '$ai_session_id',
+const HAS_TRACE_ID = "notEmpty(coalesce(properties.$ai_trace_id, ''))"
+
+/** The scheduler skips a generation without a trace ID, and a session evaluation also needs a session ID. */
+const UNIT_COUNT_HOGQL: Record<Exclude<EvaluationTarget, 'generation'>, string> = {
+    trace: `countDistinctIf(properties.$ai_trace_id, ${HAS_TRACE_ID})`,
+    session: `countDistinctIf(properties.$ai_session_id, ${HAS_TRACE_ID} AND notEmpty(coalesce(properties.$ai_session_id, '')))`,
 }
 
 /**
@@ -34,7 +36,7 @@ export function conditionVolumeQuery(condition: EvaluationConditionSet, target: 
                       {
                           ...base,
                           math: HogQLMathType.HogQL,
-                          math_hogql: `count(DISTINCT properties.${UNIT_PROPERTY[target]})`,
+                          math_hogql: UNIT_COUNT_HOGQL[target],
                       },
                   ]),
         ],
