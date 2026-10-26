@@ -13,8 +13,19 @@ export const getNewInsightUrlFactory = (tiles: WebAnalyticsTile[]) => {
     return function getNewInsightUrl(tileId: TileId, tabId?: string): string | undefined {
         const formatQueryForNewInsight = (query: QuerySchema): QuerySchema => {
             if (query.kind === NodeKind.InsightVizNode) {
+                const source = query.source
+                const editableSource =
+                    source.kind === NodeKind.TrendsQuery && source.marketingAnalyticsCostFallback
+                        ? {
+                              ...source,
+                              series: source.marketingAnalyticsCostFallback.series,
+                              breakdownFilter: undefined,
+                              marketingAnalyticsCostFallback: undefined,
+                          }
+                        : source
                 return {
                     ...query,
+                    source: editableSource,
                     embedded: undefined,
                     hidePersonsModal: undefined,
                 }

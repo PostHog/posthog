@@ -231,9 +231,12 @@ const HISTOGRAM_METRIC_TYPES: readonly OtelMetricTypeEnumApi[] = [
     OtelMetricTypeEnumApi.Summary,
 ]
 // Ingest keeps these types' bucket distribution apart from the scalar value, which holds the running
-// sum of observations. Exponential histograms are left out: ingest stores each bucket's lower edge,
-// and the backend quantile reads every bound as an upper edge.
-const HISTOGRAM_QUANTILE_METRIC_TYPES: readonly OtelMetricTypeEnumApi[] = [OtelMetricTypeEnumApi.Histogram]
+// sum of observations. The backend quantile turns the stored lower edges of exponential buckets into
+// upper edges.
+const HISTOGRAM_QUANTILE_METRIC_TYPES: readonly OtelMetricTypeEnumApi[] = [
+    OtelMetricTypeEnumApi.Histogram,
+    OtelMetricTypeEnumApi.ExponentialHistogram,
+]
 
 export const supportsHistogramQuantile = (metricType: OtelMetricTypeEnumApi | null): boolean =>
     !!metricType && HISTOGRAM_QUANTILE_METRIC_TYPES.includes(metricType)
@@ -699,6 +702,9 @@ export interface metricsViewerLogicActions {
         queryResults: _MetricSeriesApi[]
         payload?: any
     }
+    liveRefreshTick: () => {
+        value: true
+    }
     loadAttributeKeyOptions: (_: any) => any
     loadAttributeKeyOptionsFailure: (
         error: string,
@@ -962,6 +968,8 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         // Null means auto: the backend picks a step from the range.
         setInterval: (interval: string | null) => ({ interval }),
         setLiveRefresh: (liveRefresh: boolean) => ({ liveRefresh }),
+        // One auto-refresh cycle. The chart and the facet rail both reload on it.
+        liveRefreshTick: true,
         setGroupBySearch: (groupBySearch: string) => ({ groupBySearch }),
         // Narrows the chart to one label value, from the anomaly panel's ranked movers.
         addAttributeFilter: (key: string, value: string) => ({ key, value }),
@@ -1462,12 +1470,13 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                 }
                 // pauseOnPageHidden (default) stops polling on a hidden tab and resumes on focus.
                 cache.disposables.add(() => {
-                    const intervalId = setInterval(() => {
-                        actions.fetchQueryResults({})
-                        actions.fetchAnomaly({})
-                    }, LIVE_REFRESH_MS)
+                    const intervalId = setInterval(() => actions.liveRefreshTick(), LIVE_REFRESH_MS)
                     return () => clearInterval(intervalId)
                 }, LIVE_REFRESH_KEY)
+            },
+            liveRefreshTick: () => {
+                actions.fetchQueryResults({})
+                actions.fetchAnomaly({})
             },
         }
     }),
@@ -1526,6 +1535,7 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                             metric_name: series.metricName ?? null,
                             clause: series.clause ?? null,
                             unit: series.unit ?? null,
+                            histogram_bounds: series.histogramBounds ?? null,
                         }))
                     }
                     const queryPayload = values.queryPayload

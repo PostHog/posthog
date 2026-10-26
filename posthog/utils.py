@@ -47,6 +47,7 @@ from dateutil import parser
 from dateutil.relativedelta import relativedelta
 from opentelemetry import trace
 from prometheus_client import Histogram
+from pydantic import ValidationError as PydanticValidationError
 from rest_framework import serializers
 from rest_framework.request import Request
 from rest_framework.utils.encoders import JSONEncoder
@@ -486,6 +487,33 @@ def _read_preload_manifest(manifest_path: str, include_authenticated_shell: bool
         return ("", (), "")
 
 
+APP_EVALUATION_CONTEXT = "posthog-web-app"
+
+
+def flags_for_app_evaluation_context(
+    flags: dict[str, Any] | None, definitions: list[dict[str, Any]] | None
+) -> dict[str, Any] | None:
+    """
+    Drops flags that /flags leaves out for the app, which sends `evaluation_contexts: ['posthog-web-app']`
+    from `loadPostHogJS.tsx`. The Python SDK evaluates locally without applying evaluation contexts, and it
+    also returns disabled flags and server-only flags, which /flags never sends to a browser.
+    """
+    # The SDK returns no flags at all when analytics is disabled, for example in tests or with OPT_OUT_CAPTURE.
+    if flags is None:
+        return None
+    excluded = {definition["key"] for definition in definitions or [] if not _app_evaluates_flag(definition)}
+    return {key: value for key, value in flags.items() if key not in excluded}
+
+
+def _app_evaluates_flag(definition: dict[str, Any]) -> bool:
+    contexts = definition.get("evaluation_contexts")
+    return (
+        definition.get("active", True) is not False
+        and definition.get("evaluation_runtime") != "server"
+        and (not contexts or APP_EVALUATION_CONTEXT in contexts)
+    )
+
+
 @frozen
 class _FlagIdentity:
     person_properties: dict[str, Any]
@@ -781,7 +809,9 @@ def _build_template_context(
                 group_properties=identity.group_properties,
             )
         # don't forcefully set distinctID, as this breaks the link for anonymous users coming from `posthog.com`.
-        posthog_bootstrap["featureFlags"] = feature_flags
+        posthog_bootstrap["featureFlags"] = flags_for_app_evaluation_context(
+            feature_flags, posthoganalytics.feature_flag_definitions()
+        )
 
     # This allows immediate flag availability on the frontend, atleast for flags
     # that don't depend on any person properties. To get these flags, add person properties to the
@@ -1961,7 +1991,41 @@ def filters_override_requested_by_client(
 
     if isinstance(request_filters, dict):
         request_filters = _with_saved_metric_variables(request_filters, dashboard_filters or {})
+    validate_filters_override(request_filters)
     return {**dashboard_filters, **request_filters}
+
+
+def validate_filters_override(request_filters: Any) -> None:
+    from posthog.schema import DashboardFilter
+
+    from posthog.hogql_queries.apply_dashboard_filters import (
+        dashboard_filter_from_dict,
+        normalize_dashboard_filters_properties,
+    )
+
+    if not isinstance(request_filters, dict):
+        raise serializers.ValidationError({"filters_override": "filters_override must be a JSON object."})
+
+    try:
+        dashboard_filter_from_dict(normalize_dashboard_filters_properties(request_filters))
+    except PydanticValidationError as e:
+        accepted_keys = ", ".join(DashboardFilter.model_fields)
+        unknown_keys = sorted(
+            {
+                str(error["loc"][0])
+                for error in e.errors()
+                if error["type"] == "extra_forbidden" and len(error["loc"]) == 1
+            }
+        )
+        if unknown_keys:
+            detail = f"Unknown key(s) in filters_override: {', '.join(unknown_keys)}. Accepted keys: {accepted_keys}."
+        else:
+            first_error = e.errors()[0]
+            location = ".".join(str(part) for part in first_error["loc"])
+            detail = f"Invalid value in filters_override at '{location}': {first_error['msg']}."
+        raise serializers.ValidationError({"filters_override": detail})
+    except ValueError as e:
+        raise serializers.ValidationError({"filters_override": f"Invalid value in filters_override: {e}."})
 
 
 def variables_override_requested_by_client(

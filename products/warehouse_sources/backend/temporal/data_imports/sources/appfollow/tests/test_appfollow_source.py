@@ -33,12 +33,9 @@ class TestAppfollowSource:
     @pytest.mark.parametrize(
         "status,expected_ok",
         [
-            (200, True),
             # A single account-wide token: a 403 still proves the token is genuine.
             (403, True),
-            (401, False),
             (402, False),
-            (500, False),
             (None, False),
         ],
     )

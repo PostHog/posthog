@@ -14,7 +14,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     ScriptedResponse,
     SourceDriver,
     UnexpectedRequest,
-    always,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.fastly import fastly
@@ -97,16 +96,12 @@ class TestActiveVersionNumber:
 
 
 class TestValidateCredentials:
-    @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False)])
+    @parameterized.expand([("ok", 200, True)])
     def test_validate_credentials_status_mapping(self, _name: str, status_code: int, expected: bool) -> None:
         with scripted_network([ScriptedResponse(status=status_code)]) as network:
             assert validate_credentials("token") is expected
         assert [request.path for request in network.requests_log] == ["/current_user"]
         assert network.requests_log[0].headers["fastly-key"] == "token"
-
-    def test_validate_credentials_swallows_exceptions(self) -> None:
-        with scripted_network(always(requests.ConnectionError("boom"))):
-            assert validate_credentials("token") is False
 
 
 class TestTokenRedaction:

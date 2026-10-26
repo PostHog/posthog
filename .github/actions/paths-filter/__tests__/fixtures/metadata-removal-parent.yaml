@@ -1,0 +1,11 @@
+dataWarehouseMetadata:
+  - 'posthog/hogql*/**'
+  - 'posthog/temporal/data_modeling/**'
+  - 'products/customer_analytics/backend/**'
+  - 'products/warehouse_sources/backend/temporal/data_imports/**'
+  - 'posthog/warehouse/**'
+  - 'posthog/temporal/common/**'
+  - 'posthog/management/commands/start_temporal_worker.py'
+  - 'pyproject.toml'
+  - 'bin/temporal-django-worker'
+  - 'posthog/clickhouse/migrations/**'

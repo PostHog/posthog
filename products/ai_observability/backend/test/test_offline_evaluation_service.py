@@ -85,7 +85,10 @@ class TestOfflineEvaluationService(TestCase):
         self.assertEqual(error.exception.code, "content_conflict")
         self.assertEqual(OfflineExperiment.objects.for_team(self.team.id).count(), 1)
 
-    def test_upload_retry_preserves_identity_acceptance_and_retention(self) -> None:
+    @parameterized.expand([(None,), ("model-a",)])
+    def test_upload_retry_preserves_identity_acceptance_and_retention(self, model_version: str | None) -> None:
+        self.item = replace(self.item, model_version=model_version)
+        self.submission = replace(self.submission, items=[self.item])
         accepted = self.ingestion.upload(self.experiment.id, self.submission)
         replay = self.ingestion.upload(self.experiment.id, self.submission)
 
@@ -95,6 +98,7 @@ class TestOfflineEvaluationService(TestCase):
         self.assertTrue(accepted.results[0].created)
         item = OfflineExperimentItem.objects.for_team(self.team.id).get(id=self.item.id)
         result = OfflineEvaluationResult.objects.for_team(self.team.id).get(id=accepted.results[0].id)
+        self.assertEqual(item.model_version, model_version)
         self.assertEqual(item.payload_expires_at, item.accepted_at + timedelta(days=30))
         self.assertEqual(result.payload_expires_at, result.accepted_at + timedelta(days=30))
         self.assertEqual(

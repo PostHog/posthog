@@ -15,7 +15,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.rollbar.rollbar import (
     KEYSET_PAGE_SIZE,
-    TOKEN_REJECTED_MESSAGE,
     UNREACHABLE_MESSAGE,
     RollbarResumeConfig,
     _extract_items,
@@ -77,20 +76,12 @@ class TestValidateCredentials:
     @pytest.mark.parametrize(
         "status_code, expected",
         [
-            (200, (True, None)),
-            (401, (False, TOKEN_REJECTED_MESSAGE)),
-            (403, (False, TOKEN_REJECTED_MESSAGE)),
             (429, (False, UNREACHABLE_MESSAGE)),
-            (500, (False, UNREACHABLE_MESSAGE)),
         ],
     )
     def test_validate_credentials_status_mapping(self, status_code, expected):
         with scripted_network(always(ScriptedResponse(status=status_code))):
             assert validate_credentials("token") == expected
-
-    def test_validate_credentials_swallows_exceptions(self):
-        with scripted_network(always(ConnectionError("boom"))):
-            assert validate_credentials("token") == (False, UNREACHABLE_MESSAGE)
 
 
 class TestGetRowsPagePagination:

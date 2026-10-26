@@ -8,6 +8,7 @@ before any of it can be configured.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from functools import lru_cache
 from typing import TYPE_CHECKING
 
@@ -49,6 +50,8 @@ def scout_tool_access_enabled(team: Team) -> bool:
 
 SCOUT_RUN_CONTEXT_TOOLS = frozenset(
     {
+        "skill-get",
+        "skill-file-get",
         "scout-emit-report",
         "scout-edit-report",
         "scout-emit-signal",
@@ -62,6 +65,22 @@ SCOUT_RUN_CONTEXT_TOOLS = frozenset(
         "scout-check-record-result",
     }
 )
+
+
+def scout_held_mcp_tools(allowed_mcp_tools: Iterable[str]) -> frozenset[str]:
+    """Every PostHog MCP tool a scout run holds when its config narrows it to a tool list.
+
+    That is the picked tools, the run context tools every scout needs to report, and the tools
+    the MCP server offers every client. Each enforcement point calls this, so the API and the
+    MCP server cannot disagree about what a run holds. Holding a tool never adds access: the
+    run's token scopes still apply, so a dry run still writes nothing.
+    """
+    return frozenset(allowed_mcp_tools) | SCOUT_RUN_CONTEXT_TOOLS | _always_available_mcp_tools()
+
+
+@lru_cache(maxsize=1)
+def _always_available_mcp_tools() -> frozenset[str]:
+    return frozenset(name for name, definition in get_mcp_tool_definitions().items() if definition.always_available)
 
 
 @frozen

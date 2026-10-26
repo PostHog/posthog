@@ -156,6 +156,46 @@ export function countDescendants(node: SpanNode): number {
     return total
 }
 
+/** Child spans by parent span id. A root by the rule `buildSpanTree` uses gets no entry as a child. */
+export function childSpansByParentId(spans: Span[]): Map<string, Span[]> {
+    const children = new Map<string, Span[]>()
+    for (const span of spans) {
+        const parentSpanId = parentSpanIdOf(span)
+        if (!parentSpanId) {
+            continue
+        }
+        const siblings = children.get(parentSpanId)
+        if (siblings) {
+            siblings.push(span)
+        } else {
+            children.set(parentSpanId, [span])
+        }
+    }
+    return children
+}
+
+/**
+ * The span and every span under it. The visited set holds span objects, not ids, so a parent cycle in
+ * malformed data cannot loop and two spans that share an id both count.
+ */
+export function collectSubtreeSpans(root: Span, childrenByParentId: Map<string, Span[]>): Span[] {
+    const subtree: Span[] = []
+    const visited = new Set<Span>()
+    const stack = [root]
+    while (stack.length > 0) {
+        const span = stack.pop()!
+        if (visited.has(span)) {
+            continue
+        }
+        visited.add(span)
+        subtree.push(span)
+        for (const child of childrenByParentId.get(span.span_id) ?? []) {
+            stack.push(child)
+        }
+    }
+    return subtree
+}
+
 /** Depth-first flatten for rendering, skipping the subtree of any collapsed span. */
 export function flattenTree(nodes: SpanNode[], collapsedSpanIds: Set<string>): SpanNode[] {
     const result: SpanNode[] = []

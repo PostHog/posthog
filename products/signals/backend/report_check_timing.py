@@ -43,3 +43,21 @@ def metric_check_ready_at(query: dict[str, Any], team: Team, start_at: datetime)
     while metric_check_window_start(query, team, candidate) < start_at.astimezone(UTC):
         candidate += step
     return candidate.astimezone(UTC)
+
+
+def monitoring_metric_query(query: dict[str, Any], *, start: datetime, cutoff: datetime) -> dict[str, Any]:
+    if cutoff <= start:
+        raise ValueError("A Monitoring measurement must end after Monitoring starts.")
+    return {
+        **query,
+        "source": {
+            **query["source"],
+            "dateRange": {
+                **query["source"]["dateRange"],
+                "date_from": start.isoformat(),
+                "date_to": cutoff.isoformat(),
+                "explicitDate": True,
+                "excludeIncompletePeriods": False,
+            },
+        },
+    }

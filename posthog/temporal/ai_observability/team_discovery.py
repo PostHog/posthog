@@ -153,6 +153,7 @@ class TeamDiscoveryInput:
     # a child workflow and its sampling query. Without a window, discovery uses the flag's lookback days.
     window_start: str | None = None
     window_end: str | None = None
+    trigger_events: list[str] | None = None
 
 
 @retry(
@@ -204,7 +205,9 @@ async def get_team_ids_for_ai_observability(inputs: TeamDiscoveryInput | None = 
                 get_teams_with_ai_events,
                 begin,
                 end,
-                LLM_ANALYTICS_DISCOVERY_TRIGGER_EVENTS,
+                inputs.trigger_events
+                if inputs is not None and inputs.trigger_events
+                else LLM_ANALYTICS_DISCOVERY_TRIGGER_EVENTS,
             )
 
             remaining = [t for t in ai_event_teams if t not in guaranteed and t not in skip]

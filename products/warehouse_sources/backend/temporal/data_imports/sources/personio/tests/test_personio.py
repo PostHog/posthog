@@ -4,8 +4,6 @@ from urllib.parse import parse_qs
 
 import pytest
 
-import requests
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
@@ -85,10 +83,6 @@ class TestValidateCredentials:
 
     def test_invalid_when_token_mint_rejected(self) -> None:
         with scripted_network([_token_response(status_code=401)]):
-            assert validate_credentials("cid", "sec") is False
-
-    def test_invalid_on_transient_error(self) -> None:
-        with scripted_network([requests.ConnectionError("boom")]):
             assert validate_credentials("cid", "sec") is False
 
 

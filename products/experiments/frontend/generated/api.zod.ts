@@ -239,6 +239,18 @@ export const ExperimentHoldoutsCreateBody = /* @__PURE__ */ zod
                                     value: zod
                                         .unknown()
                                         .describe('Cohort comparison value (single or list, depending on usage).'),
+                                    cohort_deleted: zod
+                                        .boolean()
+                                        .optional()
+                                        .describe(
+                                            'Set to true in responses when the cohort is deleted or does not exist. The flag cannot evaluate this condition. Ignored on write.'
+                                        ),
+                                    cohort_missing: zod
+                                        .boolean()
+                                        .optional()
+                                        .describe(
+                                            'Set to true in responses when no cohort with this id exists in the project, so it cannot be restored. `cohort_deleted` is also true. Absent for a soft-deleted cohort. Ignored on write.'
+                                        ),
                                 }),
                                 zod.object({
                                     key: zod.string().describe('Property key used in this feature flag condition.'),
@@ -518,6 +530,18 @@ export const ExperimentHoldoutsUpdateBody = /* @__PURE__ */ zod
                                     value: zod
                                         .unknown()
                                         .describe('Cohort comparison value (single or list, depending on usage).'),
+                                    cohort_deleted: zod
+                                        .boolean()
+                                        .optional()
+                                        .describe(
+                                            'Set to true in responses when the cohort is deleted or does not exist. The flag cannot evaluate this condition. Ignored on write.'
+                                        ),
+                                    cohort_missing: zod
+                                        .boolean()
+                                        .optional()
+                                        .describe(
+                                            'Set to true in responses when no cohort with this id exists in the project, so it cannot be restored. `cohort_deleted` is also true. Absent for a soft-deleted cohort. Ignored on write.'
+                                        ),
                                 }),
                                 zod.object({
                                     key: zod.string().describe('Property key used in this feature flag condition.'),
@@ -798,6 +822,18 @@ export const ExperimentHoldoutsPartialUpdateBody = /* @__PURE__ */ zod
                                     value: zod
                                         .unknown()
                                         .describe('Cohort comparison value (single or list, depending on usage).'),
+                                    cohort_deleted: zod
+                                        .boolean()
+                                        .optional()
+                                        .describe(
+                                            'Set to true in responses when the cohort is deleted or does not exist. The flag cannot evaluate this condition. Ignored on write.'
+                                        ),
+                                    cohort_missing: zod
+                                        .boolean()
+                                        .optional()
+                                        .describe(
+                                            'Set to true in responses when no cohort with this id exists in the project, so it cannot be restored. `cohort_deleted` is also true. Absent for a soft-deleted cohort. Ignored on write.'
+                                        ),
                                 }),
                                 zod.object({
                                     key: zod.string().describe('Property key used in this feature flag condition.'),
@@ -1072,8 +1108,10 @@ export const ExperimentsEndCreateBody = /* @__PURE__ */ zod.object({
  * Trigger a batch recalculation of all metrics for this experiment.
  *
  * Returns 201 with the new pending recalculation, or 200 with the active one if a recalculation is
- * already pending or in progress for this experiment. A manual trigger within five minutes after the latest
- * completed run finished returns 429 with a Retry-After header. The response payload intentionally does not
+ * already pending or in progress for this experiment. An experiment that started too long ago gets 201 with
+ * a run that is already failed: every metric carries the `recalculation_window_too_long` error in
+ * `metric_errors`, no workflow starts, and a retry gets the same answer. A manual trigger within five
+ * minutes after the latest completed run finished returns 429 with a Retry-After header. The response payload intentionally does not
  * include the `results` array — at POST time the workflow has just been queued and no per-metric
  * results exist yet. Clients should poll `GET metrics_recalculation/{id}/` for results as the workflow
  * progresses.
@@ -1087,16 +1125,17 @@ export const ExperimentsMetricsRecalculationCreateBody = /* @__PURE__ */ zod
                 'manual',
                 'manual_retry',
                 'cold_run',
+                'stale_refresh',
                 'heal_latest_run',
                 'experiment_config_change',
                 'metric_config_change',
             ])
             .describe(
-                '\* `manual` - Manual\n\* `manual_retry` - Manual Retry\n\* `cold_run` - Cold Run\n\* `heal_latest_run` - Heal Latest Run\n\* `experiment_config_change` - Experiment Config Change\n\* `metric_config_change` - Metric Config Change'
+                '\* `manual` - Manual\n\* `manual_retry` - Manual Retry\n\* `cold_run` - Cold Run\n\* `stale_refresh` - Stale Refresh\n\* `heal_latest_run` - Heal Latest Run\n\* `experiment_config_change` - Experiment Config Change\n\* `metric_config_change` - Metric Config Change'
             )
             .default(experimentsMetricsRecalculationCreateBodyTriggerDefault)
             .describe(
-                'What triggered this recalculation (manual is the default for user-initiated runs). Only client triggers are accepted; agent_mcp, timeseries_sync and scheduled are set by the server.\n\n\* `manual` - Manual\n\* `manual_retry` - Manual Retry\n\* `cold_run` - Cold Run\n\* `heal_latest_run` - Heal Latest Run\n\* `experiment_config_change` - Experiment Config Change\n\* `metric_config_change` - Metric Config Change'
+                'What triggered this recalculation (manual is the default for user-initiated runs). Only client triggers are accepted; agent_mcp, timeseries_sync and scheduled are set by the server.\n\n\* `manual` - Manual\n\* `manual_retry` - Manual Retry\n\* `cold_run` - Cold Run\n\* `stale_refresh` - Stale Refresh\n\* `heal_latest_run` - Heal Latest Run\n\* `experiment_config_change` - Experiment Config Change\n\* `metric_config_change` - Metric Config Change'
             ),
     })
     .describe('Request body for triggering a metrics recalculation.')

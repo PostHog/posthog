@@ -1,12 +1,9 @@
 import { useMountedLogic, useValues } from 'kea'
 import { Fragment, JSX, memo, useCallback, useEffect, useRef } from 'react'
 
-import { IconNotebook } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
 import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { isRankingSortField } from '../../filterOptions'
@@ -16,6 +13,7 @@ import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
 import { inboxActivationVisibilityLogic } from '../../logics/inboxActivationVisibilityLogic'
 import { inboxFiltersLogic, isDefaultStateFilter } from '../../logics/inboxFiltersLogic'
 import type { InboxRankingSortField } from '../../logics/inboxFiltersLogic'
+import { inboxSetupLogic } from '../../logics/inboxSetupLogic'
 import { reportListLogic, sectionListLogicProps } from '../../logics/reportListLogic'
 import {
     INBOX_SCOPE_ENTIRE_PROJECT,
@@ -29,10 +27,10 @@ import { rankingSortScore } from '../../utils/reportOrdering'
 import { CardSkeleton } from '../cards/CardSkeleton'
 import { ReportCard } from '../cards/ReportCard'
 import { ReportContextMenu } from '../cards/ReportContextMenu'
+import { FirstReportProgress } from '../emptyState/FirstReportProgress'
 import { InboxWaitingForWork } from '../emptyState/InboxWaitingForWork'
 import { InboxMcpBanner } from '../InboxMcpBanner'
 import { InboxActivationPanel } from '../onboarding/InboxActivationPanel'
-import { SelfDrivingInstallingHint } from '../SelfDrivingInstallingHint'
 import { InboxBulkSelectionBar } from '../shell/InboxBulkSelectionBar'
 import { InboxReportFilters } from '../shell/InboxReportFilters'
 import { InboxScopeFilter } from '../shell/InboxScopeFilter'
@@ -180,7 +178,6 @@ const ReportRow = memo(function ReportRow({
         <ReportContextMenu report={report} sectionKey={sectionKey}>
             <ReportCard
                 report={report}
-                sectionKey={sectionKey}
                 selectable
                 rankingSortField={rankingSortField}
                 timestampField={timestampField}
@@ -191,29 +188,6 @@ const ReportRow = memo(function ReportRow({
         </ReportContextMenu>
     )
 })
-
-/** Nothing has reached the inbox yet — the whole list is empty, not just one state. */
-function ReportsEmptyState(): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-    if (featureFlags[FEATURE_FLAGS.INBOX_SELF_DRIVING_EMPTY_STATE] === 'empty-state') {
-        return <InboxWaitingForWork />
-    }
-    return (
-        <div className="mx-auto flex max-w-md flex-col items-center gap-2 py-12 text-center">
-            <div className="mb-1 flex h-12 w-12 items-center justify-center rounded-full bg-fill-primary text-secondary">
-                <IconNotebook className="text-2xl" />
-            </div>
-            <h3 className="m-0 text-base font-semibold">Nothing in your inbox yet</h3>
-            <p className="m-0 text-sm text-tertiary">
-                Agents file what they find here: reports waiting on a pull request, pull requests for you to review, and
-                the work already resolved.
-            </p>
-            <SelfDrivingInstallingHint>
-                Reports will start arriving as soon as live data comes in.
-            </SelfDrivingInstallingHint>
-        </div>
-    )
-}
 
 function emptyListCopy(scope: InboxScope, narrowed: boolean): string {
     if (narrowed) {
@@ -234,6 +208,7 @@ function emptyListCopy(scope: InboxScope, narrowed: boolean): string {
  */
 export function ReportsTab(): JSX.Element {
     const { showActivationPanel: showActivation } = useValues(inboxActivationVisibilityLogic)
+    const { savedState, firstReportProgress } = useValues(inboxSetupLogic)
     const { isStaff } = useValues(inboxSceneLogic)
     // The row context menus dispatch to this logic and unmount when a menu closes; pinning it here
     // keeps an in-flight create-PR listener alive past the click that closed the menu.
@@ -299,15 +274,19 @@ export function ReportsTab(): JSX.Element {
         settledOnceRef.current = true
     }
     const showFirstLoadSkeleton = firstLoadPending && (!settledOnceRef.current || rows.length === 0)
-    const anyLoadFailed = selectedSections.some((key) => sections[key].reportsLoadFailed && !sections[key].isLoaded)
+    const anyLoadFailed = selectedSections.some((key) => sections[key].reportsLoadFailed)
     const pageLoading = selectedSections.some((key) => sections[key].reportsResponseLoading)
     const pageLoadFailed = selectedSections.some((key) => sections[key].pageLoadFailed)
     const hasMore = selectedSections.some((key) => sections[key].hasMore)
 
-    // `ensureLoaded` only fetches a state with nothing loaded and nothing in flight, so retrying
-    // after a partial failure refetches the failed states and leaves the loaded ones alone.
     const retryFailedSections = (): void => {
-        selectedSections.forEach((key) => reportListLogic(sectionListLogicProps(key)).actions.ensureLoaded())
+        selectedSections.forEach((key) => {
+            if (sections[key].reportsLoadFailed && !sections[key].reportsResponseLoading) {
+                const { actions } = reportListLogic(sectionListLogicProps(key))
+                actions.loadCount()
+                actions.loadReports()
+            }
+        })
     }
     // `loadMore` self-guards on `hasMore` and in-flight requests, so this only refetches the pages
     // that actually failed.
@@ -378,10 +357,18 @@ export function ReportsTab(): JSX.Element {
             <InboxBulkSelectionBar reports={rows.map(({ report }) => report)} />
             <InboxMcpBanner />
             {showActivation && <InboxActivationPanel hasReports={!inboxIsEmpty && rows.length > 0} />}
+            {showActivation && firstReportProgress && (
+                <div className="min-w-0" data-attr="inbox-first-report-progress">
+                    <FirstReportProgress
+                        result={firstReportProgress}
+                        notificationEmail={savedState?.first_report_notification_email}
+                    />
+                </div>
+            )}
 
-            {inboxIsEmpty ? (
+            {inboxIsEmpty && !anyLoadFailed ? (
                 showActivation ? null : (
-                    <ReportsEmptyState />
+                    <InboxWaitingForWork />
                 )
             ) : showFirstLoadSkeleton ? (
                 // Hold the rows until every selected state's first page has settled: the states
@@ -396,6 +383,7 @@ export function ReportsTab(): JSX.Element {
                         <LemonButton
                             size="small"
                             type="secondary"
+                            loading={pageLoading}
                             onClick={retryFailedSections}
                             data-attr="inbox-report-list-retry"
                         >
@@ -428,6 +416,7 @@ export function ReportsTab(): JSX.Element {
                             <LemonButton
                                 size="xsmall"
                                 type="secondary"
+                                loading={pageLoading}
                                 onClick={retryFailedSections}
                                 data-attr="inbox-report-list-retry"
                             >

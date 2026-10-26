@@ -10,10 +10,15 @@ import { LemonCheckbox } from '@posthog/lemon-ui'
 import { pngHoggie } from 'lib/brand/hoggies'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { TagSelect } from 'lib/components/TagSelect'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
+import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import MaxTool from 'scenes/max/MaxTool'
@@ -22,17 +27,32 @@ import { urls } from 'scenes/urls'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { MessageTemplateCard } from './MessageTemplateCard'
-import { messageTemplatesLogic } from './messageTemplatesLogic'
+import { messageTemplatesLogic, saveTemplateTags } from './messageTemplatesLogic'
 import { newTemplateAgentLogic } from './newTemplateAgentLogic'
 
 const HedgehogReadingIsMagic = pngHoggie(readingIsMagicPng)
 
 export function MessageTemplatesTable(): JSX.Element {
     useMountedLogic(messageTemplatesLogic)
-    const { filteredTemplates, templates, templatesLoading, search, createdByFilter, transactionalOnly } =
-        useValues(messageTemplatesLogic)
-    const { deleteTemplate, createTemplate, duplicateTemplate, setSearch, setCreatedByFilter, setTransactionalOnly } =
-        useActions(messageTemplatesLogic)
+    const {
+        filteredTemplates,
+        templates,
+        templatesLoading,
+        search,
+        createdByFilter,
+        transactionalOnly,
+        tagsFilter,
+        tags: allTags,
+    } = useValues(messageTemplatesLogic)
+    const {
+        deleteTemplate,
+        createTemplate,
+        duplicateTemplate,
+        setSearch,
+        setCreatedByFilter,
+        setTransactionalOnly,
+        setTagsFilter,
+    } = useActions(messageTemplatesLogic)
     const transactionalEmailsEnabled = useFeatureFlag('WORKFLOWS_TRANSACTIONAL_EMAIL_API')
     const { startNewTemplate } = useActions(newTemplateAgentLogic)
 
@@ -75,6 +95,16 @@ export function MessageTemplatesTable(): JSX.Element {
                 <div className="flex items-center gap-2">
                     <span className="text-secondary whitespace-nowrap">Created by:</span>
                     <MemberSelect value={createdByFilter} onChange={(user) => setCreatedByFilter(user?.id ?? null)} />
+                </div>
+                <div className="flex items-center gap-2">
+                    <span className="text-secondary whitespace-nowrap">Tags:</span>
+                    <TagSelect
+                        size="small"
+                        defaultLabel="Any tags"
+                        value={tagsFilter}
+                        onChange={setTagsFilter}
+                        listDataAttr="templates-tags-filter-list"
+                    />
                 </div>
                 {transactionalEmailsEnabled && (
                     <LemonCheckbox
@@ -119,6 +149,7 @@ export function MessageTemplatesTable(): JSX.Element {
                             template={template}
                             index={index}
                             onClick={() => router.actions.push(urls.workflowsLibraryTemplate(template.id))}
+                            onTagClick={(tag) => !tagsFilter.includes(tag) && setTagsFilter([...tagsFilter, tag])}
                             actions={
                                 <More
                                     size="small"
@@ -128,6 +159,42 @@ export function MessageTemplatesTable(): JSX.Element {
                                                 {
                                                     label: 'Duplicate',
                                                     onClick: () => duplicateTemplate(template),
+                                                },
+                                                {
+                                                    label: 'Edit tags',
+                                                    onClick: () =>
+                                                        LemonDialog.openForm({
+                                                            title: 'Edit tags',
+                                                            // A rejected save keeps the dialog open, so the
+                                                            // selection survives a validation error or a retry.
+                                                            shouldAwaitSubmit: true,
+                                                            initialValues: { tags: [...(template.tags ?? [])] },
+                                                            content: (
+                                                                <LemonField name="tags">
+                                                                    <LemonInputSelect
+                                                                        mode="multiple"
+                                                                        allowCustomValues
+                                                                        options={allTags.map((tag) => ({
+                                                                            key: tag,
+                                                                            label: tag,
+                                                                        }))}
+                                                                        placeholder='try "growth"'
+                                                                        autoFocus
+                                                                        data-attr="template-tags-input"
+                                                                    />
+                                                                </LemonField>
+                                                            ),
+                                                            onSubmit: async ({ tags }) => {
+                                                                try {
+                                                                    await saveTemplateTags(template, tags)
+                                                                } catch (error: any) {
+                                                                    lemonToast.error(
+                                                                        `Failed to save tags: ${error?.detail || error?.message || 'Unknown error'}`
+                                                                    )
+                                                                    throw error
+                                                                }
+                                                            },
+                                                        }),
                                                 },
                                                 {
                                                     label: 'Delete',

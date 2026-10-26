@@ -2,7 +2,9 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
 import { LemonButton, LemonDialog } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -58,6 +60,7 @@ function TracingRetentionDetailFormBody({ rule }: { rule: LogsRetentionRuleApi }
     const { setRetentionFormValue } = useActions(logsRetentionFormLogic(formProps))
     const { retentionForm, isRetentionFormSubmitting } = useValues(logsRetentionFormLogic(formProps))
     const saveDisabledReason = retentionFormSaveDisabledReason(retentionForm)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const confirmDelete = (): void => {
         LemonDialog.open({
@@ -83,9 +86,15 @@ function TracingRetentionDetailFormBody({ rule }: { rule: LogsRetentionRuleApi }
                     onNameChange={(name) => setRetentionFormValue('name', name)}
                     renameDebounceMs={0}
                     actions={
-                        <LemonButton type="secondary" status="danger" onClick={confirmDelete}>
-                            Delete
-                        </LemonButton>
+                        todayRailNav ? (
+                            <Button variant="destructive-outline" onClick={confirmDelete}>
+                                Delete
+                            </Button>
+                        ) : (
+                            <LemonButton type="secondary" status="danger" onClick={confirmDelete}>
+                                Delete
+                            </LemonButton>
+                        )
                     }
                 />
                 <SceneStickyBar>

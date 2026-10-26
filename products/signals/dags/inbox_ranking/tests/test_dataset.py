@@ -570,7 +570,7 @@ class TestSpineInclusion(BaseTest):
 
         with (
             patch.object(dag, "skip_unconfigured", lambda context: False),
-            patch.object(dag, "_tag_dagster_queries", lambda context, query_type: None),
+            patch.object(dag, "tag_dagster_queries", lambda context, query_type: None),
             # A label event that names an opted-out report must not pull it back into the spine.
             patch.object(dag, "labels_team", lambda: self.team),
             patch.object(dag, "hogql_rows", lambda *args, **kwargs: [(excluded[0],)]),
@@ -886,6 +886,9 @@ class TestStatusStream(ClickhouseTestMixin, BaseTest):
             ("reasonless_resolve", "ready", "resolved", None, 1),
             ("already_fixed_dismissal", "ready", "suppressed", "already_fixed", 1),
             ("analysis_wrong_resolve", "ready", "resolved", "analysis_wrong", 0),
+            ("wrong_assignee_resolve", "ready", "resolved", "wrong_assignee", 0),
+            ("no_action_needed_resolve", "ready", "resolved", "no_action_needed", 0),
+            ("manual_fix_resolve", "ready", "resolved", "fixed_outside_posthog", 1),
             ("other_dismissal", "ready", "suppressed", "other", 0),
         ]
     )
@@ -1204,7 +1207,7 @@ def _run_embeddings_asset(monkeypatch, asset, rows, consent_team_ids=frozenset({
     monkeypatch.setattr(dag, "sync_execute", fake_sync_execute)
     monkeypatch.setattr(dag, "write_parquet", fake_write_parquet)
     monkeypatch.setattr(dag, "skip_unconfigured", lambda context: False)
-    monkeypatch.setattr(dag, "_tag_dagster_queries", lambda context, query_type: None)
+    monkeypatch.setattr(dag, "tag_dagster_queries", lambda context, query_type: None)
     monkeypatch.setattr(dag, "dataset_bucket", lambda: "test-bucket")
     monkeypatch.setattr(dag, "s3_client", lambda: None)
     monkeypatch.setattr(dag, "read_parquet_if_exists", lambda *args, **kwargs: None)
@@ -1272,6 +1275,7 @@ def test_the_leaf_snapshots_run_in_the_job_without_feeding_the_join():
             dag.inbox_report_reviewers,
             dag.inbox_user_report_interactions,
             dag.inbox_project_vectors,
+            dag.inbox_engagement_export,
         ]
     )
     model_data_deps = {key.path[-1] for key in dag.inbox_report_model_data.keys_by_input_name.values()}
@@ -1280,6 +1284,7 @@ def test_the_leaf_snapshots_run_in_the_job_without_feeding_the_join():
         dag.REVIEWERS_TABLE,
         dag.USER_INTERACTIONS_TABLE,
         dag.PROJECT_VECTORS_TABLE,
+        dag.ENGAGEMENT_EXPORT,
     ):
         assert dagster.AssetKey(leaf) in selection
         assert leaf not in model_data_deps

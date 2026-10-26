@@ -153,6 +153,10 @@ pub struct GateArgs {
     #[arg(long = "leader-env", value_parser = parse_env_pair)]
     pub leader_env: Vec<(String, String)>,
 
+    /// Extra KEY=VALUE environment for spawned routers. Repeatable.
+    #[arg(long = "router-env", value_parser = parse_env_pair)]
+    pub router_env: Vec<(String, String)>,
+
     /// Target an already-running stack at this router URL instead of
     /// spawning one. When unset, the harness spawns its own isolated stack
     /// (replica, leaders, leader-mode router, writer) against the
@@ -302,6 +306,54 @@ pub struct GateArgs {
     /// between polls is not killed.
     #[arg(long, default_value_t = false)]
     pub kill_handoff_target: bool,
+
+    /// Migrate the changelog to a fresh topic this long into the traffic phase.
+    #[arg(long, value_parser = humantime::parse_duration)]
+    pub migrate_after: Option<Duration>,
+
+    /// Partition count of the migration's target topic.
+    #[arg(long)]
+    pub migrate_to_partitions: Option<u32>,
+
+    /// SIGKILL the coordinator router once the saga reaches Sealing. Requires --routers >= 3.
+    #[arg(long, default_value_t = false)]
+    pub migrate_kill_coordinator: bool,
+
+    /// SIGKILL the busiest leader once the saga reaches Resuming.
+    #[arg(long, default_value_t = false)]
+    pub migrate_kill_leader: bool,
+
+    /// SIGSTOP the busiest leader once it has drained, then SIGKILL it (lease revoked) at Sealing, so its peers seal its partitions.
+    #[arg(long, default_value_t = false)]
+    pub migrate_kill_leader_at_sealing: bool,
+
+    /// Crash-restart the busiest leader under its own name as soon as the saga is holding; it must seal what it never reloaded.
+    #[arg(long, default_value_t = false)]
+    pub migrate_restart_leader: bool,
+
+    /// SIGSTOP the busiest leader before the request, lease kept: its partitions never drain, so the saga must cancel at the 5s pre-flip deadline and unwind.
+    #[arg(long, default_value_t = false)]
+    pub migrate_stall_leader: bool,
+
+    /// SIGSTOP the busiest leader once it has drained, lease kept: its peers must seal for it after the seal grace and the saga complete. Pair with --migrate-slow-coordinator-ms so the drained holder is observable before Sealing.
+    #[arg(long, default_value_t = false)]
+    pub migrate_stall_leader_at_sealing: bool,
+
+    /// Debounce between the coordinator's migration passes, to widen the flip-to-restart window.
+    #[arg(long)]
+    pub migrate_slow_coordinator_ms: Option<u64>,
+
+    /// Run a second migration this long into the traffic phase.
+    #[arg(long, value_parser = humantime::parse_duration)]
+    pub migrate_again_after: Option<Duration>,
+
+    /// Partition count of the second migration's target topic.
+    #[arg(long)]
+    pub migrate_again_to_partitions: Option<u32>,
+
+    /// SIGSTOP the writer for --writer-pause-duration as the migration starts; the saga must not wait for it.
+    #[arg(long, default_value_t = false)]
+    pub migrate_pause_writer: bool,
 
     /// Leader per-partition cache budget in bytes (CACHE_MEMORY_CAPACITY_BYTES).
     /// Set below the seeded pool's footprint to put the cache under
@@ -466,6 +518,21 @@ pub struct StackArgs {
 
     #[arg(long, default_value_t = 100)]
     pub publish_rows_per_pass: i64,
+
+    /// Also run `personhog-parity-monitor` against the publish topics and
+    /// the Node path's topics named below, and put its metrics address in
+    /// the ready line. Requires --publish; the Node topics must exist.
+    #[arg(long, default_value_t = false)]
+    pub monitor: bool,
+
+    /// The Node path's `clickhouse_person_distinct_id` topic the monitor
+    /// compares the publish topic against.
+    #[arg(long)]
+    pub monitor_node_distinct_ids_topic: Option<String>,
+
+    /// The Node path's `person_merge_events` topic.
+    #[arg(long)]
+    pub monitor_node_merge_events_topic: Option<String>,
 
     /// Also write the ready line's JSON to this file once the stack is up.
     /// A parent process polls for the file instead of parsing stdout,
@@ -645,14 +712,13 @@ pub struct TrafficArgs {
 
 /// Environment the stack assigns per leader; overriding any of these
 /// would break pod identity or point a spawned leader at the wrong
-/// topic or table, and the resulting run would look like a real result.
+/// table, and the resulting run would look like a real result.
 const RESERVED_LEADER_ENV: &[&str] = &[
     "POD_NAME",
     "GRPC_ADDRESS",
     "METRICS_PORT",
     "ETCD_ENDPOINTS",
     "ETCD_PREFIX",
-    "KAFKA_PERSON_STATE_TOPIC",
     "FALLBACK_TABLE",
     "LIFECYCLE_OP_TABLE",
     "LIFECYCLE_OP_PERSON_TABLE",

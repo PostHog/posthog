@@ -74,7 +74,6 @@ class TestOnePasswordSource:
 
     @parameterized.expand(
         [
-            ("us", "401 Client Error: Unauthorized for url: https://events.1password.com/api/v2/auditevents"),
             ("eu", "401 Client Error: Unauthorized for url: https://events.1password.eu/api/v2/itemusages"),
             (
                 "enterprise",

@@ -77,7 +77,7 @@ class TravisCISource(ResumableSource[TravisCISourceConfig, TravisCIResumeConfig]
             name=ExternalDataSourceType.TRAVISCI,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Travis CI (Idera)",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             docsUrl="https://posthog.com/docs/cdp/sources/travis-ci",
             caption="""Enter your Travis CI API token to sync your CI/CD build history into the PostHog Data warehouse.
 

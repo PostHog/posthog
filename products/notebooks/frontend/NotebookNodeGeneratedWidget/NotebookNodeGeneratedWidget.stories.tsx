@@ -2,7 +2,6 @@ import type { Meta, StoryObj } from '@storybook/react'
 import { BindLogic, useActions, useMountedLogic } from 'kea'
 import { useEffect } from 'react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { notebookTestTemplate } from 'scenes/notebooks/Notebook/__mocks__/notebook-template-for-snapshot'
 import { buildMarkdownNotebookContent } from 'scenes/notebooks/Notebook/markdownNotebookV2'
 import { MarkdownNotebookV2 } from 'scenes/notebooks/Notebook/MarkdownNotebookV2Renderer'
@@ -41,7 +40,6 @@ const meta: Meta = {
     component: WidgetNotebook,
     parameters: {
         layout: 'fullscreen',
-        featureFlags: [FEATURE_FLAGS.DASHBOARD_WIDGETS],
         testOptions: {
             waitForSelector: '[data-attr="notebook-generated-widget-run-button"]',
         },

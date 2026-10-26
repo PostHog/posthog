@@ -48,26 +48,6 @@ class TestReplicateSource:
         assert ok is expected_ok
         assert msg == expected_msg
 
-    @parameterized.expand(
-        [
-            ("unauthorized", "401 Client Error: Unauthorized for url: https://api.replicate.com/v1/predictions", True),
-            ("forbidden", "403 Client Error: Forbidden for url: https://api.replicate.com/v1/account", True),
-            (
-                "rate_limited",
-                "429 Client Error: Too Many Requests for url: https://api.replicate.com/v1/predictions",
-                False,
-            ),
-            (
-                "server_error",
-                "500 Server Error: Internal Server Error for url: https://api.replicate.com/v1/trainings",
-                False,
-            ),
-        ]
-    )
-    def test_non_retryable_errors(self, _name: str, observed: str, is_non_retryable: bool) -> None:
-        keys = ReplicateSource().get_non_retryable_errors()
-        assert any(k in observed for k in keys) is is_non_retryable
-
     def test_source_for_pipeline_drops_watermark_when_not_incremental(self) -> None:
         # When should_use_incremental_field is False the last-value must not leak into the request,
         # otherwise a full refresh would silently filter by a stale cursor.

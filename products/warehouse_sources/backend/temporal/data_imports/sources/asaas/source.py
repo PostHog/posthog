@@ -158,5 +158,5 @@ class AsaasSource(ResumableSource[AsaasSourceConfig, AsaasResumeConfig]):
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
         )

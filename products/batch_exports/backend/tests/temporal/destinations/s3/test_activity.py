@@ -7,7 +7,12 @@ from temporalio.testing._activity import ActivityEnvironment
 from posthog.models.integration import Integration, IntegrationError
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 
-from products.batch_exports.backend.service import BatchExportModel, BatchExportSchema
+from products.batch_exports.backend.service import (
+    AnyBatchExportModel,
+    BatchExportEventsCustomModel,
+    BatchExportEventsModel,
+    BatchExportSchema,
+)
 from products.batch_exports.backend.temporal.destinations.constants import (
     COMPRESSION_EXTENSIONS,
     FILE_FORMAT_EXTENSIONS,
@@ -87,7 +92,7 @@ async def test_insert_into_s3_activity_puts_data_into_s3(
     file_format,
     data_interval_start,
     data_interval_end,
-    model: BatchExportModel | BatchExportSchema | None,
+    model: AnyBatchExportModel | BatchExportSchema | None,
     generate_test_data,
     ateam,
     s3_compatible_integration,
@@ -108,11 +113,11 @@ async def test_insert_into_s3_activity_puts_data_into_s3(
 
     prefix = str(uuid.uuid4())
 
-    batch_export_model: BatchExportModel | None = None
-    if isinstance(model, BatchExportModel):
+    batch_export_model: AnyBatchExportModel | None = None
+    if isinstance(model, AnyBatchExportModel):
         batch_export_model = model
     elif model is not None:
-        batch_export_model = BatchExportModel(name="events", schema=model)
+        batch_export_model = BatchExportEventsCustomModel(schema=model)
 
     batch_export_id = str(uuid.uuid4())
 
@@ -142,16 +147,16 @@ async def test_insert_into_s3_activity_puts_data_into_s3(
         records_exported == len(events_to_export_created)
         or records_exported == len(persons_to_export_created)
         or records_exported == len([event for event in events_to_export_created if event["properties"] is not None])
-        or (isinstance(model, BatchExportModel) and model.name == "sessions" and 1 <= records_exported <= 2)
+        or (isinstance(model, AnyBatchExportModel) and model.name == "sessions" and 1 <= records_exported <= 2)
     )
 
     assert isinstance(bytes_exported, int)
     assert bytes_exported > 0
 
     sort_key = "uuid"
-    if isinstance(model, BatchExportModel) and model.name == "persons":
+    if isinstance(model, AnyBatchExportModel) and model.name == "persons":
         sort_key = "person_id"
-    elif isinstance(model, BatchExportModel) and model.name == "sessions":
+    elif isinstance(model, AnyBatchExportModel) and model.name == "sessions":
         sort_key = "session_id"
 
     await assert_clickhouse_records_in_s3(
@@ -173,7 +178,7 @@ async def test_insert_into_s3_activity_puts_data_into_s3(
 
 
 @pytest.mark.parametrize("exclude_events", [None], indirect=True)
-@pytest.mark.parametrize("model", [BatchExportModel(name="events", schema=None)])
+@pytest.mark.parametrize("model", [BatchExportEventsModel()])
 @pytest.mark.parametrize("compression", [None], indirect=True)
 @pytest.mark.parametrize("file_format", ["JSONLines"], indirect=True)
 async def test_insert_into_s3_activity_resolves_credentials_from_integration(
@@ -186,7 +191,7 @@ async def test_insert_into_s3_activity_resolves_credentials_from_integration(
     file_format,
     data_interval_start,
     data_interval_end,
-    model: BatchExportModel,
+    model: AnyBatchExportModel,
     generate_test_data,
     ateam,
     s3_compatible_integration,
@@ -237,7 +242,7 @@ async def test_insert_into_s3_activity_resolves_credentials_from_integration(
 
 
 @pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
-@pytest.mark.parametrize("model", [BatchExportModel(name="events", schema=None)])
+@pytest.mark.parametrize("model", [BatchExportEventsModel()])
 @pytest.mark.parametrize("compression", [None], indirect=True)
 @pytest.mark.parametrize("file_format", ["Parquet"], indirect=True)
 async def test_insert_into_s3_activity_with_exclude_events(
@@ -250,7 +255,7 @@ async def test_insert_into_s3_activity_with_exclude_events(
     file_format,
     data_interval_start,
     data_interval_end,
-    model: BatchExportModel | BatchExportSchema | None,
+    model: AnyBatchExportModel | BatchExportSchema | None,
     generate_test_data,
     ateam,
     s3_compatible_integration,
@@ -261,11 +266,11 @@ async def test_insert_into_s3_activity_with_exclude_events(
 
     prefix = str(uuid.uuid4())
 
-    batch_export_model: BatchExportModel | None = None
-    if isinstance(model, BatchExportModel):
+    batch_export_model: AnyBatchExportModel | None = None
+    if isinstance(model, AnyBatchExportModel):
         batch_export_model = model
     elif model is not None:
-        batch_export_model = BatchExportModel(name="events", schema=model)
+        batch_export_model = BatchExportEventsCustomModel(schema=model)
 
     batch_export_id = str(uuid.uuid4())
 
@@ -295,16 +300,16 @@ async def test_insert_into_s3_activity_with_exclude_events(
         records_exported == len(events_to_export_created)
         or records_exported == len(persons_to_export_created)
         or records_exported == len([event for event in events_to_export_created if event["properties"] is not None])
-        or (isinstance(model, BatchExportModel) and model.name == "sessions" and 1 <= records_exported <= 2)
+        or (isinstance(model, AnyBatchExportModel) and model.name == "sessions" and 1 <= records_exported <= 2)
     )
 
     assert isinstance(bytes_exported, int)
     assert bytes_exported > 0
 
     sort_key = "uuid"
-    if isinstance(model, BatchExportModel) and model.name == "persons":
+    if isinstance(model, AnyBatchExportModel) and model.name == "persons":
         sort_key = "person_id"
-    elif isinstance(model, BatchExportModel) and model.name == "sessions":
+    elif isinstance(model, AnyBatchExportModel) and model.name == "sessions":
         sort_key = "session_id"
 
     await assert_clickhouse_records_in_s3(
@@ -326,7 +331,7 @@ async def test_insert_into_s3_activity_with_exclude_events(
 
 
 @pytest.mark.parametrize(("file_format", "compression"), SPLIT_FILE_FORMAT_COMPRESSIONS, indirect=["compression"])
-@pytest.mark.parametrize("model", [BatchExportModel(name="events", schema=None)])
+@pytest.mark.parametrize("model", [BatchExportEventsModel()])
 @pytest.mark.parametrize("max_file_size_mb", [None, 1])
 async def test_insert_into_s3_activity_puts_splitted_files_into_s3(
     clickhouse_client,
@@ -339,7 +344,7 @@ async def test_insert_into_s3_activity_puts_splitted_files_into_s3(
     file_format,
     data_interval_start,
     data_interval_end,
-    model: BatchExportModel,
+    model: AnyBatchExportModel,
     ateam,
     s3_compatible_integration,
 ):
@@ -458,7 +463,7 @@ async def test_insert_into_s3_activity_puts_splitted_files_into_s3(
         assert manifest_data["files"] == expected_keys
 
 
-@pytest.mark.parametrize("model", [BatchExportModel(name="events", schema=None)])
+@pytest.mark.parametrize("model", [BatchExportEventsModel()])
 @pytest.mark.parametrize("file_format", ["invalid"])
 async def test_insert_into_s3_activity_fails_on_invalid_file_format(
     clickhouse_client,
@@ -470,7 +475,7 @@ async def test_insert_into_s3_activity_fails_on_invalid_file_format(
     file_format,
     data_interval_start,
     data_interval_end,
-    model: BatchExportModel,
+    model: AnyBatchExportModel,
     ateam,
     s3_compatible_integration,
 ):
@@ -500,7 +505,7 @@ async def test_insert_into_s3_activity_fails_on_invalid_file_format(
     assert result.error_repr == "UnsupportedFileFormatError: 'invalid' is not a supported format for S3 batch exports."
 
 
-@pytest.mark.parametrize("model", [BatchExportModel(name="events", schema=None)])
+@pytest.mark.parametrize("model", [BatchExportEventsModel()])
 @pytest.mark.parametrize("compression", ["invalid"])
 async def test_insert_into_s3_activity_fails_on_invalid_compression(
     clickhouse_client,
@@ -511,7 +516,7 @@ async def test_insert_into_s3_activity_fails_on_invalid_compression(
     exclude_events,
     data_interval_start,
     data_interval_end,
-    model: BatchExportModel,
+    model: AnyBatchExportModel,
     ateam,
     s3_compatible_integration,
 ):

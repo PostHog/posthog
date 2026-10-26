@@ -262,10 +262,15 @@ SCENARIOS = [
 ]
 
 
+@pytest.mark.parametrize(
+    "upsert_kwargs",
+    [{}, {"isolate_source_rows": True}, {"max_row_group_bytes": 1}],
+    ids=["default", "isolate_source_rows", "max_row_group_bytes"],
+)
 @pytest.mark.parametrize("builder", SCENARIOS, ids=[f.__name__[3:] for f in SCENARIOS])
-def test_parity(builder, tmp_path):
+def test_parity(builder, upsert_kwargs, tmp_path):
     scenario = builder()
-    uri_m, uri_u = run_scenario(scenario, tmp_path)
+    uri_m, uri_u = run_scenario(scenario, tmp_path, upsert_kwargs=upsert_kwargs)
     assert_parity(uri_m, uri_u, scenario.name)
 
 

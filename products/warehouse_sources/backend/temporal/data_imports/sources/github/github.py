@@ -16,7 +16,6 @@ from asgiref.sync import async_to_sync
 from dateutil import parser as dateutil_parser
 from prometheus_client import Counter
 from structlog.types import FilteringBoundLogger
-from temporalio import activity
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 from urllib3.util.retry import Retry
 
@@ -38,6 +37,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
     WebhookSyncResult,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.interruptible_wait import (
+    interruptible_wait,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
@@ -779,9 +781,19 @@ def _github_error_message(response: requests.Response) -> str:
 
 # GitHub answers 403 both for a real permission denial and for a repository feature the owner has
 # switched off — Dependabot alerts disabled, code scanning without Advanced Security, an archived
-# repository. A switched-off feature has nothing to sync now or on any later run, so it is a
-# zero-row skip rather than something to fail the schema over. Matched against GitHub's own message.
-_FEATURE_UNAVAILABLE_MARKERS = ("is disabled", "are disabled", "must be enabled", "not enabled", "is archived")
+# repository. It also answers 403 for a feature its plan gates, such as rulesets on a private
+# repository under a free plan ("Upgrade to GitHub Pro or make this repository public to enable this
+# feature."). A switched-off or plan-gated feature has nothing to sync until the owner changes the
+# repository, so it is a zero-row skip rather than something to fail the schema over. Matched
+# against GitHub's own message.
+_FEATURE_UNAVAILABLE_MARKERS = (
+    "is disabled",
+    "are disabled",
+    "must be enabled",
+    "not enabled",
+    "is archived",
+    "to enable this feature",
+)
 
 
 def _is_feature_unavailable_denial(message: str) -> bool:
@@ -906,10 +918,10 @@ def _pace_before_request(installation_id: str, logger: FilteringBoundLogger) -> 
     inside the budget instead of recovering from it, and leaves the headroom the budget reserves for
     the interactive products that share this installation.
 
-    The wait is bounded by the worker drain signal rather than by sleep. The pipeline tests for
-    worker shutdown only between the chunks a source yields, so a plain sleep here would hold a
-    draining pod for the full wait and delay the hand-off by that much. Waiting on the shutdown event
-    returns as soon as the pod starts draining, so pacing costs the hand-off nothing.
+    The wait ends when the pipeline's hand-off gate says to stop. The pipeline tests for worker
+    shutdown only between the chunks a source yields, so a plain sleep here would hold a draining pod
+    for the full wait and delay the hand-off by that much. The gate stays closed during the shutdown
+    grace, so pacing continues while the run still has time to finish.
     """
     # The same ceiling the Retry-After path honors, and safe here for the reason recorded on
     # GITHUB_MAX_RETRY_AFTER_SECONDS: this runs in the source thread pool, while the activity's
@@ -921,10 +933,7 @@ def _pace_before_request(installation_id: str, logger: FilteringBoundLogger) -> 
         return
 
     logger.debug(f"Github: waiting {pace:.1f}s for egress budget before the next request")
-    if activity.in_activity():
-        activity.wait_for_worker_shutdown_sync(timeout=pace)
-    else:
-        time.sleep(pace)
+    interruptible_wait(pace)
 
 
 def _is_unmapped_client_status(status_code: int) -> bool:

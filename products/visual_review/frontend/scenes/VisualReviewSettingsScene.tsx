@@ -4,6 +4,7 @@ import { IconArrowRight, IconCopy, IconGear, IconGithub, IconPencil, IconPlus, I
 import { LemonButton, LemonInput, LemonSearchableSelect, LemonSkeleton, LemonSwitch, Spinner } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -17,6 +18,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import type { GitHubRepoApi } from 'products/integrations/frontend/generated/api.schemas'
 
 import type { RepoApi } from '../generated/api.schemas'
+import { QuillAddRepoDropdown } from './QuillAddRepoDropdown'
 import { visualReviewSettingsSceneLogic } from './visualReviewSettingsSceneLogic'
 
 export const scene: SceneExport = {
@@ -250,6 +252,11 @@ function AddRepoDropdown(): JSX.Element {
         useValues(visualReviewSettingsSceneLogic)
     const { addRepo } = useActions(visualReviewSettingsSceneLogic)
     const { githubRepositoriesLoading } = useValues(integrationsLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    if (todayRailNav) {
+        return <QuillAddRepoDropdown />
+    }
 
     const unaddedRepos = availableRepos.filter((r: GitHubRepoApi) => !existingRepoNames.has(r.full_name))
 

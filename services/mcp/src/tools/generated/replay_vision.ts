@@ -1023,6 +1023,9 @@ const visionScannersDraft = (): ToolBase<
         if (params.monthly_credit_budget !== undefined) {
             body['monthly_credit_budget'] = params.monthly_credit_budget
         }
+        if (params.free_only !== undefined) {
+            body['free_only'] = params.free_only
+        }
         if (params.experiment_id !== undefined) {
             body['experiment_id'] = params.experiment_id
         }
@@ -1161,6 +1164,9 @@ const visionScannersInlineScan = (): ToolBase<ReturnType<typeof VisionScannersIn
         handler: async (context: Context, params: z.infer<ReturnType<typeof VisionScannersInlineScanSchema>>) => {
             const projectId = await context.stateManager.getProjectId()
             const body: Record<string, unknown> = {}
+            if (params.built_in !== undefined) {
+                body['built_in'] = params.built_in
+            }
             if (params.prompt !== undefined) {
                 body['prompt'] = params.prompt
             }
@@ -1684,10 +1690,12 @@ const visionScannersWatchFeed = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/watch_feed/`,
             query: {
+                as_of: params.as_of,
                 created_by: params.created_by,
                 date_from: params.date_from,
                 date_to: params.date_to,
                 limit: params.limit,
+                offset: params.offset,
                 scanner_ids: params.scanner_ids,
                 scanner_type: params.scanner_type,
                 search: params.search,

@@ -25,6 +25,8 @@ def reject_retired_type(value: str) -> str:
 
 
 class FileSystemShortcutSerializer(FileSystemAccessLevelSerializerMixin, serializers.ModelSerializer):
+    created: bool = True
+
     class Meta:
         model = FileSystemShortcut
         fields = [
@@ -79,6 +81,7 @@ class FileSystemShortcutSerializer(FileSystemAccessLevelSerializerMixin, seriali
                 href=validated_data.get("href"),
             ).first()
             if duplicate is not None:
+                self.created = False
                 return duplicate
             # Place new shortcuts at the end of the user's current order so they don't jump
             # ahead of items the user has explicitly reordered.
@@ -164,6 +167,22 @@ class FileSystemShortcutViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         context = super().get_serializer_context()
         context["file_system_surface"] = self.file_system_surface
         return context
+
+    @extend_schema(
+        responses={
+            201: OpenApiResponse(response=FileSystemShortcutSerializer, description="The shortcut was created."),
+            200: OpenApiResponse(
+                response=FileSystemShortcutSerializer,
+                description="The user already has this shortcut. The existing shortcut is returned unchanged.",
+            ),
+        }
+    )
+    def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        serializer = cast(FileSystemShortcutSerializer, self.get_serializer(data=request.data))
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        # Clients count a star as added only on 201, so a repeated star does not count twice.
+        return Response(serializer.data, status=status.HTTP_201_CREATED if serializer.created else status.HTTP_200_OK)
 
     def _scope_by_project(self, queryset):
         return queryset.filter(surface_q(self.file_system_surface), team__project_id=self.team.project_id)

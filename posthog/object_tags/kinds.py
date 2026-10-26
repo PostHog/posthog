@@ -84,8 +84,9 @@ OBJECT_KINDS: dict[str, ObjectKindSpec] = {
     "flag": ObjectKindSpec(
         kind_label="Feature flag",
         source="Feature flags",
-        path_template="/feature_flags/{id}",
+        path_template="/feature-flags/{id}",
         id_pattern=r"^\d+$",
+        url_aliases=("/feature_flags/{id}",),
     ),
     "experiment": ObjectKindSpec(
         kind_label="Experiment",

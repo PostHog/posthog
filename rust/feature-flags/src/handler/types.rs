@@ -30,6 +30,9 @@ pub struct RequestContext {
     /// Client IP
     pub ip: IpAddr,
 
+    /// Host of the `Origin` header, or of `Referer` without one.
+    pub origin_host: Option<String>,
+
     /// HTTP headers
     pub headers: HeaderMap,
 
@@ -41,6 +44,9 @@ pub struct RequestContext {
 
     /// Request ID
     pub request_id: Uuid,
+
+    /// When the request arrived, before it waited for a concurrency permit.
+    pub request_entered_at: tokio::time::Instant,
 
     /// Side channel for body logging: when at least one team is opted into
     /// `BodyLogger`, the endpoint installs an `Arc<OnceLock<Bytes>>` here and
@@ -103,8 +109,8 @@ pub struct FeatureFlagEvaluationContext {
     pub detailed_analysis: bool,
     /// Whether to only use person properties from request payload, ignoring database properties.
     pub only_use_override_person_properties: bool,
-    /// Budget shared by all persons DB work in this evaluation. `None` disables the deadline.
-    pub persons_db_deadline: Option<std::time::Duration>,
+    /// Persons DB calls in this evaluation fail after this instant. `None` disables the deadline.
+    pub persons_db_deadline: Option<tokio::time::Instant>,
 }
 
 /// SDK type classification based on user-agent parsing.

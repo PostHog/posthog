@@ -9,7 +9,15 @@ from psycopg import sql
 from posthog.models import Integration
 from posthog.temporal.common.clickhouse import ClickHouseClient
 
-from products.batch_exports.backend.service import BackfillDetails, BatchExportModel, BatchExportSchema
+from products.batch_exports.backend.service import (
+    AnyBatchExportModel,
+    BackfillDetails,
+    BatchExportEventsCustomModel,
+    BatchExportEventsModel,
+    BatchExportPersonsModel,
+    BatchExportSchema,
+    BatchExportSessionsModel,
+)
 from products.batch_exports.backend.temporal.destinations.postgres_batch_export import postgres_default_fields
 from products.batch_exports.backend.temporal.queue import RecordBatchQueue
 from products.batch_exports.backend.temporal.record_batch_model import SessionsRecordBatchModel
@@ -48,18 +56,16 @@ EXPECTED_PERSONS_BATCH_EXPORT_FIELDS = [
 ]
 
 
-TEST_MODELS: list[BatchExportModel | None] = [
-    BatchExportModel(name="events", schema=None),
-    BatchExportModel(
-        name="events",
-        schema=None,
+TEST_MODELS: list[AnyBatchExportModel | None] = [
+    BatchExportEventsModel(),
+    BatchExportEventsModel(
         filters=[
             {"key": "$browser", "operator": "exact", "type": "event", "value": ["Chrome"]},
             {"key": "$os", "operator": "exact", "type": "event", "value": ["Mac OS X"]},
         ],
     ),
-    BatchExportModel(name="persons", schema=None),
-    BatchExportModel(name="sessions", schema=None),
+    BatchExportPersonsModel(),
+    BatchExportSessionsModel(),
     None,
 ]
 
@@ -70,7 +76,7 @@ async def assert_clickhouse_records_in_postgres(
     schema_name: str,
     table_name: str,
     team_id: int,
-    batch_export_model: BatchExportModel | BatchExportSchema | None,
+    batch_export_model: AnyBatchExportModel | BatchExportSchema | None,
     data_interval_start: dt.datetime,
     data_interval_end: dt.datetime,
     exclude_events: list[str] | None = None,
@@ -111,13 +117,16 @@ async def assert_clickhouse_records_in_postgres(
             inserted_records.append(event)
 
     if batch_export_model is not None:
-        if isinstance(batch_export_model, BatchExportModel):
+        if isinstance(batch_export_model, AnyBatchExportModel):
             model_name = batch_export_model.name
-            fields = batch_export_model.schema["fields"] if batch_export_model.schema is not None else None
-            filters = batch_export_model.filters
-            extra_query_parameters = (
-                batch_export_model.schema["values"] if batch_export_model.schema is not None else None
+            schema = batch_export_model.schema if isinstance(batch_export_model, BatchExportEventsCustomModel) else None
+            fields = schema["fields"] if schema is not None else None
+            filters = (
+                batch_export_model.filters
+                if isinstance(batch_export_model, BatchExportEventsModel | BatchExportEventsCustomModel)
+                else None
             )
+            extra_query_parameters = schema["values"] if schema is not None else None
         else:
             model_name = "events"
             fields = batch_export_model["fields"]

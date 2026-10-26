@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Optional
 
-from clickhouse_driver.errors import NetworkError, ServerException, SocketTimeoutError
+from clickhouse_driver.errors import NetworkError, ServerException, SocketTimeoutError, UnknownTypeError
 
 from posthog.hogql.errors import ExposedHogQLError
 
@@ -86,6 +86,9 @@ def clickhouse_error_type(e: Exception) -> str:
 
 
 STORAGE_FILE_URI_PATTERN = re.compile(r"\(in file/uri ([^)]+)\)")
+CSV_ROW_NUMBER_PATTERN = re.compile(r"\(at row (\d+)\)")
+_ACRONYM_BOUNDARY = re.compile(r"([A-Z]+)([A-Z][a-z])")
+_WORD_BOUNDARY = re.compile(r"([a-z0-9])([A-Z])")
 BAD_GET_TYPE_MISMATCH_PATTERN = re.compile(
     r"\bBad get: has (?P<actual>[A-Za-z][A-Za-z0-9_]{0,63}), "
     r"requested (?P<expected>[A-Za-z][A-Za-z0-9_]{0,63})(?:\.|$)"
@@ -112,6 +115,20 @@ def _wrap_storage_file_changed_error(err: ServerException) -> "CHQueryErrorS3Fil
     )
 
 
+def _wrap_malformed_csv_row_error(err: ServerException) -> "CHQueryErrorMalformedCsvRow":
+    row_match = CSV_ROW_NUMBER_PATTERN.search(err.message)
+    file_uris = STORAGE_FILE_URI_PATTERN.findall(err.message)
+    location = f" at row {row_match.group(1)}" if row_match else ""
+    if file_uris:
+        location += f" of {file_uris[-1]}"
+    return CHQueryErrorMalformedCsvRow(
+        f"A row in a CSV file backing this table is malformed{location}. "
+        "Check that row for unescaped quotes, a wrong delimiter, or a different number of columns.",
+        code=err.code,
+        code_name="malformed_csv_row",
+    )
+
+
 def _wrap_bad_get_error(err: ServerException) -> "CHQueryErrorBadGet":
     match = BAD_GET_TYPE_MISMATCH_PATTERN.search(err.message)
     message = BAD_GET_FALLBACK_MESSAGE
@@ -123,8 +140,35 @@ def _wrap_bad_get_error(err: ServerException) -> "CHQueryErrorBadGet":
     return CHQueryErrorBadGet(message, code=err.code, code_name="bad_get")
 
 
+def _unreadable_type_advice(unreadable_type: str) -> str:
+    if unreadable_type.startswith("AggregateFunction("):
+        return (
+            "The column holds a stored aggregate state. "
+            "Wrap it in the matching -Merge function, for example `argMinMerge(column)`, to get the final value."
+        )
+    if unreadable_type.startswith("Variant("):
+        return (
+            "The column mixes value types. This usually comes from `UNION ALL` branches, `coalesce()` or "
+            "`ifNull()` arguments, or `if()` branches that return different types. "
+            "Make them return one type, for example with `toString()` or `toFloat()`."
+        )
+    return "Convert the column to a basic type such as a string, number, or date, or leave it out of the results."
+
+
+def _wrap_unknown_type_error(err: UnknownTypeError) -> "CHQueryErrorUnknownType":
+    unreadable_type = err.message.removeprefix("Unknown type ")
+    advice = _unreadable_type_advice(unreadable_type)
+    return CHQueryErrorUnknownType(
+        f"This query returns a column of type `{unreadable_type}`, which PostHog can't send back in results. {advice}",
+        code=err.code,
+        code_name="unknown_type",
+    )
+
+
 def wrap_clickhouse_query_error(err: Exception) -> Exception:
     "Beautifies clickhouse client errors, using custom error classes for every code"
+    if isinstance(err, UnknownTypeError):
+        return _wrap_unknown_type_error(err)
     if not isinstance(err, ServerException):
         return err
 
@@ -170,6 +214,10 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
         return CHQueryErrorS3Error(f"S3 error occurred. ({err.message})", code=err.code)
     elif name == "INCORRECT_DATA" and "Not a Parquet file" in err.message and "(in file/uri" in err.message:
         return _wrap_storage_file_changed_error(err)
+    elif name == "INCORRECT_DATA" and "Expected end of line" in err.message:
+        # A bad row in a self-managed CSV file. Table validation reads only the first rows, so a later
+        # bad row first shows up at query time. The raw message holds row contents, so it stays hidden.
+        return _wrap_malformed_csv_row_error(err)
     elif name == "STD_EXCEPTION" and "deserialize thrift" in err.message:
         # A Parquet file with corrupted or oversized thrift metadata (e.g.
         # "Couldn't deserialize thrift: TProtocolException: Exceeded size limit").
@@ -288,12 +336,22 @@ class CHQueryErrorCorruptedParquetMetadata(ExposedCHQueryError):
     pass
 
 
+class CHQueryErrorMalformedCsvRow(ExposedCHQueryError):
+    """A row in a CSV file backing a warehouse table has the wrong shape."""
+
+    pass
+
+
 # User query errors - these are errors caused by user input/queries
 class CHQueryErrorIllegalTypeOfArgument(ExposedCHQueryError):
     pass
 
 
 class CHQueryErrorBadGet(ExposedCHQueryError):
+    pass
+
+
+class CHQueryErrorUnknownType(ExposedCHQueryError):
     pass
 
 
@@ -1181,6 +1239,27 @@ def internal_ch_error_user_message(code_name: str | None) -> str | None:
     if is_clickhouse_query_rejection(code_name):
         return f"ClickHouse rejected the query with error {code_name}."
     return None
+
+
+def error_code_from_type(error: BaseException) -> str:
+    """Return a code for an error from its type alone, since its message can quote stored data.
+
+    A ClickHouse error gets its error name. Any other error gets `unhandled_<exception class>`.
+    """
+    if isinstance(error, ServerException):
+        return look_up_clickhouse_error_code_meta(error).name.lower()
+    class_name = _WORD_BOUNDARY.sub(r"\1_\2", _ACRONYM_BOUNDARY.sub(r"\1_\2", type(error).__name__))
+    return f"unhandled_{class_name.lower()}"
+
+
+def unwrap_exposed_hogql_error(error: ExposedHogQLError) -> BaseException:
+    """Return the first cause that is not a plain `ExposedHogQLError` wrapper, such as a database adapter's error."""
+    cause: BaseException = error
+    seen: set[int] = set()
+    while type(cause) is ExposedHogQLError and cause.__cause__ is not None and id(cause) not in seen:
+        seen.add(id(cause))
+        cause = cause.__cause__
+    return cause
 
 
 # Transient ClickHouse infrastructure errors that are safe to retry.

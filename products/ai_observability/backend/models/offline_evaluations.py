@@ -33,6 +33,9 @@ class OfflineExperiment(Taggable):
     status = models.CharField(max_length=16, choices=Status.choices, default=Status.UPLOADING)
     started_at = models.DateTimeField()
     created_at = models.DateTimeField(default=timezone.now, editable=False)
+    created_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
+    )
     finished_at = models.DateTimeField(null=True, blank=True)
     expected_item_count = models.PositiveBigIntegerField(null=True, blank=True)
     expected_result_count = models.PositiveBigIntegerField(null=True, blank=True)
@@ -120,6 +123,7 @@ class OfflineExperimentItem(OfflinePayloadOwner):
     experiment = models.ForeignKey(OfflineExperiment, on_delete=models.CASCADE, related_name="items", db_index=False)
     case_key = models.CharField(max_length=255, null=True, blank=True)
     trial = models.CharField(max_length=255, null=True, blank=True)
+    model_version = models.CharField(max_length=255, null=True, blank=True)
     dataset_item_identifier = models.CharField(max_length=255, null=True, blank=True)
     dataset_item_version_identifier = models.CharField(max_length=255, null=True, blank=True)
     dataset_item_version = models.ForeignKey(

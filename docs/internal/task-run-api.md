@@ -49,6 +49,7 @@ A request may send the previous base branch or a branch that run worked on; any 
 The bootstrap endpoint, `POST .../tasks/{task_id}/runs/`, does not accept the agent source.
 Agent-sourced runs use the read-only MCP permission preset.
 Run state updates cannot change or remove the run source or base branch.
+The Slack actor fields `interaction_origin`, `slack_actor_user_id`, and `slack_actor_slack_user_id` are server-owned and cannot be changed, removed, or appended through run state updates.
 The `state` field must be a JSON object.
 
 Run responses omit internal cost accounting, including gateway request IDs.
@@ -62,7 +63,7 @@ Without an authenticated GitHub token, the agent can still read public repositor
 ## Model selection
 
 Task runs accept `gpt-6.1-sol` with the `codex` runtime adapter and `low`, `medium`, `high`, `xhigh`, or `max` reasoning effort.
-The bundled Codex 0.159.2 runtime supports this model with ChatGPT subscription billing.
+The bundled Codex 0.164.0 runtime supports this model with ChatGPT subscription billing.
 The task model catalog supplies the web and Desktop pickers with the model name, reasoning levels, and public price comparison.
 The gateway must list the model for the task's product before the picker offers it.
 Adding the model does not change the default model or the capability slider.
@@ -86,6 +87,15 @@ A Celery task captures the event and retries upload failures up to five times wi
 Both paths preserve the event timestamp and derive the analytics event ID from the run and event sequence.
 If an older payload has no timestamp, Django stores its first received time for retries and replays.
 Successful captures are recorded for the event ingest token's lifetime so completed work is skipped on replay.
+
+Interactive permission requests and questions can send a mobile push notification to the run's creator.
+Event ingest, the agent-proxy callback and the sandbox relay share a notification gate keyed by run and permission request ID.
+The gate retains each request for 24 hours after its push is successfully enqueued, so reconnecting does not repeat that notification.
+This also applies when implementation or research work routes the push through report notifications.
+Enqueue failures and transaction rollbacks leave only the short cooldown, allowing a later callback or relay replay to retry.
+Requests share a 30-second per-run cooldown, applied before allocating a request deduplication key.
+The push dispatcher also shares its per-run cooldown with turn-end awaiting-input notifications.
+Permission request IDs must be non-empty and no longer than 200 characters.
 
 ## Run summaries
 
@@ -113,3 +123,40 @@ Other task streams include the effective summary.
 The two run-start tools require the agent-run feature flag.
 Sandbox tokens can use them only within the sandbox rules above.
 These operations are not idempotent. If a response is lost, inspect the task and its runs before you retry.
+
+## Mobile notifications and task pickup
+
+Use `X-PostHog-Client-Platform: mobile` to identify mobile requests.
+Tasks created on mobile can send task notifications.
+A successful mobile run start, resume, user message, or permission response also enables notifications for that user.
+Reads, presence updates, configuration changes, and failed actions do not enable notifications.
+This choice persists when the user returns to the web app.
+
+Continuing a task on mobile stops that user's automatic Slack mentions and proactive private-thread updates.
+Shared replies and answers to direct Slack requests remain available.
+This includes replies that restart a completed task.
+Other participants keep their notifications.
+
+Task notifications cover run results, input requests, replies, handoffs, and verified PR merges or closes.
+Active task presence suppresses notifications on those devices.
+The server prevents duplicate PR outcome notifications.
+
+Report notifications cover new reports, work updates, and PR review or outcome updates, regardless of task origin.
+Active presence in the report's implementation or research task suppresses its work-update notifications across that user's devices.
+Report discussions use task notification preferences.
+Reports with `output_destinations.inbox: false` do not send notifications.
+Report notifications require `posthog-code-mobile-push`.
+Ordinary task notifications do not require this flag.
+
+`PATCH /api/users/@me/` sets four booleans under `notification_settings`:
+
+| Key                                  | Controls                 |
+| ------------------------------------ | ------------------------ |
+| `mobile_push_enabled`                | All mobile notifications |
+| `mobile_push_tasks_enabled`          | Chat and task updates    |
+| `mobile_push_reports_enabled`        | New reports              |
+| `mobile_push_report_updates_enabled` | Report updates           |
+
+All four default to `true`.
+The delivery worker checks that the account is active, along with current preferences and access, before it sends a queued notification.
+Task notifications require current viewer access to the task resource when queued and when delivered.

@@ -1,6 +1,7 @@
 from datetime import UTC, date, datetime, timedelta, timezone
 from typing import Any
 
+import time_machine
 from unittest.mock import MagicMock
 
 import requests
@@ -12,7 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     ScriptedResponse,
     SourceDriver,
     always,
-    scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.render import RenderSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.render import render
@@ -22,7 +22,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.render.ren
     _build_params,
     _format_incremental_value,
     _unwrap_item,
-    validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.render.settings import (
     RENDER_ENDPOINTS,
@@ -31,12 +30,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.render.set
 from products.warehouse_sources.backend.temporal.data_imports.sources.render.source import RenderSource
 
 
-def _driver() -> SourceDriver:
-    return SourceDriver(RenderSource(), RenderSourceConfig(api_key="rnd_test", owner_id="tea-123"))
+def _driver(owner_id: str | None = "tea-123") -> SourceDriver:
+    return SourceDriver(RenderSource(), RenderSourceConfig(api_key="rnd_test", owner_id=owner_id))
 
 
-def _run(endpoint: str, script: Script, **inputs: Any) -> DriveResult:
-    return _driver().run(endpoint, script, **inputs)
+def _run(endpoint: str, script: Script, owner_id: str | None = "tea-123", **inputs: Any) -> DriveResult:
+    return _driver(owner_id).run(endpoint, script, **inputs)
 
 
 def _pages(*payloads: Any) -> list[ScriptedResponse]:
@@ -126,6 +125,32 @@ class TestBuildParams:
         )
         assert ("ownerId" in params) == expects_owner
 
+    @parameterized.expand(
+        [
+            ("full_refresh_starts_at_window_floor", False, None, "2026-03-04T00:00:00Z"),
+            ("stale_watermark_is_clamped_to_window", True, datetime(2025, 1, 1, tzinfo=UTC), "2026-03-04T00:00:00Z"),
+            ("recent_watermark_is_kept", True, datetime(2026, 5, 20, 10, 0, tzinfo=UTC), "2026-05-20T10:00:00Z"),
+            ("recent_string_watermark_is_kept", True, "2026-05-20T10:00:00Z", "2026-05-20T10:00:00Z"),
+            ("stale_string_watermark_is_clamped", True, "2025-01-01T00:00:00Z", "2026-03-04T00:00:00Z"),
+        ]
+    )
+    def test_audit_logs_start_time_stays_inside_lookback_window(
+        self, _name: str, should_use_incremental_field: bool, watermark: Any, expected_start: str
+    ) -> None:
+        # Render caps an audit log query at a 90-day span: a start older than that is rejected,
+        # and with no start at all the server picks its own default window.
+        with time_machine.travel(datetime(2026, 6, 1, tzinfo=UTC), tick=False):
+            params = _build_params(
+                RENDER_ENDPOINTS["audit_logs"],
+                owner_id=None,
+                should_use_incremental_field=should_use_incremental_field,
+                db_incremental_field_last_value=watermark,
+                incremental_field="timestamp",
+                logger=MagicMock(),
+            )
+
+        assert params == {"limit": 1000, "startTime": expected_start}
+
     def test_incremental_field_without_server_filter_is_skipped(self) -> None:
         config = RenderEndpointConfig(name="x", path="/x", wrapper_key="x", default_incremental_field="updatedAt")
         logger = MagicMock()
@@ -200,30 +225,102 @@ class TestFanOut:
 
         assert result.items == [[{"serviceId": "srv-2", "id": "dep-2"}]]
 
-    def test_custom_domains_400_for_unsupported_service_is_skipped(self) -> None:
-        # Render 400s /custom-domains for service types that can't have them (cron jobs, etc.);
-        # skip that parent instead of failing the whole sync.
+    OWNERS_PAGE = [{"owner": {"id": "tea-1", "type": "team"}}, {"owner": {"id": "tea-2", "type": "team"}}]
+
+    @parameterized.expand(
+        [
+            # Render 400s /custom-domains for service types that can't have them (cron jobs, etc.).
+            ("custom_domains_unsupported_service", "custom_domains", "customDomain", 400, "serviceId", "srv-2"),
+            # Audit logs need a Pro workspace and an admin key: one ineligible workspace must not
+            # fail the table for a key that spans several workspaces.
+            ("audit_logs_bad_request", "audit_logs", "auditLog", 400, "ownerId", "tea-2"),
+            ("audit_logs_forbidden", "audit_logs", "auditLog", 403, "ownerId", "tea-2"),
+        ]
+    )
+    def test_ineligible_parent_is_skipped(
+        self, _name: str, endpoint: str, wrapper_key: str, status: int, parent_key: str, second_parent: str
+    ) -> None:
+        parents_page = self.OWNERS_PAGE if parent_key == "ownerId" else self.SERVICES_PAGE
         result = _run(
-            "custom_domains",
+            endpoint,
             [
-                *_pages(self.SERVICES_PAGE),
-                ScriptedResponse(status=400, json={"message": "Bad Request"}),
-                *_pages([{"customDomain": {"id": "dom-2"}}]),
+                *_pages(parents_page),
+                ScriptedResponse(status=status, json={"message": "rejected"}),
+                *_pages([{wrapper_key: {"id": "row-2"}, "cursor": "c2"}], []),
             ],
+            owner_id=None,
         )
 
-        assert result.items == [[{"serviceId": "srv-2", "id": "dom-2"}]]
+        assert result.raised is None
+        assert result.rows == [{parent_key: second_parent, "id": "row-2"}]
 
-    def test_400_still_fails_for_endpoints_without_skip_flag(self) -> None:
+    @parameterized.expand([("bad_request", 400), ("forbidden", 403)])
+    def test_rejected_parent_still_fails_for_endpoints_without_skip_flag(self, _name: str, status: int) -> None:
         result = _run(
             "deploys",
             [
                 *_pages(self.SERVICES_PAGE),
-                ScriptedResponse(status=400, json={"message": "Bad Request"}),
+                ScriptedResponse(status=status, json={"message": "rejected"}),
             ],
         )
 
         assert isinstance(result.raised, requests.HTTPError)
+
+    @parameterized.expand(
+        [
+            ("instances", "services", "/v1/services/srv-1/instances", "serviceId", "srv-1"),
+            ("members", "owners", "/v1/owners/tea-123/members", "ownerId", "tea-123"),
+        ]
+    )
+    def test_unpaginated_child_is_fetched_once_per_parent(
+        self, endpoint: str, parent: str, expected_path: str, parent_key: str, parent_id: str
+    ) -> None:
+        # These endpoints return the whole list in one response with no cursor. A long list must
+        # not read as a truncated page, and the request must not carry pagination params.
+        parent_wrapper = "service" if parent == "services" else "owner"
+        children = [{"id": f"row-{i}", "createdAt": "2026-01-01T00:00:00Z"} for i in range(150)]
+        result = _run(endpoint, _pages([{parent_wrapper: {"id": parent_id}}], children))
+
+        child_requests = [request for request in result.requests if request.path == expected_path]
+        assert len(child_requests) == 1
+        assert child_requests[0].param("limit") is None
+        assert len(result.rows) == 150
+        assert result.rows[0] == {parent_key: parent_id, "id": "row-0", "createdAt": "2026-01-01T00:00:00Z"}
+
+    def test_owner_scoped_source_only_fans_out_over_its_workspace(self) -> None:
+        # /owners takes no ownerId filter, so a source scoped to one workspace must drop the
+        # other workspaces itself before it reads their members or audit logs.
+        result = _run(
+            "members",
+            _pages(
+                [{"owner": {"id": "tea-999"}}, {"owner": {"id": "tea-123"}}],
+                [{"userId": "usr-1", "name": "Ada", "role": "ADMIN"}],
+            ),
+        )
+
+        assert result.paths == ["/v1/owners", "/v1/owners/tea-123/members"]
+        assert result.rows == [{"ownerId": "tea-123", "userId": "usr-1", "name": "Ada", "role": "ADMIN"}]
+
+    def test_audit_logs_walk_cursor_pages_per_workspace(self) -> None:
+        with time_machine.travel(datetime(2026, 6, 1, tzinfo=UTC), tick=False):
+            result = _run(
+                "audit_logs",
+                _pages(
+                    [{"owner": {"id": "tea-123"}}],
+                    [{"auditLog": {"id": "aud-1", "event": "CreateServerEvent"}, "cursor": "c1"}],
+                    [{"auditLog": {"id": "aud-2", "event": "LoginEvent"}, "cursor": "c2"}],
+                    [],
+                ),
+            )
+
+        audit_requests = result.requests[1:]
+        assert [request.path for request in audit_requests] == ["/v1/owners/tea-123/audit-logs"] * 3
+        assert [request.param("cursor") for request in audit_requests] == [None, "c1", "c2"]
+        assert {request.param("startTime") for request in audit_requests} == {"2026-03-04T00:00:00Z"}
+        assert result.rows == [
+            {"ownerId": "tea-123", "id": "aud-1", "event": "CreateServerEvent"},
+            {"ownerId": "tea-123", "id": "aud-2", "event": "LoginEvent"},
+        ]
 
     def test_resume_skips_parents_before_bookmark_and_seeds_cursor(self) -> None:
         result = _run(
@@ -351,18 +448,3 @@ class TestRenderSourceResponse:
         assert result.response.partition_keys == expected_partition_keys
         # Render documents no list ordering, so the watermark must only persist at job end.
         assert result.response.sort_mode == "desc"
-
-
-class TestValidateCredentials:
-    @parameterized.expand(
-        [
-            (200, (True, None)),
-            (401, (False, render.KEY_REJECTED_MESSAGE)),
-            (403, (False, render.KEY_FORBIDDEN_MESSAGE)),
-            # A Render-side failure leaves the key unjudged, so it must not be blamed on the key.
-            (500, (False, render.PROBE_FAILED_MESSAGE)),
-        ]
-    )
-    def test_maps_status_to_message(self, status: int, expected: tuple[bool, str | None]) -> None:
-        with scripted_network(always(ScriptedResponse(status=status, json={}))):
-            assert validate_credentials("rnd_test") == expected

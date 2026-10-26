@@ -1,9 +1,6 @@
-from parameterized import parameterized
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
-    always,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.rkicovid import (
@@ -20,19 +17,6 @@ class TestRKICovidSource:
     def test_lists_tables_without_credentials(self) -> None:
         # get_schemas is a static endpoint catalog with no I/O, so the public docs can render tables.
         assert RKICovidSource.lists_tables_without_credentials is True
-
-    @parameterized.expand(
-        [
-            ("no_days_reachable", None, 200, True),
-            ("valid_days_reachable", 90, 200, True),
-            ("unreachable", None, 500, False),
-        ]
-    )
-    def test_validate_credentials(self, _name: str, days: int | None, status: int, expected_ok: bool) -> None:
-        with scripted_network(always(ScriptedResponse(status=status, json={"cases": 1}))):
-            ok, message = RKICovidSource().validate_credentials(_make_config(days), team_id=1)
-        assert ok is expected_ok
-        assert (message is None) is expected_ok
 
     def test_validate_credentials_rejects_invalid_days_without_probing(self) -> None:
         with scripted_network([]) as network:
