@@ -1042,6 +1042,12 @@ class TestCohortInlining(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "Update your filters at: SETTINGS_URL#internal-user-filtering",
             ),
             (
+                "hogql_test_account_filter",
+                "Your internal/test user filters use a cohort, and cohorts can't be used in real-time filters. "
+                "Replace the cohort with person property filters that match the same people. "
+                "Update your filters at: SETTINGS_URL#internal-user-filtering",
+            ),
+            (
                 "own_filters",
                 "Cohorts can't be used in real-time filters. "
                 "Replace the cohort with person property filters that match the same people.",
@@ -1068,12 +1074,14 @@ class TestCohortInlining(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             is_static=False,
         )
         cohort_filter = {"type": "cohort", "key": "id", "value": cohort.pk, "operator": "not_in"}
-        if cohort_source == "test_account_filters":
+        if cohort_source == "own_filters":
+            filters: dict = {"properties": [cohort_filter]}
+        else:
+            if cohort_source == "hogql_test_account_filter":
+                cohort_filter = {"type": "hogql", "key": f"person_id NOT IN COHORT {cohort.pk}"}
             self.team.test_account_filters = [cohort_filter]
             self.team.save()
-            filters: dict = {"filter_test_accounts": True}
-        else:
-            filters = {"properties": [cohort_filter]}
+            filters = {"filter_test_accounts": True}
 
         result = compile_filters_bytecode(filters, self.team)
         assert result["bytecode"] is None
