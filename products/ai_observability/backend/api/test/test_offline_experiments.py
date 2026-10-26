@@ -118,8 +118,12 @@ class TestOfflineExperimentsAPI(APIBaseTest):
     def test_ingestion_and_both_lifecycle_actions(self, auth_kind: str, report_action: Mock) -> None:
         definition = ScoreDefinition.objects.create(team=self.team, name="Correct", kind="boolean")
         version = definition.create_new_version(config={"true_label": "Yes", "false_label": "No"}, created_by=self.user)
+        other_definition = ScoreDefinition.objects.create(team=self.team, name="Relevant", kind="boolean")
+        other_version = other_definition.create_new_version(
+            config={"true_label": "Yes", "false_label": "No"}, created_by=self.user
+        )
         self._authenticate(auth_kind)
-        body = self._experiment_body() | {"expected_item_count": 1, "expected_result_count": 1}
+        body = self._experiment_body() | {"expected_item_count": 2, "expected_result_count": 4}
         with self.captureOnCommitCallbacks(execute=True):
             created = self.client.post(self._endpoint(), body, format="json")
         self.assertEqual(created.status_code, status.HTTP_201_CREATED, created.data)
@@ -133,15 +137,19 @@ class TestOfflineExperimentsAPI(APIBaseTest):
             incomplete = self.client.post(self._endpoint(experiment_id, "complete"), {}, format="json")
         self.assertEqual(incomplete.status_code, status.HTTP_409_CONFLICT, incomplete.data)
         self.assertEqual(incomplete.data["code"], "expected_count_mismatch")
-        self.assertEqual(incomplete.data["expected_item_count"], 1)
-        self.assertEqual(incomplete.data["expected_result_count"], 1)
+        self.assertEqual(incomplete.data["expected_item_count"], 2)
+        self.assertEqual(incomplete.data["expected_result_count"], 4)
         self.assertEqual(incomplete.data["accepted_item_count"], 0)
         self.assertEqual(incomplete.data["accepted_result_count"], 0)
 
-        item_id = str(uuid4())
+        item_ids = [str(uuid4()), str(uuid4())]
         upload_body = {
-            "items": [{"id": item_id, "payload": {"input": "What is 2 + 2?", "output": "5"}}],
-            "results": [{"item_id": item_id, "scorer_version_id": str(version.id), "status": "ok", "value": False}],
+            "items": [{"id": item_id, "payload": {"input": "What is 2 + 2?", "output": "5"}} for item_id in item_ids],
+            "results": [
+                {"item_id": item_id, "scorer_version_id": str(scorer_version.id), "status": "ok", "value": False}
+                for item_id in item_ids
+                for scorer_version in (version, other_version)
+            ],
         }
         with self.captureOnCommitCallbacks(execute=True):
             uploaded = self.client.post(self._endpoint(experiment_id, "upload"), upload_body, format="json")
@@ -154,8 +162,8 @@ class TestOfflineExperimentsAPI(APIBaseTest):
             completed = self.client.post(self._endpoint(experiment_id, "complete"), {}, format="json")
         self.assertEqual(completed.status_code, status.HTTP_200_OK, completed.data)
         self.assertEqual(completed.data["status"], "completed")
-        self.assertEqual(completed.data["accepted_item_count"], 1)
-        self.assertEqual(completed.data["accepted_result_count"], 1)
+        self.assertEqual(completed.data["accepted_item_count"], 2)
+        self.assertEqual(completed.data["accepted_result_count"], 4)
 
         failed_body = self._experiment_body() | {"expected_result_count": 10}
         with self.captureOnCommitCallbacks(execute=True):
@@ -193,12 +201,12 @@ class TestOfflineExperimentsAPI(APIBaseTest):
         upload_event = report_action.call_args_list[1]
         self.assertEqual(
             upload_event.args[2],
-            {"experiment_id": experiment_id, "created_item_count": 1, "created_result_count": 1},
+            {"experiment_id": experiment_id, "created_item_count": 2, "created_result_count": 4},
         )
         completed_event = report_action.call_args_list[2]
         self.assertEqual(completed_event.args[2]["status"], "completed")
-        self.assertEqual(completed_event.args[2]["accepted_item_count"], 1)
-        self.assertEqual(completed_event.args[2]["accepted_result_count"], 1)
+        self.assertEqual(completed_event.args[2]["accepted_item_count"], 2)
+        self.assertEqual(completed_event.args[2]["accepted_result_count"], 4)
         self.assertEqual(completed_event.kwargs["team"], self.team)
         self.assertEqual(completed_event.args[0], completed_event.kwargs["request"].user)
         self.assertTrue(completed_event.args[0].distinct_id)
