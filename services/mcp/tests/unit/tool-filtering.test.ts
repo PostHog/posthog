@@ -1113,6 +1113,7 @@ describe('Tool Filtering - Feature Flags', () => {
             'workflows-transactional-email-api',
             'activity-summary',
             'anomalies-search',
+            'workflows-email-domain-agent-setup',
             'feature-flag-rules-v2-mcp',
         ]
         expect(allFlags).toEqual(expect.arrayContaining(branchFlags))
