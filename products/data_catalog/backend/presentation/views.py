@@ -311,14 +311,14 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         names_by_id = {metric.id: metric.name for metric in metrics}
         change = api.bulk_change_metric_owner(
             team_id=self.team.id,
-            metric_ids=list(names_by_id),
+            names_by_id=names_by_id,
             owner_id=owner.id if owner else None,
             user_id=cast(User, request.user).id,
             analytics_props=get_request_analytics_properties(request),
         )
         position = {metric_id: index for index, metric_id in enumerate(change.updated_ids)}
         updated = sorted(
-            self.get_queryset().filter(id__in=change.updated_ids).select_related("owner", "created_by"),
+            self.get_queryset().filter(id__in=change.updated_ids).select_related("owner", "created_by", "approved_by"),
             key=lambda metric: position[metric.id],
         )
         skipped = [

@@ -27,6 +27,7 @@ from products.data_catalog.backend.logic.metrics import (
     BULK_SKIP_NOT_FOUND,
     METRIC_BULK_MAX,
     approve_metric,
+    bulk_change_metric_owner,
     soft_delete_metric,
     upsert_metric,
 )
@@ -604,6 +605,18 @@ class TestMetricLifecycleAPI(APIBaseTest):
         assert {skip["name"] for skip in body["skipped"]} == {"theirs", "unheard_of"}
         theirs.refresh_from_db()
         assert theirs.owner_id != User.objects.get(email="new.owner@example.com").id
+
+    def test_bulk_change_owner_skips_a_metric_renamed_after_name_resolution(self) -> None:
+        renamed = upsert_metric(team=self.team, user=self.user, name="arr", description="d")
+
+        change = bulk_change_metric_owner(
+            team_id=self.team.id, names_by_id={renamed.id: "mrr"}, owner_id=None, user_id=self.user.id
+        )
+
+        assert change.updated_ids == []
+        assert change.skipped_ids == [renamed.id]
+        renamed.refresh_from_db()
+        assert renamed.owner_id == self.user.id
 
     def test_bulk_change_owner_path_leaves_a_metric_of_that_name_reachable(self) -> None:
         upsert_metric(team=self.team, user=self.user, name="bulk_change_owner", description="d")

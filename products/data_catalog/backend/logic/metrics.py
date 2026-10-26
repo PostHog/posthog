@@ -647,13 +647,13 @@ def bulk_soft_delete_metrics(
 def bulk_change_metric_owner(
     *,
     team_id: int,
-    metric_ids: list[UUID],
+    names_by_id: dict[UUID, str],
     owner_id: Optional[int],
     user_id: int,
     analytics_props: Optional[AnalyticsProps] = None,
 ) -> MetricBulkOwnerChange:
     """Set one owner on a batch of metrics in one transaction."""
-    if not metric_ids:
+    if not names_by_id:
         return MetricBulkOwnerChange(updated_ids=[], skipped_ids=[])
     team = Team.objects.get(id=team_id)
     user = User.objects.get(id=user_id)
@@ -661,10 +661,10 @@ def bulk_change_metric_owner(
     updated: list[Metric] = []
 
     with team_scope(team_id), transaction.atomic():
-        locked = _lock_batch(team_id, metric_ids)
-        for metric_id in metric_ids:
+        locked = _lock_batch(team_id, list(names_by_id))
+        for metric_id, name in names_by_id.items():
             metric = locked.get(metric_id)
-            if metric is None:
+            if metric is None or metric.name != name:
                 continue
             metric.owner = owner
             metric.save(update_fields=["owner", "updated_at"])
@@ -681,7 +681,7 @@ def bulk_change_metric_owner(
 
     updated_ids = [metric.id for metric in updated]
     return MetricBulkOwnerChange(
-        updated_ids=updated_ids, skipped_ids=[metric_id for metric_id in metric_ids if metric_id not in updated_ids]
+        updated_ids=updated_ids, skipped_ids=[metric_id for metric_id in names_by_id if metric_id not in updated_ids]
     )
 
 
