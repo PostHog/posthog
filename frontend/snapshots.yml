@@ -15936,6 +15936,70 @@ snapshots:
         hash: v1.k794b7964.074d7d64c384134bfd4c223d57cd339854d39bc4283b7d9b239d4c83d78e30fb._jPmYLjyiEistYmpwqii497iwY6LHQ1WQ4nzk9aMTDs
     scenes-app-workflows-createaitaskconnectors--unavailable-connector--light:
         hash: v1.k794b7964.c4fdab3ab5190ace67d354d7010b49cbd37e9ec72feaa3fab9760d1f1010c8b0.S5qBDGrQNUo7qygcV1_MG_nu9RWeaMnoOFrYdhnV97E
+    scenes-app-workflows-email-domain-setup--agent-handoff--dark:
+        hash: v1.k794b7964.dfe5f861abff7bb343c4150e6b4dc8444e8f373596f6bd328418f52216446904.hKcuU-QswaiocgajSPR3WLjuw0XaDOoQz4HR85H4Yvs
+    scenes-app-workflows-email-domain-setup--agent-handoff--light:
+        hash: v1.k794b7964.90dc0c6b93cd7e2107bb89ef97667917b1594e96b60316bb5f190721fb4134fa.PYOR4mt8Py_Hp3RSx9c0vdFhgRO17pX7oDw3DnOW09k
+    scenes-app-workflows-email-domain-setup--domain-step--dark:
+        hash: v1.k794b7964.6d4f99c567d1b980a89647ad047f2f1993274984c0962f4d8c00f9739bb97c5b.ExejW479E1j1jZ75H4rj5bCgM9HumucYJKU74zcLb2Y
+    scenes-app-workflows-email-domain-setup--domain-step--light:
+        hash: v1.k794b7964.7e18430997c1e715034e832316d53a49f739cb65b502a993b67d27251f48ab0c.hDMDffZBhSfaVOGABAWtiAid9Oc8BrkvaOWsAQQm8Vc
+    scenes-app-workflows-email-domain-setup--ready--dark:
+        hash: v1.k794b7964.b8c9bf82888036b0531195d03a3cde74707c7fa3ffa34ea846e09390bb6e67a9.n0n9apB1NCh7klnrDcyDkEqRT-rhkr-td3gKPdTiW0A
+    scenes-app-workflows-email-domain-setup--ready--light:
+        hash: v1.k794b7964.af9862fdbe9465830d4c11c2586315bf01ed9b55aba52caa78c485697d33bcfc.U9NNvRqsz7F2nkHkoabxQwQU5aeEbJLNaUBG-VRyvJc
+    scenes-app-workflows-email-domain-setup--settings-cloudflare--dark:
+        hash: v1.k794b7964.9e3bd23d6d107f8cc6a8d5d482152945ee45e9d8fa63c4b8bf2bfdf7c2719ca7.ZrO_h6pJgHU1ZMi0TXHqxCPePvgZItDlz3NNd1L3XUo
+    scenes-app-workflows-email-domain-setup--settings-cloudflare--light:
+        hash: v1.k794b7964.a6fda0d5595b5e577b4535a535131fc44f6af4ee37451c6871f9556400afcb7e.zsoQpM80da4JdAEHn7NnseTk4FLD4H4-cbYYfj28nNI
+    scenes-app-workflows-email-domain-setup--settings-cloudflare-existing-dmarc--dark:
+        hash: v1.k794b7964.9e3bd23d6d107f8cc6a8d5d482152945ee45e9d8fa63c4b8bf2bfdf7c2719ca7.ICB-ce_JA0RMD29kskswwnvIw51A2Ze1GX9bSdizaNU
+    scenes-app-workflows-email-domain-setup--settings-cloudflare-existing-dmarc--light:
+        hash: v1.k794b7964.a6fda0d5595b5e577b4535a535131fc44f6af4ee37451c6871f9556400afcb7e.ELsQZ_rmsn4Z8rJ6dVw428T7yxDiZFt1kbLrbz5sQjg
+    scenes-app-workflows-email-domain-setup--settings-cloudflare-records-revealed--dark:
+        hash: v1.k794b7964.3074f4d5735adf13c4dd9af0f9491842d3424565b41d187bc9305fa87b2dd57a.zOX6kLLBUNdmv21-1F93GQL8TLZwm1J__GuEJjWT0vw
+    scenes-app-workflows-email-domain-setup--settings-cloudflare-records-revealed--light:
+        hash: v1.k794b7964.35d45f9f16597b3d634e3fbb2da18838ea735ef1da8ff26d8ed50f61edf5f9f3.jFSGBgP8zj1x6_woRD6DXuNznF1f7zn_7YRtUwv96o8
+    scenes-app-workflows-email-domain-setup--settings-not-started--dark:
+        hash: v1.k794b7964.5cf84de453e0c0610b2bec9981920d91ccd86a26433334cddf22a37b41b047df.tbiQTpvv0G_5zKUMIRpcnb5FcWncw_f6hJWMNxNHoww
+    scenes-app-workflows-email-domain-setup--settings-not-started--light:
+        hash: v1.k794b7964.fd9b1c0c69468c8a27c3a8d8dea9822cc975d6206ad38a417f8c53a470db7410.3AUJxQJuTvQnHGwVHlH_0KhrnzPnS-0q5ZWhgawZ91Y
+    scenes-app-workflows-email-domain-setup--settings-route-53--dark:
+        hash: v1.k794b7964.36ec94b68befcb3dd9747dc1030de0dc980fcbc639d4cb7dc6e46dd88006f892.LxN_Pzja2ZL9RoaZDaafX_N_3XrANetiCP1_o0-XV0Y
+    scenes-app-workflows-email-domain-setup--settings-route-53--light:
+        hash: v1.k794b7964.acdd3c07a3448384a06f1c4dd0b0ac430bce2326478cfc7c0f267e823744482a.IqX9hbIXAz6_-tsjFdmI5wiegLuDK_bQz2VEhtYsq8E
+    scenes-app-workflows-email-domain-setup--settings-unknown-host--dark:
+        hash: v1.k794b7964.c91e97346e23f52a309f39ce65104f274150ce045401d2e46777e04d9cbb6c9e.RuuPshdRl3gafxw2cJ2C4ydOv-W8oWbluMx1UIDmSXA
+    scenes-app-workflows-email-domain-setup--settings-unknown-host--light:
+        hash: v1.k794b7964.f4a231e5ebe27516f544e72f03cf15047053878efdfb6a10b8c9745a555a58bb.Mef01_MVyW2EgFuurnXVB0jERg_N5HzDSBDbQ2trDaU
+    scenes-app-workflows-email-domain-setup--unavailable--dark:
+        hash: v1.k794b7964.61c4c12372f025b48ec8255a7f5780ac99dfe6f7ffb36a65e699178ba2279e1d.QYx6BkJGZjZEec-YAGnU-EKjfTGxNR33U7ACrcv_RnQ
+    scenes-app-workflows-email-domain-setup--unavailable--light:
+        hash: v1.k794b7964.213417fb14b73e103079e041b77df50237a5260ac540c70526bdd752843b1b0e.ORXhzTNMwbaR_sjZvU_BeSXo_WEC0PW-p1C5GnUQOmQ
+    scenes-app-workflows-email-domain-setup--verifying--dark:
+        hash: v1.k794b7964.3f1ab1b274225399ec4b37cc55d31116b7b7f87b47a1246c30b071541d411879.oLKKTVDpaQN7FzCvcQTWtnwCljpsuDRnPKKliNsNaTE
+    scenes-app-workflows-email-domain-setup--verifying--light:
+        hash: v1.k794b7964.ae4908887653a9eae846e380650467b5b637244dfa5e12a6a4e359f7d341fb19.GgDiWzLfo4M4rI_iXdqVvVS58uH8Tsz4TaK33xrYQTY
+    scenes-app-workflows-email-domain-setup--verifying-failed--dark:
+        hash: v1.k794b7964.f3e9af482c0d7367beae6d05e58210139c816c96168114662dde536c41b16df3.jeHj03joz2aQjpDn3BfxqTJq1pa0yCAob9ZdWZDIjCs
+    scenes-app-workflows-email-domain-setup--verifying-failed--light:
+        hash: v1.k794b7964.2327706c66d45e61b834024e08956b42eef9c47a80b95371b368ea90ce6bc09f.fb_HlLG_KfPO2EqcKUWCDABs7scRZOMr2eAU2_SC8VM
+    scenes-app-workflows-email-domain-setup--verifying-polling-stopped--dark:
+        hash: v1.k794b7964.a7439edf2e9059927389d3546ade31d39f54eee0e0a91b6dcd94e3490e31230f.GkEy-r6uU79qm23sTADULOS4_m9zLcpgC-o9lrBlXtc
+    scenes-app-workflows-email-domain-setup--verifying-polling-stopped--light:
+        hash: v1.k794b7964.ce0c3409d020824b8bccc7c12bbca7ad3957b1954d57110691a62aefee00922d.QDH7ReMYLPxydlZI5P-5NEGBlmAy-C5advhjLbM3nWE
+    scenes-app-workflows-email-domain-setup--verifying-records-found--dark:
+        hash: v1.k794b7964.d7f2184e4eec06d342afd1971d00b79860d151e75b4b9279395170ac9f528c1b.qgELFbPSti7ERgtyVeuBGc0elI-2Y8rXhTA3MEz6LkY
+    scenes-app-workflows-email-domain-setup--verifying-records-found--light:
+        hash: v1.k794b7964.67824d30816917637d404365d42e4f89db5231bc4dfc4ceb9b636273bd25ab83.65RSumyUqseyy1wTtulfVXE-p74gbj0eLqfdrsNwnXo
+    scenes-app-workflows-email-domain-setup--verifying-records-in-place--dark:
+        hash: v1.k794b7964.7acd8db286c89036d3a56a5b96a1b6279da4d52659c1eb32f55c4d05298b09aa.6xmCAGJW71CqOAobUA-W5x5KraQ50fkUrmYYn-px5R0
+    scenes-app-workflows-email-domain-setup--verifying-records-in-place--light:
+        hash: v1.k794b7964.92bb38264cbb48ca93cc59bd3435b2e3e24f0caf3c055736fb7c785cd6008dde.tOzGYN_qDMHl914UQSGJHjIDlCZT73_RhjYYDUyVsaQ
+    scenes-app-workflows-email-domain-setup--verifying-temporary-failure--dark:
+        hash: v1.k794b7964.f79b47b85a477dab0bde25ac7973a675e7aa68efdf0b9bffea30a226154b2044.M5nsCVGjVDV7Vvwq3w1j_aEAj5e-k9dm8Kz-hjYH09s
+    scenes-app-workflows-email-domain-setup--verifying-temporary-failure--light:
+        hash: v1.k794b7964.ab1d8f0aca8478018fadfedd1a32d71843fae8ee3a0958ce22355d9d85ec8b15.tX5ayDpCuNehvBFqI-WykJ6q5ERZ0InGagC2ckL-YZk
     scenes-code-review--default--dark:
         hash: v1.k794b7964.5a9975a808e98b7353c1eaabf06a9c09a52975af66610be197e6427d322c8494.A_lAa9TF0QYJlpZqdm7QHPEa7Dj7Ayj7xMlHeq2BGyc
     scenes-code-review--default--light:
