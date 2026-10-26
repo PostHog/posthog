@@ -63,4 +63,8 @@ class Migration(migrations.Migration):
             model_name="replayobservation",
             name="rlo_scanner_ranked_idx",
         ),
+        SafeRemoveIndexConcurrently(
+            model_name="replayobservation",
+            name="rlo_workflow_id_idx",
+        ),
     ]

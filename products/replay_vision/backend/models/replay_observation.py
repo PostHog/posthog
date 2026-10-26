@@ -168,11 +168,6 @@ class ReplayObservation(UUIDModel):
             ),
             # Serves the per-scanner list ordering and the prev/next-neighbor lookups (both order by created_at).
             models.Index(fields=["scanner", "created_at"], name="rlo_scanner_created_idx"),
-            models.Index(
-                fields=["workflow_id"],
-                name="rlo_workflow_id_idx",
-                condition=~models.Q(workflow_id=""),
-            ),
             # Serves the per-team in-flight concurrency count (sweep headroom + on-demand 429). Partial on the
             # in-flight statuses only, since terminal rows dominate and are never counted.
             models.Index(
