@@ -6,13 +6,16 @@ vectors. A worker outage only delays ranks, and a database outage shorter than t
 """
 
 import time
+import uuid
 import signal
 import asyncio
 from collections.abc import Sequence
+from datetime import datetime
 from typing import Any, Literal, Protocol
 
 from django.conf import settings
 from django.db import close_old_connections
+from django.utils import timezone
 
 import orjson
 import structlog
@@ -32,6 +35,7 @@ from products.replay_vision.backend.embeddings import (
     OBSERVATION_EMBEDDING_MODEL,
 )
 from products.replay_vision.backend.watch_rank import RankRequest, rank_observation
+from products.replay_vision.backend.watch_themes import assign_theme, name_theme
 
 logger = structlog.get_logger(__name__)
 
@@ -108,6 +112,8 @@ class WatchRankConsumer:
         self._stop = asyncio.Event()
         # When each observation that is still failing first failed, so its retry window spans batches.
         self._first_failed_at: dict[str, float] = {}
+        # Naming calls run beside the loop, so a slow model call never holds up ranking. Kept to stop collection.
+        self._naming: set[asyncio.Task[Any]] = set()
 
     async def _wait(self, seconds: float) -> bool:
         """Sleep, unless shutdown comes first. True when the full time passed."""
@@ -130,6 +136,8 @@ class WatchRankConsumer:
             await sync_to_async(close_old_connections)()
             try:
                 outcome = await rank_observation(request)
+                if outcome != "missing":
+                    await self._theme(request)
                 self._first_failed_at.pop(request.observation_id, None)
                 return outcome
             except Exception:
@@ -150,6 +158,30 @@ class WatchRankConsumer:
             if not await self._wait(backoff):
                 return "interrupted"
             backoff = min(backoff * 2, _RETRY_BACKOFF_MAX_S)
+
+    async def _theme(self, request: RankRequest) -> None:
+        """Put a ranked observation in a theme, and name the theme in the background once it is due."""
+        now = timezone.now()
+        assignment = await sync_to_async(assign_theme)(
+            team_id=request.team_id,
+            scanner_id=request.scanner_id,
+            observation_id=request.observation_id,
+            vector=request.vector,
+            now=now,
+        )
+        if assignment is None or not assignment.name_due:
+            return
+        task = asyncio.create_task(self._name(request.team_id, assignment.theme_id, now))
+        self._naming.add(task)
+        task.add_done_callback(self._naming.discard)
+
+    @staticmethod
+    async def _name(team_id: int, theme_id: uuid.UUID, now: datetime) -> None:
+        try:
+            await name_theme(team_id, theme_id, now)
+        except Exception:
+            # A theme that missed its name is named again when it next doubles.
+            logger.exception("replay_vision.watch_rank_consumer.theme_naming_failed", team_id=team_id)
 
     async def process_batch(self, consumer: BatchConsumer, messages: Sequence[Message]) -> None:
         batch_deadline = time.monotonic() + _BATCH_BUDGET_S
