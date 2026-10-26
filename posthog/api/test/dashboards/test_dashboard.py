@@ -2209,6 +2209,54 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual([tile["badge"] for tile in dashboard["tiles"]], [None, None])
         self.assertEqual(dashboard["customization"], {})
 
+    @patch("products.dashboards.backend.api.dashboard.report_user_action")
+    def test_dashboard_tile_group_created_is_reported_once_per_new_group_for_content_tiles(
+        self, mock_report_user_action: MagicMock
+    ) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "test"})
+        mock_report_user_action.reset_mock()
+
+        self.dashboard_api.update_dashboard(
+            dashboard_id,
+            {
+                "tiles": [
+                    {"text": {"body": "a"}, "layouts": {}, "group_key": "plans"},
+                    {"text": {"body": "b"}, "layouts": {}, "group_key": "plans"},
+                ]
+            },
+        )
+
+        group_created_calls = [
+            call for call in mock_report_user_action.call_args_list if call.args[1] == "dashboard tile group created"
+        ]
+        self.assertEqual(
+            [call.args[2] for call in group_created_calls],
+            [{"dashboard_id": dashboard_id, "group_display": "sections", "group_count": 1}],
+        )
+
+    @patch("products.dashboards.backend.api.dashboard.report_user_action")
+    def test_dashboard_tile_group_created_is_not_reported_when_the_update_rolls_back(
+        self, mock_report_user_action: MagicMock
+    ) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "test"})
+        mock_report_user_action.reset_mock()
+
+        self.dashboard_api.update_dashboard(
+            dashboard_id,
+            {
+                "tiles": [
+                    {"text": {"body": "a"}, "layouts": {}, "group_key": "plans"},
+                    {"id": 999999, "group_key": "plans"},
+                ]
+            },
+            expected_status=status.HTTP_400_BAD_REQUEST,
+        )
+
+        self.assertEqual(
+            [call for call in mock_report_user_action.call_args_list if call.args[1] == "dashboard tile group created"],
+            [],
+        )
+
     @parameterized.expand(
         [
             ("unknown_badge", {"badge": "Winner"}, "badge"),

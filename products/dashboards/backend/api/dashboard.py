@@ -2233,6 +2233,8 @@ class DashboardSerializer(DashboardMetadataSerializer):
         # so a later tile failing validation must roll that back too, or a retry with the
         # original text_id can no longer find the tile.
         tile_results: list[tuple[DashboardTile | None, bool]] = []
+        tracks_groups = any("group_key" in tile_data for tile_data in tiles)
+        group_keys_before = instance.tile_group_keys if tracks_groups else set()
         with transaction.atomic():
             tile_ids = [tile["id"] for tile in tiles if tile.get("id") is not None]
             list(
@@ -2258,6 +2260,21 @@ class DashboardSerializer(DashboardMetadataSerializer):
                     widget_type=widget_type,
                     request=self.context["request"],
                     tile=tile,
+                )
+
+        if tracks_groups and "request" in self.context:
+            group_keys_after = instance.tile_group_keys
+            for _ in group_keys_after - group_keys_before:
+                report_user_action(
+                    user,
+                    "dashboard tile group created",
+                    {
+                        "dashboard_id": instance.id,
+                        "group_display": instance.group_display,
+                        "group_count": len(group_keys_after),
+                    },
+                    team=instance.team,
+                    request=self.context["request"],
                 )
 
         duplicate_tiles = initial_data.pop("duplicate_tiles", [])
@@ -2553,13 +2570,6 @@ class DashboardSerializer(DashboardMetadataSerializer):
             if field in tile_defaults
         )
 
-        new_group_key = tile_defaults.get("group_key")
-        starts_group = (
-            new_group_key is not None
-            and new_group_key != existing.group_key
-            and not instance.tiles.filter(group_key=new_group_key).exclude(id=existing.id).exists()
-        )
-
         for attr, val in tile_defaults.items():
             setattr(existing, attr, val)
         # update_fields scopes the UPDATE to only the columns we changed, so concurrent writes
@@ -2568,18 +2578,6 @@ class DashboardSerializer(DashboardMetadataSerializer):
         existing.save(update_fields=list(tile_defaults.keys()))
         if marking_changed:
             _report_dashboard_tile_marking_changed(user=user, dashboard=instance, tile=existing, request=request)
-        if starts_group:
-            report_user_action(
-                user,
-                "dashboard tile group created",
-                {
-                    "dashboard_id": instance.id,
-                    "group_display": instance.group_display,
-                    "group_count": instance.tile_group_count,
-                },
-                team=instance.team,
-                request=request,
-            )
         return existing, became_deleted
 
     @staticmethod

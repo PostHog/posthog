@@ -188,5 +188,9 @@ class Dashboard(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin
         return group_display if group_display in DASHBOARD_TILE_GROUP_DISPLAY_MODES else TileGroupDisplay.SECTIONS
 
     @property
+    def tile_group_keys(self) -> set[str]:
+        return set(self.tiles.exclude(group_key__isnull=True).values_list("group_key", flat=True))
+
+    @property
     def tile_group_count(self) -> int:
-        return self.tiles.exclude(group_key__isnull=True).values("group_key").distinct().count()
+        return len(self.tile_group_keys)
