@@ -2808,9 +2808,7 @@ export namespace Schemas {
       /** Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types */
       typeAwareCastSimplification?: boolean | null;
       useMaterializedViews?: boolean | null;
-      /** Read this query from the native events cluster and native JSON events table (`true`), or keep its existing connection (`false` or unset). This is an internal rollout switch for eligible projects. PostHog staff manage eligibility through instance settings. Each query must opt in; project defaults cannot enable it. Only synchronous HogQLQuery SQL comparisons are supported. */
-      useNewEventsCluster?: boolean | null;
-      /** Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, the project's stored value applies, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance settings. This is an internal rollout switch. PostHog staff set the project value in Django admin and the project settings API ignores it. */
+      /** Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, a staff person's `ph_new_events_schema` cookie applies, then the project's listing in the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS` instance setting, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance setting. This is an internal rollout switch, and the project settings API ignores it. */
       useNewEventsSchema?: boolean | null;
       usePreaggregatedIntermediateResults?: boolean | null;
       /** Try to automatically convert HogQL queries to use preaggregated tables at the AST level * */
@@ -5733,6 +5731,7 @@ export namespace Schemas {
     }
 
     export interface BoxPlotDatum {
+      count?: number | null;
       day: string;
       label: string;
       max: number;
@@ -29817,10 +29816,10 @@ export namespace Schemas {
          */
       unit?: string;
       /**
-         * Email of the human accountable for this metric, or null.
+         * Email of the human accountable for this metric, or null. Set it to the email of a member of this organization to reassign the metric, or to null to clear it. Changing the owner keeps the metric's approval.
          * @nullable
          */
-      readonly owner: string | null;
+      owner?: string | null;
       /**
          * Machine-readable query. Omit for a name+description-only stub. Stored upgrade-canonical.
          * @nullable
@@ -29907,6 +29906,34 @@ export namespace Schemas {
     }
 
     /**
+     * Outcome of a bulk owner change: what changed, and what was left alone.
+     */
+    export interface DataCatalogMetricBulkChangeOwner {
+      /** The metrics that now have the new owner, freshly serialized. */
+      updated: DataCatalogMetric[];
+      /** Requested metrics whose owner did not change, with reasons. */
+      skipped: DataCatalogMetricBulkSkip[];
+    }
+
+    /**
+     * Input for giving many metrics one owner.
+     */
+    export interface DataCatalogMetricBulkChangeOwnerRequest {
+      /**
+         * Names of the metrics to act on, at most 100. Duplicates are collapsed.
+         * @minItems 1
+         * @maxItems 100
+         * @items.maxLength 128
+         */
+      names: string[];
+      /**
+         * Email of the member of this organization who becomes the owner of every named metric, or null to clear the owner. Changing the owner keeps each metric's approval.
+         * @nullable
+         */
+      owner: string | null;
+    }
+
+    /**
      * Outcome of a bulk delete: which names are gone, and what was left alone.
      */
     export interface DataCatalogMetricBulkDelete {
@@ -29962,10 +29989,10 @@ export namespace Schemas {
          */
       unit?: string;
       /**
-         * Email of the human accountable for this metric, or null.
+         * Email of the human accountable for this metric, or null. Set it to the email of a member of this organization to reassign the metric, or to null to clear it. Changing the owner keeps the metric's approval.
          * @nullable
          */
-      readonly owner: string | null;
+      owner?: string | null;
       /**
          * Machine-readable query. Omit for a name+description-only stub. Stored upgrade-canonical.
          * @nullable
@@ -57656,6 +57683,44 @@ export namespace Schemas {
       snoozed: HealthIssueCounts;
     }
 
+    export interface HealthRow {
+      /**
+         * Requests per second over the window.
+         * @nullable
+         */
+      request_rate: number | null;
+      /**
+         * Share of requests with an error status, 0 to 1.
+         * @nullable
+         */
+      error_rate: number | null;
+      /**
+         * 95th percentile request duration in milliseconds.
+         * @nullable
+         */
+      p95_ms: number | null;
+      /** Requests counted in the window. */
+      span_count: number;
+      /** Requests with an error status in the window. */
+      error_count: number;
+    }
+
+    /**
+     * * `good` - Good
+     * * `warning` - Warning
+     * * `serious` - Serious
+     * * `critical` - Critical
+     */
+    export type HealthStatusEnum = typeof HealthStatusEnum[keyof typeof HealthStatusEnum];
+
+
+    export const HealthStatusEnum = {
+      Good: 'good',
+      Warning: 'warning',
+      Serious: 'serious',
+      Critical: 'critical',
+    } as const;
+
     export interface HeatmapCapturePage {
       /** A page URL that currently sends heatmap data. */
       url: string;
@@ -65201,6 +65266,12 @@ export namespace Schemas {
     export interface ItemSubmission {
       /** Caller-generated UUID for one input/output execution. Reuse for exact retries. */
       id: string;
+      /**
+         * Model used for this item. Omitted or null values inherit the experiment's model.
+         * @maxLength 255
+         * @nullable
+         */
+      model_version?: string | null;
       /**
          * Stable case identifier for matching inputs across experiments.
          * @maxLength 255
@@ -74009,6 +74080,11 @@ export namespace Schemas {
     }
 
     export interface OfflineHistoryPoint {
+      /**
+         * Breakdown value for this summary; null when unspecified or no breakdown is selected.
+         * @nullable
+         */
+      breakdown_value?: string | null;
       /** Experiment execution and cohort context. */
       experiment: OfflineExperimentRead;
       /** Complete summary for one experiment and scorer version. */
@@ -74088,6 +74164,11 @@ export namespace Schemas {
     }
 
     export interface OfflineItemRead {
+      /**
+         * Model used for the item, falling back to the experiment's model.
+         * @nullable
+         */
+      model_version?: string | null;
       /** Stable item UUID. */
       id: string;
       /** Owning experiment UUID. */
@@ -85035,10 +85116,10 @@ export namespace Schemas {
          */
       unit?: string;
       /**
-         * Email of the human accountable for this metric, or null.
+         * Email of the human accountable for this metric, or null. Set it to the email of a member of this organization to reassign the metric, or to null to clear it. Changing the owner keeps the metric's approval.
          * @nullable
          */
-      readonly owner?: string | null;
+      owner?: string | null;
       /**
          * Machine-readable query. Omit for a name+description-only stub. Stored upgrade-canonical.
          * @nullable
@@ -102749,6 +102830,7 @@ export namespace Schemas {
      * * `get_it_merged` - Get it merged
      * * `make_it_green` - Make it green
      * * `suggested_prompt` - Suggested prompt
+     * * `ask` - Ask
      */
     export type ReportTaskActionKindEnum = typeof ReportTaskActionKindEnum[keyof typeof ReportTaskActionKindEnum];
 
@@ -102757,6 +102839,7 @@ export namespace Schemas {
       GetItMerged: 'get_it_merged',
       MakeItGreen: 'make_it_green',
       SuggestedPrompt: 'suggested_prompt',
+      Ask: 'ask',
     } as const;
 
     /**
@@ -108027,6 +108110,24 @@ export namespace Schemas {
       policies?: ToolPolicyEntry[];
     }
 
+    export interface ServiceHealth {
+      /** The service.name resource attribute. */
+      service_name: string;
+      /** The environment the row was computed for. */
+      environment: string;
+      /** Health band from the error rate.
+       *
+       * * `good` - Good
+       * * `warning` - Warning
+       * * `serious` - Serious
+       * * `critical` - Critical */
+      status: HealthStatusEnum;
+      /** The health row every surface renders. */
+      health: HealthRow;
+      /** Request counts per bucket across the window, oldest first. */
+      sparkline: number[];
+    }
+
     /**
      * * `none` - None
      * * `previous_period` - Previous Period
@@ -108283,6 +108384,19 @@ export namespace Schemas {
       truncated: boolean;
       /** Caveats about this result. */
       notes: string[];
+    }
+
+    export interface ServicesHealthResponse {
+      /** One row per service, worst status first. */
+      results: ServiceHealth[];
+      /** Environments seen in the window. */
+      environments: string[];
+      /** The environment the rows were computed for. */
+      environment: string;
+      /** Start of the window used. */
+      date_from: string;
+      /** End of the window used. */
+      date_to: string;
     }
 
     export interface SessionRecordingBulkDeleteRequest {
@@ -109141,7 +109255,8 @@ export namespace Schemas {
        *
        * * `get_it_merged` - Get it merged
        * * `make_it_green` - Make it green
-       * * `suggested_prompt` - Suggested prompt */
+       * * `suggested_prompt` - Suggested prompt
+       * * `ask` - Ask */
       action: ReportTaskActionKindEnum;
       /** Whether a run of this action can start now. */
       available: boolean;
@@ -109176,17 +109291,23 @@ export namespace Schemas {
     }
 
     export interface SignalReportTaskActionRunRequest {
-      /** The action to run. Use a value from the actions list.
+      /** The action to run. Use a value from the actions list, or `ask` to send your own `message`.
        *
        * * `get_it_merged` - Get it merged
        * * `make_it_green` - Make it green
-       * * `suggested_prompt` - Suggested prompt */
+       * * `suggested_prompt` - Suggested prompt
+       * * `ask` - Ask */
       action: ReportTaskActionKindEnum;
       /**
          * Required for `suggested_prompt`: the `suggested_prompt_index` from the actions list.
          * @minimum 0
          */
       suggested_prompt_index?: number;
+      /**
+         * Your own request for the run. Required for `ask`, where it is the question or the work you want done on the report. Optional for `get_it_merged` and `make_it_green`, where it replaces the action's fixed request and keeps its instructions and gates: pass it when you know something the report does not, such as a merge order, a failure that is already on the base branch, or an expected conflict. Not accepted for `suggested_prompt`.
+         * @maxLength 2000
+         */
+      message?: string;
     }
 
     export interface SignalReportTaskActionRunResponse {
@@ -127891,6 +128012,17 @@ export namespace Schemas {
      */
     application_version?: string;
     /**
+     * Split history by this property. Model uses each item's model, falling back to the experiment's model.
+     *
+     * * `model_version` - Model
+     * * `prompt_version` - Prompt version
+     * * `application_version` - Application version
+     * * `suite_key` - Suite
+     * * `run_source` - Run source
+     * @minLength 1
+     */
+    breakdown?: AiObservabilityOfflineScorersHistoryListBreakdown;
+    /**
      * Filter experiments by the author's user ID.
      * @minimum 1
      */
@@ -127993,6 +128125,17 @@ export namespace Schemas {
     tags?: string;
     };
 
+    export type AiObservabilityOfflineScorersHistoryListBreakdown = typeof AiObservabilityOfflineScorersHistoryListBreakdown[keyof typeof AiObservabilityOfflineScorersHistoryListBreakdown];
+
+
+    export const AiObservabilityOfflineScorersHistoryListBreakdown = {
+      ModelVersion: 'model_version',
+      PromptVersion: 'prompt_version',
+      ApplicationVersion: 'application_version',
+      SuiteKey: 'suite_key',
+      RunSource: 'run_source',
+    } as const;
+
     export type AiObservabilityOfflineScorersHistoryListTagMatch = typeof AiObservabilityOfflineScorersHistoryListTagMatch[keyof typeof AiObservabilityOfflineScorersHistoryListTagMatch];
 
 
@@ -128089,6 +128232,23 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type ApmServicesListParams = {
+    /**
+     * Start of the window, ISO 8601. Defaults to one hour before date_to.
+     */
+    date_from?: string;
+    /**
+     * End of the window, ISO 8601. Defaults to now.
+     */
+    date_to?: string;
+    /**
+     * Environment to list, as resolved from span resource attributes. Defaults to 'default'.
+     * @minLength 1
+     * @maxLength 200
+     */
+    environment?: string;
     };
 
     export type ApprovalPoliciesListParams = {
@@ -132366,6 +132526,10 @@ export namespace Schemas {
      * JSON-encoded list of event names to omit. The name matches the property definitions endpoint that shares it.
      */
     excluded_properties?: string;
+    /**
+     * When true, find similar event names only if the filtered search has no matches.
+     */
+    fuzzy_search?: boolean;
     /**
      * Number of results to return per page.
      * @minimum 1
