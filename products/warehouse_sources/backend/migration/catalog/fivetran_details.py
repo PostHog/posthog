@@ -4,9 +4,8 @@ Fivetran table names come from each connector's published schema reference at
 `https://fivetran.com/docs/connectors/applications/<connector>/connector-schema.md`. The HubSpot
 `engagement_*` and Bing Ads names come from Fivetran's dbt source packages at
 `https://github.com/fivetran/dbt_<connector>`, because connections set up before the current
-schema still have those tables. An alias
-names the PostHog table that holds the same records. A Fivetran table with no alias and no
-PostHog table of the same name has no PostHog equivalent.
+schema still have those tables. An alias names the PostHog table that holds the same records.
+A Fivetran table with no alias and no PostHog table of the same name has no PostHog equivalent.
 """
 
 from collections.abc import Mapping
@@ -122,7 +121,14 @@ _SHOPIFY = {
     "catalog": "catalogs",
     "collection": "collections",
     "customer": "customers",
-    "discount_code": "discountCodes",
+    "discount_automatic_app": "discountCodes",
+    "discount_automatic_basic": "discountCodes",
+    "discount_automatic_bxgy": "discountCodes",
+    "discount_automatic_free_shipping": "discountCodes",
+    "discount_code_app": "discountCodes",
+    "discount_code_basic": "discountCodes",
+    "discount_code_bxgy": "discountCodes",
+    "discount_code_free_shipping": "discountCodes",
     "order": "orders",
     "product": "products",
 }
@@ -490,12 +496,26 @@ _LOCAL_AGENT_NOTE = (
 
 FIVETRAN_NOTES: Mapping[str, tuple[str, ...]] = {
     "sql_server_hva": (_LOCAL_AGENT_NOTE,),
-    "github": ("PostHog syncs GitHub one repository at a time. Choose the repositories when you connect the source.",),
+    "github": (
+        "PostHog keeps a separate set of tables for each repository, for example `owner/repo.issues`. "
+        "Choose the repositories when you connect the source.",
+    ),
     "google_search_console": (
         "PostHog's query and page tables do not break down by country and device like the Fivetran reports do.",
+        "PostHog keeps web results apart from image, video and news results. "
+        "Turn on the tables for the other search types to sync them.",
     ),
     "google_analytics_4": (
-        "PostHog syncs a fixed set of Google Analytics reports. Fivetran custom reports do not move over.",
+        "Fivetran custom reports do not move over. Recreate them in the Custom reports field when you connect.",
     ),
+    "hubspot": (
+        "Newer Fivetran connections keep every HubSpot engagement in one `engagement` table. "
+        "PostHog splits them into calls, emails, meetings, notes, tasks and communications tables.",
+    ),
+    "klaviyo": (
+        "Fivetran keeps email and SMS campaigns in one `campaign` table. "
+        "PostHog splits them into email_campaigns and sms_campaigns.",
+    ),
+    "iterable": ("Fivetran keeps every Iterable event in one `event` table. PostHog has one table per event type.",),
     "azure_cosmos_for_mongo": ("PostHog reads Cosmos DB for MongoDB with its MongoDB source.",),
 }
