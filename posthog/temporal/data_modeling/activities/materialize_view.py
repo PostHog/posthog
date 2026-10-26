@@ -63,6 +63,7 @@ from products.data_modeling.backend.facade.api import (
     IncrementalFilterError,
     WritePlan,
     clear_incremental_state,
+    get_incremental_state,
     inject_incremental_filter,
     record_incremental_history,
     resolve_write_plan,
@@ -993,6 +994,14 @@ async def _materialize_fully(
 ) -> tuple[int, list[str]]:
     """Rebuild the whole table from the query. The only path that creates a Delta table, and the
     fallback for every case the incremental path cannot serve."""
+    # The rebuild rewrites the table in place, so a failure after the delete leaves a partial table.
+    # The stored watermark and fingerprint still describe the last complete table, and the next
+    # plan would upsert onto the partial one. Clear them before the delete so that the next run
+    # rebuilds again. The end of a successful rebuild stores them again.
+    state = get_incremental_state(objects.saved_query)
+    if state.watermark is not None or state.definition_fingerprint is not None:
+        await database_sync_to_async_pool(clear_incremental_state)(objects.saved_query)
+
     # delete existing table first to avoid schema conflicts
     s3 = get_s3_client()
     try:
