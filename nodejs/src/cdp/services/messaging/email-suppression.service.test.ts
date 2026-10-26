@@ -341,25 +341,29 @@ describe('EmailSuppressionService', () => {
 
     describe('isSuppressed', () => {
         it.each([
-            ['returns true for a suppressed row', true],
-            ['returns false for an identifier that is not on the list', false],
-        ])('%s', async (_label, expected) => {
+            ['a bounce blocks marketing email', 'BOUNCE', false, true],
+            ['a bounce blocks transactional email', 'BOUNCE', true, true],
+            ['a manual entry blocks transactional email', 'MANUAL', true, true],
+            ['a complaint blocks marketing email', 'COMPLAINT', false, true],
+            ['a complaint lets transactional email through', 'COMPLAINT', true, false],
+            ['an address that is not on the list is not blocked', null, false, false],
+        ] as const)('%s', async (_label, source, transactional, expected) => {
             const svc = new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv())
-            const email = expected ? 'listed@example.com' : 'not-listed@example.com'
-            if (expected) {
+            const email = 'listed@example.com'
+            if (source) {
                 await hub.postgres.query(
                     PostgresUse.COMMON_WRITE,
                     `INSERT INTO posthog_messagesuppression
                         (id, team_id, identifier, source, reason, transient_bounce_count,
                          suppressed, suppressed_at, deleted, created_at, updated_at)
-                     VALUES (gen_random_uuid(), $1, $2, 'BOUNCE', 'test row', 5,
+                     VALUES (gen_random_uuid(), $1, $2, $3, 'test row', 5,
                          true, NOW(), false, NOW(), NOW())`,
-                    [team.id, email],
+                    [team.id, email, source],
                     'test-insert-suppression'
                 )
             }
 
-            expect(await svc.isSuppressed(team.id, email)).toBe(expected)
+            expect(await svc.isSuppressed(team.id, email, { transactional })).toBe(expected)
         })
 
         // isSuppressed fails open. A load that throws would therefore let a suppressed address receive mail.

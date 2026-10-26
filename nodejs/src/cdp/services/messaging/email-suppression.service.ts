@@ -32,6 +32,12 @@ export function emailSuppressionConfigFromEnv(): EmailSuppressionConfig {
     }
 }
 
+export type SuppressionCheckOptions = {
+    // A spam complaint means the recipient doesn't want our mail, not that the address can't receive it.
+    // Transactional email (login codes, password resets) still goes out to it. Bounce and manual entries block it.
+    transactional?: boolean
+}
+
 /**
  * Per-team email suppression list, backed by `posthog_messagesuppression`.
  *
@@ -58,14 +64,15 @@ export function emailSuppressionConfigFromEnv(): EmailSuppressionConfig {
  */
 export class EmailSuppressionService {
     private readonly threshold: number
-    private readonly lazyLoader: LazyLoader<boolean>
+    // The `source` of a key's active suppression (BOUNCE, MANUAL or COMPLAINT), or false when it has none.
+    private readonly lazyLoader: LazyLoader<string | false>
 
     constructor(
         private postgres: PostgresRouter,
         config: EmailSuppressionConfig
     ) {
         this.threshold = config.transientBounceThreshold
-        this.lazyLoader = new LazyLoader({
+        this.lazyLoader = new LazyLoader<string | false>({
             name: 'email_suppression',
             loader: async (keys) => await this.loadSuppressed(keys),
         })
@@ -75,14 +82,19 @@ export class EmailSuppressionService {
         this.lazyLoader.clear()
     }
 
-    /** Pre-send check: is this recipient currently on the team's suppression list? */
-    public async isSuppressed(teamId: number, email: string): Promise<boolean> {
+    /** Pre-send check: does the team's suppression list block this recipient for this kind of email? */
+    public async isSuppressed(
+        teamId: number,
+        email: string,
+        { transactional = false }: SuppressionCheckOptions = {}
+    ): Promise<boolean> {
         const identifier = normalizeIdentifier(email)
         if (!identifier) {
             return false
         }
         try {
-            const suppressed = (await this.lazyLoader.get(toKey(teamId, identifier))) ?? false
+            const source = (await this.lazyLoader.get(toKey(teamId, identifier))) ?? false
+            const suppressed = source !== false && !(transactional && source === 'COMPLAINT')
             if (suppressed) {
                 cdpEmailSuppressionTotal.inc({ result: 'suppressed_hit' })
             }
@@ -342,7 +354,7 @@ export class EmailSuppressionService {
         }
     }
 
-    private async loadSuppressed(keys: string[]): Promise<Record<string, boolean>> {
+    private async loadSuppressed(keys: string[]): Promise<Record<string, string | false>> {
         // keys are `${teamId}:${identifier}`. Identifiers may contain ':' only in exotic cases; the
         // stored identifier is an email so split on the first ':' only.
         const parsed = keys.map((key) => {
@@ -365,11 +377,11 @@ export class EmailSuppressionService {
             byTeam.set(p.teamId, list)
         }
 
-        const suppressedKeys = new Set<string>()
+        const suppressionSources = new Map<string, string>()
         for (const [teamId, identifiers] of byTeam) {
-            const result = await this.postgres.query<{ identifier: string }>(
+            const result = await this.postgres.query<{ identifier: string; source: string }>(
                 PostgresUse.COMMON_READ,
-                `SELECT identifier
+                `SELECT identifier, source
                  FROM posthog_messagesuppression
                  WHERE team_id = $1
                    AND identifier = ANY($2)
@@ -379,11 +391,11 @@ export class EmailSuppressionService {
                 'loadSuppressed'
             )
             for (const row of result.rows) {
-                suppressedKeys.add(toKey(teamId, row.identifier))
+                suppressionSources.set(toKey(teamId, row.identifier), row.source)
             }
         }
 
         // Default every requested key to false so the LazyLoader caches negatives too.
-        return Object.fromEntries(parsed.map((p) => [p.key, suppressedKeys.has(p.key)]))
+        return Object.fromEntries(parsed.map((p) => [p.key, suppressionSources.get(p.key) ?? false]))
     }
 }
