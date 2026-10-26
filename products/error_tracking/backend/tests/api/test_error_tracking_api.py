@@ -36,6 +36,7 @@ from products.error_tracking.backend.facade import (
     contracts,
     summaries as summaries_facade,
 )
+from products.error_tracking.backend.logic import symbol_sets as symbol_sets_logic
 from products.error_tracking.backend.models import (
     ErrorTrackingAlert,
     ErrorTrackingAlertThread,
@@ -1692,6 +1693,37 @@ class TestErrorTracking(APIBaseTest):
         assert symbol_set_upload_response["presigned_url"]["fields"]["key"] == symbol_set.storage_ptr
         assert "fallback_presigned_url" not in symbol_set_upload_response
         assert symbol_set.last_used is not None
+
+    def test_bulk_start_upload_reuses_symbol_set_created_by_concurrent_upload(self) -> None:
+        shared_chunk_id = str(uuid7())
+        new_chunk_id = str(uuid7())
+        concurrent = ErrorTrackingSymbolSet.objects.create(
+            team=self.team, ref=shared_chunk_id, storage_ptr="concurrent_upload"
+        )
+        lock_symbol_sets = symbol_sets_logic._lock_symbol_sets
+        calls = 0
+
+        def miss_concurrent_row_on_first_check(team: Team, refs: list[str]) -> list[ErrorTrackingSymbolSet]:
+            nonlocal calls
+            calls += 1
+            return [] if calls == 1 else lock_symbol_sets(team, refs)
+
+        with patch.object(symbol_sets_logic, "_lock_symbol_sets", side_effect=miss_concurrent_row_on_first_check):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/error_tracking/symbol_sets/bulk_start_upload",
+                data={"chunk_ids": [shared_chunk_id, new_chunk_id]},
+            )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        id_map = response.json()["id_map"]
+        assert id_map[shared_chunk_id]["symbol_set_id"] == str(concurrent.id)
+        concurrent.refresh_from_db()
+        assert id_map[shared_chunk_id]["presigned_url"]["fields"]["key"] == concurrent.storage_ptr
+        assert concurrent.storage_ptr != "concurrent_upload"
+        assert id_map[new_chunk_id]["symbol_set_id"] == str(
+            ErrorTrackingSymbolSet.objects.get(team=self.team, ref=new_chunk_id).id
+        )
+        assert ErrorTrackingSymbolSet.objects.filter(team=self.team, ref=shared_chunk_id).count() == 1
 
     def test_bulk_start_upload_includes_fallback_presigned_url_when_accelerated(self) -> None:
         chunk_id = str(uuid7())

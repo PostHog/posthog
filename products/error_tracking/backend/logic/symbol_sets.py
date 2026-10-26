@@ -336,6 +336,10 @@ def bulk_check_symbol_sets(
     return chunk_ids_to_upload
 
 
+def _lock_symbol_sets(team: Team, refs: list[str]) -> list[ErrorTrackingSymbolSet]:
+    return list(ErrorTrackingSymbolSet.objects.filter(team=team, ref__in=refs).order_by("ref").select_for_update())
+
+
 @posthoganalytics.scoped(capture_exceptions=False)
 def bulk_create_symbol_sets(
     new_symbol_sets: list[SymbolSetUpload],
@@ -344,7 +348,7 @@ def bulk_create_symbol_sets(
     skip_on_conflict: bool = False,
 ) -> dict[str, dict[str, Any]]:
     _validate_uploads(new_symbol_sets, team)
-    chunk_ids = [x.chunk_id for x in new_symbol_sets]
+    chunk_ids = sorted(x.chunk_id for x in new_symbol_sets)
 
     id_url_map: dict[str, dict[str, Any]] = {}
     new_symbol_set_map = {x.chunk_id: x for x in new_symbol_sets}
@@ -360,9 +364,9 @@ def bulk_create_symbol_sets(
         existing.content_hash = None
 
     with transaction.atomic():
-        existing_symbol_sets = list(ErrorTrackingSymbolSet.objects.filter(team=team, ref__in=chunk_ids))
-        existing_symbol_set_refs = [s.ref for s in existing_symbol_sets]
-        missing_sets = list(set(chunk_ids) - set(existing_symbol_set_refs))
+        existing_symbol_sets = _lock_symbol_sets(team, chunk_ids)
+        existing_symbol_set_refs = {s.ref for s in existing_symbol_sets}
+        missing_sets = [chunk_id for chunk_id in chunk_ids if chunk_id not in existing_symbol_set_refs]
 
         symbol_sets_to_be_created = []
         for chunk_id in missing_sets:
@@ -382,10 +386,15 @@ def bulk_create_symbol_sets(
             symbol_sets_to_be_created.append(to_create)
 
         # create missing symbol sets
-        created_symbol_sets = ErrorTrackingSymbolSet.objects.bulk_create(symbol_sets_to_be_created)
+        ErrorTrackingSymbolSet.objects.bulk_create(symbol_sets_to_be_created, ignore_conflicts=True)
+        storage_ptrs_we_created = {s.ref: s.storage_ptr for s in symbol_sets_to_be_created}
 
-        for symbol_set in created_symbol_sets:
-            id_url_map[symbol_set.ref]["symbol_set_id"] = str(symbol_set.pk)
+        for symbol_set in _lock_symbol_sets(team, missing_sets):
+            if symbol_set.storage_ptr == storage_ptrs_we_created[symbol_set.ref]:
+                id_url_map[symbol_set.ref]["symbol_set_id"] = str(symbol_set.pk)
+            else:
+                del id_url_map[symbol_set.ref]
+                existing_symbol_sets.append(symbol_set)
 
         # update existing symbol sets
         to_update = []
@@ -406,7 +415,9 @@ def bulk_create_symbol_sets(
 
         # We update only the symbol sets we modified the release of - for all others, this is a no-op (we assume they were uploaded
         # during a prior attempt or something).
-        ErrorTrackingSymbolSet.objects.bulk_update(to_update, ["release", "content_hash", "storage_ptr"])
+        ErrorTrackingSymbolSet.objects.bulk_update(
+            sorted(to_update, key=lambda s: s.ref), ["release", "content_hash", "storage_ptr"]
+        )
 
         refresh_last_used(team, chunk_ids)
 
