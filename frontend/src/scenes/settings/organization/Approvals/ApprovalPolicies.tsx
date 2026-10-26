@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 
 import { IconInfo, IconX } from '@posthog/icons'
 import {
+    LemonBanner,
     LemonButton,
     LemonInput,
     LemonInputSelect,
@@ -72,6 +73,7 @@ export function ApprovalPolicies(): JSX.Element {
     const [editingPolicy, setEditingPolicy] = useState<ApprovalPolicy | null>(null)
     const [isCreating, setIsCreating] = useState(false)
     const restrictionReason = useRestrictedArea({ minimumAccessLevel: OrganizationMembershipLevel.Admin })
+    const scopedByFlagOwner = useFeatureFlag('APPROVALS_SCOPE_BY_FLAG_OWNER')
 
     useEffect(() => {
         loadPolicies()
@@ -163,6 +165,22 @@ export function ApprovalPolicies(): JSX.Element {
     return (
         <PayGateMini feature={AvailableFeature.APPROVALS} featureDetail="approval-policies">
             <div className="space-y-4">
+                {scopedByFlagOwner && (
+                    <LemonBanner
+                        type="info"
+                        dismissKey="approval-policies-experiment-split"
+                        action={{
+                            children: 'Learn more',
+                            to: 'https://posthog.com/docs/settings/approvals#experiment-policies',
+                            targetBlank: true,
+                        }}
+                    >
+                        Experiments have their own approval policies. Launching, pausing, and changing an experiment's
+                        rollout or variant split follow the experiment policies, not the feature flag ones. Feature flag
+                        policies cover flags that no product manages, so flags that a survey, product tour, or early
+                        access feature manages need no approval.
+                    </LemonBanner>
+                )}
                 <div className="flex justify-end items-center">
                     <LemonButton type="primary" onClick={() => setIsCreating(true)} disabledReason={restrictionReason}>
                         Add policy
