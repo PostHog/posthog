@@ -9,6 +9,7 @@ See https://www.domainconnect.org/ for the protocol specification.
 
 import base64
 import logging
+from collections.abc import Callable
 from urllib.parse import urlencode
 
 from django.conf import settings
@@ -234,7 +235,9 @@ class DomainConnectContext:
 EMAIL_TEMPLATE_GROUPS_WITHOUT_DMARC: tuple[str, ...] = ("verification", "dkim", "spf", "mailfrom")
 
 
-def resolve_email_context(integration_id: int, team_id: int) -> DomainConnectContext:
+def resolve_email_context(
+    integration_id: int, team_id: int, *, on_domain_verified: Callable[[], None] | None = None
+) -> DomainConnectContext:
     """Resolve Domain Connect parameters for an email integration.
 
     Triggers SES verification to get current tokens, then extracts the
@@ -247,7 +250,7 @@ def resolve_email_context(integration_id: int, team_id: int) -> DomainConnectCon
         raise ValueError("Integration must be of kind 'email'")
 
     email_integration = EmailIntegration(instance)
-    verification_result = email_integration.verify()
+    verification_result = email_integration.verify(on_domain_verified=on_domain_verified)
 
     dns_records = verification_result.get("dnsRecords", [])
     domain_parts = extract_root_domain_and_host(instance.config.get("domain", ""))

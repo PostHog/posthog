@@ -1,5 +1,6 @@
 """Native email-sending integration (SES / maildev) and its cleanup signal."""
 
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
@@ -125,7 +126,7 @@ class EmailIntegration:
 
         return self.integration
 
-    def verify(self) -> "EmailDomainVerification":
+    def verify(self, *, on_domain_verified: Callable[[], None] | None = None) -> "EmailDomainVerification":
         domain = self.integration.config.get("domain")
         provider = self.integration.config.get("provider", "ses")
         mail_from_subdomain = self.integration.config.get("mail_from_subdomain", "feedback")
@@ -160,6 +161,9 @@ class EmailIntegration:
                 config__domain=domain,
                 config__provider=provider,
             )
+            domain_was_unverified = not any(
+                integration.config.get("verified") for integration in all_integrations_for_domain
+            )
             for integration in all_integrations_for_domain:
                 integration.config["verified"] = True
                 integration.save()
@@ -173,6 +177,9 @@ class EmailIntegration:
             )
 
             set_default_email_sender_if_unset(self.integration.team_id, self.integration.id)
+
+            if on_domain_verified and domain_was_unverified:
+                on_domain_verified()
 
         return verification_result
 

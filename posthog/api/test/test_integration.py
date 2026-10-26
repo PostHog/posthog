@@ -7467,12 +7467,12 @@ class TestEmailVerifyReportsOutcome(APIBaseTest):
         self.addCleanup(patcher.stop)
         return patcher.start()
 
-    def _create_sender(self, verified: bool = False) -> Integration:
+    def _create_sender(self, verified: bool = False, email: str = "hello@example.com") -> Integration:
         sender = Integration.objects.create(
             team=self.team,
             kind="email",
-            integration_id="hello@example.com",
-            config={"email": "hello@example.com", "domain": "example.com", "provider": "ses", "verified": verified},
+            integration_id=email,
+            config={"email": email, "domain": "example.com", "provider": "ses", "verified": verified},
         )
         Integration.objects.filter(id=sender.id).update(created_at=timezone.now() - timedelta(minutes=10))
         return sender
@@ -7501,10 +7501,12 @@ class TestEmailVerifyReportsOutcome(APIBaseTest):
             request=ANY,
         )
 
-    def test_a_check_on_an_already_verified_domain_reports_nothing(self) -> None:
+    @parameterized.expand([("verified_sender", True), ("new_sender_on_verified_domain", False)])
+    def test_a_check_on_an_already_verified_domain_reports_nothing(self, _name: str, sender_verified: bool) -> None:
         self.ses_verify.return_value = {"status": "success", "dnsRecords": []}
+        self._create_sender(verified=True, email="first@example.com")
 
-        self._verify(self._create_sender(verified=True))
+        self._verify(self._create_sender(verified=sender_verified))
 
         self.report_user_action.assert_not_called()
 

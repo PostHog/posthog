@@ -2659,11 +2659,11 @@ class IntegrationViewSet(
     @action(methods=["POST"], detail=True, url_path="email/verify")
     def email_verify(self, request, **kwargs):
         instance = self.get_object()
-        domain_was_verified = instance.config.get("verified") is True
-        verification_result = EmailIntegration(instance).verify()
+        verification_result = EmailIntegration(instance).verify(
+            on_domain_verified=lambda: self._report_email_domain_verified(request, instance, "verified")
+        )
         outcome = EMAIL_DOMAIN_VERIFICATION_OUTCOMES[verification_result["status"]]
-        reverified = domain_was_verified and outcome == "verified"
-        if not reverified:
+        if outcome != "verified":
             self._report_email_domain_verified(request, instance, outcome)
         return Response(verification_result)
 
@@ -2740,7 +2740,13 @@ class IntegrationViewSet(
             if not integration_id:
                 raise ValidationError("integration_id is required for email context")
             try:
-                resolved = resolve_email_context(integration_id, self.team_id)
+                resolved = resolve_email_context(
+                    integration_id,
+                    self.team_id,
+                    on_domain_verified=lambda: self._report_email_domain_verified(
+                        request, Integration.objects.get(id=integration_id, team_id=self.team_id), "verified"
+                    ),
+                )
             except ValueError as e:
                 capture_exception(e, {"integration_id": integration_id, "team_id": self.team_id, "context": context})
                 raise ValidationError(
