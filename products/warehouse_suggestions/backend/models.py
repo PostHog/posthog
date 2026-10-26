@@ -37,6 +37,9 @@ class WarehouseSuggestion(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
     )
     reviewed_at = models.DateTimeField(null=True, blank=True)
+    assignee = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
+    )
     dismissal_reason = models.CharField(
         max_length=16, choices=WarehouseSuggestionDismissalReason.choices, null=True, blank=True
     )

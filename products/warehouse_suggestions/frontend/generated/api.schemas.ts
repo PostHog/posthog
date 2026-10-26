@@ -243,6 +243,8 @@ export interface WarehouseSuggestionApi {
     created_asset: WarehouseSuggestionApiCreatedAsset
     /** Who accepted or dismissed this suggestion. Null while it is open. */
     reviewed_by: WarehouseSuggestionReviewerApi | null
+    /** Who should accept or dismiss this suggestion. When a view's suggestion is first shown, it goes to the person who created the view, if they can accept it. Null when nobody is assigned. */
+    assignee: WarehouseSuggestionReviewerApi | null
     /** What the suggestion proposes: certify, deprecate, materialize or unmaterialize the subject. unmaterialize turns a rarely read materialized view back into a plain view computed on read.
      *
      * * `certify` - Certify
@@ -361,6 +363,14 @@ export interface AcceptWarehouseSuggestionApi {
     keep_materialized?: boolean
 }
 
+export interface AssignWarehouseSuggestionApi {
+    /**
+     * ID of the user to assign. They must be able to accept the suggestion: edit access to the view or table, and to the data catalog for certify and deprecate suggestions. Null removes the assignee. The assignee gets a notification unless they assign themselves.
+     * @nullable
+     */
+    assignee_id: number | null
+}
+
 export interface DismissWarehouseSuggestionApi {
     /** Why the suggestion is dismissed.
      *
@@ -397,6 +407,10 @@ export interface WarehouseSuggestionStatusApi {
 }
 
 export type WarehouseSuggestionsListParams = {
+    /**
+     * Only return suggestions assigned to the user with this ID.
+     */
+    assignee_id?: number
     /**
      * Only return suggestions of this kind.
      *

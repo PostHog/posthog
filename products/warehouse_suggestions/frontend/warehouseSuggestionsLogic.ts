@@ -30,6 +30,7 @@ import type { IncrementalEligibilityApi } from 'products/data_warehouse/frontend
 
 import {
     warehouseSuggestionsAcceptCreate,
+    warehouseSuggestionsAssignCreate,
     warehouseSuggestionsDismissCreate,
     warehouseSuggestionsList,
     warehouseSuggestionsResumeCreate,
@@ -102,6 +103,10 @@ const CHECKING_INCREMENTAL_REASON = 'Checking whether it can refresh incremental
 
 function dismissedMessage(reason: DismissWarehouseSuggestionApi['reason'], kind: string): string {
     return reason === 'not_now' ? `Dismissed. ${notNowCondition(kind)}` : NOT_SUGGESTED_AGAIN
+}
+
+function assignedMessage({ assignee }: WarehouseSuggestionApi): string {
+    return assignee ? `Assigned to ${assignee.first_name || assignee.email}.` : 'Unassigned.'
 }
 
 function suggestionWorth(suggestion: WarehouseSuggestionApi): [number, number] {
@@ -225,6 +230,13 @@ export interface warehouseSuggestionsLogicActions {
         options: AcceptWarehouseSuggestionApi | undefined
     }
     acceptSuggestionFailed: (id: string) => {
+        id: string
+    }
+    assignSuggestion: (
+        id: string,
+        assigneeId: number | null
+    ) => {
+        assigneeId: number | null
         id: string
     }
     closeAcceptConfirm: () => {
@@ -360,6 +372,9 @@ export interface warehouseSuggestionsLogicActions {
     suggestionResumed: (suggestion: WarehouseSuggestionApi) => {
         suggestion: WarehouseSuggestionApi
     }
+    suggestionUpdated: (suggestion: WarehouseSuggestionApi) => {
+        suggestion: WarehouseSuggestionApi
+    }
     undoDismiss: (id: string) => {
         id: string
     }
@@ -436,6 +451,8 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
             restoreSuggestion: (id: string) => ({ id }),
             undoDismiss: (id: string) => ({ id }),
             suggestionResumed: (suggestion: WarehouseSuggestionApi) => ({ suggestion }),
+            assignSuggestion: (id: string, assigneeId: number | null) => ({ id, assigneeId }),
+            suggestionUpdated: (suggestion: WarehouseSuggestionApi) => ({ suggestion }),
             openReview: true,
             closeReview: true,
             openMaterializeModal: (id: string) => ({ id }),
@@ -482,6 +499,8 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
                     ...(state ?? []).filter((existing) => existing.id !== suggestion.id),
                     suggestion,
                 ],
+                suggestionUpdated: (state: WarehouseSuggestionApi[] | null, { suggestion }) =>
+                    (state ?? []).map((existing) => (existing.id === suggestion.id ? suggestion : existing)),
             },
             actionsInFlight: [
                 {} as Record<string, boolean>,
@@ -867,6 +886,28 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
                     } catch (error) {
                         actions.restoreSuggestion(id)
                         reportFailure(error, 'Could not dismiss the suggestion.')
+                        if (isStale(error)) {
+                            actions.loadSuggestions()
+                        }
+                    } finally {
+                        actions.setActionInFlight(id, false)
+                    }
+                },
+                assignSuggestion: async ({ id, assigneeId }) => {
+                    if (values.actionsInFlight[id]) {
+                        return
+                    }
+                    actions.setActionInFlight(id, true)
+                    try {
+                        const updated = await warehouseSuggestionsAssignCreate(projectId(), id, {
+                            assignee_id: assigneeId,
+                        })
+                        actions.suggestionUpdated(updated)
+                        lemonToast.success(assignedMessage(updated), {
+                            toastId: `warehouse-suggestion-assigned-${id}`,
+                        })
+                    } catch (error) {
+                        reportFailure(error, 'Could not assign the suggestion.')
                         if (isStale(error)) {
                             actions.loadSuggestions()
                         }

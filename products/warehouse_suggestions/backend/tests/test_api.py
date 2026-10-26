@@ -13,6 +13,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
+from posthog.models import User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
@@ -40,6 +41,7 @@ from .test_suggestions import ingest_one, make_draft
 
 REVIEW_FIELDS = ("reviewed_by_id", "reviewed_at", "dismissal_reason", "dismissal_note", "dismissed_at_score")
 FLAG = "products.warehouse_suggestions.backend.presentation.views.is_warehouse_suggestions_enabled"
+NOTIFY = "products.warehouse_suggestions.backend.logic.assignment.create_notification"
 
 
 def ingest_surfaced(team_id: int, draft: SuggestionDraft) -> WarehouseSuggestion:
@@ -192,6 +194,7 @@ class TestWarehouseSuggestionAPI(APIBaseTest):
             ("dismiss_a_dismissed_one", WarehouseSuggestionStatus.DISMISSED, "dismiss"),
             ("resume_an_expired_one", WarehouseSuggestionStatus.EXPIRED, "resume"),
             ("accept_a_dismissed_one", WarehouseSuggestionStatus.DISMISSED, "accept"),
+            ("assign_an_accepted_one", WarehouseSuggestionStatus.ACCEPTED, "assign"),
         ]
     )
     def test_a_move_people_may_not_make_conflicts(
@@ -201,10 +204,45 @@ class TestWarehouseSuggestionAPI(APIBaseTest):
         WarehouseSuggestion.objects.for_team(self.team.id).filter(id=suggestion.id).update(status=current)
 
         response = self.client.post(
-            f"{self.url}/{suggestion.id}/{action}/", {"reason": WarehouseSuggestionDismissalReason.NOT_NOW}
+            f"{self.url}/{suggestion.id}/{action}/",
+            {"reason": WarehouseSuggestionDismissalReason.NOT_NOW, "assignee_id": self.user.id},
         )
 
         assert response.status_code == status.HTTP_409_CONFLICT, response.json()
+
+    @parameterized.expand(
+        [
+            ("a_teammate_who_can_edit", "teammate", status.HTTP_200_OK, True),
+            ("themselves", "self", status.HTTP_200_OK, False),
+            ("nobody", "nobody", status.HTTP_200_OK, False),
+            ("someone_outside_the_organization", "outsider", status.HTTP_400_BAD_REQUEST, False),
+        ]
+    )
+    def test_assign(self, _name: str, who: str, expected_status: int, expect_notified: bool) -> None:
+        assignees = {
+            "teammate": User.objects.create_and_join(self.organization, "teammate@example.com", None).id,
+            "self": self.user.id,
+            "nobody": None,
+            "outsider": User.objects.create(email="outsider@example.com").id,
+        }
+        suggestion = self._suggest_materialize()
+        WarehouseSuggestion.objects.for_team(self.team.id).filter(id=suggestion.id).update(assignee=self.user)
+
+        with patch(NOTIFY) as notify:
+            response = self.client.post(
+                f"{self.url}/{suggestion.id}/assign/",
+                json.dumps({"assignee_id": assignees[who]}),
+                content_type="application/json",
+            )
+
+        stored = WarehouseSuggestion.objects.for_team(self.team.id).get(id=suggestion.id).assignee_id
+        notified = [call.args[0].target_id for call in notify.call_args_list]
+        expected_assignee = assignees[who] if expected_status == status.HTTP_200_OK else self.user.id
+        assert (response.status_code, stored, notified) == (
+            expected_status,
+            expected_assignee,
+            [str(assignees[who])] if expect_notified else [],
+        ), response.json()
 
     @parameterized.expand(
         [
@@ -212,6 +250,7 @@ class TestWarehouseSuggestionAPI(APIBaseTest):
             ("by_status", "status=dismissed", status.HTTP_200_OK, ["table"]),
             ("by_kind_and_status", "kind=certify&status=dismissed", status.HTTP_200_OK, []),
             ("by_subject", "subject_id={view_id}", status.HTTP_200_OK, ["view"]),
+            ("by_assignee", "assignee_id={user_id}", status.HTTP_200_OK, ["view"]),
             ("unknown_status", "status=bogus", status.HTTP_400_BAD_REQUEST, None),
         ]
     )
@@ -220,6 +259,7 @@ class TestWarehouseSuggestionAPI(APIBaseTest):
             "view": self._suggest(self.view.id).id,
             "table": self._suggest(self.table.id, subject_kind=WarehouseSuggestionSubjectKind.TABLE).id,
         }
+        WarehouseSuggestion.objects.for_team(self.team.id).filter(id=ids["view"]).update(assignee=self.user)
         WarehouseSuggestion.objects.for_team(self.team.id).filter(id=ids["table"]).update(
             kind=WarehouseSuggestionKind.DEPRECATE,
             status=WarehouseSuggestionStatus.DISMISSED,
@@ -228,7 +268,7 @@ class TestWarehouseSuggestionAPI(APIBaseTest):
             ),
         )
 
-        response = self.client.get(f"{self.url}/?{query.format(view_id=self.view.id)}")
+        response = self.client.get(f"{self.url}/?{query.format(view_id=self.view.id, user_id=self.user.id)}")
 
         assert response.status_code == expected_status, response.json()
         if expected is not None:
@@ -423,7 +463,7 @@ class TestWarehouseSuggestionAPI(APIBaseTest):
 
     def test_listing_runs_a_constant_number_of_queries(self) -> None:
         def count_list_queries() -> int:
-            WarehouseSuggestion.objects.for_team(self.team.id).update(reviewed_by=self.user)
+            WarehouseSuggestion.objects.for_team(self.team.id).update(reviewed_by=self.user, assignee=self.user)
             with CaptureQueriesContext(connection) as queries:
                 assert self.client.get(f"{self.url}/").status_code == status.HTTP_200_OK
             return len(queries)

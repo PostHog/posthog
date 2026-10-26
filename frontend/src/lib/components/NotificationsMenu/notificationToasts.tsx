@@ -41,6 +41,7 @@ const NOTIFICATION_TYPE_ICONS: Record<string, { Icon: ComponentType<{ className?
     subscription_nudge: { Icon: IconBell, color: 'text-primary' },
     data_quality_check_failure: { Icon: IconWarning, color: 'text-danger' },
     workflow_suggestion: { Icon: IconSparkles, color: 'text-primary' },
+    warehouse_suggestion_assigned: { Icon: IconDatabase, color: 'text-primary' },
     feature_flag_failure: { Icon: IconToggle, color: 'text-danger' },
     first_report_completed: { Icon: IconSparkles, color: 'text-success' },
 }

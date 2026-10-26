@@ -10,6 +10,11 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.constants import AvailableFeature
+from posthog.models import User
+
+from products.access_control.backend.models.access_control import AccessControl
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.warehouse_suggestions.backend.facade.contracts import (
     CertifyPayload,
     DeprecatePayload,
@@ -34,6 +39,7 @@ from products.warehouse_suggestions.backend.tests.factories import busy_reads, c
 
 from .test_accept import REPORT
 
+NOTIFY = "products.warehouse_suggestions.backend.logic.assignment.create_notification"
 NOW = datetime(2026, 10, 7, 9, tzinfo=UTC)
 READ_COST_BEFORE = {"read_seconds_per_month": 5000.0, "read_bytes_per_month": 5e12, "human_reads_per_month": 200.0}
 REFRESH_COST_BEFORE = {"refresh_seconds_per_month": 5000.0, "refresh_bytes_per_month": 5e12}
@@ -253,6 +259,63 @@ class TestApplyRun(BaseTest):
 
         revived = WarehouseSuggestion.objects.for_team(self.team.pk).get()
         assert (revived.status, revived.surfaced_at) == (WarehouseSuggestionStatus.PROPOSED, None)
+
+    @parameterized.expand(
+        [
+            ("creator_who_can_edit", "member", WarehouseSuggestionKind.MATERIALIZE, True),
+            ("creator_who_left_the_organization", "left", WarehouseSuggestionKind.MATERIALIZE, False),
+            ("creator_who_cannot_edit_the_catalog", "catalog_viewer", WarehouseSuggestionKind.CERTIFY, False),
+            ("no_creator", "none", WarehouseSuggestionKind.MATERIALIZE, False),
+        ]
+    )
+    def test_assigns_surfaced_view_suggestions_to_a_creator_who_can_accept_them(
+        self, _name: str, creator_state: str, kind: WarehouseSuggestionKind, expect_assigned: bool
+    ) -> None:
+        creator = self._creator(creator_state)
+        views = [
+            DataWarehouseSavedQuery.objects.create(
+                team=self.team, name=name, query={"kind": "HogQLQuery", "query": "SELECT 1"}, created_by=creator
+            )
+            for name in ("orders", "refunds")
+        ]
+        if creator_state == "catalog_viewer":
+            self._restrict_catalog_to_viewer()
+        ctx = context(
+            team_reads({}),
+            views=[view(saved_query.id, created_by_id=creator.pk if creator else None) for saved_query in views],
+            team_id=self.team.pk,
+        )
+        drafts = [self._draft(ctx, kind, saved_query.id, 1) for saved_query in views]
+
+        with patch(NOTIFY) as notify, self.captureOnCommitCallbacks(execute=True):
+            apply_run(ctx, self.team, drafts, NOW, surface=True)
+
+        assignee_ids = set(WarehouseSuggestion.objects.for_team(self.team.pk).values_list("assignee_id", flat=True))
+        notified = [call.args[0].target_id for call in notify.call_args_list]
+        expected_assignee = creator.pk if expect_assigned and creator else None
+        assert (assignee_ids, notified) == (
+            {expected_assignee},
+            [str(expected_assignee)] if expect_assigned else [],
+        )
+
+    def _creator(self, creator_state: str) -> User | None:
+        if creator_state == "none":
+            return None
+        if creator_state == "left":
+            return User.objects.create(email="left@example.com", first_name="Left")
+        return self.user
+
+    def _restrict_catalog_to_viewer(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+        AccessControl.objects.create(
+            team=self.team,
+            resource="data_catalog",
+            organization_member=self.organization_membership,
+            access_level="viewer",
+        )
 
     def test_auto_resolves_when_the_view_is_gone_or_already_handled(self) -> None:
         deleted_id, materialized_id = uuid4(), uuid4()

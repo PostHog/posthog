@@ -228,6 +228,11 @@ class WarehouseSuggestionSerializer(DataclassSerializer):
     reviewed_by = WarehouseSuggestionReviewerSerializer(
         allow_null=True, help_text="Who accepted or dismissed this suggestion. Null while it is open."
     )
+    assignee = WarehouseSuggestionReviewerSerializer(
+        allow_null=True,
+        help_text="Who should accept or dismiss this suggestion. When a view's suggestion is first shown, it goes to "
+        "the person who created the view, if they can accept it. Null when nobody is assigned.",
+    )
     kind = serializers.ChoiceField(
         choices=WarehouseSuggestionKind.choices,
         help_text="What the suggestion proposes: certify, deprecate, materialize or unmaterialize the subject. "
@@ -300,6 +305,18 @@ class WarehouseSuggestionListQuerySerializer(serializers.Serializer):
     )
     subject_id = serializers.UUIDField(
         required=False, help_text="Only return suggestions about the view or table with this ID."
+    )
+    assignee_id = serializers.IntegerField(
+        required=False, help_text="Only return suggestions assigned to the user with this ID."
+    )
+
+
+class AssignWarehouseSuggestionSerializer(serializers.Serializer):
+    assignee_id = serializers.IntegerField(
+        allow_null=True,
+        help_text="ID of the user to assign. They must be able to accept the suggestion: edit access to the view or "
+        "table, and to the data catalog for certify and deprecate suggestions. Null removes the assignee. The "
+        "assignee gets a notification unless they assign themselves.",
     )
 
 

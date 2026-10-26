@@ -14,12 +14,24 @@ const STATUS_VERBS: Record<string, string> = {
     auto_resolved: 'resolved',
 }
 
+function statusVerb(logItem: ActivityLogItem): string | undefined {
+    const statusChange = logItem.detail.changes?.find((change) => change.field === 'status')
+    return statusChange ? STATUS_VERBS[String(statusChange.after)] : undefined
+}
+
+function assigneeVerb(logItem: ActivityLogItem): string | undefined {
+    const assigneeChange = logItem.detail.changes?.find((change) => change.field === 'assignee')
+    if (!assigneeChange) {
+        return undefined
+    }
+    return assigneeChange.after ? 'assigned' : 'unassigned'
+}
+
 export function warehouseSuggestionActivityDescriber(
     logItem: ActivityLogItem,
     asNotification?: boolean
 ): HumanizedChange {
-    const statusChange = logItem.detail.changes?.find((change) => change.field === 'status')
-    const verb = statusChange ? STATUS_VERBS[String(statusChange.after)] : undefined
+    const verb = statusVerb(logItem) ?? assigneeVerb(logItem)
     if (!verb) {
         return defaultDescriber(logItem, asNotification)
     }

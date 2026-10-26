@@ -58,6 +58,15 @@ export const WarehouseSuggestionsAcceptCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+export const WarehouseSuggestionsAssignCreateBody = /* @__PURE__ */ zod.object({
+    assignee_id: zod
+        .number()
+        .nullable()
+        .describe(
+            'ID of the user to assign. They must be able to accept the suggestion: edit access to the view or table, and to the data catalog for certify and deprecate suggestions. Null removes the assignee. The assignee gets a notification unless they assign themselves.'
+        ),
+})
+
 export const warehouseSuggestionsDismissCreateBodyNoteMax = 1000
 
 export const WarehouseSuggestionsDismissCreateBody = /* @__PURE__ */ zod.object({

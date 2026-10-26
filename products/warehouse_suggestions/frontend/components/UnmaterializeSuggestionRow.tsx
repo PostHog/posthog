@@ -40,6 +40,7 @@ export function UnmaterializeSuggestionRow({
     return (
         <SuggestionRow
             suggestionId={suggestion.id}
+            assignee={suggestion.assignee}
             leaving={leaving}
             icon={iconForType('data_modeling')}
             title={<SuggestionSubjectLink suggestion={suggestion} />}
