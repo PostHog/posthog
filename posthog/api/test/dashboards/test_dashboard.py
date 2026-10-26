@@ -2374,6 +2374,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "created_at": mock.ANY,
                 "creation_mode": "default",
                 "dashboard_id": dashboard_id,
+                "group_count": 0,
+                "group_display": "sections",
                 "has_description": False,
                 "is_shared": False,
                 "item_count": 0,
