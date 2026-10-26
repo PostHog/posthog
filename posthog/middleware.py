@@ -1383,10 +1383,12 @@ class SocialAuthExceptionMiddleware:
 
     _AUTH_FAILED_PREFIX = "Authentication failed: "
 
-    # Invite rejection codes with their own login page copy. Any other code shows the exception message.
+    # `OrganizationInvite.validate()` codes mapped to login page error codes.
     _INVITE_ERROR_CODES = {
         "expired": "invalid_invite",
         "invalid_recipient": "invite_email_mismatch",
+        "user_already_member": "invite_already_member",
+        "existing_email_address": "invite_email_taken",
     }
 
     def __init__(self, get_response):
@@ -1426,21 +1428,17 @@ class SocialAuthExceptionMiddleware:
         # The social auth pipeline validates invites with DRF exceptions. The callback is a plain
         # Django view, so without this branch they render the 500 page.
         if isinstance(exception, ValidationError):
-            code, message = self._first_error(exception)
-            if code in self._INVITE_ERROR_CODES:
-                return redirect(sso_failure_redirect_url(request, self._INVITE_ERROR_CODES[code]))
-            return redirect(sso_failure_redirect_url(request, "social_login_failure", error_detail=message))
+            error_code = self._INVITE_ERROR_CODES.get(self._error_code(exception), "social_login_failure")
+            return redirect(sso_failure_redirect_url(request, error_code))
 
         return None
 
-    def _first_error(self, exception: ValidationError) -> tuple[str | None, str]:
+    def _error_code(self, exception: ValidationError) -> str | None:
         # DRF nests detail as dict -> list -> ErrorDetail. Take the first leaf.
         detail: object = exception.detail
         while isinstance(detail, dict | list):
             detail = next(iter(detail.values() if isinstance(detail, dict) else detail), None)
-        if isinstance(detail, ErrorDetail):
-            return detail.code, str(detail)
-        return None, "An unexpected error occurred during authentication."
+        return detail.code if isinstance(detail, ErrorDetail) else None
 
     def _get_error_detail(self, exception: AuthException) -> str:
         error_detail = str(exception).strip()

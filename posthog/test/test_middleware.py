@@ -2456,6 +2456,26 @@ class TestSocialAuthExceptionMiddleware(SimpleTestCase):
                 ValidationError("This invite is intended for another email address.", code="invalid_recipient"),
                 "/login?error_code=invite_email_mismatch",
             ),
+            (
+                "already_a_member",
+                "/complete/google-oauth2/",
+                ValidationError("You already are a member of this organization.", code="user_already_member"),
+                "/login?error_code=invite_already_member",
+            ),
+            (
+                "invite_email_already_in_org",
+                "/complete/saml/",
+                ValidationError(
+                    {"email": "Another user with this email already belongs."}, code="existing_email_address"
+                ),
+                "/login?error_code=invite_email_taken",
+            ),
+            (
+                "unknown_validation_code",
+                "/complete/google-oauth2/",
+                ValidationError("Something else.", code="something_else"),
+                "/login?error_code=social_login_failure",
+            ),
         ]
     )
     def test_redirects_with_expected_url(self, _name, path, exception, expected_url):
@@ -2483,11 +2503,6 @@ class TestSocialAuthExceptionMiddleware(SimpleTestCase):
                 "auth_failed_on_login_path",
                 "/login/saml/",
                 AuthFailed(_social_auth_backend(), "SAML not configured for this user."),
-            ),
-            (
-                "other_invite_rejection_on_complete",
-                "/complete/google-oauth2/",
-                ValidationError("You already are a member of this organization.", code="user_already_member"),
             ),
         ]
     )
