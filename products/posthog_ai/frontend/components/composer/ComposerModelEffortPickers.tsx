@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react'
 
-import { IconChevronDown, IconChevronLeft, IconGear, IconRevert } from '@posthog/icons'
+import { IconBrain, IconChevronDown, IconChevronLeft, IconGear, IconRevert } from '@posthog/icons'
 import {
     Button,
     DropdownMenu,
@@ -106,10 +106,10 @@ interface PickerSectionProps {
 /** One `label … current ›` row of the cascade, opening a radio list. */
 const PICKER_CHROME: Record<
     ThreadSkin,
-    { triggerVariant: 'outline' | 'default'; icons: boolean; defaultPrefix: boolean }
+    { triggerVariant: 'outline' | 'default'; icons: boolean; defaultPrefix: boolean; modelIcon: boolean }
 > = {
-    lemon: { triggerVariant: 'outline', icons: true, defaultPrefix: true },
-    quill: { triggerVariant: 'default', icons: false, defaultPrefix: false },
+    lemon: { triggerVariant: 'outline', icons: true, defaultPrefix: true, modelIcon: false },
+    quill: { triggerVariant: 'default', icons: false, defaultPrefix: false, modelIcon: true },
 }
 
 function PickerSection({ title, current, value, onValueChange, children, footer }: PickerSectionProps): JSX.Element {
@@ -281,7 +281,8 @@ export function ComposerModelEffortPickers({
         >
             <DropdownMenuTrigger
                 render={
-                    <Button variant={chrome.triggerVariant} size="sm">
+                    <Button variant={chrome.triggerVariant} size="sm" aria-label="Model and reasoning">
+                        {chrome.modelIcon && <IconBrain className="shrink-0 text-muted-foreground" />}
                         {isDefaultSelection
                             ? chrome.defaultPrefix
                                 ? `Default · ${modelLabel}`
