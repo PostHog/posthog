@@ -614,8 +614,12 @@ jobs:
         steps:
             - name: Check matrix outcome
               run: |
-                  if [[ "${{ needs.changes.result }}" != "success" ]]; then
+                  if [[ "${{ needs.changes.result }}" != "success" && "${{ needs.changes.result }}" != "skipped" ]]; then
                     echo "changes (path filter) job did not succeed - cannot trust skips."
+                    exit 1
+                  fi
+                  if [[ "${{ needs.changes.result }}" == "skipped" && "${{ github.repository != 'PostHog/posthog' && (github.event_name == 'push' || github.event_name == 'schedule') }}" != "true" ]]; then
+                    echo "changes (path filter) job was skipped - cannot trust skips."
                     exit 1
                   fi
                   if [[ "${{ needs.semgrep-python.result }}" != "success" && "${{ needs.semgrep-python.result }}" != "skipped" ]]; then

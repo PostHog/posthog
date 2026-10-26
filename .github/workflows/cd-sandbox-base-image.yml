@@ -39,13 +39,10 @@ jobs:
         # the skills build it would only pay for to fail at the push.
         # trunk-merge/** heads are skipped the same way: merge-queue PRs are ephemeral,
         # nothing pulls images pushed for them, and each constituent PR already built its own.
-        # Push and schedule runs only belong in this repo. Mirrors run CI on their own PRs only.
         if: |
-            (github.repository == 'PostHog/posthog' || (github.event_name != 'push' && github.event_name != 'schedule')) && (
             github.repository_owner == 'PostHog' &&
             !startsWith(github.head_ref, 'trunk-merge/') &&
             (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == 'PostHog/posthog')
-            )
         name: Determine if sandbox image needs to be built
         permissions:
             contents: read

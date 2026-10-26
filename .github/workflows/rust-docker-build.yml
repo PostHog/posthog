@@ -38,8 +38,7 @@ jobs:
         runs-on: ubuntu-24.04
         timeout-minutes: 10
         # workflow_dispatch skips this job and builds everything.
-        # Push and schedule runs only belong in this repo. Mirrors run CI on their own PRs only.
-        if: (github.repository == 'PostHog/posthog' || (github.event_name != 'push' && github.event_name != 'schedule')) && (github.event_name != 'workflow_dispatch')
+        if: github.event_name != 'workflow_dispatch'
         permissions:
             contents: read
         outputs:

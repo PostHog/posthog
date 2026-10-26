@@ -19,8 +19,7 @@ jobs:
             contents: read
             pull-requests: read
         timeout-minutes: 5
-        # Push and schedule runs only belong in this repo. Mirrors run CI on their own PRs only.
-        if: (github.repository == 'PostHog/posthog' || (github.event_name != 'push' && github.event_name != 'schedule')) && (github.repository_owner == 'PostHog')
+        if: github.repository_owner == 'PostHog'
         name: Determine need to run ml-mirror-image-scrub Docker build
         outputs:
             scrub_files: ${{ steps.filter.outputs.scrub_files }}

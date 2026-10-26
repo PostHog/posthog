@@ -64,8 +64,7 @@ jobs:
         # image or dispatching a deploy, so the CD_DEPLOY_ENABLED gate belongs on
         # posthog_build instead. Push only, because a manual dispatch carries no push
         # range for the filter to read, and posthog_build already always builds there.
-        # Push and schedule runs only belong in this repo. Mirrors run CI on their own PRs only.
-        if: (github.repository == 'PostHog/posthog' || (github.event_name != 'push' && github.event_name != 'schedule')) && (github.repository_owner == 'PostHog' && github.event_name == 'push')
+        if: github.repository_owner == 'PostHog' && github.event_name == 'push'
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         permissions:
