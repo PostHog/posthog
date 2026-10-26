@@ -6259,6 +6259,34 @@ describe('dashboardLogic', () => {
             expect(logic.values.widgetResultsByTileId[WIDGET_TILE.id]?.result).toEqual({ marker: 'newer' })
         })
 
+        it('keeps a previewed date range on a dashboard with only metric widgets', async () => {
+            const metricsTile = {
+                id: 9,
+                widget: {
+                    id: '4',
+                    widget_type: 'metrics',
+                    config: { query: { kind: 'MetricsQuery', clauses: [{ name: 'a', metricName: 'cpu' }] } },
+                },
+                layouts: {},
+                color: null,
+            } as unknown as DashboardTile
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/dashboards/5/': () => [200, { ...dashboards[5], tiles: [metricsTile] }],
+                },
+            })
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.setDates('-3h', null)
+            }).toFinishAllListeners()
+
+            expect(logic.values.previewedDashboardSettings?.filters.date_from).toEqual('-3h')
+            expect(logic.values.effectiveRefreshFilters.date_from).toEqual('-3h')
+        })
+
         it('refetches only the widgets that follow dashboard filters when the filters change', async () => {
             const metricsTile: DashboardTile = {
                 id: 9,
