@@ -195,7 +195,14 @@ def _name_from_node(node: ast.AST) -> str:
     return ""
 
 
-def _strings_imports_and_calls(tree: ast.AST) -> tuple[set[str], set[str], list[ast.Call]]:
+@dataclass(frozen=True, kw_only=True, slots=True)
+class _SourceFacts:
+    strings: set[str]
+    imports: set[str]
+    calls: list[ast.Call]
+
+
+def _strings_imports_and_calls(tree: ast.AST) -> _SourceFacts:
     """Collect every string literal, imported name and call in one pass over the tree.
 
     ast.walk spends most of its time in the generators of ast.iter_child_nodes, so this
@@ -226,7 +233,7 @@ def _strings_imports_and_calls(tree: ast.AST) -> tuple[set[str], set[str], list[
                 stack.extend(item for item in value if isinstance(item, ast.AST))
             elif isinstance(value, ast.AST):
                 stack.append(value)
-    return strings, imports, calls
+    return _SourceFacts(strings=strings, imports=imports, calls=calls)
 
 
 def _normal_tokens(value: str) -> set[str]:
@@ -323,11 +330,13 @@ def classify_test_file(path: str) -> TestFeatures:
     if tree is None:
         return TestFeatures(path=path)
 
-    strings, imports, calls = _strings_imports_and_calls(tree)
+    facts = _strings_imports_and_calls(tree)
+    strings = facts.strings
+    imports = facts.imports
     calls_http_client = False
     uses_reverse = False
 
-    for node in calls:
+    for node in facts.calls:
         function_name = _name_from_node(node.func)
         if function_name.endswith(".reverse") or function_name == "reverse":
             uses_reverse = True
