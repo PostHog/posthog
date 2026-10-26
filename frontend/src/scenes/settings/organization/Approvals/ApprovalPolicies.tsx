@@ -10,6 +10,7 @@ import {
     LemonSelect,
     LemonSwitch,
     LemonTable,
+    Link,
     Tooltip,
 } from '@posthog/lemon-ui'
 
@@ -166,19 +167,22 @@ export function ApprovalPolicies(): JSX.Element {
         <PayGateMini feature={AvailableFeature.APPROVALS} featureDetail="approval-policies">
             <div className="space-y-4">
                 {scopedByFlagOwner && (
-                    <LemonBanner
-                        type="info"
-                        dismissKey="approval-policies-experiment-split"
-                        action={{
-                            children: 'Learn more',
-                            to: 'https://posthog.com/docs/settings/approvals#experiment-policies',
-                            targetBlank: true,
-                        }}
-                    >
-                        Experiments have their own approval policies. Launching, pausing, and changing an experiment's
-                        rollout or variant split follow the experiment policies, not the feature flag ones. Feature flag
-                        policies cover flags that no product manages, so flags that a survey, product tour, or early
-                        access feature manages need no approval.
+                    <LemonBanner type="info" dismissKey="approval-policies-experiment-split" alignItems="start">
+                        <div className="flex flex-col gap-1">
+                            <span className="font-semibold">Experiments now have their own approval policies</span>
+                            <p className="m-0">
+                                Launching, pausing, and changing the rollout or variant split of an experiment now
+                                follow the experiment policies. Feature flag policies cover the flags that no product
+                                manages, so flags that a survey, product tour, or early access feature manages no longer
+                                need approval.{' '}
+                                <Link
+                                    to="https://posthog.com/docs/settings/approvals#experiment-policies"
+                                    target="_blank"
+                                >
+                                    Learn how policies apply to each flag
+                                </Link>
+                            </p>
+                        </div>
                     </LemonBanner>
                 )}
                 <div className="flex justify-end items-center">
