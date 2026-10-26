@@ -772,9 +772,7 @@ describe('workflowLogic send once verified', () => {
             await jest.advanceTimersByTimeAsync(3_000)
             logic.actions.setWorkflowValue('exit_condition', 'exit_on_conversion')
             await jest.advanceTimersByTimeAsync(3_000)
-            releaseFetch()
-            await jest.advanceTimersByTimeAsync(0)
-            await expectLogic(logic).toFinishAllListeners()
+            await expectLogic(logic, releaseFetch).toDispatchActions(['saveWorkflowSuccess', 'saveWorkflowSuccess'])
 
             expect(patchBodies.at(-1)).toMatchObject({ exit_condition: 'exit_on_conversion', stage_draft: true })
         })
