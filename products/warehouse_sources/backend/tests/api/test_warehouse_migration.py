@@ -77,6 +77,13 @@ class TestWarehouseMigrationAPI(APIBaseTest):
         self.start_crawl.assert_not_called()
 
     def test_create_stores_the_key_and_starts_the_crawl(self) -> None:
+        def worker_starts_at_once(*, team_id: int, migration_id: Any) -> str:
+            WarehouseMigration.objects.for_team(team_id).filter(id=migration_id).update(
+                status=WarehouseMigration.Status.CRAWLING
+            )
+            return "warehouse-migration-crawl-test"
+
+        self.start_crawl.side_effect = worker_starts_at_once
         response = self._create(json={"code": "Success", "data": {"account_id": "acct_example"}})
 
         assert response.status_code == 201, response.json()
@@ -84,6 +91,8 @@ class TestWarehouseMigrationAPI(APIBaseTest):
         migration = WarehouseMigration.objects.for_team(self.team.pk).get()
         assert migration.credentials == {"api_key": "fake-key", "api_secret": "fake-secret"}
         assert migration.workflow_id == "warehouse-migration-crawl-test"
+        # The API must not write `pending` back over a crawl that already started.
+        assert migration.status == WarehouseMigration.Status.CRAWLING
         self.start_crawl.assert_called_once_with(team_id=self.team.pk, migration_id=migration.id)
 
     def test_items_and_counts_follow_skips(self) -> None:
@@ -148,8 +157,9 @@ class TestWarehouseMigrationAPI(APIBaseTest):
         )
         own = self._migration()
         assert self.client.get(f"{self.url}{migration.id}/").status_code == 404
-        assert self.client.get(f"{self.url}not-a-uuid/").status_code == 404
-        assert self.client.post(f"{self.url}{own.id}/items/not-a-uuid/skip/").status_code == 404
+        # Hex-only, so they pass a loose route pattern and would reach `UUID()`.
+        assert self.client.get(f"{self.url}abc/").status_code == 404
+        assert self.client.post(f"{self.url}{own.id}/items/abc/skip/").status_code == 404
 
 
 _STRIPE_VALID = patch(

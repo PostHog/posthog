@@ -88,6 +88,7 @@ def item_counts(migration: WarehouseMigration) -> dict[str, int]:
 
 
 def _start_crawl(migration: WarehouseMigration) -> None:
+    rows = WarehouseMigration.objects.for_team(migration.team_id).filter(id=migration.id)
     try:
         migration.workflow_id = start_crawl(team_id=migration.team_id, migration_id=migration.id)
     except Exception as error:
@@ -95,4 +96,10 @@ def _start_crawl(migration: WarehouseMigration) -> None:
         capture_exception(error)
         migration.status = WarehouseMigration.Status.FAILED
         migration.latest_error = "PostHog could not start reading the Fivetran account. Try again."
-    migration.save(update_fields=["workflow_id", "status", "latest_error", "updated_at"])
+        # Conditional, so a crawl that did start and already set `crawling` keeps its status.
+        rows.filter(status=WarehouseMigration.Status.PENDING).update(
+            status=migration.status, latest_error=migration.latest_error, updated_at=timezone.now()
+        )
+        return
+    # Only the workflow id: the crawl can set `crawling` before this line runs.
+    rows.update(workflow_id=migration.workflow_id, updated_at=timezone.now())

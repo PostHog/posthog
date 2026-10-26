@@ -82433,6 +82433,83 @@ export namespace Schemas {
       results: WarehouseColumnStatistics[];
     }
 
+    /**
+     * * `fivetran` - Fivetran
+     */
+    export type WarehouseMigrationProviderEnum = typeof WarehouseMigrationProviderEnum[keyof typeof WarehouseMigrationProviderEnum];
+
+
+    export const WarehouseMigrationProviderEnum = {
+      Fivetran: 'fivetran',
+    } as const;
+
+    /**
+     * * `pending` - Pending
+     * * `crawling` - Crawling
+     * * `ready` - Ready
+     * * `failed` - Failed
+     */
+    export type WarehouseMigrationStatusEnum = typeof WarehouseMigrationStatusEnum[keyof typeof WarehouseMigrationStatusEnum];
+
+
+    export const WarehouseMigrationStatusEnum = {
+      Pending: 'pending',
+      Crawling: 'crawling',
+      Ready: 'ready',
+      Failed: 'failed',
+    } as const;
+
+    export interface WarehouseMigrationItemCounts {
+      /** Connections that move to PostHog as they are. */
+      as_is: number;
+      /** Connections that move with differences the user should review. */
+      caveats: number;
+      /** Connections PostHog cannot create yet. */
+      unsupported: number;
+      /** Connections already created as PostHog sources. */
+      applied: number;
+      /** Connections the user chose not to move. */
+      skipped: number;
+    }
+
+    export interface WarehouseMigration {
+      /** Migration ID. */
+      id: string;
+      /** The ETL vendor this migration imports from.
+       *
+       * * `fivetran` - Fivetran */
+      provider: WarehouseMigrationProviderEnum;
+      /** `pending` and `crawling` mean the vendor account is still being read. `ready` means the items are planned. `failed` means reading the account failed; see `latest_error`.
+       *
+       * * `pending` - Pending
+       * * `crawling` - Crawling
+       * * `ready` - Ready
+       * * `failed` - Failed */
+      status: WarehouseMigrationStatusEnum;
+      /** Name of the vendor account. */
+      account_name: string;
+      /**
+         * When the vendor account was last read.
+         * @nullable
+         */
+      crawled_at: string | null;
+      /** Why the last read failed, if it did. */
+      latest_error: string;
+      /** When the migration was started. */
+      created_at: string;
+      /** How many connections fall into each group. */
+      item_counts: WarehouseMigrationItemCounts;
+    }
+
+    export interface PaginatedWarehouseMigrationList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: WarehouseMigration[];
+    }
+
     export interface WarehouseSuggestionCertifyPayload {
       /** Name of the view or table to certify. */
       subject_name: string;
@@ -120455,74 +120532,6 @@ export namespace Schemas {
       username: string;
     }
 
-    /**
-     * * `fivetran` - Fivetran
-     */
-    export type WarehouseMigrationProviderEnum = typeof WarehouseMigrationProviderEnum[keyof typeof WarehouseMigrationProviderEnum];
-
-
-    export const WarehouseMigrationProviderEnum = {
-      Fivetran: 'fivetran',
-    } as const;
-
-    /**
-     * * `pending` - Pending
-     * * `crawling` - Crawling
-     * * `ready` - Ready
-     * * `failed` - Failed
-     */
-    export type WarehouseMigrationStatusEnum = typeof WarehouseMigrationStatusEnum[keyof typeof WarehouseMigrationStatusEnum];
-
-
-    export const WarehouseMigrationStatusEnum = {
-      Pending: 'pending',
-      Crawling: 'crawling',
-      Ready: 'ready',
-      Failed: 'failed',
-    } as const;
-
-    export interface WarehouseMigrationItemCounts {
-      /** Connections that move to PostHog as they are. */
-      as_is: number;
-      /** Connections that move with differences the user should review. */
-      caveats: number;
-      /** Connections PostHog cannot create yet. */
-      unsupported: number;
-      /** Connections already created as PostHog sources. */
-      applied: number;
-      /** Connections the user chose not to move. */
-      skipped: number;
-    }
-
-    export interface WarehouseMigration {
-      /** Migration ID. */
-      id: string;
-      /** The ETL vendor this migration imports from.
-       *
-       * * `fivetran` - Fivetran */
-      provider: WarehouseMigrationProviderEnum;
-      /** `pending` and `crawling` mean the vendor account is still being read. `ready` means the items are planned. `failed` means reading the account failed; see `latest_error`.
-       *
-       * * `pending` - Pending
-       * * `crawling` - Crawling
-       * * `ready` - Ready
-       * * `failed` - Failed */
-      status: WarehouseMigrationStatusEnum;
-      /** Name of the vendor account. */
-      account_name: string;
-      /**
-         * When the vendor account was last read.
-         * @nullable
-         */
-      crawled_at: string | null;
-      /** Why the last read failed, if it did. */
-      latest_error: string;
-      /** When the migration was started. */
-      created_at: string;
-      /** How many connections fall into each group. */
-      item_counts: WarehouseMigrationItemCounts;
-    }
-
     export interface WarehouseMigrationConnectLink {
       /** The ETL vendor.
        *
@@ -140623,6 +140632,17 @@ export namespace Schemas {
      * A search term.
      */
     search?: string;
+    };
+
+    export type WarehouseMigrationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type WarehouseMigrationsConnectLinkRetrieveParams = {

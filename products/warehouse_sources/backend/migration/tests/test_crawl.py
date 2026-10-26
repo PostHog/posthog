@@ -1,3 +1,5 @@
+import uuid
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 import pytest
@@ -5,12 +7,21 @@ from posthog.test.base import BaseTest
 
 import requests_mock
 from parameterized import parameterized
+from temporalio import activity
+from temporalio.client import WorkflowFailureError
+from temporalio.testing import WorkflowEnvironment
+from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from products.warehouse_sources.backend.migration.crawl import crawl_migration, mark_migration_failed
 from products.warehouse_sources.backend.migration.fivetran.client import FIVETRAN_API_URL, FivetranAuthError
 from products.warehouse_sources.backend.migration.fivetran.planner import SourceMatchLike
 from products.warehouse_sources.backend.migration.types import Verdict
 from products.warehouse_sources.backend.models.warehouse_migration import WarehouseMigration, WarehouseMigrationItem
+from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.crawl_warehouse_migration import (
+    CrawlWarehouseMigrationInputs,
+    CrawlWarehouseMigrationWorkflow,
+    MarkWarehouseMigrationFailedInputs,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -113,3 +124,44 @@ class TestCrawlMigration(BaseTest):
         migration.refresh_from_db()
         assert migration.status == WarehouseMigration.Status.FAILED
         assert expected_error in migration.latest_error
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "error, expected_attempts, auth_failed",
+    [(FivetranAuthError(401, "Unauthorized"), 1, True), (RuntimeError("Fivetran timed out"), 3, False)],
+)
+async def test_workflow_marks_the_migration_failed_once_retries_run_out(
+    error: Exception, expected_attempts: int, auth_failed: bool
+) -> None:
+    attempts: list[int] = []
+    marked: list[MarkWarehouseMigrationFailedInputs] = []
+
+    @activity.defn(name="crawl_warehouse_migration_activity")
+    def crawl(inputs: CrawlWarehouseMigrationInputs) -> int:
+        attempts.append(activity.info().attempt)
+        raise error
+
+    @activity.defn(name="mark_warehouse_migration_failed_activity")
+    def mark_failed(inputs: MarkWarehouseMigrationFailedInputs) -> None:
+        marked.append(inputs)
+
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue="test-warehouse-migration-crawl",
+            workflows=[CrawlWarehouseMigrationWorkflow],
+            activities=[crawl, mark_failed],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+            activity_executor=ThreadPoolExecutor(max_workers=2),
+        ):
+            with pytest.raises(WorkflowFailureError):
+                await env.client.execute_workflow(
+                    CrawlWarehouseMigrationWorkflow.run,
+                    CrawlWarehouseMigrationInputs(team_id=1, migration_id=uuid.uuid4()),
+                    id=str(uuid.uuid4()),
+                    task_queue="test-warehouse-migration-crawl",
+                )
+
+    assert len(attempts) == expected_attempts
+    assert [inputs.auth_failed for inputs in marked] == [auth_failed]

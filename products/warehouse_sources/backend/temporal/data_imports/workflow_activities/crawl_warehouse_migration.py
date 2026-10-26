@@ -24,6 +24,7 @@ from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.heartbeat import LivenessHeartbeater as Heartbeater
 
 from products.warehouse_sources.backend.migration.crawl import crawl_migration, mark_migration_failed
+from products.warehouse_sources.backend.migration.fivetran.client import FivetranAuthError
 
 WORKFLOW_NAME = "warehouse-migration-crawl"
 
@@ -72,7 +73,7 @@ class CrawlWarehouseMigrationWorkflow(PostHogWorkflow):
                 # One account can hold hundreds of connections at two API calls each.
                 start_to_close_timeout=timedelta(minutes=30),
                 heartbeat_timeout=timedelta(minutes=2),
-                retry_policy=RetryPolicy(maximum_attempts=3, non_retryable_error_types=["FivetranAuthError"]),
+                retry_policy=RetryPolicy(maximum_attempts=3, non_retryable_error_types=[FivetranAuthError.__name__]),
             )
         except ActivityError as error:
             # Covers timeouts and lost workers too, so a migration never stays `crawling`.
@@ -81,7 +82,8 @@ class CrawlWarehouseMigrationWorkflow(PostHogWorkflow):
                 MarkWarehouseMigrationFailedInputs(
                     team_id=inputs.team_id,
                     migration_id=inputs.migration_id,
-                    auth_failed=isinstance(error.cause, ApplicationError) and error.cause.type == "FivetranAuthError",
+                    auth_failed=isinstance(error.cause, ApplicationError)
+                    and error.cause.type == FivetranAuthError.__name__,
                 ),
                 start_to_close_timeout=timedelta(minutes=1),
                 retry_policy=RetryPolicy(maximum_attempts=5),
@@ -98,7 +100,9 @@ async def start_crawl(*, team_id: int, migration_id: uuid.UUID) -> str:
         CrawlWarehouseMigrationInputs(team_id=team_id, migration_id=migration_id),
         id=workflow_id,
         task_queue=settings.DATA_WAREHOUSE_METADATA_TASK_QUEUE,
-        id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
+        # Callers start a crawl only when none should be running, so a run still open is stale. Attaching to
+        # it would leave the migration `pending` once that run ends.
+        id_conflict_policy=WorkflowIDConflictPolicy.TERMINATE_EXISTING,
         id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
     )
     return workflow_id

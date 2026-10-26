@@ -156,14 +156,20 @@ class TestFetchSnapshot(SimpleTestCase):
             assert secret not in stored
         assert VendorSnapshot.from_json(json.loads(stored)) == snapshot
 
-    @parameterized.expand([("auth_error", 403, FivetranAuthError), ("other_error", 400, FivetranAPIError)])
+    @parameterized.expand(
+        [
+            ("auth_error", 403, {"message": "No"}, FivetranAuthError),
+            ("other_error", 400, {"message": "No"}, FivetranAPIError),
+            ("non_object_body", 200, [], FivetranAPIError),
+        ]
+    )
     def test_schema_config_error_other_than_404_stops_the_crawl(
-        self, _name: str, status_code: int, error: type[Exception]
+        self, _name: str, status_code: int, body: Any, error: type[Exception]
     ) -> None:
         with requests_mock.Mocker() as m:
             self._mock_account(m)
             self._mock_connections(m)
-            m.get(f"{FIVETRAN_API_URL}/connections/conn_pg/schemas", status_code=status_code, json={"message": "No"})
+            m.get(f"{FIVETRAN_API_URL}/connections/conn_pg/schemas", status_code=status_code, json=body)
             with pytest.raises(error):
                 fetch_snapshot(_client())
 
@@ -242,14 +248,14 @@ class TestStripSecrets(SimpleTestCase):
                 {"files": [{"pgp_pass_phrase": "fake", "pattern": "*.csv"}, "******"]},
                 {"files": [{"pattern": "*.csv"}]},
             ),
-            ("key_suffix", {"sasl_plain_key": "fake", "account_key": "fake"}, {}),
+            ("key_suffix", {"sasl_plain_key": "fake", "account_key": "fake", "api_keys": ["fake"]}, {}),
             ("camel_case", {"apiKey": "fake", "privateKey": "fake"}, {}),
             ("auth_object", {"auth": {"client_id": "fake"}, "authorization": "fake"}, {}),
             ("password_in_url", {"uri": "postgres://reader:fake@db.example.com/app"}, {}),
             (
                 "public_key_is_not_secret",
-                {"public_key": "ssh-rsa AAAA", "host": "db.example.com"},
-                {"public_key": "ssh-rsa AAAA", "host": "db.example.com"},
+                {"public_key": "ssh-rsa AAAA", "primary_keys": ["id"], "host": "db.example.com"},
+                {"public_key": "ssh-rsa AAAA", "primary_keys": ["id"], "host": "db.example.com"},
             ),
         ]
     )
