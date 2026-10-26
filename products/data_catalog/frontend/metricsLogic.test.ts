@@ -10,6 +10,7 @@ import { expectLogic } from '~/test/keaTestUtils'
 import {
     dataCatalogMetricsApproveCreate,
     dataCatalogMetricsBulkApproveCreate,
+    dataCatalogMetricsBulkChangeOwnerCreate,
     dataCatalogMetricsBulkDeleteCreate,
     dataCatalogMetricsCreate,
     dataCatalogMetricsDestroy,
@@ -61,6 +62,7 @@ jest.mock('./generated/api', () => ({
     dataCatalogMetricsDestroy: jest.fn(),
     dataCatalogMetricsBulkApproveCreate: jest.fn(),
     dataCatalogMetricsBulkDeleteCreate: jest.fn(),
+    dataCatalogMetricsBulkChangeOwnerCreate: jest.fn(),
     dataCatalogMetricsPartialUpdate: jest.fn(),
 }))
 
@@ -196,39 +198,48 @@ describe('metricsLogic', () => {
         expect((dataCatalogMetricsList as jest.Mock).mock.calls.map((call) => call[1].offset)).toEqual([0, 0, 100])
     })
 
-    it('filters by creator and reports the filter change once typing settles', async () => {
-        const me = userLogic.values.user?.uuid as string
-        const mine = buildMetric({
-            id: 'metric-1',
-            name: 'mine',
-            created_by: { id: 1, uuid: me, email: 'me@example.com', hedgehog_config: null },
-        })
-        const theirs = buildMetric({
-            id: 'metric-2',
-            name: 'theirs',
-            created_by: { id: 2, uuid: 'someone-else', email: 'them@example.com', hedgehog_config: null },
-        })
-        logic.actions.loadMetricsSuccess([mine, theirs])
-        const capture = jest.spyOn(posthog, 'capture').mockImplementation()
-        jest.useFakeTimers({ doNotFake: ['queueMicrotask', 'nextTick'] })
-        try {
-            logic.actions.setFilters({ createdBy: me })
-            expect(logic.values.metrics).toEqual([mine])
-            expect(capture).not.toHaveBeenCalled()
+    it.each([
+        ['creator', 'createdBy', 'created_by'],
+        ['owner', 'owner', 'owner'],
+    ] as const)(
+        'filters by %s and reports the filter change once typing settles',
+        async (_label, filterKey, property) => {
+            const me = userLogic.values.user?.uuid as string
+            const filterValue = filterKey === 'createdBy' ? me : { uuid: me, email: 'me@example.com' }
+            const mine = buildMetric({
+                id: 'metric-1',
+                name: 'mine',
+                created_by: { id: 1, uuid: me, email: 'me@example.com', hedgehog_config: null },
+                owner: 'me@example.com',
+            })
+            const theirs = buildMetric({
+                id: 'metric-2',
+                name: 'theirs',
+                created_by: { id: 2, uuid: 'someone-else', email: 'them@example.com', hedgehog_config: null },
+                owner: 'them@example.com',
+            })
+            logic.actions.loadMetricsSuccess([mine, theirs])
+            const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+            jest.useFakeTimers({ doNotFake: ['queueMicrotask', 'nextTick'] })
+            try {
+                logic.actions.setFilters({ [filterKey]: filterValue })
+                expect(logic.values.metrics).toEqual([mine])
+                expect(capture).not.toHaveBeenCalled()
 
-            await jest.advanceTimersByTimeAsync(500)
-            expect(capture).toHaveBeenCalledWith(
-                'data catalog metrics filtered',
-                expect.objectContaining({ changed_filters: ['createdBy'], created_by: 'me', result_count: 1 })
-            )
+                await jest.advanceTimersByTimeAsync(500)
+                expect(capture).toHaveBeenCalledWith(
+                    'data catalog metrics filtered',
+                    expect.objectContaining({ changed_filters: [filterKey], [property]: 'me', result_count: 1 })
+                )
 
-            logic.actions.setFilters({ createdBy: null })
-            expect(logic.values.metrics).toEqual([mine, theirs])
-        } finally {
-            jest.useRealTimers()
-            capture.mockRestore()
+                logic.actions.setFilters({ [filterKey]: null })
+                expect(logic.values.metrics).toEqual([mine, theirs])
+            } finally {
+                jest.useRealTimers()
+                capture.mockRestore()
+            }
         }
-    })
+    )
 
     it('patches approved rows and reloads to reconcile skipped ones', async () => {
         logic.actions.loadMetricsSuccess([
@@ -262,6 +273,31 @@ describe('metricsLogic', () => {
         expect(onSuccess).toHaveBeenCalled()
         expect(lemonToast.warning).toHaveBeenCalledWith('Skipped 1 metric: Drifted from its source insight (1)')
         expect(logic.values.bulkActionInFlight).toBeNull()
+    })
+
+    it('gives the selected rows their new owner and clears the selection', async () => {
+        logic.actions.loadMetricsSuccess([
+            buildMetric({ id: 'metric-1', name: 'first' }),
+            buildMetric({ id: 'metric-2', name: 'second' }),
+        ])
+        ;(dataCatalogMetricsBulkChangeOwnerCreate as jest.Mock).mockResolvedValue({
+            updated: [buildMetric({ id: 'metric-1', name: 'first', owner: 'rose.dawson@posthog.com' })],
+            skipped: [],
+        })
+        const onSuccess = jest.fn()
+
+        logic.actions.bulkChangeMetricOwner(['first'], 'rose.dawson@posthog.com', onSuccess)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(dataCatalogMetricsBulkChangeOwnerCreate).toHaveBeenCalledWith('1', {
+            names: ['first'],
+            owner: 'rose.dawson@posthog.com',
+        })
+        expect(logic.values.allMetrics.map((metric) => [metric.name, metric.owner])).toEqual([
+            ['first', 'rose.dawson@posthog.com'],
+            ['second', null],
+        ])
+        expect(onSuccess).toHaveBeenCalled()
     })
 
     it('removes the deleted rows and clears the selection', async () => {

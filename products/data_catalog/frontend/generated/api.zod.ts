@@ -360,6 +360,29 @@ export const DataCatalogMetricsBulkApproveCreateBody = /* @__PURE__ */ zod
     .describe('Input for the bulk metric actions: the metric names to act on.')
 
 /**
+ * Give many metrics one owner, keeping their approvals. Unknown metrics are skipped.
+ */
+export const dataCatalogMetricsBulkChangeOwnerCreateBodyNamesItemMax = 128
+
+export const dataCatalogMetricsBulkChangeOwnerCreateBodyNamesMax = 100
+
+export const DataCatalogMetricsBulkChangeOwnerCreateBody = /* @__PURE__ */ zod
+    .object({
+        names: zod
+            .array(zod.string().max(dataCatalogMetricsBulkChangeOwnerCreateBodyNamesItemMax))
+            .min(1)
+            .max(dataCatalogMetricsBulkChangeOwnerCreateBodyNamesMax)
+            .describe('Names of the metrics to act on, at most 100. Duplicates are collapsed.'),
+        owner: zod
+            .email()
+            .nullable()
+            .describe(
+                "Email of the member of this organization who becomes the owner of every named metric, or null to clear the owner. Changing the owner keeps each metric's approval."
+            ),
+    })
+    .describe('Input for giving many metrics one owner.')
+
+/**
  * Delete many metrics, freeing their names for reuse. Unknown metrics are skipped.
  */
 export const dataCatalogMetricsBulkDeleteCreateBodyNamesItemMax = 128

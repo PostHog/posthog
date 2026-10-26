@@ -555,10 +555,18 @@ def _locked_match(locked: dict[UUID, Metric], requested: Metric) -> Optional[Met
 
 
 def _capture_after_commit(
-    event: str, metrics: list[Metric], *, team: Team, user: Optional[User], request: "Request | None"
+    event: str,
+    metrics: list[Metric],
+    *,
+    team: Team,
+    user: Optional[User],
+    request: "Request | None",
+    extra: Optional[dict[str, object]] = None,
 ) -> None:
     for metric in metrics:
-        transaction.on_commit(partial(capture_metric_event, event, metric, team=team, user=user, request=request))
+        transaction.on_commit(
+            partial(capture_metric_event, event, metric, team=team, user=user, request=request, extra=extra)
+        )
 
 
 def bulk_approve_metrics(
@@ -622,6 +630,33 @@ def bulk_soft_delete_metrics(
         remove_metric_lineage(metric)
 
     return deleted, skipped
+
+
+def bulk_change_metric_owner(
+    metrics: list[Metric], owner: Optional[User], user: Optional[User] = None, request: "Request | None" = None
+) -> tuple[list[Metric], list[MetricBulkSkip]]:
+    """Set one owner on a batch of metrics in one transaction."""
+    if not metrics:
+        return [], []
+    team = _batch_team(metrics)
+    updated: list[Metric] = []
+    skipped: list[MetricBulkSkip] = []
+
+    with team_scope(team.id), transaction.atomic():
+        locked = _lock_batch(team.id, metrics)
+        for requested in metrics:
+            metric = _locked_match(locked, requested)
+            if metric is None:
+                skipped.append(MetricBulkSkip(name=requested.name, reason=BULK_SKIP_NOT_FOUND))
+                continue
+            metric.owner = owner
+            metric.save(update_fields=["owner", "updated_at"])
+            updated.append(metric)
+        _capture_after_commit(
+            METRIC_UPDATED_EVENT, updated, team=team, user=user, request=request, extra={"updated_fields": ["owner"]}
+        )
+
+    return updated, skipped
 
 
 def _reset_to_proposed(metric: Metric) -> None:

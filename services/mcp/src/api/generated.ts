@@ -29877,6 +29877,34 @@ export namespace Schemas {
     }
 
     /**
+     * Outcome of a bulk owner change: what changed, and what was left alone.
+     */
+    export interface DataCatalogMetricBulkChangeOwner {
+      /** The metrics that now have the new owner, freshly serialized. */
+      updated: DataCatalogMetric[];
+      /** Requested metrics whose owner did not change, with reasons. */
+      skipped: DataCatalogMetricBulkSkip[];
+    }
+
+    /**
+     * Input for giving many metrics one owner.
+     */
+    export interface DataCatalogMetricBulkChangeOwnerRequest {
+      /**
+         * Names of the metrics to act on, at most 100. Duplicates are collapsed.
+         * @minItems 1
+         * @maxItems 100
+         * @items.maxLength 128
+         */
+      names: string[];
+      /**
+         * Email of the member of this organization who becomes the owner of every named metric, or null to clear the owner. Changing the owner keeps each metric's approval.
+         * @nullable
+         */
+      owner: string | null;
+    }
+
+    /**
      * Outcome of a bulk delete: which names are gone, and what was left alone.
      */
     export interface DataCatalogMetricBulkDelete {

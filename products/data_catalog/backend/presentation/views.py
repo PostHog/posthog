@@ -39,6 +39,8 @@ from .serializers import (
     CertificationSerializer,
     MetricApproveRequestSerializer,
     MetricBulkApproveResponseSerializer,
+    MetricBulkChangeOwnerRequestSerializer,
+    MetricBulkChangeOwnerResponseSerializer,
     MetricBulkDeleteResponseSerializer,
     MetricBulkNamesRequestSerializer,
     MetricCreateSerializer,
@@ -289,6 +291,25 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         deleted, skipped = api.bulk_soft_delete_metrics(metrics, cast(User, request.user), request=request)
         payload = MetricBulkDeleteResponseSerializer(
             {"deleted": [metric.name for metric in deleted], "skipped": [*unresolved, *skipped]}
+        )
+        return Response(payload.data)
+
+    @action(
+        detail=False,
+        methods=["POST"],
+        required_scopes=["data_catalog:write"],
+        request=MetricBulkChangeOwnerRequestSerializer,
+        responses={200: MetricBulkChangeOwnerResponseSerializer},
+    )
+    @validated_request(request_serializer=MetricBulkChangeOwnerRequestSerializer, include_serializer_context=True)
+    def bulk_change_owner(self, request: ValidatedRequest, **kwargs) -> Response:
+        """Give many metrics one owner, keeping their approvals. Unknown metrics are skipped."""
+        metrics, unresolved = _resolve_bulk_metrics(self.get_queryset(), request.validated_data["names"])
+        updated, skipped = api.bulk_change_metric_owner(
+            metrics, request.validated_data["owner"], cast(User, request.user), request=request
+        )
+        payload = MetricBulkChangeOwnerResponseSerializer(
+            {"updated": updated, "skipped": [*unresolved, *skipped]}, context=self.get_serializer_context()
         )
         return Response(payload.data)
 

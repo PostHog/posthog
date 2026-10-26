@@ -574,6 +574,29 @@ class TestMetricLifecycleAPI(APIBaseTest):
         theirs.refresh_from_db()
         assert theirs.deleted is False
 
+    def test_bulk_change_owner_keeps_approval_and_skips_unknown_ones(self) -> None:
+        User.objects.create_and_join(self.organization, "new.owner@example.com", None)
+        approved = upsert_metric(team=self.team, user=self.user, name="mrr", description="d")
+        approve_metric(approved, self.user)
+        upsert_metric(team=self.team, user=self.user, name="arr", description="d")
+        theirs = self._other_team_metric("theirs")
+
+        response = self.client.post(
+            f"{self.url}bulk_change_owner/",
+            {"names": ["mrr", "arr", "theirs", "unheard_of"], "owner": "new.owner@example.com"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        body = response.json()
+        assert [(metric["name"], metric["owner"], metric["status"]) for metric in body["updated"]] == [
+            ("mrr", "new.owner@example.com", MetricStatus.APPROVED),
+            ("arr", "new.owner@example.com", MetricStatus.PROPOSED),
+        ]
+        assert {skip["name"] for skip in body["skipped"]} == {"theirs", "unheard_of"}
+        theirs.refresh_from_db()
+        assert theirs.owner_id != User.objects.get(email="new.owner@example.com").id
+
     @parameterized.expand(
         [
             (
@@ -590,6 +613,8 @@ class TestMetricLifecycleAPI(APIBaseTest):
             ),
             ("delete_read_only", "bulk_delete", ["data_catalog:read"], status.HTTP_403_FORBIDDEN),
             ("delete_with_write_scope", "bulk_delete", ["data_catalog:write"], status.HTTP_200_OK),
+            ("change_owner_read_only", "bulk_change_owner", ["data_catalog:read"], status.HTTP_403_FORBIDDEN),
+            ("change_owner_with_write_scope", "bulk_change_owner", ["data_catalog:write"], status.HTTP_200_OK),
         ]
     )
     def test_bulk_actions_enforce_token_scopes(
@@ -597,7 +622,9 @@ class TestMetricLifecycleAPI(APIBaseTest):
     ) -> None:
         upsert_metric(team=self.team, user=self.user, name="mrr", description="d", definition=_HOGQL)
         self.client.logout()
-        response = self.client.post(f"{self.url}{url_path}/", {"names": ["mrr"]}, format="json", **self._bearer(scopes))
+        response = self.client.post(
+            f"{self.url}{url_path}/", {"names": ["mrr"], "owner": None}, format="json", **self._bearer(scopes)
+        )
         assert response.status_code == expected, response.json()
 
     def test_bulk_approve_rejects_an_over_cap_batch(self) -> None:
