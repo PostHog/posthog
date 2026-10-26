@@ -35,22 +35,17 @@ _MUTAGEN_VERSION = "0.18.1"
 # devbox connections: a shim on MUTAGEN_SSH_PATH bumps the count so the
 # connection rides out a reset window. _KEEPALIVE_COUNT x interval(10s) is the
 # resulting silence tolerance (~30s, comfortably past the ~26s reset cadence).
-#
-# The same shim also turns off Coder's SSH autostart for devbox connections.
-# mutagen redials a session it lost forever, and the `coder ssh` ProxyCommand
-# that `coder config-ssh` writes starts a stopped workspace by default: every
-# redial to a stopped box then queues a template dry run and a start build. A
-# sync must never start a box, so its dials fail until the box runs again.
+# The shim also turns off Coder's SSH autostart. mutagen redials a lost box forever,
+# and each redial to a stopped box would otherwise queue a template dry run and a start build.
 _SSH_SHIM_DIR = Path.home() / ".hogli" / "mutagen-ssh-shim"
 _KEEPALIVE_COUNT = 3
 _CONNECT_TIMEOUT_SECONDS = 60
 
 # Baked at generation time (see ensure_ssh_shim): only when the ssh/scp target is
 # a devbox (a `coder.*` host -- the sole thing hogli syncs to) do we bump
-# mutagen's count and disable autostart; every other invocation passes through
-# untouched, so a shared daemon's non-devbox syncs are unaffected. Execs the real
-# ssh/scp by absolute path so a shim-dir entry on PATH can never make the shim
-# re-invoke itself.
+# mutagen's count and turn off autostart; every other invocation passes through untouched, so a shared
+# daemon's non-devbox syncs are unaffected. Execs the real ssh/scp by absolute
+# path so a shim-dir entry on PATH can never make the shim re-invoke itself.
 _SHIM_TEMPLATE = """#!/usr/bin/env bash
 # Managed by hogli (`hogli devbox:sync`) -- do not edit; regenerated on sync.
 # Raises mutagen's intolerant `-oServerAliveCountMax=1` for devbox (coder.*)
@@ -62,7 +57,6 @@ for a in "$@"; do
   case "$a" in coder.*|*@coder.*) devbox=1 ;; esac
 done
 if [ -n "$devbox" ]; then
-  # Read by the `coder ssh` ProxyCommand, which inherits this environment.
   export CODER_SSH_DISABLE_AUTOSTART=true
 fi
 args=()
