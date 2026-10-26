@@ -57657,6 +57657,44 @@ export namespace Schemas {
       snoozed: HealthIssueCounts;
     }
 
+    export interface HealthRow {
+      /**
+         * Requests per second over the window.
+         * @nullable
+         */
+      request_rate: number | null;
+      /**
+         * Share of requests with an error status, 0 to 1.
+         * @nullable
+         */
+      error_rate: number | null;
+      /**
+         * 95th percentile request duration in milliseconds.
+         * @nullable
+         */
+      p95_ms: number | null;
+      /** Requests counted in the window. */
+      span_count: number;
+      /** Requests with an error status in the window. */
+      error_count: number;
+    }
+
+    /**
+     * * `good` - Good
+     * * `warning` - Warning
+     * * `serious` - Serious
+     * * `critical` - Critical
+     */
+    export type HealthStatusEnum = typeof HealthStatusEnum[keyof typeof HealthStatusEnum];
+
+
+    export const HealthStatusEnum = {
+      Good: 'good',
+      Warning: 'warning',
+      Serious: 'serious',
+      Critical: 'critical',
+    } as const;
+
     export interface HeatmapCapturePage {
       /** A page URL that currently sends heatmap data. */
       url: string;
@@ -108041,6 +108079,24 @@ export namespace Schemas {
       policies?: ToolPolicyEntry[];
     }
 
+    export interface ServiceHealth {
+      /** The service.name resource attribute. */
+      service_name: string;
+      /** The environment the row was computed for. */
+      environment: string;
+      /** Health band from the error rate.
+       *
+       * * `good` - Good
+       * * `warning` - Warning
+       * * `serious` - Serious
+       * * `critical` - Critical */
+      status: HealthStatusEnum;
+      /** The health row every surface renders. */
+      health: HealthRow;
+      /** Request counts per bucket across the window, oldest first. */
+      sparkline: number[];
+    }
+
     /**
      * * `none` - None
      * * `previous_period` - Previous Period
@@ -108297,6 +108353,19 @@ export namespace Schemas {
       truncated: boolean;
       /** Caveats about this result. */
       notes: string[];
+    }
+
+    export interface ServicesHealthResponse {
+      /** One row per service, worst status first. */
+      results: ServiceHealth[];
+      /** Environments seen in the window. */
+      environments: string[];
+      /** The environment the rows were computed for. */
+      environment: string;
+      /** Start of the window used. */
+      date_from: string;
+      /** End of the window used. */
+      date_to: string;
     }
 
     export interface SessionRecordingBulkDeleteRequest {
@@ -128127,6 +128196,23 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type ApmServicesListParams = {
+    /**
+     * Start of the window, ISO 8601. Defaults to one hour before date_to.
+     */
+    date_from?: string;
+    /**
+     * End of the window, ISO 8601. Defaults to now.
+     */
+    date_to?: string;
+    /**
+     * Environment to list, as resolved from span resource attributes. Defaults to 'default'.
+     * @minLength 1
+     * @maxLength 200
+     */
+    environment?: string;
+    };
+
     export type ApprovalPoliciesListParams = {
     /**
      * Number of results to return per page.
@@ -132402,6 +132488,10 @@ export namespace Schemas {
      * JSON-encoded list of event names to omit. The name matches the property definitions endpoint that shares it.
      */
     excluded_properties?: string;
+    /**
+     * When true, find similar event names only if the filtered search has no matches.
+     */
+    fuzzy_search?: boolean;
     /**
      * Number of results to return per page.
      * @minimum 1
