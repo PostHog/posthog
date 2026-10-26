@@ -19,6 +19,7 @@ from posthog.schema import (
     ExperimentRatioMetric,
     ExperimentRetentionMetric,
     ExperimentStatsBase,
+    HogQLQueryModifiers,
     IntervalType,
     MultipleVariantHandling,
     PrecomputationMode,
@@ -28,7 +29,8 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
-from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.errors import ExposedHogQLError, QueryError
+from posthog.hogql.query import HogQLQueryExecutor, execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Product, tag_queries, tags_context
 from posthog.exceptions import ClickHouseAtCapacity
@@ -280,7 +282,7 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             return "not_applicable"
         return "precomputed" if self._metric_events_precomputed else "direct_scan"
 
-    def _get_experiment_query(self) -> ast.SelectQuery:
+    def _query_builder(self, *, with_metric: bool = True) -> ExperimentQueryBuilder:
         assert isinstance(
             self.metric,
             ExperimentFunnelMetric | ExperimentMeanMetric | ExperimentRatioMetric | ExperimentRetentionMetric,
@@ -290,7 +292,7 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             self.experiment.exposure_criteria, self.team, self.experiment.start_date
         )
 
-        builder = ExperimentQueryBuilder(
+        return ExperimentQueryBuilder(
             team=self.team,
             feature_flag_key=self.feature_flag_key,
             exposure_config=exposure_params.exposure_config,
@@ -299,12 +301,15 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             variants=self.variants,
             date_range_query=self.date_range_query,
             entity_key=self.entity_key,
-            metric=self.metric,
-            breakdowns=self._get_breakdowns_for_builder(),
+            metric=self.metric if with_metric else None,
+            breakdowns=self._get_breakdowns_for_builder() if with_metric else None,
             only_count_matured_users=self.experiment.only_count_matured_users,
             cuped_config=self.cuped_config,
             activation_config=exposure_params.activation_config,
         )
+
+    def _get_experiment_query(self) -> ast.SelectQuery:
+        builder = self._query_builder()
 
         should_precompute = self._should_precompute()
 
@@ -393,6 +398,71 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             )
         )
 
+    def query_modifiers(self) -> HogQLQueryModifiers:
+        modifiers = self.modifiers.model_copy()
+        if posthoganalytics.feature_enabled(
+            "hogql-session-id-pushdown",
+            str(self.team.id),
+            groups={"project": str(self.team.id)},
+            group_properties={"project": {"id": str(self.team.id)}},
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        ):
+            modifiers.sessionIdPushdown = True
+        return modifiers
+
+    def create_database(self, modifiers: HogQLQueryModifiers) -> Database:
+        return Database.create_for(
+            team=self.team,
+            user=self.user,
+            modifiers=modifiers,
+            timings=self.timings,
+            bypass_warehouse_access_control=self.bypass_warehouse_access_control,
+        )
+
+    def compile_query(self, database: Database) -> None:
+        """
+        Build the query and compile it to ClickHouse SQL without running it or a precompute. Raises what a calculation
+        raises before ClickHouse receives the query. A calculation can still fail in ClickHouse, for example on a type
+        that the data holds.
+
+        `database` comes from `create_database(query_modifiers())` of a runner with the same team, user and warehouse
+        access, so a caller that compiles several metrics builds it once.
+        """
+        self._compile(self._query_builder().build_query(), database)
+        enforce_warehouse_metric_timestamp_types([self.metric.model_dump(mode="json")], database)
+
+    def compile_exposure_query(self, database: Database) -> None:
+        """Compile the exposure query without the metric and its breakdowns, as `compile_query` compiles the whole
+        query. When the whole query fails and this one compiles, the cause is in the metric."""
+        self._compile(self._query_builder(with_metric=False).get_exposure_timeseries_query(), database)
+
+    def _compile(self, query: ast.SelectQuery, database: Database) -> None:
+        context = HogQLContext(
+            team_id=self.team.pk,
+            user=self.user,
+            bypass_warehouse_access_control=self.bypass_warehouse_access_control,
+            database=database,
+        )
+        try:
+            HogQLQueryExecutor(
+                query_type="ExperimentQuery",
+                query=query,
+                team=self.team,
+                user=self.user,
+                bypass_warehouse_access_control=self.bypass_warehouse_access_control,
+                context=context,
+                timings=self.timings,
+                modifiers=self.query_modifiers(),
+                workload=self.workload,
+            ).generate_clickhouse_sql()
+        except ExposedHogQLError as error:
+            # The HogQL pass records a field that it can't resolve and goes on. A later reference to the column that
+            # holds the field then raises an error that names the column, such as "Field not found: entity_id".
+            if context.errors:
+                raise QueryError(context.errors[0].message) from error
+            raise
+
     def _evaluate_experiment_query(
         self,
     ) -> tuple[list[tuple], list[str]]:
@@ -429,16 +499,7 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             experiment_scan_date_from=self.date_range.date_from,
             experiment_scan_date_to=self.date_range.date_to,
         )
-        modifiers = self.modifiers.model_copy()
-        if posthoganalytics.feature_enabled(
-            "hogql-session-id-pushdown",
-            str(self.team.id),
-            groups={"project": str(self.team.id)},
-            group_properties={"project": {"id": str(self.team.id)}},
-            only_evaluate_locally=True,
-            send_feature_flag_events=False,
-        ):
-            modifiers.sessionIdPushdown = True
+        modifiers = self.query_modifiers()
 
         # The debug SQL would expose the evaluation rules that the markers keep out of the browser.
         if not self._uses_evaluation_pass_markers():
@@ -464,13 +525,7 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
 
         # Built once here and handed to the executor, so the timestamp check reads the same catalog
         # the query runs against. The column can change type after the metric was saved.
-        database = Database.create_for(
-            team=self.team,
-            user=self.user,
-            modifiers=modifiers,
-            timings=self.timings,
-            bypass_warehouse_access_control=self.bypass_warehouse_access_control,
-        )
+        database = self.create_database(modifiers)
         enforce_warehouse_metric_timestamp_types([self.metric.model_dump(mode="json")], database)
 
         response = execute_hogql_query(

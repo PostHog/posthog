@@ -149,7 +149,7 @@ class TestEventsReceived(BaseTest):
         experiment = Experiment.objects.create(team=self.team, name="Checkout", feature_flag=flag)
 
         query_counts = []
-        for number in range(3):
+        for number in range(4):
             shared = ExperimentSavedMetric.objects.create(
                 team=self.team,
                 name=f"Shared {number}",
@@ -163,4 +163,5 @@ class TestEventsReceived(BaseTest):
                 get_experiment_health(team_id=self.team.id, experiment_id=experiment.id, reader_access=NO_QUERIES)
             query_counts.append(len(queries))
 
-        self.assertEqual(len(set(query_counts)), 1, query_counts)
+        # The first compile of a metric in a team writes the team's experiments and revenue settings rows.
+        self.assertEqual(len(set(query_counts[1:])), 1, query_counts)

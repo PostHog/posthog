@@ -20,7 +20,10 @@ from posthog.dataclasses import frozen
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team.team import Team
 
-from products.experiments.backend.facade.contracts import ExperimentHealthFlagChangeKind
+from products.experiments.backend.facade.contracts import (
+    ExperimentHealthFlagChangeKind,
+    ExperimentHealthMetricCompileErrorKind,
+)
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     DEFAULT_EXPOSURE_EVENT,
     EXPERIMENT_EXPOSURE_EVENT,
@@ -240,6 +243,32 @@ class MetricEvents:
 
 
 @frozen
+class MetricCompileFailure:
+    """A metric whose query doesn't compile, so every calculation of the metric fails."""
+
+    name: str
+    role: MetricRole
+    kind: ExperimentHealthMetricCompileErrorKind
+    # The compiler's message. None when it can hold the evaluation rules that the markers keep out of the browser.
+    message: str | None
+    # The effective definition, in which the wording looks for the names that the message gives.
+    definition: Mapping[str, Any]
+
+
+@frozen
+class MetricCompiles:
+    """The compile of the query of each metric that the experiment calculates, without running it."""
+
+    metric_count: int
+    failures: tuple[MetricCompileFailure, ...]
+    # The metrics whose compile raised an error that names no problem of the metric, such as a defect of PostHog.
+    unknown_count: int
+    # Whether the exposure query alone doesn't compile. A failure then says nothing about the metric, so `failures`
+    # is empty.
+    exposure_query_fails: bool
+
+
+@frozen
 class FlagKeyFilter:
     """An event property filter of the exposure criteria on `$feature_flag`, the key of the called flag."""
 
@@ -311,6 +340,8 @@ class HealthContext:
     primary_metric: PrimaryMetric | None
     # The variants that the analysis leaves out of the results.
     excluded_variant_keys: frozenset[str]
+    # None when not loaded or unknown. The health endpoint and the launch load it.
+    metric_compiles: MetricCompiles | None
 
 
 def parse_flag_state(
@@ -595,4 +626,5 @@ def load_health_context(
         pause_history=None,
         primary_metric=None,
         excluded_variant_keys=frozenset(experiment.excluded_variants or []),
+        metric_compiles=None,
     )

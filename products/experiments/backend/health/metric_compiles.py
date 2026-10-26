@@ -1,0 +1,233 @@
+"""
+Compiles the query of each metric that the experiment calculates, without running it, so that a metric that every
+calculation fails on shows before launch. The compile is the query runner's own, so it fails where a calculation
+fails before ClickHouse receives the query. A failure inside ClickHouse, such as a type that the data holds, doesn't
+show here.
+
+The compile runs without the reader and bypasses warehouse access, as the background calculation does, so every reader
+shares the cached answer. The cache key holds the inputs of the compile. It doesn't hold the cohorts, actions and
+warehouse tables that a metric names, so a change to them shows when the answer expires.
+"""
+
+import re
+import json
+import hashlib
+from datetime import timedelta
+from typing import Any
+
+from django.core.cache import cache
+
+import pydantic
+from rest_framework.exceptions import ValidationError
+
+from posthog.schema import ExperimentQuery
+
+from posthog.hogql.database.database import Database
+from posthog.hogql.errors import (
+    ExposedHogQLError,
+    NotImplementedError as HogQLNotImplementedError,
+    SyntaxError as HogQLSyntaxError,
+)
+
+from posthog.exceptions_capture import capture_exception
+
+from products.ai_observability.backend.facade.api import mentions_evaluation_pass_markers
+from products.experiments.backend.facade.contracts import ExperimentHealthMetricCompileErrorKind
+from products.experiments.backend.health.context import MetricCompileFailure, MetricCompiles
+from products.experiments.backend.hogql_queries.error_handling import get_user_friendly_message
+from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
+from products.experiments.backend.metric_calculation.config import (
+    MetricCalculationConfig,
+    build_calculation_configs,
+    calculation_metric_name,
+    team_experiments_configs,
+)
+from products.experiments.backend.metric_resolution import build_metric
+from products.experiments.backend.models.experiment import Experiment
+
+# Part of the cache key. Raise it when the cached answer changes shape.
+_ANSWER_SHAPE = 1
+_COMPILES_CACHE_SECONDS = int(timedelta(days=1).total_seconds())
+# A failure can go away without an edit of the metric, for example when a deleted cohort is restored.
+_FAILURE_CACHE_SECONDS = int(timedelta(hours=1).total_seconds())
+_MAX_MESSAGE_LENGTH = 1000
+
+_COMPILES = "compiles"
+_UNKNOWN = "unknown"
+_EXPOSURE_QUERY_FAILS = "exposure_query_fails"
+# The errors that the configuration of the experiment causes. HogQL raises its NotImplementedError for a filter that
+# combines settings it doesn't support, such as an element selector with "contains".
+_CONFIGURATION_ERRORS = (ValidationError, ExposedHogQLError, HogQLNotImplementedError, pydantic.ValidationError)
+
+
+def load_metric_compiles(experiment: Experiment) -> MetricCompiles | None:
+    """The compile of each metric that the experiment calculates, or None when it fails. Never raises: the check then
+    reports that it couldn't check."""
+    try:
+        return _load_metric_compiles(experiment)
+    except Exception as error:
+        capture_exception(error)
+        return None
+
+
+def _load_metric_compiles(experiment: Experiment) -> MetricCompiles:
+    team_config = team_experiments_configs([experiment.team_id])[experiment.team_id]
+    # Metrics that share a uuid share its first definition, so one compile covers them.
+    configs: dict[str, MetricCalculationConfig] = {}
+    for calculation_config in build_calculation_configs(experiment, team_config=team_config):
+        configs.setdefault(calculation_config.metric_id, calculation_config)
+    compiler = _MetricCompiler(experiment)
+    failures: list[MetricCompileFailure] = []
+    unknown_count = 0
+    exposure_query_fails = False
+    for calculation_config in configs.values():
+        answer = _answer(compiler, calculation_config)
+        if answer == _UNKNOWN:
+            unknown_count += 1
+        elif answer == _EXPOSURE_QUERY_FAILS:
+            exposure_query_fails = True
+        elif isinstance(answer, dict):
+            kind = ExperimentHealthMetricCompileErrorKind(answer["kind"])
+            failures.append(
+                MetricCompileFailure(
+                    name=calculation_metric_name(experiment, calculation_config),
+                    role=calculation_config.role,
+                    kind=kind,
+                    message=None if _can_hold_evaluation_rules(kind, calculation_config) else answer["message"],
+                    definition=calculation_config.definition,
+                )
+            )
+    return MetricCompiles(
+        metric_count=len(configs),
+        failures=() if exposure_query_fails else tuple(failures),
+        unknown_count=unknown_count,
+        exposure_query_fails=exposure_query_fails,
+    )
+
+
+def _can_hold_evaluation_rules(
+    kind: ExperimentHealthMetricCompileErrorKind, calculation_config: MetricCalculationConfig
+) -> bool:
+    # The compile replaces each marker with the team's evaluation rules, so a HogQL message can quote them. The query
+    # builder's own messages don't.
+    return kind != ExperimentHealthMetricCompileErrorKind.REJECTED and mentions_evaluation_pass_markers(
+        json.dumps(calculation_config.definition, default=str)
+    )
+
+
+def _answer(compiler: "_MetricCompiler", calculation_config: MetricCalculationConfig) -> str | dict[str, str]:
+    cache_key = _cache_key(compiler.experiment.team_id, calculation_config)
+    cached = cache.get(cache_key)
+    if cached in (_COMPILES, _UNKNOWN, _EXPOSURE_QUERY_FAILS) or isinstance(cached, dict):
+        return cached
+    try:
+        answer = compiler.compile(calculation_config.definition)
+    except Exception as error:
+        capture_exception(error)
+        answer = _UNKNOWN
+    cache.set(cache_key, answer, _COMPILES_CACHE_SECONDS if answer == _COMPILES else _FAILURE_CACHE_SECONDS)
+    return answer
+
+
+class _MetricCompiler:
+    """Compiles the metrics of one experiment against one HogQL database, which is the costly part of a compile."""
+
+    def __init__(self, experiment: Experiment) -> None:
+        self.experiment = experiment
+        self._database: Database | None = None
+
+    def compile(self, definition: dict[str, Any]) -> str | dict[str, str]:
+        try:
+            metric = build_metric(definition)
+        except pydantic.ValidationError as error:
+            return _failure(ExperimentHealthMetricCompileErrorKind.DEFINITION, _definition_message(error))
+        runner = ExperimentQueryRunner(
+            query=ExperimentQuery(experiment_id=self.experiment.id, metric=metric),
+            team=self.experiment.team,
+            bypass_warehouse_access_control=True,
+            user_facing=False,
+            error_event_context=None,
+        )
+        if self._database is None:
+            self._database = runner.create_database(runner.query_modifiers())
+        try:
+            runner.compile_query(self._database)
+        except _CONFIGURATION_ERRORS as error:
+            # The exposure criteria and the project's test account filters are part of every metric's query, so a
+            # failure in them fails every metric and isn't a problem of the metric.
+            if not self._exposure_query_compiles(runner):
+                return _EXPOSURE_QUERY_FAILS
+            return _failure(_error_kind(error), _error_message(error))
+        return _COMPILES
+
+    def _exposure_query_compiles(self, runner: ExperimentQueryRunner) -> bool:
+        assert self._database is not None
+        try:
+            runner.compile_exposure_query(self._database)
+        except _CONFIGURATION_ERRORS:
+            return False
+        return True
+
+
+def _failure(kind: ExperimentHealthMetricCompileErrorKind, message: str) -> dict[str, str]:
+    return {"kind": kind.value, "message": message[:_MAX_MESSAGE_LENGTH]}
+
+
+def _error_kind(error: Exception) -> ExperimentHealthMetricCompileErrorKind:
+    if isinstance(error, ValidationError):
+        return ExperimentHealthMetricCompileErrorKind.REJECTED
+    if isinstance(error, HogQLSyntaxError):
+        return ExperimentHealthMetricCompileErrorKind.SYNTAX
+    if isinstance(error, pydantic.ValidationError):
+        return ExperimentHealthMetricCompileErrorKind.DEFINITION
+    return ExperimentHealthMetricCompileErrorKind.QUERY
+
+
+# The fields of the scope that a field doesn't resolve in, which name the columns that the query builder generates.
+# The list ends at the hints that follow it, or at the end of the message, because a column name can hold a dot.
+_AVAILABLE_FIELDS = re.compile(r"\. Available fields: .*?\.(?= If |$)", re.DOTALL)
+
+
+def _error_message(error: Exception) -> str:
+    if isinstance(error, ValidationError):
+        return get_user_friendly_message(error) or str(error)
+    if isinstance(error, pydantic.ValidationError):
+        return _definition_message(error)
+    return _AVAILABLE_FIELDS.sub(".", str(error))
+
+
+def _definition_message(error: pydantic.ValidationError) -> str:
+    # The location and the reason only. The full text echoes the stored values and runs to many lines.
+    details = error.errors()
+    # A part with brackets names the member of a union that pydantic tried, such as `str-enum[BaseMathType]`.
+    locations = list(
+        dict.fromkeys(".".join(str(part) for part in detail["loc"] if "[" not in str(part)) for detail in details)
+    )
+    if len(details) == 1:
+        return f"{locations[0]}: {details[0]['msg']}"
+    return f"PostHog doesn't accept the value of {', '.join(locations[:3])}"
+
+
+def _cache_key(team_id: int, calculation_config: MetricCalculationConfig) -> str:
+    settings = calculation_config.settings
+    # Every input of the compile except the dates, which change only constants of the query, so a draft's answer
+    # still holds after launch.
+    inputs = json.dumps(
+        [
+            _ANSWER_SHAPE,
+            calculation_config.metric,
+            settings.feature_flag_key,
+            settings.aggregation_group_type_index,
+            settings.variants,
+            settings.stored_exposure_criteria,
+            settings.test_account_filters,
+            settings.only_count_matured_users,
+            settings.cuped.enabled,
+            settings.cuped.lookback_days,
+            settings.timezone,
+        ],
+        sort_keys=True,
+        default=str,
+    )
+    digest = hashlib.sha256(inputs.encode()).hexdigest()
+    return f"experiment_metric_compile:{team_id}:{digest}"

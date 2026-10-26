@@ -308,7 +308,34 @@ export function buildMetricFacts(
             label: 'Shared metric links',
             value: `${countType('primary')} primary, ${countType('secondary')} secondary, ${countType('none')} without a type`,
         },
+        {
+            label: 'Metric queries',
+            value: serverValue(state, (inputs) => describeMetricCompiles(inputs.metric_compiles)),
+            help: "The metric calculation check compiles each metric's query without running it. The answer is cached for a day, or an hour when a metric fails.",
+        },
+        ...(state.inputs?.metric_compiles?.failures ?? []).map((failure) => ({
+            label: `Doesn't compile: ${failure.name} (${failure.role})`,
+            value: `${failure.kind}: ${failure.message ?? 'message hidden, it can hold evaluation rules'}`,
+        })),
     ]
+}
+
+function describeMetricCompiles(compiles: ExperimentHealthInputsApi['metric_compiles']): string {
+    if (!compiles) {
+        return 'Not compiled: the compile failed'
+    }
+    if (compiles.exposure_query_fails) {
+        return "Not compiled: the exposure query doesn't compile"
+    }
+    const failed = compiles.failures.length
+    const parts = [`${compiles.metric_count - failed - compiles.unknown_count} of ${compiles.metric_count} compile`]
+    if (failed) {
+        parts.push(`${failed} ${failed === 1 ? "doesn't" : "don't"}`)
+    }
+    if (compiles.unknown_count) {
+        parts.push(`${compiles.unknown_count} not checked`)
+    }
+    return parts.join(', ')
 }
 
 const EXPOSURE_STATUS_LABELS: Record<HealthExposureInputsStatusEnumApi, string> = {

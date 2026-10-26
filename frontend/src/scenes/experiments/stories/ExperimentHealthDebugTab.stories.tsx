@@ -77,6 +77,7 @@ const HEALTH_INPUTS: ExperimentHealthInputsApi = {
         activation: null,
     },
     events_received: {},
+    metric_compiles: { metric_count: 1, unknown_count: 0, exposure_query_fails: false, failures: [] },
     flag_history: {
         checked: true,
         not_checked_reason: null,
