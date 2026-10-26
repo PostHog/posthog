@@ -6855,6 +6855,60 @@ class TestExperimentService(APIBaseTest):
         )
         assert experiment.metrics is not None and len(experiment.metrics) == 1
 
+    def _source_experiment_using_action(self, action: Action, *, key: str) -> Any:
+        self._create_flag(key=key)
+        return self._service().create_experiment(
+            name=f"Source {key}",
+            feature_flag_key=key,
+            metrics=[
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "ActionsNode", "id": action.id},
+                },
+            ],
+            exposure_criteria={"exposure_config": {"kind": "ActionsNode", "id": action.id}},
+        )
+
+    def test_copy_to_project_remaps_action_ids_to_the_target_project(self):
+        action = Action.objects.create(team=self.team, name="Trial canceled")
+        source = self._source_experiment_using_action(action, key="copy-action-source")
+        target_team = Team.objects.create(organization=self.organization, name="Staging")
+        target_action = Action.objects.create(team=target_team, name="Trial canceled")
+
+        clone = self._service().copy_experiment_to_project(source, target_team, feature_flag_key="copy-action-clone")
+
+        assert clone.metrics is not None and source.metrics is not None
+        assert clone.exposure_criteria is not None
+        assert clone.metrics[0]["source"]["id"] == target_action.id
+        assert clone.exposure_criteria["exposure_config"]["id"] == target_action.id
+        assert source.metrics[0]["source"]["id"] == action.id
+
+    def test_copy_to_project_without_a_matching_action_names_what_to_create(self):
+        action = Action.objects.create(team=self.team, name="Trial canceled")
+        source = self._source_experiment_using_action(action, key="copy-action-unmatched")
+        target_team = Team.objects.create(organization=self.organization, name="Staging")
+
+        with self.assertRaises(ValidationError) as ctx:
+            self._service().copy_experiment_to_project(
+                source, target_team, feature_flag_key="copy-action-unmatched-clone"
+            )
+
+        detail = str(ctx.exception.detail)
+        assert "Trial canceled" in detail
+        assert "Staging" in detail
+        assert str(action.id) not in detail
+
+    def test_duplicate_keeps_action_ids_in_the_same_project(self):
+        action = Action.objects.create(team=self.team, name="Trial canceled")
+        Action.objects.create(team=self.team, name="Trial canceled")
+        source = self._source_experiment_using_action(action, key="duplicate-action-source")
+
+        clone = self._service().duplicate_experiment(source, feature_flag_key="duplicate-action-clone")
+
+        assert clone.metrics is not None
+        assert clone.metrics[0]["source"]["id"] == action.id
+
     def test_update_with_deleted_action_still_referenced_succeeds(self):
         action = Action.objects.create(team=self.team, name="soon deleted action")
         stale = {

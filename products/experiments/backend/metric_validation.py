@@ -7,7 +7,9 @@ checks that need a user or that the caller can waive (team ownership, permission
 event exists) stay with the callers.
 """
 
-from collections.abc import Collection
+from collections import defaultdict
+from collections.abc import Collection, Iterable, Iterator, Mapping
+from copy import deepcopy
 from typing import Any
 
 import pydantic
@@ -173,15 +175,17 @@ def validate_saved_metric_link_overrides(metadata: dict, *, error_prefix: str) -
         raise ValidationError(f"{error_prefix}{_pydantic_error_message(e)}")
 
 
-def extract_entity_nodes(metrics: list[dict] | None) -> tuple[set[str], set[int]]:
-    """Extract event names and action IDs from all EventsNode/ActionsNode refs in metrics."""
-    event_names: set[str] = set()
-    action_ids: set[int] = set()
-    if not metrics:
-        return event_names, action_ids
+def iter_entity_nodes(metrics: list[dict] | None) -> Iterator[dict]:
+    """Yield every entity node dict reachable from `metrics`, whatever the metric type.
 
+    Validation reads these nodes and the cross-project copy path rewrites them. Both go
+    through this one walk, so a new metric type or a moved node cannot be handled in one
+    place and missed in the other.
+    """
+    if not isinstance(metrics, list):
+        return
     for metric in metrics:
-        nodes: list[dict] = []
+        nodes: list[Any] = []
         metric_type = metric.get("metric_type")
         if metric_type == "mean":
             if source := metric.get("source"):
@@ -200,28 +204,156 @@ def extract_entity_nodes(metrics: list[dict] | None) -> tuple[set[str], set[int]
                 nodes.append(ce)
 
         for node in nodes:
-            kind = node.get("kind")
-            if kind == "EventsNode":
-                event = node.get("event")
-                # Treat None and empty/whitespace-only strings as "no event"
-                # (semantically equivalent to "All events"). The pydantic
-                # schema permits "" but it can't reference a real event.
-                if isinstance(event, str) and event.strip():
-                    event_names.add(event)
-                elif event is not None and not isinstance(event, str):
-                    # Pydantic should have rejected non-str/None upstream;
-                    # log so we can catch any path that bypassed validation
-                    # rather than silently dropping the value.
-                    logger.warning(
-                        "experiment_metric_unexpected_event_type",
-                        event_type=type(event).__name__,
-                        event_value=repr(event)[:100],
-                    )
-            elif kind == "ActionsNode":
-                if (action_id := node.get("id")) is not None:
-                    action_ids.add(int(action_id))
+            if isinstance(node, dict):
+                yield node
+
+
+def iter_exposure_criteria_nodes(exposure_criteria: dict | None) -> Iterator[dict]:
+    """Yield the entity node dicts on an experiment's exposure criteria.
+
+    Both keys accept an ActionsNode, so a cross-project copy has to rewrite them too.
+    """
+    if not isinstance(exposure_criteria, dict):
+        return
+    for key in ("exposure_config", "activation_config"):
+        node = exposure_criteria.get(key)
+        if isinstance(node, dict):
+            yield node
+
+
+def extract_entity_nodes(metrics: list[dict] | None) -> tuple[set[str], set[int]]:
+    """Extract event names and action IDs from all EventsNode/ActionsNode refs in metrics."""
+    event_names: set[str] = set()
+    action_ids: set[int] = set()
+
+    for node in iter_entity_nodes(metrics):
+        kind = node.get("kind")
+        if kind == "EventsNode":
+            event = node.get("event")
+            # Treat None and empty/whitespace-only strings as "no event"
+            # (semantically equivalent to "All events"). The pydantic
+            # schema permits "" but it can't reference a real event.
+            if isinstance(event, str) and event.strip():
+                event_names.add(event)
+            elif event is not None and not isinstance(event, str):
+                # Pydantic should have rejected non-str/None upstream;
+                # log so we can catch any path that bypassed validation
+                # rather than silently dropping the value.
+                logger.warning(
+                    "experiment_metric_unexpected_event_type",
+                    event_type=type(event).__name__,
+                    event_value=repr(event)[:100],
+                )
+        elif kind == "ActionsNode":
+            if (action_id := node.get("id")) is not None:
+                action_ids.add(int(action_id))
 
     return event_names, action_ids
+
+
+def extract_exposure_criteria_action_ids(exposure_criteria: dict | None) -> set[int]:
+    """Extract action IDs from the ActionsNode refs on an experiment's exposure criteria."""
+    return {
+        int(action_id)
+        for node in iter_exposure_criteria_nodes(exposure_criteria)
+        if node.get("kind") == "ActionsNode" and (action_id := node.get("id")) is not None
+    }
+
+
+def _remap_action_ids_in_nodes(nodes: Iterator[dict], action_id_map: Mapping[int, int]) -> None:
+    for node in nodes:
+        if node.get("kind") != "ActionsNode":
+            continue
+        action_id = node.get("id")
+        if action_id is None:
+            continue
+        if (new_id := action_id_map.get(int(action_id))) is not None:
+            node["id"] = new_id
+
+
+def remap_metric_action_ids(metrics: list[dict] | None, action_id_map: Mapping[int, int]) -> list[dict] | None:
+    """Return a deep copy of `metrics` with every ActionsNode id rewritten through `action_id_map`."""
+    if metrics is None or not action_id_map:
+        return metrics
+    remapped = deepcopy(metrics)
+    _remap_action_ids_in_nodes(iter_entity_nodes(remapped), action_id_map)
+    return remapped
+
+
+def remap_exposure_criteria_action_ids(exposure_criteria: dict | None, action_id_map: Mapping[int, int]) -> dict | None:
+    """Return a deep copy of `exposure_criteria` with every ActionsNode id rewritten through `action_id_map`."""
+    if exposure_criteria is None or not action_id_map:
+        return exposure_criteria
+    remapped = deepcopy(exposure_criteria)
+    _remap_action_ids_in_nodes(iter_exposure_criteria_nodes(remapped), action_id_map)
+    return remapped
+
+
+def build_cross_project_action_map(
+    action_ids: Collection[int], *, source_team: Team, target_team: Team
+) -> dict[int, int]:
+    """Map the action ids an experiment references onto the matching actions in `target_team`.
+
+    An action id is a global primary key, so the same action copied into another project
+    carries a different id. The name is the only handle the two projects share, so a
+    reference matches when the target project holds exactly one action under that name.
+    Raises a ValidationError naming what to fix when a reference has no single match,
+    because the alternative is an experiment that measures another project's action.
+    """
+    wanted = {int(action_id) for action_id in action_ids}
+    if not wanted:
+        return {}
+
+    source_actions = {
+        action.id: action for action in Action.objects.filter(id__in=wanted, team_id=source_team.id, deleted=False)
+    }
+    target_ids_by_name: dict[str, list[int]] = defaultdict(list)
+    for action in Action.objects.filter(
+        team_id=target_team.id, deleted=False, name__in={action.name for action in source_actions.values()}
+    ):
+        target_ids_by_name[action.name].append(action.id)
+
+    action_id_map: dict[int, int] = {}
+    gone_in_source: list[int] = []
+    unmatched: list[str] = []
+    ambiguous: list[str] = []
+    for action_id in sorted(wanted):
+        source_action = source_actions.get(action_id)
+        if source_action is None or not source_action.name:
+            gone_in_source.append(action_id)
+            continue
+        candidates = target_ids_by_name[source_action.name]
+        if len(candidates) == 1:
+            action_id_map[action_id] = candidates[0]
+        elif not candidates:
+            unmatched.append(source_action.name)
+        else:
+            ambiguous.append(source_action.name)
+
+    target_name = target_team.name
+    if gone_in_source:
+        raise ValidationError(
+            f'Can\'t copy this experiment to "{target_name}". '
+            f"This project no longer has the action it measures (ID {', '.join(str(a) for a in gone_in_source)}), "
+            "so there's nothing to match. Point the metric at an action that still exists, then copy again."
+        )
+    if unmatched:
+        raise ValidationError(
+            f'Can\'t copy this experiment to "{target_name}". '
+            f"That project has no action named {_quoted_list(unmatched)}, and this experiment measures it. "
+            f'Create an action with the same name in "{target_name}", then copy the experiment again.'
+        )
+    if ambiguous:
+        raise ValidationError(
+            f'Can\'t copy this experiment to "{target_name}". '
+            f"That project has more than one action named {_quoted_list(ambiguous)}, so there's no single match. "
+            "Rename or delete the duplicates there, then copy the experiment again."
+        )
+    return action_id_map
+
+
+def _quoted_list(values: Iterable[str]) -> str:
+    return ", ".join(f'"{value}"' for value in sorted(values))
 
 
 def defined_event_names(project_id: int, event_names: Collection[str], *, seen_only: bool = False) -> set[str]:

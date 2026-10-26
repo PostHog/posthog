@@ -85,9 +85,13 @@ from products.experiments.backend.metric_calculation.results import MetricResult
 from products.experiments.backend.metric_resolution import MetricRole
 from products.experiments.backend.metric_utils import filter_metric_group_ids_by_event
 from products.experiments.backend.metric_validation import (
+    build_cross_project_action_map,
     defined_event_names,
     extract_entity_nodes,
+    extract_exposure_criteria_action_ids,
     parse_and_validate_metric,
+    remap_exposure_criteria_action_ids,
+    remap_metric_action_ids,
     validate_metric_action_ids,
     validate_saved_metric_link_overrides,
 )
@@ -4162,6 +4166,22 @@ class ExperimentService:
         cloned_secondary_ordering = self._remap_ordering(
             source_experiment.secondary_metrics_ordered_uuids, secondary_remap
         )
+
+        # An action id means nothing in another project, so point every reference at the
+        # target project's own action before create_experiment validates them there.
+        if is_cross_project:
+            _, source_action_ids = extract_entity_nodes(source_experiment.metrics)
+            _, secondary_action_ids = extract_entity_nodes(source_experiment.metrics_secondary)
+            action_id_map = build_cross_project_action_map(
+                source_action_ids
+                | secondary_action_ids
+                | extract_exposure_criteria_action_ids(cloned_exposure_criteria),
+                source_team=self.team,
+                target_team=target,
+            )
+            cloned_metrics = remap_metric_action_ids(cloned_metrics, action_id_map)
+            cloned_metrics_secondary = remap_metric_action_ids(cloned_metrics_secondary, action_id_map)
+            cloned_exposure_criteria = remap_exposure_criteria_action_ids(cloned_exposure_criteria, action_id_map)
 
         creation_mode: ExperimentCreationMode = "copy_to_project" if is_cross_project else "duplicate"
         return service.create_experiment(
