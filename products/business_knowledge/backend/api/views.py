@@ -22,9 +22,11 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import groups
 from posthog.models.user import User
-from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
+from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission, get_authenticator_scopes
 from posthog.rate_limit import BurstRateThrottle, SustainedRateThrottle
 from posthog.temporal.common.client import sync_connect
+
+from ee.api.billing import user_has_billing_access
 
 from .. import billing, libraries, logic, quota
 from ..constants import (
@@ -584,7 +586,8 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         canonical_team_id = self.team.parent_team_id or self.team.id
         period = billing.current_usage_period(self.organization)
         used = billing.get_team_usage(canonical_team_id, period.start, period.end)
-        org_usage = self.organization.usage or {}
+        # Organization totals and limits are billing data, so they need the same access as the billing usage page.
+        org_usage = (self.organization.usage or {}) if self._can_read_organization_billing(request) else {}
 
         def meter(key: str, project_used: int, free_allowance: int, limited: bool) -> dict[str, Any]:
             # A sync that omits this meter stores `{}`, which is no more synced than a missing key.
@@ -618,6 +621,12 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             ),
         }
         return Response(KnowledgeUsageSerializer(instance=data).data)
+
+    def _can_read_organization_billing(self, request: Request) -> bool:
+        if not isinstance(request.user, User) or not user_has_billing_access(request.user, self.organization):
+            return False
+        scopes = get_authenticator_scopes(getattr(request, "successful_authenticator", None))
+        return scopes is None or "*" in scopes or "billing:read" in scopes
 
 
 class KnowledgeDocumentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):

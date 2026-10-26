@@ -12,6 +12,7 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 from posthog.usage_ingestion.client import UsageRecord
 
@@ -325,6 +326,31 @@ class TestUsageAPI(_BillingTest):
         assert body["chunks"]["used"] == 5
         assert body["chunks"]["organization_used"] is None
         assert body["queries"]["organization_used"] is None
+
+    @parameterized.expand(
+        [
+            ("owner", OrganizationMembership.Level.OWNER, 12, 500),
+            ("member", OrganizationMembership.Level.MEMBER, None, None),
+        ]
+    )
+    def test_usage_shows_organization_totals_only_with_billing_access(
+        self, _ff, _name: str, level: int, expected_used: int | None, expected_limit: int | None
+    ) -> None:
+        self.organization_membership.level = level
+        self.organization_membership.save(update_fields=["level"])
+        self.organization.usage = {
+            "business_knowledge_chunks": {"usage": 10, "todays_usage": 2, "limit": 500},
+            "business_knowledge_queries": {"usage": 3, "todays_usage": 0, "limit": None},
+        }
+        self.organization.save(update_fields=["usage"])
+
+        with patch(INGESTION_LIMITED, return_value=False), patch(RETRIEVAL_LIMITED, return_value=False):
+            response = self.client.get(f"/api/projects/{self.team.id}/business_knowledge/sources/usage/")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        chunks = response.json()["chunks"]
+        assert chunks["organization_used"] == expected_used
+        assert chunks["billing_limit"] == expected_limit
 
     def test_search_returns_403_when_the_query_limit_is_reached(self, _ff) -> None:
         with patch(RETRIEVAL_LIMITED, return_value=True):

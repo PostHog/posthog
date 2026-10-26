@@ -540,7 +540,7 @@ class KnowledgeUsageMeterSerializer(serializers.Serializer):
         allow_null=True,
         help_text=(
             "Units the whole organization used in the current period, as last synced from billing. "
-            "Null until billing has synced usage for this product."
+            "Null until billing has synced usage for this product, or when the caller has no billing access."
         ),
     )
     free_allowance = serializers.IntegerField(read_only=True, help_text="Units included free each month.")
@@ -549,7 +549,8 @@ class KnowledgeUsageMeterSerializer(serializers.Serializer):
         allow_null=True,
         help_text=(
             "Units the organization may use this period: the free allowance on the free plan, or the billing "
-            "limit on a paid plan. Null when unsynced, or on a paid plan with no billing limit."
+            "limit on a paid plan. Null when unsynced, when the caller has no billing access, or on a paid plan "
+            "with no billing limit."
         ),
     )
     limited = serializers.BooleanField(read_only=True, help_text="True when the billing quota blocks this work.")
