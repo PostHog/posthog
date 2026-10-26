@@ -339,6 +339,23 @@ A reviewer rejected that one for a different reason: an unclean shutdown can cor
 
 _Also asked as:_ postgres fsync off, synchronous_commit off, full_page_writes, disable Postgres durability in CI
 
+### Cache the hypothesis constants pool across the backend shards
+
+**Verdict: reverted** · Oct 2026
+
+Backend CI restored `.hypothesis/constants` on every Django shard and saved it from Core shard 1 on master.
+The restore missed on all 212 sampled shard attempts, because the save never wrote anything.
+Hypothesis builds the pool only in a process that collects or runs a property test.
+File-granularity sharding skips the import of every other shard's test files, so most shards never build the pool.
+In the Core suite, only `posthog/hogql/transforms/test/test_property_types.py` and `test_clickhouse_property_resolution.py` run property tests in CI, and they never landed in shard 1.
+
+A save from the shard that owns those files would work, but the gain is small.
+A local collection of the largest owning shard spent 17.9 s on the pool cold and 8.4 s warm.
+Only one or two shards per run own the files, and an owning shard was the slowest Core shard in 1 of 16 sampled runs.
+Every other shard pays for the restore and gets nothing.
+
+_Also asked as:_ hypothesis cache, .hypothesis directory, HYPOTHESIS_STORAGE_DIRECTORY, cache hypothesis constants, hypothesis collection slow
+
 ### The Depot CI runners are more cache-contended than the GitHub Actions runners
 
 **Verdict: rejected** · Sep 2026 · [#93565](https://github.com/PostHog/posthog/pull/93565)

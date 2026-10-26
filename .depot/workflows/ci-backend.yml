@@ -38,8 +38,6 @@
 #   Without those plans, shards use the combined .test_durations file.
 # - actions/cache uses Depot Cache, which Depot CI and Depot GitHub Actions runners share.
 #   GitHub-hosted runners use a separate GitHub Actions cache.
-# - Only master matrix runs save the hypothesis constants cache. PR shards rebuild the pool
-#   until the hourly run saves it.
 # - The env block clears GITHUB_TOKEN and OTEL_SERVICE_NAME because Depot provides them by default.
 # - Token steps read vars.* and secrets.* from Depot's store. If a value is missing there,
 #   setup-action steps with continue-on-error fall back to the default GITHUB_TOKEN, a Depot
@@ -119,10 +117,6 @@ env:
     # and HEAD (push) key computations below can't drift.
     # ci-e2e-playwright.yml, ci-dagster.yml, ci-mcp.yml and ci-rust-flags-integration.yml restore by the same key; keep their copies in sync when bumping.
     SCHEMA_CACHE_EPOCH: v2
-    # Hypothesis constants cache epoch. Bump to abandon every shared entry at once
-    # (key is posthog-hypothesis-constants-<version>-<epoch>-<isoyear>-<isoweek>); used by
-    # the Django test shards below.
-    HYPOTHESIS_CONSTANTS_EPOCH: v1
     # A Depot step timeout leaves the step's processes running. A stalled uv sync then
     # keeps the env lock, and the step's retry blocks on it. Ending uv before the step
     # timeout frees the lock. Keep this under the 5-minute timeout-minutes of every step that uses it.
@@ -3384,37 +3378,6 @@ jobs:
                   key: posthog-segment-durations-${{ github.run_id }}
                   restore-keys: |
                       posthog-segment-durations-
-            - name: Compute hypothesis constants cache key
-              # hypothesis builds its constants pool of property-test inputs by
-              # AST-parsing every local module in sys.modules. It caches the result
-              # in .hypothesis/constants under a hash of each source file, so the
-              # pool is content-addressed: restoring a stale copy is safe, because a
-              # changed file reads as a miss and rebuilds. CI otherwise pays the full
-              # parse on every shard's pytest collection (about 10 s per shard).
-              id: hyp-constants-key
-              shell: bash
-              run: |
-                  # The key includes the installed hypothesis version because the
-                  # entry format is an implementation detail, and rotates weekly so
-                  # entries for deleted or rewritten files expire. The restore prefix
-                  # covers the gap until the first master run of a new week saves.
-                  hyp_version=$(python -c "import hypothesis; print(hypothesis.__version__)")
-                  prefix="posthog-hypothesis-constants-${hyp_version}-${HYPOTHESIS_CONSTANTS_EPOCH}-"
-                  {
-                      echo "key=${prefix}$(date -u +%G-%V)"
-                      echo "restore_prefix=${prefix}"
-                  } >> "$GITHUB_OUTPUT"
-            - name: Restore hypothesis constants cache
-              id: hyp-constants
-              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
-              with:
-                  # Constants only. Do NOT add .hypothesis/examples: the example
-                  # database decides which inputs property tests replay, so reusing
-                  # one across runs changes what the tests check.
-                  path: .hypothesis/constants
-                  key: ${{ steps.hyp-constants-key.outputs.key }}
-                  restore-keys: |
-                      ${{ steps.hyp-constants-key.outputs.restore_prefix }}
             # Tests
             - name: Set snapshot update flags
               if: ${{ needs.changes.outputs.backend == 'true' && (needs.detect-snapshot-mode.outputs.mode == 'update' || matrix.person-on-events) }}
@@ -3753,27 +3716,6 @@ jobs:
                   else
                       exit $exit_code
                   fi
-            - name: Save hypothesis constants cache
-              # One Core shard per master run writes the weekly entry: a save from
-              # every shard would race on the same key and churn the shared cache
-              # budget. cache-hit != 'true' skips the save once this week's entry
-              # exists, which keeps later master runs cheap.
-              # continue-on-error: overlapping master runs at week rollover fail its
-              # reservation check when an earlier run has saved the same key, and a
-              # cache miss must never red a green run.
-              continue-on-error: true
-              if: |
-                  env.IS_MASTER == 'true' &&
-                  matrix.segment == 'Core' &&
-                  matrix.group == 1 &&
-                  !matrix.person-on-events &&
-                  !matrix.new-events-schema &&
-                  !matrix.compat &&
-                  steps.hyp-constants.outputs.cache-hit != 'true'
-              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
-              with:
-                  path: .hypothesis/constants
-                  key: ${{ steps.hyp-constants-key.outputs.key }}
             # Post tests
             - name: Show docker compose logs on failure
               if: failure() && (needs.changes.outputs.backend == 'true' && steps.run-core-tests.outcome != 'failure' && steps.run-temporal-tests.outcome != 'failure')
