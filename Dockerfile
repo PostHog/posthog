@@ -348,9 +348,7 @@ RUN groupadd -g 10001 posthog && \
     chown posthog:posthog /code
 USER posthog
 
-# Put the layers that rarely change before the layers that change on every commit. BuildKit reuses
-# a cached layer only when every layer below it is unchanged, so a per-commit layer placed early
-# writes a new copy of each layer above it into the build cache on every build.
+# Rarely changed layers go first. A changed layer forces a rebuild of every layer after it.
 
 # Copy the Python dependencies from the posthog-build stage.
 COPY --from=posthog-build --chown=posthog:posthog /python-runtime /python-runtime
