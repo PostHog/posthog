@@ -10087,10 +10087,10 @@ Today (10): `addresses`, `charges`, `collections`, `customers`, `discounts`, `on
 
 Diffed against: <https://developer.rechargepayments.com/2021-11>
 
-- [ ] `plans` — Lookup table resolving the plan IDs carried on subscriptions and onetimes (high)
-- [ ] `events` — Recharge's account event log - subscription state transitions, cancellations and churn reasons over time (high)
-- [ ] `credit_accounts and credit_adjustments` — Customer store-credit ledger; adjustments are the transaction-level rows behind each balance (medium)
-- [ ] `bundle_selections` — Line-item contents of bundle subscriptions - without it a bundle subscription has no product breakdown (medium)
+- [x] `plans` — Lookup table resolving the plan IDs carried on subscriptions and onetimes (high)
+- [x] `events` — Recharge's account event log - subscription state transitions, cancellations and churn reasons over time (high)
+- [x] `credit_accounts and credit_adjustments` — Customer store-credit ledger; adjustments are the transaction-level rows behind each balance (medium)
+- [x] `bundle_selections` — Line-item contents of bundle subscriptions - without it a bundle subscription has no product breakdown (medium)
 - [ ] `checkouts` — Pre-conversion checkout records, required for abandoned-checkout and funnel analysis (medium)
 - [ ] `customer_entitlements` — Membership/perk entitlements per customer, a membership-program breakdown dimension (medium)
 - [ ] `metafields` — Custom key-value fields attached to customers, subscriptions and addresses that often hold merchant-specific segmentation (low)
