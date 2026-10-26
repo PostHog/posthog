@@ -20,8 +20,8 @@ def test_native_events_export_query_refuses_stale_replicas() -> None:
     assert "fallback_to_stale_replicas_for_distributed_queries=0" in query
 
 
-def test_native_events_export_query_keeps_empty_object_literals() -> None:
-    query = ClickHouseClient().prepare_query(native_events_export_query("event"), QUERY_PARAMETERS)
+def test_native_events_export_query_keeps_empty_object_literals_in_custom_fields() -> None:
+    query = ClickHouseClient().prepare_query(native_events_export_query("'{}' AS properties"), QUERY_PARAMETERS)
 
     assert "'{0}'" not in query
     assert "'{}'" in query
