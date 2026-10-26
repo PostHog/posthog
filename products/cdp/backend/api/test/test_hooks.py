@@ -101,6 +101,25 @@ class TestHooksAPI(ClickhouseTestMixin, APILicensedTest):
 
         assert HogFunction.objects.filter(enabled=True, deleted=False).count() == 0
 
+    def test_delete_hook_leaves_managed_hog_function_alone(self):
+        hook = Hook(
+            id=str(uuid.uuid4()),
+            user=self.user,
+            team=self.team,
+            resource_id=self.action.id,
+            target="https://hooks.zapier.com/hooks/standard/managed",
+        )
+        hog_function = create_zapier_hog_function(hook, {"user": self.user, "get_team": lambda: self.team})
+        hog_function.managed_by = "another_product"
+        hog_function.save()
+
+        res = self.client.delete(f"/api/projects/{self.team.id}/hooks/{hog_function.id}")
+        assert res.status_code == 404
+
+        hog_function.refresh_from_db()
+        assert hog_function.enabled is True
+        assert hog_function.deleted is False
+
     def test_delete_migrated_hog_function_via_hook(self):
         hooks = []
         hog_functions = []
