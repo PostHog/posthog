@@ -1180,7 +1180,7 @@ export class CdpApi {
                 return reply('not_found', 404, { error: 'Workflow not found' })
             }
             if (hogFlow.trigger?.type !== 'api' || hogFlow.status !== 'active') {
-                return reply('not_sendable', 400, { error: 'Workflow is not an active transactional email' })
+                return reply('not_sendable', 400, { error: 'not_sendable' })
             }
 
             const event: HogFunctionInvocationGlobals['event'] = {

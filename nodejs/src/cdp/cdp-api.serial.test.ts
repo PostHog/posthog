@@ -2317,6 +2317,7 @@ describe('CDP API', () => {
             const res = await send(other.id, { Authorization: `Bearer ${mintToken(team.id, other.id)}` })
 
             expect(res.status).toEqual(400)
+            expect(res.body).toEqual({ error: 'not_sendable' })
             expect(mockQueueInvocations).not.toHaveBeenCalled()
         })
 
