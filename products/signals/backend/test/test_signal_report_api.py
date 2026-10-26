@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 from django.apps import apps
 from django.core.cache import cache
-from django.db import connection
+from django.db import OperationalError, connection
 from django.test import SimpleTestCase
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
@@ -3493,6 +3493,62 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
         assert [(row["removal_reason"], row["removal_note"]) for row in corrections] == (
             [("owned_by_someone_else", "The payments team owns this.")] if removed else []
         )
+
+    def test_a_bulk_wrong_assignee_dismissal_removes_the_caller_without_per_report_notes(self) -> None:
+        named = self._create_report()
+        unnamed = self._create_report()
+        for report, reviewers in (
+            (named, [{"user_uuid": str(self.user.uuid)}, {"github_login": "teammate"}]),
+            (unnamed, [{"github_login": "teammate"}]),
+        ):
+            SignalReportArtefact.objects.create(
+                team=self.team,
+                report=report,
+                type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+                content=json.dumps(reviewers),
+            )
+
+        with patch("products.signals.backend.views.forward_reviewer_correction_note") as forward:
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/signals/reports/bulk-state/",
+                    data=json.dumps(
+                        {
+                            "ids": [str(named.id), str(unnamed.id)],
+                            "state": "suppressed",
+                            "dismissal_reason": "wrong_assignee",
+                        }
+                    ),
+                    content_type="application/json",
+                )
+
+        assert response.status_code == status.HTTP_200_OK
+        # Research gets one correction per report that named the caller. Scouts get the batch's one dismissal
+        # note, so a bulk request must not add a correction note per report on top of it.
+        assert [row["report_id"] for row in _recent_reviewer_corrections(self.team)["corrections"]] == [str(named.id)]
+        forward.assert_not_called()
+
+    def test_a_failed_wrong_assignee_removal_does_not_fail_the_committed_dismissal(self) -> None:
+        report = self._create_report()
+        SignalReportArtefact.objects.create(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+            content=json.dumps([{"user_uuid": str(self.user.uuid)}]),
+        )
+
+        with patch(
+            "products.signals.backend.views.remove_suggested_reviewer", side_effect=OperationalError("lock timeout")
+        ):
+            response = self.client.post(
+                self._state_url(str(report.id)),
+                data=json.dumps({"state": "suppressed", "dismissal_reason": "wrong_assignee"}),
+                content_type="application/json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.SUPPRESSED
 
     @parameterized.expand([("already_fixed",), ("fixed_outside_posthog",), ("pr_merged",)])
     def test_fixed_reason_cannot_snooze_a_report(self, reason):

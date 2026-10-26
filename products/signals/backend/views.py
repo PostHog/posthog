@@ -129,7 +129,7 @@ from products.signals.backend.billing import (
     report_pr_is_merged,
 )
 from products.signals.backend.briefing_reports import reports_for_person
-from products.signals.backend.dismissal_notes import forward_dismissal_note
+from products.signals.backend.dismissal_notes import forward_dismissal_note, principal_may_steer_scouts
 from products.signals.backend.enums import ReportPriority, ReportTaskActionKind, ReviewerRemovalReason
 from products.signals.backend.facade.api import emit_signal
 from products.signals.backend.feedback_notes import forward_feedback_note
@@ -3740,21 +3740,45 @@ class SignalReportViewSet(
         """
         if dismissal_reason != DISMISSAL_REASON_WRONG_ASSIGNEE or not reports:
             return
+        user = cast(User, self.request.user)
+        login = user.get_github_login()
+        # One indexed read keeps a bulk dismissal from running the removal for reports that never named the caller.
+        named = {
+            str(row["report_id"])
+            for row in report_ids_naming_reviewers(
+                team_id=self.team.id,
+                user_uuids=[str(user.uuid)],
+                github_logins=[login.lower()] if login else [],
+                logins_match_unidentified_only=False,
+            ).filter(report_id__in=[report.id for report in reports])
+        }
+        if not named:
+            return
         scoped_team_ids = get_authenticator_scoped_team_ids(self.request.successful_authenticator)
+        was_impersonated = is_impersonated_session(self.request)
         note = (dismissal_note or "").strip()[: SignalReportArtefactWriteSerializer.REMOVAL_NOTE_MAX_LENGTH] or None
         for report in reports:
+            if str(report.id) not in named:
+                continue
             try:
                 remove_suggested_reviewer(
                     team=self.team,
                     report_id=str(report.id),
-                    user=cast(User, self.request.user),
+                    user=user,
                     scoped_team_ids=tuple(scoped_team_ids) if scoped_team_ids is not None else None,
-                    was_impersonated=is_impersonated_session(self.request),
+                    was_impersonated=was_impersonated,
                     removal_reason=ReviewerRemovalReason.OWNED_BY_SOMEONE_ELSE,
                     removal_note=note,
+                    # The dismissal already sent each scout one note for the whole batch, so a bulk
+                    # request does not add one correction note per report on top of it.
+                    forward_note=len(reports) == 1,
                 )
             except (StaleReviewerProposal, ReviewerWriteError, NotFound):
                 logger.warning("signals.wrong_assignee_removal_failed", team_id=self.team.id, report_id=str(report.id))
+            except Exception:
+                logger.exception(
+                    "signals.wrong_assignee_removal_failed", team_id=self.team.id, report_id=str(report.id)
+                )
 
     def _request_attribution(self) -> ArtefactAttribution:
         """Attribution for this request, resolved once and reused.
@@ -5431,6 +5455,12 @@ def append_suggested_reviewers(
             # profile already excludes impersonated rows (`_recent_reviewer_corrections`), so the
             # note channel gates on the same signal to keep the two reviewer-correction paths agreeing.
             was_impersonated = is_impersonated_session(request)
+            shared_note = _scout_readable_removal_note(
+                team=team,
+                user=cast(User, request.user),
+                scoped_team_ids=scoped_team_id_tuple,
+                note=removal_note if removed_payloads else None,
+            )
             log_activity(
                 organization_id=None,
                 team_id=team.id,
@@ -5452,7 +5482,7 @@ def append_suggested_reviewers(
                         # The reviewer-corrections profile reads these, so research sees why people left.
                         *(
                             Change(type="SignalReport", action="changed", field=field, after=value)
-                            for field, value in (("removal_reason", removal_reason), ("removal_note", removal_note))
+                            for field, value in (("removal_reason", removal_reason), ("removal_note", shared_note))
                             if value and removed_payloads
                         ),
                     ],
@@ -5499,7 +5529,7 @@ def append_suggested_reviewers(
                     actor_user_id=user_id,
                     scoped_team_ids=scoped_team_id_tuple,
                     removal_reason=removal_reason if removed_payloads else None,
-                    removal_note=removal_note if removed_payloads else None,
+                    removal_note=shared_note,
                 )
 
         # on_commit so a rolled-back edit emits and steers nothing, matching every other reviewer
@@ -5552,6 +5582,23 @@ def _stored_reviewer_entry(entry: dict) -> dict:
     }
 
 
+def _scout_readable_removal_note(
+    *, team: Team, user: User, scoped_team_ids: tuple[int, ...] | None, note: str | None
+) -> str | None:
+    """The removal note to store, or None when its author may not steer scouts.
+
+    The note lands in the reviewer-corrections profile, which every scout and research run reads
+    verbatim. So it passes the gate a scout note passes: a reviewer edit must not carry text that its
+    author could not leave as a note by hand. The reason code is a fixed choice and needs no gate.
+    """
+    if not note:
+        return None
+    canonical_team = team.parent_team or team
+    if not principal_may_steer_scouts(user=user, scoped_team_ids=scoped_team_ids, canonical_team=canonical_team):
+        return None
+    return note
+
+
 def remove_suggested_reviewer(
     *,
     team: Team,
@@ -5561,6 +5608,7 @@ def remove_suggested_reviewer(
     was_impersonated: bool,
     removal_reason: str | None = None,
     removal_note: str | None = None,
+    forward_note: bool = True,
 ) -> bool:
     """Take one person off a report's suggested reviewers and leave everyone else as they are.
 
@@ -5576,6 +5624,9 @@ def remove_suggested_reviewer(
     implementation task as the user a reviewers edit is attributed to. Stepping off a report must
     never start work, least of all under the credentials of the person who just declined it.
     """
+    removal_note = _scout_readable_removal_note(
+        team=team, user=user, scoped_team_ids=scoped_team_ids, note=removal_note
+    )
     user_id = user.id
     if user_id is None:  # unreachable behind authentication, but keeps attribution honest
         raise serializers.ValidationError("Cannot attribute a reviewer edit to an anonymous user.")
@@ -5679,6 +5730,7 @@ def remove_suggested_reviewer(
                     entry["user_uuid"] for entry in new_content if entry["user_uuid"] and not entry["github_login"]
                 ],
                 correction=correction,
+                forward_note=forward_note,
             )
         )
     return True
@@ -5691,13 +5743,16 @@ def _record_reviewer_edit(
     github_logins: list[str],
     user_uuids: list[str],
     correction: ReviewerCorrection | None,
+    forward_note: bool = True,
 ) -> None:
     """The post-commit tail of a reviewer edit: steer the scouts, then record what the edit did.
 
     Forwarding runs first so the analytics event can report what it achieved. `correction` is None
     for an agent write or an order-only rewrite, neither of which tells a scout anything.
     """
-    forwarded = forward_reviewer_correction_note(team=team, correction=correction) if correction else None
+    forwarded = (
+        forward_reviewer_correction_note(team=team, correction=correction) if correction and forward_note else None
+    )
     capture_suggested_reviewers_resolved(
         team_id=team.id,
         report_id=report_id,

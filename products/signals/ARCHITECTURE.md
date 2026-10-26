@@ -1099,8 +1099,10 @@ The reason rides on the `suggested_reviewers_changed` activity row as extra chan
 It also rides on the forwarded correction note, where it replaces the generic caution with guidance for that reason.
 `wrong_area` is personal relevance and scopes an exclusion to the source report's area, `owned_by_someone_else` is ownership, and `unavailable` is never ownership evidence.
 The note is quoted line by line, so it cannot pose as a section that the suppression parser reads back.
+The note is stored only when its author passes `principal_may_steer_scouts`, the gate a hand-written scout note passes, because the profile hands it to every scout verbatim. The reason code is a fixed choice and needs no gate.
 The web dismiss dialog no longer offers `wrong_assignee`: a removal with a reason reaches research, and a dismissal closes the report for everyone. The state API still accepts the code from older clients.
 A `wrong_assignee` dismissal from an older client or an agent also takes the caller off the reviewers with `owned_by_someone_else` and the dismissal note, because research reads the reviewer corrections and never the dismissal note.
+A bulk dismissal processes only the reports that name the caller, and it skips the per-report correction notes, because the dismissal already sends each scout one note for the batch.
 
 **Wrong-repo dismissals.** The `wrong_repo` reason code carries an optional `corrected_repository` (`owner/repo`, refused with any other reason).
 The dismissal artefact denormalizes `selected_repository` (the report's latest `repo_selection` at dismissal time) next to the correction, so a selection mistake is one self-contained record.
