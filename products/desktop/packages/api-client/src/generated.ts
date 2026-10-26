@@ -346,6 +346,7 @@ export namespace Schemas {
          * Warehouse table name that was referenced
          */
         table_name: string;
+        uses_history_table?: (boolean | null) | undefined;
     };
     export type DataWarehouseSyncWarning = {
         data_is_current?: (boolean | null) | undefined;
@@ -12376,6 +12377,8 @@ export namespace Schemas {
      * * `FileUpload` - FileUpload
      * * `Dripify` - Dripify
      * * `AwsS3Tables` - AwsS3Tables
+     * * `Beacons` - Beacons
+     * * `WooPayments` - WooPayments
      */
     export type ExternalDataSourceTypeEnum =
         | "Ashby"
@@ -13786,7 +13789,9 @@ export namespace Schemas {
         | "Particle"
         | "FileUpload"
         | "Dripify"
-        | "AwsS3Tables";
+        | "AwsS3Tables"
+        | "Beacons"
+        | "WooPayments";
     /**
      * * `web` - web
      * * `api` - api
@@ -15206,6 +15211,8 @@ export namespace Schemas {
          * * `FileUpload` - FileUpload
          * * `Dripify` - Dripify
          * * `AwsS3Tables` - AwsS3Tables
+         * * `Beacons` - Beacons
+         * * `WooPayments` - WooPayments
          */
         source_type: ExternalDataSourceTypeEnum;
         /**

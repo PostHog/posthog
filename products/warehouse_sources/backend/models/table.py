@@ -187,6 +187,15 @@ type DataWarehouseTableIntrospectedColumns = dict[str, DataWarehouseTableIntrosp
 # and never user-facing.
 HIDDEN_COLUMNS: frozenset[str] = frozenset({"_dlt_id", "_dlt_load_id", "_ph_debug", PARTITION_KEY})
 
+# Capture bookkeeping that a history table carries next to `valid_from`, `valid_to` and `_ph_deleted`,
+# which already tell a reader when a version held and whether it is a delete. The names mirror the
+# constants in `cdc/batcher.py`, which this module does not import because that pulls in pyarrow.
+HISTORY_HIDDEN_COLUMNS: frozenset[str] = frozenset({"_ph_cdc_op", "_ph_cdc_seq", "_ph_cdc_timestamp", "_ph_deleted_at"})
+# Set in `options` when the sync registers a table as a schema's history table. Column names cannot
+# tell the two apart, because a source table can have its own `valid_from` and `valid_to` columns.
+HISTORY_TABLE_OPTION = "history_table"
+
+
 # Characters that carry quoting meaning once a column name is written into SQL. The structure
 # builder escapes them already, so this is a second layer: it keeps such a name out of the other
 # sinks that read this column store, not all of which escape as thoroughly (for example
@@ -596,12 +605,33 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         self.deleted_at = timezone.now()
         self.save()
 
+    @property
+    def is_history_table(self) -> bool:
+        # The names repeat the CDC batcher's constants, because importing it loads pyarrow with this model.
+        if not self.external_data_source_id or not self.name.endswith("_cdc"):
+            return False
+        columns = self.columns or {}
+        return "valid_from" in columns and "valid_to" in columns
+
     def table_name_without_prefix(self) -> str:
         if self.external_data_source is not None and self.external_data_source.prefix is not None:
             prefix = self.external_data_source.prefix
         else:
             prefix = ""
         return self.name[len(prefix) :]
+
+    @property
+    def is_history_table(self) -> bool:
+        return (self.options or {}).get(HISTORY_TABLE_OPTION) is True
+
+    def mark_as_history_table(self) -> None:
+        self.options = {**(self.options or {}), HISTORY_TABLE_OPTION: True}
+
+    def hidden_columns(self) -> frozenset[str]:
+        """The plumbing columns to keep out of the catalog for this table."""
+        if self.is_history_table:
+            return HIDDEN_COLUMNS | HISTORY_HIDDEN_COLUMNS
+        return HIDDEN_COLUMNS
 
     def get_user_facing_columns(self) -> list[dict[str, Any]]:
         """Synced columns as `[{name, data_type, is_nullable}]`, skipping internal plumbing columns.
@@ -618,9 +648,10 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         `get_hogql_column_name_mapping(self.table_name_without_prefix())` directly.
         """
         hogql_by_raw = get_hogql_column_name_mapping(self.table_name_without_prefix())
+        hidden = self.hidden_columns()
         result: list[dict[str, Any]] = []
         for name, definition in (self.columns or {}).items():
-            if name in HIDDEN_COLUMNS:
+            if name in hidden:
                 continue
             if isinstance(definition, dict):
                 clickhouse_type = definition.get("clickhouse") or definition.get("hogql") or ""
@@ -1298,6 +1329,11 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             if fields.get(PARTITION_KEY):
                 del fields[PARTITION_KEY]
                 fields = {**fields, **default_fields}
+            # Hidden rather than removed, so a saved query that names one of these still resolves.
+            if self.is_history_table:
+                for name in HISTORY_HIDDEN_COLUMNS:
+                    if (field := fields.get(name)) is not None:
+                        fields[name] = field.model_copy(update={"hidden": True})
 
         table_def = HogQLDataWarehouseTable(
             name=self.name,
@@ -1311,6 +1347,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             table_id=str(self.id),
             external_data_source_id=str(self.external_data_source_id) if self.external_data_source_id else None,
             source_type=self.external_data_source.source_type if self.external_data_source else None,
+            is_history_table=self.is_history_table,
         )
 
         # Must resolve an unset option the same way _describe_settings does, by sending no setting.
