@@ -22,14 +22,18 @@ import { themeLogic } from 'lib/logic/themeLogic'
 import posthog from 'lib/posthog-typed'
 import { navigateToHref } from 'lib/utils/navigateToHref'
 import { newInternalTab } from 'lib/utils/newInternalTab'
+import { MAX_SIDE_PANEL_ID } from 'scenes/max/components/PhaiSidePanelChat'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { recentItemsModel } from '~/models/recentItemsModel'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
+import { SidePanelTab } from '~/types'
+
+import { runnerPanelLogic } from 'products/posthog_ai/frontend/api/logics'
 
 import type { Noun } from '../../../models/groupsModel'
 import type { GroupType, GroupTypeIndex, OrganizationMemberType, UserType } from '../../../types'
@@ -147,11 +151,24 @@ export interface commandKSearchLogicActions {
     ensureAllMembersLoaded: () => {
         value: true
     } // membersLogic
+    clearActiveCreation: () => {
+        value: true
+    } // runnerPanelLogic
+    setHistoryExpanded: (expanded: boolean) => {
+        expanded: boolean
+    } // runnerPanelLogic
+    openSidePanel: (
+        tab: SidePanelTab,
+        options?: string | undefined
+    ) => {
+        options: string | undefined
+        tab: SidePanelTab
+    } // sidePanelStateLogic
     loadCurrentTeamSuccess: (
-        currentTeam: null | import('../../../types').TeamPublicType,
+        currentTeam: null | import('~/types').TeamPublicType,
         payload?: any
     ) => {
-        currentTeam: null | import('../../../types').TeamPublicType
+        currentTeam: null | import('~/types').TeamPublicType
         payload?: any
     } // teamLogic
     activateRow: (
@@ -337,7 +354,8 @@ export interface commandKSearchLogicMeta {
             displayedQuery: {
                 query: SectionsQuery
                 stale: boolean
-            }
+            },
+            featureFlags: FeatureFlagsSet
         ) => CommandKSection[]
         selectableRows: (sections: CommandKSection[]) => CommandKRow[]
         highlightedRow: (selectableRows: CommandKRow[], highlightedKey: string | null) => CommandKRow | null
@@ -353,6 +371,8 @@ export type commandKSearchLogicType = MakeLogicType<
     Record<string, any>,
     commandKSearchLogicMeta
 >
+
+const asLiteralPanelPrompt = (question: string): string => ` ${question}`
 
 /**
  * Command K search: parses the input into filters and free text, builds the sections, owns the
@@ -398,6 +418,10 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
             ['ensureAllMembersLoaded'],
             teamLogic,
             ['loadCurrentTeamSuccess'],
+            sidePanelStateLogic,
+            ['openSidePanel'],
+            runnerPanelLogic({ panelId: MAX_SIDE_PANEL_ID }),
+            ['clearActiveCreation', 'setHistoryExpanded'],
         ],
     })),
     actions({
@@ -676,14 +700,23 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
             ): { query: SectionsQuery; stale: boolean } => pickDisplayedQuery(current, shown, remote),
         ],
         sections: [
-            (s) => [s.mode, s.cursorContext, s.suggestionsSection, s.localLists, s.remote, s.displayedQuery],
+            (s) => [
+                s.mode,
+                s.cursorContext,
+                s.suggestionsSection,
+                s.localLists,
+                s.remote,
+                s.displayedQuery,
+                s.featureFlags,
+            ],
             (
                 mode: CommandKMode,
                 context: CursorContext,
                 suggestions: CommandKSection | null,
                 local: LocalLists,
                 remote: RemoteSlots,
-                displayed: { query: SectionsQuery; stale: boolean }
+                displayed: { query: SectionsQuery; stale: boolean },
+                featureFlags: FeatureFlagsSet
             ): CommandKSection[] =>
                 buildSections({
                     mode,
@@ -693,6 +726,9 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                     remote,
                     ...displayed.query,
                     stale: displayed.stale,
+                    personsFirst:
+                        !!displayed.query.remoteQueries.persons?.includes('@') &&
+                        featureFlags[FEATURE_FLAGS.COMMAND_K_PERSONS_FIRST_FOR_EMAIL] === 'test',
                 }),
         ],
         selectableRows: [
@@ -768,7 +804,9 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
             })
             actions.closeCommand()
             if (row.kind === 'ask-ai') {
-                navigateToHref(urls.ai(undefined, row.question))
+                actions.clearActiveCreation()
+                actions.setHistoryExpanded(false)
+                actions.openSidePanel(SidePanelTab.Max, asLiteralPanelPrompt(row.question))
             } else if (item?.onSelect) {
                 item.onSelect()
             } else if (item?.href && newTab) {

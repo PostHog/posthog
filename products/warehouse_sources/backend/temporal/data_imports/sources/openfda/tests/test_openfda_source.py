@@ -45,10 +45,13 @@ class TestGetSchemas:
             # sync silently re-scans the whole dataset.
             ("drug_labels", False, ["id"]),
             ("drug_ndc", False, ["product_id"]),
+            ("device_udi", True, ["public_device_record_key"]),
+            # No unique key, so merge-based incremental or append would duplicate rows.
+            ("drug_shortages", False, None),
         ]
     )
     def test_incremental_support_matches_endpoint(
-        self, endpoint: str, expect_incremental: bool, primary_keys: list[str]
+        self, endpoint: str, expect_incremental: bool, primary_keys: list[str] | None
     ) -> None:
         schema = {s.name: s for s in OpenFDASource().get_schemas(_config(), team_id=1)}[endpoint]
         assert schema.supports_incremental is expect_incremental
