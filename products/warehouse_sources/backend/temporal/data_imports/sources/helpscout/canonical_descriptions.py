@@ -49,7 +49,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "lastName": "Customer's last name.",
             "photoUrl": "URL of the customer's photo.",
             "createdAt": "Time the customer was created, in ISO 8601 format.",
-            "modifiedAt": "Time the customer was last modified, in ISO 8601 format.",
+            "updatedAt": "Time the customer was last updated, in ISO 8601 format.",
         },
     },
     "mailboxes": {

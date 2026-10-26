@@ -36,21 +36,34 @@ def flash_pipeline_kill_switch_on(team_id: int) -> bool:
 
 
 STANDARD_COORDINATOR_FLAG = "reviewhog-standard-coordinator"
+ZERO_CHANGE_SKIP_FLAG = "reviewhog-zero-change-skip"
+DELTA_BAND_FLAG = "reviewhog-delta-band"
+
+
+def _pull_request_flag_on(flag: str, repository: str, pr_number: int) -> bool:
+    """Whether `flag` is on for this PR.
+
+    Keyed by the PR, not the organization, so a percentage rollout splits the reviews of one organization
+    and every turn of a PR gets the same answer. Any evaluation failure reads as off.
+    """
+    try:
+        enabled = posthoganalytics.feature_enabled(flag, f"{repository}#{pr_number}", send_feature_flag_events=False)
+    except Exception:
+        logger.exception("Could not evaluate %s for %s#%s", flag, repository, pr_number)
+        return False
+    return enabled is True
 
 
 def standard_coordinator_on(repository: str, pr_number: int) -> bool:
-    """Whether this PR's Standard turns run their sessions as sub-agents of one coordinator session.
+    """Whether this PR's Standard turns run their sessions as sub-agents of one coordinator session."""
+    return _pull_request_flag_on(STANDARD_COORDINATOR_FLAG, repository, pr_number)
 
-    Keyed by the PR, not the organization, so a percentage rollout splits the reviews of one organization
-    and every turn of a PR runs on the same design. Any evaluation failure reads as off.
-    """
-    try:
-        enabled = posthoganalytics.feature_enabled(
-            STANDARD_COORDINATOR_FLAG,
-            f"{repository}#{pr_number}",
-            send_feature_flag_events=False,
-        )
-    except Exception:
-        logger.exception("Could not evaluate %s for %s#%s", STANDARD_COORDINATOR_FLAG, repository, pr_number)
-        return False
-    return enabled is True
+
+def skips_zero_change_follow_ups(repository: str, pr_number: int) -> bool:
+    """Whether this PR is in the treatment arm of the zero-change split: the gate skips a push whose PR diff did not change."""
+    return _pull_request_flag_on(ZERO_CHANGE_SKIP_FLAG, repository, pr_number)
+
+
+def delta_reviews_low_risk_follow_ups(repository: str, pr_number: int) -> bool:
+    """Whether this PR is in the treatment arm of the delta split: low-risk later follow-ups review only what changed."""
+    return _pull_request_flag_on(DELTA_BAND_FLAG, repository, pr_number)

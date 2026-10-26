@@ -363,6 +363,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconCorrelationAnalysis,
         inMenu: false,
     },
+    [NodeKind.ErrorTrackingIssueEventsQuery]: {
+        name: 'Error Tracking Issue Exceptions',
+        description: "List an issue's exceptions, optionally only the ones with a session recording.",
+        icon: IconWarning,
+        inMenu: false,
+    },
     [NodeKind.ErrorTrackingSimilarIssuesQuery]: {
         name: 'Error Tracking Similar Issues',
         description: 'Explore issues similar to the selected one.',

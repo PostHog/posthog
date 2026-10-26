@@ -6,6 +6,7 @@ import {
     DocumentSimilarityQuery,
     ErrorTrackingBreakdownsQuery,
     ErrorTrackingIssueCorrelationQuery,
+    ErrorTrackingIssueEventsQuery,
     ErrorTrackingPendingFingerprintIssueStateUpdate,
     ErrorTrackingQuery,
     ErrorTrackingQueryIssueSeverity,
@@ -230,6 +231,24 @@ export const errorTrackingIssueEventsQuery = ({
     }
 
     return eventsQuery
+}
+
+export const errorTrackingIssueEventsListQuery = ({
+    issueId,
+    source,
+    onlyWithRecording,
+}: {
+    issueId: string
+    source: EventsQuery
+    onlyWithRecording: boolean
+}): ErrorTrackingIssueEventsQuery => {
+    return setLatestVersionsOnQuery<ErrorTrackingIssueEventsQuery>({
+        kind: NodeKind.ErrorTrackingIssueEventsQuery,
+        issueId,
+        source,
+        onlyWithRecording,
+        tags: { productKey: ProductKey.ERROR_TRACKING },
+    })
 }
 
 export const errorTrackingIssueCorrelationQuery = ({

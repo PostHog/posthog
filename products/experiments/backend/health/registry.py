@@ -102,7 +102,8 @@ EXPERIMENT_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
 )
 
 # The exposure query runs these on its answer. They must not include the checks above: the exposure answer
-# is cached for a day, and a flag edit would not clear their findings.
+# is cached for a day, and a flag edit would not clear their findings. `srm` reads the verdict of
+# `split_changed_mid_run`, which only a split edit can change, and the split is part of the exposure query's cache key.
 EXPOSURE_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
     HealthCheck(
         key=ExperimentHealthCheckKey.ZERO_EXPOSURES,

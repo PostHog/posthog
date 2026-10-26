@@ -73,6 +73,7 @@ import { DataQualityGateToggle } from 'products/data_quality/frontend/settings/D
 import { ExceptionAutocaptureToggle } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/exception_autocapture/ExceptionAutocaptureSettings'
 import { SuppressionRules } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/suppression_rules/SuppressionRules'
 import { MAX_LOOKBACK_DAYS, MIN_LOOKBACK_DAYS } from 'products/experiments/frontend/constants'
+import { FeatureFlagRequestBlocklist } from 'products/feature_flags/frontend/FeatureFlagRequestBlocklist'
 import { LogsAlertingSection } from 'products/logs/frontend/components/LogsAlerting/LogsAlertingSection'
 import { LogsMetricRulesSection } from 'products/logs/frontend/components/LogsMetricRules/LogsMetricRulesSection'
 import { LogsSamplingSection } from 'products/logs/frontend/components/LogsSampling/LogsSamplingSection'
@@ -1093,6 +1094,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'Require every new feature flag to have at least one tag, and stop a tagged flag losing its last one, so flags stay attributable to a team or workstream. Flags created for surveys, experiments, early access features, product tours, and web experiments are exempt.',
                 component: <RequireFeatureFlagTags />,
                 keywords: ['tag', 'tags', 'require', 'governance'],
+            },
+            {
+                id: 'feature-flag-request-blocklist',
+                title: 'Blocked domains and IP addresses',
+                description:
+                    'Feature flag requests from these domains or IP addresses get an empty response and are not billed. Use this when someone else uses your project token without permission.',
+                component: <FeatureFlagRequestBlocklist />,
+                keywords: ['block', 'blocklist', 'domain', 'ip', 'origin', 'abuse', 'token'],
             },
             {
                 id: 'feature-flag-require-evaluation-contexts',
@@ -2571,7 +2580,7 @@ export const SETTINGS_MAP: SettingSection[] = [
     {
         level: 'organization',
         id: 'organization-danger-zone',
-        title: 'Danger zone',
+        title: 'Delete organization',
         settings: [
             {
                 id: 'organization-delete',
@@ -2836,7 +2845,7 @@ export const SETTINGS_MAP: SettingSection[] = [
     {
         level: 'user',
         id: 'user-danger-zone',
-        title: 'Danger zone',
+        title: 'Delete account',
         settings: [
             {
                 id: 'user-delete',

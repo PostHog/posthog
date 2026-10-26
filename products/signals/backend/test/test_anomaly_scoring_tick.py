@@ -1,4 +1,6 @@
+import json
 import uuid
+import hashlib
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -23,11 +25,13 @@ from posthog.hogql.errors import QueryError, ResolutionError, TableAccessDeniedE
 
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseClusterMemoryLimitExceeded, ClickHouseQueryTimeOut
 from posthog.models import Organization, Team, User
+from posthog.tasks.alerts.detectors.base import ARTIFACT_SCHEMA_VERSION
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.product_analytics.backend.facade.api import record_insight_view
 from products.product_analytics.backend.facade.models import Insight
+from products.signals.backend.anomaly_scores.artifacts import clear_artifact_cache
 from products.signals.backend.anomaly_scores.config import DISABLED, AnomalyScoringConfig, ScoringRun, parse_config
 from products.signals.backend.anomaly_scores.emission import SCORER_DISTINCT_ID, score_events
 from products.signals.backend.anomaly_scores.queue import (
@@ -54,7 +58,7 @@ from products.signals.backend.anomaly_scores.scoring import (
     UnsupportedInsightError,
 )
 from products.signals.backend.anomaly_scores.selection import SelectionConfig, Weighting
-from products.signals.backend.anomaly_scores.state import RunPlan
+from products.signals.backend.anomaly_scores.state import RunPlan, load_state, plan_run
 from products.signals.backend.anomaly_scores.tick import (
     AnomalyScoringTickInput,
     AnomalyScoringTickPlan,
@@ -126,7 +130,6 @@ class TestTickConfig(SimpleTestCase):
                 "limits": {"max_backfill_buckets": 100_000, "max_series": -1},
                 "train_score_split": "true",
                 "train_every_buckets": {"hour": 100_000, "day": 0, "week": 2},
-                "refresh_buckets": ["day"],
             }
         )
 
@@ -142,7 +145,6 @@ class TestTickConfig(SimpleTestCase):
             IntervalType.WEEK: 2,
             IntervalType.MONTH: 3,
         }
-        assert config.refresh_buckets == DISABLED.refresh_buckets
 
     @parameterized.expand(
         [
@@ -487,7 +489,26 @@ class TestRunInsight(SimpleTestCase):
 
 
 class TestTrainScoreSplit(BaseTest):
-    def _run(self, insight: Insight, pick: InsightPick, now: datetime, data: list[float]) -> list[dict[str, Any]]:
+    def setUp(self) -> None:
+        super().setUp()
+        self.team.timezone = "UTC"
+        self.team.save()
+        self.blobs: dict[str, bytes] = {}
+        storage = "products.signals.backend.anomaly_scores.artifacts.object_storage"
+        for name, fake in [
+            ("write", lambda key, blob: self.blobs.__setitem__(key, blob)),
+            ("read_bytes", lambda key, missing_ok: self.blobs.get(key)),
+            ("delete", lambda key: self.blobs.pop(key, None)),
+        ]:
+            patcher = patch(f"{storage}.{name}", side_effect=fake)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        clear_artifact_cache()
+        self.addCleanup(clear_artifact_cache)
+
+    def _run(
+        self, insight: Insight, pick: InsightPick, now: datetime, data: list[float]
+    ) -> tuple[ScoreInsightResult, list[dict[str, Any]]]:
         days = [(now - timedelta(days=len(data) - 1 - day)).strftime("%Y-%m-%d") for day in range(len(data))]
         results = [{"action": {"order": 0}, "label": "pageview", "days": days, "data": data, "breakdown_value": None}]
         with (
@@ -496,36 +517,40 @@ class TestTrainScoreSplit(BaseTest):
             patch("products.signals.backend.anomaly_scores.tick.mark_attempted"),
         ):
             runner.return_value.run.return_value = MagicMock(results=results)
-            run_insight(ScoreInsightInput(pick=pick), now)
-        return emit.call_args.args[1]
+            result = run_insight(ScoreInsightInput(pick=pick), now)
+        return result, emit.call_args.args[1] if emit.called else []
 
-    def test_a_train_pick_stores_the_tail_that_the_next_score_pick_scores_on(self) -> None:
-        self.team.timezone = "UTC"
-        self.team.save()
-        insight = Insight.objects.create(team=self.team, saved=True, query=_trends(interval="day"))
+    def _train(self, insight: Insight, trained_at: datetime) -> list[dict[str, Any]]:
         values = [float(value) for value in np.random.default_rng(4).normal(100, 5, size=100)]
-        # JSON has no NaN, so the oldest stored bucket is stored as null. The detector no longer reads it.
-        values[39] = float("nan")
-        trained_at = datetime(2026, 10, 20, 0, 30, tzinfo=UTC)
-
-        trained = self._run(
+        _result, events = self._run(
             insight,
             InsightPick(team_id=self.team.id, insight_id=insight.id, scored_through={}, run=ScoringRun.TRAIN),
             trained_at,
             values,
         )
-        scored = self._run(
-            insight,
-            InsightPick(
-                team_id=self.team.id,
-                insight_id=insight.id,
-                scored_through={trained[-1]["properties"]["$anomaly_series_key"]: datetime(2026, 10, 19, tzinfo=UTC)},
-                run=ScoringRun.SCORE,
-                refresh_buckets=3,
-            ),
-            trained_at + timedelta(days=2),
-            [*values[-4:], 500.0, 100.0],
+        self.values = values
+        return events
+
+    def _score_pick(self, insight: Insight, trained: list[dict[str, Any]]) -> InsightPick:
+        return InsightPick(
+            team_id=self.team.id,
+            insight_id=insight.id,
+            scored_through={trained[-1]["properties"]["$anomaly_series_key"]: datetime(2026, 10, 19, tzinfo=UTC)},
+            run=ScoringRun.SCORE,
         )
+
+    def test_a_train_pick_stores_the_artifact_that_the_next_score_pick_scores_with(self) -> None:
+        insight = Insight.objects.create(team=self.team, saved=True, query=_trends(interval="day"))
+        trained_at = datetime(2026, 10, 20, 0, 30, tzinfo=UTC)
+        trained = self._train(insight, trained_at)
+        first_key = AnomalyScoringState.objects.for_team(self.team.id).get(insight_id=insight.id).artifact_key
+        _result, scored = self._run(
+            insight,
+            self._score_pick(insight, trained),
+            trained_at + timedelta(days=2),
+            [*self.values[-4:], 500.0, 100.0],
+        )
+        self._train(insight, trained_at + timedelta(days=7))
 
         assert {event["properties"]["$anomaly_run"] for event in trained} == {"train"}
         assert [
@@ -536,9 +561,42 @@ class TestTrainScoreSplit(BaseTest):
             )
             for event in scored
         ] == [("score", "2026-10-20T00:00:00+00:00", 0), ("score", "2026-10-21T00:00:00+00:00", 1)]
+        model_ids = {event["properties"]["$anomaly_model_id"] for event in [*trained, *scored]}
+        assert model_ids == {first_key.rsplit("/", 1)[-1]}
         state = AnomalyScoringState.objects.for_team(self.team.id).get(insight_id=insight.id)
-        assert state.scored_through == datetime(2026, 10, 21, tzinfo=UTC)
-        assert state.trained_at == trained_at
+        assert state.trained_at == trained_at + timedelta(days=7)
+        # A retrain replaces the blob and deletes the previous one.
+        assert list(self.blobs) == [state.artifact_key] != [first_key]
+
+    @parameterized.expand([("corrupt",), ("missing",), ("older_schema",)])
+    def test_an_artifact_blob_that_fails_its_check_makes_the_next_visit_train(self, case: str) -> None:
+        insight = Insight.objects.create(team=self.team, saved=True, query=_trends(interval="day"))
+        trained_at = datetime(2026, 10, 20, 0, 30, tzinfo=UTC)
+        trained = self._train(insight, trained_at)
+        state = AnomalyScoringState.objects.for_team(self.team.id).get(insight_id=insight.id)
+        key = state.artifact_key
+        clear_artifact_cache()
+        if case == "missing":
+            del self.blobs[key]
+        elif case == "corrupt":
+            self.blobs[key] = b"{}"
+        else:
+            stored = json.loads(self.blobs[key])
+            for artifact in stored["series"].values():
+                artifact["schema_version"] = ARTIFACT_SCHEMA_VERSION - 1
+            self.blobs[key] = json.dumps(stored).encode()
+            state.artifact_sha256 = hashlib.sha256(self.blobs[key]).hexdigest()
+            state.save()
+        scored_at = trained_at + timedelta(days=2)
+
+        result, events = self._run(insight, self._score_pick(insight, trained), scored_at, self.values[-6:])
+
+        assert (result.status, events) == ("artifact_unavailable", [])
+        plan = plan_run(insight, self.team, load_state(self.team, insight), parse_config(_SPLIT_PAYLOAD), scored_at)
+        assert plan.run == ScoringRun.TRAIN
+
+
+_SPLIT_PAYLOAD = {"enabled": True, "organization_ids": [ORGANIZATION_ID], "train_score_split": True}
 
 
 class TestEligibleTeams(BaseTest):
@@ -645,14 +703,19 @@ class TestScoredBuckets(ClickhouseTestMixin, BaseTest):
         dashboard = Dashboard.objects.create(team=self.team, name="Main")
         insights = {
             name: Insight.objects.create(team=self.team, name=name, query=_trends(interval="day"))
-            for name in ("never_scored", "stale", "fresh")
+            for name in ("never_scored", "stale", "fresh", "past_day_window")
         }
         for insight in insights.values():
             DashboardTile.objects.create(dashboard=dashboard, insight=insight)
             cache.delete(_cooldown_key(insight.id))
         cache.delete_many([_fleet_budget_key(NOW), _project_budget_key(self.team.id, NOW)])
         today = NOW.replace(hour=0)
-        for name, bucket in (("stale", today - timedelta(days=3)), ("fresh", today - timedelta(days=1))):
+        for name, bucket in (
+            ("stale", today - timedelta(days=3)),
+            ("fresh", today - timedelta(days=1)),
+            # Inside the window of a month insight, but older than the window of a day insight.
+            ("past_day_window", today - timedelta(days=40)),
+        ):
             _create_event(
                 team=self.team,
                 event="$anomaly_score",
@@ -671,8 +734,10 @@ class TestScoredBuckets(ClickhouseTestMixin, BaseTest):
         with patch("products.signals.backend.anomaly_scores.queue.list_limited_team_attributes", return_value=[]):
             selection = select_insights(config, SelectionConfig(weighting=Weighting.UNIFORM), NOW, limit=10)
 
-        assert [pick.insight_id for pick in selection.picks] == [insights["never_scored"].id, insights["stale"].id]
-        assert selection.picks[1].scored_through == {"stale": today - timedelta(days=3)}
+        picks = {pick.insight_id: pick for pick in selection.picks}
+        assert set(picks) == {insights[name].id for name in ("never_scored", "stale", "past_day_window")}
+        assert picks[insights["stale"].id].scored_through == {"stale": today - timedelta(days=3)}
+        assert picks[insights["past_day_window"].id].scored_through == {}
 
     @time_machine.travel(NOW, tick=False)
     def test_select_insights_lets_each_project_pick_before_any_project_picks_twice(self) -> None:
@@ -705,6 +770,38 @@ class TestScoredBuckets(ClickhouseTestMixin, BaseTest):
         assert selection.picks[0].insight_id in {insight.id for insight in large_insights}
         assert selection.picks[1].insight_id == small_insight.id
         assert selection.candidates == 4
+
+    @time_machine.travel(NOW, tick=False)
+    def test_select_insights_skips_a_project_whose_scored_buckets_query_times_out(self) -> None:
+        slow_team = Team.objects.create(organization=self.organization, name="Slow")
+        dashboards = {team.id: Dashboard.objects.create(team=team, name="Main") for team in (self.team, slow_team)}
+        insights = {}
+        for team in (self.team, slow_team):
+            insight = Insight.objects.create(team=team, name=team.name, query=_trends(interval="day"))
+            DashboardTile.objects.create(dashboard=dashboards[team.id], insight=insight)
+            cache.delete(_cooldown_key(insight.id))
+            insights[team.id] = insight
+        cache.delete_many(
+            [_fleet_budget_key(NOW), *(_project_budget_key(team_id, NOW) for team_id in (self.team.id, slow_team.id))]
+        )
+        config = AnomalyScoringConfig(
+            enabled=True,
+            organization_ids=(str(self.organization.id),),
+            allow_team_ids=(self.team.id, slow_team.id),
+        )
+
+        def buckets(team: Team, *args: Any) -> dict[int, dict[str, datetime]]:
+            if team.id == slow_team.id:
+                raise ClickHouseQueryTimeOut()
+            return scored_buckets(team, *args)
+
+        with (
+            patch("products.signals.backend.anomaly_scores.queue.list_limited_team_attributes", return_value=[]),
+            patch("products.signals.backend.anomaly_scores.queue.scored_buckets", side_effect=buckets),
+        ):
+            selection = select_insights(config, SelectionConfig(weighting=Weighting.UNIFORM), NOW, limit=10)
+
+        assert [pick.insight_id for pick in selection.picks] == [insights[self.team.id].id]
 
 
 async def _run_tick(

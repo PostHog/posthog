@@ -1084,6 +1084,7 @@ doesn't conflict with concurrent PRs.
 - backblaze
 - basecamp
 - bcms
+- beacons
 - bexio
 - billit
 - bitly
@@ -1569,6 +1570,7 @@ doesn't conflict with concurrent PRs.
 - wistia
 - wiz
 - wompi
+- woopayments
 - workato
 - workflowmax
 - workramp
