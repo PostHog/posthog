@@ -48,6 +48,7 @@ from products.replay_vision.backend.models.replay_observation import (
     ObservationTrigger,
     ReplayObservation,
 )
+from products.replay_vision.backend.models.replay_observation_feed_impression import ReplayObservationFeedImpression
 from products.replay_vision.backend.models.replay_observation_label import ReplayObservationLabel
 from products.replay_vision.backend.models.replay_observation_usage import ReplayObservationUsage
 from products.replay_vision.backend.models.replay_scanner import (
@@ -76,6 +77,7 @@ from products.replay_vision.backend.tests.helpers import (
     seed_scanner_spend,
     snapshot_for as _snapshot_for,
 )
+from products.replay_vision.backend.watch_rank import ANCHOR_VERSION
 from products.signals.backend.facade.api import (
     SignalSourceSliceOutcomes,
     SignalSourceSlicePullRequest,
@@ -5108,7 +5110,7 @@ class TestWatchFeedAPI(_VisionAPITestCase):
         resp = self.client.get(self.feed_url)
         self.assertEqual(resp.json()["results"][0]["reason"], {"kind": "unviewed_recent"})
 
-    def test_the_flag_switches_the_whole_ranker_between_weighted_score_and_jev(self) -> None:
+    def test_the_flag_switches_the_whole_ranker_between_arms(self) -> None:
         # The two rankers are independent: a cached Jev probability must not move the weighted-score
         # feed (weighted-score and jev-shadow arms), and the jev arm must rank on the cached
         # probabilities alone, with unjudged and judged-low rows in the recency filler tier.
@@ -5151,6 +5153,197 @@ class TestWatchFeedAPI(_VisionAPITestCase):
         self.assertEqual(items[0]["reason"], {"kind": "jev_watchable", "jev_probability": 0.95})
         self.assertEqual(items[1]["reason"], {"kind": "unviewed_recent"})
         self.assertEqual(items[2]["reason"], {"kind": "unviewed_recent"})
+
+        # The embedding arm ranks on the rank the scan wrote, once the scanner has enough ranked rows.
+        for index in range(10):
+            filler = self._succeeded_observation(scanner, f"routine-{index}", 50 + index, self._monitor_result("no"))
+            ReplayObservation.objects.filter(id=filler.id).update(
+                watch_rank={
+                    "category": "routine",
+                    "contrast": -0.1,
+                    "duplicate_of": None,
+                    "anchor_version": ANCHOR_VERSION,
+                }
+            )
+        ReplayObservation.objects.filter(id=jev_low.id).update(
+            watch_rank={"category": "failure", "contrast": 0.2, "duplicate_of": None, "anchor_version": ANCHOR_VERSION}
+        )
+        with patch(ranker, return_value="embedding"):
+            resp = self.client.get(self.feed_url)
+        items = resp.json()["results"]
+        self.assertEqual(resp.json()["ranker"], "embedding")
+        self.assertEqual(items[0]["observation"]["session_id"], "jev-low")
+        self.assertEqual(
+            items[0]["reason"],
+            {"kind": "embedding_pick", "watch_category": "failure", "similar_count": 0, "affected_people": 1},
+        )
+
+    def test_pages_do_not_shift_when_the_reader_opens_a_card_mid_scroll(self) -> None:
+        scanner = self._create_scanner(
+            name="s", scanner_type=ScannerType.SUMMARIZER, scanner_config={"prompt": "p", "length": "short"}
+        )
+        for i in range(6):
+            self._succeeded_observation(scanner, f"hit-{i}", 10 + i, self._friction_result())
+
+        first = self.client.get(f"{self.feed_url}?limit=3").json()
+        assert first["has_more"] is True
+        # Opening the top card would dock it below page two, and a card arriving would push everything down.
+        top_id = first["results"][0]["observation"]["id"]
+        assert self.client.post(f"{self.observations_url(str(scanner.id))}{top_id}/viewed/").status_code == 204
+        self._succeeded_observation(scanner, "late-hit", 0, self._friction_result())
+        # A scan already running at page one, which completes before page two, would also shift it.
+        self._succeeded_observation(scanner, "finished-late", 12, self._friction_result())
+        second = self.client.get(self.feed_url, {"limit": 3, "offset": 3, "as_of": first["as_of"]}).json()
+
+        sessions = [item["observation"]["session_id"] for item in first["results"] + second["results"]]
+        assert sessions == [f"hit-{i}" for i in range(6)]
+        assert second["has_more"] is False
+
+    def test_embedding_picks_reach_past_the_recency_slice_and_count_hidden_duplicates(self) -> None:
+        scanner = self._create_scanner(name="m")
+
+        def ranked(session_id: str, minutes_ago: int, category: str, contrast: float, duplicate_of: str | None = None):
+            obs = self._succeeded_observation(scanner, session_id, minutes_ago, self._monitor_result("no"))
+            ReplayObservation.objects.filter(id=obs.id).update(
+                watch_rank={
+                    "category": category,
+                    "contrast": contrast,
+                    "duplicate_of": duplicate_of,
+                    "anchor_version": ANCHOR_VERSION,
+                }
+            )
+            return obs
+
+        oldest = ranked("oldest-failure", 500, "failure", 0.9)
+        # A copy of the pick that scores below the cut still makes the group bigger.
+        ranked("copy", 400, "failure", -0.5, duplicate_of=str(oldest.id))
+        for index in range(10):
+            ranked(f"routine-{index}", index, "routine", -0.1)
+
+        # The candidate slice holds two rows per scanner, so the oldest row only surfaces from the whole window.
+        with (
+            patch("products.replay_vision.backend.api.scanners.watch_feed_ranker_variant", return_value="embedding"),
+            patch("products.replay_vision.backend.api.scanners.WATCH_FEED_PER_SCANNER_CAP", 2),
+        ):
+            items = self.client.get(self.feed_url).json()["results"]
+        picks = [item for item in items if item["reason"]["kind"] == "embedding_pick"]
+        self.assertEqual([item["observation"]["session_id"] for item in picks], ["oldest-failure"])
+        self.assertEqual(picks[0]["reason"]["similar_count"], 1)
+        self.assertEqual(picks[0]["reason"]["affected_people"], 2)
+
+    def test_a_thin_embedding_feed_pads_by_group_and_never_pads_with_a_copy_of_a_pick(self) -> None:
+        scanner = self._create_scanner(name="m")
+
+        def ranked(session_id: str, minutes_ago: int, category: str, contrast: float, duplicate_of: str | None = None):
+            obs = self._succeeded_observation(scanner, session_id, minutes_ago, self._monitor_result("no"))
+            ReplayObservation.objects.filter(id=obs.id).update(
+                watch_rank={
+                    "category": category,
+                    "contrast": contrast,
+                    "duplicate_of": duplicate_of,
+                    "anchor_version": ANCHOR_VERSION,
+                }
+            )
+            return obs
+
+        root = ranked("pick", 500, "failure", 0.9)
+        # Two copies of the one finding: one above the cut, one newest of all and below it.
+        ranked("copy-above", 400, "failure", 0.8, duplicate_of=str(root.id))
+        ranked("copy-newest", 0, "failure", -0.9, duplicate_of=str(root.id))
+        for index in range(10):
+            ranked(f"routine-{index}", 10 + index, "routine", -0.1)
+
+        with patch("products.replay_vision.backend.api.scanners.watch_feed_ranker_variant", return_value="embedding"):
+            items = self.client.get(self.feed_url).json()["results"]
+        sessions = [item["observation"]["session_id"] for item in items]
+        self.assertEqual(sessions[0], "pick")
+        self.assertEqual(len(sessions), 3)
+        self.assertNotIn("copy-above", sessions)
+        self.assertNotIn("copy-newest", sessions)
+
+    def test_the_pick_cap_keeps_every_scanners_best_before_a_busy_scanners_next(self) -> None:
+        busy = self._create_scanner(name="busy")
+        quiet = self._create_scanner(name="quiet")
+        for scanner, prefix, top in ((busy, "busy", 0.9), (quiet, "quiet", 0.3)):
+            for index in range(12):
+                obs = self._succeeded_observation(scanner, f"{prefix}-{index}", index, self._monitor_result("yes"))
+                ReplayObservation.objects.filter(id=obs.id).update(
+                    watch_rank={
+                        "category": "failure",
+                        "contrast": top - index / 100,
+                        "duplicate_of": None,
+                        "anchor_version": ANCHOR_VERSION,
+                    }
+                )
+
+        with (
+            patch("products.replay_vision.backend.api.scanners.watch_feed_ranker_variant", return_value="embedding"),
+            patch("products.replay_vision.backend.api.scanners.WATCH_FEED_CANDIDATE_CAP", 2),
+        ):
+            items = self.client.get(self.feed_url).json()["results"]
+        picked = {item["observation"]["session_id"] for item in items if item["reason"]["kind"] == "embedding_pick"}
+        self.assertEqual(picked, {"busy-0", "quiet-0"})
+
+    def test_impressions_lower_an_embedding_pick_only_after_the_load_that_showed_it(self) -> None:
+        scanner = self._create_scanner(name="m")
+        rows = {}
+        for index in range(10):
+            obs = self._succeeded_observation(scanner, f"s-{index}", 10 + index, self._monitor_result("no"))
+            # The top two contrasts clear the top-fifth cut; the rest are the scanner's baseline.
+            category = "failure" if index < 2 else "routine"
+            ReplayObservation.objects.filter(id=obs.id).update(
+                watch_rank={
+                    "category": category,
+                    "contrast": 0.5 - index * 0.01,
+                    "duplicate_of": None,
+                    "anchor_version": ANCHOR_VERSION,
+                }
+            )
+            rows[f"s-{index}"] = obs
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        foreign = ReplayObservation.objects.create(
+            team=other_team,
+            scanner=ReplayScanner.objects.create(
+                team=other_team,
+                name="theirs",
+                scanner_type=ScannerType.MONITOR,
+                scanner_config={"prompt": "p"},
+                model=ScannerModel.GEMINI_3_8_FLASH,
+            ),
+            session_id="foreign",
+            status=ObservationStatus.SUCCEEDED,
+            completed_at=timezone.now(),
+        )
+        load = uuid.uuid4()
+
+        def load_picks(**params: str) -> tuple[list[str], str]:
+            with patch(
+                "products.replay_vision.backend.api.scanners.watch_feed_ranker_variant", return_value="embedding"
+            ):
+                body = self.client.get(self.feed_url, params).json()
+            picks = [
+                item["observation"]["session_id"]
+                for item in body["results"]
+                if item["reason"]["kind"] == "embedding_pick"
+            ]
+            return picks, body["as_of"]
+
+        picks, as_of = load_picks()
+        assert picks == ["s-0", "s-1"]
+        for _ in range(2):
+            # The same load reporting twice, as a tab hidden and shown again does, counts once.
+            resp = self.client.post(
+                f"{self.scanners_url}watch_feed_impressions/",
+                {"feed_load_id": str(load), "observation_ids": [str(rows["s-0"].id), str(foreign.id)]},
+                format="json",
+            )
+            assert resp.status_code == 204, resp.content
+        assert ReplayObservationFeedImpression.objects.for_team(self.team.id).get().shown_count == 1
+        assert not ReplayObservationFeedImpression.objects.for_team(other_team.id).exists()
+
+        # A later page of the same load ranks as of its first page, before the impression.
+        assert load_picks(as_of=as_of)[0] == ["s-0", "s-1"]
+        assert load_picks()[0] == ["s-1", "s-0"]
 
     def test_the_jev_arm_surfaces_a_watchable_row_the_recency_slice_cut_off(self) -> None:
         # The candidate query keeps only each scanner's newest rows, so on a high-volume scanner a
@@ -5611,16 +5804,52 @@ class TestWatchFeedAPI(_VisionAPITestCase):
         experiment = create_experiment(self.team, "restricted-flag")
         scanner = self._create_scanner(name="retargeted", experiment_targeting={"experiment_id": experiment.id})
         self._succeeded_observation(scanner, "restricted-sess", 1, self._monitor_result("yes"))
+        self._succeeded_observation(scanner, "restricted-sess-2", 2, self._monitor_result("yes"))
         scanner.experiment_targeting = None
         scanner.save()
-        self._succeeded_observation(scanner, "open-sess", 2, self._monitor_result("no"))
+        self._succeeded_observation(scanner, "open-sess", 3, self._monitor_result("no"))
+        self._succeeded_observation(scanner, "open-sess-2", 4, self._monitor_result("no"))
 
-        with patch(
-            "products.access_control.backend.facade.user_access_control.UserAccessControl.filter_queryset_by_access_level",
-            side_effect=lambda qs, **_: qs.exclude(pk=experiment.pk) if qs.model is Experiment else qs,
+        # The newest rows fill the first candidate page and are all restricted, so the feed must read on.
+        with (
+            patch(
+                "products.access_control.backend.facade.user_access_control.UserAccessControl.filter_queryset_by_access_level",
+                side_effect=lambda qs, **_: qs.exclude(pk=experiment.pk) if qs.model is Experiment else qs,
+            ),
+            patch("products.replay_vision.backend.api.scanners.WATCH_FEED_CANDIDATE_CAP", 2),
         ):
             resp = self.client.get(self.feed_url)
-        self.assertEqual([item["observation"]["session_id"] for item in resp.json()["results"]], ["open-sess"])
+        self.assertEqual(
+            sorted(item["observation"]["session_id"] for item in resp.json()["results"]), ["open-sess", "open-sess-2"]
+        )
+
+    def test_a_later_page_drops_rows_the_viewer_lost_access_to_after_the_first(self) -> None:
+        experiment = create_experiment(self.team, "revoked-flag")
+        scanner = self._create_scanner(name="retargeted", experiment_targeting={"experiment_id": experiment.id})
+        for index in range(12):
+            obs = self._succeeded_observation(scanner, f"sess-{index}", index, self._monitor_result("yes"))
+            ReplayObservation.objects.filter(id=obs.id).update(
+                watch_rank={
+                    "category": "failure",
+                    "contrast": index / 10,
+                    "duplicate_of": None,
+                    "anchor_version": ANCHOR_VERSION,
+                }
+            )
+        scanner.experiment_targeting = None
+        scanner.save()
+        ranker = "products.replay_vision.backend.api.scanners.watch_feed_ranker_variant"
+
+        with patch(ranker, return_value="embedding"):
+            first = self.client.get(self.feed_url, {"limit": 1}).json()
+            self.assertEqual(len(first["results"]), 1)
+            # The second page reads picks cached by the first, so access has to be checked again on the page itself.
+            with patch(
+                "products.access_control.backend.facade.user_access_control.UserAccessControl.filter_queryset_by_access_level",
+                side_effect=lambda qs, **_: qs.exclude(pk=experiment.pk) if qs.model is Experiment else qs,
+            ):
+                second = self.client.get(self.feed_url, {"limit": 5, "offset": 1, "as_of": first["as_of"]}).json()
+        self.assertEqual(second["results"], [])
 
     def test_not_useful_hides_a_row_for_that_user_only_until_undone(self) -> None:
         scanner = self._create_scanner(name="m")

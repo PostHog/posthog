@@ -564,6 +564,11 @@ Unknown clients use "Alex's agent". The label is fixed at claim time and does no
 The returned `claim_id` identifies the work attempt; stale or foreign claims are rejected, and taking another actor's claim requires explicit `takeover=true`.
 The shared ownership helper derives the active owner from the latest `work_claim` artefact and its `work_release` entries.
 Internal task agents automatically receive a `task_run` association on claim; clients do not write task associations separately.
+When a person holds the claim and starts an implementation task themselves, the task works under that claim instead of replacing it, so the person stays the owner while the agent writes the PR.
+A task started by anyone else is refused while a person holds the claim.
+That task can resume the person's claim and add pull requests and notes to it, but only the person can release it.
+A takeover can name the claim it expects to replace in `takeover_claim_id`, and the server refuses it when a different claim is active.
+In the Inbox, a suggested reviewer claims a report from their own row, and the report shows who works on it under the title. Agent and task claims are not shown there, because a person still has to review the agent's work.
 Notes, commits, and PR links can reference the claim without mixing that context into actor attribution.
 Attribution identifies the authenticated user plus coding-agent name, or the internal task, and describes who attached the PR rather than its GitHub author.
 
@@ -1049,6 +1054,7 @@ So with `ordering=status`, **`failed` sorts after actionable `ready`**. With `or
 Default ordering is **`-is_suggested_reviewer,status,-updated_at,id`**.
 
 **Dismissal feedback.** `dismissal_reason` / `dismissal_note` on the state and bulk-state bodies persist as a stacking `dismissal` artefact on the report, which stays the record of truth.
+`wrong_assignee` records a routing error, while `wontfix_irrelevant` records that the report is not useful to the project; neither says the report analysis is incorrect.
 When the caller typed a note, that feedback is _also_ forwarded to a `SignalScoutNote` (`dismissal_notes.forward_dismissal_note`).
 The artefact alone only reaches a scout if some later run happens to search the inbox and land on that report; notes are read by name at the start of every run, which is where a "this was noise, and here is why" verdict belongs.
 "Forward" rather than "promote" because promotion in this product means the pipeline moving a report up the status ladder to `candidate` (`promoted_at`, `signals_at_run`, re-promotion), and nothing here changes a report's standing.
@@ -1377,7 +1383,13 @@ Every self-driving pull request opens with no assignee, so it never reaches a Gi
 
 This governs what the rule adds. Nobody is ever unassigned, so a person can still assign three people by hand.
 
-"Assignee" here means GitHub's assignee, the person responsible. Each suggested reviewer with a connected GitHub account also receives an individual review request, in bounded batches of 15. The worker does not request a review from the pull request author, an assignee, or an existing requested reviewer. A separate app can still request the owning team for review.
+"Assignee" here means GitHub's assignee, the person responsible.
+A single assignee receives a review request even when another person or team request exists.
+Without a single owner, the worker requests the highest-ranked eligible report reviewer only when no request exists.
+Each attempt requests at most one person and preserves other requests.
+The worker skips the author, pending recipients, completed reviewers, and people whose review request was removed.
+Incomplete review or removal history prevents a new request.
+A separate app can still request the owning team for review.
 
 Under the `signals-pr-dri-assignee` flag, the candidates are, most responsible first:
 
@@ -1510,6 +1522,8 @@ The implementation path checks these gates again under the report lock before ta
 **Plan roll-up** (`backend/plan_rollup.py`). A `part_of` child carries the work and closes on its own pull request; the plan usually carries nothing of its own, so without the roll-up it sits in the inbox forever after the last step lands. When every live step of a plan is closed, the plan takes their verdict: resolved when at least one resolved, suppressed when they all were, untouched while any step is open. A deleted step is not a verdict and is dropped. Deleting a step also triggers the check. A plan that becomes ready checks its own steps, so completion can follow a failed attempt during research. Each plan is locked before the check reads and updates its state. The walk continues through plans that are already closed. Archiving a resolved plan is refused, for the same reason `_apply_pr_report_state` refuses it. The walk continues up a plan of plans, bounded by `MAX_PLAN_ROLLUP_LEVELS`, which tracks the `MAX_REPORT_LINK_GRAPH_LEVELS` depth `validated_report_link_write` accepts: a hierarchy the write path allows but the walk stops short of would leave its top plan open, with every step that could retrigger the walk already closed. A plan with a pending replacement is skipped like any other report, and that read, like the pull request read beside it, is pinned to the writer because a replacement written moments earlier must not read as absent. A plan a person pressed Implement on does carry its own pull request, and while that pull request is open, draft, or unknown the steps decide nothing: resolving on their verdict would hide a plan whose own work is still in flight, and archiving on it would send the dismissal receiver to close that pull request. It is hooked on `SignalReport`'s status change (`receivers.roll_up_plan_parents_when_report_closes`) rather than on the pull request webhook, so a merged pull request, a manual resolve, a bulk state change and an MCP state write all reach it. Plenty of steps close with no pull request at all. A `part_of` row written on a step that already closed runs the check too, from the link write path, because that write announces no status change of its own.
 
 **Stacked plans** (`backend/stack_plan.py`). Research can return an optional `layers` plan on `ReportPresentationOutput`: two to six layers, each with a title, a scope, and the index of an earlier layer it depends on. A forward reference falls back to the previous layer, so the order is always acyclic. When the pass settles ready, `mark_report_ready_activity` creates one ready child report per layer in the same transaction. Each child gets the scope as its summary, the plan's latest safety, actionability, priority, repository and reviewer judgments, a `part_of` link to the plan, and a `depends_on` link to its dependency. A layer is born ready without `promoted_at`, like a scout report: it runs no research, so it fires no `signal_report_started`, and the inbox ranking spine takes it in through its born-visible branch. A plan that already has children keeps them on a re-research. The plan itself is held by the `plan_parent` gate, and its settle-point auto-start then starts the layers whose dependencies already have a pull request. After that, each pull request sync on a report queues `start_dependent_stack_layers`, which starts the waiting layers. A layer whose dependency has an open or draft pull request starts on that dependency's automation branch, and the run state carries `stack_base_branch`, so the task launch protects that branch as the PR base instead of the base of the dependency's PR. A merged dependency leaves the layer on the default base. Replacing a whole stack after a lower layer is superseded, a server-side GitHub stack link, and a collapsed inbox list are not built yet.
+
+**Report detail** (`backend/report_plan.py`). The report detail response carries a `plan` field: the plan the report leads or belongs to, with each step's title, status, primary pull request, and the steps of the same plan it `depends_on`. A report with incoming `part_of` edges is a plan and lists its own steps, even when it is also a step of a larger plan. Otherwise its oldest outgoing `part_of` names the plan. Deleted steps, and dependencies on reports outside the plan, are left out. The field is null in list responses, because the incoming read is a team-scoped scan. The inbox renders it as a Plan block in the summary, after the Solution section, and hides the `## Plan` sentence that `_layer_summary` writes on each layer. The frontend finds that sentence by its text (`isGeneratedPlanSection`), so the two must change together.
 
 **The recurrence chain** (`backend/recurrence.py`) reads incoming `recurrence_of` edges to follow a forked report to its current live successor.
 

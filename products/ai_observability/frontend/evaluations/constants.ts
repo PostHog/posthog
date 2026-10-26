@@ -16,7 +16,7 @@ const EVALUATION_RESULT_FALSE_HOGQL = "properties.$ai_evaluation_result = 'false
 
 // A skipped run was never graded, but an evaluation that disallows N/A still emits result=false
 // alongside skipped=true, so any count that doesn't exclude skips reads them as failures. Mirrors
-// _NOT_SKIPPED_PREDICATE in products/ai_observability/backend/models/evaluation_outcomes.py, which
+// NOT_SKIPPED_PREDICATE in products/ai_observability/backend/models/evaluation_outcomes.py, which
 // the report metrics already apply — without this the two surfaces disagree about the same runs.
 export const EVALUATION_NOT_SKIPPED_HOGQL =
     "(isNull(properties.$ai_evaluation_skipped) OR properties.$ai_evaluation_skipped != 'true')"

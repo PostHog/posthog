@@ -11,7 +11,7 @@ from parameterized import parameterized
 
 from posthog.schema import MultipleVariantHandling
 
-from products.experiments.backend.facade.contracts import ExperimentHealthFindingActionKind
+from products.experiments.backend.facade.contracts import ExperimentHealthFinding, ExperimentHealthFindingActionKind
 from products.experiments.backend.health.checks.zero_exposures import (
     CALLS_NOT_COUNTED,
     CUSTOM_EXPOSURE_NOT_MATCHED,
@@ -19,15 +19,10 @@ from products.experiments.backend.health.checks.zero_exposures import (
     FLAG_NOT_CALLED,
     zero_exposures,
 )
-from products.experiments.backend.health.context import (
-    ExposureEvents,
-    ExposureTotals,
-    FlagState,
-    FlagVariant,
-    load_health_context,
-)
+from products.experiments.backend.health.context import ExposureEvents, ExposureTotals, FlagState, load_health_context
 from products.experiments.backend.health.test.factories import RUNNING_CONTEXT
 from products.experiments.backend.models.experiment import Experiment
+from products.feature_flags.backend.facade.edits import FlagVariant
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
@@ -45,6 +40,8 @@ NO_EXPOSURES = ExposureTotals(
     total_exposures={"control": 0, "test": 0},
     multiple_variant_handling=MultipleVariantHandling.EXCLUDE,
     sample_ratio_mismatch_p_value=None,
+    sample_ratio_expected={},
+    daily_exposures={},
     hours_since_launch=48,
     counts_groups=False,
 )
@@ -110,7 +107,7 @@ class TestZeroExposures(TestCase):
 
         finding = zero_exposures(ctx)
 
-        assert finding is not None
+        assert isinstance(finding, ExperimentHealthFinding)
         self.assertEqual((finding.subcode, finding.actions), (subcode, actions))
 
     @parameterized.expand(
@@ -139,7 +136,7 @@ class TestZeroExposures(TestCase):
 
         finding = zero_exposures(ctx)
 
-        assert finding is not None
+        assert isinstance(finding, ExperimentHealthFinding)
         self.assertEqual(
             (
                 finding.title,

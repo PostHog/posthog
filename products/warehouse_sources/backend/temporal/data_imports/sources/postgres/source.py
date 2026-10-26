@@ -190,6 +190,10 @@ _DATABASE_NOT_FOUND_VALIDATION_ERROR = (
     "correct and try again."
 )
 
+# The source type the managed-warehouse host exemption is keyed on. It names the listener
+# set the exemption applies to, and both the validation and the connect path pass it.
+POSTGRES_HOST_CHECK_SOURCE_TYPE = "postgres"
+
 PostgresErrors = {
     "password authentication failed for user": _INVALID_CREDENTIALS_VALIDATION_ERROR,
     # A proxy/pooler in front of some providers rejects bad credentials during its own
@@ -1732,7 +1736,7 @@ class PostgresSource(
     ) -> list[SourceSchema]:
         schemas = []
 
-        with self.with_ssh_tunnel(config, team_id) as (host, port):
+        with self.with_ssh_tunnel(config, team_id, POSTGRES_HOST_CHECK_SOURCE_TYPE) as (host, port):
             db_schemas = get_postgres_schemas(
                 host=host,
                 port=port,
@@ -1985,7 +1989,11 @@ class PostgresSource(
             return False, _RAILWAY_INTERNAL_HOST_ERROR
 
         valid_host, host_errors = self.is_database_host_valid(
-            config.host, team_id, using_ssh_tunnel=self.ssh_tunnel_enabled(config)
+            config.host,
+            team_id,
+            using_ssh_tunnel=self.ssh_tunnel_enabled(config),
+            port=config.port,
+            source_type=POSTGRES_HOST_CHECK_SOURCE_TYPE,
         )
         if not valid_host:
             return valid_host, host_errors
@@ -2054,7 +2062,7 @@ class PostgresSource(
     def get_connection_metadata(
         self, config: PostgresSourceConfig, team_id: int, require_ssl: bool = False
     ) -> dict[str, object]:
-        with self.with_ssh_tunnel(config, team_id) as (host, port):
+        with self.with_ssh_tunnel(config, team_id, POSTGRES_HOST_CHECK_SOURCE_TYPE) as (host, port):
             return get_postgres_connection_metadata(
                 host=host,
                 port=port,
@@ -2087,7 +2095,7 @@ class PostgresSource(
             _connect_to_postgres,
         )
 
-        with self.with_ssh_tunnel(config, team_id) as (host, port):
+        with self.with_ssh_tunnel(config, team_id, POSTGRES_HOST_CHECK_SOURCE_TYPE) as (host, port):
             conn = _connect_to_postgres(
                 host=host,
                 port=port,
@@ -2283,7 +2291,7 @@ class PostgresSource(
             ForeignServerUnreachableError,
         )
 
-        ssh_tunnel = self.make_ssh_tunnel_func(config, inputs.team_id)
+        ssh_tunnel = self.make_ssh_tunnel_func(config, inputs.team_id, POSTGRES_HOST_CHECK_SOURCE_TYPE)
 
         # This reads sync metadata from PostHog's own database, not the customer's Postgres — a
         # transient failure reaching it (e.g. a DNS blip resolving our host) is a plain Django
