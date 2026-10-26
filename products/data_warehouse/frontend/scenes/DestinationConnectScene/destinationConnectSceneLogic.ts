@@ -1,5 +1,6 @@
-import { MakeLogicType, actions, kea, path, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, kea, listeners, path, reducers, selectors } from 'kea'
 import { urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -105,6 +106,22 @@ export const destinationConnectSceneLogic = kea<destinationConnectSceneLogicType
             ],
         ],
     }),
+    listeners(({ values }) => ({
+        setKind: () => {
+            if (values.destinationDefinition) {
+                posthog.capture('warehouse destination connect page viewed', {
+                    integration_kind: values.kind,
+                    destination_type: values.destinationDefinition.type,
+                })
+            }
+        },
+        setIntegrationId: () => {
+            posthog.capture('warehouse destination connection saved', {
+                integration_kind: values.kind,
+                destination_type: values.destinationDefinition?.type,
+            })
+        },
+    })),
     urlToAction(({ actions }) => ({
         [urls.warehouseDestinationConnect()]: (_, searchParams) => {
             actions.setKind(searchParams.kind ?? null)
