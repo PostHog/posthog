@@ -10,7 +10,7 @@ from typing import Any, Optional, cast
 
 from posthog.dataclasses import frozen
 
-from products.approvals.backend.actions.registry import ACTION_REGISTRY, register_actions
+from products.approvals.backend import decorators
 from products.approvals.backend.ownership import scope_by_owner_enabled
 from products.approvals.backend.policies import PolicyEngine
 
@@ -29,34 +29,25 @@ class FlagWriteAction:
 def _flag_write_actions() -> list[FlagWriteAction]:
     """Every action that gates a flag write.
 
-    Read off the registered actions rather than restated, so this cannot describe a scoping the
-    gate does not apply.
+    Read off the actions the flag write gate offers rather than the registry, so a policy counts as
+    cover only when the gate evaluates it.
     """
-    register_actions()
+    # Deferred: the flag API module reaches this module through the adoption guard, so an eager
+    # import would be circular.
+    from products.feature_flags.backend.api.feature_flag import FLAG_WRITE_APPROVAL_ACTIONS  # noqa: PLC0415
+
     actions: list[FlagWriteAction] = []
-    for key, action in ACTION_REGISTRY.items():
+    for action in decorators._resolve_actions(list(FLAG_WRITE_APPROVAL_ACTIONS)):
         if not hasattr(action, "owner_scope") or not hasattr(action, "gated_operation"):
-            # An action that gates something other than a flag write, such as a holdout change.
             continue
         actions.append(
             FlagWriteAction(
                 owner_scope=cast(Optional[str], action.owner_scope),
                 operation=cast(str, action.gated_operation),
-                key=key,
+                key=cast(str, action.key),
             )
         )
     return actions
-
-
-def families_by_owner_kind() -> dict[Optional[str], set[str]]:
-    """Which action keys govern each owner kind once an organization is scoped by flag owner.
-
-    An owner kind missing from the result has no family at all.
-    """
-    families: dict[Optional[str], set[str]] = {}
-    for action in _flag_write_actions():
-        families.setdefault(action.owner_scope, set()).add(action.key)
-    return families
 
 
 @frozen
@@ -76,7 +67,7 @@ class WriteGate:
         return self.bypass_levels <= other.bypass_levels and self.bypass_role_ids <= other.bypass_role_ids
 
 
-def _governing_gates(owner_kind: Optional[str], team, organization) -> dict[str, WriteGate]:
+def governing_gates(owner_kind: Optional[str], team, organization) -> dict[str, WriteGate]:
     """For each write an enabled policy governs on this product's flags, what that policy asks."""
     engine = PolicyEngine()
     governed: dict[str, WriteGate] = {}
@@ -100,7 +91,15 @@ def write_needs_approval(owner_kind: Optional[str], operation: str, team, organi
     cannot survive.
     """
     family = owner_kind if scope_by_owner_enabled(organization) else None
-    return operation in _governing_gates(family, team, organization)
+    return operation in governing_gates(family, team, organization)
+
+
+def cover_dropped(governed_now: dict[str, WriteGate], governed_after: dict[str, WriteGate]) -> bool:
+    """Whether some write governed now is not stopped as fully afterwards."""
+    return any(
+        operation not in governed_after or not governed_after[operation].stops_everything_stopped_by(gate)
+        for operation, gate in governed_now.items()
+    )
 
 
 def adoption_drops_approval_cover(
@@ -131,11 +130,9 @@ def adoption_drops_approval_cover(
     """
     if not scope_by_owner_enabled(organization):
         return False
-    governed_now = _governing_gates(current_owner_kind, team, organization)
-    governed_after = _governing_gates(target_owner_kind, team, organization)
-    return any(
-        operation not in governed_after or not governed_after[operation].stops_everything_stopped_by(gate)
-        for operation, gate in governed_now.items()
+    return cover_dropped(
+        governing_gates(current_owner_kind, team, organization),
+        governing_gates(target_owner_kind, team, organization),
     )
 
 
@@ -159,4 +156,4 @@ def adoption_skips_enable_review(
         return False
     if not scope_by_owner_enabled(organization):
         return False
-    return "enable" in _governing_gates(target_owner_kind, team, organization)
+    return "enable" in governing_gates(target_owner_kind, team, organization)

@@ -34,6 +34,18 @@ class TestApprovalCoverageCommand(BaseTest):
 
         assert "0 flags move family, 1 flags lose coverage" in out.getvalue()
 
+    def test_a_family_that_gates_fewer_writes_loses_coverage(self) -> None:
+        self._policy("feature_flag.enable", team=None)
+        self._policy("feature_flag.update", team=None)
+        self._policy("experiment.launch", team=None)
+        flag = FeatureFlag.objects.create(team=self.team, key="experiment-flag", created_by=self.user)
+        Experiment.objects.create(team=self.team, name="Experiment", feature_flag=flag)
+
+        out = StringIO()
+        call_command("approval_coverage", "--organization", str(self.organization.id), stdout=out)
+
+        assert "0 flags move family, 1 flags lose coverage" in out.getvalue()
+
     def test_an_unknown_rollout_state_is_not_reported_as_off(self) -> None:
         self._policy("feature_flag.enable", team=None)
 
