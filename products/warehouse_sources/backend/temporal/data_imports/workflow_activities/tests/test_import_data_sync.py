@@ -1239,7 +1239,9 @@ def _patched_activity_reaching_run(source_mock, schema, api_version=None, workfl
         mock.patch.object(module, "is_schema_flag_enabled", return_value=False),
         mock.patch.object(module.SourceRegistry, "is_registered", return_value=True),
         mock.patch.object(module.SourceRegistry, "get_source", return_value=source_mock),
-        mock.patch.object(module, "_run", new=mock.AsyncMock(return_value=mock.sentinel.run_result)) as run_mock,
+        mock.patch.object(
+            module, "_run", new=mock.AsyncMock(return_value={"should_trigger_cdp_producer": False})
+        ) as run_mock,
     ):
         yield run_mock
 
@@ -2046,6 +2048,59 @@ async def test_a_free_handoff_is_a_result_and_any_other_handoff_is_a_retry(
         else:
             with pytest.raises(WorkerShuttingDownError):
                 await import_data_activity_sync(inputs)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "behavior,handoffs_are_free,expected_outcome",
+    [
+        ("completes", False, "completed"),
+        ("hands_off", True, "handed_off"),
+        ("hands_off", False, "handed_off"),
+        ("raises", False, "failed"),
+        ("cancelled", False, "cancelled"),
+    ],
+)
+async def test_each_attempt_records_one_duration_with_its_outcome(
+    behavior: str, handoffs_are_free: bool, expected_outcome: str
+):
+    shutdown = WorkerShuttingDownError("5", "import_data_activity_sync", "data-warehouse-task-queue", 2, "wf", "wt")
+
+    async def import_attempt(_inputs, _logger, _progress):
+        module._attempt_source_type.set("MongoDB")
+        if behavior == "hands_off":
+            raise shutdown
+        if behavior == "raises":
+            raise ValueError("boom")
+        if behavior == "cancelled":
+            raise asyncio.CancelledError()
+        return {"should_trigger_cdp_producer": False}
+
+    inputs = dataclasses.replace(_inputs_no_reset(), handoffs_are_free=handoffs_are_free)
+
+    with (
+        mock.patch.object(module, "tag_queries"),
+        mock.patch.object(module, "report_heartbeat_timeout"),
+        mock.patch.object(module, "aworkload_reporting", return_value=_FakeAsyncCM()),
+        mock.patch.object(module, "_import_data_with_reporting", new=mock.AsyncMock(side_effect=import_attempt)),
+        mock.patch.object(module, "current_activity_attempt", return_value=1),
+        mock.patch.object(module, "get_import_attempt_duration_metric") as metric_mock,
+        mock.patch.object(module.activity, "in_activity", return_value=True),
+    ):
+        if behavior == "completes" or (behavior == "hands_off" and handoffs_are_free):
+            await import_data_activity_sync(inputs)
+        else:
+            expected_error = {
+                "hands_off": WorkerShuttingDownError,
+                "raises": ValueError,
+                "cancelled": asyncio.CancelledError,
+            }[behavior]
+            with pytest.raises(expected_error):
+                await import_data_activity_sync(inputs)
+
+    metric_mock.assert_called_once_with("MongoDB", expected_outcome)
+    metric_mock.return_value.record.assert_called_once()
+    assert metric_mock.return_value.record.call_args.args[0] >= 0
 
 
 @pytest.mark.asyncio

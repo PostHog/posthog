@@ -8781,11 +8781,11 @@ Today (2): `Companies`, `Officers`
 
 Diffed against: <https://api.opencorporates.com/documentation/API-Reference>
 
-- [ ] `Jurisdictions (GET /jurisdictions)` — resolve jurisdiction_code values in company records for geographic comparisons (high)
-- [ ] `Company Filings (GET /companies/:jurisdiction_code/:company_number/filings)` — analyze statutory filing history and changes in company status (high)
-- [ ] `Company Statements (GET /companies/:jurisdiction_code/:company_number/statements)` — analyze ownership relationships and other sourced facts omitted from company search results (high)
+- [x] `Jurisdictions (GET /jurisdictions)` — resolve jurisdiction_code values in company records for geographic comparisons (high)
+- [x] `Company Filings (GET /companies/:jurisdiction_code/:company_number/filings)` — analyze statutory filing history and changes in company status (high)
+- [x] `Company Statements (GET /companies/:jurisdiction_code/:company_number/statements)` — analyze ownership relationships and other sourced facts omitted from company search results (high)
 - [ ] `Gazette Notices (GET /statements/gazette_notices/search)` — track official notices about insolvency, dissolution, and other company events (medium)
-- [ ] `Registration Statements (GET /statements/alternate_registrations/search; GET /statements/subsequent_registrations/search)` — link alternate and successor registrations to avoid duplicate company counts (medium)
+- [x] `Registration Statements (GET /statements/alternate_registrations/search; GET /statements/subsequent_registrations/search)` — link alternate and successor registrations to avoid duplicate company counts (medium)
 - [ ] `Trademark Registrations (GET /statements/trademark_registrations/search)` — analyze trademark ownership, registration dates, and expirations (medium)
 - [ ] `Industry Codes (GET /industry_codes; GET /industry_codes/:code_scheme_id)` — build industry classifications for company segmentation and comparisons across code schemes (medium)
 
@@ -8829,11 +8829,11 @@ Today (7): `activity`, `api_keys`, `credits`, `models`, `organization_members`, 
 
 Diffed against: <https://openrouter.ai/docs/llms.txt>
 
-- [ ] `model endpoints (list all endpoints for a model)` — per-provider pricing, context length and availability - the lookup that joins the models and providers tables we already sync (high)
+- [x] `model endpoints (list all endpoints for a model)` — per-provider pricing, context length and availability - the lookup that joins the models and providers tables we already sync (high)
 - [ ] `/api/v1/analytics/query (+ /analytics/meta)` — metric/dimension query over usage - richer breakdowns than the 30-day activity rollup we sync (high)
-- [ ] `workspace members` — membership table linking the workspaces and organization_members we already sync (high)
+- [x] `workspace members` — membership table linking the workspaces and organization_members we already sync (high)
 - [ ] `benchmarks` — model benchmark scores, a lookup for model quality comparison (medium)
-- [ ] `task classifications (market share)` — per-task-category model market share, a breakdown dimension for usage analysis (medium)
+- [x] `task classifications (market share)` — per-task-category model market share, a breakdown dimension for usage analysis (medium)
 - [ ] `app rankings (top apps by token usage)` — token usage leaderboard by app (medium)
 - [ ] `daily rankings (daily token totals for top 50 models)` — daily model-level token time series (medium)
 - [ ] `workspace budgets` — per-workspace spend limits, needed to compare spend against budget (low)
