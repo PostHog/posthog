@@ -50,7 +50,10 @@ class _Catalog:
 
 
 _HUBSPOT = _Match(source_type=ExternalDataSourceType.HUBSPOT, table_aliases={"contact": "contacts"})
-_POSTGRES = _Match(source_type=ExternalDataSourceType.POSTGRES, config_keys={"host": "host", "user": "user"})
+_POSTGRES = _Match(
+    source_type=ExternalDataSourceType.POSTGRES,
+    config_keys={"host": "host", "user": "user", "tunnel_host": "ssh_tunnel.host"},
+)
 _CATALOG = _Catalog({"hubspot": _HUBSPOT, "postgres": _POSTGRES}, {"snowflake": "Snowflake"})
 
 
@@ -67,7 +70,7 @@ def _caps(**overrides: Any) -> SourceCapabilities:
     )
 
 
-_DATABASE_CAPS = _caps(documented_tables=None, supports_row_filters=True)
+_DATABASE_CAPS = _caps(documented_tables=None, supports_row_filters=True, toggle_groups=frozenset({"ssh_tunnel"}))
 
 
 def _table(name: str = "contact", **overrides: Any) -> VendorTable:
@@ -123,6 +126,7 @@ class TestVerdict(SimpleTestCase):
         assert item.proposal is not None
         assert item.proposal.source_type == ExternalDataSourceType.HUBSPOT
         assert item.proposal.prefix == "hubspot_main"
+        assert item.proposal.schemas is not None
         assert [schema.name for schema in item.proposal.schemas] == ["contacts", "deals"]
         assert item.proposal.sync_frequency == "6hour"
 
@@ -146,6 +150,7 @@ class TestVerdict(SimpleTestCase):
             ("change_log", _connection(config={"update_method": "WAL_PGOUTPUT"}), _caps(), "change log"),
             ("blocked_schema_changes", _connection(schema_change_handling="BLOCK_ALL"), _caps(), "blocks new tables"),
             ("no_table_list", _connection(tables_available=False, tables=()), _caps(), "default tables"),
+            ("empty_table_list", _connection(tables=()), _caps(), "default tables"),
         ]
     )
     def test_caveat(self, _name: str, connection: VendorConnection, caps: SourceCapabilities, expected: str) -> None:
@@ -155,22 +160,38 @@ class TestVerdict(SimpleTestCase):
 
 
 class TestTables(SimpleTestCase):
-    def test_table_without_posthog_equivalent_is_reported_not_dropped_silently(self) -> None:
-        item = _plan(_connection(tables=(_table("contact"), _table("email_event"))))
-        assert item.proposal is not None
-        assert [schema.name for schema in item.proposal.schemas] == ["contacts"]
-        assert any("`email_event`" in caveat for caveat in item.caveats)
+    @parameterized.expand(
+        [
+            ("no_posthog_equivalent", ("contact", "email_event"), ["contacts"], "`email_event` has no PostHog"),
+            ("two_tables_one_posthog_table", ("contact", "contacts"), ["contacts"], "same PostHog table"),
+            ("nothing_moves", ("email_event",), [], "every table starts with syncing off"),
+        ]
+    )
+    def test_tables_that_cannot_move_are_reported_not_dropped_silently(
+        self, _name: str, tables: tuple[str, ...], expected: list[str], expected_caveat: str
+    ) -> None:
+        item = _plan(_connection(tables=tuple(_table(name) for name in tables)))
+        assert item.proposal is not None and item.proposal.schemas is not None
+        assert [schema.name for schema in item.proposal.schemas] == expected
+        assert any(expected_caveat in caveat for caveat in item.caveats), item.caveats
 
     def test_database_tables_are_schema_qualified_and_config_is_prefilled(self) -> None:
         connection = _connection(
             service="postgres",
-            config={"host": "db.example.com", "user": "reader", "port": 5432},
+            config={"host": "db.example.com", "user": "reader", "port": 5432, "tunnel_host": "bastion.example.com"},
             tables=(_table("orders", schema_name="public"), _table("events", schema_name="analytics")),
         )
         item = _plan(connection, _DATABASE_CAPS)
-        assert item.proposal is not None
-        assert [schema.name for schema in item.proposal.schemas] == ["public.orders", "analytics.events"]
-        assert item.proposal.prefill == {"host": "db.example.com", "user": "reader"}
+        assert item.proposal is not None and item.proposal.schemas is not None
+        assert [(schema.name, schema.alternative_names) for schema in item.proposal.schemas] == [
+            ("public.orders", ("orders",)),
+            ("analytics.events", ("events",)),
+        ]
+        assert item.proposal.prefill == {
+            "host": "db.example.com",
+            "user": "reader",
+            "ssh_tunnel": {"host": "bastion.example.com", "enabled": True},
+        }
 
     @parameterized.expand(
         [
@@ -196,9 +217,12 @@ class TestTables(SimpleTestCase):
             VendorColumn(name="id", enabled=True, hashed=False, is_primary_key=True),
         )
         item = _plan(_connection(tables=(_table(columns=columns),)), caps)
-        assert item.proposal is not None
+        assert item.proposal is not None and item.proposal.schemas is not None
         assert item.proposal.schemas[0].disabled_columns == expected_disabled
-        assert any(expected_caveat in caveat for caveat in item.caveats) if expected_caveat else item.caveats == ()
+        if expected_caveat:
+            assert any(expected_caveat in caveat for caveat in item.caveats)
+        else:
+            assert item.caveats == ()
 
     @parameterized.expand(
         [
@@ -212,7 +236,7 @@ class TestTables(SimpleTestCase):
     )
     def test_table_feature_without_equivalent(self, _name: str, overrides: dict[str, Any], expected: str) -> None:
         item = _plan(_connection(tables=(_table(**overrides),)))
-        assert item.proposal is not None
+        assert item.proposal is not None and item.proposal.schemas is not None
         assert len(item.proposal.schemas) == 1
         assert any(expected in caveat for caveat in item.caveats)
 
@@ -246,6 +270,16 @@ class TestRowFilters(SimpleTestCase):
             ),
             ("operator_without_equivalent", _DATABASE_CAPS, _row_filter(("name", "CONTAINS", ("x",))), ()),
             ("source_cannot_filter", _caps(documented_tables=None), _row_filter(("status", "EQUALS", ("ACTIVE",))), ()),
+            (
+                "column_not_filterable_on_this_table",
+                _caps(
+                    documented_tables=frozenset({"orders"}),
+                    supports_row_filters=True,
+                    row_filter_columns={"orders": frozenset({"created_at"})},
+                ),
+                _row_filter(("status", "EQUALS", ("ACTIVE",))),
+                (),
+            ),
         ]
     )
     def test_row_filter(
@@ -259,7 +293,7 @@ class TestRowFilters(SimpleTestCase):
             service="postgres", tables=(_table("orders", schema_name="public", row_filter=row_filter),)
         )
         item = _plan(connection, caps)
-        assert item.proposal is not None
+        assert item.proposal is not None and item.proposal.schemas is not None
         assert item.proposal.schemas[0].row_filters == expected
         assert any("row filter" in caveat for caveat in item.caveats) == (expected == ())
 
@@ -296,7 +330,7 @@ class TestFrequency(SimpleTestCase):
                 "03:30:00",
                 False,
             ),
-            ("manual", VendorSchedule(kind=ScheduleKind.MANUAL), "never", None, True),
+            ("manual", VendorSchedule(kind=ScheduleKind.MANUAL), "6hour", None, True),
             (
                 "unknown_interval",
                 VendorSchedule(kind=ScheduleKind.INTERVAL, interval_minutes=None),
@@ -306,6 +340,10 @@ class TestFrequency(SimpleTestCase):
             ),
             ("cron_hour_step", VendorSchedule(kind=ScheduleKind.CRON, cron="0 */12 * * *"), "12hour", None, True),
             ("cron_daily", VendorSchedule(kind=ScheduleKind.CRON, cron="30 4 * * *"), "24hour", None, True),
+            ("cron_weekdays", VendorSchedule(kind=ScheduleKind.CRON, cron="30 4 * * 1-5"), "24hour", None, True),
+            ("cron_weekly", VendorSchedule(kind=ScheduleKind.CRON, cron="30 4 * * 1"), "7day", None, True),
+            ("cron_monthly", VendorSchedule(kind=ScheduleKind.CRON, cron="30 4 1 * *"), "30day", None, True),
+            ("cron_every_minute", VendorSchedule(kind=ScheduleKind.CRON, cron="* * * * *"), "5min", None, True),
             (
                 "some_weekdays",
                 VendorSchedule(kind=ScheduleKind.INTERVAL, interval_minutes=60, days_of_week=("MONDAY",)),
@@ -323,10 +361,20 @@ class TestFrequency(SimpleTestCase):
         assert (item.proposal.sync_frequency, item.proposal.sync_time_of_day) == (frequency, time_of_day)
         assert bool(item.caveats) == has_caveat, item.caveats
 
-    def test_paused_connection_is_created_with_syncing_off(self) -> None:
-        item = _plan(_connection(paused=True))
+    @parameterized.expand(
+        [
+            ("paused", _connection(paused=True), True),
+            ("manual", _connection(schedule=VendorSchedule(kind=ScheduleKind.MANUAL)), True),
+            ("running", _connection(), False),
+        ]
+    )
+    def test_paused_or_manual_connection_starts_paused(
+        self, _name: str, connection: VendorConnection, start_paused: bool
+    ) -> None:
+        item = _plan(connection)
         assert item.proposal is not None
-        assert item.proposal.sync_frequency == "never"
+        assert item.proposal.start_paused == start_paused
+        assert item.proposal.sync_frequency == "6hour"
 
 
 class TestDestination(SimpleTestCase):
@@ -336,13 +384,13 @@ class TestDestination(SimpleTestCase):
                 "supported",
                 "snowflake",
                 ProposedDestination(type="Snowflake", config={"database": "ANALYTICS"}),
-                "different schema",
+                None,
             ),
             ("unsupported", "oracle_warehouse", None, "PostHog warehouse"),
         ]
     )
     def test_destination(
-        self, _name: str, service: str, expected: ProposedDestination | None, expected_caveat: str
+        self, _name: str, service: str, expected: ProposedDestination | None, expected_caveat: str | None
     ) -> None:
         destination = VendorDestination(
             id="grp_example", name="Warehouse", service=service, region=None, config={"database": "ANALYTICS"}
@@ -350,4 +398,7 @@ class TestDestination(SimpleTestCase):
         item = _plan(_connection(destination_id="grp_example"), destinations=(destination,))
         assert item.proposal is not None
         assert item.proposal.destination == expected
-        assert any(expected_caveat in caveat for caveat in item.caveats)
+        if expected_caveat:
+            assert any(expected_caveat in caveat for caveat in item.caveats)
+        else:
+            assert item.caveats == ()

@@ -6,7 +6,7 @@ the user sees. Nothing is dropped silently.
 
 import re
 from collections.abc import Callable, Mapping
-from typing import Protocol
+from typing import Any, Protocol
 
 from posthog.dataclasses import frozen
 
@@ -22,7 +22,6 @@ from products.warehouse_sources.backend.migration.types import (
     SourceCapabilities,
     VendorConnection,
     VendorDestination,
-    VendorRowFilter,
     VendorSchedule,
     VendorSnapshot,
     VendorTable,
@@ -151,19 +150,17 @@ def _plan_connection(
 
     schemas = _plan_tables(connection, match, caps, caveats)
     sync_frequency, sync_time_of_day = _plan_frequency(connection, caveats)
+    start_paused = _plan_paused(connection, caveats)
 
     proposal = ItemProposal(
         source_type=match.source_type,
         prefix=_prefix_for(connection.name),
-        prefill={
-            posthog_key: connection.config[fivetran_key]
-            for fivetran_key, posthog_key in match.config_keys.items()
-            if fivetran_key in connection.config
-        },
+        prefill=_plan_prefill(connection, match, caps),
         schemas=schemas,
         sync_frequency=sync_frequency,
         sync_time_of_day=sync_time_of_day,
         destination=_plan_destination(provider, destination, catalog, caveats),
+        start_paused=start_paused,
     )
     return PlannedItem(
         vendor_connection_id=connection.id,
@@ -175,20 +172,40 @@ def _plan_connection(
     )
 
 
+def _plan_prefill(connection: VendorConnection, match: SourceMatchLike, caps: SourceCapabilities) -> dict[str, Any]:
+    """Build the source payload from Fivetran config. A dot in a PostHog key is a nested field."""
+    prefill: dict[str, Any] = {}
+    for fivetran_key, posthog_key in match.config_keys.items():
+        if fivetran_key not in connection.config:
+            continue
+        *parents, leaf = posthog_key.split(".")
+        target = prefill
+        for parent in parents:
+            target = target.setdefault(parent, {})
+        target[leaf] = connection.config[fivetran_key]
+    for group in caps.toggle_groups & prefill.keys():
+        # A group's settings only apply when its switch is on.
+        prefill[group]["enabled"] = True
+    return prefill
+
+
 def _plan_tables(
     connection: VendorConnection, match: SourceMatchLike, caps: SourceCapabilities, caveats: list[str]
-) -> tuple[ProposedSchema, ...]:
-    if not connection.tables_available:
+) -> tuple[ProposedSchema, ...] | None:
+    if not connection.tables_available or not connection.tables:
         caveats.append("Fivetran did not return a table list. PostHog will use its default tables.")
-        return ()
+        return None
 
     schemas: list[ProposedSchema] = []
     for table in connection.tables:
         if not table.enabled:
             continue
-        name = _posthog_table_name(table, match, caps)
+        name, alternative_names = _posthog_table_names(table, match, caps)
         if caps.documented_tables is not None and name not in caps.documented_tables:
             caveats.append(f"The Fivetran table `{table.name}` has no PostHog equivalent, so it is left out.")
+            continue
+        if any(schema.name == name for schema in schemas):
+            caveats.append(f"The Fivetran table `{table.name}` lands in the same PostHog table as another one.")
             continue
         if table.sync_mode == "HISTORY":
             caveats.append(
@@ -202,17 +219,24 @@ def _plan_tables(
                 should_sync=True,
                 sync_type=None,
                 disabled_columns=_plan_disabled_columns(table, caps, caveats),
-                row_filters=_plan_row_filters(table, table.row_filter, caps, caveats),
+                row_filters=_plan_row_filters(table, name, caps, caveats),
+                alternative_names=alternative_names,
             )
         )
+    if not schemas:
+        caveats.append("No Fivetran table of this connection moves to PostHog, so every table starts with syncing off.")
     return tuple(schemas)
 
 
-def _posthog_table_name(table: VendorTable, match: SourceMatchLike, caps: SourceCapabilities) -> str:
+def _posthog_table_names(
+    table: VendorTable, match: SourceMatchLike, caps: SourceCapabilities
+) -> tuple[str, tuple[str, ...]]:
+    alias = match.table_aliases.get(table.name, table.name)
     if caps.documented_tables is None:
-        # Database sources: PostHog names tables `schema.table` when no single schema is set.
-        return f"{table.schema_name}.{table.name}"
-    return match.table_aliases.get(table.name, table.name)
+        # The tables are only known once PostHog connects. Databases name them `schema.table` when
+        # no single schema is set, other sources use the bare name, so apply tries both.
+        return f"{table.schema_name}.{table.name}", (alias,)
+    return alias, ()
 
 
 def _plan_disabled_columns(table: VendorTable, caps: SourceCapabilities, caveats: list[str]) -> tuple[str, ...]:
@@ -224,18 +248,24 @@ def _plan_disabled_columns(table: VendorTable, caps: SourceCapabilities, caveats
 
 
 def _plan_row_filters(
-    table: VendorTable, row_filter: VendorRowFilter | None, caps: SourceCapabilities, caveats: list[str]
+    table: VendorTable, posthog_name: str, caps: SourceCapabilities, caveats: list[str]
 ) -> tuple[ProposedRowFilter, ...]:
+    row_filter = table.row_filter
     if row_filter is None:
         return ()
     dropped = f"`{table.name}` has a row filter in Fivetran that PostHog cannot apply. PostHog syncs every row."
     if not caps.supports_row_filters or (row_filter.combinator == "OR" and len(row_filter.clauses) > 1):
         caveats.append(dropped)
         return ()
+    allowed_columns = caps.row_filter_columns.get(posthog_name)
     filters: list[ProposedRowFilter] = []
     for clause in row_filter.clauses:
         operator = _ROW_FILTER_OPERATORS.get(clause.operator)
-        if operator is None or not clause.values:
+        if (
+            operator is None
+            or not clause.values
+            or (allowed_columns is not None and clause.column not in allowed_columns)
+        ):
             caveats.append(dropped)
             return ()
         filters.append(
@@ -248,17 +278,22 @@ def _plan_row_filters(
     return tuple(filters)
 
 
-def _plan_frequency(connection: VendorConnection, caveats: list[str]) -> tuple[PostHogSyncFrequency, str | None]:
-    schedule = connection.schedule
+def _plan_paused(connection: VendorConnection, caveats: list[str]) -> bool:
     if connection.paused:
         caveats.append("This connection is paused in Fivetran, so PostHog creates it with syncing off.")
-        return "never", None
+        return True
+    if connection.schedule.kind == ScheduleKind.MANUAL:
+        caveats.append("This connection syncs only on demand in Fivetran, so PostHog creates it with syncing off.")
+        return True
+    return False
+
+
+def _plan_frequency(connection: VendorConnection, caveats: list[str]) -> tuple[PostHogSyncFrequency, str | None]:
+    schedule = connection.schedule
+    if schedule.kind == ScheduleKind.MANUAL:
+        return _DEFAULT_FREQUENCY, None
     if schedule.days_of_week:
         caveats.append("Fivetran syncs this connection on some weekdays only. PostHog syncs every day.")
-
-    if schedule.kind == ScheduleKind.MANUAL:
-        caveats.append("This connection syncs only on demand in Fivetran, so PostHog creates it with syncing off.")
-        return "never", None
     if schedule.kind == ScheduleKind.TIME_OF_DAY:
         return "24hour", _to_posthog_time(schedule.time_of_day_utc)
     if schedule.kind == ScheduleKind.CRON:
@@ -280,11 +315,18 @@ def _plan_cron(schedule: VendorSchedule, caveats: list[str]) -> tuple[PostHogSyn
     fields = (schedule.cron or "").split()
     if len(fields) != 5:
         return _DEFAULT_FREQUENCY, None
-    minute, hour = fields[0], fields[1]
+    minute, hour, day_of_month, _month, day_of_week = fields
+    # One day a month or one day a week. A list or range of days syncs at least daily.
+    if re.fullmatch(r"\d+", day_of_month):
+        return "30day", None
+    if re.fullmatch(r"\w+", day_of_week):
+        return "7day", None
     step = re.fullmatch(r"\*/(\d+)", hour)
     if step:
         return _nearest_frequency(int(step.group(1)) * 60), None
     if hour == "*":
+        if minute == "*":
+            return _nearest_frequency(1), None
         minute_step = re.fullmatch(r"\*/(\d+)", minute)
         return _nearest_frequency(int(minute_step.group(1)) if minute_step else 60), None
     if hour.isdigit() and minute.isdigit():
@@ -312,9 +354,6 @@ def _plan_destination(
             f"PostHog cannot write to the Fivetran destination `{destination.service}`. The data lands in the PostHog warehouse."
         )
         return None
-    caveats.append(
-        f"The data can land in your {destination_type} warehouse. Use a different schema than Fivetran while both run."
-    )
     return ProposedDestination(type=destination_type, config=destination.config)
 
 

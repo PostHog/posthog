@@ -5,6 +5,7 @@ An `ItemProposal` is what we plan to create in PostHog for one vendor connection
 """
 
 from collections.abc import Mapping
+from dataclasses import field
 from enum import StrEnum
 from typing import Any, Literal
 
@@ -114,7 +115,7 @@ class VendorSnapshot:
         return _SNAPSHOT_ADAPTER.validate_python(data)
 
 
-PostHogSyncFrequency = Literal["never", "5min", "15min", "30min", "1hour", "6hour", "12hour", "24hour", "7day", "30day"]
+PostHogSyncFrequency = Literal["5min", "15min", "30min", "1hour", "6hour", "12hour", "24hour", "7day", "30day"]
 
 
 class Verdict(StrEnum):
@@ -142,6 +143,8 @@ class ProposedSchema:
     sync_type: ExternalDataSchemaSyncType | None
     disabled_columns: tuple[str, ...] = ()
     row_filters: tuple[ProposedRowFilter, ...] = ()
+    # Names to try, in order, when the source does not discover a table called `name`.
+    alternative_names: tuple[str, ...] = ()
 
 
 @frozen
@@ -157,11 +160,15 @@ class ItemProposal:
     prefix: str
     # Non-secret source config, keyed by PostHog payload field name.
     prefill: Mapping[str, Any]
-    schemas: tuple[ProposedSchema, ...]
+    # None means Fivetran gave no table list, so PostHog uses its default tables.
+    # An empty tuple means no Fivetran table moves over, so every table starts off.
+    schemas: tuple[ProposedSchema, ...] | None
     sync_frequency: PostHogSyncFrequency
     # "HH:MM:SS" UTC.
     sync_time_of_day: str | None
     destination: ProposedDestination | None
+    # The connection is paused or manual in Fivetran, so every table starts with syncing off.
+    start_paused: bool = False
 
     def to_json(self) -> dict[str, Any]:
         return _PROPOSAL_ADAPTER.dump_python(self, mode="json")
@@ -179,6 +186,10 @@ class SourceCapabilities:
     documented_tables: frozenset[str] | None
     supports_column_selection: bool
     supports_row_filters: bool
+    # Table name to the only columns a row filter on it may use. A table not here accepts any column.
+    row_filter_columns: Mapping[str, frozenset[str]] = field(default_factory=dict)
+    # Config fields that hold a group of settings behind an on/off switch, like `ssh_tunnel`.
+    toggle_groups: frozenset[str] = frozenset()
 
 
 _SNAPSHOT_ADAPTER: TypeAdapter[VendorSnapshot] = TypeAdapter(VendorSnapshot)
