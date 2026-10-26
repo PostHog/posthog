@@ -1,5 +1,5 @@
 from datetime import UTC, datetime, timedelta
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import time_machine
 from posthog.test.base import BaseTest
@@ -19,6 +19,9 @@ EPISODE = NOW - timedelta(hours=6)
 
 
 class TestPlatformInvestigation(BaseTest):
+    alert: AlertConfiguration
+    configuration_id: UUID
+
     @classmethod
     def setUpTestData(cls) -> None:
         super().setUpTestData()

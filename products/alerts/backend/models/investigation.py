@@ -60,6 +60,10 @@ class InsightAlertInvestigation(TeamScopedRootMixin, UUIDModel):
             models.Index(
                 fields=["configuration_id", "episode_started_at", "created_at"], name="insight_alert_inv_episode_idx"
             ),
+            # Deleting a notebook nulls the link through this, and most rows have no notebook.
+            models.Index(
+                fields=["notebook"], name="insight_alert_inv_notebook_idx", condition=models.Q(notebook__isnull=False)
+            ),
             # The claim's in-flight and cooldown checks.
             models.Index(fields=["configuration_id", "created_at"], name="insight_alert_inv_recent_idx"),
         ]
