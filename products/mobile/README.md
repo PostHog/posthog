@@ -63,7 +63,7 @@ A build made with `APP_VARIANT=development` or `preview` uses the `posthog-dev:/
 | `EXPO_PUBLIC_POSTHOG_KEY` | Project API key for the app's own usage analytics. Analytics are off when it is not set. |
 | `EXPO_PUBLIC_POSTHOG_HOST` | Host for those analytics, for example `https://us.i.posthog.com`. |
 | `EXPO_PUBLIC_DEMO_MODE` | `1` starts a development bundle in demo mode. Release bundles ignore it, so **Try the demo** is the only way into demo mode there. |
-| `EXPO_PUBLIC_SIGNUP_LINK` | `0` hides the "Create an account" link on the sign-in screen, for store builds where a link out to sign-up is not allowed. The `production` profile in `eas.json` and `pnpm update:production` set it, so store builds hide the link. |
+| `EXPO_PUBLIC_SIGNUP_LINK` | `0` hides the "Create an account" link on the sign-in screen, for store builds where a link out to sign-up is not allowed. Production builds and OTA bundles set it to `0`. |
 | `APP_VARIANT` | Build-time only: `development`, `preview` or `production` (the default). It sets the app name, bundle id, URL scheme, App Group and icon, so the variants install side by side. `eas.json` sets it per profile. See [RELEASING.md](docs/RELEASING.md#build-variants). |
 | `GOOGLE_SERVICES_JSON` | Build-time only: path to the Firebase `google-services.json` that Android push needs. On EAS it is a file variable; locally, a `google-services.json` in this directory is used instead. See [PUSH.md](docs/PUSH.md#credentials). |
 
@@ -98,7 +98,8 @@ Regenerate them after an icon change with `uv run --with pillow python scripts/m
 - [Decisions](docs/DECISIONS.md): choices the build contract left open
 - [Gaps](docs/GAPS.md): known gaps and local-only behavior
 - [API](docs/API.md), [Push](docs/PUSH.md)
-- [Releasing](docs/RELEASING.md): local standalone phone installs, EAS builds, TestFlight and the Play internal track
+- [Releasing](docs/RELEASING.md): workflow builds, TestFlight and the Play internal track
+- [Release checks](../../docs/internal/mobile-release-checks.md): build checks and manual smoke checks before sharing a release
 - [OTA updates](docs/OTA.md): update channels, runtime version, rollbacks
 - [CI](docs/CI.md): the Mobile CI and Mobile Build workflows
 - [Testing](docs/TESTING.md): the demo walkthrough on the iOS simulator with Argent

@@ -3,6 +3,9 @@
 EAS Update ships JavaScript and asset changes to installed builds without a store release.
 Native changes still need a new build, see [RELEASING.md](RELEASING.md).
 
+Shared OTA publishing is pending a repository workflow. This guide covers update behavior,
+compatibility and validation for that release path.
+
 ## How a device gets an update
 
 - `expo-updates` checks `https://u.expo.dev/4eb57b2f-79f6-4ab0-ae2c-bbd82af2cef9` each time the app starts.
@@ -26,21 +29,15 @@ still use the previous startup-only flow: one cold start downloads it and a late
 Each build profile in `eas.json` sets a channel, and the build listens to that channel for life.
 Each channel points at the EAS branch with the same name.
 
-| Profile | Channel | Branch | Publish with |
-| --- | --- | --- | --- |
-| `development` | `development` | `development` | Not used. Development builds load from Metro. |
-| `preview` | `preview` | `preview` | `pnpm update:preview` |
-| `production` | `production` | `production` | `pnpm update:production` |
+| Profile | Channel | Branch |
+| --- | --- | --- |
+| `development` | `development` | `development` |
+| `preview` | `preview` | `preview` |
+| `production` | `production` | `production` |
 
-Both update scripts pass `--environment`, so the bundle gets the same `EXPO_PUBLIC_*` values as the builds on that channel.
-Expo SDK 55 and later require it.
-
-The `env` block of a build profile in `eas.json` applies to builds only, not to `eas update`.
-So the update scripts set the same values themselves: `APP_VARIANT` on both, and `EXPO_PUBLIC_SIGNUP_LINK=0` on production.
-If you run `eas update` by hand, set them the same way.
-The app reads its variant from its bundle id first, so an update with the wrong `APP_VARIANT` cannot make a store build look internal, but the sign-up link follows the update.
-
-Do not run `pnpm update`. That is pnpm's own command, and it upgrades dependencies.
+A publishing workflow must use the same EAS environment and public configuration as builds on its
+channel. The `env` block in `eas.json` applies only to builds, so updates also need the matching
+`APP_VARIANT` and `EXPO_PUBLIC_SIGNUP_LINK=0` for production.
 
 ## Runtime version
 
@@ -54,50 +51,25 @@ The policy does not detect native changes. You must raise `version` when a chang
 - an Expo SDK upgrade.
 
 Then make new builds. If you publish such a change as an update to the old runtime version, the app can crash on start.
-If you are not sure, check whether `npx expo prebuild --clean` produces a different `ios/` or `android/` folder.
+Confirm native compatibility before publishing an update to an existing runtime version.
 
-## Ship a JavaScript-only fix
+## Validate an update
 
-1. Commit the fix. `--auto` uses the last commit message as the update message.
-2. Publish to preview and test it on a preview build:
+Test a JavaScript-only change on a compatible preview build before promoting the same commit to
+production through the shared publishing workflow once it is available.
 
-   ```sh
-   cd products/mobile
-   pnpm update:preview
-   ```
+1. Open the app on an Inbox, Chats or Views tab with no keyboard open. Once the update has downloaded,
+   background the app for at least five minutes and return. Settings in an internal build shows the new
+   update ID. Checks are throttled to once per 15 minutes, so an immediate return may not fetch it yet.
+2. Return to an open chat and confirm the draft survives and the reload is deferred.
+3. Launch offline and confirm the app opens normally. Builds still using the previous startup-only flow
+   need one cold start to download an update and a later cold start to apply it.
 
-   Open the app on an Inbox, Chats or Views tab with no keyboard open. Once a check has downloaded the update,
-   background the app for at least five minutes and return. Settings in an internal build shows the new update id.
-   Checks are throttled to once per 15 minutes, so a return immediately after publishing may not fetch it yet.
-   Also verify that returning to an open chat preserves the draft and defers the reload, and that an offline launch
-   opens normally. To test the first OTA that adds this behavior, use the previous two-cold-start flow once.
+## Rollback requirements
 
-3. Publish the same commit to production:
-
-   ```sh
-   pnpm update:production
-   ```
-
-   To limit the risk, start with part of the users and raise it later:
-
-   ```sh
-   pnpm update:production --rollout-percentage 10
-   eas update:edit <update group id> --rollout-percentage 100    # when the update looks healthy
-   ```
-
-## Roll back
-
-Find the last good update group on the branch, then publish it again as the newest update:
-
-```sh
-eas update:list --branch production
-eas update:republish --group <update group id>
-```
-
-To send devices back to the JavaScript inside their build, use `eas update:roll-back-to-embedded --branch production`.
-`eas update:rollback` asks which of the two you want.
-
-A rollback follows the same download and safe-return policy as an update. A cold start can also apply a staged rollback.
+The shared publishing workflow needs a way to restore the last good update or the JavaScript embedded
+in the native build. A rollback follows the same download and safe-return policy as an update.
+A cold start can also apply a staged rollback.
 
 ## See what a device runs
 

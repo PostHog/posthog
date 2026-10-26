@@ -47,7 +47,8 @@ Details:
 - eas-cli is pinned in the workflow. Raise it on purpose, after reading its changelog.
 - It needs the `EXPO_TOKEN` repository secret. Store keys stay on EAS.
 
-No workflow publishes over-the-air updates. Publish them from your machine, see [OTA.md](OTA.md).
+Shared OTA publishing is pending a repository workflow. See [OTA.md](OTA.md) for compatibility and
+validation checks.
 
 ## Check workflow changes
 
