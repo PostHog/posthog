@@ -72,8 +72,10 @@ class RepoSelectionUnavailableError(Exception):
     and route to that fallback rather than silently creating a no-repo task.
     """
 
-    def __init__(self, reason: str) -> None:
+    def __init__(self, reason: str, *, archived_only: bool = False) -> None:
         self.reason = reason
+        # Every candidate is archived. Unlike a cache or sync failure, a retry cannot change that.
+        self.archived_only = archived_only
         super().__init__(reason)
 
 
@@ -268,6 +270,11 @@ def _list_eligible_full_names(github: GitHubIntegrationBase, team_id: int) -> se
     """Repos the agent can reason about: present in the heavy cache and not archived.
     Anything else is dropped from the candidate list (no SQL evidence, or unfixable code)."""
     qs = github.integration.repository_cache_entries.filter(team_id=team_id, archived=False)
+    return set(qs.values_list("full_name", flat=True))
+
+
+def _list_archived_full_names(github: GitHubIntegrationBase, team_id: int) -> set[str]:
+    qs = github.integration.repository_cache_entries.filter(team_id=team_id, archived=True)
     return set(qs.values_list("full_name", flat=True))
 
 
@@ -696,6 +703,9 @@ async def select_repository(
         logger.info("repo_selection.dropped_candidates", extra={"dropped": dropped, "team_id": team_id})
         candidate_repos = [r for r in candidate_repos if r in eligible]
     if len(candidate_repos) == 0:
+        archived = await database_sync_to_async(_list_archived_full_names, thread_sensitive=False)(github, team_id)
+        if set(dropped) <= archived:
+            raise RepoSelectionUnavailableError("Every connected GitHub repository is archived.", archived_only=True)
         raise RepoSelectionUnavailableError(
             "No connected GitHub repositories are eligible (archived or missing cache data)."
         )

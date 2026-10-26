@@ -140,8 +140,16 @@ async def select_repository_for_team(
         )
     except RepoSelectionUnavailableError as exc:
         logger.warning("repo selection unavailable: %s", exc.reason)
+        # Archived repositories stay archived, so the periodic sweep must not retry the report.
+        # The `no_repositories` blocker waits for a GitHub access change instead.
         return RepoSelectionResult(
-            repository=None, reason=exc.reason, blocked_reason=GitHubReadinessStatus.TEMPORARILY_UNAVAILABLE
+            repository=None,
+            reason=exc.reason,
+            blocked_reason=(
+                GitHubReadinessStatus.NO_REPOSITORIES
+                if exc.archived_only
+                else GitHubReadinessStatus.TEMPORARILY_UNAVAILABLE
+            ),
         )
 
 
