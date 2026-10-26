@@ -1487,7 +1487,7 @@ class TestDataQualityCheckAPI(APIBaseTest):
 
         by_search = self.client.get(f"{self.url}/subjects/", {"search": "ORDERS", "subject_type": "view"})
         assert by_search.status_code == status.HTTP_200_OK, by_search.content
-        assert [row["name"] for row in by_search.json()] == ["orders", "Orders_daily"]
+        assert [row["name"] for row in by_search.json()] == ["Orders_daily", "orders"]
 
         events = self.client.get(f"{self.url}/subjects/", {"search": "events", "subject_type": "posthog_table"})
         assert [(row["name"], bool(row["columns"])) for row in events.json()] == [("events", True)]

@@ -695,13 +695,7 @@ class DataQualityCheckViewSet(_ProjectQualityViewSet, viewsets.ModelViewSet):
         kinds = self._authorized_subject_types()
         if subject_type := params.get("subject_type"):
             kinds = kinds & {SubjectType(subject_type)}
-        selectable = api.selectable_subjects(self.team_id, kinds)
-        if search := params.get("search", "").strip().lower():
-            selectable = [
-                subject
-                for subject in selectable
-                if search in subject.name.lower() or search in subject.display_name.lower()
-            ]
+        selectable = api.selectable_subjects(self.team_id, kinds, params.get("search", ""))
         editable_kinds = self._authorized_subject_types(write=True)
         if self._can_be_object_denied():
             readable = self._denial_context().readable
@@ -715,8 +709,6 @@ class DataQualityCheckViewSet(_ProjectQualityViewSet, viewsets.ModelViewSet):
             selectable = [
                 replace(subject, editable=SubjectType(subject.subject_type) in editable_kinds) for subject in selectable
             ]
-        # Paging needs a stable order, so sort after the access filter and before the slice.
-        selectable.sort(key=lambda subject: (subject.subject_type, subject.name.lower(), subject.id))
         offset = params["offset"]
         limit = params.get("limit")
         selectable = selectable[offset : None if limit is None else offset + limit]

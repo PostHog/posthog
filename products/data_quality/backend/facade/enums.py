@@ -80,7 +80,6 @@ class SubjectType(LabeledStrEnum):
     On the check itself the subject is a foreign key (``saved_query``, ``table``, or ``metric``), or
     the name of a PostHog table; run history denormalizes it as loose
     ``(subject_type, subject_uuid, name)`` tuples so it outlives hard deletes.
-    The labels repeat the values because the published OpenAPI enums list these exact pairs.
     """
 
     TABLE = "table", "table"
