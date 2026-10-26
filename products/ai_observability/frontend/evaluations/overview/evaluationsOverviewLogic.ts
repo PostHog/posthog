@@ -30,7 +30,6 @@ import { type BucketInterval, isChartable, percentValue } from './evaluationOver
 
 export type OverviewView = 'over_time' | 'by_bucket'
 export type OverviewMetric = 'pass_rate' | 'graded' | 'sentiment'
-export type OverviewCard = OverviewMetric | 'attention'
 export type AttentionFilter = 'any' | AttentionReasonsEnumApi | null
 export type OverviewFailure = 'rate_limited' | 'failed'
 export type TableAction = 'edit' | 'enable' | 'disable' | 'move' | 'delete'
@@ -55,7 +54,6 @@ const OVERVIEW_MAX_DAYS = 90
 /** How many evaluations the chart picks on its first render. People can pick more. */
 const DEFAULT_COMPARED = 3
 /** The anchor the "Needs attention" card scrolls to, right above the evaluations table. */
-export const OVERVIEW_LIST_ANCHOR_ID = 'evaluations-overview-list'
 
 /** A rolling relative start such as "-24h", "-14d" or "-3w", without a Start or End clip. */
 const ROLLING_RANGE = /^-(\d+)([hdwmqy])$/
@@ -426,8 +424,8 @@ export interface evaluationsOverviewLogicActions {
     retryOverview: () => {
         value: true
     }
-    selectCard: (card: OverviewCard) => {
-        card: OverviewCard
+    selectCard: (card: OverviewMetric) => {
+        card: OverviewMetric
     }
     setAttentionFilter: (filter: AttentionFilter) => {
         filter: AttentionFilter
@@ -584,7 +582,7 @@ export const evaluationsOverviewLogic = kea<evaluationsOverviewLogicType>([
     actions({
         setPickedIds: (ids: string[]) => ({ ids }),
         setView: (view: OverviewView) => ({ view }),
-        selectCard: (card: OverviewCard) => ({ card }),
+        selectCard: (card: OverviewMetric) => ({ card }),
         toggleCompared: (id: string) => ({ id }),
         setComparedIds: (ids: string[]) => ({ ids }),
         clickExplore: true,
@@ -676,14 +674,11 @@ export const evaluationsOverviewLogic = kea<evaluationsOverviewLogicType>([
             'over_time' as OverviewView,
             {
                 setView: (_, { view }) => view,
-                // A charted card swaps the over time chart, so it shows that view.
-                selectCard: (state, { card }) => (card === 'attention' ? state : 'over_time'),
+                // A metric swaps the over time chart, so it shows that view.
+                selectCard: () => 'over_time',
             },
         ],
-        chosenMetric: [
-            'pass_rate' as OverviewMetric,
-            { selectCard: (state, { card }) => (card === 'attention' ? state : card) },
-        ],
+        chosenMetric: ['pass_rate' as OverviewMetric, { selectCard: (_, { card }) => card }],
         // Null keeps the default picks, so they follow the data until someone picks by hand.
         comparedIds: [
             null as string[] | null,
@@ -723,7 +718,6 @@ export const evaluationsOverviewLogic = kea<evaluationsOverviewLogicType>([
             null as AttentionFilter,
             {
                 setAttentionFilter: (_, { filter }) => filter,
-                selectCard: (state, { card }) => (card === 'attention' ? 'any' : state),
             },
         ],
         // The enable switch has no in-flight state of its own, so the table tracks it to block a second click.
@@ -1065,15 +1059,6 @@ export const evaluationsOverviewLogic = kea<evaluationsOverviewLogicType>([
             },
             selectCard: ({ card }) => {
                 posthog.capture('llma evaluation overview card clicked', { card })
-                if (card === 'attention') {
-                    posthog.capture('llma evaluation overview attention filter changed', {
-                        filter: 'any',
-                        trigger: 'card',
-                    })
-                    document
-                        .getElementById(OVERVIEW_LIST_ANCHOR_ID)
-                        ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-                }
             },
             toggleCompared: ({ id }) => {
                 const current = values.chartedIds

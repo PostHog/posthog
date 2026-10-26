@@ -1,37 +1,23 @@
 import { useActions, useValues } from 'kea'
 
-import { IconFolder, IconX } from '@posthog/icons'
-import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
+import { LemonBanner } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 
+import { EvaluationDirectoryPicker } from './EvaluationDirectoryPicker'
 import { RATE_LIMITED_MESSAGE } from './evaluationOverviewDisplay'
 import { EvaluationOverviewResults } from './EvaluationOverviewResults'
-import { EvaluationOverviewTiles } from './EvaluationOverviewTiles'
 import { EvaluationScopePicker } from './EvaluationScopePicker'
 import { OVERVIEW_DATE_OPTIONS, evaluationsOverviewLogic } from './evaluationsOverviewLogic'
 
 export function EvaluationsOverview(): JSX.Element {
-    const { dateFilter, request, overviewFailure, selectedDirectory, evaluationListFailed } =
-        useValues(evaluationsOverviewLogic)
-    const { setDates, selectDirectory, retryOverview } = useActions(evaluationsOverviewLogic)
+    const { dateFilter, request, overviewFailure, evaluationListFailed } = useValues(evaluationsOverviewLogic)
+    const { setDates, retryOverview } = useActions(evaluationsOverviewLogic)
 
     return (
         <div className="@container flex flex-col gap-4">
             <div className="flex flex-wrap items-center gap-2">
-                {selectedDirectory && (
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        icon={<IconFolder />}
-                        sideIcon={<IconX />}
-                        onClick={() => selectDirectory(null)}
-                        tooltip="Show every directory"
-                        data-attr="evaluation-overview-scope-directory-clear"
-                    >
-                        {selectedDirectory.name}
-                    </LemonButton>
-                )}
+                <EvaluationDirectoryPicker />
                 <EvaluationScopePicker />
                 <DateFilter
                     dateFrom={dateFilter.dateFrom}
@@ -68,7 +54,6 @@ export function EvaluationsOverview(): JSX.Element {
                             Couldn't load the evaluation list, so editing evaluations and picking them is unavailable.
                         </LemonBanner>
                     )}
-                    <EvaluationOverviewTiles />
                     <EvaluationOverviewResults />
                 </>
             )}
