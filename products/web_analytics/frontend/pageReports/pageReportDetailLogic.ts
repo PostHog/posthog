@@ -669,7 +669,7 @@ export const pageReportDetailLogic: LogicWrapper<pageReportDetailLogicType> = ke
                 filterTestAccounts,
                 properties: [
                     ...webAnalyticsFilters,
-                    ...createPageReportsFilters(pageUrl, true, selectedHost, isPathCleaningEnabled),
+                    ...createPageReportsFilters(pageUrl, true, selectedHost, isPathCleaningEnabled, true),
                 ],
             }),
         ],

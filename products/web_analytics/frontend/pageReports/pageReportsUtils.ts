@@ -68,6 +68,14 @@ export const valueChange = (value: WebPageDirectoryValue | null | undefined): nu
 export const pageReportUrlForPage = (page: string): string =>
     page.startsWith('/') || /^[a-z]+:\/\//i.test(page) ? page : `https://${page}`
 
+export const pageUrlForHost = (page: string, host: string | null): string => {
+    const url = pageReportUrlForPage(page)
+    if (!host) {
+        return url
+    }
+    return url.startsWith('/') ? `https://${host}${url}` : url.replace(/^([a-z]+:\/\/)[^/?#]*/i, `$1${host}`)
+}
+
 export const pageReportPath = (page: string, searchParams: Record<string, any> = {}): string =>
     combineUrl(urls.webAnalyticsPageReports(), { ...searchParams, pageURL: pageReportUrlForPage(page) }).url
 
@@ -82,18 +90,19 @@ export const looksLikePageUrl = (search: string): boolean => {
 export const pageKeyForUrl = (
     url: string,
     isPathCleaningEnabled: boolean,
-    pathCleaningFilters: PathCleaningFilter[]
+    pathCleaningFilters: PathCleaningFilter[],
+    selectedHost: string | null
 ): string => {
     const cleanPath = (pathname: string): string =>
         isPathCleaningEnabled ? applyPathCleaning(pathname, pathCleaningFilters) : pathname
     if (url.startsWith('/')) {
-        return cleanPath(url.split(/[?#]/)[0])
+        return `${selectedHost ?? ''}${cleanPath(url.split(/[?#]/)[0])}`
     }
     const parsed = parseWebAnalyticsURL(pageReportUrlForPage(url))
     if (!parsed.isValid || !parsed.pathname) {
         return url
     }
-    return `${parsed.host ?? ''}${cleanPath(parsed.pathname.replace(/%3C([^/%]*)%3E/gi, '<$1>'))}`
+    return `${selectedHost ?? parsed.host ?? ''}${cleanPath(parsed.pathname.replace(/%3C([^/%]*)%3E/gi, '<$1>'))}`
 }
 
 export const splitPageKey = (page: string): { host: string | null; path: string } => {
