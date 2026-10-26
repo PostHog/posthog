@@ -666,15 +666,19 @@ class TestTaskRunEventIngest(TestCase):
 
     @parameterized.expand(
         [
-            ("interactive", "interactive", True),
-            ("background", "background", False),
+            ("interactive", "interactive", True, True),
+            ("background", "background", True, False),
+            ("web", "interactive", False, False),
         ]
     )
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
-    def test_permission_request_ingest_pushes_awaiting_input(self, _name: str, mode: str, expect_push: bool) -> None:
+    def test_permission_request_ingest_pushes_awaiting_input(
+        self, _name: str, mode: str, created_on_mobile: bool, expect_push: bool
+    ) -> None:
         creator = User.objects.create_and_join(self.organization, "awaiting-push@posthog.com", None)
         self.task.created_by = creator
-        self.task.save(update_fields=["created_by"])
+        self.task.state = {"created_on_mobile": created_on_mobile}
+        self.task.save(update_fields=["created_by", "state"])
         self.task_run.state = {**(self.task_run.state or {}), "mode": mode}
         self.task_run.save(update_fields=["state"])
         token = self._create_token()
@@ -706,14 +710,15 @@ class TestTaskRunEventIngest(TestCase):
             return
         send_push.assert_called_once()
         user_id, title, push_body, data, _suppressed = send_push.call_args.args
-        self.assertEqual((user_id, title, push_body), (creator.id, "PostHog", '"Test Task" needs your input'))
+        self.assertEqual((user_id, title, push_body), (creator.id, self.task.title, '"Test Task" needs your input'))
         self.assertEqual(
             data,
             {
+                "type": "task",
                 "taskId": str(self.task.id),
                 "taskRunId": str(self.task_run.id),
                 "notificationKind": "awaiting",
-                "projectId": str(self.task.team_id),
+                "projectId": self.task.team_id,
             },
         )
 

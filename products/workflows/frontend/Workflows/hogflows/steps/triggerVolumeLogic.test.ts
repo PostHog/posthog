@@ -61,12 +61,15 @@ describe('triggerVolumeLogic', () => {
             await expectLogic(logic).toDispatchActions(['loadVolumeSuccess'])
 
             expect(logic.values.volume).toMatchObject({ total, peakPerDay })
-            const trendsQuery = (performQuery as jest.Mock).mock.calls
-                .map(([query]) => query)
-                .find((query) => query.kind === NodeKind.TrendsQuery)
+            const queries = (performQuery as jest.Mock).mock.calls.map(([query]) => query)
+            const trendsQuery = queries.find((query) => query.kind === NodeKind.TrendsQuery)
             const trendsProperties = JSON.stringify(trendsQuery.properties)
             expect(trendsProperties).toContain(JSON.stringify(matchingFiltersToPropertyGroup(filters)))
             expect(trendsProperties.includes("event != '$feature_flag_called'")).toBe(excludesFlagCalls)
+            const flagCallsQuery = queries.find((query) => query.kind === NodeKind.EventsQuery)
+            expect(flagCallsQuery?.modifiers?.personsOnEventsMode).toBe(
+                excludesFlagCalls ? 'person_id_no_override_properties_on_events' : undefined
+            )
         }
     )
 })

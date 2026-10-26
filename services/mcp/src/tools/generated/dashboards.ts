@@ -59,8 +59,11 @@ const dashboardCreate = (): ToolBase<
         if (params.layout_compaction !== undefined) {
             body['layout_compaction'] = params.layout_compaction
         }
-        if (params.group_titles !== undefined) {
-            body['group_titles'] = params.group_titles
+        if (params.group_display !== undefined) {
+            body['group_display'] = params.group_display
+        }
+        if (params.groups !== undefined) {
+            body['groups'] = params.groups
         }
         if (params.use_template !== undefined) {
             body['use_template'] = params.use_template
@@ -615,8 +618,11 @@ const dashboardUpdate = (): ToolBase<
         if (params.layout_compaction !== undefined) {
             body['layout_compaction'] = params.layout_compaction
         }
-        if (params.group_titles !== undefined) {
-            body['group_titles'] = params.group_titles
+        if (params.group_display !== undefined) {
+            body['group_display'] = params.group_display
+        }
+        if (params.groups !== undefined) {
+            body['groups'] = params.groups
         }
         if (params.tiles !== undefined) {
             body['tiles'] = params.tiles

@@ -78,7 +78,7 @@ _BLOCK_REJECTION_ERROR_CODES = frozenset({"invalid_blocks", "invalid_blocks_form
 # chat.update answers with one of these when the earlier message is gone or can no longer change.
 # The delivery then posts a new message, as it did before the first post.
 _STALE_MESSAGE_ERROR_CODES = frozenset(
-    {"message_not_found", "cant_update_message", "edit_window_closed", "channel_not_found"}
+    {"message_not_found", "cant_update_message", "edit_window_closed", "channel_not_found", "is_inactive"}
 )
 # Slack does not say how far over its markdown budget a rejected message went, so the resend keeps
 # half of the budget.
