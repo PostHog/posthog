@@ -41,6 +41,7 @@ from products.alerts.backend.platform_source_cycle import (
     fail_insight_check,
     plan_insight_batch,
     readmit_retried_check,
+    stop_insight_queries,
 )
 from products.alerts.backend.temporal.platform_evaluate import (
     AdmittedInsightCheck,
@@ -524,7 +525,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             ("switched_off", False, None, None),
         ]
     )
-    def test_a_check_whose_every_attempt_failed_stops_its_queries_and_records_an_error(
+    def test_a_check_whose_every_attempt_failed_records_an_error(
         self,
         _name: str,
         enabled: bool,
@@ -533,22 +534,15 @@ class TestPlatformInsightEvaluation(APIBaseTest):
     ) -> None:
         configuration = self._copy(self._alert(enabled=enabled), owner=PlatformAlertOwner.PLATFORM)
 
-        with patch("posthog.clickhouse.cancel.cancel_query_on_cluster") as cancel:
-            evaluation = fail_insight_check(
-                self.team.id,
-                slot_of(configuration.next_check_at, CUTOFF),
-                CUTOFF,
-                str(configuration.id),
-                error_message="activity timed out",
-                error_type=error_type,
-                query_ids=("run:1:1", "run:1:2"),
-            )
+        evaluation = fail_insight_check(
+            self.team.id,
+            slot_of(configuration.next_check_at, CUTOFF),
+            CUTOFF,
+            str(configuration.id),
+            error_message="activity timed out",
+            error_type=error_type,
+        )
 
-        # A timed-out attempt's thread can still run its query, which nothing else stops.
-        assert [call.args for call in cancel.call_args_list] == [
-            (self.team.id, f"{QUERY_ID_PREFIX}run:1:1"),
-            (self.team.id, f"{QUERY_ID_PREFIX}run:1:2"),
-        ]
         actual = None
         if evaluation is not None:
             (outcome,) = evaluation.outcomes
@@ -561,6 +555,18 @@ class TestPlatformInsightEvaluation(APIBaseTest):
                 len(evaluation.deliveries),
             )
         assert actual == expected
+
+    def test_a_failed_checks_queries_are_stopped_even_when_one_stop_fails(self) -> None:
+        with patch(
+            "posthog.clickhouse.cancel.cancel_query_on_cluster", side_effect=[TimeoutError("socket timed out"), None]
+        ) as cancel:
+            stop_insight_queries(self.team.id, "configuration", ("run:1:1", "run:1:2"))
+
+        # A timed-out attempt's thread can still run its query, which nothing else stops.
+        assert [call.args for call in cancel.call_args_list] == [
+            (self.team.id, f"{QUERY_ID_PREFIX}run:1:1"),
+            (self.team.id, f"{QUERY_ID_PREFIX}run:1:2"),
+        ]
 
     @override_settings(ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS=1)
     def test_a_retry_stops_the_timed_out_query_and_runs_only_inside_the_pool(self) -> None:

@@ -35,6 +35,8 @@ with workflow.unsafe.imports_passed_through():
 
     from products.alerts_platform.backend.facade.contracts import (
         RECORD_OUTCOMES_ACTIVITY,
+        AlertDeliveryRequest,
+        PlatformAlertOutcome,
         SourceBatchEvaluation,
         SourceEvaluationInputs,
         SourceKind,
@@ -65,6 +67,9 @@ REAL_TIME_CHECK_HEARTBEAT_TIMEOUT = _REAL_TIME_TIMEOUTS.heartbeat_timeout
 LLM_CHECK_RETRY_POLICY = alert_timeouts(None).evaluate_retry_policy
 FAIL_START_TO_CLOSE = dt.timedelta(seconds=10)
 FAIL_SCHEDULE_TO_CLOSE = dt.timedelta(seconds=20)
+# Stopping a query can wait on a slow ClickHouse, so it runs apart from the failed check's record
+# and never holds it back. It is best effort, so it gets what the batch budget leaves.
+STOP_QUERIES_START_TO_CLOSE = dt.timedelta(seconds=60)
 RECORD_START_TO_CLOSE = dt.timedelta(seconds=8)
 RECORD_SCHEDULE_TO_CLOSE = dt.timedelta(seconds=12)
 # The pool admits once per round, so a batch that admits only once evaluates at most one pool of
@@ -74,12 +79,15 @@ ADMISSION_RUN_BUDGET = dt.timedelta(seconds=50)
 ADMISSION_POLL_INTERVAL = dt.timedelta(seconds=2)
 # What the source needs from its binding's `evaluation_timeout`. The checks run side by side, so
 # the batch costs the admission rounds plus one check's budget, not one per check. The last check
-# can end while an earlier record still runs, so the tail holds two records and their failures.
+# can end while an earlier record still runs, so the tail holds two records and their failures,
+# or one record and the stop of a failed check's queries.
 EVALUATION_BUDGET = (
     PLAN_SCHEDULE_TO_CLOSE
     + ADMISSION_RUN_BUDGET
     + max(CHECK_SCHEDULE_TO_CLOSE, REAL_TIME_CHECK_SCHEDULE_TO_CLOSE)
-    + 2 * (FAIL_SCHEDULE_TO_CLOSE + RECORD_SCHEDULE_TO_CLOSE)
+    + FAIL_SCHEDULE_TO_CLOSE
+    + RECORD_SCHEDULE_TO_CLOSE
+    + max(FAIL_SCHEDULE_TO_CLOSE + RECORD_SCHEDULE_TO_CLOSE, STOP_QUERIES_START_TO_CLOSE)
 )
 _PATCH_READMISSION = "platform-insight-readmission-2026-10"
 # Runs started before it recorded every outcome in one activity, and replay must schedule the same.
@@ -124,8 +132,14 @@ class FailedInsightCheckInputs:
     configuration_id: str
     error_message: str
     error_type: str | None = None
-    # The queries the check's attempts ran under, any of which may still run.
-    query_ids: tuple[str, ...] = ()
+
+
+@frozen
+class StopInsightQueriesInputs:
+    team_id: int
+    configuration_id: str
+    # The queries a failed check's attempts ran under, any of which may still run.
+    query_ids: tuple[str, ...]
 
 
 @activity.defn
@@ -248,8 +262,17 @@ def fail_platform_insight_check_activity(inputs: FailedInsightCheckInputs) -> So
         inputs.configuration_id,
         error_message=inputs.error_message,
         error_type=inputs.error_type,
-        query_ids=inputs.query_ids,
     )
+
+
+@activity.defn
+@close_db_connections
+def stop_platform_insight_queries_activity(inputs: StopInsightQueriesInputs) -> None:
+    """Stops the queries a failed check's attempts may still run, because a timed-out attempt's
+    thread keeps its query going."""
+    from products.alerts.backend.platform_source_cycle import stop_insight_queries  # noqa: PLC0415
+
+    stop_insight_queries(inputs.team_id, inputs.configuration_id, inputs.query_ids)
 
 
 @activity.defn
@@ -430,10 +453,13 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
         whose every attempt failed is recorded as errored. Returns how many outcomes it recorded.
 
         One record per poll rather than per check, because each record is a transaction and a
-        ClickHouse insert of its own.
+        ClickHouse insert of its own. A record that fails keeps its outcomes for the next poll, so a
+        passing storage failure does not cost the checks still running.
         """
         started: dict[str, AdmittedInsightCheck] = {}
         unrecorded: dict[str, asyncio.Task[SourceBatchEvaluation | None]] = {}
+        waiting: list[SourceBatchEvaluation] = []
+        stopping: list[asyncio.Task[None]] = []
         recorded = 0
         admitting = True
         deadline = workflow.now() + ADMISSION_RUN_BUDGET
@@ -454,19 +480,28 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
                         started[check.configuration_id] = check
                         unrecorded[check.configuration_id] = asyncio.create_task(self._check(inputs, check, expires_at))
             finished = {configuration_id: task for configuration_id, task in unrecorded.items() if task.done()}
-            if finished and (workflow.now() >= next_record_at or all(task.done() for task in unrecorded.values())):
+            if (finished or waiting) and (
+                workflow.now() >= next_record_at or all(task.done() for task in unrecorded.values())
+            ):
                 next_record_at = workflow.now() + ADMISSION_POLL_INTERVAL
                 for configuration_id in finished:
                     del unrecorded[configuration_id]
-                recorded += await self._record_finished(
-                    inputs, {started[configuration_id]: task for configuration_id, task in finished.items()}
+                waiting.extend(
+                    await self._evaluations_of(
+                        inputs,
+                        {started[configuration_id]: task for configuration_id, task in finished.items()},
+                        stopping,
+                    )
                 )
+                recorded += await self._record_waiting(inputs, waiting, last_chance=False)
             if workflow.now() >= deadline:
                 admitting = False
             if not unrecorded:
                 # The checks a round added can end while earlier ones record, and free slots for more.
                 if admitting and added:
                     continue
+                recorded += await self._record_waiting(inputs, waiting, last_chance=True)
+                await asyncio.gather(*stopping, return_exceptions=True)
                 return recorded
             running = [task for task in unrecorded.values() if not task.done()]
             if not running:
@@ -476,17 +511,19 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
             # add history events for the whole of a slow check.
             if admitting:
                 timeout: float | None = ADMISSION_POLL_INTERVAL.total_seconds()
-            elif len(running) < len(unrecorded):
+            elif len(running) < len(unrecorded) or waiting:
                 timeout = max((next_record_at - workflow.now()).total_seconds(), 0)
             else:
                 timeout = None
             await asyncio.wait(running, timeout=timeout, return_when=asyncio.FIRST_COMPLETED)
 
-    async def _record_finished(
+    async def _evaluations_of(
         self,
         inputs: SourceEvaluationInputs,
         finished: dict[AdmittedInsightCheck, "asyncio.Task[SourceBatchEvaluation | None]"],
-    ) -> int:
+        stopping: list["asyncio.Task[None]"],
+    ) -> list[SourceBatchEvaluation]:
+        """What the finished checks decided, with an errored outcome for each check that failed."""
         evaluations: list[SourceBatchEvaluation] = []
         failures: dict[AdmittedInsightCheck, ActivityError] = {}
         for check, task in finished.items():
@@ -498,12 +535,14 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
                 raise error
             elif (evaluation := task.result()) is not None:
                 evaluations.append(evaluation)
+        for check, error in failures.items():
+            stopping.append(asyncio.create_task(self._stop_queries(inputs, check, error)))
         failed = await asyncio.gather(*(self._fail(inputs, check, error) for check, error in failures.items()))
         evaluations.extend(evaluation for evaluation in failed if evaluation is not None)
-        recorded = await self._record(inputs, evaluations, chunked=True)
-        if recorded < len(finished):
-            safe_record(increment_checks_unfinished, SourceKind.INSIGHT.value, len(finished) - recorded)
-        return recorded
+        unfinished = len(finished) - sum(len(evaluation.outcomes) for evaluation in evaluations)
+        if unfinished > 0:
+            safe_record(increment_checks_unfinished, SourceKind.INSIGHT.value, unfinished)
+        return evaluations
 
     async def _fail(
         self, inputs: SourceEvaluationInputs, check: AdmittedInsightCheck, error: ActivityError
@@ -511,8 +550,6 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
         # The reason the owner reads, unwrapped from Temporal's failure and bounded for the payload.
         cause = unwrap_temporal_cause(error)
         message = cause.message if cause is not None else str(error.cause or error)
-        # Each attempt queries under `{run}:{activity}:{attempt}`, as `_evaluate_check` names it.
-        evaluation_id = f"{workflow.info().run_id}:{error.activity_id}"
         try:
             return await workflow.execute_activity(
                 fail_platform_insight_check_activity,
@@ -522,7 +559,6 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
                     error_message=truncate_for_temporal_payload(message, MAX_ERROR_MESSAGE_CHARS),
                     # Temporal rebuilds a remote error as an ApplicationError carrying the class name on `type`.
                     error_type=cause.type if cause is not None else None,
-                    query_ids=tuple(f"{evaluation_id}:{attempt}" for attempt in range(1, _maximum_attempts(check) + 1)),
                 ),
                 start_to_close_timeout=FAIL_START_TO_CLOSE,
                 schedule_to_close_timeout=FAIL_SCHEDULE_TO_CLOSE,
@@ -534,6 +570,51 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
             workflow.logger.warning("Could not record a failed platform insight check as errored")
             return None
 
+    async def _stop_queries(
+        self, inputs: SourceEvaluationInputs, check: AdmittedInsightCheck, error: ActivityError
+    ) -> None:
+        # Each attempt queries under `{run}:{activity}:{attempt}`, as `_evaluate_check` names it.
+        evaluation_id = f"{workflow.info().run_id}:{error.activity_id}"
+        try:
+            await workflow.execute_activity(
+                stop_platform_insight_queries_activity,
+                StopInsightQueriesInputs(
+                    team_id=inputs.batch_key.team_id,
+                    configuration_id=check.configuration_id,
+                    query_ids=tuple(f"{evaluation_id}:{attempt}" for attempt in range(1, _maximum_attempts(check) + 1)),
+                ),
+                start_to_close_timeout=STOP_QUERIES_START_TO_CLOSE,
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+        except ActivityError:
+            workflow.logger.warning("Could not stop the queries of a failed platform insight check")
+
+    async def _record_waiting(
+        self, inputs: SourceEvaluationInputs, waiting: list[SourceBatchEvaluation], *, last_chance: bool
+    ) -> int:
+        """Records the waiting outcomes chunk by chunk, and takes each chunk that recorded out of
+        `waiting`. A chunk that fails stays for the next poll, unless this is the last chance.
+        Returns how many outcomes it recorded."""
+        outcomes = tuple(outcome for evaluation in waiting for outcome in evaluation.outcomes)
+        deliveries = tuple(delivery for evaluation in waiting for delivery in evaluation.deliveries)
+        recorded = 0
+        for chunk in outcome_chunks(outcomes) if outcomes else []:
+            try:
+                await self._record_chunk(inputs, chunk, deliveries)
+            except ActivityError:
+                if last_chance:
+                    raise
+                workflow.logger.warning("Will record platform insight outcomes again at the next poll")
+                break
+            done = {str(outcome.configuration_id) for outcome in chunk}
+            waiting[:] = [
+                evaluation
+                for evaluation in waiting
+                if not any(str(outcome.configuration_id) in done for outcome in evaluation.outcomes)
+            ]
+            recorded += len(chunk)
+        return recorded
+
     async def _record(
         self, inputs: SourceEvaluationInputs, evaluations: list[SourceBatchEvaluation], *, chunked: bool
     ) -> int:
@@ -542,20 +623,28 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
         if not outcomes:
             return 0
         deliveries = tuple(delivery for evaluation in evaluations for delivery in evaluation.deliveries)
+        for chunk in outcome_chunks(outcomes) if chunked else [outcomes]:
+            await self._record_chunk(inputs, chunk, deliveries)
+        return len(outcomes)
+
+    async def _record_chunk(
+        self,
+        inputs: SourceEvaluationInputs,
+        chunk: tuple[PlatformAlertOutcome, ...],
+        deliveries: tuple[AlertDeliveryRequest, ...],
+    ) -> None:
         # Each check's result fits a payload on its own, but the batch's together may not. A chunk's
         # deliveries start after its own record, so a later chunk that fails cannot strand them.
-        for chunk in outcome_chunks(outcomes) if chunked else [outcomes]:
-            await workflow.execute_activity(
-                RECORD_OUTCOMES_ACTIVITY,
-                SourceOutcomeInputs(team_id=inputs.batch_key.team_id, cutoff=inputs.cutoff, outcomes=chunk),
-                start_to_close_timeout=RECORD_START_TO_CLOSE,
-                schedule_to_close_timeout=RECORD_SCHEDULE_TO_CLOSE,
-                retry_policy=RetryPolicy(maximum_attempts=3),
-            )
-            # Started only after the record, because a delivery reads the history row the record writes.
-            recorded = {str(outcome.configuration_id) for outcome in chunk}
-            await start_deliveries([delivery for delivery in deliveries if delivery.configuration_id in recorded])
-        return len(outcomes)
+        await workflow.execute_activity(
+            RECORD_OUTCOMES_ACTIVITY,
+            SourceOutcomeInputs(team_id=inputs.batch_key.team_id, cutoff=inputs.cutoff, outcomes=chunk),
+            start_to_close_timeout=RECORD_START_TO_CLOSE,
+            schedule_to_close_timeout=RECORD_SCHEDULE_TO_CLOSE,
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+        # Started only after the record, because a delivery reads the history row the record writes.
+        recorded = {str(outcome.configuration_id) for outcome in chunk}
+        await start_deliveries([delivery for delivery in deliveries if delivery.configuration_id in recorded])
 
 
 def _maximum_attempts(check: AdmittedInsightCheck) -> int:
@@ -575,4 +664,5 @@ PLATFORM_EVALUATION_ACTIVITIES = [
     plan_platform_insight_checks_activity,
     evaluate_platform_insight_check_activity,
     fail_platform_insight_check_activity,
+    stop_platform_insight_queries_activity,
 ]

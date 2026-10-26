@@ -368,19 +368,15 @@ def fail_insight_check(
     *,
     error_message: str,
     error_type: str | None = None,
-    query_ids: Sequence[str] = (),
 ) -> SourceBatchEvaluation | None:
     """The errored outcome of a check whose every attempt ended without one, such as a query that ran
     past its time budget, as production records an errored check when its retries run out.
 
-    A timed-out attempt's thread can still run its query, so each of `query_ids` is stopped first.
     `error_type` names the class of the last attempt's error, as production reads it to word a
     judge that could not be reached.
     Returns None when the check is no longer due, or its production alert is gone or switched off.
     Writes no state.
     """
-    for query_id in query_ids:
-        _stop_query(team_id, configuration_id, query_id)
     checks = due_checks(team_id, SourceKind.INSIGHT.value, slot, cutoff, configuration_ids=[configuration_id])
     if not checks:
         return None
@@ -400,6 +396,13 @@ def fail_insight_check(
         context=_context(alert),
     )
     return _evaluation(checks[0], outcome)
+
+
+def stop_insight_queries(team_id: int, configuration_id: str, query_ids: Sequence[str]) -> None:
+    """Stops the queries a failed check's attempts may still run. A timed-out attempt's thread
+    keeps its query going, and nothing else stops it."""
+    for query_id in query_ids:
+        _stop_query(team_id, configuration_id, query_id)
 
 
 def _evaluation(check: PlatformAlertCheckInput, outcome: PlatformAlertOutcome) -> SourceBatchEvaluation:

@@ -24,6 +24,7 @@ from products.alerts.backend.temporal.platform_evaluate import (
     InsightAlertPlatformEvaluateWorkflow,
     InsightBatchPlanInputs,
     InsightCheckInputs,
+    StopInsightQueriesInputs,
     evaluate_platform_insight_llm_check_activity,
 )
 from products.alerts_platform.backend.facade.contracts import (
@@ -63,6 +64,7 @@ def _outcome(configuration_id: str, kind: AlertEventKind, state: str) -> Platfor
 async def test_a_check_that_fails_does_not_stop_the_batch_recording_the_rest(environment: WorkflowEnvironment) -> None:
     recorded: list[SourceOutcomeInputs] = []
     failed: list[FailedInsightCheckInputs] = []
+    stopped: list[StopInsightQueriesInputs] = []
 
     # Only the real-time and AI checks have a retry, so the same first failure loses the other one.
     @activity.defn(name="plan_platform_insight_checks_activity")
@@ -108,6 +110,10 @@ async def test_a_check_that_fails_does_not_stop_the_batch_recording_the_rest(env
             outcomes=(_outcome(inputs.configuration_id, AlertEventKind.ERRORED, "errored"),), deliveries=()
         )
 
+    @activity.defn(name="stop_platform_insight_queries_activity")
+    async def stop(inputs: StopInsightQueriesInputs) -> None:
+        stopped.append(inputs)
+
     @activity.defn(name=RECORD_OUTCOMES_ACTIVITY)
     async def record(inputs: SourceOutcomeInputs) -> int:
         recorded.append(inputs)
@@ -118,7 +124,7 @@ async def test_a_check_that_fails_does_not_stop_the_batch_recording_the_rest(env
             environment.client,
             task_queue=QUEUE,
             workflows=[InsightAlertPlatformEvaluateWorkflow],
-            activities=[plan, evaluate, fail, record],
+            activities=[plan, evaluate, fail, stop, record],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ),
         Worker(environment.client, task_queue=settings.MAX_AI_TASK_QUEUE, activities=[evaluate_on_the_ai_queue]),
@@ -139,9 +145,9 @@ async def test_a_check_that_fails_does_not_stop_the_batch_recording_the_rest(env
 
     assert result == 3
     # The check with no retry left no outcome of its own, so it is recorded as errored, with the reason.
-    assert [(inputs.configuration_id, inputs.error_message, len(inputs.query_ids)) for inputs in failed] == [
-        (ADMITTED[0], "worker lost", 1)
-    ]
+    assert [(inputs.configuration_id, inputs.error_message) for inputs in failed] == [(ADMITTED[0], "worker lost")]
+    # Its one attempt's query may still run, which nothing else stops.
+    assert [(inputs.configuration_id, len(inputs.query_ids)) for inputs in stopped] == [(ADMITTED[0], 1)]
     assert sorted(
         (str(o.configuration_id), o.groups[0].new_state) for batch in recorded for o in batch.outcomes
     ) == sorted([(ADMITTED[0], "errored"), (ADMITTED[1], "firing"), (AI_CHECK, "firing")])
@@ -420,3 +426,58 @@ async def test_a_cancelled_platform_ai_check_keeps_its_place_in_the_cap_until_it
                     await asyncio.sleep(0.01)
     finally:
         release.set()
+
+
+async def test_a_record_that_fails_while_a_check_still_runs_records_again_at_the_next_poll(
+    environment: WorkflowEnvironment,
+) -> None:
+    fast, slow = ADMITTED
+    attempts: list[list[str]] = []
+    fast_attempted = asyncio.Event()
+
+    @activity.defn(name="plan_platform_insight_checks_activity")
+    async def plan(inputs: InsightBatchPlanInputs) -> list[AdmittedInsightCheck]:
+        return [
+            AdmittedInsightCheck(configuration_id=configuration_id)
+            for configuration_id in ADMITTED
+            if configuration_id not in inputs.exclude
+        ]
+
+    @activity.defn(name="evaluate_platform_insight_check_activity")
+    async def evaluate(inputs: InsightCheckInputs) -> SourceBatchEvaluation | None:
+        if inputs.configuration_id == slow:
+            await asyncio.wait_for(fast_attempted.wait(), timeout=10)
+        return SourceBatchEvaluation(
+            outcomes=(_outcome(inputs.configuration_id, AlertEventKind.CHECK, "not_firing"),), deliveries=()
+        )
+
+    @activity.defn(name=RECORD_OUTCOMES_ACTIVITY)
+    async def record(inputs: SourceOutcomeInputs) -> int:
+        attempts.append(sorted(str(outcome.configuration_id) for outcome in inputs.outcomes))
+        if len(attempts) == 1:
+            fast_attempted.set()
+            raise ApplicationError("database unavailable", non_retryable=True)
+        return len(inputs.outcomes)
+
+    async with Worker(
+        environment.client,
+        task_queue=QUEUE,
+        workflows=[InsightAlertPlatformEvaluateWorkflow],
+        activities=[plan, evaluate, record],
+        workflow_runner=UnsandboxedWorkflowRunner(),
+    ):
+        result = await environment.client.execute_workflow(
+            InsightAlertPlatformEvaluateWorkflow.run,
+            SourceEvaluationInputs(
+                source=SourceKind.INSIGHT,
+                cutoff="2026-09-16T10:00:00+00:00",
+                batch_key=AlertBatchKey(team_id=1, slot="2026-09-16T10:00:00+00:00"),
+            ),
+            id=f"test-{uuid.uuid4()}",
+            task_queue=QUEUE,
+        )
+
+    # The failed record ended neither the batch nor the outcome it held.
+    assert result == 2
+    assert attempts[0] == [fast]
+    assert sorted(configuration_id for attempt in attempts[1:] for configuration_id in attempt) == [fast, slow]
