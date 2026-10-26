@@ -22,6 +22,7 @@ import {
     EmailReplyBlockedReason,
     getEmailReplyBlockedReason,
     getImpersonationTicketContext,
+    MESSAGE_POLL_INTERVAL,
     supportTicketSceneLogic,
 } from './supportTicketSceneLogic'
 
@@ -1304,6 +1305,84 @@ describe('supportTicketSceneLogic discussion polling', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(commentsLogic.findMounted(discussionProps)).toBeNull()
+    })
+})
+
+describe('supportTicketSceneLogic message polling', () => {
+    let logic: ReturnType<typeof supportTicketSceneLogic.build> | undefined
+
+    const commentsListMock = api.comments.list as jest.Mock
+    const ticketGetMock = api.conversationsTickets.get as jest.Mock
+
+    beforeEach(() => {
+        initKeaTests()
+        commentsListMock.mockReset().mockResolvedValue({ results: [] })
+        ticketGetMock.mockReset().mockResolvedValue(makeTicket())
+    })
+
+    afterEach(() => {
+        stopPolling(logic)
+        logic = undefined
+        commentsListMock.mockReset().mockResolvedValue({ results: [] })
+        ticketGetMock.mockReset()
+    })
+
+    // Every open ticket polls this endpoint. Firing on the timer regardless of what is already out
+    // means a response slower than the interval gets several more requests piled on top of it.
+    it('waits for a slow load instead of stacking another request on it', async () => {
+        jest.useFakeTimers()
+        try {
+            let resolveSlowLoad: ((value: { results: CommentType[] }) => void) | undefined
+            commentsListMock.mockImplementationOnce(
+                () =>
+                    new Promise((resolve) => {
+                        resolveSlowLoad = resolve
+                    })
+            )
+
+            logic = supportTicketSceneLogic({ id: 42 })
+            logic.mount()
+            await jest.advanceTimersByTimeAsync(0)
+            await expectLogic(logic).toDispatchActions(['setTicket'])
+
+            await jest.advanceTimersByTimeAsync(MESSAGE_POLL_INTERVAL * 3)
+            expect(commentsListMock).toHaveBeenCalledTimes(1)
+
+            resolveSlowLoad?.({ results: [] })
+            await jest.advanceTimersByTimeAsync(MESSAGE_POLL_INTERVAL)
+            expect(commentsListMock).toHaveBeenCalledTimes(2)
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
+    // The screenshot a customer sends during an outage is the empty state, because the thread said
+    // "no messages yet" when it had failed to ask.
+    it('reports a failed load as a failure, not as an empty thread', async () => {
+        const errorToast = jest.spyOn(lemonToast, 'error').mockReturnValue('' as never)
+        try {
+            commentsListMock.mockRejectedValue(new Error('request failed'))
+
+            logic = supportTicketSceneLogic({ id: 42 })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['setTicket', 'setMessagesLoadFailed'])
+
+            expect(logic.values.messagesLoadFailed).toBe(true)
+            expect(logic.values.messagesLoading).toBe(false)
+            expect(logic.values.messages).toEqual([])
+
+            // A toast per failed poll buries the page under a stack of identical errors.
+            logic.actions.loadMessages()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(errorToast).toHaveBeenCalledTimes(1)
+
+            commentsListMock.mockResolvedValue({ results: [] })
+            logic.actions.loadMessages()
+            await expectLogic(logic).toDispatchActions(['setMessages'])
+            expect(logic.values.messagesLoadFailed).toBe(false)
+        } finally {
+            errorToast.mockRestore()
+        }
     })
 })
 

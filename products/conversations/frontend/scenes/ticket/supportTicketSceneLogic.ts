@@ -91,9 +91,12 @@ import type {
 import { conversationsDraftModeLogic } from '../settings/conversationsDraftModeLogic'
 import { supportTicketsSceneLogic } from '../tickets/supportTicketsSceneLogic'
 
-const MESSAGE_POLL_INTERVAL = 5000 // 5 seconds
+export const MESSAGE_POLL_INTERVAL = 5000 // 5 seconds
 /** Discussions ride the message timer at 1/4 the rate, so ~20s. */
 const DISCUSSION_POLL_EVERY_N_TICKS = 4
+/** Ticks the poll waits after a failed load, doubling per consecutive failure. Capped at ~1 minute
+ *  so the thread still recovers on its own once the endpoint does. */
+const MESSAGE_POLL_MAX_BACKOFF_TICKS = 12
 /** Must not exceed the server's replay window, or recovery could adopt a message from an older send. */
 const SEND_RECOVERY_WINDOW_SECONDS = 120
 const EMPTY_DELIVERY_STATUS_BY_MESSAGE_ID = new Map<string, MessageDeliveryStatus>()
@@ -322,6 +325,7 @@ export interface supportTicketSceneLogicValues {
     linkedReportsLoading: boolean
     messageSending: boolean
     messages: CommentType[]
+    messagesLoadFailed: boolean
     messagesLoading: boolean
     olderMessagesLoading: boolean
     person: PersonType | null
@@ -512,6 +516,9 @@ export interface supportTicketSceneLogicActions {
     setMessages: (messages: CommentType[]) => {
         messages: CommentType[]
     }
+    setMessagesLoadFailed: (failed: boolean) => {
+        failed: boolean
+    }
     setMessagesLoading: (loading: boolean) => {
         loading: boolean
     }
@@ -655,6 +662,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         loadMessages: true,
         setMessages: (messages: CommentType[]) => ({ messages }),
         setMessagesLoading: (loading: boolean) => ({ loading }),
+        setMessagesLoadFailed: (failed: boolean) => ({ failed }),
         appendMessage: (message: CommentType) => ({ message }),
 
         pollDiscussionThread: true,
@@ -920,6 +928,13 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 loadMessages: () => true,
                 setMessages: () => false,
                 setMessagesLoading: (_, { loading }) => loading,
+            },
+        ],
+        messagesLoadFailed: [
+            false,
+            {
+                setMessages: () => false,
+                setMessagesLoadFailed: (_, { failed }) => failed,
             },
         ],
         olderMessagesLoading: [
@@ -1344,6 +1359,10 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 }
 
                 actions.setTicket(ticket)
+                // Reset before the first load, which claims the in-flight slot as it dispatches.
+                cache.messageLoadFailures = 0
+                cache.messagePollSkipTicks = 0
+                cache.messagesInFlight = false
                 actions.loadMessages()
 
                 impersonationNoticeLogic.findMounted()?.actions.setTicketContext(getImpersonationTicketContext(ticket))
@@ -1360,7 +1379,16 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 cache.discussionPollTick = 0
                 cache.disposables.add(() => {
                     const intervalId = setInterval(() => {
-                        actions.loadMessages()
+                        // A load still running when the next tick arrives means the endpoint is
+                        // slower than the interval. Firing anyway puts several requests on it at
+                        // once, from every teammate with a ticket open, which is load added at the
+                        // moment it has least to give. Wait for the one already out instead, and
+                        // after a failure wait a growing number of ticks on top of that.
+                        if (cache.messagePollSkipTicks > 0) {
+                            cache.messagePollSkipTicks -= 1
+                        } else if (!cache.messagesInFlight) {
+                            actions.loadMessages()
+                        }
                         // A discussion is a slower conversation than the ticket itself, and a Slack
                         // reply landing a few seconds late costs nothing — so it rides the same timer
                         // at a fraction of the rate rather than starting a second one.
@@ -1460,11 +1488,14 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             }
             const revision = ++cache.messageRevision
             const ticketId = values.ticket.id
+            cache.messagesInFlight = true
             try {
                 const response = await api.comments.list({
                     scope: 'conversations_ticket',
                     item_id: ticketId,
                 })
+                cache.messageLoadFailures = 0
+                cache.messagePollSkipTicks = 0
                 if (cache.messageRevision !== revision || values.ticket?.id !== ticketId) {
                     // setMessages replaces the list wholesale, so a poll that started before a
                     // newer load or a local write must not apply its older snapshot.
@@ -1474,8 +1505,20 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 // Reverse to show oldest first (bottom = newest)
                 actions.setMessages((response.results || []).reverse())
             } catch {
-                lemonToast.error('Failed to load messages')
+                cache.messageLoadFailures = (cache.messageLoadFailures ?? 0) + 1
+                cache.messagePollSkipTicks = Math.min(
+                    2 ** (cache.messageLoadFailures - 1),
+                    MESSAGE_POLL_MAX_BACKOFF_TICKS
+                )
+                // One toast per outage rather than one per poll: the thread itself reports the
+                // failure for as long as it lasts, so repeating it every tick only buries the page.
+                if (cache.messageLoadFailures === 1) {
+                    lemonToast.error('Failed to load messages')
+                }
+                actions.setMessagesLoadFailed(true)
                 actions.setMessagesLoading(false)
+            } finally {
+                cache.messagesInFlight = false
             }
         },
         loadOlderMessages: async () => {

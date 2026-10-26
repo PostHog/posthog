@@ -10,6 +10,9 @@ import { Message } from './Message'
 export interface MessageListProps {
     messages: ChatMessage[]
     messagesLoading: boolean
+    /** The last load failed, so the thread is unknown rather than empty. */
+    messagesLoadFailed?: boolean
+    onRetryLoadMessages?: () => void
     hasMoreMessages?: boolean
     olderMessagesLoading?: boolean
     onLoadOlderMessages?: () => void
@@ -59,6 +62,8 @@ const EMPTY_DELIVERY_STATUS_BY_MESSAGE_ID = new Map<string, MessageDeliveryStatu
 export function MessageList({
     messages,
     messagesLoading,
+    messagesLoadFailed = false,
+    onRetryLoadMessages,
     hasMoreMessages = false,
     olderMessagesLoading = false,
     onLoadOlderMessages,
@@ -289,6 +294,22 @@ export function MessageList({
                 {messagesLoading && messages.length === 0 ? (
                     <div className="flex items-center justify-center h-full">
                         <Spinner />
+                    </div>
+                ) : messagesLoadFailed && messages.length === 0 ? (
+                    // A failed load is not an empty thread. "No messages yet" reads as a verdict on
+                    // the ticket, so a failure here looks like lost history.
+                    <div className="flex flex-col items-center justify-center h-full gap-2 text-muted-alt text-sm">
+                        <span>Couldn't load messages. Retrying in the background.</span>
+                        {onRetryLoadMessages && (
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                onClick={onRetryLoadMessages}
+                                data-attr="message-list-retry-load"
+                            >
+                                Try again
+                            </LemonButton>
+                        )}
                     </div>
                 ) : messages.length === 0 ? (
                     <div className="flex items-center justify-center h-full text-muted-alt text-sm">{emptyMessage}</div>

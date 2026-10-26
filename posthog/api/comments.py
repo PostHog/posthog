@@ -972,7 +972,11 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         params = self.request.GET.dict()
-        queryset = queryset.exclude(scope__in=COMMENT_SCOPES_BLOCKED_FROM_GENERIC_API)
+        # Both authors are serialized on every row, so without the join a 100-comment page costs
+        # 200 extra queries. The ticket thread re-reads that page on a timer while a ticket is open.
+        queryset = queryset.select_related("created_by", "completed_by").exclude(
+            scope__in=COMMENT_SCOPES_BLOCKED_FROM_GENERIC_API
+        )
 
         if created_by := params.get("created_by"):
             if not created_by.isdigit():
