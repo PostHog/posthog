@@ -55,6 +55,7 @@ class EvalReport(BaseModel):
 class ScoutArtifacts(AgentArtifacts):
     reports: list[EvalReport] = Field(default_factory=list)
     last_message: str | None = None
+    scout_closeout: str | None = None
     outcome: str = "incomplete"
     missing_data: list[str] = Field(default_factory=list)
     checked_products: list[str] = Field(default_factory=list)
@@ -239,6 +240,7 @@ async def run_first_report_scout(
                 **parsed.model_dump(),
                 "reports": reports,
                 "last_message": result.last_message,
+                "scout_closeout": result.last_message,
                 "outcome": outcome.get("status", "incomplete"),
                 "missing_data": closeout.missing_data if closeout else [],
                 "checked_products": closeout.checked_products if closeout else [],
