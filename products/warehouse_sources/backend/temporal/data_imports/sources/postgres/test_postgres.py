@@ -1375,6 +1375,7 @@ class TestPostgresSourceNonRetryableErrors:
         friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
         assert friendly, "Neon endpoint ID rejection should surface an actionable message"
         assert "SSH tunnel" in friendly[0]
+        assert "hostname" in friendly[0]
 
     def test_plaintext_refusal_alone_is_non_retryable(self, source):
         non_retryable = source.get_non_retryable_errors()
@@ -5688,8 +5689,10 @@ class TestValidateCredentialsErrorMapping:
                 "insecure (try using `sslmode=require`)",
                 "Your database provider (Neon) couldn't route the connection because it didn't "
                 'receive routing information ("Endpoint ID is not specified"). This happens when '
-                "connecting through an SSH tunnel, which can't carry that information to Neon. "
-                "Connect to this database directly instead of through an SSH tunnel, then try again.",
+                "the host is configured as an IP address instead of a hostname, or when connecting "
+                "through an SSH tunnel, which can't carry that information to Neon. Update the "
+                "host to the hostname your database provider gave you, or connect directly instead "
+                "of through an SSH tunnel, then try again.",
             ),
             # Unmapped errors fall back to the generic message.
             (
