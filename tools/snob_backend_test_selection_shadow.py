@@ -203,11 +203,9 @@ class _SourceFacts:
 
 
 def _strings_imports_and_calls(tree: ast.AST) -> _SourceFacts:
-    """Collect every string literal, imported name and call in one pass over the tree.
-
-    ast.walk spends most of its time in the generators of ast.iter_child_nodes, so this
+    """ast.walk spends most of its time in the generators of ast.iter_child_nodes, so this
     reads node._fields directly. It visits nodes in a different order than ast.walk, which
-    is safe because every caller treats the results as unordered."""
+    is safe because the caller treats the results as unordered."""
     strings: set[str] = set()
     imports: set[str] = set()
     calls: list[ast.Call] = []
@@ -331,8 +329,6 @@ def classify_test_file(path: str) -> TestFeatures:
         return TestFeatures(path=path)
 
     facts = _strings_imports_and_calls(tree)
-    strings = facts.strings
-    imports = facts.imports
     calls_http_client = False
     uses_reverse = False
 
@@ -345,12 +341,12 @@ def classify_test_file(path: str) -> TestFeatures:
             if receiver.endswith("client") or ".client" in receiver:
                 calls_http_client = True
 
-    imports_api_client = bool(imports & API_CLIENT_IMPORTS)
-    uses_api_url = any("/api/" in value or value.startswith("/api") for value in strings)
-    lower_imports = " ".join(sorted(imports)).lower()
+    imports_api_client = bool(facts.imports & API_CLIENT_IMPORTS)
+    uses_api_url = any("/api/" in value or value.startswith("/api") for value in facts.strings)
+    lower_imports = " ".join(sorted(facts.imports)).lower()
     lower_path = path.lower()
 
-    api_tokens = set(_api_tokens_from_strings(strings))
+    api_tokens = set(_api_tokens_from_strings(facts.strings))
     if path.startswith("posthog/api/test/"):
         api_tokens.update(_tokens_from_name(PurePosixPath(path).stem.removeprefix("test_")))
 
@@ -369,9 +365,8 @@ def classify_test_file(path: str) -> TestFeatures:
 
 def classify_tests() -> dict[str, TestFeatures]:
     paths = [path for path in _iter_python_files() if _is_test_file(path)]
-    # Parsing every test file is CPU-bound and the test shards wait for it, so it runs on
-    # all cores. Fork makes each worker inherit module state such as a reassigned
-    # REPO_ROOT, which spawn and forkserver would re-import from scratch.
+    # Fork makes each worker inherit module state such as a reassigned REPO_ROOT, which
+    # spawn and forkserver would re-import from scratch.
     with ProcessPoolExecutor(mp_context=multiprocessing.get_context("fork")) as pool:
         return dict(zip(paths, pool.map(classify_test_file, paths, chunksize=64)))
 
