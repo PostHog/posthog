@@ -549,14 +549,17 @@ It puts the request on `PlatformAlertOutcome.held_delivery` with a reason and a 
 
 `release_hold` in the facade stamps a hold once, under a row lock.
 It returns the request only for a release with `send`, and only to the releaser that won.
-That releaser starts the delivery with `start_deliveries`, so the delivery keeps its usual id.
+That releaser starts the delivery with `start_deliveries`, so the delivery keeps its usual id, then calls `record_hold_delivery_started`.
 A retry from the same releaser gets the request back. Another releaser gets nothing.
 `reschedule_hold` moves an unreleased hold's deadline.
 `deliver_evaluation` also refuses an evaluation whose hold is unreleased or released with `suppress`.
 
 `alerts-platform-release-expired-holds-schedule` starts `alerts-platform-release-expired-holds` every minute on the delivery queue, with SKIP overlap and a 5-minute execution timeout.
 The workflow finds up to 200 holds past their deadline, releases each with `send` as the safety net, and starts their deliveries.
-It skips the holds of a disabled configuration. It still sends a hold whose alert went back to its source, because the request records the owner at check time.
+It re-reads each hold's deadline and configuration under the row lock, so a hold rescheduled after the find stays held.
+It also starts any released send whose delivery nobody recorded as started 5 minutes after the release, so a releaser that failed between the release and the start still delivers.
+It stops adding requests once they would outgrow one activity payload, and leaves the rest for the next run.
+It suppresses, rather than sends, the hold of a disabled configuration, so turning the alert back on never sends an old firing. It still sends a hold whose alert went back to its source, because the request records the owner at check time.
 The find step also deletes holds older than 90 days, which is how long the history rows they annotate live.
 `alerts_platform_holds_expired_total` counts the holds the safety net sent. A rise means a source holds deliveries and does not release them.
 

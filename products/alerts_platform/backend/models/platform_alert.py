@@ -300,6 +300,8 @@ class PlatformAlertDeliveryHold(TeamScopedRootMixin, UUIDModel):
     released_at = models.DateTimeField(null=True, blank=True)
     release_action = models.CharField(max_length=16, choices=HoldRelease.choices, null=True, blank=True)
     released_by = models.CharField(max_length=16, choices=HoldReleasedBy.choices, null=True, blank=True)
+    # When the releaser of a send started its delivery. The sweep starts any send left unstarted.
+    delivery_started_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = "alerts_platformalertdeliveryhold"
@@ -314,6 +316,12 @@ class PlatformAlertDeliveryHold(TeamScopedRootMixin, UUIDModel):
                 fields=["release_after"],
                 name="platform_alert_hold_due_idx",
                 condition=models.Q(released_at__isnull=True),
+            ),
+            # The sweep's recovery of released sends whose releaser never started them.
+            models.Index(
+                fields=["released_at"],
+                name="platform_alert_hold_start_idx",
+                condition=models.Q(release_action="send", delivery_started_at__isnull=True),
             ),
             # Pruning, which deletes holds once the history rows they annotate have expired.
             models.Index(fields=["held_at"], name="platform_alert_hold_age_idx"),

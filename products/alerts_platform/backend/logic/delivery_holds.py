@@ -12,17 +12,35 @@ from typing import Final
 
 from django.db import transaction
 
+from posthog.dataclasses import frozen
+
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
     HeldDeliveryAddress,
     PlatformAlertOutcome,
 )
 from products.alerts_platform.backend.facade.enums import HoldRelease, HoldReleasedBy
+from products.alerts_platform.backend.facade.payload import payload_bytes
 from products.alerts_platform.backend.models import PlatformAlertConfiguration, PlatformAlertDeliveryHold
 from products.alerts_platform.backend.models.platform_alert_events_sql import PLATFORM_ALERT_EVENTS_TTL_DAYS
 
 # As long as the history rows a hold annotates live, so a reader never finds one without the other.
 HOLD_RETENTION: Final = timedelta(days=PLATFORM_ALERT_EVENTS_TTL_DAYS)
+# A releaser starts its delivery seconds after the release. One that has not started by then failed
+# between the two, and the sweep starts it instead.
+START_GRACE: Final = timedelta(minutes=5)
+
+
+@frozen
+class HoldSweep:
+    """What one sweep found to send: holds past their deadline, and released sends nobody started."""
+
+    expired: tuple[HeldDeliveryAddress, ...]
+    unstarted: tuple[HeldDeliveryAddress, ...]
+
+
+def _address(team_id: int, configuration_id: object, evaluation_key: str) -> HeldDeliveryAddress:
+    return HeldDeliveryAddress(team_id=team_id, configuration_id=str(configuration_id), evaluation_key=evaluation_key)
 
 
 def hold_for(
@@ -44,18 +62,28 @@ def hold_for(
 
 
 def release_hold(
-    address: HeldDeliveryAddress, *, action: HoldRelease, released_by: HoldReleasedBy, now: datetime
+    address: HeldDeliveryAddress,
+    *,
+    action: HoldRelease,
+    released_by: HoldReleasedBy,
+    now: datetime,
+    only_if_due: bool = False,
 ) -> AlertDeliveryRequest | None:
     """Releases one hold. Returns the request when the caller should start its delivery.
 
     The first release wins. A later one changes nothing and gets the request back only when it
     repeats the winning send from the same releaser, which is a retry of a caller that committed
     the release and failed before it started the delivery. The delivery's id then dedups it.
+
+    `only_if_due` re-reads the deadline under the lock, so a hold rescheduled after the sweep found
+    it stays held. It also suppresses, rather than sends, the hold of a configuration that is
+    disabled by then, so turning the alert back on never sends a firing that old.
     """
     with transaction.atomic():
         hold = (
             PlatformAlertDeliveryHold.objects.for_team(address.team_id)
-            .select_for_update()
+            .select_related("configuration")
+            .select_for_update(of=("self",))
             .filter(configuration_id=address.configuration_id, evaluation_key=address.evaluation_key)
             .first()
         )
@@ -64,11 +92,26 @@ def release_hold(
         if hold.released_at is not None:
             repeated = hold.release_action == action == HoldRelease.SEND and hold.released_by == released_by
             return AlertDeliveryRequest.from_stored(hold.request) if repeated else None
+        if only_if_due and hold.release_after > now:
+            return None
+        if only_if_due and not hold.configuration.enabled:
+            action = HoldRelease.SUPPRESS
         hold.released_at = now
         hold.release_action = action.value
         hold.released_by = released_by.value
         hold.save(update_fields=["released_at", "release_action", "released_by"])
     return AlertDeliveryRequest.from_stored(hold.request) if action == HoldRelease.SEND else None
+
+
+def record_delivery_started(addresses: Sequence[HeldDeliveryAddress], now: datetime) -> None:
+    """Marks released sends whose delivery a caller started, so the sweep does not start them again."""
+    for address in addresses:
+        PlatformAlertDeliveryHold.objects.for_team(address.team_id).filter(
+            configuration_id=address.configuration_id,
+            evaluation_key=address.evaluation_key,
+            release_action=HoldRelease.SEND,
+            delivery_started_at__isnull=True,
+        ).update(delivery_started_at=now)
 
 
 def reschedule_hold(address: HeldDeliveryAddress, *, release_after: datetime) -> bool:
@@ -113,32 +156,66 @@ def prune_holds(now: datetime, *, limit: int) -> int:
     return PlatformAlertDeliveryHold.objects.unscoped().filter(id__in=stale).delete()[0] if stale else 0
 
 
-def expired_holds(now: datetime, *, limit: int) -> tuple[HeldDeliveryAddress, ...]:
-    """The holds past their deadline, oldest first.
+def holds_to_send(now: datetime, *, limit: int) -> HoldSweep:
+    """The holds the safety net sends now, oldest first, up to `limit` of each kind.
 
-    Every team's, so one sweep covers the fleet. A disabled configuration's holds are left held,
-    the way the source's own safety net skips a disabled alert. An alert rolled back to its source
-    is still swept, because its held request was decided while the platform owned it.
+    Every team's, so one sweep covers the fleet. A disabled configuration's holds are found too, and
+    suppressed when released. An alert rolled back to its source is still swept, because its held
+    request was decided while the platform owned it.
     """
-    rows = (
+    expired = (
         PlatformAlertDeliveryHold.objects.unscoped()
-        .filter(released_at__isnull=True, release_after__lte=now, configuration__enabled=True)
+        .filter(released_at__isnull=True, release_after__lte=now)
         .order_by("release_after")
         .values_list("team_id", "configuration_id", "evaluation_key")[:limit]
     )
-    return tuple(
-        HeldDeliveryAddress(team_id=team_id, configuration_id=str(configuration_id), evaluation_key=key)
-        for team_id, configuration_id, key in rows
+    unstarted = (
+        PlatformAlertDeliveryHold.objects.unscoped()
+        .filter(
+            release_action=HoldRelease.SEND,
+            delivery_started_at__isnull=True,
+            released_at__lte=now - START_GRACE,
+        )
+        .order_by("released_at")
+        .values_list("team_id", "configuration_id", "evaluation_key")[:limit]
+    )
+    return HoldSweep(
+        expired=tuple(_address(*row) for row in expired), unstarted=tuple(_address(*row) for row in unstarted)
     )
 
 
-def release_expired(addresses: Sequence[HeldDeliveryAddress], now: datetime) -> tuple[AlertDeliveryRequest, ...]:
-    """Releases each hold with a send from the safety net, and returns the requests it won.
+def _stored_request(address: HeldDeliveryAddress) -> AlertDeliveryRequest | None:
+    stored = (
+        PlatformAlertDeliveryHold.objects.for_team(address.team_id)
+        .filter(configuration_id=address.configuration_id, evaluation_key=address.evaluation_key)
+        .values_list("request", flat=True)
+        .first()
+    )
+    return None if stored is None else AlertDeliveryRequest.from_stored(stored)
 
-    One transaction per hold, so a hold another releaser locked delays only itself.
+
+def send_swept(sweep: HoldSweep, now: datetime, *, max_bytes: int) -> tuple[AlertDeliveryRequest, ...]:
+    """The requests the sweep starts: released sends nobody started, then expired holds it releases.
+
+    Stops before the requests outgrow `max_bytes`, because they return through one activity result.
+    A hold left out stays as it was, so the next sweep finds it again. Each expired hold is released
+    in a transaction of its own, so a hold another releaser locked delays only itself.
     """
-    released = (
-        release_hold(address, action=HoldRelease.SEND, released_by=HoldReleasedBy.SAFETY_NET, now=now)
-        for address in addresses
-    )
-    return tuple(request for request in released if request is not None)
+    requests: list[AlertDeliveryRequest] = []
+    spent = 0
+    for address in (*sweep.unstarted, *sweep.expired):
+        request = _stored_request(address)
+        if request is None:
+            continue
+        size = payload_bytes(request)
+        if requests and spent + size > max_bytes:
+            break
+        if address in sweep.expired:
+            request = release_hold(
+                address, action=HoldRelease.SEND, released_by=HoldReleasedBy.SAFETY_NET, now=now, only_if_due=True
+            )
+            if request is None:
+                continue
+        requests.append(request)
+        spent += size
+    return tuple(requests)

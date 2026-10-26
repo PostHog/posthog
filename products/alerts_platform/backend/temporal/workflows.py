@@ -51,6 +51,7 @@ with workflow.unsafe.imports_passed_through():
         SourceEvaluationInputs,
         TickPage,
     )
+    from products.alerts_platform.backend.facade.payload import MAX_BATCH_PAYLOAD_BYTES
     from products.alerts_platform.backend.logic import delivery_holds
     from products.alerts_platform.backend.logic.demand import discover_demand
     from products.alerts_platform.backend.logic.inventory import count_inventory
@@ -302,7 +303,7 @@ MAX_HOLDS_PER_SWEEP = 200
 
 
 @activity.defn
-async def alerts_platform_find_expired_holds_activity() -> list[HeldDeliveryAddress]:
+async def alerts_platform_find_expired_holds_activity() -> delivery_holds.HoldSweep:
     now = dt.datetime.now(dt.UTC)
     # A failed prune is logged, so cleanup never keeps a due hold from being sent.
     try:
@@ -312,16 +313,16 @@ async def alerts_platform_find_expired_holds_activity() -> list[HeldDeliveryAddr
     else:
         if pruned:
             await LOGGER.ainfo("alerts_platform_holds_pruned", count=pruned)
-    return list(await database_sync_to_async_pool(delivery_holds.expired_holds)(now, limit=MAX_HOLDS_PER_SWEEP))
+    return await database_sync_to_async_pool(delivery_holds.holds_to_send)(now, limit=MAX_HOLDS_PER_SWEEP)
 
 
 @activity.defn
-async def alerts_platform_release_expired_holds_activity(
-    addresses: list[HeldDeliveryAddress],
-) -> list[AlertDeliveryRequest]:
+async def alerts_platform_release_expired_holds_activity(sweep: delivery_holds.HoldSweep) -> list[AlertDeliveryRequest]:
     """Separate from the find, so a retry after a committed release gets the same requests back."""
-    released = await database_sync_to_async_pool(delivery_holds.release_expired)(addresses, dt.datetime.now(dt.UTC))
-    for request in released:
+    requests = await database_sync_to_async_pool(delivery_holds.send_swept)(
+        sweep, dt.datetime.now(dt.UTC), max_bytes=MAX_BATCH_PAYLOAD_BYTES
+    )
+    for request in requests:
         await LOGGER.awarning(
             "alerts_platform_hold_expired",
             source=request.source.value,
@@ -329,7 +330,18 @@ async def alerts_platform_release_expired_holds_activity(
             evaluation_key=request.evaluation_key,
         )
         safe_record(increment_holds_expired, request.source.value)
-    return list(released)
+    return list(requests)
+
+
+@activity.defn
+async def alerts_platform_record_hold_deliveries_started_activity(requests: list[AlertDeliveryRequest]) -> None:
+    addresses = [
+        HeldDeliveryAddress(
+            team_id=request.team_id, configuration_id=request.configuration_id, evaluation_key=request.evaluation_key
+        )
+        for request in requests
+    ]
+    await database_sync_to_async_pool(delivery_holds.record_delivery_started)(addresses, dt.datetime.now(dt.UTC))
 
 
 @workflow.defn(name="alerts-platform-release-expired-holds")
@@ -337,7 +349,8 @@ class AlertsPlatformReleaseExpiredHoldsWorkflow(PostHogWorkflow):
     """The safety net for held deliveries: sends each one whose deadline passed with no release.
 
     One release of a hold wins, so a source that releases it at the same moment cannot also send it.
-    The delivery keeps its usual id, so a retried run that starts it again starts nothing new.
+    A send is marked started only once its delivery started, so a run that fails between the two
+    leaves it for a later run. The delivery keeps its usual id, so starting it twice starts nothing new.
     """
 
     inputs_cls = AlertsPlatformInputs
@@ -345,20 +358,27 @@ class AlertsPlatformReleaseExpiredHoldsWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, inputs: AlertsPlatformInputs) -> int:
-        addresses = await workflow.execute_activity(
+        sweep = await workflow.execute_activity(
             alerts_platform_find_expired_holds_activity,
             start_to_close_timeout=dt.timedelta(seconds=30),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
-        if not addresses:
+        if not sweep.expired and not sweep.unstarted:
             return 0
-        released = await workflow.execute_activity(
+        requests = await workflow.execute_activity(
             alerts_platform_release_expired_holds_activity,
-            addresses,
+            sweep,
             start_to_close_timeout=dt.timedelta(seconds=60),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
-        return await start_deliveries(released)
+        started = await start_deliveries(requests)
+        await workflow.execute_activity(
+            alerts_platform_record_hold_deliveries_started_activity,
+            requests,
+            start_to_close_timeout=dt.timedelta(seconds=30),
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+        return started
 
 
 @workflow.defn(name="alerts-platform-deliver")
@@ -643,4 +663,5 @@ DELIVERY_ACTIVITIES: list[Callable[..., object]] = [
     alerts_platform_emit_transitions_activity,
     alerts_platform_find_expired_holds_activity,
     alerts_platform_release_expired_holds_activity,
+    alerts_platform_record_hold_deliveries_started_activity,
 ]

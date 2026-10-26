@@ -426,6 +426,7 @@ rules:
                               |SubscriptionDelivery
                               |PlatformAlert
                               |PlatformAlertConfiguration
+                              |PlatformAlertDeliveryHold
                               |PlatformAlertDeliveryPath
                               |PlatformAlertThread
                               |AlertDestination
@@ -903,6 +904,7 @@ rules:
                         |SubscriptionDelivery
                         |PlatformAlert
                         |PlatformAlertConfiguration
+                        |PlatformAlertDeliveryHold
                         |PlatformAlertDeliveryPath
                         |PlatformAlertThread
                         |AlertDestination

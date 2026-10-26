@@ -17,11 +17,15 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceKind,
 )
 from products.alerts_platform.backend.facade.enums import HoldRelease, HoldReleasedBy
+from products.alerts_platform.backend.facade.payload import MAX_BATCH_PAYLOAD_BYTES
 from products.alerts_platform.backend.logic.delivery_holds import (
     HOLD_RETENTION,
-    expired_holds,
+    START_GRACE,
+    HoldSweep,
+    holds_to_send,
     prune_holds,
-    release_expired,
+    record_delivery_started,
+    send_swept,
 )
 from products.alerts_platform.backend.models import PlatformAlertConfiguration, PlatformAlertDeliveryHold
 
@@ -65,7 +69,7 @@ class TestDeliveryHolds(BaseTest):
         key: str = "slot:1",
         held_at: datetime = NOW,
         release_after: datetime = NOW,
-        released: bool = False,
+        released_at: datetime | None = None,
     ) -> None:
         PlatformAlertDeliveryHold.objects.for_team(self.team.id).create(
             team=self.team,
@@ -75,8 +79,8 @@ class TestDeliveryHolds(BaseTest):
             request=self._request(configuration, key).to_stored(),
             held_at=held_at,
             release_after=release_after,
-            released_at=held_at if released else None,
-            release_action=HoldRelease.SEND if released else None,
+            released_at=released_at,
+            release_action=HoldRelease.SEND if released_at else None,
         )
 
     def test_a_held_check_records_its_hold_with_the_outcome_and_a_replay_adds_none(self) -> None:
@@ -147,20 +151,38 @@ class TestDeliveryHolds(BaseTest):
         assert (hold.release_action, hold.released_by) == (releases[0][0], releases[0][1])
         assert reschedule_hold(address, release_after=NOW + timedelta(hours=1)) is False
 
-    def test_the_safety_net_sends_only_holds_past_their_deadline_on_enabled_alerts(self) -> None:
-        self._hold(self.configuration, key="due", release_after=NOW - timedelta(minutes=1))
-        self._hold(self.configuration, key="rescheduled", release_after=NOW - timedelta(minutes=1))
+    def test_the_safety_net_sends_expired_holds_and_released_sends_nobody_started(self) -> None:
+        late = NOW - timedelta(minutes=1)
+        self._hold(self.configuration, key="due", release_after=late)
+        self._hold(self.configuration, key="rescheduled", release_after=late)
         self._hold(self.configuration, key="waiting", release_after=NOW + timedelta(minutes=1))
-        self._hold(self.configuration, key="released", release_after=NOW - timedelta(minutes=1), released=True)
-        self._hold(self._configuration(enabled=False), key="disabled", release_after=NOW - timedelta(minutes=1))
-        self._hold(self.configuration, key="expired", held_at=NOW - HOLD_RETENTION - timedelta(days=1))
+        self._hold(self.configuration, key="unstarted", release_after=late, released_at=NOW - START_GRACE)
+        self._hold(self.configuration, key="starting", release_after=late, released_at=NOW - timedelta(minutes=1))
+        self._hold(self.configuration, key="started", release_after=late, released_at=NOW - START_GRACE)
+        record_delivery_started([self._address(self.configuration, "started")], NOW)
+        disabled = self._configuration(enabled=False)
+        self._hold(disabled, key="disabled", release_after=late)
+        self._hold(self.configuration, key="old", held_at=NOW - HOLD_RETENTION - timedelta(days=1))
+        assert prune_holds(NOW, limit=10) == 1
+
+        sweep = holds_to_send(NOW, limit=10)
+        # A source can move the deadline after the sweep found the hold, and must keep it held.
         assert reschedule_hold(
             self._address(self.configuration, "rescheduled"), release_after=NOW + timedelta(minutes=5)
         )
+        requests = send_swept(sweep, NOW, max_bytes=MAX_BATCH_PAYLOAD_BYTES)
 
-        assert prune_holds(NOW, limit=10) == 1
-        found = expired_holds(NOW, limit=10)
+        assert requests == (self._request(self.configuration, "unstarted"), self._request(self.configuration, "due"))
+        suppressed = PlatformAlertDeliveryHold.objects.for_team(self.team.id).get(configuration=disabled)
+        assert (suppressed.release_action, suppressed.released_by) == (HoldRelease.SUPPRESS, HoldReleasedBy.SAFETY_NET)
+        record_delivery_started([self._address(self.configuration, r.evaluation_key) for r in requests], NOW)
+        assert holds_to_send(NOW, limit=10) == HoldSweep(expired=(), unstarted=())
 
-        assert found == (self._address(self.configuration, "due"),)
-        assert release_expired(found, NOW) == (self._request(self.configuration, "due"),)
-        assert expired_holds(NOW, limit=10) == ()
+    def test_one_sweep_sends_no_more_than_fits_one_payload(self) -> None:
+        for key in ("first", "second"):
+            self._hold(self.configuration, key=key, release_after=NOW - timedelta(minutes=1))
+
+        requests = send_swept(holds_to_send(NOW, limit=10), NOW, max_bytes=1)
+
+        assert len(requests) == 1
+        assert len(holds_to_send(NOW, limit=10).expired) == 1

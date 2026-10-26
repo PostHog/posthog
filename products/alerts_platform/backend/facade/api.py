@@ -72,6 +72,12 @@ def release_hold(
     return delivery_holds.release_hold(address, action=action, released_by=released_by, now=now)
 
 
+def record_hold_delivery_started(address: HeldDeliveryAddress, *, now: datetime) -> None:
+    """Marks a released send's delivery as started. Call it after `start_deliveries` returns, or the
+    safety net starts the delivery again once a grace period passes, and the delivery's id dedups it."""
+    delivery_holds.record_delivery_started([address], now)
+
+
 def reschedule_hold(address: HeldDeliveryAddress, *, release_after: datetime) -> bool:
     """Moves an unreleased hold's safety-net deadline. Returns False when nothing was held."""
     return delivery_holds.reschedule_hold(address, release_after=release_after)
