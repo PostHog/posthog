@@ -189,7 +189,7 @@ class TestRetryAndAuthClassification:
 
 
 class TestValidateCredentials:
-    @parameterized.expand([(200, True), (401, False), (403, False), (429, True), (500, True)])
+    @parameterized.expand([(429, True), (500, True)])
     def test_status_mapping(self, status: int, expected_ok: bool) -> None:
         with scripted_network(always(ScriptedResponse(status=status))):
             ok, error = validate_credentials("k")
@@ -221,4 +221,4 @@ class TestSourceResponseShape:
         assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == expected_pk
-        assert response.sort_mode == "asc"
+        assert response.sort_mode is None

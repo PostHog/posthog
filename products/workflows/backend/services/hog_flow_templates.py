@@ -4,6 +4,10 @@ from uuid import UUID
 
 from django.db.models import Q, QuerySet
 
+from posthog.dataclasses import frozen
+from posthog.models import Team
+
+from products.cdp.backend.flag_gated_templates import hidden_gated_template_ids
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.workflows.backend.facade.contracts import (
     FunctionTemplateSchema,
@@ -147,3 +151,58 @@ def get_function_template_schema(template_id: str) -> FunctionTemplateSchema | N
     if template is None:
         return None
     return FunctionTemplateSchema(type=template.type, inputs_schema=template.inputs_schema)
+
+
+@frozen
+class StepTemplate:
+    template_id: str
+    name: str
+    description: str
+
+
+# The editor offers these as built-in steps, so they are in the step catalog although their status is hidden.
+# Keep in sync with the step nodes the editor's build panel lists in
+# products/workflows/frontend/Workflows/hogflows/panel/HogFlowEditorPanelBuild.tsx. Flag-gated steps still drop out
+# through hidden_gated_template_ids.
+_BUILT_IN_STEP_TEMPLATE_IDS = frozenset(
+    {
+        "template-slack",
+        "template-webhook",
+        "template-posthog-create-task",
+        "template-posthog-run-scout",
+        "template-posthog-classify",
+        "template-posthog-replay-vision",
+        "template-posthog-capture",
+        "template-posthog-update-person-properties",
+        "template-posthog-group-identify",
+        "template-posthog-set-variable",
+    }
+)
+
+# Email, SMS and push have step types of their own, so they are not catalog steps.
+_OWN_STEP_TYPE_TEMPLATE_IDS = frozenset({"template-email", "template-twilio", "template-native-push"})
+
+
+def list_step_templates(team: Team) -> list[StepTemplate]:
+    """The function templates a workflow step can use, as the editor's step picker offers them."""
+    excluded_ids = set(hidden_gated_template_ids(team)) | _OWN_STEP_TYPE_TEMPLATE_IDS
+    latest: dict[str, HogFunctionTemplate] = {}
+    # DISTINCT ON keeps the newest version of each template in the query, so old versions never reach the worker.
+    for template in (
+        HogFunctionTemplate.objects.filter(type="destination")
+        .exclude(status__in=["deprecated", "coming_soon"])
+        .exclude(template_id__in=excluded_ids)
+        .order_by("template_id", "-created_at")
+        .distinct("template_id")
+        .only("template_id", "name", "description", "status", "mapping_templates", "inputs_schema")
+    ):
+        if template.status == "hidden" and template.template_id not in _BUILT_IN_STEP_TEMPLATE_IDS:
+            continue
+        # The worker does not apply mappings, so a mapping destination with a secret input cannot run as a step.
+        if template.mapping_templates and any(item.get("secret") for item in template.inputs_schema or []):
+            continue
+        latest[template.template_id] = template
+    return [
+        StepTemplate(template_id=template_id, name=template.name, description=template.description or "")
+        for template_id, template in latest.items()
+    ]

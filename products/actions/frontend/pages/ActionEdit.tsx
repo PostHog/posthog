@@ -5,6 +5,7 @@ import { useEffect, useMemo } from 'react'
 
 import { IconCopy, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonCollapse } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import {
@@ -19,6 +20,7 @@ import { SceneTags } from 'lib/components/Scenes/SceneTags'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
 import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -103,6 +105,7 @@ export function ActionEdit({ action: loadedAction, id, actionLoading, attachTo }
     const { canCopyToProject } = useValues(interProjectCopyLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const sceneMenuBarEnabled = !!featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR]
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     // Check if user can edit this action
     const canEdit = userHasAccess(AccessControlResourceType.Action, AccessControlLevel.Editor, action.user_access_level)
@@ -286,30 +289,75 @@ export function ActionEdit({ action: loadedAction, id, actionLoading, attachTo }
                     canEdit={canEdit}
                     forceEdit={!id}
                     actions={
-                        <>
-                            {!id && cancelButton()}
-                            <LemonButton
-                                data-attr="save-action-button"
-                                type="primary"
-                                htmlType="submit"
-                                loading={isActionSubmitting}
-                                onClick={(e) => {
-                                    e.preventDefault()
-                                    if (id) {
-                                        submitAction()
-                                    } else {
-                                        setActionValue('_create_in_folder', 'Unfiled/Insights')
-                                        submitAction()
+                        todayRailNav ? (
+                            <>
+                                {!id && (
+                                    <Button
+                                        data-attr="cancel-action-bottom"
+                                        variant="destructive-outline"
+                                        onClick={() => {
+                                            router.actions.push(urls.actions())
+                                        }}
+                                        tooltip="Cancel and return to the list of actions"
+                                    >
+                                        Cancel
+                                    </Button>
+                                )}
+                                <Button
+                                    data-attr="save-action-button"
+                                    variant="primary"
+                                    type="submit"
+                                    loading={isActionSubmitting}
+                                    onClick={(e) => {
+                                        e.preventDefault()
+                                        if (id) {
+                                            submitAction()
+                                        } else {
+                                            setActionValue('_create_in_folder', 'Unfiled/Insights')
+                                            submitAction()
+                                        }
+                                    }}
+                                    disabledReason={
+                                        isActionSubmitting
+                                            ? 'Saving…'
+                                            : !actionChanged
+                                              ? 'No changes to save'
+                                              : undefined
                                     }
-                                }}
-                                size="small"
-                                disabledReason={
-                                    isActionSubmitting ? 'Saving…' : !actionChanged ? 'No changes to save' : undefined
-                                }
-                            >
-                                {actionChanged ? 'Save' : 'No changes'}
-                            </LemonButton>
-                        </>
+                                >
+                                    {actionChanged ? 'Save' : 'No changes'}
+                                </Button>
+                            </>
+                        ) : (
+                            <>
+                                {!id && cancelButton()}
+                                <LemonButton
+                                    data-attr="save-action-button"
+                                    type="primary"
+                                    htmlType="submit"
+                                    loading={isActionSubmitting}
+                                    onClick={(e) => {
+                                        e.preventDefault()
+                                        if (id) {
+                                            submitAction()
+                                        } else {
+                                            setActionValue('_create_in_folder', 'Unfiled/Insights')
+                                            submitAction()
+                                        }
+                                    }}
+                                    size="small"
+                                    disabledReason={
+                                        isActionSubmitting
+                                            ? 'Saving…'
+                                            : !actionChanged
+                                              ? 'No changes to save'
+                                              : undefined
+                                    }
+                                >
+                                    {actionChanged ? 'Save' : 'No changes'}
+                                </LemonButton>
+                            </>
+                        )
                     }
                 />
 

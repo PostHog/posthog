@@ -28,10 +28,12 @@ export const SqlPieGraph = ({
     chartSettings,
     presetChartHeight,
     className,
+    labelFormatter,
+    onSliceClick,
 }: SqlChartProps): JSX.Element => {
     const isDonut = visualizationType === ChartDisplayType.ActionsDonut
     const { theme, series, legendConfig, total, showTotal, formattingSettings, valueFormatter } =
-        useSqlPartOfWholeChart({ xData, yData, chartSettings }, false)
+        useSqlPartOfWholeChart({ xData, yData, chartSettings, labelFormatter }, false)
 
     // Unset means an existing chart from before the labels option — keep showing values. New pies
     // are stamped with 'labels' when the type is picked (see dataVisualizationLogic).
@@ -118,6 +120,7 @@ export const SqlPieGraph = ({
                         centerLabel={centerLabel}
                         dataAttr="sql-pie-chart"
                         onError={handleChartError}
+                        onSliceClick={onSliceClick}
                     />
                 </div>
                 {legendAtSide && totalDisplay}

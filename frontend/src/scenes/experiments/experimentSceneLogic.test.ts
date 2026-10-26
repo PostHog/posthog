@@ -9,7 +9,12 @@ import { initKeaTests } from '~/test/init'
 import { Experiment } from '~/types'
 
 import { FORM_MODES } from './experimentLogic'
-import { DEFAULT_EXPERIMENT_TAB, experimentSceneLogic, getAvailableExperimentTabs } from './experimentSceneLogic'
+import {
+    DEFAULT_EXPERIMENT_TAB,
+    canSeeHealthDebugTab,
+    experimentSceneLogic,
+    getAvailableExperimentTabs,
+} from './experimentSceneLogic'
 
 const LEGACY_EXPERIMENT = {
     id: 123,
@@ -27,7 +32,6 @@ type ExperimentLogicMock = {
         __logic: {
             mount: jest.Mock<any, any>
             actions: {
-                setEditExperiment: jest.Mock
                 resetExperiment: jest.Mock
                 loadExperiment: jest.Mock
                 loadExposures: jest.Mock
@@ -43,7 +47,6 @@ jest.mock('./experimentLogic', () => {
     const logicInstance = {
         mount: jest.fn(() => jest.fn()),
         actions: {
-            setEditExperiment: jest.fn(),
             resetExperiment: jest.fn(),
             loadExperiment: jest.fn(),
             loadExposures: jest.fn(),
@@ -275,6 +278,34 @@ describe('experimentSceneLogic', () => {
             expect(getAvailableExperimentTabs(DRAFT_EXPERIMENT).includes('feedback')).toBe(false)
             const withFlag = { ...DRAFT_EXPERIMENT, feature_flag: { id: 1 } } as Experiment
             expect(getAvailableExperimentTabs(withFlag).includes('feedback')).toBe(true)
+        })
+
+        it.each([
+            [
+                'staff with the flag',
+                { superpowersEnabled: true, isImpersonated: false, healthFindingsEnabled: true },
+                true,
+            ],
+            [
+                'staff impersonating',
+                { superpowersEnabled: false, isImpersonated: true, healthFindingsEnabled: true },
+                true,
+            ],
+            [
+                'staff without the flag',
+                { superpowersEnabled: true, isImpersonated: true, healthFindingsEnabled: false },
+                false,
+            ],
+            [
+                'a customer with the flag',
+                { superpowersEnabled: false, isImpersonated: false, healthFindingsEnabled: true },
+                false,
+            ],
+        ])('offers the health debug tab to %s: %s', (_label, gate, expected) => {
+            const tabs = getAvailableExperimentTabs(LAUNCHED_EXPERIMENT, {
+                canSeeHealthDebug: canSeeHealthDebugTab(gate),
+            })
+            expect(tabs.includes('health-debug')).toBe(expected)
         })
     })
 

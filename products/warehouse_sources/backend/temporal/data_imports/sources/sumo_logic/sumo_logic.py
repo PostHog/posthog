@@ -8,9 +8,12 @@ from urllib.parse import urlencode
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.sumo_logic.settings import (
@@ -108,7 +111,7 @@ def validate_credentials(deployment: Optional[str], access_id: str, access_key: 
 
 
 def _make_fetch(session: requests.Session, logger: FilteringBoundLogger) -> Any:
-    @retry(
+    @retry_with_deadline(
         retry=retry_if_exception_type((SumoLogicRetryableError, requests.ReadTimeout, requests.ConnectionError)),
         stop=stop_after_attempt(RETRY_ATTEMPTS),
         wait=wait_exponential_jitter(initial=1, max=30),

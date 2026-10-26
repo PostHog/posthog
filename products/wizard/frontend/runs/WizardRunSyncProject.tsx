@@ -1,10 +1,12 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { useState } from 'react'
+import { Suspense, lazy, useState } from 'react'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { useInterval } from 'lib/hooks/useInterval'
 import { elapsedSecondsFrom } from 'lib/utils/datetime'
+import { retryImport } from 'lib/utils/retryImport'
+import { ChunkLoadErrorBoundary } from 'scenes/ChunkLoadErrorBoundary'
 import { sceneLogic } from 'scenes/sceneLogic'
 
 import type { WizardRunApi } from '../generated/api.schemas'
@@ -12,9 +14,13 @@ import { wizardRunDetailsLogic } from '../wizardRunDetailsLogic'
 import type { WizardRunDetailSource } from '../wizardRunDetailsLogic'
 import { wizardRunIsActive } from '../wizardRunDisplay'
 import { WizardRunSyncCard } from './WizardRunSyncCard'
-import { WizardRunSyncDetailsDialog } from './WizardRunSyncDetailsDialog'
 import { wizardRunSyncLogic } from './wizardRunSyncLogic'
 import { WizardRunSyncRunPicker } from './WizardRunSyncRunPicker'
+
+// Every logged-in page renders this component, and the dialog opens only on click.
+const WizardRunSyncDetailsDialog = lazy(() =>
+    retryImport(() => import('./WizardRunSyncDetailsDialog').then((m) => ({ default: m.WizardRunSyncDetailsDialog })))
+)
 
 export function WizardRunSyncProject({ projectId }: { projectId: string }): JSX.Element {
     const logic = wizardRunSyncLogic({ projectId })
@@ -71,12 +77,16 @@ export function WizardRunSyncProject({ projectId }: { projectId: string }): JSX.
                 </div>
             )}
             {dialogRun && (
-                <WizardRunSyncDetailsDialog
-                    run={dialogRun.run}
-                    tasks={dialogRun.run.id === run?.id ? tasks : []}
-                    source={dialogRun.source}
-                    onClose={() => setDialogRun(null)}
-                />
+                <ChunkLoadErrorBoundary>
+                    <Suspense fallback={null}>
+                        <WizardRunSyncDetailsDialog
+                            run={dialogRun.run}
+                            tasks={dialogRun.run.id === run?.id ? tasks : []}
+                            source={dialogRun.source}
+                            onClose={() => setDialogRun(null)}
+                        />
+                    </Suspense>
+                </ChunkLoadErrorBoundary>
             )}
         </>
     )

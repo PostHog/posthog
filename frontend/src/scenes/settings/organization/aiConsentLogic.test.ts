@@ -117,7 +117,7 @@ describe('aiConsentLogic', () => {
     // approval request is sent, so the confirmed intent is persisted and replayed on return.
     describe('pendingApprovalRedirect', () => {
         const pendingRedirect = (overrides: Partial<PendingApprovalRedirect> = {}): PendingApprovalRedirect => ({
-            url: '/replay-vision/new/template',
+            url: '/replay-vision/new/goal',
             organizationId: MOCK_DEFAULT_ORGANIZATION.id,
             setAt: Date.now(),
             ...overrides,
@@ -143,7 +143,7 @@ describe('aiConsentLogic', () => {
 
             expect(logic.values.dataProcessingAccepted).toBe(true)
             expect(logic.values.pendingApprovalRedirect).toBe(null)
-            expect(router.values.location.pathname).toContain('/replay-vision/new/template')
+            expect(router.values.location.pathname).toContain('/replay-vision/new/goal')
             expect(lemonToast.success).toHaveBeenCalledWith('AI data processing approved')
         })
 
@@ -165,7 +165,7 @@ describe('aiConsentLogic', () => {
             logic.mount()
 
             expect(logic.values.pendingApprovalRedirect).toBe(null)
-            expect(router.values.location.pathname).toContain('/replay-vision/new/template')
+            expect(router.values.location.pathname).toContain('/replay-vision/new/goal')
         })
 
         it.each([

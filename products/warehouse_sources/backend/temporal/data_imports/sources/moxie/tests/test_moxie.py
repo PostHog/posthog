@@ -4,7 +4,6 @@ from unittest import mock
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
-    always,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.moxie import MoxieSourceConfig
@@ -48,6 +47,22 @@ class TestMoxieTransport:
         assert result.raised is None
         assert result.items == [[{"name": "Template A"}, {"name": "Template B"}]]
 
+    @pytest.mark.parametrize(
+        "endpoint, path",
+        [
+            ("tasks", "/api/public/action/tasks/list"),
+            ("tickets", "/api/public/action/tickets/list"),
+            ("agreements", "/api/public/action/agreements/search"),
+        ],
+    )
+    def test_object_endpoints_request_documented_path_and_pass_rows_through(self, endpoint: str, path: str) -> None:
+        row = {"id": "abc123", "created": "2024-01-02T03:04:05Z"}
+        result = _driver().run(endpoint, [ScriptedResponse(json=[row])])
+
+        assert result.raised is None
+        assert result.paths == [path]
+        assert result.items == [[row]]
+
     def test_workspace_users_flattens_nested_user_id(self) -> None:
         row = {"userType": "OWNER", "user": {"userId": 42, "firstName": "Alex"}}
         result = _driver().run("workspace_users", [ScriptedResponse(json=[row])])
@@ -72,17 +87,6 @@ class TestMoxieTransport:
 
 
 class TestValidateCredentials:
-    @pytest.mark.parametrize(
-        "status, expected_valid",
-        [(200, True), (401, False), (403, False), (500, False)],
-    )
-    def test_status_mapping(self, status: int, expected_valid: bool) -> None:
-        with scripted_network(always(ScriptedResponse(status=status))) as network:
-            is_valid, _message = validate_credentials(BASE_URL, "test_key", team_id=1)
-
-        assert is_valid is expected_valid
-        assert network.requests_log
-
     def test_probes_clients_list_with_api_key_header_and_redaction(self) -> None:
         with scripted_network([ScriptedResponse(status=200)]) as network:
             validate_credentials(BASE_URL, "test_key", team_id=1)

@@ -97,6 +97,11 @@ describe("memory watchdog", () => {
       expected: { ...KILL_PARAMS, signal: "SIGKILL" },
     },
     {
+      name: "a kill record with the heaviest member",
+      record: { ...KILL_RECORD, comm: "bash", top_comm: "tsgo" },
+      expected: { ...KILL_PARAMS, comm: "tsgo" },
+    },
+    {
       name: "a pressure record",
       record: { ...KILL_RECORD, event: "pressure" },
       expected: null,

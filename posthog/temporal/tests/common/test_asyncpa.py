@@ -1,7 +1,9 @@
+import gc
 import io
 import random
 import string
 import asyncio
+import tracemalloc
 import collections.abc
 
 import pytest
@@ -149,3 +151,25 @@ async def test_message_reader_stops_waiting_for_a_stalled_error_tail(monkeypatch
         await asyncio.wait_for(reader.read_next_message(), timeout=5)
 
     assert exc_info.value.unparsed == b"Code: 241. DB::Exception: an error"
+
+
+async def test_record_batch_reader_does_not_keep_read_buffers_alive():
+    batches = list(generate_record_batches(total_records=3_000, total_batches=300, target_size_bytes=100))
+
+    buffer = io.BytesIO()
+    with pa.ipc.new_stream(buffer, schema=batches[0].schema) as writer:
+        for batch in batches:
+            writer.write_batch(batch)
+    _ = buffer.seek(0)
+
+    gc.collect()
+    tracemalloc.start()
+    try:
+        held_batches = [batch async for batch in asyncpa.AsyncRecordBatchReader(AsyncWrapper(buffer, 128 * 1024))]
+        gc.collect()
+        held_bytes, _ = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+
+    assert held_batches == batches
+    assert held_bytes < 2 * sum(batch.nbytes for batch in held_batches)

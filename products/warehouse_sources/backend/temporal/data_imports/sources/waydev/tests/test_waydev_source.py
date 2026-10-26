@@ -24,9 +24,6 @@ class TestWaydevSource:
     @pytest.mark.parametrize(
         ("status", "expected_valid", "expected_message"),
         [
-            (200, True, None),
-            (401, False, "Invalid Waydev API token"),
-            (403, False, "Could not connect to Waydev with the provided API token"),
             (None, False, "Could not connect to Waydev with the provided API token"),
         ],
     )

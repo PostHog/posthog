@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use common::{
-    create_local_kafka_producer, seed_person, test_cached_person, test_kafka_config, test_recovery,
+    seed_person, served_captures, target, test_cached_person, test_kafka_config, test_recovery,
     unique_team_id, KAFKA_BOOTSTRAP,
 };
 use dashmap::DashMap;
@@ -55,7 +55,6 @@ async fn start_harness() -> Harness {
     kafka.kafka_hosts = KAFKA_BOOTSTRAP.to_string();
     let fenced = Arc::new(FencedChangelogProducers::new(FencedProducerConfig {
         kafka,
-        topic: topic.clone(),
         init_timeout: Duration::from_secs(10),
         commit_timeout: Duration::from_secs(10),
         broker_txn_timeout: BROKER_TXN_TIMEOUT,
@@ -72,23 +71,25 @@ async fn start_harness() -> Harness {
         person_id: seed.id,
     };
     let partition = partition_for_person(key.team_id, key.person_id, NUM_PARTITIONS);
-    fenced.acquire(partition).await.expect("acquire the fence");
+    fenced
+        .acquire(partition, &target(&topic))
+        .await
+        .expect("acquire the fence");
 
     let cache = Arc::new(PartitionedCache::new(1 << 20));
     cache.create_partition(partition);
     seed_person(&cache, partition, seed);
     let locks = Arc::new(DashMap::new());
-    let producer = create_local_kafka_producer().await;
     let service = Arc::new(PersonHogLeaderService::new(
         Arc::clone(&cache),
         None,
         Arc::clone(&locks),
         Arc::new(InflightTracker::new()),
-        NUM_PARTITIONS,
+        served_captures(&topic, NUM_PARTITIONS),
         Arc::new(DirtyIndex::new(1_000_000)),
-        test_recovery(&topic, KAFKA_BOOTSTRAP),
+        test_recovery(KAFKA_BOOTSTRAP),
         PropertySizeLimits::new(655360, 524288),
-        WarningsProducer::new(producer, "clickhouse_ingestion_warnings".to_string()),
+        WarningsProducer::disabled(),
         Arc::new(DashMap::new()),
         Arc::clone(&fenced),
         common::live_authority(),

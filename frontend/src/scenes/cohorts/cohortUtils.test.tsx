@@ -4,17 +4,26 @@ import {
     cleanBehavioralTypeCriteria,
     cleanCriteria,
     cohortBroadcastDisabledReason,
+    createCohortFormData,
     criteriaToHumanSentence,
     determineFilterType,
+    isRecentPersonFilterUnsupported,
     validateGroup,
 } from 'scenes/cohorts/cohortUtils'
 
 import {
     AnyCohortCriteriaType,
+    AnyPropertyFilter,
     BehavioralEventType,
     CohortCriteriaGroupFilter,
     CohortType,
     FilterLogicalOperator,
+    PropertyDefinition,
+    PropertyDefinitionState,
+    PropertyFilterType,
+    PropertyFilterValue,
+    PropertyOperator,
+    PropertyType,
 } from '~/types'
 
 describe('validateGroup', () => {
@@ -264,5 +273,139 @@ describe('cohortBroadcastDisabledReason', () => {
         ['a deleted cohort', cohort([], { deleted: true }), 'Restore the cohort first'],
     ])('for %s', (_, input, expected) => {
         expect(cohortBroadcastDisabledReason(input)).toEqual(expected)
+    })
+})
+
+describe('createCohortFormData', () => {
+    const cohort = (overrides: Partial<CohortType> = {}): CohortType => ({
+        id: 1,
+        groups: [],
+        filters: {
+            properties: {
+                type: FilterLogicalOperator.Or,
+                values: [
+                    {
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            { type: BehavioralFilterKey.Person, key: 'email', value: BehavioralEventType.HaveProperty },
+                        ],
+                    },
+                ],
+            },
+            filterTestAccounts: true,
+        },
+        ...overrides,
+    })
+
+    it.each([
+        ['a dynamic cohort', cohort(), {}, true],
+        ['a static cohort built from criteria', cohort({ is_static: true }), { preserveStaticFilters: true }, true],
+        ['a static cohort without criteria', cohort({ is_static: true }), {}, undefined],
+    ])('serializes filterTestAccounts for %s', (_, input, options, expected) => {
+        const filters = JSON.parse(createCohortFormData(input, options).get('filters') as string)
+        expect(filters.filterTestAccounts).toEqual(expected)
+    })
+})
+
+describe('isRecentPersonFilterUnsupported', () => {
+    const definition = (propertyType: PropertyType): PropertyDefinition => ({
+        id: 'property',
+        name: 'property',
+        property_type: propertyType,
+    })
+
+    it.each<
+        [
+            string,
+            PropertyFilterType,
+            PropertyOperator,
+            PropertyFilterValue,
+            PropertyDefinition | PropertyDefinitionState | null,
+            boolean,
+        ]
+    >([
+        [
+            'text operator on a text property',
+            PropertyFilterType.Person,
+            PropertyOperator.IContains,
+            'Chrome',
+            definition(PropertyType.String),
+            false,
+        ],
+        [
+            'operator the text menu lacks',
+            PropertyFilterType.Person,
+            PropertyOperator.NotIn,
+            ['Mac'],
+            definition(PropertyType.String),
+            true,
+        ],
+        [
+            'absolute date on a date property',
+            PropertyFilterType.Person,
+            PropertyOperator.IsDateBefore,
+            '2000-01-01',
+            definition(PropertyType.DateTime),
+            false,
+        ],
+        [
+            'relative date on a date property',
+            PropertyFilterType.Person,
+            PropertyOperator.IsDateBefore,
+            '-30d',
+            definition(PropertyType.DateTime),
+            true,
+        ],
+        [
+            'text operator on a date property',
+            PropertyFilterType.Person,
+            PropertyOperator.IContains,
+            '2000',
+            definition(PropertyType.DateTime),
+            true,
+        ],
+        [
+            'date on person metadata',
+            PropertyFilterType.PersonMetadata,
+            PropertyOperator.IsDateAfter,
+            '2020-01-01',
+            definition(PropertyType.DateTime),
+            false,
+        ],
+        [
+            'type still loading',
+            PropertyFilterType.Person,
+            PropertyOperator.IsDateBefore,
+            '2000-01-01',
+            PropertyDefinitionState.Loading,
+            true,
+        ],
+        [
+            'type not found',
+            PropertyFilterType.Person,
+            PropertyOperator.IContains,
+            'pro',
+            PropertyDefinitionState.Missing,
+            false,
+        ],
+        [
+            'type lookup failed',
+            PropertyFilterType.Person,
+            PropertyOperator.IContains,
+            'pro',
+            PropertyDefinitionState.Error,
+            false,
+        ],
+        [
+            'event property',
+            PropertyFilterType.Event,
+            PropertyOperator.IContains,
+            'Chrome',
+            definition(PropertyType.String),
+            true,
+        ],
+    ])('%s', (_, type, operator, value, lookupResult, expected) => {
+        const filter = { type, key: 'property', operator, value } as AnyPropertyFilter
+        expect(isRecentPersonFilterUnsupported(filter, () => lookupResult)).toBe(expected)
     })
 })

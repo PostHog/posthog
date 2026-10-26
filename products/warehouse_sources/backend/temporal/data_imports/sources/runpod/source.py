@@ -52,7 +52,7 @@ class RunPodSource(ResumableSource[RunPodSourceConfig, RunPodResumeConfig]):
             name=ExternalDataSourceType.RUNPOD,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="RunPod",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your RunPod API key to pull your GPU cloud infrastructure and billing history into the PostHog Data warehouse.
 
 Create an API key in your [RunPod console settings](https://console.runpod.io/user/settings). A key with read permission is sufficient.""",

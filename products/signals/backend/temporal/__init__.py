@@ -1,3 +1,15 @@
+from products.signals.backend.activity_summary.tick import (
+    ActivitySummaryTickWorkflow,
+    capture_activity_summary_tick_activity,
+    plan_activity_summary_tick_activity,
+    update_activity_summary_pair_activity,
+)
+from products.signals.backend.anomaly_scores.tick import (
+    AnomalyScoringTickWorkflow,
+    capture_anomaly_scoring_tick_activity,
+    plan_anomaly_scoring_tick_activity,
+    score_anomaly_insight_activity,
+)
 from products.signals.backend.ranking.sweep import InboxRankingScoringWorkflow, score_inbox_reports_activity
 from products.signals.backend.temporal.agentic.report import run_agentic_report_activity
 from products.signals.backend.temporal.agentic.scout_coordinator import (
@@ -95,6 +107,11 @@ from products.signals.backend.temporal.signal_queries import (
     run_signal_semantic_search_activity,
     wait_for_signal_in_clickhouse_activity,
 )
+from products.signals.backend.temporal.spend import (
+    UpdateSignalSpendWorkflow,
+    confirm_signal_spend_activity,
+    update_signal_spend_activity,
+)
 from products.signals.backend.temporal.summary import (
     SignalReportSummaryWorkflow,
     check_report_quota_gate_activity,
@@ -106,6 +123,7 @@ from products.signals.backend.temporal.summary import (
     mark_report_ready_activity,
     maybe_autostart_implementation_activity,
     publish_report_completed_activity,
+    publish_report_spend_activity,
     report_has_assigned_signals_activity,
     report_is_candidate_activity,
     reset_report_to_potential_activity,
@@ -113,6 +131,7 @@ from products.signals.backend.temporal.summary import (
 )
 
 WORKFLOWS = [
+    UpdateSignalSpendWorkflow,
     GenerateScoutRubricsWorkflow,
     BackfillErrorTrackingWorkflow,
     TeamSignalGroupingWorkflow,
@@ -136,6 +155,8 @@ WORKFLOWS = [
 ]
 
 ACTIVITIES = [
+    update_signal_spend_activity,
+    confirm_signal_spend_activity,
     load_scout_trial_evaluation_activity,
     dispatch_scout_trial_comparison_activity,
     fail_scout_trial_comparison_activity,
@@ -179,6 +200,7 @@ ACTIVITIES = [
     implementation_buffer_seconds_activity,
     report_is_candidate_activity,
     publish_report_completed_activity,
+    publish_report_spend_activity,
     report_has_assigned_signals_activity,
     revert_report_to_candidate_activity,
     delete_team_reports_activity,
@@ -208,5 +230,13 @@ ACTIVITIES = [
 ]
 
 # The temporal-worker-self-driving fleet runs these, not video-export.
-SELF_DRIVING_WORKFLOWS = [InboxRankingScoringWorkflow]
-SELF_DRIVING_ACTIVITIES = [score_inbox_reports_activity]
+SELF_DRIVING_WORKFLOWS = [InboxRankingScoringWorkflow, ActivitySummaryTickWorkflow, AnomalyScoringTickWorkflow]
+SELF_DRIVING_ACTIVITIES = [
+    score_inbox_reports_activity,
+    plan_activity_summary_tick_activity,
+    update_activity_summary_pair_activity,
+    capture_activity_summary_tick_activity,
+    plan_anomaly_scoring_tick_activity,
+    score_anomaly_insight_activity,
+    capture_anomaly_scoring_tick_activity,
+]

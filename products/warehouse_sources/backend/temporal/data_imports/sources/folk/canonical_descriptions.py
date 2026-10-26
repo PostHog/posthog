@@ -122,4 +122,42 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "created_at": "The date and time the reminder was created, in ISO format.",
         },
     },
+    "group_members": {
+        "description": "Workspace users who are members of each Folk group, with their role in that group. Every workspace user is a member of a public group.",
+        "docs_url": "https://developer.folk.app/api-reference/group-members/list-group-members",
+        "columns": {
+            "id": "Unique identifier for the workspace user.",
+            "full_name": "The full name of the user.",
+            "email": "The email address of the user.",
+            "role": "The role of the user in the group: owner, admin, contributor, or reader.",
+            "group_id": "The group the user is a member of.",
+        },
+    },
+    "group_custom_fields": {
+        "description": "Custom field definitions of each Folk group, per entity type (person, company, or custom object type), with their field types and select options.",
+        "docs_url": "https://developer.folk.app/api-reference/group-custom-fields/list-group-custom-fields",
+        "columns": {
+            "name": "The name of the custom field. Custom field values on people, companies, and objects are keyed by this name.",
+            "type": "The type of the custom field, such as textField, numericField, dateField, singleSelect, multipleSelect, contactField, userField, or objectField.",
+            "options": "The options of a single or multiple select field.",
+            "config": "Display settings of a numeric field, such as its format, currency, and decimals.",
+            "group_id": "The group the custom field belongs to.",
+            "entity_type": "The entity type the custom field belongs to: person, company, or a custom object type name.",
+        },
+    },
+    "custom_objects": {
+        "description": "Custom objects of each Folk group, such as deals, with the people and companies they link and their custom field values.",
+        "docs_url": "https://developer.folk.app/api-reference/custom-objects/list-objects",
+        "columns": {
+            "id": "Unique identifier for the object.",
+            "name": "The name of the object.",
+            "companies": "The companies linked to the object.",
+            "people": "The people linked to the object.",
+            "created_at": "The date and time the object was created, in ISO format.",
+            "created_by": "The workspace user who created the object.",
+            "custom_field_values": "The custom field values of the object, keyed by custom field name.",
+            "group_id": "The group the object belongs to.",
+            "object_type": "The name of the object type, such as Deals.",
+        },
+    },
 }

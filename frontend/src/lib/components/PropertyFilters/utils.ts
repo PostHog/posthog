@@ -176,7 +176,6 @@ export function formatPropertyLabel(
     const { value, key, type } = item
     const label = 'label' in item ? item.label : undefined
     const operator = 'operator' in item ? item.operator : undefined
-    const cohortName = 'cohort_name' in item ? item.cohort_name : undefined
     const resolvedType = (type ?? PropertyFilterType.Event) as PropertyFilterType
     const resolvedOperator = operator ?? PropertyOperator.Exact
     const taxonomicFilterGroupType = PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[resolvedType]
@@ -191,10 +190,10 @@ export function formatPropertyLabel(
             ? formatRelativeDateValue(relativeDateValue)
             : undefined
 
-    if (resolvedType === PropertyFilterType.Cohort) {
+    if (isCohortPropertyFilter(item)) {
         return (
             `${capitalizeFirstLetter(cohortOperatorMap[resolvedOperator] || 'user in')} ` +
-            (cohortName || (typeof value === 'number' ? cohortsById[value]?.name : undefined) || `ID ${value}`)
+            cohortFilterName(item, typeof value === 'number' ? cohortsById[value]?.name : undefined)
         )
     }
 
@@ -257,6 +256,24 @@ export function isValidPropertyFilter(
 
 export function isCohortPropertyFilter(filter?: AnyFilterLike | null): filter is CohortPropertyFilter {
     return filter?.type === PropertyFilterType.Cohort
+}
+
+export function cohortFilterName(filter: CohortPropertyFilter, fallbackName?: string | null): string {
+    const name = filter.cohort_name || fallbackName
+    if (filter.cohort_missing) {
+        return name ? `${name} (missing)` : `Missing cohort (ID ${filter.value})`
+    }
+    if (filter.cohort_deleted) {
+        return name ? `${name} (deleted)` : `Deleted cohort (ID ${filter.value})`
+    }
+    return name || `ID ${filter.value}`
+}
+
+// The flag API reads these keys from the cohort table on every response. Nobody edits them.
+export const COHORT_ANNOTATION_KEYS = ['cohort_name', 'cohort_deleted', 'cohort_missing'] as const
+
+export function cohortAnnotations(filter: CohortPropertyFilter): Partial<CohortPropertyFilter> {
+    return Object.fromEntries(COHORT_ANNOTATION_KEYS.map((key) => [key, filter[key]])) as Partial<CohortPropertyFilter>
 }
 
 export function isBehavioralPropertyFilter(filter?: AnyFilterLike | null): filter is BehavioralPropertyFilter {

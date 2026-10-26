@@ -51,7 +51,7 @@ class ShortioSource(SimpleSource[ShortioSourceConfig]):
             name=ExternalDataSourceType.SHORTIO,
             category=DataWarehouseSourceCategory.ADVERTISING,
             label="Shortio",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Short.io API key to pull your branded-link domains into the PostHog Data warehouse.
 
 Create an API key under **Integrations & API** in your [Short.io dashboard](https://app.short.io/settings/integrations/api-key). Paste the secret key value.

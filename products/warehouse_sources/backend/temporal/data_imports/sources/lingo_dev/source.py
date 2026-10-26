@@ -72,7 +72,7 @@ You can create an API key in your [Lingo.dev dashboard](https://lingo.dev/app). 
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

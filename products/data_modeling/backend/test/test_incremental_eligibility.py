@@ -5,10 +5,13 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from posthog.hogql.database.database import Database
-from posthog.hogql.database.models import IntegerDatabaseField, SavedQuery, TableNode
+from posthog.hogql.database.models import DateTimeDatabaseField, IntegerDatabaseField, SavedQuery, TableNode
 
 from products.data_modeling.backend.logic.incremental import IncrementalConfig
-from products.data_modeling.backend.logic.incremental_eligibility import check_incremental_eligibility
+from products.data_modeling.backend.logic.incremental_eligibility import (
+    check_incremental_eligibility,
+    propose_incremental_config,
+)
 
 DAY_KEY = IncrementalConfig(incremental_key="day", unique_key=("day",))
 DAY_EVENT_KEY = IncrementalConfig(incremental_key="day", unique_key=("day", "event"))
@@ -84,6 +87,24 @@ class TestIncrementalEligibility(SimpleTestCase):
 
     @parameterized.expand(
         [
+            (
+                "unique_key_is_empty",
+                "SELECT timestamp FROM events",
+                IncrementalConfig(incremental_key="timestamp", unique_key=()),
+                "at least one unique key column",
+            ),
+            (
+                "unique_key_includes_an_aggregate",
+                GROUPED,
+                IncrementalConfig(incremental_key="day", unique_key=("day", "c")),
+                "is an aggregate",
+            ),
+            (
+                "unique_key_includes_an_alias_of_an_aggregate",
+                "SELECT toStartOfDay(timestamp) AS day, count() AS c, c + 1 AS revision FROM events GROUP BY day",
+                IncrementalConfig(incremental_key="day", unique_key=("day", "revision")),
+                "is an aggregate",
+            ),
             (
                 "unique_key_misses_a_grouping_column",
                 "SELECT toStartOfDay(timestamp) AS day, event, count() AS c FROM events GROUP BY day, event",
@@ -473,3 +494,253 @@ class TestStarExpansion:
 
         assert not result.eligible
         assert any(expected in blocker for blocker in result.blockers), result.blockers
+
+
+DAILY_EVENT_TYPES = {"day": "DateTime64(6, 'UTC')", "event": "String", "c": "UInt64"}
+
+
+class TestProposeIncrementalConfig(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "grouped_by_one_time_column",
+                "SELECT toStartOfDay(timestamp) AS day, event, count() AS c FROM events GROUP BY day, event",
+                DAILY_EVENT_TYPES,
+                DAY_EVENT_KEY,
+            ),
+            ("not_grouped", "SELECT uuid, timestamp FROM events", {"uuid": "UUID", "timestamp": "DateTime64(6)"}, None),
+            (
+                "two_time_columns",
+                "SELECT toStartOfDay(timestamp) AS day, toStartOfHour(timestamp) AS hour, count() AS c "
+                "FROM events GROUP BY day, hour",
+                {"day": "DateTime", "hour": "DateTime", "c": "UInt64"},
+                None,
+            ),
+            (
+                "nullable_grouped_column",
+                "SELECT toStartOfDay(timestamp) AS day, event, count() AS c FROM events GROUP BY day, event",
+                {**DAILY_EVENT_TYPES, "event": "Nullable(String)"},
+                None,
+            ),
+            (
+                "grouped_by_a_column_the_output_drops",
+                "SELECT toStartOfDay(timestamp) AS day, count() AS c FROM events GROUP BY day, event",
+                DAILY_EVENT_TYPES,
+                None,
+            ),
+            ("column_types_unknown", GROUPED, {}, None),
+            (
+                "grouping_repeats_the_expression",
+                "SELECT toStartOfDay(timestamp) AS day, count() AS c FROM events GROUP BY toStartOfDay(timestamp)",
+                {"day": "DateTime", "c": "UInt64"},
+                DAY_KEY,
+            ),
+            (
+                "key_from_a_nondeterministic_function",
+                "SELECT today() AS day, event, count() AS c FROM events GROUP BY day, event",
+                {**DAILY_EVENT_TYPES, "day": "Date"},
+                None,
+            ),
+            (
+                "moving_window_filter",
+                f"{GROUPED.replace(' GROUP BY', ' WHERE timestamp >= now() - INTERVAL 7 DAY GROUP BY')}",
+                {"day": "DateTime", "c": "UInt64"},
+                None,
+            ),
+            (
+                "grouped_by_a_source_column_the_output_transforms",
+                "SELECT toStartOfDay(timestamp) AS day, lower(e.event) AS event, count() AS c "
+                "FROM events AS e GROUP BY day, e.event",
+                DAILY_EVENT_TYPES,
+                None,
+            ),
+            (
+                "group_by_all_with_a_mixed_aggregate",
+                "SELECT toStartOfDay(timestamp) AS day, concat(event, toString(count())) AS c FROM events GROUP BY ALL",
+                {"day": "DateTime", "c": "String"},
+                None,
+            ),
+            (
+                "moving_window_from_a_clock_alias",
+                GROUPED.replace(" GROUP BY", " WHERE timestamp >= current_date() - INTERVAL 7 DAY GROUP BY"),
+                {"day": "DateTime", "c": "UInt64"},
+                None,
+            ),
+            (
+                "moving_window_from_a_scalar_subquery",
+                GROUPED.replace(
+                    " GROUP BY", " WHERE timestamp >= (SELECT max(timestamp) FROM events) - INTERVAL 7 DAY GROUP BY"
+                ),
+                {"day": "DateTime", "c": "UInt64"},
+                None,
+            ),
+            (
+                "moving_window_from_a_column_cte",
+                "WITH (SELECT max(timestamp) FROM events) AS latest "
+                + GROUPED.replace(" GROUP BY", " WHERE timestamp >= latest - INTERVAL 7 DAY GROUP BY"),
+                {"day": "DateTime", "c": "UInt64"},
+                None,
+            ),
+            (
+                "cohort_filter",
+                GROUPED.replace(" GROUP BY", " WHERE person_id IN COHORT 1 GROUP BY"),
+                {"day": "DateTime", "c": "UInt64"},
+                None,
+            ),
+            (
+                "cohort_function_filter",
+                GROUPED.replace(" GROUP BY", " WHERE person_id IN cohort(1) GROUP BY"),
+                {"day": "DateTime", "c": "UInt64"},
+                None,
+            ),
+            (
+                "date_key_that_wraps_at_the_year",
+                "SELECT toDate(subtractYears(timestamp, toYear(timestamp) - 2000)) AS day, count() AS c "
+                "FROM events GROUP BY day",
+                {"day": "Date", "c": "UInt64"},
+                None,
+            ),
+            (
+                "date_key_that_wraps_inside_a_subquery",
+                "SELECT day, count() AS c FROM (SELECT toDate(subtractYears(timestamp, toYear(timestamp) - 2000)) "
+                "AS day FROM events) GROUP BY day",
+                {"day": "Date", "c": "UInt64"},
+                None,
+            ),
+            (
+                "day_key_inside_a_cte_read_from_a_subquery",
+                "WITH good AS (SELECT toStartOfDay(timestamp) AS ts FROM events GROUP BY ts) "
+                "SELECT toStartOfDay(sub.ts) AS day, count() AS c FROM (SELECT ts FROM good) AS sub GROUP BY day",
+                {"day": "DateTime", "c": "UInt64"},
+                DAY_KEY,
+            ),
+            (
+                "date_key_that_wraps_inside_a_cte_read_from_a_subquery",
+                "WITH bad AS (SELECT toDate(subtractYears(timestamp, toYear(timestamp) - 2000)) AS ts FROM events "
+                "GROUP BY ts) SELECT toStartOfDay(sub.ts) AS day, count() AS c FROM (SELECT ts FROM bad) AS sub "
+                "GROUP BY day",
+                {"day": "DateTime", "c": "UInt64"},
+                None,
+            ),
+            (
+                "array_join_over_a_subquery",
+                GROUPED.replace(" GROUP BY", " ARRAY JOIN (SELECT groupArray(event) FROM events) AS labels GROUP BY"),
+                {"day": "DateTime", "c": "UInt64"},
+                None,
+            ),
+            (
+                "union_branches_can_repeat_a_key",
+                f"{GROUPED} UNION ALL {GROUPED}",
+                {"day": "DateTime", "c": "UInt64"},
+                None,
+            ),
+            (
+                "nullable_grouped_column_behind_low_cardinality",
+                "SELECT toStartOfDay(timestamp) AS day, event, count() AS c FROM events GROUP BY day, event",
+                {**DAILY_EVENT_TYPES, "event": "LowCardinality(Nullable(String))"},
+                None,
+            ),
+            (
+                "group_by_all_over_an_unnamed_expression",
+                "SELECT toStartOfDay(timestamp) AS day, lower(event), count() AS c FROM events GROUP BY ALL",
+                DAILY_EVENT_TYPES,
+                None,
+            ),
+        ]
+    )
+    def test_proposes_a_config_only_when_the_keys_are_certain(
+        self, _name: str, query: str, column_types: dict[str, str], expected: Optional[IncrementalConfig]
+    ) -> None:
+        assert propose_incremental_config(query, column_types) == expected
+
+    @parameterized.expand(
+        [
+            (
+                "grouped_by_a_plain_column",
+                "SELECT toStartOfDay(timestamp) AS day, event, count() AS c FROM events GROUP BY day, event",
+                DAILY_EVENT_TYPES,
+                DAY_EVENT_KEY,
+            ),
+            (
+                "grouped_by_an_array_column",
+                "SELECT toStartOfDay(timestamp) AS day, splitByChar(',', event) AS labels, count() AS c "
+                "FROM events GROUP BY day, labels",
+                {"day": "DateTime", "labels": "Array(String)", "c": "UInt64"},
+                None,
+            ),
+        ]
+    )
+    def test_proposals_against_the_resolved_schema(
+        self, _name: str, query: str, column_types: dict[str, str], expected: Optional[IncrementalConfig]
+    ) -> None:
+        assert propose_incremental_config(query, column_types, database=Database()) == expected
+
+    @parameterized.expand(
+        [
+            ("key_from_the_view_that_advances", "a", DAY_KEY),
+            ("key_from_the_view_that_wraps", "b", None),
+        ]
+    )
+    def test_a_joined_time_key_is_checked_in_the_view_it_comes_from(
+        self, _name: str, key_view: str, expected: Optional[IncrementalConfig]
+    ) -> None:
+        database = Database()
+        database._add_views(
+            TableNode(
+                children={
+                    name: TableNode(
+                        name=name,
+                        table=SavedQuery(
+                            id=name,
+                            name=name,
+                            query=f"SELECT {expression} AS ts FROM events GROUP BY ts",
+                            fields={"ts": DateTimeDatabaseField(name="ts")},
+                        ),
+                    )
+                    for name, expression in (
+                        ("a", "toStartOfDay(timestamp)"),
+                        ("b", "toDate(subtractYears(timestamp, toYear(timestamp) - 2000))"),
+                    )
+                }
+            )
+        )
+
+        proposed = propose_incremental_config(
+            f"SELECT toStartOfDay({key_view}.ts) AS day, count() AS c FROM a CROSS JOIN b GROUP BY day",
+            {"day": "DateTime", "c": "UInt64"},
+            database=database,
+        )
+
+        assert proposed == expected
+
+    @parameterized.expand(
+        [
+            ("moving_window", "SELECT timestamp FROM events WHERE timestamp >= now() - INTERVAL 7 DAY"),
+            ("cohort_filter", "SELECT timestamp FROM events WHERE person_id IN COHORT 1"),
+        ]
+    )
+    def test_a_data_dependent_filter_inside_a_view_the_query_reads_blocks_the_proposal(
+        self, _name: str, view_query: str
+    ) -> None:
+        database = Database()
+        database._add_views(
+            TableNode(
+                children={
+                    "last_week": TableNode(
+                        name="last_week",
+                        table=SavedQuery(
+                            id="last_week",
+                            name="last_week",
+                            query=view_query,
+                            fields={"timestamp": DateTimeDatabaseField(name="timestamp")},
+                        ),
+                    )
+                }
+            )
+        )
+
+        proposed = propose_incremental_config(
+            GROUPED.replace("FROM events", "FROM last_week"), {"day": "DateTime", "c": "UInt64"}, database=database
+        )
+
+        assert proposed is None

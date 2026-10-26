@@ -57,7 +57,7 @@ class VapiSource(ResumableSource[VapiSourceConfig, VapiResumeConfig]):
             name=ExternalDataSourceType.VAPI,
             category=DataWarehouseSourceCategory.COMMUNICATION,
             label="Vapi",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Vapi private API key to automatically pull your Vapi voice agent data into the PostHog Data warehouse.
 
 You can find your private API key in the [Vapi dashboard](https://dashboard.vapi.ai) under **Organization settings** → **API keys**.

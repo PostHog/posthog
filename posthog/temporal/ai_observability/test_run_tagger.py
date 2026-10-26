@@ -20,12 +20,14 @@ from posthog.temporal.common.posthog_client import EXPECTED_CONTROL_FLOW_ERROR_T
 
 from products.ai_observability.backend.llm.errors import (
     ContentFilteredError,
+    ContextWindowExceededError,
     OutputTokenLimitError,
     ProviderRequestRejectedError,
     StructuredOutputParseError,
 )
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 from products.ai_observability.backend.models.taggers import Tagger
+from products.ai_observability.backend.text_repr.formatters import EVENT_TEXT_MAX_CHARS
 
 from .run_tagger import (
     SKIPPED_RESULT_ERROR_TYPES,
@@ -36,6 +38,7 @@ from .run_tagger import (
     TagResult,
     build_tag_result_schema,
     build_tagger_system_prompt,
+    build_tagger_user_prompt,
     disable_tagger_activity,
     emit_tagger_event_activity,
     execute_hog_tagger_activity,
@@ -150,6 +153,23 @@ class TestBuildTaggerSystemPrompt:
             assert excluded not in prompt
 
 
+class TestBuildTaggerUserPrompt:
+    @pytest.mark.parametrize(
+        "text,expected_text",
+        [
+            pytest.param("Hello 👋", "Hello 👋", id="unicode"),
+            pytest.param("Hello \ud835", "Hello \ufffd", id="lone_high_surrogate"),
+            pytest.param("Hello \udc00", "Hello \ufffd", id="lone_low_surrogate"),
+            pytest.param("Hello \ud83d\ude00", "Hello 😀", id="surrogate_pair"),
+        ],
+    )
+    def test_prompt_is_utf8_encodable(self, text: str, expected_text: str) -> None:
+        user_prompt = build_tagger_user_prompt(text, text)
+
+        user_prompt.encode("utf-8")
+        assert user_prompt == f"Input: {expected_text}\n\nOutput: {expected_text}"
+
+
 class TestRunTaggerWorkflow:
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
@@ -235,6 +255,41 @@ class TestRunTaggerWorkflow:
                 assert result["input_tokens"] == 100
                 assert result["output_tokens"] == 20
                 assert called_on_event_loop == [False]
+
+    @pytest.mark.django_db(transaction=True)
+    def test_execute_tagger_truncates_oversized_prompt(self, setup_data: SetupData) -> None:
+        team = setup_data["team"]
+        tagger = {
+            "id": str(setup_data["tagger"].id),
+            "name": "Feature Tagger",
+            "tagger_config": make_tagger_config(),
+            "team_id": team.id,
+        }
+        long_input = "\n".join(f"line {i} " + "x" * 100 for i in range(5_000))
+        event_data = create_mock_event_data(
+            team.id,
+            properties={
+                "$ai_input": [{"role": "user", "content": long_input}],
+                "$ai_output_choices": [{"role": "assistant", "content": "Short reply."}],
+            },
+        )
+
+        with (
+            patch("posthog.temporal.ai_observability.run_tagger.Client") as mock_client_class,
+            patch("posthog.temporal.ai_observability.model_resolution.EvaluationConfig") as mock_eval_config,
+        ):
+            mock_complete = mock_client_class.return_value.complete
+            mock_complete.return_value = MagicMock(
+                parsed=TagResult(tags=["billing"], reasoning="ok"),
+                usage=MagicMock(input_tokens=100, output_tokens=20, total_tokens=120),
+            )
+            mock_eval_config.objects.get_or_create.return_value = (_mock_config_with_active_key(), False)
+
+            execute_tagger_activity(ExecuteTaggerInputs(tagger=tagger, event_data=event_data))
+
+        user_prompt = mock_complete.call_args.args[0].messages[0]["content"]
+        assert len(user_prompt) <= EVENT_TEXT_MAX_CHARS
+        assert user_prompt.endswith("Output: assistant: Short reply.")
 
     @pytest.mark.django_db(transaction=True)
     def test_execute_tagger_strips_unknown_tags(self, setup_data):
@@ -940,6 +995,10 @@ class TestSkippedResultsStayOutOfErrorTracking:
             (StructuredOutputParseError("The reply did not match the schema."), "parse_error"),
             (ContentFilteredError("The request was rejected by the content filter."), "parse_error"),
             (ProviderRequestRejectedError("The response exceeds the limit."), "request_rejected"),
+            (
+                ContextWindowExceededError("The prompt is too long for the context window."),
+                "context_window_exceeded",
+            ),
         ],
     )
     @pytest.mark.django_db(transaction=True)

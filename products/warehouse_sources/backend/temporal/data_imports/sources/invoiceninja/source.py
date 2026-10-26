@@ -127,7 +127,7 @@ class InvoiceninjaSource(ResumableSource[InvoiceninjaSourceConfig, InvoiceNinjaR
             name=ExternalDataSourceType.INVOICENINJA,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Invoice Ninja",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["invoice ninja", "invoicing", "billing"],
             caption="""Enter your Invoice Ninja API token to pull your invoicing data into the PostHog Data warehouse.
 

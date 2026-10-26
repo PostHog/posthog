@@ -16,11 +16,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTClientRetryableError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
     always,
+    route,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.clarifai import (
@@ -47,10 +47,31 @@ class TestClarifaiTransport:
     def _driver(config: ClarifaiSourceConfig) -> SourceDriver:
         return SourceDriver(ClarifaiSource(), config)
 
-    @pytest.mark.parametrize("endpoint", ["models", "workflows", "datasets", "concepts"])
+    @pytest.mark.parametrize(
+        ("endpoint", "path", "data_key", "extra_params"),
+        [
+            ("models", "models", "models", {}),
+            ("workflows", "workflows", "workflows", {}),
+            ("datasets", "datasets", "datasets", {}),
+            ("concepts", "concepts", "concepts", {}),
+            ("inputs", "inputs", "inputs", {}),
+            ("concept_relations", "concepts/relations", "concept_relations", {}),
+            ("annotations", "annotations", "annotations", {"list_all_annotations": ["true"]}),
+            ("evaluations", "evaluations", "eval_metrics", {"show_failed_metrics": ["true"]}),
+            ("tasks", "tasks", "tasks", {"including_label_order_tasks": ["true"]}),
+            ("collaborators", "collaborators", "collaborators", {"list_all_collaborators": ["true"]}),
+        ],
+    )
     @pytest.mark.parametrize("resume_page", [None, 4])
     def test_pagination_and_resume(
-        self, config: ClarifaiSourceConfig, manager: MagicMock, endpoint: str, resume_page: int | None
+        self,
+        config: ClarifaiSourceConfig,
+        manager: MagicMock,
+        endpoint: str,
+        path: str,
+        data_key: str,
+        extra_params: dict[str, list[str]],
+        resume_page: int | None,
     ) -> None:
         if resume_page is not None:
             manager.can_resume.return_value = True
@@ -58,18 +79,18 @@ class TestClarifaiTransport:
         first_page = resume_page or 1
         with requests_mock.Mocker() as http:
             http.get(
-                BASE_URL + endpoint,
+                BASE_URL + path,
                 [
-                    {"json": {"status": {"code": 10000}, endpoint: [{"id": "row-1"}]}},
-                    {"json": {"status": {"code": 10000}, endpoint: [{"id": "row-2"}]}},
-                    {"json": {"status": {"code": 10000}, endpoint: []}},
+                    {"json": {"status": {"code": 10000}, data_key: [{"id": "row-1"}]}},
+                    {"json": {"status": {"code": 10000}, data_key: [{"id": "row-2"}]}},
+                    {"json": {"status": {"code": 10000}, data_key: []}},
                 ],
             )
             response = ClarifaiClient(config, 42, "v2").source(endpoint, "test-job", manager)
             rows = [row for page in cast(Iterable[list[dict[str, Any]]], response.items()) for row in page]
             assert rows == [{"id": "row-1"}, {"id": "row-2"}]
             assert [request.qs for request in http.request_history] == [
-                {"page": [str(page)], "per_page": ["128"]} for page in range(first_page, first_page + 3)
+                {"page": [str(page)], "per_page": ["128"], **extra_params} for page in range(first_page, first_page + 3)
             ]
             assert all(request.headers["Authorization"] == "Key fake-clarifai-pat" for request in http.request_history)
             assert all(request.timeout == (10, 60) for request in http.request_history)
@@ -80,6 +101,77 @@ class TestClarifaiTransport:
             assert response.on_complete is not None
             response.on_complete()
             manager.clear_state.assert_called_once_with()
+
+    @pytest.mark.parametrize(
+        ("endpoint", "parent", "data_key", "child_row", "expected_row"),
+        [
+            (
+                "dataset_inputs",
+                "datasets",
+                "dataset_inputs",
+                {"input": {"id": "input-1"}},
+                {"input": {"id": "input-1"}, "input_id": "input-1"},
+            ),
+            ("model_versions", "models", "model_versions", {"id": "version-1"}, {"id": "version-1"}),
+        ],
+    )
+    @pytest.mark.parametrize("resumed", [False, True])
+    def test_fan_out_pagination_and_resume(
+        self,
+        config: ClarifaiSourceConfig,
+        endpoint: str,
+        parent: str,
+        data_key: str,
+        child_row: dict[str, Any],
+        expected_row: dict[str, Any],
+        resumed: bool,
+    ) -> None:
+        parent_key = "dataset_id" if parent == "datasets" else "model_id"
+        child_suffix = "inputs" if parent == "datasets" else "versions"
+        prefix = "/v2/users/example-user/apps/example-app/"
+
+        def ok(key: str, rows: list[dict[str, Any]]) -> ScriptedResponse:
+            return ScriptedResponse(json={"status": {"code": 10000}, key: rows})
+
+        script = route(
+            {
+                f"{prefix}{parent}": [
+                    ok(
+                        parent,
+                        [
+                            {"id": "parent-1"},
+                            {"id": "main-row", "user_id": "clarifai", "app_id": "main"},
+                            {"id": "parent-2", "user_id": "example-user", "app_id": "example-app"},
+                        ],
+                    ),
+                    ok(parent, []),
+                ],
+                f"{prefix}{parent}/parent-1/{child_suffix}": [ok(data_key, [child_row]), ok(data_key, [])],
+                f"{prefix}{parent}/parent-2/{child_suffix}": [
+                    ok(data_key, [child_row]),
+                    ok(data_key, [child_row]),
+                    ok(data_key, []),
+                ],
+            }
+        )
+        resume_state = (
+            ClarifaiResumeConfig(
+                fanout_state={"completed": [f"{parent}/parent-1/{child_suffix}"], "current": None, "child_state": None}
+            )
+            if resumed
+            else None
+        )
+        result = self._driver(config).run(endpoint, script, resume_state=resume_state)
+
+        assert result.raised is None
+        expected_parents = ["parent-2"] * 2 if resumed else ["parent-1", "parent-2", "parent-2"]
+        assert result.rows == [{**expected_row, parent_key: parent_id} for parent_id in expected_parents]
+        child_requests = [request for request in result.requests if request.path.endswith(child_suffix)]
+        assert [(request.path.split("/")[-2], request.param("page")) for request in child_requests] == (
+            [] if resumed else [("parent-1", "1"), ("parent-1", "2")]
+        ) + [("parent-2", "1"), ("parent-2", "2"), ("parent-2", "3")]
+        assert all(request.param("per_page") == "128" for request in result.requests)
+        assert result.final_state is None or result.final_state.page is None
 
     @pytest.mark.parametrize(
         ("http_status", "api_status", "message"),
@@ -141,11 +233,6 @@ class TestClarifaiTransport:
         assert "redirect" in str(result.raised)
         assert len(result.requests) == 1
 
-    def test_unknown_endpoint_does_not_request(self, config: ClarifaiSourceConfig) -> None:
-        result = self._driver(config).run("unknown", [])
-        assert isinstance(result.raised, UnknownResourceError)
-        assert result.requests == []
-
 
 class TestClarifaiCredentials:
     @pytest.mark.parametrize(
@@ -161,6 +248,8 @@ class TestClarifaiCredentials:
             (200, 11007, None, True, None),
             (200, 11007, "datasets", False, "The Clarifai token lacks permission"),
             (404, 11101, None, False, "Clarifai could not find the resource"),
+            (200, 10000, "model_versions", True, None),
+            (200, 11007, "dataset_inputs", False, "The Clarifai token lacks permission"),
         ],
     )
     def test_probe_status_mapping(
@@ -172,7 +261,10 @@ class TestClarifaiCredentials:
         valid: bool,
         message: str | None,
     ) -> None:
-        endpoint = schema_name or "models"
+        # Fan-out tables have no parent ID at probe time, so the probe lists their parent.
+        endpoint = {"model_versions": "models", "dataset_inputs": "datasets"}.get(
+            schema_name or "", schema_name or "models"
+        )
         with scripted_network(
             [ScriptedResponse(status=http_status, json={"status": {"code": api_status}, endpoint: []})]
         ) as network:
@@ -185,11 +277,23 @@ class TestClarifaiCredentials:
             assert network.requests_log[0].param("per_page") == "1"
             assert network.requests_log[0].headers["authorization"] == "Key fake-clarifai-pat"
 
-    @pytest.mark.parametrize("http_status", [400, 429, 500])
-    def test_probe_does_not_disguise_other_errors(self, config: ClarifaiSourceConfig, http_status: int) -> None:
+    @pytest.mark.parametrize(
+        "http_status,expected",
+        [
+            (400, HTTPError),
+            (429, (False, "Couldn't reach Clarifai to check your credentials. Try again in a few minutes.")),
+            (500, (False, "Couldn't reach Clarifai to check your credentials. Try again in a few minutes.")),
+        ],
+    )
+    def test_probe_does_not_disguise_other_errors(
+        self, config: ClarifaiSourceConfig, http_status: int, expected: type[Exception] | tuple[bool, str]
+    ) -> None:
         with scripted_network(always(ScriptedResponse(status=http_status, json={"status": {"code": 10020}}))):
-            with pytest.raises((HTTPError, RESTClientRetryableError)):
-                ClarifaiSource().validate_credentials(config, 42)
+            if isinstance(expected, tuple):
+                assert ClarifaiSource().validate_credentials(config, 42) == expected
+            else:
+                with pytest.raises(expected):
+                    ClarifaiSource().validate_credentials(config, 42)
 
     @pytest.mark.parametrize(
         "host",

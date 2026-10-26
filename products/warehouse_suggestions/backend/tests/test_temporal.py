@@ -10,8 +10,13 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 from posthog.clickhouse.client.execute import KillSwitchLevel
 from posthog.models.team import Team
 
+from products.warehouse_suggestions.backend.facade.contracts import CertifyPayload
+from products.warehouse_suggestions.backend.facade.enums import WarehouseSuggestionKind, WarehouseSuggestionStatus
+from products.warehouse_suggestions.backend.logic.candidates.registry import CANDIDATES
 from products.warehouse_suggestions.backend.logic.job import TeamRunResult, TeamRunStatus
 from products.warehouse_suggestions.backend.logic.reads import RollupDays
+from products.warehouse_suggestions.backend.logic.suggestions import upsert_suggestions
+from products.warehouse_suggestions.backend.models import WarehouseSuggestion
 from products.warehouse_suggestions.backend.temporal import (
     ACTIVITIES as WAREHOUSE_SUGGESTIONS_ACTIVITIES,
     WORKFLOWS,
@@ -22,6 +27,7 @@ from products.warehouse_suggestions.backend.temporal.contracts import (
     BatchOutcome,
     WarehouseSuggestionsInputs,
 )
+from products.warehouse_suggestions.backend.tests.factories import context, team_reads, view_subject
 
 ACTIVITIES = "products.warehouse_suggestions.backend.temporal.activities"
 
@@ -54,6 +60,31 @@ class TestTeamBatches(BaseTest):
             )
 
         assert batches == ([[self.team.pk]] if expect_team else [])
+
+    def test_picks_an_idle_team_that_still_has_an_accepted_suggestion(self) -> None:
+        dismissed_team = Team.objects.create(organization=self.organization)
+        for team, status in (
+            (self.team, WarehouseSuggestionStatus.ACCEPTED),
+            (dismissed_team, WarehouseSuggestionStatus.DISMISSED),
+        ):
+            draft = CANDIDATES[WarehouseSuggestionKind.CERTIFY].draft(
+                context(team_reads({}), team_id=team.pk),
+                view_subject(uuid.uuid4()),
+                CertifyPayload(subject_name="orders"),
+                score=1,
+                score_inputs={},
+            )
+            upsert_suggestions(team.pk, [draft])
+            WarehouseSuggestion.objects.for_team(team.pk).update(status=status)
+
+        with (
+            patch(f"{ACTIVITIES}.get_kill_switch_level", return_value=KillSwitchLevel.OFF),
+            patch(f"{ACTIVITIES}._teams_with_reads", return_value=[]),
+            patch(f"{ACTIVITIES}.is_warehouse_suggestions_enabled", return_value=True),
+        ):
+            batches = team_batches(WarehouseSuggestionsInputs())
+
+        assert batches == [[self.team.pk]]
 
 
 async def test_a_worker_runs_a_nonempty_batch_without_failing_a_team() -> None:

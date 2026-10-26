@@ -239,7 +239,7 @@ function extractTileBreakdownValues(tile: DashboardTile): BreakdownValueAndType[
         const propertyKey = getBreakdownPropertyKey(querySource.breakdownFilter)
         breakdownValues =
             tile.insight?.result?.map((result: any): BreakdownValueAndType | null => {
-                const key = getTrendDatasetKey(result)
+                const key = getTrendDatasetKey(result, querySource)
                 const breakdownValue = normalizeBreakdownValue(JSON.parse(key)['breakdown_value'])
                 return breakdownValue == null ? null : makeBreakdownValue(breakdownValue, breakdownType, propertyKey)
             }) || []

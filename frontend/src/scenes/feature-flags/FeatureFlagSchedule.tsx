@@ -442,6 +442,7 @@ export default function FeatureFlagSchedule(): JSX.Element {
         scheduleTimelineOccurrences,
         scheduleFormState,
         scheduleFormCollapsible,
+        savedVariantKeys,
     } = useValues(featureFlagLogic)
     // The Schedule tab is not offered for another config version (availableTabs), so the document is v1.
     const featureFlag = loadedFeatureFlag as FeatureFlagWithV1Config
@@ -527,7 +528,7 @@ export default function FeatureFlagSchedule(): JSX.Element {
     )
 
     const variantErrors = displayVariants.map(({ key: variantKey }) => ({
-        key: validateFeatureFlagVariantKey(variantKey),
+        key: validateFeatureFlagVariantKey(variantKey, savedVariantKeys),
     }))
 
     // A bad sum is rejected when the change fires. Other operations leave variants untouched.

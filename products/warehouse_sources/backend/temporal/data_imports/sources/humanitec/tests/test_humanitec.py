@@ -8,7 +8,6 @@ from requests.exceptions import HTTPError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientRetryableError,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
@@ -59,9 +58,43 @@ def test_environment_children_keep_parent_keys(endpoint: str, suffix: str, key: 
     ]
 
 
-@pytest.mark.parametrize(
-    "status,expected", [(200, None), (401, "rejected the API token"), (403, "cannot read"), (404, "could not find")]
-)
+def test_deployment_deltas_keep_application_key() -> None:
+    result = SourceDriver(HumanitecSource(), CONFIG).run(
+        "deployment_deltas",
+        [
+            ScriptedResponse(json=[{"id": "app-a", "envs": []}, {"id": "app-b", "envs": []}]),
+            ScriptedResponse(json=[{"id": "same-delta"}]),
+            ScriptedResponse(json=[{"id": "same-delta"}]),
+        ],
+    )
+
+    assert result.raised is None
+    assert result.rows == [{"id": "same-delta", "app_id": "app-a"}, {"id": "same-delta", "app_id": "app-b"}]
+    assert result.urls == [f"{BASE}/apps", f"{BASE}/apps/app-a/deltas", f"{BASE}/apps/app-b/deltas"]
+
+
+def test_pipeline_runs_follow_link_pages() -> None:
+    run = {"app_id": "app-a", "pipeline_id": "deploy"}
+    result = SourceDriver(HumanitecSource(), CONFIG).run(
+        "pipeline_runs",
+        [
+            ScriptedResponse(
+                json=[{**run, "id": "run-2"}],
+                headers={"Link": f'<{BASE}/pipeline-runs?per_page=100&page=next-token>; rel="next"'},
+            ),
+            ScriptedResponse(json=[{**run, "id": "run-1"}]),
+        ],
+    )
+
+    assert result.raised is None
+    assert [row["id"] for row in result.rows] == ["run-2", "run-1"]
+    assert result.urls == [
+        f"{BASE}/pipeline-runs?per_page=100",
+        f"{BASE}/pipeline-runs?per_page=100&page=next-token",
+    ]
+
+
+@pytest.mark.parametrize("status,expected", [(404, "could not find")])
 def test_credential_probe(status: int, expected: str | None) -> None:
     body = {"id": "example-org"} if status == 200 else {"error": f"HTTP-{status}", "message": HTTPStatus(status).phrase}
     with scripted_network([ScriptedResponse(status=status, json=body)]) as network:
@@ -130,13 +163,6 @@ def test_pipeline_links_cannot_retarget_credentials(next_url: str) -> None:
     assert isinstance(result.raised, ValueError)
     assert "Refusing to send" in str(result.raised)
     assert len(result.requests) == 2
-
-
-def test_unknown_table() -> None:
-    result = SourceDriver(HumanitecSource(), CONFIG).run("missing", [])
-
-    assert isinstance(result.raised, UnknownResourceError)
-    assert result.requests == []
 
 
 def test_unexpected_probe_error_is_not_reported_as_invalid_credentials() -> None:

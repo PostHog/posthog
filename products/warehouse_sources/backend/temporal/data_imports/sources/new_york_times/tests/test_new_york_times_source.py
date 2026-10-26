@@ -24,9 +24,19 @@ class TestNewYorkTimesSource:
         # get_schemas iterates a static catalog with no I/O, so the public docs table list is safe.
         assert self.source.lists_tables_without_credentials is True
 
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = self.source.get_schemas(_config(), team_id=self.team_id, names=["top_stories"])
-        assert [s.name for s in schemas] == ["top_stories"]
+    @pytest.mark.parametrize(
+        "name,supports_append",
+        [
+            ("article_search", True),
+            ("times_wire", True),
+            ("archive", False),
+            ("books_best_sellers", False),
+            ("top_stories", False),
+        ],
+    )
+    def test_append_only_where_resyncs_do_not_reread_whole_editions(self, name: str, supports_append: bool) -> None:
+        schemas = {s.name: s for s in self.source.get_schemas(_config(), team_id=self.team_id)}
+        assert schemas[name].supports_append is supports_append
 
     @pytest.mark.parametrize("valid", [True, False])
     def test_validate_credentials(self, valid: bool) -> None:
