@@ -1,5 +1,6 @@
 import pytest
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from django.contrib import auth
 from django.test import override_settings
@@ -83,6 +84,7 @@ class TestDemoSignupAPI(APIBaseTest):
         assert user.is_staff is False
         self.tearDown()
 
+    @patch("products.demo.backend.facade.api.MatrixManager.run_on_team")
     def test_social_signup_give_staff_privileges(self, *args):
         assert not User.objects.exists()
         assert not Organization.objects.exists()
@@ -104,16 +106,13 @@ class TestDemoSignupAPI(APIBaseTest):
         )
 
         user = auth.get_user(self.client)
-        master_organization = Organization.objects.filter(id=0).first()
         user_organization = Organization.objects.filter(name="Tech R Us").first()
 
         assert response.status_code == status.HTTP_201_CREATED
         assert response.json() == {"continue_url": "/complete/google-oauth2/"}
-        assert Organization.objects.count() == 2  # Master organization "PostHog" & "Tech R Us"
+        assert Organization.objects.count() == 1
         assert User.objects.count() == 1
         assert isinstance(user, User)
-        assert master_organization is not None
-        assert master_organization.name == "PostHog"
         assert user_organization is not None
         assert user.organization == user_organization
         assert user.first_name == "Charlie"
