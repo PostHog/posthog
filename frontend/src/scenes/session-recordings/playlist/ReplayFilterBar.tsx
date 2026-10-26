@@ -15,7 +15,6 @@ import { RecordingUniversalFilters } from '~/types'
 import { FilterChips } from './FilterChips'
 import { playlistFiltersLogic } from './playlistFiltersLogic'
 import { stripSessionIds } from './playlistUtils'
-import { savedFilterToFilters } from './savedFilterApply'
 import { SavedFilterEditedBar } from './SavedFilterEditedBar'
 import { SavedFilterSelect } from './SavedFilterSelect'
 import { sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
@@ -36,7 +35,7 @@ export function ReplayFilterBar({
     const { sessionRecordingsResponseLoading } = useValues(sessionRecordingsPlaylistLogic)
     const { isFiltersExpanded } = useValues(playlistFiltersLogic)
     const { setIsFiltersExpanded } = useActions(playlistFiltersLogic)
-    const { appliedSavedFilter } = useValues(sessionRecordingSavedFiltersLogic)
+    const { appliedSavedFilter, appliedSavedFilterFilters } = useValues(sessionRecordingSavedFiltersLogic)
     const { applyFilters } = useRecordingFiltersAssist({ filters, setFilters, currentSessionRecordingId })
     // registers the filter tool so the PostHog AI side panel can drive this list
     useMaxTool({
@@ -53,7 +52,7 @@ export function ReplayFilterBar({
     })
     const [saveModalOpen, setSaveModalOpen] = useState(false)
 
-    const edited = !!appliedSavedFilter && !equal(savedFilterToFilters(appliedSavedFilter), stripSessionIds(filters))
+    const edited = !!appliedSavedFilter && !equal(appliedSavedFilterFilters, stripSessionIds(filters))
 
     return (
         <div className="flex flex-col gap-1">

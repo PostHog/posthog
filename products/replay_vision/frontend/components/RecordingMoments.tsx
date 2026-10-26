@@ -8,10 +8,12 @@ import { LemonButton, LemonInput, LemonSwitch, LemonTag, Link, Spinner, Tooltip 
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown/LemonDropdown'
 import { cn } from 'lib/utils/css-classes'
+import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import {
     SessionRecordingPlayerLogicProps,
     sessionRecordingPlayerLogic,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import { playerUsesWatchLayout } from 'scenes/session-recordings/playlist/replayLayout'
 import { urls } from 'scenes/urls'
 
 import type { ReplayObservationApi, ReplayScannerApi } from '../generated/api.schemas'
@@ -319,6 +321,8 @@ export function RecordingMoments({ sessionId, playerLogicProps }: RecordingMomen
     const logic = observationsDockLogic({ sessionId })
     const { observations, observationsLoading, timeline, followMoments, summarizePending } = useValues(logic)
     const { setFollowMoments, summarize } = useActions(logic)
+    const { replayLayout } = useValues(playerSettingsLogic)
+    const inWatchLayout = playerUsesWatchLayout(replayLayout, playerLogicProps)
     const { quota } = useValues(visionQuotaLogic)
     const { disabledReason: quotaDisabledReason } = quotaUx(quota)
     const lastJumpMs = useRef<number | null>(null)
@@ -424,7 +428,7 @@ export function RecordingMoments({ sessionId, playerLogicProps }: RecordingMomen
                             rows={timelineRows}
                             currentTimeMs={currentPlayerTime}
                             onSeek={seekToTime}
-                            onSummarize={summarize}
+                            onSummarize={() => summarize(inWatchLayout)}
                             summarizing={summarizePending}
                             summarizeDisabledReason={scanBlock?.reason ?? quotaDisabledReason}
                         />

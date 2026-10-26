@@ -28,7 +28,7 @@ export function ReplayListHeader({
 }): JSX.Element {
     const { selectedRecordingsIds, otherRecordings, visiblePinnedRecordings, listSort, selectMode } =
         useValues(sessionRecordingsPlaylistLogic)
-    const { handleSelectUnselectAll, setSelectMode } = useActions(sessionRecordingsPlaylistLogic)
+    const { setSelectedRecordingsIds, setSelectMode } = useActions(sessionRecordingsPlaylistLogic)
     const viewItems = useWatchViewMenuItems(filters, setFilters)
     const settingsItems = useWatchSettingsMenuItems()
 
@@ -46,7 +46,8 @@ export function ReplayListHeader({
         return () => document.removeEventListener('keydown', onKeyDown)
     }, [selectMode, setSelectMode])
 
-    const recordings = type === 'filters' ? otherRecordings : visiblePinnedRecordings
+    const recordings = type === 'filters' ? otherRecordings.filter((r) => !r.ongoing) : visiblePinnedRecordings
+    const hasOngoing = recordings.length < otherRecordings.length
     const allSelected = recordings.length > 0 && selectedRecordingsIds.length === recordings.length
     const selectAllDisabledReason =
         recordings.length === 0
@@ -62,12 +63,22 @@ export function ReplayListHeader({
         >
             {selectMode ? (
                 <>
-                    <Tooltip title={selectAllDisabledReason ? undefined : 'Select all recordings'}>
+                    <Tooltip
+                        title={
+                            selectAllDisabledReason
+                                ? undefined
+                                : hasOngoing
+                                  ? 'Select all finished recordings'
+                                  : 'Select all recordings'
+                        }
+                    >
                         <span className="flex ml-[7px] mr-1">
                             <LemonCheckbox
                                 disabledReason={selectAllDisabledReason}
                                 checked={allSelected}
-                                onChange={(checked) => handleSelectUnselectAll(checked, type)}
+                                onChange={(checked) =>
+                                    setSelectedRecordingsIds(checked ? recordings.map((r) => r.id) : [])
+                                }
                                 stopPropagation
                                 data-attr="select-all-recordings"
                                 aria-label="Select all recordings"

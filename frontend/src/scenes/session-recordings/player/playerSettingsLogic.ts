@@ -408,27 +408,27 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             if (inspectorSideBarOpen && inspectorSideBarOpen !== values.sidebarOpen) {
                 actions.setSidebarOpen(inspectorSideBarOpen)
             }
-            if (searchParams.debug === true && !values.debugMode) {
+            if ((searchParams.debug === true || inspectorSideBarOpen) && !values.debugMode) {
                 actions.setDebugMode(true)
             }
         },
     })),
 
     actionToUrl(() => {
-        const withSearchParam = (
-            key: string,
-            value: boolean | undefined
+        const withSearchParams = (
+            changes: Record<string, boolean | undefined>
         ): [string, Record<string, any>, Record<string, any>] => {
             const { currentLocation } = router.values
             return [
                 currentLocation.pathname,
-                { ...currentLocation.searchParams, [key]: value },
+                { ...currentLocation.searchParams, ...changes },
                 currentLocation.hashParams,
             ]
         }
         return {
-            setSidebarOpen: ({ open }) => withSearchParam('inspectorSideBar', open),
-            setDebugMode: ({ open }) => withSearchParam('debug', open || undefined),
+            setSidebarOpen: ({ open }) => withSearchParams({ inspectorSideBar: open }),
+            // Debug consumes the legacy param, or closing it would reopen it from the URL.
+            setDebugMode: ({ open }) => withSearchParams({ debug: open || undefined, inspectorSideBar: undefined }),
         }
     }),
 ])

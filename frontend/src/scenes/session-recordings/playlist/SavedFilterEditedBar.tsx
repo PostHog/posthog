@@ -9,7 +9,6 @@ import { RecordingUniversalFilters } from '~/types'
 
 import { updatePlaylist } from './playlistUtils'
 import { stripSessionIds } from './playlistUtils'
-import { savedFilterToFilters } from './savedFilterApply'
 
 export function SavedFilterEditedBar({
     filters,
@@ -20,7 +19,7 @@ export function SavedFilterEditedBar({
     setFilters: (filters: Partial<RecordingUniversalFilters>) => void
     onSaveAsCopy: () => void
 }): JSX.Element | null {
-    const { appliedSavedFilter } = useValues(sessionRecordingSavedFiltersLogic)
+    const { appliedSavedFilter, appliedSavedFilterFilters } = useValues(sessionRecordingSavedFiltersLogic)
     const { loadSavedFilters, setAppliedSavedFilter } = useActions(sessionRecordingSavedFiltersLogic)
     const [updating, setUpdating] = useState(false)
     if (!appliedSavedFilter) {
@@ -67,9 +66,8 @@ export function SavedFilterEditedBar({
             <LemonButton
                 size="xsmall"
                 onClick={() => {
-                    const saved = savedFilterToFilters(appliedSavedFilter)
-                    if (saved) {
-                        setFilters(saved)
+                    if (appliedSavedFilterFilters) {
+                        setFilters(appliedSavedFilterFilters)
                     }
                 }}
                 data-attr="list-saved-filter-revert"

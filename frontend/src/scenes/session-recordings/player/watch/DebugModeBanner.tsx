@@ -8,15 +8,12 @@ import { playerSidebarLogic } from 'scenes/session-recordings/player/sidebar/pla
 
 import { SessionRecordingSidebarTab } from '~/types'
 
-// The notice retires itself a month or so after the layout experiment starts.
-const DEBUG_HINT_UNTIL = Date.parse('2026-12-01')
-
 export function DebugModeBanner(): JSX.Element | null {
-    const { debugMode, debugHintDismissed } = useValues(playerSettingsLogic)
+    const { debugMode, debugHintDismissed, watchLayoutOffered } = useValues(playerSettingsLogic)
     const { setDebugMode, dismissDebugHint } = useActions(playerSettingsLogic)
     const { setTab } = useActions(playerSidebarLogic)
 
-    if (debugMode || debugHintDismissed || Date.now() >= DEBUG_HINT_UNTIL) {
+    if (debugMode || debugHintDismissed || !watchLayoutOffered) {
         return null
     }
 

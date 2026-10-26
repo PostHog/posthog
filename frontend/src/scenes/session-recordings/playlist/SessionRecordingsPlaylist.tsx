@@ -51,13 +51,13 @@ export function SessionRecordingsPlaylist({
         autoPlay: props.autoPlay ?? true,
         onlyPinned: props.type === 'collection',
     }
-    const { featureFlags } = useValues(featureFlagLogic)
+    const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
     useEffect(() => {
         // Players read the layout silently. Opening the Replay page is the exposure.
-        if (watchLayout) {
+        if (watchLayout && receivedFeatureFlags) {
             reportFeatureFlagExposure(featureFlags, FEATURE_FLAGS.REPLAY_WATCH_LAYOUT)
         }
-    }, [watchLayout, featureFlags])
+    }, [watchLayout, receivedFeatureFlags, featureFlags])
 
     const { sidePanelWidth } = useValues(panelLayoutLogic)
     const { isWindowLessThan } = useWindowSize({ widthOffset: sidePanelWidth })
