@@ -18,6 +18,7 @@ from products.alerts_platform.backend.facade.contracts import (
     LegacyEventEmitter,
     LegacyWebhookBody,
     SourceDescriber,
+    SourceImageResolver,
     SourceKind,
 )
 
@@ -31,6 +32,10 @@ def register_destination_resolver(resolver: DestinationResolver) -> None:
 
 def register_source_describer(source: SourceKind, describer: SourceDescriber) -> None:
     describers.register(source, describer)
+
+
+def register_image_resolver(source: SourceKind, resolver: SourceImageResolver) -> None:
+    describers.register_image_resolver(source, resolver)
 
 
 def refused_destination(data: AlertDestinationData) -> str | None:

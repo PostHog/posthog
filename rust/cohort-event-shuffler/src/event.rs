@@ -7,6 +7,8 @@
 use common_types::{ClickHouseEvent, PersonMode};
 use serde::{Deserialize, Serialize};
 
+use crate::ledger::SourcePartition;
+
 /// Single source of truth for the re-key string. Every producer targeting a topic co-partitioned
 /// with `cohort_stream_events` must use this so a given `(team_id, person_id)` lands on the same
 /// partition — and downstream worker — across topics and runtimes (Rust here, Node for
@@ -16,8 +18,42 @@ pub fn partition_key(team_id: i32, person_id: &str) -> String {
     format!("{team_id}:{person_id}")
 }
 
-/// `source_partition` / `source_offset` carry the upstream `clickhouse_events_json` coordinates so
-/// the downstream processor can make counter increments replay-safe via per-key offset tracking.
+/// Each input topic's slot in the `source_partition` numbers of `cohort_stream_events`. Kafka
+/// numbers every topic's partitions from 0. The processor keys its replay marks by
+/// `source_partition` alone, so two topics that shared numbers would mask each other's lower offsets
+/// as replays. A slot must never pass to another topic, because stored replay marks keep the numbers
+/// that the first topic wrote.
+const INPUT_TOPIC_SLOTS: [(&str, u8); 2] = [
+    ("clickhouse_events_json", 0),
+    ("realtime_only_events_json", 1),
+];
+
+#[derive(Debug, Clone, Copy)]
+pub struct SourcePartitionRange {
+    slot: u8,
+}
+
+impl SourcePartitionRange {
+    const STRIDE: i32 = 1_000_000;
+
+    pub fn for_input_topic(input_topic: &str) -> Option<Self> {
+        INPUT_TOPIC_SLOTS
+            .iter()
+            .find(|(topic, _)| *topic == input_topic)
+            .map(|&(_, slot)| Self { slot })
+    }
+
+    /// The envelope's `source_partition` for `input_partition`. `None` for a partition outside
+    /// `0..1_000_000`, whose number would fall in another slot's range.
+    pub fn envelope_partition(self, input_partition: SourcePartition) -> Option<i32> {
+        (0..Self::STRIDE)
+            .contains(&input_partition.0)
+            .then(|| i32::from(self.slot) * Self::STRIDE + input_partition.0)
+    }
+}
+
+/// `source_partition` / `source_offset` carry the upstream coordinates, numbered by
+/// [`SourcePartitionRange`], so the downstream processor can make counter increments replay-safe.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CohortStreamEvent {
     pub team_id: i32,
@@ -130,6 +166,41 @@ mod tests {
         let a = partition_key(2, "01928aaa-bbbb-cccc-dddd-eeeeeeeeeeee");
         let b = partition_key(2, "01928aaa-bbbb-cccc-dddd-eeeeeeeeeeee");
         assert_eq!(a, b);
+    }
+
+    #[test]
+    fn each_input_topic_writes_its_partitions_into_its_own_range() {
+        for (topic, partition, expected) in [
+            ("clickhouse_events_json", 5, Some(5)),
+            ("clickhouse_events_json", 1_000_005, None),
+            ("realtime_only_events_json", 5, Some(1_000_005)),
+            ("realtime_only_events_json", 1_000_000, None),
+        ] {
+            let range = SourcePartitionRange::for_input_topic(topic).unwrap();
+            assert_eq!(
+                range.envelope_partition(SourcePartition(partition)),
+                expected,
+                "{topic} partition {partition}"
+            );
+        }
+    }
+
+    #[test]
+    fn no_two_input_topics_share_a_slot_and_no_topic_has_two() {
+        let slots: std::collections::BTreeSet<u8> =
+            INPUT_TOPIC_SLOTS.iter().map(|&(_, slot)| slot).collect();
+        assert_eq!(
+            slots.len(),
+            INPUT_TOPIC_SLOTS.len(),
+            "two topics share a slot, so the processor would drop one topic's events as replays"
+        );
+        let topics: std::collections::BTreeSet<&str> =
+            INPUT_TOPIC_SLOTS.iter().map(|&(topic, _)| topic).collect();
+        assert_eq!(
+            topics.len(),
+            INPUT_TOPIC_SLOTS.len(),
+            "a topic has two rows, and the shuffler uses only the first"
+        );
     }
 
     #[test]

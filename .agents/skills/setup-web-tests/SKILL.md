@@ -78,9 +78,10 @@ Tests expect certain hostnames to resolve to localhost:
 echo "127.0.0.1 kafka clickhouse clickhouse-coordinator objectstorage" | sudo tee -a /etc/hosts
 ```
 
-## Environment Variables
+## Environment variables
 
-Tests require environment variables defined in [`.github/workflows/ci-backend.yml`](../../../.github/workflows/ci-backend.yml) (see the `env:` section at the top of the file). You can also copy `.env.example` to `.env` for local development defaults.
+The workflow-level `env:` section in [`.depot/workflows/ci-backend.yml`](../../../.depot/workflows/ci-backend.yml) defines the test environment variables.
+For local development defaults, copy `.env.example` to `.env`.
 
 ## Additional Setup
 
@@ -114,9 +115,10 @@ The `pytest.ini` sets:
 
 Default ignores: `--ignore=posthog/user_scripts --ignore=services/llm-gateway --ignore=common/ingestion/acceptance_tests`
 
-## Debugging Installation Issues
+## Debugging installation issues
 
-If you encounter issues with the test setup, refer to [`.github/workflows/ci-backend.yml`](../../../.github/workflows/ci-backend.yml) for the authoritative CI configuration. This file shows:
+Compare your setup with [`.depot/workflows/ci-backend.yml`](../../../.depot/workflows/ci-backend.yml) when installation fails.
+It defines:
 
 - Exact Python version used in CI
 - System dependencies installed

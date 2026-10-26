@@ -7,7 +7,7 @@ and every write to these rows, stays here. A source never holds one of these mod
 from collections.abc import Collection, Sequence
 from dataclasses import replace
 from datetime import datetime, timedelta
-from typing import Final
+from typing import Any, Final
 from uuid import UUID
 
 from django.db import connection, transaction
@@ -379,6 +379,7 @@ def _event_row(
         error_message=outcome.error_message,
         consecutive_failures=outcome.consecutive_failures,
         muted_notification=verdict.muted_notification,
+        source_detail=verdict.source_detail,
         now=now,
     )
 
@@ -399,6 +400,7 @@ def event_row(
     query_duration_ms: int | None = None,
     error_message: str | None = None,
     muted_notification: str = "",
+    source_detail: dict[str, Any] | None = None,
 ) -> PlatformAlertEventRow:
     """One history row for a configuration, with the snapshots every row carries."""
     return PlatformAlertEventRow(
@@ -422,6 +424,7 @@ def event_row(
         consecutive_failures=consecutive_failures,
         muted_notification=muted_notification,
         occurred_at=now,
+        source_detail=source_detail or {},
     )
 
 
@@ -904,11 +907,38 @@ def refresh_settings(team_id: int, configuration_id: UUID, upsert: PlatformAlert
     )
 
 
-# Firing episodes are keyed per stack, so a firing alert stays with its source until it resolves.
-_HANDOVER_STATES: Final = frozenset(
-    {PlatformAlertState.NOT_FIRING, PlatformAlertState.ERRORED, PlatformAlertState.BROKEN}
-)
 _HANDOVER_FENCE: Final = timedelta(minutes=1)
+
+
+# Longer than a delivery workflow can wait between the check that starts a firing and the first
+# thread claim. Inside it, a firing with no claimed thread may still have a delivery on its way.
+_DELIVERY_FENCE: Final = timedelta(minutes=10)
+
+
+def _delivered_firing(
+    team_id: int, configuration: PlatformAlertConfiguration, alerts: Sequence[PlatformAlert], *, at: datetime
+) -> bool:
+    """Whether any of these instances is inside a firing the platform delivered, or may still deliver.
+
+    Every native send claims a thread keyed on the firing's start, so a firing with no claimed
+    thread was never sent, once its delivery had time to start. A firing with an unknown start has
+    no key to find, so it counts as sent.
+    """
+    started: list[PlatformAlert] = []
+    for instance in alerts:
+        if instance.firing_started_at is None:
+            if instance.state == PlatformAlertState.FIRING:
+                return True
+        elif instance.firing_started_at > at - _DELIVERY_FENCE:
+            return True
+        else:
+            started.append(instance)
+    if not started:
+        return False
+    delivered = Q()
+    for instance in started:
+        delivered |= Q(grouping_key=instance.grouping_key, episode_started_at=instance.firing_started_at)
+    return PlatformAlertThread.objects.for_team(team_id).filter(delivered, configuration=configuration).exists()
 
 
 def take_ownership(handover: PlatformOwnershipHandover) -> bool:
@@ -916,14 +946,20 @@ def take_ownership(handover: PlatformOwnershipHandover) -> bool:
 
     The second writer of an alert's state beside `record_outcomes`. The caller holds the source's
     row lock and writes the source's owner in the same transaction, so both rows change together.
-    Returns False, changing nothing, when the copy is inside a firing of its own: a team on live
-    delivery can have one open while its source is quiet, and replacing it would orphan the incident.
+    Returns False, changing nothing, when the copy is inside a firing of its own that the platform
+    delivered: a team on live delivery can have one open while its source is quiet, and replacing it
+    would orphan the incident. A firing the platform never delivered opened nothing, so the source's
+    state replaces it.
     A grouped copy carries only the configuration's fields. Its source holds one state for the whole
     alert, which no group inherits, and each group's row comes from the check that finds it.
-    Raises `PlatformAlertConfiguration.DoesNotExist` when the alert was never copied.
+    A firing carries over with its start unknown, the state of a firing that began before the
+    platform recorded starts, so its resolve addresses the incident the source opened.
+    Raises `PlatformAlertConfiguration.DoesNotExist` when the alert was never copied, and `ValueError`
+    for a snooze, which the platform carries as a mute rather than a state, or for a firing of a
+    grouped copy, which has no single group to carry it to. Only a platform-owned copy is grouped.
     """
-    if handover.state not in _HANDOVER_STATES:
-        raise ValueError(f"an alert in state {handover.state} stays with its source until it resolves")
+    if handover.state == PlatformAlertState.SNOOZED:
+        raise ValueError("a snoozed alert is handed over with its snooze, not in a snoozed state")
     with transaction.atomic():
         configuration = (
             PlatformAlertConfiguration.objects.for_team(handover.team_id)
@@ -936,13 +972,14 @@ def take_ownership(handover: PlatformOwnershipHandover) -> bool:
             alert = _alerts_for_write(handover.team_id, [configuration], [key])[key]
             alerts = [alert]
         else:
+            if handover.state == PlatformAlertState.FIRING:
+                raise ValueError("a grouped copy has no single group to carry a firing to")
             # No grouped check writes the empty key, so a row for it would only hold a slot of the cap.
             alerts = _instances_by_configuration(handover.team_id, [configuration]).get(str(configuration.id), [])
         # A failing check status means the machine already ended the firing the row still holds.
-        live_firing = any(
-            instance.state == PlatformAlertState.FIRING or instance.firing_started_at is not None for instance in alerts
-        )
-        if live_firing and configuration.check_status == PlatformAlertConfiguration.CheckStatus.OK:
+        if configuration.check_status == PlatformAlertConfiguration.CheckStatus.OK and _delivered_firing(
+            handover.team_id, configuration, alerts, at=handover.at
+        ):
             return False
         # ERRORED and BROKEN are the configuration's check status, so the instance starts at rest.
         failing = handover.state in (PlatformAlertState.ERRORED, PlatformAlertState.BROKEN)

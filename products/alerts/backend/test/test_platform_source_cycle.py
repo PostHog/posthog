@@ -19,7 +19,7 @@ from posthog.exceptions import ClickHouseAtCapacity, ClickHouseClusterMemoryLimi
 from posthog.models.scoping import team_scope
 from posthog.redis import get_client
 from posthog.schema_enums import AlertCalculationInterval
-from posthog.tasks.alerts.utils import AlertEvaluationResult, next_check_time
+from posthog.tasks.alerts.utils import AlertEvaluationResult, RenderedInsightChart, next_check_time
 from posthog.temporal.alerts.admission import inflight_alert_ids, release_evaluation_slot
 
 from products.alerts.backend.evaluation.contract import AlertExtractionError
@@ -31,9 +31,11 @@ from products.alerts.backend.judge.contract import (
 )
 from products.alerts.backend.logic.alert_email import INSIGHT_ALERT_ERRORED_EVENT_ID
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
+from products.alerts.backend.platform_alert_wording import insight_alert_url
 from products.alerts.backend.platform_source_cycle import (
     CAPACITY_REJECTED,
     INFLIGHT_KEY,
+    MAX_BREACH_CHARS,
     evaluate_insight_check,
     plan_insight_batch,
     readmit_retried_check,
@@ -94,7 +96,12 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             )
 
     def _evaluate_per_series(
-        self, configuration: PlatformConfigurationSnapshot, values: dict[str, float], *, truncated: bool = False
+        self,
+        configuration: PlatformConfigurationSnapshot,
+        values: dict[str, float] | list[tuple[str, float]],
+        *,
+        truncated: bool = False,
+        breach: str = "above 100",
     ) -> PlatformAlertOutcome:
         slot = slot_of(configuration.next_check_at, CUTOFF)
         expires_at = time.time() + 3600
@@ -105,9 +112,9 @@ class TestPlatformInsightEvaluation(APIBaseTest):
                 SeriesEvaluation(
                     identity=identity,
                     label="browser",
-                    result=AlertEvaluationResult(value=value, breaches=["above 100"] if value > 100 else []),
+                    result=AlertEvaluationResult(value=value, breaches=[breach] if value > 100 else []),
                 )
-                for identity, value in values.items()
+                for identity, value in (values.items() if isinstance(values, dict) else values)
             ),
             truncated=truncated,
         )
@@ -132,6 +139,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             "Chrome": AlertEventKind.FIRING,
             "Firefox": AlertEventKind.FIRING,
         }
+        assert {group.source_detail["breaches"][0] for group in fired.groups} == {"above 100"}
 
         with team_scope(self.team.id):
             platform_testing.set_due_at(configuration.id, CUTOFF - timedelta(minutes=1))
@@ -139,6 +147,16 @@ class TestPlatformInsightEvaluation(APIBaseTest):
 
         expected = {"Chrome": "firing"} | ({"Firefox": missing_state} if missing_state else {})
         assert {group.grouping_key: group.new_state for group in resolved.groups} == expected
+
+    def test_a_breakdown_value_reported_twice_keeps_the_breach_of_the_row_that_fired(self) -> None:
+        grouping = Grouping(mode=GroupingMode.BY_RESULT_LABELS, keys=("breakdown",))
+        configuration = self._copy(self._alert(), grouping=grouping.to_stored())
+
+        fired = self._evaluate_per_series(configuration, [("Chrome", 150.0), ("Chrome", 40.0)], breach="x" * 2000)
+
+        (group,) = fired.groups
+        # The detail rides in the outcome Temporal carries, so a long breach is clipped.
+        assert (group.kind, len(group.source_detail["breaches"][0])) == (AlertEventKind.FIRING, MAX_BREACH_CHARS)
 
     def test_a_muted_breakdown_value_tracks_its_firing_without_announcing_it(self) -> None:
         grouping = Grouping(mode=GroupingMode.BY_RESULT_LABELS, keys=("breakdown",))
@@ -172,6 +190,38 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             )
         self.deliveries = evaluation.deliveries if evaluation is not None else ()
         return (evaluation.outcomes[0] if evaluation is not None else None), query
+
+    @parameterized.expand(
+        [
+            ("source_owned", "source", {}),
+            ("platform_owned", "platform", {"insight_chart_asset_id": 7, "insight_chart_render_user_id": 3}),
+        ]
+    )
+    def test_a_firing_records_what_production_sends_beside_it(
+        self, _name: str, owner: str, chart: dict[str, Any]
+    ) -> None:
+        alert = self._alert()
+        configuration = self._copy(alert, owner=owner)
+        expected = {
+            "breaches": ["above 100"],
+            "insight_name": alert.insight.name,
+            "insight_short_id": alert.insight.short_id,
+            "alert_id": str(alert.id),
+            **chart,
+        }
+
+        with patch(
+            f"{_MODULE}.render_alert_insight_chart",
+            return_value=RenderedInsightChart(asset_id=7, render_user_id=3),
+        ) as render:
+            outcome, _ = self._evaluate(
+                configuration, result=AlertEvaluationResult(value=150.0, breaches=["above 100"])
+            )
+
+        assert outcome is not None
+        assert outcome.groups[0].source_detail == expected
+        # A render costs up to a minute and a half, so the parallel run must never pay for one.
+        assert render.called is (owner == "platform")
 
     @parameterized.expand(
         [
@@ -319,6 +369,11 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             )
             for delivery in self.deliveries
         ] == (expected if (allowlisted or owned) and not was_firing else [])
+        # A native message links to the alert on its insight, where the insight stack's messages link.
+        assert all(
+            delivery.source_alert_url == insight_alert_url(self.team.id, alert.insight.short_id, str(alert.id))
+            for delivery in self.deliveries
+        )
 
     @parameterized.expand(
         [
@@ -406,6 +461,8 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             "errored",
             True,
         )
+        # The error message names and links the insight, as a firing's does.
+        assert set(outcome.failure.source_detail) == {"insight_name", "insight_short_id"}
 
     @parameterized.expand([("retried", False), ("last_attempt", True)])
     def test_an_ai_detector_without_a_verdict_is_retried_and_only_its_last_attempt_records_an_error(

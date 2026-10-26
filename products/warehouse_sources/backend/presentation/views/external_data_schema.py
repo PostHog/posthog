@@ -125,6 +125,27 @@ def source_supports_row_filters(source_type: str) -> bool:
     return bool(source.supports_row_filters)
 
 
+ON_DEMAND_SYNC_ERROR = "This table syncs only when its data changes, so its sync schedule can't be turned on."
+
+
+def source_syncs_on_demand(source_type: str) -> bool:
+    try:
+        source = SourceRegistry.get_source(ExternalDataSourceType(source_type))
+    except Exception as e:
+        capture_exception(e)
+        return False
+    return source.syncs_on_demand is True
+
+
+def manual_sync_refusal(source_model: ExternalDataSource) -> str | None:
+    try:
+        source = SourceRegistry.get_source(ExternalDataSourceType(source_model.source_type))
+    except Exception as e:
+        capture_exception(e)
+        return None
+    return source.manual_sync_refusal(source_model)
+
+
 def source_row_filter_columns(source_type: str, schema_name: str) -> tuple[Any, ...] | None:
     """The columns a row filter on this schema may use, or None when any column of the table may.
 
@@ -282,6 +303,10 @@ def _trigger_schema_sync(instance: ExternalDataSchema) -> None:
 
 
 def resync_schema(instance: ExternalDataSchema) -> Response:
+    refusal = manual_sync_refusal(instance.source)
+    if refusal is not None:
+        return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": refusal})
+
     if is_any_external_data_schema_paused(instance.team_id):
         return Response(
             status=status.HTTP_400_BAD_REQUEST,
@@ -948,6 +973,10 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
 
     def update(self, instance: ExternalDataSchema, validated_data: dict[str, Any]) -> ExternalDataSchema:
         data = self.initial_data if isinstance(self.initial_data, dict) else {}
+
+        # Each scheduled run of such a table would bill the same rows again.
+        if validated_data.get("should_sync") is True and source_syncs_on_demand(instance.source.source_type):
+            raise ValidationError({"should_sync": ON_DEMAND_SYNC_ERROR})
 
         # Capture the previous cdc_table_mode before any mutation so the post-save hook below can decide
         # whether the change adds a new physical write target (and therefore needs a re-snapshot).
@@ -2165,6 +2194,10 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @action(methods=["POST"], detail=True)
     def reload(self, request: Request, *args: Any, **kwargs: Any):
         instance: ExternalDataSchema = self.get_object()
+
+        refusal = manual_sync_refusal(instance.source)
+        if refusal is not None:
+            return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": refusal})
 
         if is_any_external_data_schema_paused(self.team_id):
             return Response(

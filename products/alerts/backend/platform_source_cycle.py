@@ -18,10 +18,10 @@ same set of checks.
 
 import time
 import asyncio
-from collections.abc import Collection
+from collections.abc import Collection, Sequence
 from dataclasses import replace
 from datetime import UTC, datetime
-from typing import Final
+from typing import Any, Final
 
 from django.conf import settings
 
@@ -32,7 +32,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.errors import CH_TRANSIENT_ERRORS, QueryErrorCategory, classify_query_error
 from posthog.schema_enums import AlertCalculationInterval
 from posthog.tasks.alerts.schedule_restriction import is_utc_datetime_blocked
-from posthog.tasks.alerts.utils import skip_because_of_weekend
+from posthog.tasks.alerts.utils import RenderedInsightChart, render_alert_insight_chart, skip_because_of_weekend
 from posthog.temporal.alerts.admission import admit_evaluation_slots, release_evaluation_slot
 
 from products.alerts.backend.evaluation import check_alert_for_insight
@@ -47,6 +47,7 @@ from products.alerts.backend.judge.contract import (
 from products.alerts.backend.llm_detector_limits import is_llm_detector_config
 from products.alerts.backend.logic.alert_email import INSIGHT_ALERT_ERRORED_EVENT_ID
 from products.alerts.backend.models.alert import AlertConfiguration
+from products.alerts.backend.platform_alert_wording import insight_alert_url
 from products.alerts_platform.backend.facade.api import due_check_ids, due_checks, refresh_settings, slot_of
 from products.alerts_platform.backend.facade.contracts import (
     SOURCE_CONDITION_KEY,
@@ -379,11 +380,22 @@ def _delivery(check: PlatformAlertCheckInput, outcome: PlatformAlertOutcome) -> 
         evaluation_key=outcome.evaluation_key,
         destination_alert_id=legacy_id,
         event_ids_by_kind=_EVENT_IDS_BY_KIND,
+        source_alert_url=_alert_url(check, legacy_id),
         owned_by_platform=check.owned_by_platform,
         overflowed=outcome.overflowed,
         overflow_is_lower_bound=outcome.overflow_is_lower_bound,
         parts=delivery_parts(outcome),
     )
+
+
+def _alert_url(check: PlatformAlertCheckInput, legacy_id: str) -> str | None:
+    """The alert's page on its insight, so a native message links where the insight stack's does."""
+    insight_short_id = (
+        AlertConfiguration.objects.filter(team_id=check.team_id, id=legacy_id)
+        .values_list("insight__short_id", flat=True)
+        .first()
+    )
+    return insight_alert_url(check.team_id, insight_short_id, legacy_id) if insight_short_id else None
 
 
 def _legacy_alert(check: PlatformAlertCheckInput) -> AlertConfiguration | None:
@@ -454,7 +466,7 @@ def _decide(
         calculation_interval=alert.calculation_interval, organization=alert.team.organization
     )
     if entitlement_error:
-        return _broken(check, snapshot, now=now, message=entitlement_error)
+        return _broken(check, snapshot, alert, now=now, message=entitlement_error)
     if skip_because_of_weekend(alert) or is_utc_datetime_blocked(alert, now):
         return _skipped(check, snapshot, now=now)
     if is_llm_detector_config(alert.detector_config) != uses_llm_detector:
@@ -500,11 +512,12 @@ def _decide(
             CheckInput(threshold_breached=False, error_message=LLM_DETECTOR_UNAVAILABLE_MESSAGE),
             now=now,
             skip=SkipReason.QUERY_FAILED,
+            context=_context(alert),
         )
     except (AlertExtractionError, LLMDetectorMisconfiguredError) as error:
-        return _broken(check, snapshot, now=now, message=str(error))
+        return _broken(check, snapshot, alert, now=now, message=str(error))
     except Exception as error:
-        return _query_failed(check, snapshot, error, now=now)
+        return _query_failed(check, snapshot, alert, error, now=now)
     duration_ms = int((time.monotonic() - started_at) * 1000)
 
     if result.skipped_reason is not None:
@@ -516,6 +529,7 @@ def _decide(
         now=now,
         value=result.value,
         query_duration_ms=duration_ms,
+        firing=(alert, result.breaches or []),
     )
 
 
@@ -546,7 +560,7 @@ def _following(check: PlatformAlertCheckInput, alert: AlertConfiguration) -> Pla
 
 
 def _broken(
-    check: PlatformAlertCheckInput, snapshot: AlertSnapshot, *, now: datetime, message: str
+    check: PlatformAlertCheckInput, snapshot: AlertSnapshot, alert: AlertConfiguration, *, now: datetime, message: str
 ) -> PlatformAlertOutcome:
     """An alert production cannot evaluate as configured. It errors and is disabled, as production does."""
     return _recorded(
@@ -559,11 +573,17 @@ def _broken(
         error_message=message,
         skip=SkipReason.BROKEN_CONFIG,
         disable=True,
+        source_detail=_context(alert),
     )
 
 
 def _query_failed(
-    check: PlatformAlertCheckInput, snapshot: AlertSnapshot, error: Exception, *, now: datetime
+    check: PlatformAlertCheckInput,
+    snapshot: AlertSnapshot,
+    alert: AlertConfiguration,
+    error: Exception,
+    *,
+    now: datetime,
 ) -> PlatformAlertOutcome:
     """A query that did not finish. A refusal for load is a skip; anything else is a failed check."""
     if classify_query_error(error) == QueryErrorCategory.RATE_LIMITED:
@@ -580,6 +600,7 @@ def _query_failed(
         ),
         now=now,
         skip=SkipReason.QUERY_FAILED,
+        context=_context(alert),
     )
 
 
@@ -588,6 +609,11 @@ _FAILED_CHECKS: Final = frozenset({SkipReason.QUERY_FAILED, SkipReason.BROKEN_CO
 
 # The one label a grouped insight alert splits on: each breakdown value is a group.
 BREAKDOWN_GROUPING_KEY = "breakdown"
+
+# How much of what a check found one group's detail keeps. Production lists one breach per series,
+# and every group's detail rides in the outcome Temporal carries, so a long label must not grow it.
+MAX_DETAIL_BREACHES: Final = 10
+MAX_BREACH_CHARS: Final = 500
 
 # A breakdown value can be muted on its own, which production cannot express, so the platform's
 # mute applies: the value is still judged and only its announcement is held. A snooze of the
@@ -605,14 +631,16 @@ def _decide_grouped(
     value the query did not return is left as it is.
     """
     if tuple(check.grouping.keys) != (BREAKDOWN_GROUPING_KEY,):
-        return _broken(check, snapshot, now=now, message=f"An insight alert can only group by {BREAKDOWN_GROUPING_KEY}")
+        return _broken(
+            check, snapshot, alert, now=now, message=f"An insight alert can only group by {BREAKDOWN_GROUPING_KEY}"
+        )
     started_at = time.monotonic()
     try:
         evaluated = check_alert_per_series(alert)
     except AlertExtractionError as error:
-        return _broken(check, snapshot, now=now, message=str(error))
+        return _broken(check, snapshot, alert, now=now, message=str(error))
     except Exception as error:
-        return _query_failed(check, snapshot, error, now=now)
+        return _query_failed(check, snapshot, alert, error, now=now)
     if not isinstance(evaluated, PerSeriesEvaluation):
         return _skipped(check, snapshot, now=now)
     duration_ms = int((time.monotonic() - started_at) * 1000)
@@ -635,6 +663,30 @@ def _decide_grouped(
     )
     for verdict in decision.verdicts:
         _record_metrics(verdict.outcome.notification, verdict.snapshot.state.value, verdict.group.new_state)
+    if any(verdict.outcome.notification == NotificationAction.FIRE for verdict in decision.verdicts):
+        # The row `decide_groups` judged for each key: the first, unless a later one breaches and it did not.
+        breaches: dict[str, list[str]] = {}
+        for series in evaluated.series:
+            key, found = bounded_grouping_key(series.identity), series.result.breaches or []
+            if key not in breaches or (found and not breaches[key]):
+                breaches[key] = found
+        # One render serves every value that fires, because they all show the same insight.
+        chart = _chart(check, alert)
+        decision = replace(
+            decision,
+            verdicts=tuple(
+                replace(
+                    verdict,
+                    group=replace(
+                        verdict.group,
+                        source_detail=_detail(alert, breaches.get(verdict.group.grouping_key, []), chart),
+                    ),
+                )
+                if verdict.outcome.notification == NotificationAction.FIRE
+                else verdict
+                for verdict in decision.verdicts
+            ),
+        )
     return decision.as_outcome(
         configuration_id=check.id,
         evaluation_key=_evaluation_key(check, now),
@@ -642,6 +694,46 @@ def _decide_grouped(
         query_duration_ms=duration_ms,
         results_cut=evaluated.truncated,
     )
+
+
+def _firing_detail(
+    check: PlatformAlertCheckInput, alert: AlertConfiguration, breaches: Sequence[str]
+) -> dict[str, Any]:
+    """What production's `$insight_alert_firing` carries beside the verdict, which only the check can know."""
+    return _detail(alert, breaches, _chart(check, alert))
+
+
+def _chart(check: PlatformAlertCheckInput, alert: AlertConfiguration) -> RenderedInsightChart | None:
+    # A render takes up to a minute and a half, so only an alert the platform delivers for pays
+    # for one. Production renders no chart for a real-time alert either.
+    if check.owned_by_platform and alert.calculation_interval != AlertCalculationInterval.REAL_TIME:
+        return render_alert_insight_chart(alert)
+    return None
+
+
+def _context(alert: AlertConfiguration) -> dict[str, Any]:
+    """The insight a message names and links to, which every message about the alert carries."""
+    return {"insight_name": alert.insight.name, "insight_short_id": alert.insight.short_id}
+
+
+def _clipped(breach: str) -> str:
+    return breach if len(breach) <= MAX_BREACH_CHARS else breach[: MAX_BREACH_CHARS - 1] + "…"
+
+
+def _detail(alert: AlertConfiguration, breaches: Sequence[str], chart: RenderedInsightChart | None) -> dict[str, Any]:
+    # Bounded, because the outcome crosses into Temporal and a breach names user-written labels.
+    detail: dict[str, Any] = {
+        "breaches": [_clipped(breach) for breach in breaches[:MAX_DETAIL_BREACHES]],
+        **_context(alert),
+        # The legacy alert's id, which a native message's snooze menu snoozes.
+        "alert_id": str(alert.id),
+    }
+    if chart is not None:
+        # The ids rather than a URL, because the URL opens the chart without a login and history keeps
+        # this for its whole retention. A delivery mints the URL when it sends.
+        detail["insight_chart_asset_id"] = chart.asset_id
+        detail["insight_chart_render_user_id"] = chart.render_user_id
+    return detail
 
 
 def _verdict(
@@ -653,8 +745,17 @@ def _verdict(
     value: float | None = None,
     query_duration_ms: int | None = None,
     skip: SkipReason | None = None,
+    firing: tuple[AlertConfiguration, Sequence[str]] | None = None,
+    context: dict[str, Any] | None = None,
 ) -> PlatformAlertOutcome:
     outcome = evaluate_alert_check(snapshot, check_input, now, policy=INSIGHT_ALERT_POLICY)
+    source_detail: dict[str, Any] | None
+    if firing is not None and outcome.notification == NotificationAction.FIRE:
+        source_detail = _firing_detail(check, *firing)
+    elif outcome.notification != NotificationAction.NONE:
+        source_detail = context
+    else:
+        source_detail = None
     return _recorded(
         check,
         snapshot,
@@ -667,6 +768,7 @@ def _verdict(
         query_duration_ms=query_duration_ms,
         skip=skip,
         disable=outcome.disable,
+        source_detail=source_detail,
     )
 
 
@@ -708,6 +810,7 @@ def _recorded(
     query_duration_ms: int | None = None,
     skip: SkipReason | None = None,
     disable: bool = False,
+    source_detail: dict[str, Any] | None = None,
 ) -> PlatformAlertOutcome:
     """The one place an outcome is built. Every path goes through the firing decision, because
     an outcome without an episode clears the start of a firing the alert is still in."""
@@ -738,4 +841,5 @@ def _recorded(
         query_duration_ms=query_duration_ms,
         disable=disable,
         skipped=skipped,
+        source_detail=source_detail,
     )

@@ -98,6 +98,11 @@ class ReplayObservation(UUIDModel):
         default=dict,
         help_text="Result data persisted on success (model output, signals count); see `temporal.types.ScannerResult`.",
     )
+    watch_rank = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="What to watch ranking derived from the observation's embedding; see `watch_rank.WatchRank`.",
+    )
     created_task_id = models.UUIDField(
         null=True,
         blank=True,

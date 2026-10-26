@@ -44,7 +44,7 @@ import { TracingFilterBar } from './TracingFilterBar'
 import { TRACING_SCENE_VIEWER_ID, tracingFiltersLogic } from './tracingFiltersLogic'
 import { type TracingSceneTab, tracingSceneLogic } from './tracingSceneLogic'
 import { TracingSparkline } from './TracingSparkline'
-import { tracingViewerLogic } from './tracingViewerLogic'
+import { traceViewId, tracingViewerLogic } from './tracingViewerLogic'
 import type { Span, SpanInspectorTab } from './types'
 
 const TRACING_FEEDBACK_SURVEY_ID = '019e6a26-4943-0000-24a0-dc46310f6b7c'
@@ -91,7 +91,6 @@ function TracingSceneContents(): JSX.Element {
         spansError,
         isTraceOpen,
         selectedTraceId,
-        selectedSpanId,
         selectedTraceTs,
         sparklineData,
         sparklineLoading,
@@ -101,7 +100,8 @@ function TracingSceneContents(): JSX.Element {
         traceSessionId,
         sessionErrorBadgesEnabled,
         errorBadgeByRow,
-        inspectorTab,
+        inspectorOpen,
+        isFullscreen,
         errorsScope,
         isLoadingFullTrace,
         canLoadMoreTraceSpans,
@@ -135,7 +135,6 @@ function TracingSceneContents(): JSX.Element {
     const {
         openTrace,
         closeTrace,
-        selectSpan,
         setDateRange,
         updateComparisonWindows,
         openCompareFlame,
@@ -146,7 +145,8 @@ function TracingSceneContents(): JSX.Element {
         loadTraceSpans,
         loadMoreTraceSpans,
         setVisibleRowRange,
-        selectInspectorTab,
+        toggleInspector,
+        toggleFullscreen,
         setSort,
         setChartType,
         applyHeatmapBrush,
@@ -379,6 +379,7 @@ function TracingSceneContents(): JSX.Element {
             </div>
             {activeSceneTab === 'sql' && <TracingSqlEditor id={TRACING_SCENE_VIEWER_ID} />}
             <TraceDrawer
+                viewId={traceViewId(TRACING_SCENE_VIEWER_ID)}
                 isOpen={isTraceOpen}
                 traceId={selectedTraceId}
                 ts={selectedTraceTs}
@@ -386,9 +387,11 @@ function TracingSceneContents(): JSX.Element {
                 identity={traceIdentity}
                 sessionId={traceSessionId}
                 showErrorsTab={sessionErrorBadgesEnabled}
-                inspectorTab={inspectorTab}
                 errorsScope={errorsScope}
-                onSelectInspectorTab={selectInspectorTab}
+                inspectorOpen={inspectorOpen}
+                onToggleInspector={toggleInspector}
+                isFullscreen={isFullscreen}
+                onToggleFullscreen={toggleFullscreen}
                 loading={isLoadingFullTrace}
                 loadFailed={selectedTraceLoadFailed}
                 filtersActive={traceLoadFiltersActive}
@@ -400,8 +403,6 @@ function TracingSceneContents(): JSX.Element {
                 hasMoreSpans={canLoadMoreTraceSpans}
                 loadingMoreSpans={traceSpansLoadingMore}
                 onLoadMoreSpans={loadMoreTraceSpans}
-                selectedSpanId={selectedSpanId}
-                onSelectSpan={selectSpan}
                 onClose={closeTrace}
             />
             <LemonModal

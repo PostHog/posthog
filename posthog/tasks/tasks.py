@@ -13,7 +13,7 @@ from django.db.models import Model
 from django.utils import timezone
 
 import requests
-from celery import shared_task
+from celery import Task, shared_task
 from clickhouse_driver.errors import UnknownPacketFromServerError
 from prometheus_client import Counter, Gauge
 from redis import Redis
@@ -435,12 +435,12 @@ def _process_query_task_failure(
 
 
 @shared_task(
+    bind=True,
     ignore_result=True,
     queue=CeleryQueue.ANALYTICS_QUERIES.value,
     acks_late=True,
     autoretry_for=(
         # Important: Only retry for things that might be okay on the next try
-        ClickHouseAtCapacity,
         ConcurrencyLimitExceeded,
         QueryRanConcurrently,
     ),
@@ -455,10 +455,11 @@ def _process_query_task_failure(
 @limit_concurrency(150, limit_name="global")  # Do not go above what CH can handle (max_concurrent_queries)
 @limit_concurrency(
     10,
-    key=lambda *args, **kwargs: kwargs.get("team_id") or args[0],
+    key=lambda *args, **kwargs: kwargs.get("team_id") or args[1],
     limit_name="per_team",
 )  # Do not run too many queries at once for the same team
 def process_query_task(
+    self: Task,
     team_id: int,
     user_id: Optional[int],
     query_id: str,
@@ -482,16 +483,22 @@ def process_query_task(
     if is_query_service:
         tag_queries(chargeable=1)
 
-    execute_process_query(
-        team_id=team_id,
-        user_id=user_id,
-        query_id=query_id,
-        query_json=query_json,
-        limit_context=limit_context,
-        is_query_service=is_query_service,
-        analytics_props=analytics_props,
-        sharing_configuration_id=sharing_configuration_id,
-    )
+    try:
+        execute_process_query(
+            team_id=team_id,
+            user_id=user_id,
+            query_id=query_id,
+            query_json=query_json,
+            limit_context=limit_context,
+            is_query_service=is_query_service,
+            analytics_props=analytics_props,
+            sharing_configuration_id=sharing_configuration_id,
+        )
+    except ClickHouseAtCapacity as exc:
+        # A remote capacity failure can arrive after other shards have done expensive work.
+        if self.request.retries >= 4:
+            raise
+        raise self.retry(exc=exc, countdown=exc.wait)
 
 
 @shared_task(ignore_result=True)

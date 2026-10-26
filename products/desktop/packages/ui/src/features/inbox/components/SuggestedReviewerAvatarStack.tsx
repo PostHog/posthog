@@ -112,6 +112,8 @@ export function SuggestedReviewerAvatarStack({
     updateReviewers(
       {
         content: toSuggestedReviewerWriteContent(nextReviewers),
+        action: "remove",
+        targets: toSuggestedReviewerWriteContent([currentReviewer]),
         optimisticReviewers: nextReviewers,
       },
       {

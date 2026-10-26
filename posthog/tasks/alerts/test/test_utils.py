@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from functools import partial
 
 import pytest
 import time_machine
@@ -112,6 +113,7 @@ class TestAlertUtils:
         alert.team_id = 2
         alert.team.name = "test project"
         alert.detector_config = detector_config
+        alert.internal_event_properties.side_effect = partial(AlertConfiguration.internal_event_properties, alert)
 
         trigger_alert_hog_functions(alert, properties={"breaches": "test breach"})
 

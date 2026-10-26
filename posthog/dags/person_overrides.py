@@ -3,6 +3,8 @@ import datetime
 from dataclasses import dataclass
 from functools import partial
 
+from django.utils import timezone
+
 import dagster
 import pydantic
 from clickhouse_driver import Client
@@ -11,6 +13,7 @@ from posthog import settings
 from posthog.clickhouse.client.connection import ClickHouseUser, get_clickhouse_creds
 from posthog.clickhouse.cluster import ClickhouseCluster, MutationWaiter, wait_for_mutations_on_shards
 from posthog.dags.common import JobOwners
+from posthog.dags.common.deletion_run_log import record_run, record_run_failed, record_run_succeeded
 from posthog.dags.common.overrides_manager import OverridesSnapshotDictionary, OverridesSnapshotTable
 from posthog.dags.common.staged_dictionary import (
     StagedDictionary,
@@ -18,6 +21,7 @@ from posthog.dags.common.staged_dictionary import (
     load_and_verify_on_every_cluster,
 )
 from posthog.dataclasses import frozen
+from posthog.models.async_deletion import DeletionRunJob
 from posthog.models.deletion_targets import (
     SQUASH_TARGETS,
     TargetPlacement,
@@ -169,17 +173,22 @@ def create_snapshot_table(
     return table
 
 
+# Overrides newer than this may not have reached every host yet, so the squash leaves them for the next run.
+SQUASH_CUTOFF_MARGIN = datetime.timedelta(days=2)
+
+
 class PopulateSnapshotTableConfig(dagster.Config):
     """
     Configuration for creating and populating the initial snapshot table.
     """
 
-    timestamp: str = pydantic.Field(
+    timestamp: str | None = pydantic.Field(
         description="The upper bound (non-inclusive) timestamp used when selecting person overrides to be squashed. The "
         "value can be provided in any format that is can be parsed by ClickHouse. This value should be far enough in "
         "the past that there is no reasonable likelihood that events or overrides prior to this time have not yet been "
-        "written to the database and replicated to all hosts in the cluster.",
-        default=(datetime.datetime.now() - datetime.timedelta(days=2)).strftime("%Y-%m-%d %H:%M:%S"),
+        "written to the database and replicated to all hosts in the cluster. If not set, the run uses the time it "
+        "populates the snapshot minus two days.",
+        default=None,
     )
     limit: int | None = pydantic.Field(
         description="The number of rows to include in the snapshot. If provided, this can be used to limit the total "
@@ -187,15 +196,40 @@ class PopulateSnapshotTableConfig(dagster.Config):
         default=None,
     )
 
+    def cutoff(self) -> str:
+        # Computed per run: a default in the field would be fixed when the code server imports this module.
+        if self.timestamp:
+            return self.timestamp
+        return (timezone.now() - SQUASH_CUTOFF_MARGIN).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _parse_cutoff(timestamp: str) -> datetime.datetime | None:
+    # The config takes any format ClickHouse parses, so a value Python cannot read is logged as unknown.
+    try:
+        cutoff = datetime.datetime.fromisoformat(timestamp)
+    except ValueError:
+        return None
+    return cutoff if cutoff.tzinfo else cutoff.replace(tzinfo=datetime.UTC)
+
 
 @dagster.op
 def populate_snapshot_table(
+    context: dagster.OpExecutionContext,
     cluster: dagster.ResourceParam[ClickhouseCluster],
     table: PersonOverridesSnapshotTable,
     config: PopulateSnapshotTableConfig,
 ) -> PersonOverridesSnapshotTable:
     """Fill the snapshot data with the selected overrides based on the configuration timestamp."""
-    cluster.any_host(partial(table.populate, timestamp=config.timestamp, limit=config.limit)).result()
+    cutoff = config.cutoff()
+    context.log.info(f"Squashing person overrides with _timestamp before {cutoff}")
+    context.add_output_metadata({"cutoff": dagster.MetadataValue.text(cutoff)})
+    record_run(
+        context,
+        DeletionRunJob.SQUASH_PERSON_OVERRIDES,
+        squash_cutoff=_parse_cutoff(cutoff),
+        squash_limit=config.limit,
+    )
+    cluster.any_host(partial(table.populate, timestamp=cutoff, limit=config.limit)).result()
     return table
 
 
@@ -365,10 +399,28 @@ def cleanup_snapshot_resources(dictionary: PersonOverridesSnapshotDictionary) ->
     return drop_snapshot_table(drop_snapshot_dictionary(dictionary))
 
 
+@dagster.op(ins={"start_after": dagster.In(dagster.Nothing)})
+def record_squash_run_succeeded(context: dagster.OpExecutionContext) -> None:
+    record_run_succeeded(context, DeletionRunJob.SQUASH_PERSON_OVERRIDES)
+
+
+@dagster.failure_hook
+def record_squash_run_failure(context: dagster.HookContext) -> None:
+    record_run_failed(context, DeletionRunJob.SQUASH_PERSON_OVERRIDES)
+
+
 # Job Definition
 
 
-@dagster.job(tags={"owner": JobOwners.TEAM_CLICKHOUSE.value})
+@dagster.job(
+    tags={
+        "owner": JobOwners.TEAM_CLICKHOUSE.value,
+        # Shares the run-queue limit with deletes_job and monthly_old_events_cleanup_job, because
+        # all three mutate the events tables. A squash run then queues while either of them runs.
+        "deletes_job_concurrency": "v1",
+    },
+    hooks={record_squash_run_failure},
+)
 def squash_person_overrides():
     prepared_snapshot_table = wait_for_snapshot_table_replication(populate_snapshot_table(create_snapshot_table()))
     prepared_dictionary = load_and_verify_snapshot_dictionary(create_snapshot_dictionary(prepared_snapshot_table))
@@ -376,7 +428,8 @@ def squash_person_overrides():
     dictionary_after_override_delete_mutations = wait_for_overrides_delete_mutations(
         start_overrides_delete_mutations(dictionary_after_person_id_update_mutations)
     )
-    cleanup_snapshot_resources(dictionary_after_override_delete_mutations)
+    snapshot_table = drop_snapshot_dictionary(dictionary_after_override_delete_mutations)
+    record_squash_run_succeeded(start_after=drop_snapshot_table(snapshot_table))
 
 
 @dagster.job(tags={"owner": JobOwners.TEAM_CLICKHOUSE.value})
