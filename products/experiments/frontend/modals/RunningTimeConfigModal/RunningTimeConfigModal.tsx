@@ -1,9 +1,7 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCheck } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonInput, LemonModal, LemonSegmentedButton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonInput, LemonModal, LemonSegmentedButton, Spinner } from '@posthog/lemon-ui'
 
-import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { Label } from 'lib/ui/Label/Label'
 import { ManualCalculatorMetricType } from 'scenes/experiments/RunningTimeCalculator/calculations'
 import { runningTimeLogic } from 'scenes/experiments/RunningTimeCalculator/runningTimeLogic'
@@ -11,6 +9,9 @@ import { runningTimeLogic } from 'scenes/experiments/RunningTimeCalculator/runni
 import { Experiment } from '~/types'
 
 import { isLaunched } from 'products/experiments/frontend/experimentStatus'
+
+import { DetectableEffectTable } from './DetectableEffectTable'
+import { MinimumDetectableEffectField } from './MinimumDetectableEffectField'
 
 export interface RunningTimeConfigModalProps {
     experiment: Experiment
@@ -48,23 +49,34 @@ export function RunningTimeConfigModal({ experiment: experimentProp }: RunningTi
     const {
         config,
         manualFormPreview,
-        currentExposures,
-        targetSampleSize,
-        dailyExposureRate,
-        remainingDays,
         isRunningTimeConfigModalOpen,
         experiment,
         isSaving,
+        outlook,
+        isCalculating,
+        automaticTargetFailed,
+        automaticTargetRequest,
+        estimateMetric,
     } = useValues(runningTimeLogic({ experiment: experimentProp }))
-    const { setConfig, save, cancel } = useActions(runningTimeLogic({ experiment: experimentProp }))
+    const { setConfig, save, cancel, loadAutomaticTarget } = useActions(
+        runningTimeLogic({ experiment: experimentProp })
+    )
 
-    const hasAutomaticData = remainingDays !== null
     const isPreLaunch = !isLaunched(experiment)
+    const effectField = (
+        <MinimumDetectableEffectField
+            value={config.mde}
+            onChange={(mde) => setConfig({ mde })}
+            measuresRate={
+                config.mode === 'manual' ? config.metricType === 'funnel' : (estimateMetric?.measuresRate ?? true)
+            }
+        />
+    )
 
     return (
-        <LemonModal isOpen={isRunningTimeConfigModalOpen} onClose={cancel} width={480} simple>
+        <LemonModal isOpen={isRunningTimeConfigModalOpen} onClose={cancel} width={520} simple>
             <LemonModal.Header>
-                <h3>{isPreLaunch ? 'Estimate running time' : 'Running time configuration'}</h3>
+                <h3>{isPreLaunch ? 'Estimate running time' : 'Running time'}</h3>
             </LemonModal.Header>
             <LemonModal.Content className="flex-1 min-h-0">
                 <div className="space-y-6">
@@ -86,9 +98,21 @@ export function RunningTimeConfigModal({ experiment: experimentProp }: RunningTi
                             onChange={(value) => setConfig({ mode: value as 'automatic' | 'manual' })}
                         />
                         <div className="text-xs text-muted mt-1">
-                            {config.mode === 'manual'
-                                ? 'Enter your own values to calculate sample size and running time.'
-                                : 'Uses actual experiment data to calculate estimates.'}
+                            {config.mode === 'manual' ? (
+                                'Enter your own values to calculate sample size and running time.'
+                            ) : estimateMetric ? (
+                                <>
+                                    <span>Estimated only from </span>
+                                    <span className="font-semibold text-secondary">{estimateMetric.name}</span>
+                                    <span>
+                                        {`, the ${estimateMetric.isFirstOfSeveral ? 'first ' : ''}primary metric.${
+                                            estimateMetric.hasOtherMetrics ? ' Other metrics can need more time.' : ''
+                                        }`}
+                                    </span>
+                                </>
+                            ) : (
+                                'Estimated only from the primary metric.'
+                            )}
                         </div>
                     </div>
 
@@ -143,37 +167,7 @@ export function RunningTimeConfigModal({ experiment: experimentProp }: RunningTi
                                 <div className="text-xs text-muted mt-1">{getBaselineHelp(config.metricType)}</div>
                             </div>
 
-                            <div>
-                                <Label intent="menu">Minimum detectable effect</Label>
-                                <div className="flex items-center gap-3">
-                                    <div className="flex-[3]">
-                                        <LemonSlider
-                                            value={config.mde}
-                                            onChange={(value) => setConfig({ mde: Math.round(value * 10) / 10 })}
-                                            min={1}
-                                            max={100}
-                                            step={0.1}
-                                        />
-                                    </div>
-                                    <div className="flex-1 flex items-center gap-1">
-                                        <LemonInput
-                                            type="number"
-                                            value={config.mde}
-                                            onChange={(value) => setConfig({ mde: Number(value) || 1 })}
-                                            min={1}
-                                            max={100}
-                                            step={0.1}
-                                            className="flex-1"
-                                        />
-                                        <span className="text-muted">%</span>
-                                    </div>
-                                </div>
-                                <div className="text-xs text-muted mt-1">
-                                    The smallest delta (change) you want to be able to measure with statistical
-                                    significance. Changing this setting does not impact the statistical analysis, only
-                                    the estimated runtime. Lower values require more data and longer run times.
-                                </div>
-                            </div>
+                            {effectField}
 
                             <div>
                                 <Label intent="menu">Expected exposures per day</Label>
@@ -192,75 +186,35 @@ export function RunningTimeConfigModal({ experiment: experimentProp }: RunningTi
                         </>
                     ) : (
                         <>
-                            {!hasAutomaticData ? (
+                            {effectField}
+                            {!outlook && isCalculating ? (
+                                <div className="flex items-center gap-2 text-secondary">
+                                    <Spinner />
+                                    <span>Calculating the running time…</span>
+                                </div>
+                            ) : automaticTargetFailed ? (
+                                <LemonBanner
+                                    type="error"
+                                    action={
+                                        automaticTargetRequest
+                                            ? {
+                                                  children: 'Try again',
+                                                  onClick: () => loadAutomaticTarget(automaticTargetRequest),
+                                              }
+                                            : undefined
+                                    }
+                                >
+                                    Couldn't calculate the running time.
+                                </LemonBanner>
+                            ) : !outlook ? (
                                 <LemonBanner type="info">
-                                    Waiting for sufficient data to calculate time estimates. Need at least 1 day and 100
-                                    exposures.
+                                    {automaticTargetRequest
+                                        ? "The primary metric's results can't size a running time yet. The estimate updates with the next results."
+                                        : 'Not enough data to estimate the running time yet. The estimate appears once the primary metric has results.'}
                                 </LemonBanner>
                             ) : (
-                                <>
-                                    <div>
-                                        <Label intent="menu">Remaining time</Label>
-                                        <div className="metric-cell">
-                                            {remainingDays === 0 ? (
-                                                <span className="inline-flex items-center gap-1">
-                                                    <IconCheck className="text-success" />
-                                                    Complete
-                                                </span>
-                                            ) : (
-                                                `~${Math.ceil(remainingDays)} day${Math.ceil(remainingDays) !== 1 ? 's' : ''}`
-                                            )}
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <Label intent="menu">Progress</Label>
-                                        <div className="metric-cell">
-                                            {currentExposures !== null && targetSampleSize !== null
-                                                ? `${currentExposures.toLocaleString()} / ${targetSampleSize.toLocaleString()} exposures`
-                                                : '—'}
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <Label intent="menu">Rate</Label>
-                                        <div className="metric-cell">
-                                            {dailyExposureRate !== null
-                                                ? `~${Math.round(dailyExposureRate).toLocaleString()} exposures/day`
-                                                : '—'}
-                                        </div>
-                                    </div>
-                                </>
+                                <DetectableEffectTable experiment={experimentProp} />
                             )}
-                            <div>
-                                <Label intent="menu">Minimum detectable effect</Label>
-                                <div className="flex items-center gap-3">
-                                    <div className="flex-[3]">
-                                        <LemonSlider
-                                            value={config.mde}
-                                            onChange={(value) => setConfig({ mde: Math.round(value * 10) / 10 })}
-                                            min={1}
-                                            max={100}
-                                            step={0.1}
-                                        />
-                                    </div>
-                                    <div className="flex-1 flex items-center gap-1">
-                                        <LemonInput
-                                            type="number"
-                                            value={config.mde}
-                                            onChange={(value) => setConfig({ mde: Number(value) || 1 })}
-                                            min={1}
-                                            max={100}
-                                            step={0.1}
-                                            className="flex-1"
-                                        />
-                                        <span className="text-muted">%</span>
-                                    </div>
-                                </div>
-                                <div className="text-xs text-muted mt-1">
-                                    The smallest delta (change) you want to be able to measure with statistical
-                                    significance. Changing this setting does not impact the statistical analysis, only
-                                    the estimated runtime. Lower values require more data and longer run times.
-                                </div>
-                            </div>
                         </>
                     )}
                 </div>
