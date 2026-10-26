@@ -170,7 +170,10 @@ def prune_holds(now: datetime, *, limit: int) -> int:
         .filter(held_at__lt=now - HOLD_RETENTION)
         .values_list("id", flat=True)[:limit]
     )
-    return PlatformAlertDeliveryHold.objects.unscoped().filter(id__in=stale).delete()[0] if stale else 0
+    if not stale:
+        return 0
+    # nosemgrep: idor-lookup-without-team — fleet-wide retention prune by age; no request or team input reaches it
+    return PlatformAlertDeliveryHold.objects.unscoped().filter(id__in=stale).delete()[0]
 
 
 def holds_to_send(now: datetime, *, limit: int) -> HoldSweep:
