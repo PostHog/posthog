@@ -215,7 +215,7 @@ def _require_install_state_from_this_browser(request: Request, state: str) -> No
 
 
 def _require_same_vercel_user(continuation: dict, install_grant: OAuthTokenResponse) -> None:
-    if secrets.compare_digest(str(continuation.get("user_id", "")).encode(), install_grant.user_id.encode()):
+    if secrets.compare_digest(continuation["user_id"].encode(), install_grant.user_id.encode()):
         return
 
     capture_exception(
