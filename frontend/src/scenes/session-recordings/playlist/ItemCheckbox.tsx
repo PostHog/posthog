@@ -10,18 +10,19 @@ export function ItemCheckbox({ recording }: { recording: SessionRecordingType })
     const { selectedRecordingsIds } = useValues(sessionRecordingsPlaylistLogic)
     const { setSelectedRecordingsIds } = useActions(sessionRecordingsPlaylistLogic)
 
+    const checked = selectedRecordingsIds.some((s) => s === recording.id)
     return (
         <LemonCheckbox
-            checked={selectedRecordingsIds.some((s) => s === recording.id)}
+            checked={checked}
             data-attr="select-recording"
             aria-label="Select recording"
             disabledReason={
-                selectedRecordingsIds.length >= MAX_SELECTED_RECORDINGS
+                !checked && selectedRecordingsIds.length >= MAX_SELECTED_RECORDINGS
                     ? `Cannot select more than ${MAX_SELECTED_RECORDINGS} recordings at once`
                     : undefined
             }
             onChange={() => {
-                if (selectedRecordingsIds.some((r) => r === recording.id)) {
+                if (checked) {
                     setSelectedRecordingsIds(selectedRecordingsIds.filter((r) => r !== recording.id))
                 } else {
                     setSelectedRecordingsIds([...selectedRecordingsIds, recording.id])

@@ -39,7 +39,8 @@ export function MomentTicker({ sessionId }: { sessionId: string }): JSX.Element 
                     className="max-w-full"
                 >
                     <span className="truncate">
-                        <span className="text-secondary tabular-nums">{formatMs(current.atMs)}</span> {current.label}
+                        <span className="text-secondary tabular-nums">{formatMs(current.atMs)}</span>{' '}
+                        <span>{current.label}</span>
                     </span>
                 </LemonButton>
             )}
@@ -53,7 +54,8 @@ export function MomentTicker({ sessionId }: { sessionId: string }): JSX.Element 
                 >
                     <span className="truncate">
                         <span className="text-secondary">next</span>{' '}
-                        <span className="text-secondary tabular-nums">{formatMs(next.atMs)}</span> {next.label}
+                        <span className="text-secondary tabular-nums">{formatMs(next.atMs)}</span>{' '}
+                        <span>{next.label}</span>
                     </span>
                 </LemonButton>
             )}
@@ -67,7 +69,7 @@ export function MomentTicker({ sessionId }: { sessionId: string }): JSX.Element 
                 }
                 data-attr="moment-ticker-open-moments"
             >
-                {momentCount(timeline)} moments
+                <span>{momentCount(timeline)}</span> moments
             </LemonButton>
         </div>
     )

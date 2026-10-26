@@ -4,6 +4,7 @@ import { router } from 'kea-router'
 
 import api from 'lib/api'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
+import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { objectClean } from 'lib/utils/objects'
 import { toParams } from 'lib/utils/url'
@@ -19,7 +20,7 @@ import {
 
 import { playlistFiltersLogic } from '../playlist/playlistFiltersLogic'
 import { deletePlaylist, stripSessionIds } from '../playlist/playlistUtils'
-import { asUniversalFilters } from '../playlist/sessionRecordingsPlaylistLogic'
+import { DEFAULT_RECORDING_FILTERS, asUniversalFilters } from '../playlist/sessionRecordingsPlaylistLogic'
 
 export const PLAYLISTS_PER_PAGE = 30
 
@@ -207,6 +208,7 @@ export const sessionRecordingSavedFiltersLogic = kea<sessionRecordingSavedFilter
         ],
         appliedSavedFilter: [
             null as SessionRecordingPlaylistType | null,
+            { persist: true, prefix: `${getCurrentTeamId()}__` },
             {
                 setAppliedSavedFilter: (_, { appliedSavedFilter }) => appliedSavedFilter,
             },
@@ -272,6 +274,9 @@ export const sessionRecordingSavedFiltersLogic = kea<sessionRecordingSavedFilter
                 return { ...values.playlists, results: [...values.playlists.results] }
             },
             deletePlaylist: async ({ playlist }) => {
+                if (values.appliedSavedFilter?.short_id === playlist.short_id) {
+                    actions.setAppliedSavedFilter(null)
+                }
                 await deletePlaylist(playlist, () => actions.loadSavedFilters())
                 values.playlists.results = values.playlists.results.filter((x) => x.short_id !== playlist.short_id)
                 actions.loadSavedFilters()
@@ -283,6 +288,13 @@ export const sessionRecordingSavedFiltersLogic = kea<sessionRecordingSavedFilter
         setIsFiltersExpanded: ({ isFiltersExpanded }) => {
             if (isFiltersExpanded) {
                 actions.loadSavedFiltersIfNeeded()
+            }
+        },
+        loadSavedFiltersSuccess: ({ savedFilters }) => {
+            const applied = values.appliedSavedFilter
+            const fresh = applied && savedFilters.results.find((f) => f.short_id === applied.short_id)
+            if (fresh && fresh !== applied) {
+                actions.setAppliedSavedFilter(fresh)
             }
         },
         loadSavedFiltersIfNeeded: () => {
@@ -316,7 +328,8 @@ export const sessionRecordingSavedFiltersLogic = kea<sessionRecordingSavedFilter
             (s) => [s.appliedSavedFilter],
             (appliedSavedFilter: SessionRecordingPlaylistType | null): RecordingUniversalFilters | null => {
                 const universal = appliedSavedFilter ? asUniversalFilters(appliedSavedFilter.filters) : undefined
-                return universal ? stripSessionIds(universal) : null
+                // Older saved filters lack newer keys.
+                return universal ? stripSessionIds({ ...DEFAULT_RECORDING_FILTERS, ...universal }) : null
             },
         ],
         paginationSavedFilters: [

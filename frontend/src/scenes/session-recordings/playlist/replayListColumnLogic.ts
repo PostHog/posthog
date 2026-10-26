@@ -6,6 +6,7 @@ import { playerSidebarLogic } from 'scenes/session-recordings/player/sidebar/pla
 import { SessionRecordingSidebarTab } from '~/types'
 
 export type ReplayListSegment = 'picks' | 'recordings' | 'moments'
+export type ReplayListSegmentSource = 'user' | 'observations'
 
 export interface ReplayListColumnLogicProps {
     logicKey: string
@@ -22,8 +23,15 @@ export interface replayListColumnLogicActions {
     setSidebarTab: (tab: SessionRecordingSidebarTab) => {
         tab: SessionRecordingSidebarTab
     } // playerSidebarLogic
-    setSegment: (segment: ReplayListSegment) => {
+    dropSegmentChoice: () => {
+        value: true
+    }
+    setSegment: (
+        segment: ReplayListSegment,
+        source?: ReplayListSegmentSource
+    ) => {
         segment: ReplayListSegment
+        source: ReplayListSegmentSource
     }
 }
 
@@ -52,11 +60,16 @@ export const replayListColumnLogic = kea<replayListColumnLogicType>([
         actions: [playerSidebarLogic, ['setTab as setSidebarTab']],
     })),
     actions({
-        setSegment: (segment: ReplayListSegment) => ({ segment }),
+        setSegment: (segment: ReplayListSegment, source: ReplayListSegmentSource = 'user') => ({ segment, source }),
+        // Or the choice resurfaces on a later recording.
+        dropSegmentChoice: true,
     }),
     reducers({
         // Null until the viewer picks one, so the picks logic keeps deciding where a fresh page lands.
-        segment: [null as ReplayListSegment | null, { setSegment: (_, { segment }) => segment }],
+        segment: [
+            null as ReplayListSegment | null,
+            { setSegment: (_, { segment }) => segment, dropSegmentChoice: () => null },
+        ],
     }),
     selectors({
         effectiveSegmentFor: [
@@ -75,13 +88,13 @@ export const replayListColumnLogic = kea<replayListColumnLogicType>([
         ],
     }),
     listeners(({ actions }) => ({
-        setSegment: ({ segment }) => {
-            posthog.capture('session recording list segment changed', { segment })
+        setSegment: ({ segment, source }) => {
+            posthog.capture('session recording list segment changed', { segment, source })
         },
         // Summarize and View details still ask for the Observations tab. In this layout that content is the Moments segment.
         setSidebarTab: ({ tab }) => {
             if (tab === SessionRecordingSidebarTab.OBSERVATIONS) {
-                actions.setSegment('moments')
+                actions.setSegment('moments', 'observations')
             }
         },
     })),

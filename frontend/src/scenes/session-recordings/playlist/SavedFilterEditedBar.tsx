@@ -9,6 +9,7 @@ import { RecordingUniversalFilters } from '~/types'
 
 import { updatePlaylist } from './playlistUtils'
 import { stripSessionIds } from './playlistUtils'
+import { sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
 
 export function SavedFilterEditedBar({
     filters,
@@ -21,6 +22,7 @@ export function SavedFilterEditedBar({
 }): JSX.Element | null {
     const { appliedSavedFilter, appliedSavedFilterFilters } = useValues(sessionRecordingSavedFiltersLogic)
     const { loadSavedFilters, setAppliedSavedFilter } = useActions(sessionRecordingSavedFiltersLogic)
+    const { resetFilters } = useActions(sessionRecordingsPlaylistLogic)
     const [updating, setUpdating] = useState(false)
     if (!appliedSavedFilter) {
         return null
@@ -67,6 +69,8 @@ export function SavedFilterEditedBar({
                 size="xsmall"
                 onClick={() => {
                     if (appliedSavedFilterFilters) {
+                        // setFilters merges.
+                        resetFilters()
                         setFilters(appliedSavedFilterFilters)
                     }
                 }}

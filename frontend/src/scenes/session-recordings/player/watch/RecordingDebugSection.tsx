@@ -10,22 +10,20 @@ import { playerSidebarLogic } from 'scenes/session-recordings/player/sidebar/pla
 
 import { SessionRecordingSidebarTab } from '~/types'
 
-import { DebugTabBar } from './DebugTabBar'
-
-const DEBUG_TABS = [SessionRecordingSidebarTab.INSPECTOR, SessionRecordingSidebarTab.NETWORK_WATERFALL]
+import { DEBUG_TAB_KEYS, DebugTabBar } from './DebugTabBar'
 
 export function RecordingDebugSection(): JSX.Element {
     const { activeTab } = useValues(playerSidebarLogic)
     const { setTab } = useActions(playerSidebarLogic)
     const { setWatchDebugDock } = useActions(playerSettingsLogic)
-    const tab = DEBUG_TABS.includes(activeTab) ? activeTab : SessionRecordingSidebarTab.INSPECTOR
+    const tab = DEBUG_TAB_KEYS.includes(activeTab) ? activeTab : SessionRecordingSidebarTab.INSPECTOR
 
     return (
         <div
             className="flex flex-col border rounded bg-surface-primary overflow-hidden h-[60vh] min-h-96"
             data-attr="watch-panel-debug"
         >
-            <DebugTabBar tabs={DEBUG_TABS} activeTab={tab} onChange={setTab}>
+            <DebugTabBar tabs={DEBUG_TAB_KEYS} activeTab={tab} onChange={setTab}>
                 <LemonButton
                     size="small"
                     icon={<IconSidePanel />}

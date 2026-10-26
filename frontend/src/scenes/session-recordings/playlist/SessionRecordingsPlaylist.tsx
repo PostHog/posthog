@@ -52,12 +52,14 @@ export function SessionRecordingsPlaylist({
         onlyPinned: props.type === 'collection',
     }
     const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
+    const { canOverrideLayout, staffLayoutOverride } = useValues(playerSettingsLogic)
+    const layoutOverridden = canOverrideLayout && !!staffLayoutOverride
     useEffect(() => {
-        // Players read the layout silently. Opening the Replay page is the exposure.
-        if (watchLayout && receivedFeatureFlags) {
+        // Opening the Replay page is the exposure. An override is not the flag's arm.
+        if (watchLayout && receivedFeatureFlags && !layoutOverridden) {
             reportFeatureFlagExposure(featureFlags, FEATURE_FLAGS.REPLAY_WATCH_LAYOUT)
         }
-    }, [watchLayout, receivedFeatureFlags, featureFlags])
+    }, [watchLayout, receivedFeatureFlags, featureFlags, layoutOverridden])
 
     const { sidePanelWidth } = useValues(panelLayoutLogic)
     const { isWindowLessThan } = useWindowSize({ widthOffset: sidePanelWidth })

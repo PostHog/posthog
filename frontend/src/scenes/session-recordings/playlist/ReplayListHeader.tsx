@@ -47,8 +47,8 @@ export function ReplayListHeader({
     }, [selectMode, setSelectMode])
 
     const recordings = type === 'filters' ? otherRecordings.filter((r) => !r.ongoing) : visiblePinnedRecordings
-    const hasOngoing = recordings.length < otherRecordings.length
-    const allSelected = recordings.length > 0 && selectedRecordingsIds.length === recordings.length
+    const hasOngoing = type === 'filters' && recordings.length < otherRecordings.length
+    const allSelected = recordings.length > 0 && recordings.every((r) => selectedRecordingsIds.includes(r.id))
     const selectAllDisabledReason =
         recordings.length === 0
             ? 'No recordings'

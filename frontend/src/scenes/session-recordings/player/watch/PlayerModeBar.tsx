@@ -28,6 +28,8 @@ import { playerSidebarLogic } from 'scenes/session-recordings/player/sidebar/pla
 
 import { SessionRecordingSidebarTab } from '~/types'
 
+import { DEBUG_TAB_KEYS } from './DebugTabBar'
+
 type PlayerMode = 'watch' | 'debug'
 
 export function PlayerModeBar(): JSX.Element {
@@ -36,6 +38,7 @@ export function PlayerModeBar(): JSX.Element {
     const { setTrackedWindow } = useActions(playerMetaLogic(logicProps))
     const { debugMode } = useValues(playerSettingsLogic)
     const { setDebugMode } = useActions(playerSettingsLogic)
+    const { activeTab } = useValues(playerSidebarLogic)
     const { setTab } = useActions(playerSidebarLogic)
     const chromeItems = usePlayerChromeMenuItems()
     const { ref, size } = useResizeBreakpoints({ 0: 'small', 600: 'normal' })
@@ -44,7 +47,7 @@ export function PlayerModeBar(): JSX.Element {
     const setMode = (next: PlayerMode): void => {
         posthog.capture('session recording mode changed', { mode: next })
         setDebugMode(next === 'debug')
-        if (next === 'debug') {
+        if (next === 'debug' && !DEBUG_TAB_KEYS.includes(activeTab)) {
             setTab(SessionRecordingSidebarTab.INSPECTOR)
         }
     }

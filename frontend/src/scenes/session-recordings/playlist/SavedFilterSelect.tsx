@@ -39,6 +39,8 @@ export function SavedFilterSelect({
         if (!universal) {
             return
         }
+        // setFilters merges.
+        resetFilters()
         setFilters(stripSessionIds(universal))
         setAppliedSavedFilter(filter)
     }

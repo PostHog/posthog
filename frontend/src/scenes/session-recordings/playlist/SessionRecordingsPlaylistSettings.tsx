@@ -560,7 +560,7 @@ export function SessionRecordingsPlaylistTopSettings({
     } = useActions(sessionRecordingsPlaylistLogic)
 
     const recordings = type === 'filters' ? otherRecordings : pinnedRecordings
-    const checked = recordings.length > 0 && selectedRecordingsIds.length === recordings.length
+    const checked = recordings.length > 0 && recordings.every((r) => selectedRecordingsIds.includes(r.id))
 
     const accessControlDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.SessionRecording,

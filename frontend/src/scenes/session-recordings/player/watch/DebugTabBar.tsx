@@ -7,6 +7,8 @@ import { PaneTabBar } from 'scenes/session-recordings/components/PaneTabBar'
 
 import { SessionRecordingSidebarTab } from '~/types'
 
+export const DEBUG_TAB_KEYS = [SessionRecordingSidebarTab.INSPECTOR, SessionRecordingSidebarTab.NETWORK_WATERFALL]
+
 const DEBUG_TABS: Partial<Record<SessionRecordingSidebarTab, { label: string; icon: ReactNode; dataAttr: string }>> = {
     [SessionRecordingSidebarTab.INSPECTOR]: {
         label: 'Inspector',

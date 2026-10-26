@@ -10,7 +10,7 @@ import { playerUsesWatchLayout } from 'scenes/session-recordings/playlist/replay
 import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { SessionRecordingSidebarStacking, SessionRecordingSidebarTab } from '~/types'
+import { SessionRecordingSidebarStacking } from '~/types'
 
 import { SummarizeRecordingBar } from 'products/replay_vision/frontend/components/SummarizeRecordingBar'
 import { visionSurfaceShown } from 'products/replay_vision/frontend/utils/visionSurface'
@@ -24,6 +24,7 @@ import {
     SessionRecordingPlayerMode,
     sessionRecordingPlayerLogic,
 } from './sessionRecordingPlayerLogic'
+import { DEBUG_TAB_KEYS } from './watch/DebugTabBar'
 import { WatchPanel } from './watch/WatchPanel'
 
 export { createPlaybackSpeedKey } from './PurePlayer'
@@ -136,7 +137,7 @@ function SessionRecordingPlayerInternal({
                 </div>
                 {rightDock && (
                     <PlayerSidebar
-                        tabs={[SessionRecordingSidebarTab.INSPECTOR, SessionRecordingSidebarTab.NETWORK_WATERFALL]}
+                        tabs={DEBUG_TAB_KEYS}
                         stacking={SessionRecordingSidebarStacking.Horizontal}
                         onToggleStacking={() => setWatchDebugDock('bottom')}
                     />

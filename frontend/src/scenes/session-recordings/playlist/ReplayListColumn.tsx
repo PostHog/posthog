@@ -1,5 +1,5 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { ReactNode } from 'react'
+import { ReactNode, useEffect } from 'react'
 
 import { IconSparkles } from '@posthog/icons'
 import { LemonBadge, LemonSegmentedButton, Spinner } from '@posthog/lemon-ui'
@@ -66,13 +66,18 @@ function ReplayListColumnView({
     momentsAvailable,
 }: ReplayListColumnProps & { recording: SessionRecordingType | null; momentsAvailable: boolean }): JSX.Element {
     const logic = replayListColumnLogic({ logicKey })
-    const { effectiveSegmentFor } = useValues(logic)
-    const { setSegment } = useActions(logic)
+    const { effectiveSegmentFor, segment: chosenSegment } = useValues(logic)
+    const { setSegment, dropSegmentChoice } = useActions(logic)
 
     const playerLogicProps: SessionRecordingPlayerLogicProps | null = recording
-        ? { playerKey: logicKey, sessionRecordingId: recording.id }
+        ? { playerKey: logicKey, sessionRecordingId: recording.id, watchLayout: true }
         : null
     const segment = effectiveSegmentFor(picksMode, momentsAvailable)
+    useEffect(() => {
+        if (chosenSegment && chosenSegment !== segment) {
+            dropSegmentChoice()
+        }
+    }, [chosenSegment, segment, dropSegmentChoice])
 
     const options = [
         ...(picksList
