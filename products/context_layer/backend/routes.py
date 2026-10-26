@@ -1,9 +1,11 @@
 from posthog.api.routing import RouterRegistry
 
+from products.context_layer.backend.presentation.selection import ContextSelectionViewSet
 from products.context_layer.backend.presentation.views import ContextLayerAgentViewSet, ContextLayerViewSet
 
 
 def register_routes(routers: RouterRegistry) -> None:
+    routers.projects.register(r"context_layer/selection", ContextSelectionViewSet, "context_selection", ["team_id"])
     routers.organizations.register(
         r"context_layer", ContextLayerViewSet, "organization_context_layer", ["organization_id"]
     )

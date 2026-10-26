@@ -50,10 +50,16 @@ print(url)  # https://pen-….boxes.hogland.prod-us.posthog.dev/  (stable across
 5. **Sync HogFunction templates** - start the CDP service and load destination
    templates into the restored database before the preview becomes available.
 6. **Sync feature flags** - run `sync_feature_flags` so each flag in the PR's `constants.tsx` that the golden lacks exists and is on.
+   Then `warm_team_metadata_cache` and `warm_flags_cache` fill the flags Redis (`redis7` database 1), which `feature-flags` reads. Django and `feature-flags` share `FLAGS_REDIS_URL`, and `feature-flags` uses the stack's object storage for cache misses.
+   A celery `worker` runs in the preview, without the scheduler, so tasks such as the flag cache refresh that a flag save queues actually run.
 7. **Serve + report** — the box is HTTP-exposed; the URL is posted to the PR.
    A Caddy container (`static-proxy`) takes the exposed port.
    It serves `/static/*` from `staticfiles/` and sends all other requests to web, so asset requests do not use Django threads.
    A non-frontend PR copies `staticfiles/` out of the image. A file that is not there falls through to Django.
+8. **Self-telemetry** - the preview sends its own data to its demo project, so its product pages show real data from the preview itself.
+   Analytics: web runs with `SELF_CAPTURE=1`. posthog-js sends to the preview's own origin, the backend sends to `static-proxy`, and Caddy routes capture and flag paths to `capture` and `feature-flags`. `ingestion-general` writes the events to ClickHouse.
+   Logs, traces and metrics: web, the temporal worker and the Node services export OTLP to `otel-collector`. The collector also reads every container's log file. It sends everything to `capture-logs` with the demo project's token, and `ingestion-logs`, `ingestion-traces` and `ingestion-metrics` write it to ClickHouse.
+   The collector skips the telemetry pipeline's own containers, so their logs do not feed back into themselves.
 
 Driven entirely by the **`posthog-hogland` Python SDK** over hogplane's HTTP API
 — **keyless** (GitHub OIDC → hogplane token over the tailnet), no `hogland` CLI
@@ -76,52 +82,10 @@ placement holds its name for up to an hour), so any reused box name would make
 a placement retry 409 against its own corpse. Leftover boxes are reaped after
 the new box comes up and on teardown.
 
-## Auto-previews & opt-out
+## Running a preview
 
-Frontend PRs get a preview **automatically** — no label needed. A cheap,
-credential-free `decide` job in `hogbox-preview-env.yml` gates every PR event and
-builds a preview when **all** hold:
-
-- the PR is **same-repo** (fork PRs never get one — they'd run fork code with the
-  hogland token in scope),
-- the author is a **human** (bots — `user.type == 'Bot'`, `…[bot]`, and the usual
-  suspects like dependabot/renovate — are skipped),
-- it does **not** carry the **`no-preview`** opt-out label, and
-- it either carries the **`hogbox-preview`** label (manual opt-in, works for **any**
-  paths and on a **draft**) **or** it is **ready** (not draft) and its diff touches
-  the frontend (`frontend/**`, `products/*/frontend/**`, `common/esbuilder/**`).
-
-A draft only previews through the label, so drafts still cost nothing by default.
-Label a draft and it builds right away, then rebuilds on every push like any other
-preview; flipping that draft to ready skips the rebuild, because the box is already
-serving that commit. An unlabeled draft builds on the draft→ready flip as before.
-
-Two labels, two escape hatches: **`hogbox-preview`** forces a preview on a PR that
-wouldn't auto-qualify (a backend-only change you want to click through, or work
-you're still self-reviewing in draft); **`no-preview`** suppresses one on a PR that
-would (and tears down a live one).
-
-Why a `decide` job and not an `on.pull_request.paths` filter: a path filter would
-kill the label-only path for backend PRs, so the trigger stays broad and
-eligibility is decided in a job step. Rapid pushes coalesce via a per-PR
-`concurrency` group on the build job (cancel-in-progress) — a busy PR (p90 ~17
-pushes) rebuilds once for the latest commit, not 17 times. The group is job-level
-and keyed on PR number only, so an unrelated label removal can't cancel an active
-build.
-
-## Reporting & lifecycle
-
-- **PR comment** — a `Hogbox preview` section in the shared `🤖 CI report` comment
-  (`.github/scripts/post-hogbox-preview-section.mjs`), staged
-  building → ready → failed → torn down, with the URL, login, and what's running.
-- **GitHub Deployment** — a `preview-pr-<n>` environment (in_progress → success
-  /failure + URL), so the preview shows in the PR's Deployments UI.
-- **Teardown** — on PR close (`pr-closed.yml`) + on the fast path in
-  `hogbox-preview-env.yml`: removing `hogbox-preview` **or** adding `no-preview`
-  destroys box + pen. A daily stale-sweep (`cleanup-stale`) in
-  `hogbox-preview-cleanup.yml` reaps previews whose PR closed but slipped
-  through — its own workflow because the OIDC mint needs `id-token: write`, which
-  can't live in the reusable `pr-cleanup.yml`.
+No CI workflow builds previews.
+Run the tool by hand against a hogland cluster (see [CLI](#cli)), and destroy the box when you are done.
 
 ## Hibernation & wake (why autos are affordable)
 

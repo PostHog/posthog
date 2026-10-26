@@ -9,6 +9,7 @@ import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import { captureScoutAction } from '../../../inboxAnalytics'
+import { scoutDetailLogic } from '../../../logics/scoutDetailLogic'
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
 import { SignalScoutRunSummary } from '../../../types'
 import {
@@ -426,7 +427,7 @@ export function ScoutRunHistorySection({
     skillName: string
     filter: ScoutRunFilter
 }): JSX.Element {
-    const { scoutRunsLoadedOnce, scoutRunsCoverFleet } = useValues(scoutFleetLogic)
+    const { scoutRunsLoadedOnce, scoutRunsCoverScout } = useValues(scoutDetailLogic({ skillName }))
     const runs = useScoutRuns(skillName)
 
     const filteredRuns = useMemo(() => runs.filter((run) => runMatchesFilter(run, filter)), [runs, filter])
@@ -436,7 +437,7 @@ export function ScoutRunHistorySection({
         [filteredRuns, filter]
     )
 
-    // Hold the skeleton until the fleet's per-scout runs have settled once — otherwise a fresh
+    // Hold the skeleton until this scout's runs have settled once — otherwise a fresh
     // deep-link flashes the empty state before we know this scout's runs.
     if (!scoutRunsLoadedOnce) {
         return <LemonSkeleton className="h-12 w-full rounded" />
@@ -450,7 +451,7 @@ export function ScoutRunHistorySection({
                     : // Past the fleet the per-scout response covers, this scout was never read, so
                       // reporting it as a scout with no recent runs would hide history rather than
                       // report it.
-                      scoutRunsCoverFleet
+                      scoutRunsCoverScout
                       ? SCOUT_NO_RECENT_RUNS
                       : SCOUT_RUN_HISTORY_UNAVAILABLE}
             </div>

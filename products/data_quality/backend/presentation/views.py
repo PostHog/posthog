@@ -9,6 +9,7 @@ check -- every trigger hands off to Temporal and returns a suite-run handle to p
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
+from enum import StrEnum
 from functools import cached_property
 from typing import TYPE_CHECKING, Any, ClassVar, cast
 from uuid import UUID
@@ -28,13 +29,13 @@ from rest_framework.views import APIView
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
+from posthog.event_usage import report_user_action
 from posthog.models import Team, User
 from posthog.permissions import APIScopePermission, TeamMemberAccessPermission, get_authenticator_scopes
 from posthog.rate_limit import HogQLQueryThrottle
 
 from ..facade import api
 from ..facade.enums import CheckRunStatus, CheckType, SubjectStatus, SubjectType
-from ..facade.flags import is_data_quality_checks_enabled
 from ..facade.models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
 from .serializers import (
     CheckTypeSerializer,
@@ -61,6 +62,23 @@ _SUBJECT_TYPE_VALUES = frozenset(kind.value for kind in SubjectType)
 
 if TYPE_CHECKING:
     from rest_framework.permissions import _SupportsHasPermission
+
+
+class _CheckEvent(StrEnum):
+    CREATED = "data quality check created"
+    UPDATED = "data quality check updated"
+    DELETED = "data quality check deleted"
+    RUN = "data quality checks run"
+
+
+class _RunScope(StrEnum):
+    CHECK = "check"
+    SUBJECT = "subject"
+    PROJECT = "project"
+
+
+def _event_properties(check: DataQualityCheck) -> dict[str, Any]:
+    return {"check_type": check.check_type, "subject_type": check.subject_type}
 
 
 class _DataQualitySubjectPermission(BasePermission):
@@ -120,7 +138,6 @@ class _QualityGatedViewSet(TeamAndOrgViewSetMixin):
 
     def initial(self, request: Request, *args, **kwargs) -> None:
         super().initial(request, *args, **kwargs)
-        self._require_flag()
         if getattr(self, "action", None) in self.QUERY_GATED_ACTIONS:
             self._require_query_access()
 
@@ -132,10 +149,6 @@ class _QualityGatedViewSet(TeamAndOrgViewSetMixin):
         # keep demanding access_control:read rather than riding the warehouse scope alone.
         parent = getattr(super(), "dangerously_get_required_scopes", None)
         return parent(request, view) if parent is not None else None
-
-    def _require_flag(self) -> None:
-        if not is_data_quality_checks_enabled(self.team):
-            raise PermissionDenied("Data quality checks are not enabled for this project.")
 
     def _require_query_access(self) -> None:
         # required_scopes gates tokens; session users carry no scopes and AccessControlPermission
@@ -316,6 +329,19 @@ class _ProjectQualityViewSet(_QualityGatedViewSet):
         super().initial(request, *args, **kwargs)
         if not self._authorized_subject_types(write=request.method not in SAFE_METHODS):
             raise PermissionDenied("You need access to warehouse objects or the data catalog to work with checks.")
+
+    def _report(self, event: _CheckEvent, properties: dict[str, Any]) -> None:
+        report_user_action(
+            self.request.user,
+            event,
+            properties,
+            team=self.team,
+            organization=self.team.organization,
+            request=self.request,
+        )
+
+    def _report_run(self, scope: _RunScope, check_count: int | None = None) -> None:
+        self._report(_CheckEvent.RUN, {"scope": scope, "check_count": check_count})
 
 
 _EDIT_DESCRIPTION = (
@@ -519,6 +545,11 @@ class DataQualityCheckViewSet(_ProjectQualityViewSet, viewsets.ModelViewSet):
         # the one way to read history that list hides, retrieve 403s and runs/ empties.
         if not created and self._last_run_is_hidden(check):
             self._redact_last_run(check)
+        if created:
+            self._report(
+                _CheckEvent.CREATED,
+                {**_event_properties(check), "severity": check.severity, "created_source": check.created_source},
+            )
         return Response(
             self.get_serializer(check).data,
             status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
@@ -536,7 +567,14 @@ class DataQualityCheckViewSet(_ProjectQualityViewSet, viewsets.ModelViewSet):
         serializer.context["authorize_check_edit"] = lambda current: self._authorize_check_edit(
             current, serializer.validated_data
         )
+        previous_check = cast(DataQualityCheck, serializer.instance)
         updated_check = cast(DataQualityCheck, serializer.save())
+        changed_fields = sorted(
+            field
+            for field in serializer.validated_data
+            if getattr(previous_check, field, None) != getattr(updated_check, field, None)
+        )
+        self._report(_CheckEvent.UPDATED, {**_event_properties(updated_check), "changed_fields": changed_fields})
         if self._last_run_is_hidden(updated_check):
             self._redact_last_run(updated_check)
 
@@ -554,6 +592,7 @@ class DataQualityCheckViewSet(_ProjectQualityViewSet, viewsets.ModelViewSet):
 
     def perform_destroy(self, instance: DataQualityCheck) -> None:
         api.soft_delete_check(instance)
+        self._report(_CheckEvent.DELETED, _event_properties(instance))
 
     @extend_schema(
         description="Run this check now. Returns the suite run to poll for the report.",
@@ -576,6 +615,7 @@ class DataQualityCheckViewSet(_ProjectQualityViewSet, viewsets.ModelViewSet):
             subject_uuids=[subject.subject_uuid] if subject else [],
             check_ids=[str(check.id)],
         )
+        self._report_run(_RunScope.CHECK, check_count=1)
         return Response(DataQualitySuiteRunSerializer(suite_run).data)
 
     @extend_schema(
@@ -858,7 +898,9 @@ class DataQualityRunViewSet(
         requested = [str(check_id) for check_id in serializer.validated_data.get("check_ids") or []]
         subject = self._optional_subject(serializer.validated_data)
         if subject is not None and not requested:
-            return Response(self._run_subject(subject, cast(User, request.user)))
+            suite = self._run_subject(subject, cast(User, request.user))
+            self._report_run(_RunScope.SUBJECT)
+            return Response(suite)
 
         runnable = api.live_subject_checks(
             DataQualityCheck.objects.for_team(self.team_id).filter(deleted=False, enabled=True)
@@ -878,6 +920,7 @@ class DataQualityRunViewSet(
                 user=cast(User, request.user),
                 check_ids=[str(check.id) for check in checks],
             )
+        self._report_run(_RunScope.CHECK if requested else _RunScope.PROJECT, check_count=len(checks))
         return Response(DataQualitySuiteRunSerializer(suite_run).data)
 
     def _run_subject(self, subject: api.SubjectIdentity, user: User) -> dict:
@@ -948,11 +991,9 @@ class DataQualityRunViewSet(
 def data_quality_gate_response(team: Team, request: Request) -> Response:
     """GET/PATCH handler for the team's gate setting, mounted on the warehouse viewset.
 
-    Lives here so the warehouse surface stays a thin mount: the flag gate, the serializer, and the
-    config write all belong to this product.
+    Lives here so the warehouse surface stays a thin mount: the serializer and the config write
+    both belong to this product.
     """
-    if not is_data_quality_checks_enabled(team):
-        raise PermissionDenied("Data quality checks are not enabled for this project.")
     if request.method == "PATCH":
         serializer = DataQualityGateConfigSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)

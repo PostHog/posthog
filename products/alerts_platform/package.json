@@ -3,5 +3,18 @@
     "scripts": {
         "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests -v --tb=short",
         "backend:contract-check": "echo 'Contract files unchanged'"
+    },
+    "dependencies": {
+        "@posthog/quill": "workspace:*",
+        "kea": "catalog:",
+        "kea-loaders": "catalog:"
+    },
+    "devDependencies": {
+        "@storybook/react": "catalog:"
+    },
+    "peerDependencies": {
+        "@posthog/lemon-ui": "*",
+        "@types/react": "*",
+        "react": "*"
     }
 }

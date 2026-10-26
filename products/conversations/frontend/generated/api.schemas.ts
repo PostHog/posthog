@@ -40,6 +40,24 @@ export interface AIReplyPlaybookApi {
     readonly max_chars: number
 }
 
+export interface SigningSecretApi {
+    /**
+     * Raw secret used to compute widget identity verification hashes (HMAC). Null until one exists.
+     * @nullable
+     */
+    readonly secret: string | null
+    /**
+     * When the secret last changed, or null when no secret exists yet.
+     * @nullable
+     */
+    readonly updated_at: string | null
+    /**
+     * Until when the previous secret keeps verifying after a rotation, or null when no grace window is active.
+     * @nullable
+     */
+    readonly previous_secret_valid_until: string | null
+}
+
 /**
  * * `widget` - Widget
  * * `email` - Email
@@ -658,8 +676,11 @@ export interface ComposeTicketApi {
      * @maxLength 500
      */
     email_subject?: string
-    /** ID of the EmailChannel to send from. */
-    email_config_id: string
+    /**
+     * ID of the support email channel to send from. Omit it to send from the team's default support channel.
+     * @nullable
+     */
+    email_config_id?: string | null
     /**
      * Message content in markdown.
      * @maxLength 5000

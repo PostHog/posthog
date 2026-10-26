@@ -15,7 +15,7 @@ Visual Review is PostHog's screenshot-regression product: CI captures storybook 
 diffs them against committed baseline hashes, and gates the PR until every changed snapshot is resolved.
 A PR with visual changes carries a `visual-review` GitHub status check and a required "Visual regression tests pass" job check.
 Both stay red until each diffed snapshot is approved and finalized, tolerated, or quarantined, and the job re-runs:
-finalize does that for approvals, `recompute-create` for tolerations and quarantines. The [VR UI](https://us.posthog.com/project/2/visual_review) offers the same actions.
+finalize does that for approvals, `recompute-create` for tolerations and quarantines. The [VR UI](https://us.posthog.com/project/2/visual-review) offers the same actions.
 A PR from a fork is the exception: it gets no Visual Review run at all.
 See [Fork PRs have no Visual Review run](#fork-prs-have-no-visual-review-run).
 
@@ -86,7 +86,7 @@ Trigger this skill on any of:
 - A failing `visual-review` GitHub check or a PR comment from the `posthog-bot` mentioning visual review.
 - A failing `Visual regression tests pass` check on a PR from a fork, which is the offline fallback and not a VR run.
 
-When the user asks for the rendered diff image itself, the [VR web UI](https://us.posthog.com/project/2/visual_review)
+When the user asks for the rendered diff image itself, the [VR web UI](https://us.posthog.com/project/2/visual-review)
 is faster — direct them there. This skill is for everything around the diff: status, scope, history, triage.
 
 **First, check whether the PR comes from a fork.**

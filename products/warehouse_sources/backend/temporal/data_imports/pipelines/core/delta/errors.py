@@ -78,12 +78,26 @@ def is_transient_object_store_error(error: BaseException) -> bool:
     subclass, so the message-matched branch below never sees it; recognized by type for the same
     reason as `NoCredentialsError`.
 
+    A read that times out or a connection the object store drops mid-response surfaces as a bare
+    `botocore.exceptions.HTTPClientError` (`ReadTimeoutError`, `ConnectionClosedError`) the same way:
+    s3fs's own retries only translate a *response* it got back into an `OSError`, and a request that
+    never got one never does. `s3/writer.py`'s `_is_transient_s3_write_error` already retries this
+    class on the write path; recognized by type here too so the copy/maintenance paths that share
+    this classifier treat the same blip the same way instead of reporting it as a bug on the first
+    occurrence.
+
     A bare `OSError` with errno `EMFILE`/`ENFILE` means this worker's (or the system's) file
     descriptor table is full — e.g. `aget_s3_client`'s aiobotocore session bootstrap opening
     botocore's own bundled `endpoints.json` fails with this errno before any network call is even
     made. Same transient-capacity class already recognized on the postgres connect path
     (`_is_too_many_open_files_error`): a descriptor frees the moment another connection/client in
     this worker closes, so it's fd pressure on our side, never an object-store or customer problem.
+
+    A bare `OSError` with errno `EBUSY` is s3fs's translation of every S3 "back off" response
+    (`SlowDown`, `ServiceUnavailable`, `OperationAborted`, a bare 503/409; see
+    `s3fs/errors.py::translate_boto_error`), raised once s3fs's own retries are exhausted. The errno
+    covers the 503 "Service Unavailable" case the message needles below miss, without matching on
+    the vendor's free text.
 
     A bodyless 5xx that pyarrow's S3FileSystem reports as "AWS Error UNKNOWN" (see
     `_is_bodyless_5xx_unknown_error`) is also transient - but only once its status is confirmed to be
@@ -101,14 +115,18 @@ def is_transient_object_store_error(error: BaseException) -> bool:
     failure is a silent no-op either way) folds it in.
     """
     if isinstance(
-        error, TransientObjectStoreError | botocore.exceptions.NoCredentialsError | botocore.exceptions.ConnectionError
+        error,
+        TransientObjectStoreError
+        | botocore.exceptions.NoCredentialsError
+        | botocore.exceptions.ConnectionError
+        | botocore.exceptions.HTTPClientError,
     ):
         # Already classified and wrapped by a prior call to this same function (see
         # `_capture_unless_transient`) — a caller further up the stack that catches broadly and
         # re-runs this classifier on the wrapper, rather than the original OSError/DeltaError it
         # wraps, must still treat it as transient.
         return True
-    if isinstance(error, OSError) and error.errno in (errno.EMFILE, errno.ENFILE):
+    if isinstance(error, OSError) and error.errno in (errno.EMFILE, errno.ENFILE, errno.EBUSY):
         return True
     if isinstance(error, OSError) and _is_bodyless_5xx_unknown_error(error):
         return True
@@ -178,7 +196,52 @@ def is_transient_delta_maintenance_error(error: BaseException) -> bool:
     # corrupt table can also raise, and those stay captured. Covers both delta-rs's older
     # `FileNotFoundError`-style message ("File not found: ...") and its Arrow/object_store kernel message
     # for the same underlying condition ("Object at location ... not found: ... 404 Not Found").
-    return "_delta_log/" in text and "not found" in text
+    if "_delta_log/" in text and "not found" in text:
+        return True
+
+    # Yet another shape of the same reset-vs-stale-handle race: `DeltaTableRef._refresh_cached_table`
+    # calls `update_incremental()` on a delta-rs handle that a prior write or `note_deltalite_commit`
+    # already advanced to some version. If `reset_table` (or a repartition swap) replaces `_delta_log`
+    # under this ref — most commonly the live attempt resyncing while a heartbeat-timed-out zombie
+    # attempt still holds this older handle (see this package's README on the equivalent unfenced race
+    # for repartition) — the log the refresh reads back is the fresh, lower-numbered one. Delta logs
+    # are append-only, so the kernel refuses to apply that as an increment: "Unexpected state: the
+    # newest version in the log {low} is older than the existing snapshot version {high}". The live
+    # table itself is unaffected; only this stale handle's refresh failed, so the next reader (a
+    # retried activity opens a fresh `DeltaTableRef`) reads the current log and succeeds.
+    return "is older than the existing snapshot version" in text
+
+
+# A fourth shape of the same reset-vs-concurrent-read race, caught by the kernel's log-segment
+# listing instead of a single file lookup: `_purge_s3_prefix_once` lists the table's live
+# `_delta_log` files once and bulk-deletes them in one `_rm` call, which S3 does not guarantee to
+# apply in any particular order across keys. A concurrent open that lists the directory (or reads
+# `_last_checkpoint` and fetches the checkpoint it names) mid-delete can see an arbitrary subset of
+# that batch already gone — a run of consecutive commit files missing from the middle of the
+# sequence ("Expected contiguous commit files, but found gap"), or a `_last_checkpoint` hint whose
+# checkpoint file the same batch already removed ("Had a _last_checkpoint hint but didn't find any
+# checkpoints"). Moments later the purge finishes and the next reader opens a fresh, consistent log.
+#
+# Deliberately NOT folded into `is_transient_delta_maintenance_error` above: that function also backs
+# `DeltaTableRef.is_table_corrupted`, whose whole purpose is catching a log left genuinely broken by an
+# interrupted repartition swap or an OOM-crashed merge (see its docstring) so `handle_corrupted_delta_log`
+# can revive it — and unlike the single-file "not found" case, a missing *run* of commit files or a
+# dangling checkpoint hint is exactly the shape that kind of interrupted write leaves behind too. Folding
+# these in would make `is_table_corrupted` read a genuinely and permanently broken log as transient,
+# silently skip the revive, and loop the sync forever with nothing reported. Scoped instead to the one
+# call site (`DeltaTableRef._capture_unless_transient`) that only suppresses error-tracking noise on the
+# common race, while `is_table_corrupted`'s own independent open keeps classifying a log that is still in
+# this state on a later attempt as corrupt and reviving it.
+DELTA_LOG_LISTING_RACE_ERRORS = (
+    "Expected contiguous commit files",
+    "Had a _last_checkpoint hint but didn't find any checkpoints",
+)
+
+
+def is_transient_delta_log_listing_race(error: BaseException) -> bool:
+    return isinstance(error, deltalake.exceptions.DeltaError) and any(
+        needle in str(error) for needle in DELTA_LOG_LISTING_RACE_ERRORS
+    )
 
 
 # `optimize.compact` bins files to rewrite by their on-disk (compressed) size, targeting
@@ -210,6 +273,29 @@ DELTA_INVALID_VERSION_RACE_NEEDLE = "Invalid table version:"
 
 def is_invalid_version_race(error: BaseException) -> bool:
     return type(error) is deltalake.exceptions.DeltaError and DELTA_INVALID_VERSION_RACE_NEEDLE in str(error)
+
+
+# `merge()` plans its scan against the target's file list from the `DeltaTable` handle it was given,
+# then fetches each planned file's Parquet footer when the scan actually runs. A concurrent vacuum
+# (most commonly a heartbeat-timed-out zombie attempt running the post-load maintenance pass — see
+# this package's README on the equivalent race for repartition) can commit a REMOVE for one of those
+# files and delete it from the object store in between: the handle's in-memory plan still names it,
+# so the footer fetch 404s. delta-rs has no typed error for this — it surfaces as the same generic
+# DeltaError every Parquet-level failure does, with the object store's 404 body folded into the
+# message. Refreshing the handle (exactly what `execute_with_conflict_retry` already does for
+# `CommitFailedError`) drops the vacuumed file from the next plan, so retrying succeeds once the
+# handle reflects the version vacuum committed against. A file this names that is genuinely missing
+# from a fresh snapshot is real corruption, not this race: the refreshed plan still names it, the
+# retry fails the same way, and it still reaches error tracking once the retry budget is spent.
+DELTA_MISSING_SCAN_FILE_NEEDLE = "Failed to fetch metadata for file"
+
+
+def is_missing_scan_file_race(error: BaseException) -> bool:
+    return (
+        type(error) is deltalake.exceptions.DeltaError
+        and DELTA_MISSING_SCAN_FILE_NEEDLE in str(error)
+        and "not found" in str(error)
+    )
 
 
 def _is_too_many_open_files_error(error: BaseException) -> bool:

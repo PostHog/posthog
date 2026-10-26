@@ -172,6 +172,39 @@ class TestGetDeltaTableCache:
         mock_delta_table.assert_not_called()
 
 
+class TestAdoptOpenTable:
+    @pytest.mark.asyncio
+    async def test_an_adopted_handle_reads_the_commits_it_missed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            deltalake.write_deltalake(tmp, pa.table({"id": [1]}))
+            earlier_handle = deltalake.DeltaTable(tmp)
+            deltalake.write_deltalake(tmp, pa.table({"id": [2]}), mode="append")
+            table_ref = make_local_table_ref(tmp)
+
+            with patch.object(deltalake, "DeltaTable", wraps=deltalake.DeltaTable) as opens:
+                assert await table_ref.adopt_open_table(earlier_handle) is True
+                adopted = await table_ref.get_delta_table()
+
+            assert adopted is earlier_handle
+            assert opens.call_count == 0
+            assert adopted.version() == 1
+            assert len(adopted.file_uris()) == 2
+
+    @pytest.mark.asyncio
+    async def test_a_handle_that_cannot_catch_up_is_not_kept(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            deltalake.write_deltalake(tmp, pa.table({"id": [1]}))
+            earlier_handle = MagicMock()
+            earlier_handle.update_incremental.side_effect = deltalake.exceptions.DeltaError("log is gone")
+            table_ref = make_local_table_ref(tmp)
+
+            assert await table_ref.adopt_open_table(earlier_handle) is False
+            opened = await table_ref.get_delta_table()
+
+            assert opened is not None and opened is not earlier_handle
+            assert opened.version() == 0
+
+
 def _no_table(path: Path) -> None:
     pass
 
@@ -675,6 +708,37 @@ class TestGetDeltaTableUnrecoverableErrors:
             mock_purge.assert_not_awaited()
             assert table_ref.is_first_sync is False
 
+    @pytest.mark.asyncio
+    async def test_open_delta_log_listing_race_is_not_captured_but_still_reraised(self):
+        """The same concurrent-purge race as the checkpoint-object case above, but caught by the
+        kernel's log-segment contiguity check over a batch of files instead of a single file lookup
+        (see is_transient_delta_log_listing_race). Must behave identically: not captured, still
+        reraised as TransientObjectStoreError so Temporal retries."""
+        table_ref = DeltaTableRef(resource_name="t", job=MagicMock(), logger=make_logger())
+        delta_uri = "s3://bucket/team_id/job_id/t"
+
+        gap_error = deltalake.exceptions.DeltaError(
+            "Kernel error: Generic delta kernel error: Expected contiguous commit files, but found "
+            "gap: ParsedLogPath { ... version: 10, file_type: Commit } -> ParsedLogPath "
+            "{ ... version: 15, file_type: Commit }"
+        )
+        module = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table"
+        with (
+            patch.object(table_ref, "_get_delta_table_uri", AsyncMock(return_value=delta_uri)),
+            patch(f"{module}.deltalake.DeltaTable") as mock_delta_table,
+            patch(f"{module}._purge_s3_prefix", AsyncMock()) as mock_purge,
+            patch(f"{module}.capture_exception") as mock_capture,
+        ):
+            mock_delta_table.is_deltatable.return_value = True
+            mock_delta_table.side_effect = gap_error
+
+            with pytest.raises(TransientObjectStoreError):
+                await table_ref.get_delta_table()
+
+            mock_capture.assert_not_called()
+            mock_purge.assert_not_awaited()
+            assert table_ref.is_first_sync is False
+
 
 class TestIsTableCorrupted:
     _MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table"
@@ -705,6 +769,29 @@ class TestIsTableCorrupted:
                     "404 Not Found: NoSuchKey"
                 ),
                 False,
+            ),
+            # Unlike the race above, a log-segment contiguity gap or a dangling checkpoint hint is also
+            # what an interrupted repartition swap leaves behind, so these must read as corrupt here even
+            # though get_delta_table's own open suppresses reporting on them too (see
+            # is_transient_delta_log_listing_race) — a log still raising this on a later attempt gets
+            # revived instead of retried forever.
+            (
+                "delta_log_gap_is_corrupt",
+                True,
+                deltalake.exceptions.DeltaError(
+                    "Kernel error: Generic delta kernel error: Expected contiguous commit files, but found "
+                    "gap: ParsedLogPath { ... version: 10, file_type: Commit } -> ParsedLogPath "
+                    "{ ... version: 15, file_type: Commit }"
+                ),
+                True,
+            ),
+            (
+                "dangling_checkpoint_hint_is_corrupt",
+                True,
+                deltalake.exceptions.DeltaError(
+                    "Kernel error: Invalid Checkpoint: Had a _last_checkpoint hint but didn't find any checkpoints"
+                ),
+                True,
             ),
         ]
     )

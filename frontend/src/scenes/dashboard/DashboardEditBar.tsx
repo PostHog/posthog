@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import type { ReactNode } from 'react'
 
-import { IconCalendar, IconLive } from '@posthog/icons'
+import { IconCalendar } from '@posthog/icons'
 import { LemonSelect, Tooltip } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -29,7 +29,7 @@ import { VariablesForDashboard } from '~/queries/nodes/DataVisualization/Compone
 import { BreakdownFilter, NodeKind } from '~/queries/schema/schema-general'
 import { InsightLogicProps, IntervalType } from '~/types'
 
-import { DashboardMetricLabelFilter } from 'products/metrics/frontend/components/DashboardMetricLabelFilter'
+import { DashboardMetricVariables } from 'products/metrics/frontend/components/dashboardVariables/DashboardMetricVariables'
 
 interface DashboardEditBarProps {
     showDateFilter?: boolean
@@ -97,8 +97,7 @@ export function DashboardIntervalFilter(): JSX.Element {
 
 export function DashboardEditBar({ showDateFilter = true, className }: DashboardEditBarProps): JSX.Element {
     const { dashboard, dashboardEditing, hasVariables, effectiveEditBarFilters } = useValues(dashboardLogic)
-    const { setDates, setProperties, setBreakdownFilter, setMetricFilters, setDashboardEditing } =
-        useActions(dashboardLogic)
+    const { setDates, setProperties, setBreakdownFilter, setDashboardEditing } = useActions(dashboardLogic)
     const controlsEnabled = useFeatureFlag('METRICS_DASHBOARD_CONTROLS')
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
@@ -244,31 +243,16 @@ export function DashboardEditBar({ showDateFilter = true, className }: Dashboard
 
             <VariablesForDashboard />
             <div className={clsx('content-end', { 'h-[61px]': hasVariables })}>
-                <DashboardEditBarAdvancedFilters />
+                <DashboardEditBarAdvancedFilters showCompareFilter={showDateFilter} />
             </div>
             {controlsEnabled && (
                 <DashboardControlSlot
-                    control="metricLabels"
-                    hasValue={(effectiveEditBarFilters.metricFilters?.length ?? 0) > 0}
+                    control="metricVariables"
+                    hasValue={(effectiveEditBarFilters.metricVariables?.length ?? 0) > 0}
                     className={clsx('content-end', { 'h-[61px]': hasVariables })}
                 >
-                    <div className="flex min-h-[30px] flex-wrap items-center gap-1 border-l border-primary pl-2">
-                        <span className="flex items-center gap-1 text-xs font-semibold text-secondary">
-                            <IconLive className="text-sm" />
-                            Metrics
-                        </span>
-                        <DashboardMetricLabelFilter
-                            metricFilters={effectiveEditBarFilters.metricFilters}
-                            onChange={(metricFilters) => {
-                                if (!dashboardEditing?.filters) {
-                                    setDashboardEditing(
-                                        { filters: true, layout: false },
-                                        DashboardEventSource.DashboardFilters
-                                    )
-                                }
-                                setMetricFilters(metricFilters)
-                            }}
-                        />
+                    <div className="flex min-h-[30px] flex-wrap items-end gap-1 border-l border-primary pl-2">
+                        <DashboardMetricVariables />
                     </div>
                 </DashboardControlSlot>
             )}

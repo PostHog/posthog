@@ -44,6 +44,19 @@ describe('produceMessageToDLQ', () => {
         } as Message
     })
 
+    it('rethrows a failed DLQ produce after logging it when rethrowOnFailure is set', async () => {
+        const dlqError = new Error('broker down')
+        mockOutputs.produce.mockRejectedValueOnce(dlqError)
+
+        await expect(
+            produceMessageToDLQ(mockOutputs, mockMessage, new Error('Test error'), 'test-step', {
+                rethrowOnFailure: true,
+            })
+        ).rejects.toBe(dlqError)
+        expect(mockLogger.error).toHaveBeenCalledWith('Failed to send event to DLQ', expect.anything())
+        expect(mockCaptureException).toHaveBeenCalledWith(dlqError, expect.anything())
+    })
+
     it('should send message to DLQ with proper headers and logging', async () => {
         const error = new Error('Test error')
         const stepName = 'test-step'

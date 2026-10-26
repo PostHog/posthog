@@ -13,6 +13,7 @@ import {
     getDefaultMetricsIngestionOutputsConfig,
 } from '~/ingestion/pipelines/metrics/config'
 import { MetricsIngestionConsumer } from '~/ingestion/pipelines/metrics/metrics-ingestion-consumer'
+import { MetricsPipelineConsumer } from '~/ingestion/pipelines/metrics/metrics-pipeline-consumer'
 import { createProducerRegistry } from '~/ingestion/pipelines/metrics/outputs/producer-registry'
 import {
     KafkaWarpstreamIngestionProducerEnvConfig,
@@ -109,11 +110,10 @@ export class IngestionMetricsServer implements NodeServer {
         const serviceLoaders: (() => Promise<PluginServerService>)[] = []
 
         serviceLoaders.push(async () => {
-            const consumer = new MetricsIngestionConsumer(this.config, {
-                teamManager,
-                quotaLimiting,
-                outputs,
-            })
+            const deps = { teamManager, quotaLimiting, outputs }
+            const consumer = this.config.METRICS_INGESTION_USE_PIPELINE_FRAMEWORK
+                ? new MetricsPipelineConsumer(this.config, deps)
+                : new MetricsIngestionConsumer(this.config, deps)
             await consumer.start()
             return consumer.service
         })

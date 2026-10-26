@@ -14,6 +14,7 @@ from rest_framework.exceptions import AuthenticationFailed
 from webauthn.helpers import bytes_to_base64url
 
 from posthog.api.webauthn import WEBAUTHN_REGISTRATION_CHALLENGE_KEY, WebAuthnLoginViewSet, user_uuid_to_handle
+from posthog.auth import WebauthnBackend
 from posthog.models import Organization, User
 from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.linked_identity_provider_config import LinkedIdentityProviderConfig
@@ -256,6 +257,12 @@ class TestWebAuthnLogin(APIBaseTest):
         self.assertEqual(me_response.status_code, status.HTTP_200_OK)
         self.assertEqual(me_response.json()["email"], self.user.email)
 
+    def test_backend_does_not_restore_session_for_inactive_user(self):
+        # A queryset update skips the pre_save signal that revokes sessions on deactivation.
+        User.objects.filter(pk=self.user.pk).update(is_active=False)
+
+        self.assertIsNone(WebauthnBackend().get_user(self.user.pk))
+
     @patch(
         "posthog.api.webauthn.refuse_blocked_account",
         side_effect=AuthenticationFailed("We couldn't sign you in.", code="access_blocked"),
@@ -462,7 +469,11 @@ class TestWebAuthnLogin(APIBaseTest):
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("SSO", response.json()["error"])
+        body = response.json()
+        self.assertIn("SSO", body["error"])
+        self.assertEqual(body["code"], "sso_enforced")
+        self.assertEqual(body["sso_enforcement"], "saml")
+        self.assertEqual(body["email"], self.user.email)
 
         # Verify the user is NOT logged in
         me_response = self.client.get("/api/users/@me/")

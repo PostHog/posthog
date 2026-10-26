@@ -326,6 +326,8 @@ Other clients keep the full inline command reference.
 
 ### Tool filtering
 
+In CLI mode, `tools` and `exclude_tools` also apply to namespaced connected tools. A `features` filter excludes connected tools unless `tools` explicitly names them. Exclusions take precedence over explicit selections.
+
 For finer-grained control you can allowlist specific tools by name using the `tools` query parameter. Only the exact tool names listed will be exposed, regardless of their feature category.
 
 ```text
@@ -406,13 +408,21 @@ Then replace `https://mcp.posthog.com/mcp` with `http://localhost:8787/mcp` in t
 
 The server defaults to port **8787**, reads config from `.env` (see `.env.example`), and expects a local Redis on port `6379` for session state; production deployments must set `REDIS_URL` to a TLS-encrypted `rediss://` endpoint.
 
-`render-ui` is available in production for Claude UI hosts and OpenAI's MCP transport used by ChatGPT and Codex. OpenAI's generic plugin-discovery client receives it too, so the cached plugin tool list includes the app tools.
-
-To test MCP Apps locally, run `pnpm run build:ui-apps`. Connect the client to `http://localhost:8787/mcp?mode=cli` and start a fresh chat so it discovers both `exec` and `render-ui`. Use `exec` to resolve an existing entity before calling `render-ui` with its read-only tool and input. Verify that the interactive app renders and fetches its data, as well as that the tool call succeeds. `MCP_APPS_BASE_URL` must point to the local MCP server so its UI assets can load. For ChatGPT web or desktop, expose the MCP server and local PostHog through HTTPS development tunnels. Set `MCP_APPS_BASE_URL` to the MCP tunnel, and `POSTHOG_PUBLIC_URL` to the PostHog tunnel. The local backend's `SITE_URL` must also use the PostHog tunnel so OAuth discovery advertises reachable endpoints. Its development frontend assets must be available over HTTPS. Create a custom MCP plugin in ChatGPT using the MCP tunnel's `/mcp?mode=cli&readonly=true` URL, complete OAuth, and start a fresh chat with that plugin selected. Keep `POSTHOG_API_BASE_URL` pointing to local PostHog. Stop the tunnels after testing. Refresh the plugin's tools after changing the advertised roster, then start a fresh chat.
-
-In single-exec mode, UI hosts also discover the connection's permitted read-only tools with `ui.visibility: ["app"]`. These tools load data and support drill-down inside the visualization; the model continues to use `exec` and `render-ui`. Refresh the custom plugin's tool list after changing these descriptors, then start a fresh chat.
+Startup waits up to 45 seconds for Redis to become ready, including connection retries. If Redis stops reconnecting or the deadline expires, the process exits without starting the HTTP server.
 
 ### Session cache
+
+Each MCP transport session keeps its own active organization and project, including connections without a `project_id` or `organization_id` pin. An unpinned session starts from the user's active organization and project, within the credential's allowed scope. Later website changes and switches in other MCP sessions do not change that selection. `switch-project` and `switch-organization` update only the calling session; switching to another organization clears the previous project.
+
+`switch-project` requires a positive integer `projectId`. It also accepts `project_id` and `new_project_id` as aliases. If several are supplied, `projectId` takes precedence, followed by `project_id`.
+
+Clients without an MCP session ID use the SDK's `conversation_id` instead. Echo the handle returned by the first tool call on subsequent calls. A switch without a carried session or conversation handle returns an error and a new handle; retry with that handle to apply the switch. Conversation state is bound to the credential and stored separately from transport sessions. Calls without either identity start from the connection's pin or default selection. If your client cannot retain conversation handles, pin the project or organization in the connection URL.
+
+Legacy JSON-RPC batches restore each call's conversation handle independently. The wrapper's `sessionId` query parameter is an analytics hint and does not replace a conversation handle; wrapper-only calls still receive a new handle from the SDK.
+
+Session defaults are stored once, separately from explicit selections. A delayed lookup can resolve context for its own request without overwriting a completed switch.
+
+If default project discovery fails, later requests retry within the session's original organization. The first successful project discovery wins, and explicit switches still take precedence. An organization switch retains a selected project when the destination's team list confirms that it belongs there, even if the credential cannot read project metadata.
 
 A session's client context lives in one `mcp:s:<id>:c` key with a 24-hour idle expiry, refreshed on every request in the session.
 Concurrent requests merge their fields through a Lua compare-and-merge, so a field first seen mid-session is never lost to an overlapping write.

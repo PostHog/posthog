@@ -16,10 +16,10 @@ use crate::flags::flag_group_type_mapping::{
 };
 use crate::flags::flag_match_reason::FeatureFlagMatchReason;
 use crate::flags::flag_matching_utils::{
-    calculate_hash, db_operations, fetch_and_locally_cache_all_relevant_properties,
-    get_feature_flag_hash_key_overrides, match_flag_value_to_flag_filter,
-    populate_missing_initial_properties, populate_os_aliases, set_feature_flag_hash_key_overrides,
-    should_write_hash_key_override, track_unretried_db_error,
+    calculate_hash, db_operations, failed_flag_dependency,
+    fetch_and_locally_cache_all_relevant_properties, get_feature_flag_hash_key_overrides,
+    match_flag_value_to_flag_filter, populate_missing_initial_properties, populate_os_aliases,
+    set_feature_flag_hash_key_overrides, should_write_hash_key_override, track_unretried_db_error,
 };
 use crate::flags::flag_models::{
     default_has_experiment, FeatureFlag, FeatureFlagId, FeatureFlagList, FlagFilters,
@@ -40,7 +40,7 @@ use crate::metrics::consts::{
     PROPERTY_CACHE_HITS_COUNTER, PROPERTY_CACHE_MISSES_COUNTER,
 };
 use crate::properties::property_matching::{match_property, PropertyMatchingContext};
-use crate::properties::property_models::{OperatorType, PropertyFilter, PropertyType};
+use crate::properties::property_models::{PropertyFilter, PropertyType};
 use crate::rayon_dispatcher::RayonDispatcher;
 use crate::utils::deadline::before_deadline;
 use crate::utils::graph_utils::PrecomputedDependencyGraph;
@@ -55,7 +55,6 @@ use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::sync::Arc;
-use std::time::Duration;
 use tokio::time::Instant;
 use tracing::{debug, error, instrument, warn};
 use uuid::Uuid;
@@ -112,7 +111,7 @@ pub struct FeatureFlagMatch {
     pub reason: FeatureFlagMatchReason,
     pub condition_index: Option<usize>,
     pub payload: Option<Value>,
-    /// Set only by `get_match_v2`; the v3 record is built from it.
+    /// Set only by `get_match_v2`; the v4 record is built from it.
     pub evaluation_v2: Option<EvaluationDetail>,
 }
 
@@ -305,21 +304,8 @@ impl FlagEvaluationState {
         self.flag_evaluation_results.insert(flag_id, flag_value);
     }
 
-    /// Returns the flag this filter depends on when that flag failed earlier in this request.
-    /// A flag with a recorded result never counts. An unsupported flag fails, but it is
-    /// pre-seeded `false`, so its dependents still read it as false. A malformed filter never
-    /// counts either, because `match_flag_value_to_flag_filter` rejects it for every value.
     fn failed_dependency(&self, filter: &PropertyFilter) -> Option<FeatureFlagId> {
-        if self.failed_flag_ids.is_empty()
-            || filter.operator != Some(OperatorType::FlagEvaluatesTo)
-            || !matches!(filter.value, Some(Value::Bool(_) | Value::String(_)))
-        {
-            return None;
-        }
-        let flag_id = filter.get_feature_flag_id()?;
-        (!self.flag_evaluation_results.contains_key(&flag_id)
-            && self.failed_flag_ids.contains(&flag_id))
-        .then_some(flag_id)
+        failed_flag_dependency(filter, &self.flag_evaluation_results, &self.failed_flag_ids)
     }
 
     /// Returns true when no single value of some failed flag satisfies all of the filters on that
@@ -688,9 +674,9 @@ impl FeatureFlagMatcher {
         self
     }
 
-    /// Gives all persons DB work in this evaluation one shared budget, which starts now.
-    pub fn with_persons_db_deadline(mut self, budget: Option<Duration>) -> Self {
-        self.persons_db_deadline = budget.map(|budget| Instant::now() + budget);
+    /// Gives all persons DB work in this evaluation one shared deadline.
+    pub fn with_persons_db_deadline(mut self, deadline: Option<Instant>) -> Self {
+        self.persons_db_deadline = deadline;
         self
     }
 
@@ -1457,6 +1443,7 @@ impl FeatureFlagMatcher {
                         merged_person_props.as_ref(),
                         Some(&merged_group_props),
                         Some(&self.flag_evaluation_state.flag_evaluation_results),
+                        Some(&self.flag_evaluation_state.failed_flag_ids),
                         Some(&cohort_matches),
                         PropertyMatchingContext::new(
                             self.timezone,
@@ -2116,22 +2103,19 @@ impl FeatureFlagMatcher {
             use_explicit_exact_matching: self.use_explicit_exact_matching,
             now: self.now,
         })?;
-        let (value, reason, condition_index) = match evaluation {
-            Evaluation::TargetingMatch { value, rule } => (
-                Some(value),
-                FeatureFlagMatchReason::ConditionMatch,
-                Some(rule.index),
-            ),
-            Evaluation::RolloutMiss { value, rule } => (
-                value,
-                FeatureFlagMatchReason::OutOfRolloutBound,
-                Some(rule.index),
-            ),
-            Evaluation::NoRuleMatch { value } => {
-                (value, FeatureFlagMatchReason::NoConditionMatch, None)
+        // `/flags?v=2` reports these v1 reasons; `/flags?v=4` reports the evaluator's own code.
+        let reason = match evaluation {
+            Evaluation::TargetingMatch { .. } | Evaluation::ExperimentSplit { .. } => {
+                FeatureFlagMatchReason::ConditionMatch
+            }
+            Evaluation::RolloutMiss { .. } => FeatureFlagMatchReason::OutOfRolloutBound,
+            Evaluation::Holdout { .. } => FeatureFlagMatchReason::HoldoutConditionValue,
+            Evaluation::ExperimentPaused { .. } | Evaluation::NoRuleMatch { .. } => {
+                FeatureFlagMatchReason::NoConditionMatch
             }
         };
-        let (matches, variant, payload) = match value {
+        let condition_index = evaluation.rule().map(|rule| rule.index);
+        let (matches, variant, payload) = match evaluation.value() {
             None => (false, None, None),
             Some(Value::Bool(value)) => (*value, None, None),
             Some(Value::String(value)) => (true, Some(value.clone()), None),

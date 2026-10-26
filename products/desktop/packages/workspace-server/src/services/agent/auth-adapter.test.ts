@@ -90,7 +90,12 @@ describe("AgentAuthAdapter", () => {
       deps.mcpProxy as never,
       deps.loggerFactory as never,
       {
-        getRoute: vi.fn().mockResolvedValue({ mode: "legacy", reason: "x" }),
+        getRoute: vi.fn().mockResolvedValue({
+          mode: "blocked",
+          reason: "x",
+          detail: "x",
+          status: 503,
+        }),
         remint: vi.fn(),
         fallBack: vi.fn(),
       } as never,
@@ -188,36 +193,38 @@ describe("AgentAuthAdapter", () => {
 
     it.each([
       [
-        "a legacy route",
-        vi.fn().mockResolvedValue({ mode: "legacy", reason: "not_rolled_out" }),
+        "a refused route",
+        vi.fn().mockResolvedValue({
+          mode: "blocked",
+          reason: "not_rolled_out",
+          detail: "unavailable",
+          status: 403,
+        }),
       ],
       ["a failing source", vi.fn().mockRejectedValue(new Error("boom"))],
-    ])("falls back to the legacy target on %s", async (_label, getRoute) => {
-      const { withGo, authProxy } = withSource(getRoute);
+    ])(
+      "keeps a session target on %s, never legacy",
+      async (_label, getRoute) => {
+        const { withGo, authProxy } = withSource(getRoute);
 
-      const result = await withGo.ensureGatewayProxy(
-        "https://app.posthog.com",
-        1,
-      );
+        const result = await withGo.ensureGatewayProxy(
+          "https://app.posthog.com",
+          1,
+        );
 
-      expect(result).toEqual({
-        proxyUrl: "http://127.0.0.1:9999/legacy",
-        mode: "legacy",
-      });
-      expect(authProxy.start).toHaveBeenCalledWith(
-        "https://gateway.example.com",
-        undefined,
-      );
-    });
+        expect(result).toEqual({
+          proxyUrl: "http://127.0.0.1:9999/session",
+          mode: "go",
+        });
+        expect(authProxy.start).not.toHaveBeenCalled();
+      },
+    );
 
-    it("stays on legacy without a project or a source", async () => {
+    it("stays on legacy without a project", async () => {
       const { withGo } = withSource(vi.fn());
 
       expect(
         (await withGo.ensureGatewayProxy("https://app.posthog.com", null)).mode,
-      ).toBe("legacy");
-      expect(
-        (await adapter.ensureGatewayProxy("https://app.posthog.com", 1)).mode,
       ).toBe("legacy");
     });
   });

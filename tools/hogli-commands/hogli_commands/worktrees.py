@@ -1,4 +1,4 @@
-"""Clean up unused agent worktrees (Claude Code, Codex, PostHog Desktop).
+"""Clean up unused agent and phw worktrees (Claude Code, Codex, PostHog Desktop, phw).
 
 These tools each create throwaway git worktrees that accumulate over time. A
 single PostHog worktree carries multi-GB `node_modules`, Python venvs, and Rust
@@ -28,7 +28,7 @@ import re
 import time
 import shutil
 import subprocess
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -43,11 +43,15 @@ from .doctor import _format_size
 # Roots that hold agent-created worktrees, keyed by the tool that owns them.
 # Claude Code and Codex nest worktrees directly under the repo; PostHog Desktop
 # keeps them in the home directory as <id>/posthog. Returned as (source, root).
+# The phw root must match WORKTREE_BASE in bin/posthog-worktree, including its
+# POSTHOG_WORKTREE_BASE override.
 def _worktree_roots(repo_root: Path) -> list[tuple[str, Path]]:
+    phw_base = os.environ.get("POSTHOG_WORKTREE_BASE") or str(Path.home() / ".worktrees" / "posthog")
     return [
         ("claude", repo_root / ".claude" / "worktrees"),
         ("codex", repo_root / ".codex" / "worktrees"),
         ("posthog-code", Path.home() / ".posthog-code" / "worktrees"),
+        ("phw", Path(phw_base).expanduser()),
     ]
 
 
@@ -131,7 +135,7 @@ class Worktree:
 
 @click.command(
     name="worktrees:clean",
-    help="Clear out unused Claude Code / Codex / PostHog Desktop worktrees by age",
+    help="Clear out unused Claude Code / Codex / PostHog Desktop / phw worktrees by age",
 )
 @click.option(
     "--before",
@@ -150,8 +154,8 @@ class Worktree:
     "--source",
     "sources",
     multiple=True,
-    type=click.Choice(["claude", "codex", "posthog-code"], case_sensitive=False),
-    help="Restrict to specific tool(s). Repeatable. Default: all three.",
+    type=click.Choice(["claude", "codex", "posthog-code", "phw"], case_sensitive=False),
+    help="Restrict to specific tool(s). Repeatable. Default: all of them.",
 )
 @click.option(
     "--repo",
@@ -221,7 +225,7 @@ def worktrees_clean(
     for source, root in _worktree_roots(repo_root):
         if selected_sources is not None and source not in selected_sources:
             continue
-        for path in _discover_worktrees(root):
+        for path in _discover_root_worktrees(root, registry):
             resolved = _resolve(path)
             if resolved in protected:
                 continue
@@ -454,6 +458,16 @@ def _discover_worktrees(root: Path, max_depth: int = 2) -> list[Path]:
                 scan(child, depth + 1)
 
     scan(root, 1)
+    return found
+
+
+def _discover_root_worktrees(root: Path, registry: dict[Path, dict]) -> list[Path]:
+    found = _discover_worktrees(root)
+    seen = {_resolve(path) for path in found}
+    resolved_root = _resolve(root)
+    for path in registry:
+        if path not in seen and path != resolved_root and _is_under(path, resolved_root) and path.is_dir():
+            found.append(path)
     return found
 
 
@@ -852,35 +866,31 @@ def _execute(worktrees: list[Worktree], mode: str, repo_root: Path) -> tuple[flo
 
     for wt in worktrees:
         if mode == "deps":
-            _, failures = _delete_paths(wt.deps_items, wt.deps_sizes)
-            if failures:
+            if _delete_paths(wt.deps_items):
                 failed += 1
             else:
                 removed += 1
             continue
 
         if wt.registered:
-            result = subprocess.run(
+            subprocess.run(
                 ["git", "worktree", "remove", "--force", "--", str(wt.path)],
                 cwd=repo_root,
                 capture_output=True,
-                text=True,
             )
-            if result.returncode != 0:
-                stderr = result.stderr.strip()
-                click.echo(f"  ⚠️  git worktree remove failed for {_display_path(wt.path)}: {stderr}")
-                shutil.rmtree(wt.path, ignore_errors=True)
-            # Either path may have removed it; prune any dangling admin entry.
+            # git cannot delete read-only directories, so `_rmtree` below removes what it leaves
+            # behind. Prune the admin entry that can remain in that case.
             need_prune = True
-        else:
-            shutil.rmtree(wt.path, ignore_errors=True)
 
-        if wt.path.exists():
-            click.echo(f"  ⚠️  could not fully remove {_display_path(wt.path)}")
+        try:
+            _rmtree(wt.path)
+        except OSError as err:
+            click.echo(f"  ⚠️  could not fully remove {_display_path(wt.path)}: {err}")
             failed += 1
-        else:
-            removed += 1
-            _cleanup_empty_parent(wt.path)
+            continue
+
+        removed += 1
+        _cleanup_empty_parent(wt.path)
 
     if need_prune:
         subprocess.run(["git", "worktree", "prune"], cwd=repo_root, capture_output=True)
@@ -919,22 +929,51 @@ def _reclaimed_bytes(before: dict[int, int], after: dict[int, int]) -> float:
     return float(sum(max(0, after[device] - before[device]) for device in common))
 
 
-def _delete_paths(paths: Sequence[Path], sizes: dict[str, float]) -> tuple[float, int]:
-    """Remove deps directories; return (bytes actually freed, paths that failed)."""
+def _rmtree(path: Path) -> None:
+    """Remove a directory tree, including entries inside read-only directories.
 
-    freed = 0.0
+    Go creates its module cache without write permission, and every worktree has
+    one in `.flox/cache/go`. `shutil.rmtree` alone cannot delete entries from a
+    directory that is not writable.
+
+    Removal continues past an entry that cannot be deleted, so one stuck entry
+    does not keep the rest of the tree on disk. The first such error is raised
+    at the end. A path that does not exist is already removed, so it is not an
+    error.
+    """
+
+    unresolved: list[BaseException] = []
+
+    def make_parent_writable_and_retry(function: Callable[..., object], failed: str, error: BaseException) -> None:
+        if isinstance(error, FileNotFoundError):
+            return
+        parent = Path(failed).parent
+        # A parent outside `path` is not part of the tree, so its permissions stay as they are.
+        if isinstance(error, PermissionError) and function in (os.unlink, os.rmdir) and parent.is_relative_to(path):
+            try:
+                parent.chmod(0o700)
+                function(failed)
+                return
+            except OSError:
+                pass
+        unresolved.append(error)
+
+    shutil.rmtree(path, onexc=make_parent_writable_and_retry)
+    if unresolved:
+        raise unresolved[0]
+
+
+def _delete_paths(paths: Sequence[Path]) -> int:
+    """Remove deps directories; return how many could not be removed."""
+
     failures = 0
     for path in paths:
         try:
-            shutil.rmtree(path)
-        except FileNotFoundError:
-            continue  # already gone — not a failure
+            _rmtree(path)
         except OSError as err:
             click.echo(f"  ⚠️  could not remove {_display_path(path)}: {err}")
             failures += 1
-            continue
-        freed += sizes.get(str(path), 0.0)
-    return freed, failures
+    return failures
 
 
 def _cleanup_empty_parent(path: Path) -> None:

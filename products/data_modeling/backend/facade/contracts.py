@@ -16,6 +16,7 @@ from uuid import UUID
 from pydantic.dataclasses import dataclass
 
 from posthog.dataclasses import frozen
+from posthog.enums import LabeledStrEnum
 
 
 @dataclass(frozen=True)
@@ -50,16 +51,18 @@ class SavedQuerySummary:
 
 @dataclass(frozen=True)
 class SavedQueryDefinition:
-    """A saved query with its HogQL and materialization settings."""
+    """A saved query with its HogQL and whether its DAG node materializes."""
 
     id: UUID
     name: str
     hogql: str
-    is_materialized: bool
-    sync_frequency_interval: timedelta | None
+    materializes: bool
     is_test: bool
     is_managed: bool
+    origin: str | None
     created_at: datetime
+    refreshes_incrementally: bool = False
+    calls_decision_functions: bool = False
 
 
 @dataclass(frozen=True)
@@ -77,6 +80,7 @@ class Dependent:
 class UpstreamTableRef:
     name: str
     warehouse_table_id: str | None = None
+    is_posthog_table: bool = False
 
 
 @dataclass(frozen=True)
@@ -98,6 +102,17 @@ class SavedQueryNodeState:
 
 class MaterializationRefusedError(Exception):
     pass
+
+
+class IncrementalConfigRefusedError(MaterializationRefusedError):
+    def __init__(self, message: str, refused_keys: tuple[str, ...] = ()) -> None:
+        super().__init__(message)
+        self.refused_keys = refused_keys
+
+
+class MaterializationRunDirection(LabeledStrEnum):
+    UPSTREAM = "upstream", "Upstream"
+    DOWNSTREAM = "downstream", "Downstream"
 
 
 class MaterializationForbiddenError(Exception):

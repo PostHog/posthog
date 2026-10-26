@@ -6,12 +6,16 @@ from unittest.mock import MagicMock
 
 import pyarrow as pa
 import pyarrow.parquet as pq
-from google.api_core.exceptions import NotFound
+from google.api_core.exceptions import Forbidden, NotFound, ServiceUnavailable
+from google.auth.exceptions import RefreshError
 from google.cloud import bigquery
 
 from products.warehouse_sources.backend.temporal.data_imports.destinations.contracts import (
     DestinationBatchContext,
     DestinationRunContext,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.errors import (
+    DestinationConfigurationError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.tests.fake_bigquery import (
     FakeBigQueryClient,
@@ -22,7 +26,13 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     BigQueryDestinationConfigurationError,
     BigQueryDestinationWriter,
     UnrelatedTableExistsError,
+    _ddl_type,
     staging_table_name,
+)
+
+_IMPERSONATION_DENIED_BODY = (
+    '{"error": {"code": 403, "message": "Permission \'iam.serviceAccounts.getAccessToken\' denied on resource '
+    '(or it may not exist).", "status": "PERMISSION_DENIED"}}'
 )
 
 
@@ -124,6 +134,35 @@ class TestSchemaLabel:
         assert all(c.islower() or c.isdigit() or c in "_-" for c in label)
 
 
+class TestDdlType:
+    def test_a_scalar_field_renders_its_bare_type(self) -> None:
+        assert _ddl_type(bigquery.SchemaField("clicks", "INTEGER")) == "INTEGER"
+
+    def test_a_repeated_field_renders_as_an_array(self) -> None:
+        # Dropping `mode` here would add the element type as a scalar column, which is
+        # incompatible with the array BigQuery already autodetected for the scratch table.
+        field = bigquery.SchemaField("tags", "STRING", mode="REPEATED")
+
+        assert _ddl_type(field) == "ARRAY<STRING>"
+
+    def test_a_record_field_renders_as_a_struct_of_its_subfields(self) -> None:
+        # A bare `RECORD` is not valid DDL; the subfields must be spelled out.
+        field = bigquery.SchemaField(
+            "address",
+            "RECORD",
+            fields=[bigquery.SchemaField("city", "STRING"), bigquery.SchemaField("zip", "INTEGER")],
+        )
+
+        assert _ddl_type(field) == "STRUCT<`city` STRING, `zip` INTEGER>"
+
+    def test_a_repeated_record_field_renders_as_an_array_of_structs(self) -> None:
+        field = bigquery.SchemaField(
+            "addresses", "RECORD", mode="REPEATED", fields=[bigquery.SchemaField("city", "STRING")]
+        )
+
+        assert _ddl_type(field) == "ARRAY<STRUCT<`city` STRING>>"
+
+
 class TestCheckOwnedOrAbsent:
     def test_a_table_that_does_not_exist_is_reported_absent(self) -> None:
         writer = BigQueryDestinationWriter(_ctx())
@@ -188,6 +227,42 @@ class TestConfigValidation:
 
         with pytest.raises(BigQueryDestinationConfigurationError):
             BigQueryDestinationWriter(ctx)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "denial",
+        [
+            RefreshError("Unable to acquire impersonated credentials", _IMPERSONATION_DENIED_BODY),
+            # The same refusal raised inside a gRPC auth plugin, which reaches the caller as a 503.
+            ServiceUnavailable(
+                f"Getting metadata from plugin failed with error: "
+                f"('Unable to acquire impersonated credentials', '{_IMPERSONATION_DENIED_BODY}')"
+            ),
+        ],
+        ids=["rest", "grpc"],
+    )
+    async def test_a_service_account_posthog_cannot_impersonate_is_a_configuration_error(
+        self, denial: Exception
+    ) -> None:
+        client = FakeBigQueryClient()
+        client.create_dataset = MagicMock(side_effect=denial)  # type: ignore[method-assign]
+        writer = LocalBigQueryWriter(_ctx(), client)
+
+        with pytest.raises(DestinationConfigurationError, match="Token Creator"):
+            await writer.prepare_run(_ctx())
+
+    @pytest.mark.asyncio
+    async def test_a_service_account_missing_an_iam_permission_is_a_configuration_error(self) -> None:
+        client = FakeBigQueryClient()
+        client.create_dataset = MagicMock(  # type: ignore[method-assign]
+            side_effect=Forbidden(
+                "Access Denied: Project proj: User does not have bigquery.datasets.create permission in project proj."
+            )
+        )
+        writer = LocalBigQueryWriter(_ctx(), client)
+
+        with pytest.raises(DestinationConfigurationError, match="Data Editor"):
+            await writer.prepare_run(_ctx())
 
 
 @pytest.mark.asyncio
@@ -317,3 +392,55 @@ class TestIncremental:
                 "WHEN MATCHED THEN UPDATE SET T.`name` = S.`name` "
                 "WHEN NOT MATCHED THEN INSERT (`id`, `name`) VALUES (S.`id`, S.`name`)"
             )
+
+    async def test_a_column_sent_as_text_merges_into_its_int64_column(self) -> None:
+        client = FakeBigQueryClient()
+        ctx = _ctx(sync_type="incremental", primary_keys=("id",))
+        writer = LocalBigQueryWriter(ctx, client)
+
+        await _deliver(writer, ctx, pa.RecordBatch.from_pydict({"id": [1], "delivered_at": [1700000000]}), 0)
+        await _deliver(
+            writer,
+            ctx,
+            pa.RecordBatch.from_pydict({"id": [1, 2], "delivered_at": ["1700000500", None]}),
+            1,
+            is_final=True,
+        )
+
+        table = client.get_table("proj.dataset.charges")
+        assert table.types["delivered_at"] == "INTEGER"
+        assert sorted((row["id"], row["delivered_at"]) for row in table.rows) == [(1, 1700000500), (2, None)]
+
+    async def test_a_column_a_later_batch_grows_is_added_to_the_target_before_merging(self) -> None:
+        # MERGE does not evolve schema on its own, so a column only the second batch carries
+        # must be added to the target first, or the MERGE fails referencing a column T lacks.
+        client = FakeBigQueryClient()
+        ctx = _ctx(sync_type="incremental", primary_keys=("id",))
+        writer = LocalBigQueryWriter(ctx, client)
+
+        await _deliver(writer, ctx, _rows([1], ["a"]), 0)
+        await _deliver(
+            writer,
+            ctx,
+            pa.RecordBatch.from_pydict({"id": [2], "name": ["b"], "clicks": [10]}),
+            1,
+            is_final=True,
+        )
+
+        table = client.get_table("proj.dataset.charges")
+        assert table.columns == ["id", "name", "clicks"]
+        assert sorted((row["id"], row["name"], row.get("clicks")) for row in table.rows) == [
+            (1, "a", None),
+            (2, "b", 10),
+        ]
+
+    async def test_text_that_cannot_convert_to_the_int64_column_is_a_configuration_error(self) -> None:
+        # A retry sends the same values, so a retryable error would fail until someone changes the table.
+        client = FakeBigQueryClient()
+        ctx = _ctx(sync_type="incremental", primary_keys=("id",))
+        writer = LocalBigQueryWriter(ctx, client)
+
+        await _deliver(writer, ctx, pa.RecordBatch.from_pydict({"id": [1], "delivered_at": [1700000000]}), 0)
+
+        with pytest.raises(DestinationConfigurationError, match="delivered_at"):
+            await _deliver(writer, ctx, pa.RecordBatch.from_pydict({"id": [1], "delivered_at": ["soon"]}), 1)

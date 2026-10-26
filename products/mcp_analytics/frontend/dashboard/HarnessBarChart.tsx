@@ -69,7 +69,7 @@ export function HarnessBarChart({
             hoverEffect={false}
         >
             <div className="flex min-h-[43px] flex-wrap items-center justify-between gap-2 border-b px-3 py-2">
-                <h3 className="mb-0 text-sm font-medium">Share of calls by harness</h3>
+                <h3 className="mb-0 text-sm font-bold">Share of calls by harness</h3>
                 {rows.length > 0 && (
                     <LemonButton
                         type="secondary"
@@ -119,13 +119,7 @@ export function HarnessBarChart({
                             </Tooltip>
                         )}
                     </div>
-                    <ShareBarChart
-                        rows={chartRows}
-                        totalCalls={totalCalls}
-                        theme={theme}
-                        tooltip={renderTooltip}
-                        label="Calls by harness"
-                    />
+                    <ShareBarChart rows={chartRows} totalCalls={totalCalls} theme={theme} tooltip={renderTooltip} />
                 </CardState>
             </div>
             <LemonModal title="All harnesses" isOpen={expanded} onClose={() => setExpanded(false)} width={640}>

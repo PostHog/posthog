@@ -19,18 +19,37 @@ export const MessageCategoryTypeEnumApi = {
 } as const
 
 export interface MessageCategoryApi {
+    /** Category ID. Workflow message steps take it as `message_category_id`, and the opt-out of messages step takes it as its `category_id` input. */
     readonly id: string
-    /** @maxLength 64 */
+    /**
+     * Stable identifier for the category, unique within the project, for example `newsletter`. Opt-out lists and preference imports refer to categories by key. You can't change the key after creation.
+     * @maxLength 64
+     */
     key: string
-    /** @maxLength 128 */
+    /**
+     * Display name of the category, shown in the PostHog app.
+     * @maxLength 128
+     */
     name: string
+    /** Internal notes about which messages belong to this category. Recipients don't see it. */
     description?: string
+    /** Description that recipients see next to the category on the preferences page. */
     public_description?: string
+    /** `marketing` (the default): recipients can opt out of it, and sends skip recipients who did. `transactional`: for messages a recipient must get, such as receipts or password resets. Sends ignore opt-outs, and the category doesn't appear on the preferences page. Set `message_category_type` on a workflow message step to the type of its category.
+     *
+     * * `marketing` - Marketing
+     * * `transactional` - Transactional */
     category_type?: MessageCategoryTypeEnumApi
+    /** When the category was created. */
     readonly created_at: string
+    /** When the category was last changed. */
     readonly updated_at: string
-    /** @nullable */
+    /**
+     * ID of the user who created the category. Null when the user no longer exists.
+     * @nullable
+     */
     readonly created_by: number | null
+    /** Set to true to archive the category. Archived categories don't appear in lists. */
     deleted?: boolean
 }
 
@@ -44,18 +63,37 @@ export interface PaginatedMessageCategoryListApi {
 }
 
 export interface PatchedMessageCategoryApi {
+    /** Category ID. Workflow message steps take it as `message_category_id`, and the opt-out of messages step takes it as its `category_id` input. */
     readonly id?: string
-    /** @maxLength 64 */
+    /**
+     * Stable identifier for the category, unique within the project, for example `newsletter`. Opt-out lists and preference imports refer to categories by key. You can't change the key after creation.
+     * @maxLength 64
+     */
     key?: string
-    /** @maxLength 128 */
+    /**
+     * Display name of the category, shown in the PostHog app.
+     * @maxLength 128
+     */
     name?: string
+    /** Internal notes about which messages belong to this category. Recipients don't see it. */
     description?: string
+    /** Description that recipients see next to the category on the preferences page. */
     public_description?: string
+    /** `marketing` (the default): recipients can opt out of it, and sends skip recipients who did. `transactional`: for messages a recipient must get, such as receipts or password resets. Sends ignore opt-outs, and the category doesn't appear on the preferences page. Set `message_category_type` on a workflow message step to the type of its category.
+     *
+     * * `marketing` - Marketing
+     * * `transactional` - Transactional */
     category_type?: MessageCategoryTypeEnumApi
+    /** When the category was created. */
     readonly created_at?: string
+    /** When the category was last changed. */
     readonly updated_at?: string
-    /** @nullable */
+    /**
+     * ID of the user who created the category. Null when the user no longer exists.
+     * @nullable
+     */
     readonly created_by?: number | null
+    /** Set to true to archive the category. Archived categories don't appear in lists. */
     deleted?: boolean
 }
 
@@ -254,6 +292,18 @@ export const MessageTemplateContentTemplatingEnumApi = {
     Liquid: 'liquid',
 } as const
 
+export interface EmailTemplateSenderApi {
+    /**
+     * Address to send from instead of the sender's own. Must be on the sender's verified domain. Supports Liquid templating. Leave out or empty to use the sender's address.
+     * @maxLength 254
+     */
+    email?: string
+    /** Sender name shown in the inbox instead of the sender's own. Supports Liquid templating. Leave out or empty to use the sender's name. */
+    name?: string
+    /** ID of the project's email sender integration that sends this email. Transactional sends need a verified sender. */
+    integrationId: number
+}
+
 /**
  * Highest htmlID suffix per element type, e.g. {"u_row": 1, "u_content_text": 2}.
  */
@@ -293,14 +343,20 @@ export type EmailTemplateApiDesign = {
 }
 
 export interface EmailTemplateApi {
-    /** Email subject line. Supports Liquid templating. Required for email-type templates. */
+    /** Email subject line. Supports Liquid templating. Required in `content` for email-type templates. A `draft_content` may leave it blank until it is published. */
     subject?: string
     /** Plain-text fallback body for clients that can't render the email. */
     text?: string
+    /** Preview text that most inboxes show after the subject. Supports Liquid templating. */
+    preheader?: string
     /** Rendered email body — derived from the design at save time. The visual editor's save path supplies it directly; omit it otherwise. */
     html?: string
     /** Design JSON for PostHog's visual email editor — the authoring surface and source of truth. The server renders the sent email from it, and it opens as editable blocks in the editor. Full schema in the designing-email-templates skill. */
     design?: EmailTemplateApiDesign
+    /** The sender a transactional template sends from. A template made transactional without one gets the sender it was made transactional with. */
+    from?: EmailTemplateSenderApi
+    /** Reply-to address for a transactional template. Separate several addresses with commas. Supports Liquid templating. Leave empty to use the sender's default reply-to. */
+    replyTo?: string
 }
 
 export interface MessageTemplateContentApi {
@@ -378,6 +434,12 @@ export interface MessageTemplateApi {
     name: string
     /** What the template is for and when to use it. */
     description?: string
+    /**
+     * Tags for organizing templates, for example by team or use case. Tags are shared with the rest of the project. Omit to keep the current tags, send an empty list to remove them all.
+     * @maxItems 10
+     * @items.maxLength 255
+     */
+    tags?: string[]
     readonly created_at: string
     readonly updated_at: string
     /** Template content keyed by channel. Replaced as a whole on update, not merged. */
@@ -395,6 +457,15 @@ export interface MessageTemplateApi {
     message_category?: string | null
     /** Soft-delete flag. Set true to remove the template from the library. */
     deleted?: boolean
+    /** For emails that carry login codes, reset links or other secrets. PostHog keeps no copy of each sent email's body or filled-in subject, and clicked links keep only the site address. Can change at any time. */
+    sensitive?: boolean
+    /**
+     * The workflow that sends this template over the transactional email API. Null until the template is made transactional. Each content save writes a new version of it.
+     * @nullable
+     */
+    readonly transactional_hog_flow_id: string | null
+    /** Unpublished edits to a transactional template's content. Sends keep using `content`. Saving `content` publishes it and clears the draft. Set null to discard the draft. */
+    draft_content?: MessageTemplateContentApi | null
 }
 
 export interface PaginatedMessageTemplateListApi {
@@ -415,6 +486,12 @@ export interface PatchedMessageTemplateApi {
     name?: string
     /** What the template is for and when to use it. */
     description?: string
+    /**
+     * Tags for organizing templates, for example by team or use case. Tags are shared with the rest of the project. Omit to keep the current tags, send an empty list to remove them all.
+     * @maxItems 10
+     * @items.maxLength 255
+     */
+    tags?: string[]
     readonly created_at?: string
     readonly updated_at?: string
     /** Template content keyed by channel. Replaced as a whole on update, not merged. */
@@ -432,6 +509,15 @@ export interface PatchedMessageTemplateApi {
     message_category?: string | null
     /** Soft-delete flag. Set true to remove the template from the library. */
     deleted?: boolean
+    /** For emails that carry login codes, reset links or other secrets. PostHog keeps no copy of each sent email's body or filled-in subject, and clicked links keep only the site address. Can change at any time. */
+    sensitive?: boolean
+    /**
+     * The workflow that sends this template over the transactional email API. Null until the template is made transactional. Each content save writes a new version of it.
+     * @nullable
+     */
+    readonly transactional_hog_flow_id?: string | null
+    /** Unpublished edits to a transactional template's content. Sends keep using `content`. Saving `content` publishes it and clears the draft. Set null to discard the draft. */
+    draft_content?: MessageTemplateContentApi | null
 }
 
 /**
@@ -490,6 +576,44 @@ export interface DesignOperationApi {
 export interface PatchedDesignPatchApi {
     /** Ordered edits applied atomically to a template's Unlayer design: the stored design is read, the ops are applied in order, the result is validated and re-rendered to HTML, and it's saved only if valid — otherwise the template is unchanged. Reference blocks by id so you never resend the whole design. */
     operations?: DesignOperationApi[]
+}
+
+export interface MakeTransactionalApi {
+    /**
+     * ID of the verified email sender integration the email is sent from. Defaults to the project's default sender.
+     * @nullable
+     */
+    from_integration_id?: number | null
+}
+
+/**
+ * Data for the template's Liquid placeholders, available as `variables`. For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`.
+ */
+export type SendTransactionalEmailApiMessageData = { [key: string]: unknown }
+
+export interface TransactionalEmailIdentifiersApi {
+    /**
+     * Distinct ID of the recipient's person. The email's engagement events (sent, delivered, opened, clicked, bounced) and the send itself are recorded against that person. Defaults to the recipient's email address. The template can't read the person's properties, so pass everything it needs in `message_data`.
+     * @maxLength 400
+     * @nullable
+     */
+    distinct_id?: string | null
+}
+
+export interface SendTransactionalEmailApi {
+    /** Email address of the recipient. */
+    to: string
+    /** Who the email is for, used to attribute engagement events. */
+    identifiers?: TransactionalEmailIdentifiersApi
+    /** Data for the template's Liquid placeholders, available as `variables`. For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`. */
+    message_data?: SendTransactionalEmailApiMessageData
+}
+
+export interface SendTransactionalEmailResponseApi {
+    /** ID of the queued send. Delivery and engagement are reported against the template asynchronously. */
+    message_id: string
+    /** True when an earlier request with the same `Idempotency-Key` already queued this email. No new email was sent, and `message_id` is the earlier send's ID. */
+    replayed: boolean
 }
 
 export type MessagingCategoriesListParams = {

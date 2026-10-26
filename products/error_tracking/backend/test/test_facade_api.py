@@ -3,6 +3,7 @@ from datetime import timedelta
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.db import DataError
 from django.test import override_settings
 from django.utils.timezone import now
 
@@ -11,6 +12,8 @@ from parameterized import parameterized
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
 from posthog.models import Team
+from posthog.models.event_filter_config import EventFilterPipelineOverride
+from posthog.models.event_ingestion_restriction_config import IngestionPipeline
 from posthog.models.integration import GitLabIntegrationError, Integration
 
 from products.access_control.backend.facade.testing import add_role_member, create_role
@@ -126,7 +129,7 @@ class TestErrorTrackingFacadeAPI(BaseTest):
 
         attachment_url = mock_create_issue.call_args.args[0]
         assert mock_create_issue.call_args.args[1]["title"] == "Checkout TypeError"
-        assert attachment_url.endswith(f"/project/{self.team.id}/error_tracking/fingerprint/fp%2Fwith%23chars")
+        assert attachment_url.endswith(f"/project/{self.team.id}/error-tracking/fingerprint/fp%2Fwith%23chars")
         assert reference.external_id == "LIN-1"
         assert reference.title == "Checkout TypeError"
 
@@ -155,7 +158,7 @@ class TestErrorTrackingFacadeAPI(BaseTest):
         )
 
         attachment_url = mock_create_issue.call_args.args[0]
-        assert attachment_url.endswith(f"/project/{self.team.id}/error_tracking/{issue.id}")
+        assert attachment_url.endswith(f"/project/{self.team.id}/error-tracking/{issue.id}")
 
     @override_settings(ATLASSIAN_APP_CLIENT_ID="atlassian-client-id", ATLASSIAN_APP_CLIENT_SECRET="atlassian-secret")
     @patch("products.error_tracking.backend.logic.external_references.JiraIntegration.create_issue")
@@ -205,7 +208,7 @@ class TestErrorTrackingFacadeAPI(BaseTest):
         mock_create_issue.assert_not_called()
         linked_issue_id, attachment_url = mock_create_attachment.call_args.args
         assert linked_issue_id == "ENG-42"
-        assert f"/project/{self.team.id}/error_tracking/" in attachment_url
+        assert f"/project/{self.team.id}/error-tracking/" in attachment_url
         assert reference.external_url == "https://linear.app/acme/issue/ENG-42"
         assert reference.external_id == "ENG-42"
         assert reference.title == "Checkout TypeError"
@@ -615,6 +618,26 @@ class TestErrorTrackingFacadeAPI(BaseTest):
         api.update_settings(self.team.id, {"project_rate_limit_value": 42})
 
         assert api.get_settings(other_team.id).project_rate_limit_value is None
+
+    @parameterized.expand([("project", False), ("environment", True)])
+    def test_exception_ingestion_switch_writes_the_environment_pipeline_override(self, _name, via_environment):
+        team_id = self.team.id
+        if via_environment:
+            team_id = Team.objects.create(
+                organization=self.organization, project=self.project, parent_team=self.team, name="Environment"
+            ).id
+        assert api.get_settings(team_id).ingestion_enabled is True
+
+        for enabled in (False, True):
+            assert api.update_settings(team_id, {"ingestion_enabled": enabled}).ingestion_enabled is enabled
+            overrides = EventFilterPipelineOverride.objects.unscoped().values_list(
+                "team_id", "pipeline", "drop_all_events"
+            )
+            assert list(overrides) == [(team_id, IngestionPipeline.ERRORTRACKING, not enabled)]
+
+        with self.assertRaises(DataError):
+            api.update_settings(team_id, {"ingestion_enabled": False, "project_rate_limit_value": 2**31})
+        assert api.get_settings(team_id).ingestion_enabled is True
 
     def test_spike_detection_config_get_and_update(self):
         config = api.get_spike_detection_config(self.team.id)

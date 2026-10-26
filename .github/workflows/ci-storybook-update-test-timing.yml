@@ -24,6 +24,7 @@ permissions:
 jobs:
     collect-and-refresh:
         name: Refresh storybook timing manifest from CI artifacts
+        if: github.repository == 'PostHog/posthog'
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 15
         steps:

@@ -252,7 +252,7 @@ describe('ReferenceLine', () => {
         it.each([
             ['goal (default)', undefined, 'dashed', '2px'],
             ['alert', 'alert' as const, 'dashed', '2px'],
-            ['marker', 'marker' as const, 'solid', '1px'],
+            ['marker', 'marker' as const, 'dashed', '1px'],
         ])('variant %s renders expected stroke style', (_name, variant, expectedStyle, expectedWidth) => {
             const { container } = renderInChart(<ReferenceLine value={50} variant={variant} />)
             const line = lineDiv(container, 'top')!

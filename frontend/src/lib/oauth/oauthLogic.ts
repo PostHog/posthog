@@ -6,7 +6,7 @@ import { getRelativeNextPath } from 'lib/utils/url'
 
 import { Region } from '~/types'
 
-import { clearSQLEditorDrafts } from 'products/data_warehouse/frontend/sqlEditorDraftStorage'
+import { clearSQLEditorDrafts } from 'products/data_warehouse/frontend/sqlEditorDraftCleanup'
 
 import { buildAuthorizeUrl, clearSession, exchangeCodeForToken, OAUTH_REGIONS, PendingAuth } from './oauthClient'
 import { generateCodeVerifier, generateState } from './pkce'

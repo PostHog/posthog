@@ -2,6 +2,7 @@ from typing import TYPE_CHECKING, cast
 
 from requests.exceptions import HTTPError
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -47,7 +48,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.paymongo.s
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 if TYPE_CHECKING:
-    from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
+    from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
 
 
 def webhook_error(error: HTTPError) -> str:
@@ -59,6 +60,8 @@ def webhook_error(error: HTTPError) -> str:
 
 @SourceRegistry.register
 class PaymongoSource(ResumableSource[PaymongoSourceConfig, PaymongoResumeConfig], WebhookSource[PaymongoSourceConfig]):
+    codebase_detection = detect(env=("^PAYMONGO_", "^PAYMONGO_SECRET_KEY$"))
+
     lists_tables_without_credentials = True
     api_docs_url = "https://docs.paymongo.com/reference/list-all-payments"
 
@@ -89,7 +92,7 @@ class PaymongoSource(ResumableSource[PaymongoSourceConfig, PaymongoResumeConfig]
                     )
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             webhookSetupCaption="PostHog registers payment webhooks automatically. For manual setup, add the URL below in PayMongo, select payment.paid, payment.failed, payment.refunded, and payment.refund.updated, then copy the signing secret below. Disconnecting disables the webhook in PayMongo.",
             webhookFields=cast(
                 list[FieldType],

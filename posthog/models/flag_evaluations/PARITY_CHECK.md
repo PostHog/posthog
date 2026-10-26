@@ -92,7 +92,7 @@ A team with no rows on the day produces no result row at all. Compare the return
 
 ### Group by `(team_id, uuid)` before counting
 
-`flag_evaluations` is a plain MergeTree and keeps the duplicate rows a Kafka replay produces. The ReplacingMergeTree behind events collapses them. Counting rows per side instead of distinct uuids reports that difference in table engine as a parity failure.
+Both tables are ReplacingMergeTrees, but each one collapses the duplicate rows of a uuid only when its own parts merge. A `flag_evaluations` table created before the switch to ReplacingMergeTree is a plain MergeTree and never collapses them. Counting rows per side instead of distinct uuids reports those unmerged duplicates as a parity failure.
 
 Grouping first also means a re-sent uuid that reached both tables lands in `in_both`, not in the excess column.
 

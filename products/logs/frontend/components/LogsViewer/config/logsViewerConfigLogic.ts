@@ -35,6 +35,7 @@ export const DEFAULT_VIEW_MODE: LogsViewerViewMode = 'logs'
 // to the same window one week earlier (absorbs daily/weekly cycles); 'preceding' compares
 // against the window immediately before the current one (the post-deploy / spike comparison).
 export type PatternsBaselineMode = 'lastWeek' | 'preceding'
+export const DEFAULT_BASELINE_MODE: PatternsBaselineMode = 'preceding'
 
 export interface LogsViewerGroupBy {
     key: string
@@ -237,7 +238,7 @@ export const logsViewerConfigLogic = kea<logsViewerConfigLogicType>([
             },
         ],
         baselineMode: [
-            'lastWeek' as PatternsBaselineMode,
+            DEFAULT_BASELINE_MODE as PatternsBaselineMode,
             {
                 setBaselineMode: (_, { mode }) => mode,
             },

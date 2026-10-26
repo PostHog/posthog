@@ -13,6 +13,7 @@ from posthog.test.base import (
     flush_persons_and_events,
 )
 
+from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import PersonsOnEventsMode
@@ -2376,7 +2377,18 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
 
         assert sorted([p1.uuid, p2.uuid]) == sorted([r[0] for r in res])
 
-    def test_performed_event_sequence(self):
+    @parameterized.expand(
+        [
+            ("time_value", {"time_interval": "day", "time_value": 7}, True),
+            ("explicit_datetime", {"explicit_datetime": "-7d"}, True),
+            (
+                "explicit_datetime_range_before_sequence",
+                {"explicit_datetime": "-7d", "explicit_datetime_to": "-4d"},
+                False,
+            ),
+        ]
+    )
+    def test_performed_event_sequence(self, _name: str, time_bound: dict[str, Any], p1_matches: bool) -> None:
         p1 = _create_person(
             team_id=self.team.pk,
             distinct_ids=["p1"],
@@ -2408,8 +2420,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                         {
                             "key": "$pageview",
                             "event_type": "events",
-                            "time_interval": "day",
-                            "time_value": 7,
+                            **time_bound,
                             "seq_time_interval": "day",
                             "seq_time_value": 3,
                             "seq_event": "$pageview",
@@ -2424,7 +2435,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
 
         res = execute(filter, self.team)
 
-        assert [p1.uuid] == [r[0] for r in res]
+        assert ([p1.uuid] if p1_matches else []) == [r[0] for r in res]
 
     @also_test_with_materialized_columns(event_properties=["$current_url"])
     def test_performed_event_sequence_with_action(self):

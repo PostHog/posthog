@@ -17,7 +17,7 @@ export interface NodePropertyListProps {
 
 export function NodePropertyList({ node, properties }: NodePropertyListProps): JSX.Element {
     const { stats } = node
-    const time = (
+    const time = properties.timestamp ? (
         <TZLabel
             time={properties.timestamp}
             timestampStyle="absolute"
@@ -26,7 +26,7 @@ export function NodePropertyList({ node, properties }: NodePropertyListProps): J
             showSeconds
             className="font-mono"
         />
-    )
+    ) : null
     const tokens = formatTokenCounts(stats.inputTokens, stats.outputTokens) ?? UNKNOWN_VALUE
     const cache = formatCacheTokens(stats.cacheReadTokens, stats.cacheWriteTokens)
     const latency = stats.latencyMs !== null ? formatLatencyMs(stats.latencyMs) : UNKNOWN_VALUE

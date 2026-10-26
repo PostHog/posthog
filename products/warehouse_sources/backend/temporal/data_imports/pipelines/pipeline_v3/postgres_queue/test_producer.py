@@ -1,4 +1,5 @@
 import json
+import dataclasses
 from typing import Any
 
 import pytest
@@ -6,6 +7,7 @@ from unittest.mock import MagicMock, PropertyMock, patch
 
 import psycopg
 
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import ReplaceScopeRef
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.producer import (
     PostgresProducer,
 )
@@ -109,17 +111,20 @@ class TestPostgresProducerSendBatch:
             cdc_write_mode="upsert",
             cdc_table_mode="merge",
         )
-        batch_result = _make_batch_result(batch_index=1)
+        producer.replace_scope = ReplaceScopeRef(column="_file_name", manifest_path="s3://bucket/manifest.parquet")
+        batch_result = dataclasses.replace(_make_batch_result(batch_index=1), arrow_bytes=4096)
 
         producer.send_batch_notification(batch_result)
 
         mock = _mock_conn(producer)
         params = mock.execute.call_args[0][1]
         metadata = json.loads(params["metadata"])
+        assert metadata["arrow_bytes"] == 4096
         assert metadata["primary_keys"] == ["id"]
         assert metadata["partition_count"] == 4
         assert metadata["cdc_write_mode"] == "upsert"
         assert metadata["cdc_table_mode"] == "merge"
+        assert metadata["replace_scope"] == {"column": "_file_name", "manifest_path": "s3://bucket/manifest.parquet"}
         assert metadata["timestamp_ns"] == 123456789
 
 
@@ -182,14 +187,27 @@ class TestPostgresProducerSupersede:
         )
 
     @pytest.mark.parametrize(
-        "sync_type,spare",
-        [("full_refresh", False), ("incremental", True), ("append", True), ("cdc", True)],
+        "sync_type,replaces_rows,spare",
+        [
+            ("full_refresh", False, False),
+            ("incremental", False, True),
+            ("incremental", True, False),
+            ("append", False, False),
+            ("cdc", False, True),
+        ],
     )
-    def test_only_full_refresh_supersedes_a_run_that_is_still_loading(self, sync_type: str, spare: bool) -> None:
-        """A fresh full_refresh overwrites the table on batch 0, so an older attempt's loaded rows
-        are discarded either way and its queued batches are dead weight on the serial per-schema
-        gate. Every other sync type keeps the sparing rule, because partially merged work survives."""
+    def test_only_full_refresh_append_and_replace_scope_supersede_a_run_that_is_still_loading(
+        self, settings: Any, sync_type: str, replaces_rows: bool, spare: bool
+    ) -> None:
+        """A fresh full_refresh overwrites the table on batch 0, and the loader removes an older
+        append attempt's rows on batch 0, and a run with a replace scope deletes on batch 0 the rows of
+        every file an older attempt read, so the loaded rows of an older attempt are discarded
+        either way and its queued batches are dead weight on the serial per-schema gate. The other
+        sync types keep the sparing rule, because partially merged work survives."""
+        settings.DATA_WAREHOUSE_APPEND_ROLLBACK_ENABLED = True
         producer = _make_producer(is_resume=False, sync_type=sync_type)
+        if replaces_rows:
+            producer.replace_scope = ReplaceScopeRef(column="_file_name", manifest_path="s3://bucket/manifest.parquet")
         batch_result = _make_batch_result(batch_index=0)
 
         with patch(
@@ -199,6 +217,18 @@ class TestPostgresProducerSupersede:
             producer.send_batch_notification(batch_result)
 
         assert mock_supersede.call_args.kwargs["spare_runs_with_progress"] is spare
+
+    def test_append_spares_a_loading_run_when_rollback_is_disabled(self, settings: Any) -> None:
+        settings.DATA_WAREHOUSE_APPEND_ROLLBACK_ENABLED = False
+        producer = _make_producer(is_resume=False, sync_type="append")
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.producer.BatchQueue.supersede_other_runs",
+            return_value=0,
+        ) as mock_supersede:
+            producer.send_batch_notification(_make_batch_result(batch_index=0))
+
+        assert mock_supersede.call_args.kwargs["spare_runs_with_progress"] is True
 
     def test_does_not_supersede_on_non_zero_batch(self) -> None:
         producer = _make_producer(is_resume=False)

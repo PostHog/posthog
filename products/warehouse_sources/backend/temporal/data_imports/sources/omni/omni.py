@@ -1,5 +1,6 @@
 import re
 import dataclasses
+from collections.abc import Callable
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 from urllib.parse import urlparse
@@ -11,12 +12,18 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
     rest_api_resource,
+    rest_api_resources,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    rename_parent_fields,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     BasePaginator,
     SinglePagePaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ClientConfig,
     Endpoint,
     EndpointResource,
 )
@@ -25,6 +32,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sou
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.omni.settings import (
     DEFAULT_PAGE_SIZE,
+    FANOUT_ENDPOINTS,
     PARTITION_KEYS,
     PRIMARY_KEYS,
     SCIM_ENDPOINTS,
@@ -37,12 +45,14 @@ LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1"}
 HOST_NOT_ALLOWED_ERROR = "Omni host is not allowed"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class OmniResumeConfig:
     # Documents/Folders/Schedules resume via an opaque `nextCursor`; the SCIM Users/UserGroups
-    # endpoints resume via a numeric `startIndex`. Only one is ever populated for a given endpoint.
+    # endpoints resume via a numeric `startIndex`; fan-out endpoints resume via the framework's
+    # per-parent state. Only one is ever populated for a given endpoint.
     cursor: Optional[str] = None
     start_index: Optional[int] = None
+    fanout_state: Optional[dict[str, Any]] = None
 
 
 def normalize_host(host: str) -> str:
@@ -298,7 +308,118 @@ def get_resource(
             "table_format": "delta",
         }
 
+    if name == "Models":
+        endpoint = {
+            "path": "/v1/models",
+            "params": {"sortField": "createdAt", "sortDirection": "asc"},
+            "paginator": OmniPageInfoPaginator(),
+            "data_selector": "records",
+        }
+        return {
+            "name": name,
+            "table_name": "models",
+            "write_disposition": "replace",
+            "endpoint": endpoint,
+            "table_format": "delta",
+        }
+
+    if name == "UserAttributes":
+        endpoint = {
+            "path": "/v1/user-attributes",
+            "paginator": SinglePagePaginator(),
+            "data_selector": "records",
+        }
+        return {
+            "name": name,
+            "table_name": "user_attributes",
+            "write_disposition": "replace",
+            "endpoint": endpoint,
+            "table_format": "delta",
+        }
+
+    if name == "ScheduleRecipients":
+        # The response is one object per schedule describing its destination, not a list.
+        endpoint = {
+            "path": "/v1/schedules/{scheduleId}/recipients",
+            "paginator": SinglePagePaginator(),
+        }
+        return {
+            "name": name,
+            "table_name": "schedule_recipients",
+            "write_disposition": "replace",
+            "endpoint": endpoint,
+            "table_format": "delta",
+        }
+
+    if name == "DocumentPermissions":
+        endpoint = {
+            "path": "/v1/documents/{documentId}/access-list",
+            "params": {"sortField": "name", "sortDirection": "asc"},
+            "paginator": OmniPageInfoPaginator(),
+            "data_selector": "principals",
+        }
+        return {
+            "name": name,
+            "table_name": "document_permissions",
+            "write_disposition": "replace",
+            "endpoint": endpoint,
+            "table_format": "delta",
+        }
+
     raise ValueError(f"Unknown Omni endpoint: {name}")
+
+
+def _add_principal_id(row: dict[str, Any]) -> dict[str, Any]:
+    # Users carry `userId` and groups carry `userGroupId`; the combined `id` is deprecated.
+    row["principalId"] = row.get("userId") or row.get("userGroupId") or row.get("id")
+    return row
+
+
+def _fanout_resource(
+    endpoint: str,
+    client_config: ClientConfig,
+    team_id: int,
+    job_id: str,
+    resume_hook: Callable[[Optional[dict[str, Any]]], None],
+    initial_paginator_state: Optional[dict[str, Any]],
+) -> Resource:
+    fanout = FANOUT_ENDPOINTS[endpoint]
+
+    parent_resource = get_resource(fanout.parent_name, False, None)
+    parent_endpoint = parent_resource["endpoint"]
+    assert isinstance(parent_endpoint, dict)
+    if fanout.parent_params:
+        parent_endpoint["params"] = {**(parent_endpoint.get("params") or {}), **fanout.parent_params}
+
+    child_resource = get_resource(endpoint, False, None)
+    child_resource["include_from_parent"] = fanout.include_from_parent
+    child_endpoint = child_resource["endpoint"]
+    assert isinstance(child_endpoint, dict)
+    child_endpoint["params"] = {
+        **(child_endpoint.get("params") or {}),
+        fanout.resolve_param: {"type": "resolve", "resource": fanout.parent_name, "field": fanout.resolve_field},
+    }
+    if fanout.child_response_actions:
+        child_endpoint["response_actions"] = fanout.child_response_actions
+
+    config: RESTAPIConfig = {
+        "client": client_config,
+        "resource_defaults": {},
+        "resources": [parent_resource, child_resource],
+    }
+    resources = rest_api_resources(
+        config,
+        team_id,
+        job_id,
+        None,
+        resume_hook=resume_hook,
+        initial_paginator_state=initial_paginator_state,
+    )
+    child = next(r for r in resources if getattr(r, "name", None) == endpoint)
+    child = child.add_map(rename_parent_fields(fanout.parent_name, fanout.parent_field_renames))
+    if endpoint == "DocumentPermissions":
+        child = child.add_map(_add_principal_id)
+    return child
 
 
 def validate_credentials(
@@ -398,35 +519,36 @@ def omni_source(
     if not host_ok:
         raise ValueError(host_err or HOST_NOT_ALLOWED_ERROR)
 
-    stop_when_older_than = _format_watermark(db_incremental_field_last_value) if should_use_incremental_field else None
-    resource_config = get_resource(endpoint, should_use_incremental_field, stop_when_older_than)
-
-    config: RESTAPIConfig = {
-        "client": {
-            "base_url": _base_api_url(host),
-            "auth": {"type": "bearer", "token": api_key},
-            "headers": {"Accept": "application/json"},
-            # SSRF defense in depth: pin every request to the validated host and never follow a
-            # 3xx, so a redirect can't bounce the bearer token to a private/metadata address.
-            "allowed_hosts": [hostname],
-            "allow_redirects": False,
-        },
-        "resources": [resource_config],
+    client_config: ClientConfig = {
+        "base_url": _base_api_url(host),
+        "auth": {"type": "bearer", "token": api_key},
+        "headers": {"Accept": "application/json"},
+        # SSRF defense in depth: pin every request to the validated host and never follow a
+        # 3xx, so a redirect can't bounce the bearer token to a private/metadata address.
+        "allowed_hosts": [hostname],
+        "allow_redirects": False,
     }
+
+    is_fanout = endpoint in FANOUT_ENDPOINTS
 
     initial_paginator_state: Optional[dict[str, Any]] = None
     if resumable_source_manager.can_resume():
         resume_config = resumable_source_manager.load_state()
         if resume_config is not None:
-            if resume_config.cursor:
+            if is_fanout:
+                initial_paginator_state = resume_config.fanout_state
+            elif resume_config.cursor:
                 initial_paginator_state = {"cursor": resume_config.cursor}
             elif resume_config.start_index:
                 initial_paginator_state = {"start_index": resume_config.start_index}
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
-        # Only Documents/Folders/Schedules/Users/UserGroups paginate; Connections uses
-        # SinglePagePaginator and never reports a resume state, so this is a no-op for it.
+        # Connections and UserAttributes use SinglePagePaginator and never report a resume state,
+        # so this is a no-op for them.
         if not state:
+            return
+        if is_fanout:
+            resumable_source_manager.save_state(OmniResumeConfig(fanout_state=state))
             return
         cursor = state.get("cursor")
         start_index = state.get("start_index")
@@ -435,17 +557,35 @@ def omni_source(
         elif start_index:
             resumable_source_manager.save_state(OmniResumeConfig(start_index=int(start_index)))
 
-    resource = rest_api_resource(
-        config,
-        team_id,
-        job_id,
-        # Incremental filtering is applied via the custom paginator's `stop_when_older_than`
-        # above, not the framework's declarative `incremental` param — no endpoint here declares
-        # one, so the framework has nothing to inject this into.
-        None,
-        resume_hook=save_checkpoint,
-        initial_paginator_state=initial_paginator_state,
-    )
+    resource: Resource
+    if is_fanout:
+        resource = _fanout_resource(
+            endpoint,
+            client_config,
+            team_id,
+            job_id,
+            resume_hook=save_checkpoint,
+            initial_paginator_state=initial_paginator_state,
+        )
+    else:
+        stop_when_older_than = (
+            _format_watermark(db_incremental_field_last_value) if should_use_incremental_field else None
+        )
+        config: RESTAPIConfig = {
+            "client": client_config,
+            "resources": [get_resource(endpoint, should_use_incremental_field, stop_when_older_than)],
+        }
+        resource = rest_api_resource(
+            config,
+            team_id,
+            job_id,
+            # Incremental filtering is applied via the custom paginator's `stop_when_older_than`
+            # above, not the framework's declarative `incremental` param — no endpoint here declares
+            # one, so the framework has nothing to inject this into.
+            None,
+            resume_hook=save_checkpoint,
+            initial_paginator_state=initial_paginator_state,
+        )
 
     partition_key = PARTITION_KEYS.get(endpoint)
 

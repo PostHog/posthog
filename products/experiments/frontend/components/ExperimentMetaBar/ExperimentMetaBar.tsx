@@ -13,6 +13,7 @@ import { urls } from 'scenes/urls'
 import { StatusTag } from 'products/experiments/frontend/components/StatusTag'
 import { TruncatedText } from 'products/experiments/frontend/components/TruncatedText'
 import { getExperimentStatus, isExperimentPaused } from 'products/experiments/frontend/experimentStatus'
+import { ExperimentHealthChip } from 'products/experiments/frontend/health/ExperimentHealthChip'
 import { RunningTimeConfigModal } from 'products/experiments/frontend/modals/RunningTimeConfigModal/RunningTimeConfigModal'
 
 import { ExperimentConclusionCard } from './ExperimentConclusionCard'
@@ -55,7 +56,7 @@ export function ExperimentMetaBar(): JSX.Element | null {
         <div className="flex flex-col gap-2 -mt-2" data-attr="experiment-meta-bar">
             {/* The gutter is 12px gap + 1px divider + 12px gap; the 4px clip margin keeps focus rings visible. */}
             <div className="overflow-x-clip [overflow-clip-margin:4px]">
-                <div className="flex items-start justify-between gap-x-3 -ml-[25px] text-sm">
+                <div className="flex items-start justify-between gap-x-3 -ml-[25px] text-xs">
                     <div className="flex flex-wrap items-center gap-y-2 min-w-0">
                         <MetaItem className="gap-1" data-attr="experiment-status">
                             {isPaused ? (
@@ -72,6 +73,7 @@ export function ExperimentMetaBar(): JSX.Element | null {
                                     </LemonTag>
                                 </Tooltip>
                             )}
+                            <ExperimentHealthChip />
                         </MetaItem>
 
                         {visibility.showConclusion && (

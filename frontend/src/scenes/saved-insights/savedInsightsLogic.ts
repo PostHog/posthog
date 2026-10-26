@@ -27,7 +27,6 @@ import { userLogic } from 'scenes/userLogic'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
-import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { Breadcrumb, InsightModel, SavedInsightsTabs, UserType } from '~/types'
 
 import {
@@ -115,6 +114,7 @@ function insightsListParams(filters: SavedInsightFilters): Record<string, any> {
         saved: true,
         // PostHog no longer generates these, and the flag Usage tab still shows the same charts
         hide_feature_flag_insights: true,
+        exclude_bi: true,
         ...(filters.favorited && { favorited: true }),
         ...(filters.search && { search: filters.search }),
         ...(filters.insightType?.toLowerCase() !== 'all types' && {
@@ -148,7 +148,15 @@ function insightsListParams(filters: SavedInsightFilters): Record<string, any> {
 }
 
 /** Params that scope, page, or sort the list rather than filter it. */
-const NON_NARROWING_PARAM_KEYS = ['order', 'limit', 'offset', 'saved', 'user', 'hide_feature_flag_insights']
+const NON_NARROWING_PARAM_KEYS = [
+    'order',
+    'limit',
+    'offset',
+    'saved',
+    'user',
+    'hide_feature_flag_insights',
+    'exclude_bi',
+]
 
 /**
  * Whether any filter that narrows the insights list is active, i.e. the API request would carry a
@@ -412,17 +420,12 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                 }
 
                 // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use insightsList() from 'products/product_analytics/frontend/generated/api' instead.
-                const legacyResponse: CountedPaginatedResponse<InsightModel> = await api.get(
+                const response: CountedPaginatedResponse<InsightModel> = await api.get(
                     `api/projects/${teamLogic.values.currentTeamId}/insights/?${toParams(params)}`
                 )
 
                 // Cancel if a newer request came in while this one was in flight
                 await breakpoint()
-
-                const response = {
-                    ...legacyResponse,
-                    results: legacyResponse.results.map((legacyInsight) => getQueryBasedInsightModel(legacyInsight)),
-                }
 
                 if (filters.search && String(filters.search).match(/^[0-9]+$/)) {
                     try {
