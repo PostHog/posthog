@@ -1195,13 +1195,13 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         responses={
             200: OpenApiResponse(
                 response=WizardCloudRunSerializer,
-                description="The team's active onboarding wizard cloud run.",
+                description="The current user's active onboarding wizard cloud run.",
             ),
             204: OpenApiResponse(description="No active onboarding wizard cloud run for this project."),
         },
-        summary="Get the team's active onboarding wizard cloud run",
+        summary="Get the current user's active onboarding wizard cloud run",
         description=(
-            "Returns the most recent onboarding wizard cloud run for the current project when it is "
+            "Returns the current user's most recent onboarding wizard cloud run when it is "
             "still running (or completed within the last day), so the setup-progress FAB can rehydrate "
             "after a drop-flow signup that started the run server-side. Returns 204 when there is none."
         ),
@@ -1215,7 +1215,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         filter_backends=[],
     )
     def active_wizard_run(self, request, **kwargs):
-        run = tasks_facade.get_active_wizard_cloud_run(self.team_id)
+        run = tasks_facade.get_active_wizard_cloud_run(self.team_id, request.user.id)
         if run is None:
             return Response(status=status.HTTP_204_NO_CONTENT)
         return Response(WizardCloudRunSerializer(run).data)

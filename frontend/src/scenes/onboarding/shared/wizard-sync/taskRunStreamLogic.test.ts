@@ -1,4 +1,4 @@
-import { MOCK_TEAM_ID } from 'lib/api.mock'
+import { MOCK_DEFAULT_USER, MOCK_TEAM_ID } from 'lib/api.mock'
 import { installMockEventSource, MockEventSource } from 'lib/wizard-sync/eventSource.mock'
 
 import { expectLogic } from 'kea-test-utils'
@@ -435,7 +435,13 @@ describe('taskRunStreamLogic transport', () => {
         logic = taskRunStreamLogic({ taskId: 'task-1', runId: 'run-1' })
         logic.mount()
         mounted = true
-        activeCloudRunLogic.actions.setActiveCloudRun('task-1', 'run-1', RUN_STARTED_AT, MOCK_TEAM_ID)
+        activeCloudRunLogic.actions.setActiveCloudRun(
+            'task-1',
+            'run-1',
+            RUN_STARTED_AT,
+            MOCK_TEAM_ID,
+            MOCK_DEFAULT_USER.id
+        )
         await expectLogic(projectLogic).toMatchValues({ currentProjectId: MOCK_TEAM_ID })
         jest.useFakeTimers()
     })

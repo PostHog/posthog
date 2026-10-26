@@ -7,7 +7,7 @@ import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import type { TeamType } from '~/types'
+import type { TeamType, UserType } from '~/types'
 
 import { tasksActiveWizardRunRetrieve, tasksRunsCancelCreate } from 'products/tasks/frontend/generated/api'
 import type { WizardCloudRunDTOApi } from 'products/tasks/frontend/generated/api.schemas'
@@ -23,12 +23,18 @@ export interface CloudRunHandle {
     /** Project the run belongs to. Optional: runs persisted before this field existed will not have
      * it — those are treated as stale and never surfaced (see `activeCloudRun`). */
     projectId?: number
+    /** User who started the run. Old handles have no owner and are stale. */
+    userId?: number
 }
 
-// The persisted handle, but only when it belongs to the given project. Handles without a projectId
-// predate the stamp and can't be attributed, so they're stale by definition.
-export function scopedCloudRun(handle: CloudRunHandle | null, currentProjectId: number | null): CloudRunHandle | null {
-    return handle?.projectId != null && handle.projectId === currentProjectId ? handle : null
+// The persisted handle, but only when it belongs to the given project and user. Handles without
+// either stamp predate ownership and can't be attributed, so they're stale by definition.
+export function scopedCloudRun(
+    handle: CloudRunHandle | null,
+    currentProjectId: number | null,
+    currentUserId: number | null
+): CloudRunHandle | null {
+    return handle?.projectId === currentProjectId && handle.userId === currentUserId ? handle : null
 }
 
 // How often the persisted handle is re-checked against the server while one is held. The run stream
@@ -46,11 +52,8 @@ export type CloudRunReconciliation = 'keep' | 'clear' | 'adopt'
  * handoff before the user dismissed it.
  *
  * Nothing is ever adopted onto a client that already holds a handle, and adoption at all requires
- * `canAdopt`. The endpoint is TEAM-scoped: it answers with the newest onboarding cloud run anywhere
- * in the project, whoever started it, and carries no creator. So an unconditional adopt would point
- * a user's progress surfaces, the wizard-session stream behind them, and their Cancel button at a
- * run that is not theirs. `canAdopt` is the drop-flow signup (`isProvisionedUser`), the one account
- * whose run is started server-side and therefore never had a local handle to adopt from.
+ * `canAdopt`. The endpoint only returns the current user's runs, so the drop-flow signup can adopt
+ * its server-started run without exposing a teammate's progress surface or Cancel button.
  */
 export function reconcileCloudRun(
     local: CloudRunHandle | null,
@@ -68,6 +71,7 @@ export interface activeCloudRunLogicValues {
     currentProjectId: number | null // projectLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     isProvisionedUser: boolean // userLogic
+    user: UserType | null // userLogic
     activeCloudRun: CloudRunHandle | null
     canHydrateFromServer: boolean
     cancellingRun: boolean
@@ -95,12 +99,14 @@ export interface activeCloudRunLogicActions {
         taskId: string,
         runId: string,
         startedAt: string,
-        projectId: number
+        projectId: number,
+        userId: number
     ) => {
         projectId: number
         runId: string
         startedAt: string
         taskId: string
+        userId: number
     }
 }
 
@@ -109,13 +115,15 @@ export interface activeCloudRunLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         activeCloudRun: (
             persistedCloudRun: CloudRunHandle | null,
-            currentProjectId: number | null
+            currentProjectId: number | null,
+            user: UserType | null
         ) => CloudRunHandle | null
         canHydrateFromServer: (
             currentProjectId: number | null,
             currentTeam: TeamPublicType | TeamType | null,
             activeCloudRun: CloudRunHandle | null,
-            isProvisionedUser: boolean
+            isProvisionedUser: boolean,
+            user: UserType | null
         ) => boolean
     }
 }
@@ -146,14 +154,22 @@ export type activeCloudRunLogicType = MakeLogicType<
 export const activeCloudRunLogic = kea<activeCloudRunLogicType>([
     path(['scenes', 'onboarding', 'activeCloudRunLogic']),
     connect(() => ({
-        values: [projectLogic, ['currentProjectId'], teamLogic, ['currentTeam'], userLogic, ['isProvisionedUser']],
+        values: [
+            projectLogic,
+            ['currentProjectId'],
+            teamLogic,
+            ['currentTeam'],
+            userLogic,
+            ['isProvisionedUser', 'user'],
+        ],
     })),
     actions({
-        setActiveCloudRun: (taskId: string, runId: string, startedAt: string, projectId: number) => ({
+        setActiveCloudRun: (taskId: string, runId: string, startedAt: string, projectId: number, userId: number) => ({
             taskId,
             runId,
             startedAt,
             projectId,
+            userId,
         }),
         clearActiveCloudRun: true,
         // Set by the inline install-step progress view while it's mounted, so the floating FAB hides
@@ -176,11 +192,12 @@ export const activeCloudRunLogic = kea<activeCloudRunLogicType>([
             null as CloudRunHandle | null,
             { persist: true },
             {
-                setActiveCloudRun: (_, { taskId, runId, startedAt, projectId }) => ({
+                setActiveCloudRun: (_, { taskId, runId, startedAt, projectId, userId }) => ({
                     taskId,
                     runId,
                     startedAt,
                     projectId,
+                    userId,
                 }),
                 clearActiveCloudRun: () => null,
             },
@@ -203,9 +220,12 @@ export const activeCloudRunLogic = kea<activeCloudRunLogicType>([
     }),
     selectors({
         activeCloudRun: [
-            (s) => [s.persistedCloudRun, s.currentProjectId],
-            (persistedCloudRun: CloudRunHandle | null, currentProjectId: number | null): CloudRunHandle | null =>
-                scopedCloudRun(persistedCloudRun, currentProjectId),
+            (s) => [s.persistedCloudRun, s.currentProjectId, s.user],
+            (
+                persistedCloudRun: CloudRunHandle | null,
+                currentProjectId: number | null,
+                user: UserType | null
+            ): CloudRunHandle | null => scopedCloudRun(persistedCloudRun, currentProjectId, user?.id ?? null),
         ],
         // Whether a reconcile is worth a request, checked as inputs load rather than once on mount,
         // so a run whose project resolved late still gets reconciled. This logic is mounted app-wide
@@ -215,15 +235,17 @@ export const activeCloudRunLogic = kea<activeCloudRunLogicType>([
         // only ever offered to the drop-flow signup on a team still in onboarding (see
         // reconcileCloudRun for why adoption is not open to everyone), so nobody else spends one.
         canHydrateFromServer: [
-            (s) => [s.currentProjectId, s.currentTeam, s.activeCloudRun, s.isProvisionedUser],
+            (s) => [s.currentProjectId, s.currentTeam, s.activeCloudRun, s.isProvisionedUser, s.user],
             (
                 currentProjectId: number | null,
                 currentTeam: TeamType | null,
                 activeCloudRun: CloudRunHandle | null,
-                isProvisionedUser: boolean
+                isProvisionedUser: boolean,
+                user: UserType | null
             ): boolean =>
                 currentProjectId != null &&
                 currentTeam != null &&
+                user != null &&
                 (activeCloudRun !== null || (isProvisionedUser && !currentTeam.completed_snippet_onboarding)),
         ],
     }),
@@ -266,7 +288,8 @@ export const activeCloudRunLogic = kea<activeCloudRunLogicType>([
                         server.task_id,
                         server.run_id,
                         server.started_at ?? new Date().toISOString(),
-                        projectId
+                        projectId,
+                        values.user!.id
                     )
                 }
             } catch {

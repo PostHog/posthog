@@ -1631,17 +1631,20 @@ def get_latest_run_by_task(task_ids: Iterable[str | UUID]) -> dict[str, contract
     return {str(run.task_id): _task_run_to_dto(run) for run in runs}
 
 
-def get_active_wizard_cloud_run(team_id: int) -> contracts.WizardCloudRunDTO | None:
-    """The team's active onboarding wizard cloud run, for rehydrating the setup FAB.
+def get_active_wizard_cloud_run(team_id: int, user_id: int) -> contracts.WizardCloudRunDTO | None:
+    """A user's active onboarding wizard cloud run, for rehydrating the setup FAB.
 
     The drop flow starts the wizard cloud run server-side (``create_wizard_cloud_run``),
     so a freshly-signed-in user has no client-side handle. Returns the most recent run
-    across the team's onboarding (``ORIGIN_PRODUCT == ONBOARDING``) tasks that's still
+    across the user's onboarding (``ORIGIN_PRODUCT == ONBOARDING``) tasks that's still
     running, or completed within the last day (so we can show "PostHog is wired up" +
     the PR); otherwise ``None``. Team-scoped.
     """
     onboarding_task_ids = Task.objects.filter(
-        team_id=team_id, origin_product=Task.OriginProduct.ONBOARDING, archived=False
+        team_id=team_id,
+        origin_product=Task.OriginProduct.ONBOARDING,
+        archived=False,
+        created_by_id=user_id,
     ).values_list("id", flat=True)
     fresh_after = django_timezone.now() - timedelta(days=1)
     # Scan runs newest-first and surface the first that qualifies: picking the newest task up front

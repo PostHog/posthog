@@ -2744,8 +2744,8 @@ export const getTasksActiveWizardRunRetrieveUrl = (projectId: string) => {
 }
 
 /**
- * Returns the most recent onboarding wizard cloud run for the current project when it is still running (or completed within the last day), so the setup-progress FAB can rehydrate after a drop-flow signup that started the run server-side. Returns 204 when there is none.
- * @summary Get the team's active onboarding wizard cloud run
+ * Returns the current user's most recent onboarding wizard cloud run when it is still running (or completed within the last day), so the setup-progress FAB can rehydrate after a drop-flow signup that started the run server-side. Returns 204 when there is none.
+ * @summary Get the current user's active onboarding wizard cloud run
  */
 export const tasksActiveWizardRunRetrieve = async (
     projectId: string,

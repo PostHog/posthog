@@ -580,17 +580,24 @@ class TestFacadeReadsAndMappers(TestCase):
         self._make_wizard_run(task, TaskRun.Status.QUEUED)
         latest = self._make_wizard_run(task, TaskRun.Status.IN_PROGRESS)
 
-        run = facade.get_active_wizard_cloud_run(self.team.id)
+        run = facade.get_active_wizard_cloud_run(self.team.id, self.user.id)
         assert run is not None
         self.assertIsInstance(run, contracts.WizardCloudRunDTO)
         self.assertEqual(run.task_id, task.id)
         self.assertEqual(run.run_id, latest.id)
         self.assertEqual(run.status, TaskRun.Status.IN_PROGRESS.value)
 
+    def test_get_active_wizard_cloud_run_excludes_a_teammates_run(self):
+        teammate = User.objects.create(email="wizard-teammate@example.com", distinct_id="wizard-teammate")
+        task = self._make_task(origin_product=Task.OriginProduct.ONBOARDING, created_by=teammate)
+        self._make_wizard_run(task, TaskRun.Status.IN_PROGRESS)
+
+        self.assertIsNone(facade.get_active_wizard_cloud_run(self.team.id, self.user.id))
+
     def test_get_active_wizard_cloud_run_ignores_non_onboarding_tasks(self):
         task = self._make_task(origin_product=Task.OriginProduct.USER_CREATED)
         self._make_wizard_run(task, TaskRun.Status.IN_PROGRESS)
-        self.assertIsNone(facade.get_active_wizard_cloud_run(self.team.id))
+        self.assertIsNone(facade.get_active_wizard_cloud_run(self.team.id, self.user.id))
 
     def test_get_active_wizard_cloud_run_ignores_user_created_run_without_wizard_markers(self):
         # A project member could create an onboarding task and bootstrap a cloud run through the
@@ -600,22 +607,22 @@ class TestFacadeReadsAndMappers(TestCase):
         TaskRun.objects.create(
             task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS, environment=TaskRun.Environment.CLOUD
         )
-        self.assertIsNone(facade.get_active_wizard_cloud_run(self.team.id))
+        self.assertIsNone(facade.get_active_wizard_cloud_run(self.team.id, self.user.id))
 
         genuine = self._make_wizard_run(task, TaskRun.Status.IN_PROGRESS)
-        run = facade.get_active_wizard_cloud_run(self.team.id)
+        run = facade.get_active_wizard_cloud_run(self.team.id, self.user.id)
         assert run is not None
         self.assertEqual(run.run_id, genuine.id)
 
     def test_get_active_wizard_cloud_run_ignores_local_run(self):
         task = self._make_task(origin_product=Task.OriginProduct.ONBOARDING)
         self._make_wizard_run(task, TaskRun.Status.IN_PROGRESS, environment=TaskRun.Environment.LOCAL)
-        self.assertIsNone(facade.get_active_wizard_cloud_run(self.team.id))
+        self.assertIsNone(facade.get_active_wizard_cloud_run(self.team.id, self.user.id))
 
     def test_get_active_wizard_cloud_run_surfaces_recently_completed_run(self):
         task = self._make_task(origin_product=Task.OriginProduct.ONBOARDING)
         run = self._make_wizard_run(task, TaskRun.Status.COMPLETED)
-        handle = facade.get_active_wizard_cloud_run(self.team.id)
+        handle = facade.get_active_wizard_cloud_run(self.team.id, self.user.id)
         assert handle is not None
         self.assertEqual(handle.run_id, run.id)
 
@@ -625,13 +632,13 @@ class TestFacadeReadsAndMappers(TestCase):
         # auto_now fields can't be set on create — force them past the freshness window.
         stale = django_timezone.now() - timedelta(days=2)
         TaskRun.objects.filter(id=run.id).update(created_at=stale, updated_at=stale)
-        self.assertIsNone(facade.get_active_wizard_cloud_run(self.team.id))
+        self.assertIsNone(facade.get_active_wizard_cloud_run(self.team.id, self.user.id))
 
     def test_get_active_wizard_cloud_run_is_team_scoped(self):
         other_team = Team.objects.create(organization=self.organization, name="Other")
         task = self._make_task(origin_product=Task.OriginProduct.ONBOARDING)
         self._make_wizard_run(task, TaskRun.Status.IN_PROGRESS)
-        self.assertIsNone(facade.get_active_wizard_cloud_run(other_team.id))
+        self.assertIsNone(facade.get_active_wizard_cloud_run(other_team.id, self.user.id))
 
     def test_get_active_wizard_cloud_run_surfaces_older_active_run_behind_newer_stale_task(self):
         # The newest onboarding task's run is stale, but an older task still has a live run:
@@ -648,7 +655,7 @@ class TestFacadeReadsAndMappers(TestCase):
             created_at=now - timedelta(days=2), updated_at=now - timedelta(days=2)
         )
 
-        handle = facade.get_active_wizard_cloud_run(self.team.id)
+        handle = facade.get_active_wizard_cloud_run(self.team.id, self.user.id)
         assert handle is not None
         self.assertEqual(handle.task_id, older_task.id)
         self.assertEqual(handle.run_id, active.id)

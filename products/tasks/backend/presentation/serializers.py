@@ -591,7 +591,7 @@ class TaskRunDetailSerializer(DataclassSerializer):
 
 
 class WizardCloudRunSerializer(DataclassSerializer):
-    """The team's active onboarding wizard cloud run, used to rehydrate
+    """The current user's active onboarding wizard cloud run, used to rehydrate
     the setup-progress FAB when the run was started server-side (drop flow)."""
 
     task_id = serializers.UUIDField(help_text="Id of the onboarding wizard task.")

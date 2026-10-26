@@ -5,8 +5,9 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api, { ApiError } from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { teamLogic } from 'scenes/teamLogic'
+import { userLogic } from 'scenes/userLogic'
 
-import { IntegrationType } from '~/types'
+import type { IntegrationType, UserType } from '~/types'
 
 import { getIntegrationsAuthorizeRetrieveUrl } from 'products/integrations/frontend/generated/api'
 
@@ -36,6 +37,7 @@ export interface wizardCloudRunLogicValues {
     installStepReturnUrl: string // onboardingLogic
     selectedSDK: SDK | null // sdksLogic
     currentProjectId: number | string // teamLogic
+    user: UserType | null // userLogic
     cloudRunRunId: string | null
     cloudRunStatus: CloudRunStatus
     cloudRunTaskId: string | null
@@ -55,12 +57,14 @@ export interface wizardCloudRunLogicActions {
         taskId: string,
         runId: string,
         startedAt: string,
-        projectId: number
+        projectId: number,
+        userId: number
     ) => {
         projectId: number
         runId: string
         startedAt: string
         taskId: string
+        userId: number
     } // activeCloudRunLogic
     loadIntegrations: (_?: any) => any // integrationsLogic
     reportOnboardingCloudRunQueued: (props: { repository: string; runId: string; taskId: string }) => {
@@ -126,6 +130,8 @@ export const wizardCloudRunLogic = kea<wizardCloudRunLogicType>([
             ['integrations'],
             teamLogic,
             ['currentProjectId'],
+            userLogic,
+            ['user'],
             onboardingLogic,
             ['installStepReturnUrl'],
             sdksLogic,
@@ -213,8 +219,8 @@ export const wizardCloudRunLogic = kea<wizardCloudRunLogicType>([
     }),
     listeners(({ values, actions }) => ({
         startCloudRun: async () => {
-            const { githubIntegration, selectedRepository, currentProjectId } = values
-            if (!githubIntegration || !selectedRepository || !currentProjectId) {
+            const { githubIntegration, selectedRepository, currentProjectId, user } = values
+            if (!githubIntegration || !selectedRepository || !currentProjectId || !user) {
                 actions.startCloudRunFailure()
                 return
             }
@@ -239,7 +245,7 @@ export const wizardCloudRunLogic = kea<wizardCloudRunLogicType>([
                 actions.setCloudRunHandle(task_id, run_id)
                 // teamLogic's currentProjectId can be the '@current' placeholder pre-load; by kickoff
                 // time the team is loaded, so this is a plain numeric coercion in practice.
-                actions.setActiveCloudRun(task_id, run_id, new Date().toISOString(), Number(currentProjectId))
+                actions.setActiveCloudRun(task_id, run_id, new Date().toISOString(), Number(currentProjectId), user.id)
                 // Frontend side of the kickoff, pairing with the backend `task_run_created` (GROW-89).
                 actions.reportOnboardingCloudRunQueued({ taskId: task_id, runId: run_id, repository })
                 actions.startCloudRunSuccess()

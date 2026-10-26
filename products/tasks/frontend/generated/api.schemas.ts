@@ -4496,7 +4496,7 @@ export interface TasksTaskDefaultsUpdateApi {
 }
 
 /**
- * The team's active onboarding wizard cloud run, used to rehydrate
+ * The current user's active onboarding wizard cloud run, used to rehydrate
  * the setup-progress FAB when the run was started server-side (drop flow).
  */
 export interface WizardCloudRunDTOApi {
