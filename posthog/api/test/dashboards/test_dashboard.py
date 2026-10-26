@@ -909,46 +909,46 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         self.assertTrue(response["attr"].startswith("groups"), response)
 
-    @parameterized.expand([("horizontal",), ("stable",)])
-    def test_dashboard_layout_compaction_is_saved_and_duplicated(self, layout_compaction: str) -> None:
+    @parameterized.expand(
+        [
+            ("layout_compaction", "horizontal"),
+            ("layout_compaction", "stable"),
+            ("group_display", "tabs"),
+        ]
+    )
+    def test_dashboard_display_mode_is_saved_and_duplicated(self, setting: str, mode: str) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
 
-        _, updated = self.dashboard_api.update_dashboard(dashboard_id, {"layout_compaction": layout_compaction})
-        self.assertEqual(updated["customization"], {"layout_compaction": layout_compaction})
+        _, updated = self.dashboard_api.update_dashboard(dashboard_id, {setting: mode})
+        self.assertEqual(updated["customization"], {setting: mode})
 
         copied_id, copied = self.dashboard_api.create_dashboard({"name": "copy", "use_dashboard": dashboard_id})
-        self.assertEqual(copied["customization"], {"layout_compaction": layout_compaction})
-        self.assertEqual(Dashboard.objects.get(id=copied_id).customization, {"layout_compaction": layout_compaction})
+        self.assertEqual(copied["customization"], {setting: mode})
+        self.assertEqual(Dashboard.objects.get(id=copied_id).customization, {setting: mode})
 
+    @parameterized.expand(
+        [
+            ("layout_compaction", "dashboard grid compaction configured", "vertical", "horizontal"),
+            ("group_display", "dashboard group display configured", "sections", "tabs"),
+        ]
+    )
     @patch("products.dashboards.backend.api.dashboard.report_user_action")
-    def test_dashboard_layout_compaction_reports_every_mode_change(self, mock_report_user_action: MagicMock) -> None:
+    def test_dashboard_display_mode_reports_every_mode_change(
+        self, setting: str, event: str, default_mode: str, other_mode: str, mock_report_user_action: MagicMock
+    ) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
         mock_report_user_action.reset_mock()
 
-        self.dashboard_api.update_dashboard(dashboard_id, {"layout_compaction": "horizontal"})
-        self.dashboard_api.update_dashboard(dashboard_id, {"layout_compaction": "vertical"})
+        self.dashboard_api.update_dashboard(dashboard_id, {setting: other_mode})
+        self.dashboard_api.update_dashboard(dashboard_id, {setting: default_mode})
 
-        compaction_calls = [
-            call
-            for call in mock_report_user_action.call_args_list
-            if call.args[1] == "dashboard grid compaction configured"
-        ]
-        self.assertEqual(len(compaction_calls), 2)
+        mode_calls = [call for call in mock_report_user_action.call_args_list if call.args[1] == event]
         self.assertEqual(
-            compaction_calls[0].args[2],
-            {
-                "dashboard_id": dashboard_id,
-                "previous_layout_compaction": "vertical",
-                "layout_compaction": "horizontal",
-            },
-        )
-        self.assertEqual(
-            compaction_calls[1].args[2],
-            {
-                "dashboard_id": dashboard_id,
-                "previous_layout_compaction": "horizontal",
-                "layout_compaction": "vertical",
-            },
+            [call.args[2] for call in mode_calls],
+            [
+                {"dashboard_id": dashboard_id, f"previous_{setting}": default_mode, setting: other_mode},
+                {"dashboard_id": dashboard_id, f"previous_{setting}": other_mode, setting: default_mode},
+            ],
         )
 
     def test_dashboard_tile_spacing_recovers_from_malformed_customization(self):
@@ -970,15 +970,16 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
         self.assertEqual(response["attr"], "grid_spacing")
 
-    def test_dashboard_layout_compaction_requires_a_known_mode(self) -> None:
+    @parameterized.expand([("layout_compaction",), ("group_display",)])
+    def test_dashboard_display_mode_requires_a_known_mode(self, setting: str) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
 
         _, response = self.dashboard_api.update_dashboard(
             dashboard_id,
-            {"layout_compaction": "none"},
+            {setting: "none"},
             expected_status=status.HTTP_400_BAD_REQUEST,
         )
-        self.assertEqual(response["attr"], "layout_compaction")
+        self.assertEqual(response["attr"], setting)
 
     @patch("products.product_analytics.backend.presentation.insight.record_dashboard_cache_outcome")
     @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
