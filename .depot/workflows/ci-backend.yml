@@ -520,6 +520,11 @@ jobs:
                         # _EXTERNAL_COMPANION_SKILL_DIRS in products/signals/backend/scout_harness/lazy_seed.py
                         # names this companion skill from another product.
                         - 'products/replay_vision/skills/exploring-replay-vision-observations/**'
+                        # test_unowned_test_directories.py reads every test file, including Jest
+                        # tests that a frontend-only PR adds outside the backend filter.
+                        - '**/test_*.py'
+                        - '**/*_test.py'
+                        - '**/*.{test,spec}.{js,jsx,ts,tsx}'
                       sdk_manifests:
                         # Everything the SDK major-version guard reads. Lockfiles are listed
                         # because a floor-only or `*` spec can move to a new major through
