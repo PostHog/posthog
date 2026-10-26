@@ -6361,6 +6361,7 @@
         "summary": "Estimate what an SQL query will read before running it.",
         "title": "Explain SQL query",
         "required_scopes": ["query:read"],
+        "api_operations": ["POST /api/projects/{project_id}/mcp_tools/explain_sql/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
