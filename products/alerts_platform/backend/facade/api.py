@@ -168,17 +168,22 @@ def check_page_by_legacy_id(
 
 
 def checks_with_detail_by_legacy_id(
-    *, team_id: int, legacy_configuration_ids: Collection[UUID], detail_key: str, since: datetime, limit: int
+    *,
+    team_id: int,
+    legacy_configuration_ids: Collection[UUID],
+    detail_paths: Sequence[Sequence[str]],
+    since: datetime,
+    limit: int,
 ) -> dict[UUID, tuple[PlatformCheckEntry, ...]]:
     """Each named owned alert's newest `limit` checks since `since` whose source detail holds
-    `detail_key`, newest first, keyed by the source's id.
+    every one of `detail_paths`, newest first, keyed by the source's id.
 
     Raises when ClickHouse fails, so a caller can fall back to what it shows without the platform.
     """
     return platform_reads.checks_with_detail_by_legacy_id(
         team_id=team_id,
         legacy_configuration_ids=legacy_configuration_ids,
-        detail_key=detail_key,
+        detail_paths=detail_paths,
         since=since,
         limit=limit,
     )

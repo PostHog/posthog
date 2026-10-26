@@ -175,7 +175,16 @@ class TestPlatformOwnedInsightAlert(ClickhouseTestMixin, APIBaseTest):
 
         assert [check["triggered_dates"] for check in row["checks"]] == [["2026-10-20"], ["2026-10-18"]]
 
-    def test_a_moved_ai_alert_reads_its_earlier_flags_from_both_stacks(self) -> None:
+    @parameterized.expand(
+        [
+            ("every_check", 500, ["2026-10-18", "2026-10-20"]),
+            # A newer statistical check must not use up the limit and push out the AI verdict.
+            ("only_the_newest", 1, ["2026-10-20"]),
+        ]
+    )
+    def test_a_moved_ai_alert_reads_its_earlier_flags_from_both_stacks(
+        self, _name: str, limit: int, dates: list[str]
+    ) -> None:
         self._own_check(60 * 24, "2026-10-18", "Before the move.")
         self._own_check(-30, "2026-10-19", "The shadow.")
         llm = {"detector_type": "llm"}
@@ -194,10 +203,11 @@ class TestPlatformOwnedInsightAlert(ClickhouseTestMixin, APIBaseTest):
         )
         self.alert.refresh_from_db()
 
-        assert _earlier_flags(self.alert) == (
-            EarlierFlag(date="2026-10-18", rationale="Before the move."),
-            EarlierFlag(date="2026-10-20", rationale="After."),
-        )
+        with patch("products.alerts.backend.evaluation.detector.MAX_EARLIER_CHECKS", limit):
+            flags = _earlier_flags(self.alert)
+
+        reasons = {"2026-10-18": "Before the move.", "2026-10-20": "After."}
+        assert flags == tuple(EarlierFlag(date=date, rationale=reasons[date]) for date in dates)
 
     def test_a_platform_history_failure_falls_back_to_the_alerts_own_checks(self) -> None:
         self._record(30, "firing", value=150.0)
