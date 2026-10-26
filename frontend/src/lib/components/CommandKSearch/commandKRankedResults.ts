@@ -26,8 +26,8 @@ function groupLabel(groupKey: string): string {
     return capitalizeFirstLetter(pluralTypeName(getItemTypeDisplayName(groupKey) ?? groupKey.replace(/_/g, ' ')))
 }
 
-function rankProducts(products: SearchItem[], query: string): RankedItem[] {
-    return products.flatMap((item) => {
+function rankLocalItems(items: SearchItem[], query: string, groupKey: string): RankedItem[] {
+    return items.flatMap((item) => {
         const ranked = rankLocalItem(
             query,
             String(item.displayName || item.name),
@@ -39,7 +39,7 @@ function rankProducts(products: SearchItem[], query: string): RankedItem[] {
                   {
                       item: ranked.matchedAlias ? { ...item, matchedSearchKeyword: ranked.matchedAlias } : item,
                       rank: ranked.rank,
-                      groupKey: 'products',
+                      groupKey,
                   },
               ]
             : []
@@ -57,7 +57,7 @@ const itemRow = (
     kind: 'item',
     key: `${section}/${item.id}`,
     item,
-    section: item.category === 'results' ? 'results' : 'products',
+    section: item.category === 'results' ? 'results' : item.category === 'persons' ? 'persons' : 'products',
     highlightWords,
     ranked: true,
     showType,
@@ -135,6 +135,7 @@ interface RankedResultsInput {
     highlightWords: string[]
     results: SearchItem[]
     products: SearchItem[]
+    persons?: SearchItem[]
     state: CommandKSection['state']
     scoped: boolean
 }
@@ -144,12 +145,14 @@ export function buildRankedResults({
     highlightWords,
     results,
     products,
+    persons = [],
     state,
     scoped,
 }: RankedResultsInput): CommandKSection[] {
     const candidates: RankedItem[] = [
         ...results.map((item) => ({ item, rank: item.rankKey ?? [], groupKey: groupKeyFor(item) })),
-        ...rankProducts(products, query),
+        ...rankLocalItems(products, query, 'products'),
+        ...rankLocalItems(persons, query, 'persons'),
     ].sort((a, b) => compareRanks(a.rank, b.rank))
     if (!candidates.length) {
         return []
