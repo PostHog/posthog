@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -324,6 +325,22 @@ describe('tracingViewerLogic', () => {
         press()
         expect(view.values.selectedSpanId).toBe('BB02')
         overlay.unmount()
+    })
+
+    // The open is the entry of the compare modal's funnel, so each open sends exactly one event.
+    it('sends one compare flame event per open', () => {
+        const treeSpy = jest.spyOn(api.tracing, 'tree').mockResolvedValue({ results: [], compare: null })
+        const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
+        try {
+            logic.actions.openCompareFlame('SELECT orders', 'postgres')
+
+            expect(captureSpy.mock.calls.filter(([event]) => event === 'tracing compare flame opened')).toEqual([
+                ['tracing compare flame opened'],
+            ])
+        } finally {
+            captureSpy.mockRestore()
+            treeSpy.mockRestore()
+        }
     })
 
     describe('closeTrace', () => {
