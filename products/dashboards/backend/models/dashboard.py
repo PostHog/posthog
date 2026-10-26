@@ -190,7 +190,7 @@ class Dashboard(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin
     @property
     def tile_group_keys(self) -> set[str]:
         visible_tiles = self.tiles.filter(Q(insight__deleted=False) | Q(insight__isnull=True))
-        return set(visible_tiles.exclude(group_key__isnull=True).values_list("group_key", flat=True))
+        return {group_key for group_key in visible_tiles.values_list("group_key", flat=True) if group_key}
 
     @property
     def tile_group_count(self) -> int:
