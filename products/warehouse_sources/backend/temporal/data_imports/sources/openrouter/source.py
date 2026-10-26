@@ -33,7 +33,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _MANAGEMENT_KEY_REQUIRED = (
     "Requires an OpenRouter management API key. This key is a regular inference key, which can read only "
-    "the models, providers, and batches tables."
+    "the models, model endpoints, providers, task classifications, and batches tables."
 )
 
 _INFERENCE_KEY_REQUIRED = (
@@ -41,13 +41,14 @@ _INFERENCE_KEY_REQUIRED = (
     "and a management key isn't tied to a workspace."
 )
 
-# The organization members and workspaces endpoints resolve only when the management key's account
+# The organization members and workspaces endpoints (and the workspace members fan-out, which lists
+# workspaces first) resolve only when the management key's account
 # belongs to an OpenRouter organization; an account without one gets a 404. Retrying can't create an
 # organization, so we stop and tell the customer.
 _NO_ORGANIZATION = (
-    "Your OpenRouter account isn't part of an organization, so the organization members and workspaces "
-    "tables can't be synced. Disable these tables, or reconnect with a management key that belongs to an "
-    "organization."
+    "Your OpenRouter account isn't part of an organization, so the organization members, workspaces, and "
+    "workspace members tables can't be synced. Disable these tables, or reconnect with a management key that "
+    "belongs to an organization."
 )
 
 
@@ -76,7 +77,7 @@ class OpenRouterSource(ResumableSource[OpenRouterSourceConfig, OpenRouterResumeC
             releaseStatus=ReleaseStatus.GA,
             caption="""Enter your OpenRouter API key to pull your OpenRouter usage and account data into the PostHog Data warehouse.
 
-Use a **management API key** (create one under [Settings -> Management Keys](https://openrouter.ai/settings/keys)) so the activity, API keys, credits, end users, organization members, and workspaces tables can sync. A regular inference key can read only the models, providers, and batches tables.
+Use a **management API key** (create one under [Settings -> Management Keys](https://openrouter.ai/settings/keys)) so the activity, API keys, credits, end users, organization members, workspaces, and workspace members tables can sync. A regular inference key can read only the models, model endpoints, providers, task classifications, and batches tables.
 
 A management key can't read batches. To sync them, connect a second OpenRouter source with a regular API key.""",
             iconPath="/static/services/openrouter.png",
@@ -131,6 +132,10 @@ A management key can't read batches. To sync them, connect a second OpenRouter s
                 return "Daily usage rollups; only the last 30 completed UTC days are available"
             if endpoint == "batches":
                 return "Batch jobs in the API key's workspace; needs a regular API key, not a management key"
+            if endpoint == "task_classifications":
+                return (
+                    "Share of all OpenRouter traffic by task type over the last 7 days, across every OpenRouter account"
+                )
             return None
 
         def _build_schema(endpoint: str) -> SourceSchema:
