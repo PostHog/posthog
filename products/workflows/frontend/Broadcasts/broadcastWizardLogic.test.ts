@@ -600,8 +600,7 @@ describe('broadcastWizardLogic', () => {
                 },
             },
             patch: {
-                // The shared mock answers with an empty schedules list, which would hide the one
-                // the replacement has to remove.
+                // The shared mock answers with an empty schedules list.
                 '/api/projects/:team_id/hog_flows/:id/': () => [200, latest],
             },
         })
@@ -621,7 +620,6 @@ describe('broadcastWizardLogic', () => {
             .toDispatchActions(['saveBroadcastFinished'])
             .toFinishAllListeners()
 
-        // A workflow holds one schedule, so a create sent first is refused.
         expect(scheduleCalls).toEqual(['delete', 'create'])
     })
 

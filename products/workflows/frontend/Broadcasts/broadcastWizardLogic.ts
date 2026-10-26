@@ -1901,10 +1901,9 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                     saves.run(() =>
                         patchWithoutClobbering(projectId, toActivate, { status: 'active' }, saved.updated_at)
                     )
-                // An old schedule would fire alongside the new one, and a paused one can't be resumed, so
-                // launch replaces them. The old one goes first because a workflow holds one schedule.
-                // The flow stays a draft until the swap is done, and the scheduler skips drafts, so a
-                // failure part way leaves the broadcast unscheduled rather than scheduled twice.
+                // An old schedule would fire alongside the new one, and a paused one can't be resumed,
+                // so launch replaces them, old one first because a workflow holds one schedule. The
+                // flow stays a draft until the swap is done, and the scheduler skips drafts.
                 const oldScheduleIds = (values.broadcast?.schedules ?? []).map((existing) => existing.id)
                 // Stop before touching schedules if the assistant saved meanwhile. Otherwise the guarded
                 // activation below would 409 after the old schedule is already gone.
@@ -2301,8 +2300,7 @@ async function saveDraftSchedule(
     if (unchanged) {
         return
     }
-    // The old schedule goes first because a workflow holds one schedule, so a create sent while
-    // the old one is still there is refused.
+    // The old schedule goes first because a workflow holds one schedule.
     for (const schedule of existing) {
         await hogFlowsSchedulesDestroy(projectId, broadcastId, schedule.id)
     }
