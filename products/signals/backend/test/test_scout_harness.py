@@ -125,6 +125,13 @@ if TYPE_CHECKING:
     from products.tasks.backend.models import TaskRun
 
 
+@pytest.fixture(autouse=True)
+def github_access_available():
+    """Scheduling and harness tests start with the independent GitHub prerequisite satisfied."""
+    with patch("products.signals.backend.scout_harness.runner.check_github_gate", return_value=None) as readiness:
+        yield readiness
+
+
 @pytest_asyncio.fixture
 async def aorganization():
     organization = await sync_to_async(Organization.objects.create)(

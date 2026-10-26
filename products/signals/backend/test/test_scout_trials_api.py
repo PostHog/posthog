@@ -14,7 +14,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.models import Team
+from posthog.models import Integration, Team
 from posthog.models.scoping import team_scope
 from posthog.storage import object_storage
 
@@ -280,6 +280,14 @@ class TestScoutTrialLaunch(APIBaseTest):
         super().setUp()
         if self.team.id != 2:
             self.team = Team.objects.create(id=2, organization=self.organization, name="Internal example")
+        Integration.objects.create(
+            team=self.team,
+            kind="github",
+            integration_id="123",
+            config={"installation_id": "123"},
+            repository_cache=[{"id": 1, "name": "repository", "full_name": "example/repository"}],
+            repository_cache_updated_at=timezone.now(),
+        )
         self.enterContext(team_scope(self.team.id, canonical=True))
         self.trials_flag = self.enterContext(
             patch("products.signals.backend.scout_harness.trial_launch.feature_enabled", return_value=True)
