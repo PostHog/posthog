@@ -64,11 +64,10 @@ export function DestinationConnectScene(): JSX.Element {
             <div className="max-w-200">
                 {integrationId !== null ? (
                     <LemonBanner type="success">
-                        <p className="font-semibold mb-1">{typeLabel} connection saved. You can close this tab.</p>
+                        <p className="font-semibold mb-1">{typeLabel} connection saved</p>
                         <p className="m-0 text-sm">
-                            The destination doesn't exist yet. Return to your chat and tell the assistant you're done,
-                            and it will create the destination with this connection. Connection id:{' '}
-                            <code>{integrationId}</code>.
+                            Copy this connection id into your chat: <code>{integrationId}</code>. The assistant uses it
+                            to create the destination, which doesn't exist yet. Then you can close this tab.
                         </p>
                     </LemonBanner>
                 ) : (
