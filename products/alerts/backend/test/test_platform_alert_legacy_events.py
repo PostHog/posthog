@@ -90,10 +90,15 @@ class TestInsightLegacyEvents(APIBaseTest):
                 {"insight_chart_asset_id": 7, "insight_chart_render_user_id": 3},
                 {"insight_chart_url": CHART_URL},
             ),
+            (
+                "with_an_ai_verdict",
+                {"triggered_metadata": {"detector_type": "llm", "rationale": "Signups fell to 12.", "kind": "drop"}},
+                {"anomaly_rationale": "Signups fell to 12.", "anomaly_kind": "drop"},
+            ),
         ]
     )
     def test_a_firing_emits_the_properties_the_insight_stack_sends(
-        self, _name: str, stored: dict[str, int], sent: dict[str, str]
+        self, _name: str, stored: dict[str, Any], sent: dict[str, str]
     ) -> None:
         breaches = ["The insight value (150) is more than upper threshold (100)", "A second series breached"]
         with patch("posthog.tasks.alerts.utils.produce_alert_internal_event") as produce:
@@ -105,7 +110,7 @@ class TestInsightLegacyEvents(APIBaseTest):
         assert event.event_name == produce.call_args.kwargs["event_name"]
         assert event.properties == produce.call_args.kwargs["properties"]
         # The URL opens the chart without a login, so it is minted for the user that rendered it.
-        if stored:
+        if "insight_chart_asset_id" in stored:
             assert mint.call_args.kwargs["chart"] == RenderedInsightChart(asset_id=7, render_user_id=3)
 
     @parameterized.expand(

@@ -3277,6 +3277,10 @@ export type VisionObservationsRetrieveParams = {
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
     verdict?: string
+    /**
+     * Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
+     */
+    watch_group?: string
 }
 
 export type VisionObservationsThumbnailRetrieveParams = {
@@ -3520,6 +3524,10 @@ export type VisionScannersObservationsListParams = {
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
     verdict?: string
+    /**
+     * Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
+     */
+    watch_group?: string
 }
 
 export type VisionScannersObservationsRetrieveParams = {
@@ -3579,6 +3587,10 @@ export type VisionScannersObservationsRetrieveParams = {
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
     verdict?: string
+    /**
+     * Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
+     */
+    watch_group?: string
 }
 
 export type VisionScannersObservationsSignalReportsListParams = {
@@ -3638,6 +3650,10 @@ export type VisionScannersObservationsSignalReportsListParams = {
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
     verdict?: string
+    /**
+     * Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
+     */
+    watch_group?: string
 }
 
 export type VisionScannersObservationsThumbnailRetrieveParams = {
@@ -3721,6 +3737,10 @@ export type VisionScannersObservationsStatsRetrieveParams = {
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
     verdict?: string
+    /**
+     * Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
+     */
+    watch_group?: string
 }
 
 export type VisionScannersWatchFeedRetrieveParams = {
