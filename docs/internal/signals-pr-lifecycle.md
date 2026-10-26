@@ -110,6 +110,7 @@ Disabling Monitoring stops execution without starting a post-resolution schedule
 
 After each metric check's soak ends, the coordinator evaluates its original Monitoring-start-to-deadline window, even if execution runs late.
 Final work uses the current attempt's check membership and definition versions, independently of interim observations and recurring run budgets.
+Candidate collection scans past stale definitions until it fills the eligible batch or reaches the tick deadline.
 Single-source raw event/action counts and event-property sums have supported evidence adapters; sampled values, formulas, distinct counts, and session/property aggregates without an adapter produce explicit unsupported results.
 An average without a source-specific minimum denominator produces insufficient evidence.
 Positive counts and supported sums qualify as sufficient evidence; zero totals remain insufficient when no relevant activity source is defined, even if they meet the numeric target.
@@ -118,7 +119,7 @@ A zero-length window cannot establish success or failure, and a cached measureme
 Final metric evaluations save through `save_monitoring_result` and retain the definition version, exact window, explanation, measured value and time, and query fingerprint.
 The coordinator makes at most three technical query attempts, retrying five minutes after the first error and fifteen minutes after the second.
 Each retry uses the original window; competing ticks use the same submission ID for the same logical attempt.
-Insufficient and unsupported results settle this evaluator's work, while a query budget deferral does not consume a retry.
+Insufficient and unsupported results settle this evaluator's work. Final queries defer until the tick can grant their full 20-second timeout; budget deferrals do not consume a retry.
 Interim query exhaustion and schedule expiry do not consume the final budget: frozen members remain eligible for final verification without changing their check status, window, or error history.
 State, flag, definition, and attempt guards apply before querying and again when saving.
 Final results leave reports in Monitoring; authored-agent checks, report outcome aggregation, assessment, and follow-up research have separate execution paths.

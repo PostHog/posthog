@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import time
 from dataclasses import replace
 from datetime import datetime, timedelta
@@ -64,7 +65,9 @@ class FinalMetricSummary:
     deferred: int = 0
 
 
-def collect_due_final_metrics(now: datetime, *, limit: int) -> list[DueFinalMetric]:
+def collect_due_final_metrics(now: datetime, *, limit: int, deadline: float = math.inf) -> list[DueFinalMetric]:
+    if limit <= 0:
+        return []
     candidates = (
         SignalReportCheck.all_teams.filter(
             kind=SignalReportCheck.Kind.METRIC_THRESHOLD,
@@ -128,7 +131,9 @@ def collect_due_final_metrics(now: datetime, *, limit: int) -> list[DueFinalMetr
     )
     due: list[DueFinalMetric] = []
     per_team: dict[int, int] = {}
-    for check in candidates[: limit * MAX_FINAL_METRICS_PER_TEAM]:
+    for check in candidates.iterator(chunk_size=limit * MAX_FINAL_METRICS_PER_TEAM):
+        if time.monotonic() >= deadline:
+            break
         if per_team.get(check.team_id, 0) >= MAX_FINAL_METRICS_PER_TEAM:
             continue
         version = cast(str, check._member_version)
@@ -191,7 +196,7 @@ def _prepare_final_metric(due: DueFinalMetric) -> bool:
 
 def run_due_final_metrics(*, now: datetime, deadline: float, limit: int) -> FinalMetricSummary:
     counts = {"passed": 0, "failed": 0, "inconclusive": 0, "errored": 0, "deferred": 0}
-    for due in collect_due_final_metrics(now, limit=limit):
+    for due in collect_due_final_metrics(now, limit=limit, deadline=deadline):
         if time.monotonic() >= deadline:
             break
         try:

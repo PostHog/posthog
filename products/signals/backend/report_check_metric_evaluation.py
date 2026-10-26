@@ -140,6 +140,7 @@ def evaluate_final_metric(
             check.report.team,
             deadline=deadline,
             include_series=False,
+            require_full_timeout=True,
             ch_user=ClickHouseUser.SIGNALS,
             workload=Workload.OFFLINE,
         )

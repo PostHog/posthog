@@ -272,6 +272,29 @@ class TestFinalMetricExecution(BaseTest):
         assert not SignalReportMonitoringResult.objects.for_team(self.team.id).exists()
         assert len(collect_due_final_metrics(self.now, limit=10)) == 1
 
+    @parameterized.expand([("short", 19.9, False), ("full", 20.0, True)])
+    def test_only_queries_with_the_full_timeout_can_spend_a_technical_retry(
+        self, _name: str, remaining_seconds: float, spends_retry: bool
+    ) -> None:
+        self._member()
+        with (
+            patch("time.monotonic", return_value=0),
+            patch(
+                "products.signals.backend.report_metric_refresh.run_cached_trends_query", side_effect=TimeoutError
+            ) as query,
+        ):
+            for _ in range(3):
+                summary = run_due_final_metrics(now=self.now, deadline=remaining_seconds, limit=50)
+        assert query.call_count == int(spends_retry)
+        results = SignalReportMonitoringResult.objects.for_team(self.team.id)
+        if spends_retry:
+            assert results.get().outcome == "errored"
+            assert query.call_args.kwargs["max_execution_time_seconds"] == 20
+        else:
+            assert summary.deferred == 1
+            assert not results.exists()
+            assert len(collect_due_final_metrics(self.now, limit=10)) == 1
+
     @parameterized.expand([("cancelled",), ("archived",), ("definition",), ("disabled",), ("reopened",)])
     def test_query_results_cannot_cross_lifecycle_or_definition_changes(self, change: str) -> None:
         member = self._member()
@@ -324,7 +347,8 @@ class TestFinalMetricExecution(BaseTest):
         assert measure.call_count == 1
         assert SignalReportMonitoringResult.objects.for_team(self.team.id).count() == 1
 
-    def test_disabled_organizations_cannot_fill_the_bounded_candidate_batch(self) -> None:
+    @parameterized.expand([("disabled",), ("stale_definition",)])
+    def test_ineligible_members_cannot_fill_the_bounded_candidate_batch(self, variant: str) -> None:
         member = self._member()
         disabled_org = Organization.objects.create(name="Monitoring disabled")
         start = self.now - timedelta(hours=3)
@@ -347,9 +371,11 @@ class TestFinalMetricExecution(BaseTest):
                 monitoring_started_at=start,
                 check_versions={str(check.id): check_definition_version(check)},
             )
+            if variant == "stale_definition":
+                SignalReportCheck.objects.for_team(team.id).filter(id=check.id).update(title="Changed target")
         with patch(
             "products.signals.backend.report_lifecycle.organization_report_monitoring_enabled",
-            side_effect=lambda organization_id: organization_id != disabled_org.id,
+            side_effect=lambda organization_id: variant != "disabled" or organization_id != disabled_org.id,
         ):
             due = collect_due_final_metrics(self.now, limit=1)
         assert [entry.member.check.id for entry in due] == [member.check.id]
