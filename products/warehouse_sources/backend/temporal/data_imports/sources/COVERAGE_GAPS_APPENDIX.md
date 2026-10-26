@@ -8829,11 +8829,11 @@ Today (7): `activity`, `api_keys`, `credits`, `models`, `organization_members`, 
 
 Diffed against: <https://openrouter.ai/docs/llms.txt>
 
-- [ ] `model endpoints (list all endpoints for a model)` — per-provider pricing, context length and availability - the lookup that joins the models and providers tables we already sync (high)
+- [x] `model endpoints (list all endpoints for a model)` — per-provider pricing, context length and availability - the lookup that joins the models and providers tables we already sync (high)
 - [ ] `/api/v1/analytics/query (+ /analytics/meta)` — metric/dimension query over usage - richer breakdowns than the 30-day activity rollup we sync (high)
-- [ ] `workspace members` — membership table linking the workspaces and organization_members we already sync (high)
+- [x] `workspace members` — membership table linking the workspaces and organization_members we already sync (high)
 - [ ] `benchmarks` — model benchmark scores, a lookup for model quality comparison (medium)
-- [ ] `task classifications (market share)` — per-task-category model market share, a breakdown dimension for usage analysis (medium)
+- [x] `task classifications (market share)` — per-task-category model market share, a breakdown dimension for usage analysis (medium)
 - [ ] `app rankings (top apps by token usage)` — token usage leaderboard by app (medium)
 - [ ] `daily rankings (daily token totals for top 50 models)` — daily model-level token time series (medium)
 - [ ] `workspace budgets` — per-workspace spend limits, needed to compare spend against budget (low)
