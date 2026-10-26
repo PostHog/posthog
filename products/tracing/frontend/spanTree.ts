@@ -111,8 +111,7 @@ export function buildSpanTree(spans: Span[]): SpanNode[] {
     const groups: { nodes: SpanNode[]; depth: number }[] = [{ nodes: roots, depth: 0 }]
     while (groups.length > 0) {
         const { nodes, depth } = groups.pop()!
-        for (let i = 0; i < nodes.length; i++) {
-            const node = nodes[i]
+        nodes.forEach((node, i) => {
             node.depth = depth
             node.isLastChild = i === nodes.length - 1
             if (node.children.length > 0) {
@@ -121,7 +120,7 @@ export function buildSpanTree(spans: Span[]): SpanNode[] {
                 )
                 groups.push({ nodes: node.children, depth: depth + 1 })
             }
-        }
+        })
     }
 
     return roots
@@ -167,7 +166,7 @@ export function flattenTree(nodes: SpanNode[], collapsedSpanIds: Set<string>): S
         if (!collapsedSpanIds.has(node.span.span_id)) {
             const children = sortChildren(node.children)
             for (let i = children.length - 1; i >= 0; i--) {
-                stack.push(children[i])
+                stack.push(children[i]!)
             }
         }
     }
