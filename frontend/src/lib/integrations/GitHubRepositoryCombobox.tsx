@@ -31,7 +31,6 @@ export interface GitHubRepositoryComboboxProps {
     /** Load every page. The default picker stops after the first page and waits for "Load more". */
     loadAll?: boolean
     fullWidth?: boolean
-    /** Open the picker on mount, for a picker the user just asked for. */
     defaultOpen?: boolean
     onOpenChange?: (open: boolean) => void
 }

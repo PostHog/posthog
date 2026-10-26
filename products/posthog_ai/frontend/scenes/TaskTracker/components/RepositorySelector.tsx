@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconGitBranch, IconGithub } from '@posthog/icons'
+import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 import {
     Button,
     ButtonGroup,
@@ -27,6 +28,7 @@ export interface RepositorySelectorProps {
     onChange: (config: RepositoryConfig) => void
     autoOpen?: boolean
     onPickerClose?: () => void
+    variant?: 'lemon' | 'quill'
 }
 
 export const githubAuthorizeUrl = api.integrations.authorizeUrl({ kind: 'github', next: urls.taskTracker() })
@@ -41,6 +43,7 @@ export function RepositorySelector({
     onChange,
     autoOpen = false,
     onPickerClose,
+    variant = 'lemon',
 }: RepositorySelectorProps): JSX.Element {
     const { getIntegrationsByKind, integrationsLoading } = useValues(integrationsLogic)
     const { reportIntegrationConnectClicked } = useActions(eventUsageLogic)
@@ -76,73 +79,122 @@ export function RepositorySelector({
     if (githubIntegrations.length === 0) {
         return (
             <div className="flex items-center gap-2 flex-wrap">
-                <Button
-                    variant="outline"
-                    size="sm"
-                    render={<LinkPrimitive to={githubAuthorizeUrl} disableClientSideRouting />}
-                    onClick={reportConnect}
-                >
-                    <IconGithub className="shrink-0" />
-                    Connect GitHub
-                </Button>
+                {variant === 'quill' ? (
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        render={<LinkPrimitive to={githubAuthorizeUrl} disableClientSideRouting />}
+                        onClick={reportConnect}
+                    >
+                        <IconGithub className="shrink-0" />
+                        Connect GitHub
+                    </Button>
+                ) : (
+                    <LemonButton
+                        size="small"
+                        type="secondary"
+                        icon={<IconGithub />}
+                        to={githubAuthorizeUrl}
+                        disableClientSideRouting
+                        onClick={reportConnect}
+                    >
+                        Connect GitHub
+                    </LemonButton>
+                )}
             </div>
         )
     }
 
     return (
         <div className="flex items-center gap-2 flex-wrap">
-            {githubIntegrations.length > 1 && (
-                <DropdownMenu>
-                    <DropdownMenuTrigger
-                        render={
-                            <Button variant="outline" size="sm">
-                                <IconGithub className="shrink-0" />
-                                {githubIntegrations.find((i) => i.id === value.integrationId)?.display_name ?? 'GitHub'}
-                            </Button>
-                        }
-                    />
-                    <DropdownMenuContent align="start" side="bottom" sideOffset={6} className="min-w-fit">
-                        {githubIntegrations.map((integration) => (
+            {githubIntegrations.length > 1 &&
+                (variant === 'quill' ? (
+                    <DropdownMenu>
+                        <DropdownMenuTrigger
+                            render={
+                                <Button variant="outline" size="sm">
+                                    <IconGithub className="shrink-0" />
+                                    {githubIntegrations.find((i) => i.id === value.integrationId)?.display_name ??
+                                        'GitHub'}
+                                </Button>
+                            }
+                        />
+                        <DropdownMenuContent align="start" side="bottom" sideOffset={6} className="min-w-fit">
+                            {githubIntegrations.map((integration) => (
+                                <DropdownMenuItem
+                                    key={integration.id}
+                                    onClick={() => handleIntegrationChange(integration.id)}
+                                    data-active={integration.id === value.integrationId || undefined}
+                                >
+                                    <img
+                                        src={integration.icon_url}
+                                        alt={`${integration.display_name} icon`}
+                                        className="size-5 rounded"
+                                    />
+                                    {integration.display_name}
+                                </DropdownMenuItem>
+                            ))}
+                            <DropdownMenuSeparator />
                             <DropdownMenuItem
-                                key={integration.id}
-                                onClick={() => handleIntegrationChange(integration.id)}
-                                data-active={integration.id === value.integrationId || undefined}
+                                render={
+                                    <Button
+                                        size="row"
+                                        left
+                                        render={<LinkPrimitive to={githubAuthorizeUrl} disableClientSideRouting />}
+                                    />
+                                }
+                                onClick={reportConnect}
                             >
-                                <img
-                                    src={integration.icon_url}
-                                    alt={`${integration.display_name} icon`}
-                                    className="size-5 rounded"
-                                />
-                                {integration.display_name}
+                                Connect another
                             </DropdownMenuItem>
-                        ))}
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem
-                            render={
-                                <Button
-                                    size="row"
-                                    left
-                                    render={<LinkPrimitive to={githubAuthorizeUrl} disableClientSideRouting />}
-                                />
-                            }
-                            onClick={reportConnect}
-                        >
-                            Connect another
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                            render={
-                                <Button
-                                    size="row"
-                                    left
-                                    render={<LinkPrimitive to={urls.settings('project-integrations')} />}
-                                />
-                            }
-                        >
-                            Manage integrations
-                        </DropdownMenuItem>
-                    </DropdownMenuContent>
-                </DropdownMenu>
-            )}
+                            <DropdownMenuItem
+                                render={
+                                    <Button
+                                        size="row"
+                                        left
+                                        render={<LinkPrimitive to={urls.settings('project-integrations')} />}
+                                    />
+                                }
+                            >
+                                Manage integrations
+                            </DropdownMenuItem>
+                        </DropdownMenuContent>
+                    </DropdownMenu>
+                ) : (
+                    <LemonMenu
+                        items={[
+                            {
+                                items: githubIntegrations.map((integration) => ({
+                                    icon: (
+                                        <img
+                                            src={integration.icon_url}
+                                            alt={`${integration.display_name} icon`}
+                                            className="w-5 h-5 rounded"
+                                        />
+                                    ),
+                                    label: integration.display_name,
+                                    active: integration.id === value.integrationId,
+                                    onClick: () => handleIntegrationChange(integration.id),
+                                })),
+                            },
+                            {
+                                items: [
+                                    {
+                                        to: githubAuthorizeUrl,
+                                        disableClientSideRouting: true,
+                                        onClick: reportConnect,
+                                        label: 'Connect another',
+                                    },
+                                    { to: urls.settings('project-integrations'), label: 'Manage integrations' },
+                                ],
+                            },
+                        ]}
+                    >
+                        <LemonButton size="small" type="secondary" icon={<IconGithub />}>
+                            {githubIntegrations.find((i) => i.id === value.integrationId)?.display_name ?? 'GitHub'}
+                        </LemonButton>
+                    </LemonMenu>
+                ))}
 
             {value.integrationId ? (
                 <RepositoryBranchPickers

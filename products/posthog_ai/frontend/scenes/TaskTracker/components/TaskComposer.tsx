@@ -265,6 +265,7 @@ export function TaskComposer({
                                             {showRepositoryChip && (
                                                 <RepositorySelector
                                                     value={newTaskData.repositoryConfig}
+                                                    variant="quill"
                                                     autoOpen={repositoryRequested}
                                                     onChange={(config) => setNewTaskData({ repositoryConfig: config })}
                                                     onPickerClose={() => setRepositoryRequested(false)}
