@@ -61,6 +61,7 @@ _EXTRA_MATCHES: dict[str, T] = {
     "singlestore_source": T.SINGLESTORE,
     "snowflake_db": T.SNOWFLAKE,
     "apache_kafka": T.KAFKA,
+    "confluent_cloud": T.KAFKA,
     "aws_msk": T.KAFKA,
     "heroku_kafka": T.KAFKA,
     "kinesis": T.AMAZONKINESIS,
@@ -87,6 +88,8 @@ _EXTRA_MATCHES: dict[str, T] = {
     "business_central": T.DYNAMICS365BUSINESSCENTRAL,
     "canvas_by_instructure": T.CANVASLMS,
     "ceridian_dayforce": T.DAYFORCE,
+    "chargebee_product_catalog_1": T.CHARGEBEE,
+    "chargebee_product_catalog_2": T.CHARGEBEE,
     "checkout": T.CHECKOUTCOM,
     "chorusai": T.CHORUS,
     "circle_community_platform": T.CIRCLESO,
@@ -132,8 +135,20 @@ _EXTRA_MATCHES: dict[str, T] = {
     "zoho_campaigns": T.ZOHOCAMPAIGN,
 }
 
-# Fivetran's `light_speed_retail` reads the R-Series API, and the PostHog source reads X-Series.
-_REJECTED: frozenset[str] = frozenset({"light_speed_retail"})
+# Same vendor, different product. Each entry names what the Fivetran connector reads and what the
+# PostHog source of the same name reads, so a match would sync none of the customer's data.
+_REJECTED: frozenset[str] = frozenset(
+    {
+        # Fivetran reads the Lightspeed R-Series API. PostHog reads X-Series.
+        "light_speed_retail",
+        # Fivetran takes in the event stream. PostHog reads workspace config from the Public API.
+        "segment",
+        # Fivetran takes in the event stream. PostHog reads pipeline health from the BDP Console.
+        "snowplow",
+        # Fivetran reads Workday RaaS custom reports. PostHog reads the HCM API, which is `workday_hcm`.
+        "workday",
+    }
+)
 
 
 def _letters(name: str) -> str:

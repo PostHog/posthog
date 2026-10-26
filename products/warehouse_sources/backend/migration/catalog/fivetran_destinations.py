@@ -20,6 +20,4 @@ FIVETRAN_DESTINATION_TYPES: dict[str, ExternalDataDestination.Type] = {
     "postgres_wh": _T.POSTGRES,
     "databricks": _T.DATABRICKS,
     "databricks_via_managed_data_lake": _T.DATABRICKS,
-    # The Fivetran config `storage_provider` can also be ADLS or GCS, which an S3 destination cannot write to.
-    "managed_data_lake": _T.S3,
 }
