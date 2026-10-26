@@ -55,6 +55,9 @@ type StoryArgs = {
     hasLoggedInBefore: boolean
     signedOutForSessionRisk: boolean
     noSignInMethod: boolean
+    precheckFails: boolean
+    emailTaken: boolean
+    canCreateOrg: boolean
 }
 
 const EMAIL = 'test@posthog.com'
@@ -94,6 +97,9 @@ const meta: Meta<StoryArgs> = {
         hasLoggedInBefore: { control: 'boolean', name: 'Has logged in before' },
         signedOutForSessionRisk: { control: 'boolean', name: 'Signed out for session risk' },
         noSignInMethod: { control: 'boolean', name: 'Account has no sign-in method' },
+        precheckFails: { control: 'boolean', name: 'Login precheck fails' },
+        emailTaken: { control: 'boolean', name: 'Signup finds the email taken' },
+        canCreateOrg: { control: 'boolean', name: 'Signups allowed' },
     },
     args: {
         entry: 'login',
@@ -111,6 +117,9 @@ const meta: Meta<StoryArgs> = {
         hasLoggedInBefore: true,
         signedOutForSessionRisk: false,
         noSignInMethod: false,
+        precheckFails: false,
+        emailTaken: false,
+        canCreateOrg: true,
     },
 }
 export default meta
@@ -135,6 +144,9 @@ const Template: StoryFn<StoryArgs> = ({
     hasLoggedInBefore,
     signedOutForSessionRisk,
     noSignInMethod,
+    precheckFails,
+    emailTaken,
+    canCreateOrg,
 }) => {
     const enforcement = ssoEnforcement === 'none' ? null : ssoEnforcement
     // Set synchronously: the scene reads the cookies while it mounts during this same render.
@@ -150,7 +162,7 @@ const Template: StoryFn<StoryArgs> = ({
                 region: cloud ? region : undefined,
                 realm: cloud ? 'cloud' : 'hosted-clickhouse',
                 is_debug: cloud,
-                can_create_org: true,
+                can_create_org: canCreateOrg,
                 available_social_auth_providers: {
                     'google-oauth2': googleOAuth,
                     github,
@@ -161,16 +173,35 @@ const Template: StoryFn<StoryArgs> = ({
             '/api/users/@me': () => [500, null],
         },
         post: {
-            '/api/login/precheck': {
-                account_exists: !NEW_ACCOUNT_STEPS.includes(step),
-                sso_enforcement: enforcement,
-                saml_available: samlAvailable || step === 'New person on an SSO domain',
-                password_login_available: !noSignInMethod,
-            },
-            '/api/signup/precheck': {
-                email_exists: false,
-                pending_invite: step === 'Pending invite' ? { organization_name: 'Hogflix' } : null,
-            },
+            '/api/login/precheck': () =>
+                precheckFails
+                    ? [429, { type: 'throttled_error', code: 'throttled', detail: 'Request was throttled.' }]
+                    : [
+                          200,
+                          {
+                              account_exists: !NEW_ACCOUNT_STEPS.includes(step),
+                              sso_enforcement: enforcement,
+                              saml_available: samlAvailable || step === 'New person on an SSO domain',
+                              password_login_available: !noSignInMethod,
+                          },
+                      ],
+            '/api/signup/precheck': () =>
+                emailTaken
+                    ? [
+                          409,
+                          {
+                              email_exists: true,
+                              code: 'account_exists',
+                              detail: 'There is already an account with this email address.',
+                          },
+                      ]
+                    : [
+                          200,
+                          {
+                              email_exists: false,
+                              pending_invite: step === 'Pending invite' ? { organization_name: 'Hogflix' } : null,
+                          },
+                      ],
         },
     })
 
@@ -194,7 +225,7 @@ const Template: StoryFn<StoryArgs> = ({
         }
         loginLogic.actions.setLoginValue('email', EMAIL)
         authLogic.actions.continueWithEmail()
-    }, [step, enforcement])
+    }, [step, enforcement, precheckFails, emailTaken, canCreateOrg])
 
     useEffect(() => {
         if (step === 'Login code') {
@@ -289,3 +320,15 @@ SignedOutForSessionRisk.args = { signedOutForSessionRisk: true }
 export const NoSignInMethod: StoryFn<StoryArgs> = Template.bind({})
 NoSignInMethod.storyName = 'Account with no sign-in method'
 NoSignInMethod.args = { step: 'Login', noSignInMethod: true, googleOAuth: false, github: false, gitlab: false }
+
+export const PrecheckFailed: StoryFn<StoryArgs> = Template.bind({})
+PrecheckFailed.storyName = 'Login step when the precheck fails'
+PrecheckFailed.args = { step: 'Login', precheckFails: true }
+
+export const EmailTakenOnSignup: StoryFn<StoryArgs> = Template.bind({})
+EmailTakenOnSignup.storyName = 'Signup finds the email taken'
+EmailTakenOnSignup.args = { step: 'Signup credentials', emailTaken: true }
+
+export const NewPersonWithSignupsOff: StoryFn<StoryArgs> = Template.bind({})
+NewPersonWithSignupsOff.storyName = 'New person where signups are off'
+NewPersonWithSignupsOff.args = { step: 'Signup credentials', canCreateOrg: false, cloud: false }

@@ -10,12 +10,14 @@ import { signupLogic } from './signupLogic'
 
 describe('signupLogic — email error surfacing', () => {
     let logic: ReturnType<typeof signupLogic.build>
+    let signupErrorBody: Record<string, any>
 
     beforeEach(() => {
+        signupErrorBody = {}
         useMocks({
             post: {
                 '/api/signup/precheck': () => [200, { email_exists: false, pending_invite: null }],
-                '/api/signup/': () => [400, { email: ['There is already an account with this email address.'] }],
+                '/api/signup/': () => [400, signupErrorBody],
             },
         })
         initKeaTests()
@@ -28,33 +30,52 @@ describe('signupLogic — email error surfacing', () => {
         logic.unmount()
     })
 
-    it('redirects to the email panel and shows the error when the final POST fails with an email error', async () => {
-        // Advance through email panel (precheck passes)
-        logic.actions.precheckSignupEmail('test@example.com')
-        await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.panel).toBe(1)
+    it.each([
+        ['a field-keyed body', { email: ['There is already an account with this email address.'] }, false],
+        [
+            'a DRF error body',
+            {
+                type: 'validation_error',
+                code: 'unique',
+                detail: 'There is already an account with this email address.',
+                attr: 'email',
+            },
+            true,
+        ],
+    ])(
+        'redirects to the email panel and shows the error when the final POST fails with %s',
+        async (_name, body, offersLogin) => {
+            signupErrorBody = body
+            // Advance through email panel (precheck passes)
+            logic.actions.precheckSignupEmail('test@example.com')
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.panel).toBe(1)
 
-        // Advance through auth panel (a valid password is required to pass form validation)
-        logic.actions.setSignupPanelAuthValue('password', 'Str0ng-Test-Pass!')
-        logic.actions.submitSignupPanelAuth()
-        await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.panel).toBe(2)
+            // Advance through auth panel (a valid password is required to pass form validation)
+            logic.actions.setSignupPanelAuthValue('password', 'Str0ng-Test-Pass!')
+            logic.actions.submitSignupPanelAuth()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.panel).toBe(2)
 
-        // Submit onboarding — final POST fails with an email error
-        logic.actions.setSignupPanelOnboardingValues({
-            name: 'Jane Doe',
-            organization_name: 'Hogflix',
-            role_at_organization: 'engineer',
-            referral_source: '',
-            referral_source_ai_prompt: '',
-        })
-        logic.actions.submitSignupPanelOnboarding()
-        await expectLogic(logic).toFinishAllListeners()
+            // Submit onboarding — final POST fails with an email error
+            logic.actions.setSignupPanelOnboardingValues({
+                name: 'Jane Doe',
+                organization_name: 'Hogflix',
+                role_at_organization: 'engineer',
+                referral_source: '',
+                referral_source_ai_prompt: '',
+            })
+            logic.actions.submitSignupPanelOnboarding()
+            await expectLogic(logic).toFinishAllListeners()
 
-        // User should be sent back to step 0 with the email error shown there
-        expect(logic.values.panel).toBe(0)
-        expect(logic.values.signupEmailError).toBe('There is already an account with this email address.')
-    })
+            // User should be sent back to step 0 with the email error shown there
+            expect(logic.values.panel).toBe(0)
+            expect(logic.values.signupEmailError).toBe('There is already an account with this email address.')
+            expect(logic.values.signupEmailTaken).toBe(offersLogin)
+            // The password picked for this email must not carry over to the next one
+            expect(logic.values.signupPanelAuth.password).toBe('')
+        }
+    )
 })
 
 describe('signupLogic — pending invite banner', () => {

@@ -39,7 +39,7 @@ export interface AuthenticateResponseType {
 
 export interface PrecheckResponseType {
     /**
-     * Whether an active account uses this email. Absent (from an older server or a failed precheck)
+     * Whether an account, active or deactivated, uses this email. Absent (from an older server or a failed precheck)
      * means unknown, and the auth page then shows the login step, so an existing account is never
      * sent into signup.
      */

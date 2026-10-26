@@ -6,6 +6,7 @@ import { usePrevious } from 'lib/hooks/usePrevious'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
+import { Link } from 'lib/lemon-ui/Link'
 import { isWebKitBrowser } from 'lib/utils/dom'
 import { isEmail } from 'lib/utils/url'
 import { AuthBanner } from 'scenes/authentication/shared/authScene/AuthBanner'
@@ -22,6 +23,7 @@ import { HighlightedName } from '../components/HighlightedName'
 import { LoginErrorBanner } from '../components/LoginErrorBanner'
 import { SessionRiskBanner } from '../components/SessionRiskBanner'
 import { loginLogic } from '../loginLogic'
+import { signupLogic } from '../signupLogic'
 
 function EmailStepTitle(): JSX.Element {
     const { entry } = useValues(authLogic)
@@ -56,7 +58,8 @@ export function EmailStep(): JSX.Element {
     const { login, precheckResponse } = useValues(loginLogic)
     const { setLoginValue, precheck } = useActions(loginLogic)
     const { entry, emailError, isEmailSubmitting } = useValues(authLogic)
-    const { continueWithEmail } = useActions(authLogic)
+    const { continueWithEmail, chooseAccountPath } = useActions(authLogic)
+    const { signupEmailTaken } = useValues(signupLogic)
     const { preflight } = useValues(preflightLogic)
     const lastLoginMethod = useLastLoginMethod()
     const prevEmail = usePrevious(login.email)
@@ -104,6 +107,20 @@ export function EmailStep(): JSX.Element {
                         fullWidth
                     />
                 </LemonField.Pure>
+                {signupEmailTaken && (
+                    <p className="-mt-2 mb-0 text-sm text-secondary">
+                        <Link
+                            onClick={() => chooseAccountPath('login', true)}
+                            data-attr="auth-email-taken-login"
+                            className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning"
+                        >
+                            Log in instead
+                        </Link>
+                        <span>
+                            . Signed up with a version of this address with dots or a +tag? Log in with that one.
+                        </span>
+                    </p>
+                )}
                 <LemonButton
                     type="primary"
                     size="large"

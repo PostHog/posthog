@@ -19,30 +19,39 @@ import { ConnectTitle } from '../components/ConnectTitle'
 import { LoginErrorBanner } from '../components/LoginErrorBanner'
 import { OtherRegionNotice } from '../components/OtherRegionNotice'
 import { UseDifferentEmailLink } from '../components/UseDifferentEmailLink'
-import { loginLogic } from '../loginLogic'
+import { PrecheckResponseType, loginLogic } from '../loginLogic'
+
+function hasSingleSignOn(precheck: PrecheckResponseType): boolean {
+    return !!precheck.sso_enforcement || precheck.saml_available || !!precheck.oidc_available
+}
 
 function LoginStepTitle(): JSX.Element {
     const { login, precheckResponse } = useValues(loginLogic)
-    const { entry } = useValues(authLogic)
+    const { entry, accountExists } = useValues(authLogic)
     const { pendingConnection } = useValues(pendingOAuthConnectionLogic)
-    const isNewAccount = precheckResponse.account_exists === false
+    const email = <span className="AuthScene__mono">{login.email}</span>
 
-    const greeting = isNewAccount ? (
-        <>
-            <span>Nice to meet you,</span> <span className="AuthScene__mono">{login.email}</span>
-            <span>.</span>
-        </>
-    ) : entry === 'signup' ? (
-        <>
-            <span>Plot twist:</span> <span className="AuthScene__mono">{login.email}</span>{' '}
-            <span>already has an account.</span>
-        </>
-    ) : (
-        <>
-            <span>Good to see you,</span> <span className="AuthScene__mono">{login.email}</span>
-            <span>.</span>
-        </>
-    )
+    const greeting =
+        accountExists === false ? (
+            <>
+                <span>Nice to meet you,</span> {email}
+                <span>.</span>
+            </>
+        ) : accountExists === null ? (
+            <>
+                <span>Hi,</span> {email}
+                <span>.</span>
+            </>
+        ) : entry === 'signup' ? (
+            <>
+                <span>Plot twist:</span> {email} <span>already has an account.</span>
+            </>
+        ) : (
+            <>
+                <span>Good to see you,</span> {email}
+                <span>.</span>
+            </>
+        )
     if (pendingConnection) {
         return (
             <AuthCardTitle
@@ -51,12 +60,20 @@ function LoginStepTitle(): JSX.Element {
             />
         )
     }
-    return <AuthCardTitle title={isNewAccount ? 'Your team uses single sign-on' : 'Welcome back'} sub={greeting} />
+    if (accountExists === false) {
+        return (
+            <AuthCardTitle
+                title={hasSingleSignOn(precheckResponse) ? 'Your team uses single sign-on' : 'No account here yet'}
+                sub={greeting}
+            />
+        )
+    }
+    return <AuthCardTitle title={accountExists === null ? 'Log in' : 'Welcome back'} sub={greeting} />
 }
 
 export function LoginStep(): JSX.Element {
     const { chooseAccountPath } = useActions(authLogic)
-    const { canSignUpWithEmail } = useValues(authLogic)
+    const { canSignUpWithEmail, accountExists } = useValues(authLogic)
     const {
         precheckResponse,
         login,
@@ -69,8 +86,11 @@ export function LoginStep(): JSX.Element {
     } = useValues(loginLogic)
     const lastLoginMethod = useLastLoginMethod()
 
-    // A new person reaches this step only on a SAML or OIDC domain, where the IdP creates the account
-    const isNewAccount = precheckResponse.account_exists === false
+    // A new person reaches this step on a SAML or OIDC domain, where the IdP creates the account, or
+    // where nobody may sign up with email, such as a self-hosted instance with signups off
+    const isNewAccount = accountExists === false
+    // The precheck failed, so this may be a new person. Signup still refuses an email that has an account.
+    const isAccountUnknown = accountExists === null
     const isPasswordHidden = !!precheckResponse.sso_enforcement || isPasswordLoginUnavailable || isNewAccount
 
     return (
@@ -116,6 +136,11 @@ export function LoginStep(): JSX.Element {
                             />
                         )}
                     </LemonField>
+                )}
+                {isNewAccount && !hasSingleSignOn(precheckResponse) && (
+                    <AuthBanner variant="note">
+                        There's no account for this email. Ask your PostHog admin for an invite.
+                    </AuthBanner>
                 )}
                 {hasNoConfiguredLoginMethod && (
                     <AuthBanner variant="warning">
@@ -173,6 +198,18 @@ export function LoginStep(): JSX.Element {
                     />
                 )}
             </Form>
+            {isAccountUnknown && canSignUpWithEmail && (
+                <p className="mt-4 mb-0 text-sm text-secondary text-center">
+                    <span>New to PostHog?</span>{' '}
+                    <Link
+                        onClick={() => chooseAccountPath('signup', null)}
+                        data-attr="auth-unknown-account-signup"
+                        className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning"
+                    >
+                        Create an account
+                    </Link>
+                </p>
+            )}
             {isNewAccount && canSignUpWithEmail && (
                 <p className="mt-4 mb-0 text-sm text-secondary text-center">
                     <Link

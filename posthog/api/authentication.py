@@ -525,8 +525,8 @@ class LoginPrecheckSerializer(serializers.Serializer):
     @staticmethod
     def _available_local_methods(email: str, *, saml_available: bool, oidc_available: bool = False) -> dict[str, Any]:
         """
-        Report whether an active account exists for this email, whether it can log in with a
-        password, and which of its linked social identities are actually usable on this instance.
+        Report whether an account exists for this email, whether it can log in with a password,
+        and which of its linked social identities are actually usable on this instance.
 
         The auth page asks for the email first and uses `account_exists` to choose between the
         login step and the signup step. Signup already refuses an email that has an account, so
@@ -534,8 +534,9 @@ class LoginPrecheckSerializer(serializers.Serializer):
         """
         # Same lookup login itself uses (`UserManager.get_by_natural_key`), so precheck can never
         # describe a different account than the one a password would authenticate: case-insensitive,
-        # and deterministic (active first, then last logged in) if case variations coexist.
-        user = EmailLookupHandler.get_user_by_email(email)
+        # and deterministic (active first, then last logged in) if case variations coexist. A
+        # deactivated account counts as existing, because signup cannot reuse its email either.
+        user = EmailLookupHandler.get_user_by_email(email, is_active=None)
         if user is None:
             return {"account_exists": False, "password_login_available": True, "social_providers": []}
 

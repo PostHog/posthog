@@ -11,7 +11,7 @@ import { AuthAccountPath, accountPathFor, authLogic, canSignUpWithEmail } from '
 import { authTelemetryLogic } from './authTelemetryLogic'
 import { PrecheckResponseType } from './loginLogic'
 import { loginLogic } from './loginLogic'
-import { signupLogic } from './signupLogic'
+import { maintenanceSignupRedirectUrl, signupLogic } from './signupLogic'
 
 jest.mock('posthog-js')
 
@@ -57,6 +57,105 @@ describe('authLogic', () => {
         ['an SSO-enforced domain', { ...COMPLETED, sso_enforcement: 'saml' }, PREFLIGHT, false],
     ])('offers email signup to a new person on %s: %s', (_name, precheck, preflight, expected) => {
         expect(canSignUpWithEmail(precheck, preflight)).toEqual(expected)
+    })
+
+    it.each<[string, Partial<PreflightStatus>, string | undefined, string | null]>([
+        [
+            'sends a US signup to the EU with its email',
+            { cloud: true, region: 'US' as PreflightStatus['region'] },
+            'eu',
+            'https://eu.posthog.com/signup?maintenanceRedirect=true&email=person%40example.com',
+        ],
+        [
+            'keeps a signup in the region that takes them',
+            { cloud: true, region: 'EU' as PreflightStatus['region'] },
+            'eu',
+            null,
+        ],
+        [
+            'keeps a signup when the flag is off',
+            { cloud: true, region: 'US' as PreflightStatus['region'] },
+            undefined,
+            null,
+        ],
+        ['keeps a self-hosted signup', { cloud: false, region: 'US' as PreflightStatus['region'] }, 'eu', null],
+    ])('maintenance redirect %s', (_name, preflight, flag, expected) => {
+        const featureFlags = flag ? { 'redirect-signups-to-instance': flag } : {}
+        expect(
+            maintenanceSignupRedirectUrl({ ...PREFLIGHT, ...preflight }, featureFlags, 'person@example.com')
+        ).toEqual(expected)
+    })
+
+    describe('when a request fails', () => {
+        let loginPrecheck: () => [number, Record<string, any>]
+        let signupPrecheck: () => [number, Record<string, any>]
+
+        beforeEach(() => {
+            loginPrecheck = () => [200, { account_exists: false, saml_available: false }]
+            signupPrecheck = () => [200, { email_exists: false, pending_invite: null }]
+            useMocks({
+                get: {
+                    '/_preflight': () => [200, { ...preflightJson, can_create_org: true }],
+                },
+                post: {
+                    '/api/login/precheck': () => loginPrecheck(),
+                    '/api/signup/precheck': () => signupPrecheck(),
+                },
+            })
+            initKeaTests()
+            router.actions.push('/login')
+            authLogic.mount()
+            loginLogic.actions.setLoginValue('email', 'person@example.com')
+        })
+
+        afterEach(() => {
+            authLogic.unmount()
+        })
+
+        it('lands on the login step with the account unknown, and still lets the person sign up', async () => {
+            loginPrecheck = () => [429, { type: 'throttled_error', code: 'throttled', detail: 'Slow down' }]
+
+            await expectLogic(authLogic, () => authLogic.actions.continueWithEmail())
+                .toDispatchActions(['chooseAccountPath'])
+                .toMatchValues({ step: 'login', accountExists: null })
+
+            authLogic.actions.chooseAccountPath('signup', null)
+            await expectLogic(signupLogic).toDispatchActions(['finishSignupEmailPrecheck'])
+            await expectLogic(authLogic).toMatchValues({ step: 'signup_credentials' })
+        })
+
+        it('offers login for an email that signup finds taken, with the password field', async () => {
+            signupPrecheck = () => [
+                409,
+                {
+                    email_exists: true,
+                    code: 'account_exists',
+                    detail: 'There is already an account with this email address.',
+                },
+            ]
+
+            await expectLogic(authLogic, () => authLogic.actions.continueWithEmail()).toDispatchActions([
+                'chooseAccountPath',
+            ])
+            await expectLogic(signupLogic).toDispatchActions(['setSignupEmailError']).toMatchValues({
+                signupEmailTaken: true,
+            })
+            await expectLogic(authLogic).toMatchValues({ step: 'email' })
+
+            authLogic.actions.chooseAccountPath('login', true)
+            await expectLogic(authLogic).toMatchValues({ step: 'login', accountExists: true, emailError: null })
+        })
+
+        it('drops the passkey registered for the previous email when the person changes it', async () => {
+            await expectLogic(authLogic, () => authLogic.actions.continueWithEmail()).toDispatchActions([
+                'chooseAccountPath',
+            ])
+            await expectLogic(signupLogic).toDispatchActions(['finishSignupEmailPrecheck'])
+            signupLogic.actions.setPasskeyRegistered(true)
+
+            authLogic.actions.backToEmail()
+            await expectLogic(signupLogic).toMatchValues({ passkeyRegistered: false })
+        })
     })
 
     describe('funnel events', () => {

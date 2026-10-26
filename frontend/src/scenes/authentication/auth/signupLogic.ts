@@ -79,6 +79,7 @@ export interface signupLogicValues {
     showSignupPanelOnboardingErrors: boolean
     signupEmail: string
     signupEmailError: string | null
+    signupEmailTaken: boolean
     signupPanelAuth: SignupPanelAuthForm
     signupPanelAuthAllErrors: Record<string, any>
     signupPanelAuthChanged: boolean
@@ -122,6 +123,9 @@ export interface signupLogicActions {
     resetChallenge: () => {
         value: true
     }
+    resetSignupCredentials: () => {
+        value: true
+    }
     resetSignupPanelAuth: (values?: SignupPanelAuthForm) => {
         values?: SignupPanelAuthForm
     }
@@ -158,8 +162,12 @@ export interface signupLogicActions {
     setSignupEmail: (email: string) => {
         email: string
     }
-    setSignupEmailError: (error: string | null) => {
+    setSignupEmailError: (
+        error: string | null,
+        isTaken?: boolean
+    ) => {
         error: string | null
+        isTaken: boolean
     }
     setSignupPanelAuthManualErrors: (errors: Record<string, any>) => {
         errors: Record<string, any>
@@ -242,6 +250,47 @@ export interface signupLogicMeta {
 
 export type signupLogicType = MakeLogicType<signupLogicValues, signupLogicActions, Record<string, any>, signupLogicMeta>
 
+const MAINTENANCE_REGIONS = ['eu', 'us'] as const
+type MaintenanceRegion = (typeof MAINTENANCE_REGIONS)[number]
+
+/** The cloud region that takes all signups while the other one is under maintenance, if any. */
+function maintenanceSignupRegion(
+    preflight: PreflightStatus | null,
+    featureFlags: FeatureFlagsSet
+): MaintenanceRegion | null {
+    const region = featureFlags[FEATURE_FLAGS.REDIRECT_SIGNUPS_TO_INSTANCE]
+    if (!preflight?.cloud || typeof region !== 'string') {
+        return null
+    }
+    return (MAINTENANCE_REGIONS as readonly string[]).includes(region) ? (region as MaintenanceRegion) : null
+}
+
+/**
+ * Where to send a signup on this instance while the other region takes all signups, or null to stay.
+ * The `email` carries over, so the person does not type it again on the other instance.
+ */
+export function maintenanceSignupRedirectUrl(
+    preflight: PreflightStatus | null,
+    featureFlags: FeatureFlagsSet,
+    email?: string
+): string | null {
+    const region = maintenanceSignupRegion(preflight, featureFlags)
+    // KLUDGE: the backend can technically return null, and we don't want to redirect to the app
+    // unless the preflight region is valid
+    const currentRegion = preflight?.region?.toLowerCase()
+    if (!region || !currentRegion || !(MAINTENANCE_REGIONS as readonly string[]).includes(currentRegion)) {
+        return null
+    }
+    if (region === currentRegion) {
+        return null
+    }
+    const params = new URLSearchParams({ maintenanceRedirect: 'true' })
+    if (email) {
+        params.set('email', email)
+    }
+    return `https://${CLOUD_HOSTNAMES[region.toUpperCase() as keyof typeof CLOUD_HOSTNAMES]}${urls.signup()}?${params}`
+}
+
 export const signupLogic = kea<signupLogicType>([
     path(['scenes', 'authentication', 'auth', 'signupLogic']),
     connect(() => ({
@@ -252,8 +301,11 @@ export const signupLogic = kea<signupLogicType>([
         // The signup precheck refuses aliases of an existing address and finds pending invites
         precheckSignupEmail: (email: string) => ({ email }),
         setSignupEmail: (email: string) => ({ email }),
-        setSignupEmailError: (error: string | null) => ({ error }),
+        // `isTaken`: the email, or an alias of it, already has an account, so the error offers login
+        setSignupEmailError: (error: string | null, isTaken: boolean = false) => ({ error, isTaken }),
         finishSignupEmailPrecheck: true,
+        // Clears the password and passkey picked for the previous email
+        resetSignupCredentials: true,
         // Passkey actions
         registerPasskey: true,
         setPasskeyRegistered: (registered: boolean) => ({ registered }),
@@ -293,6 +345,13 @@ export const signupLogic = kea<signupLogicType>([
             {
                 precheckSignupEmail: () => null,
                 setSignupEmailError: (_, { error }) => error,
+            },
+        ],
+        signupEmailTaken: [
+            false,
+            {
+                precheckSignupEmail: () => false,
+                setSignupEmailError: (_, { isTaken }) => isTaken,
             },
         ],
         isSignupEmailChecking: [
@@ -477,10 +536,13 @@ export const signupLogic = kea<signupLogicType>([
 
                     // If the server returns an email validation error, send the user back to the
                     // email step so the error appears next to the field that caused it.
-                    const emailError = error.data?.email
+                    // DRF sends `attr: 'email'`, and an older body shape keys the message by field
+                    const emailError = error.attr === 'email' ? error.detail : error.data?.email
                     if (emailError) {
                         const message = Array.isArray(emailError) ? String(emailError[0]) : String(emailError)
-                        actions.setSignupEmailError(message)
+                        // A passkey registered for this email would fail the next submit the same way
+                        actions.resetSignupCredentials()
+                        actions.setSignupEmailError(message, error.code === 'unique')
                         actions.setPanel(0)
                         return
                     }
@@ -547,7 +609,10 @@ export const signupLogic = kea<signupLogicType>([
                 breakpoint()
                 actions.finishSignupEmailPrecheck()
                 if (e?.status === 409 || e?.code === 'account_exists') {
-                    actions.setSignupEmailError(e?.detail || 'There is already an account with this email address.')
+                    actions.setSignupEmailError(
+                        e?.detail || 'There is already an account with this email address.',
+                        true
+                    )
                     actions.setPanel(0)
                     return
                 }
@@ -584,6 +649,11 @@ export const signupLogic = kea<signupLogicType>([
             } finally {
                 actions.setPendingInviteResending(false)
             }
+        },
+        resetSignupCredentials: () => {
+            actions.setPasskeyRegistered(false)
+            actions.setPasskeyError(null)
+            actions.resetSignupPanelAuth()
         },
         setPasskeyRegistered: ({ registered }) => {
             if (registered) {
@@ -651,31 +721,15 @@ export const signupLogic = kea<signupLogicType>([
     })),
     urlToAction(({ actions, values }) => ({
         '/signup': (_, { email, maintenanceRedirect }) => {
-            if (values.preflight?.cloud) {
-                // Redirect to a different region if we are doing maintenance on one of them
-                const regionOverrideFlag = values.featureFlags[FEATURE_FLAGS.REDIRECT_SIGNUPS_TO_INSTANCE]
-                const regionsAllowList = ['eu', 'us']
-                const isRegionOverrideValid =
-                    typeof regionOverrideFlag === 'string' && regionsAllowList.includes(regionOverrideFlag)
-                // KLUDGE: the backend can technically return null
-                // and, we don't want to redirect to the app unless the preflight region is valid
-                const isPreflightRegionValid =
-                    values.preflight?.region && regionsAllowList.includes(values.preflight?.region)
-
-                if (
-                    isRegionOverrideValid &&
-                    isPreflightRegionValid &&
-                    regionOverrideFlag !== values.preflight?.region?.toLowerCase()
-                ) {
-                    window.location.href = `https://${
-                        CLOUD_HOSTNAMES[regionOverrideFlag.toUpperCase() as keyof typeof CLOUD_HOSTNAMES]
-                    }${urls.signup()}?maintenanceRedirect=true`
-                }
-                if (maintenanceRedirect && isRegionOverrideValid) {
-                    lemonToast.info(
-                        `You've been redirected to signup on our ${regionOverrideFlag.toUpperCase()} instance while we perform maintenance on our other instance.`
-                    )
-                }
+            const redirectUrl = maintenanceSignupRedirectUrl(values.preflight, values.featureFlags, email)
+            if (redirectUrl) {
+                window.location.href = redirectUrl
+            }
+            const region = maintenanceSignupRegion(values.preflight, values.featureFlags)
+            if (maintenanceRedirect && region) {
+                lemonToast.info(
+                    `You've been redirected to signup on our ${region.toUpperCase()} instance while we perform maintenance on our other instance.`
+                )
             }
             // Outside demo mode, `authLogic` puts `?email=` into the shared email field
             if (email && values.preflight?.demo) {

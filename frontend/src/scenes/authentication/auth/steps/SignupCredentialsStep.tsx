@@ -3,6 +3,7 @@ import { Form } from 'kea-forms'
 
 import PasswordStrength from 'lib/components/PasswordStrength'
 import passkeyLogo from 'lib/components/SocialLoginButton/passkey.svg'
+import { SocialLoginButtons } from 'lib/components/SocialLoginButton/SocialLoginButton'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
@@ -140,6 +141,9 @@ export function SignupCredentialsStep(): JSX.Element {
                     Create account
                 </LemonButton>
             </Form>
+            {/* A verified company domain with auto-join adds people who sign in with Google, GitHub or
+                GitLab to their team's organization. An email signup creates a new organization instead. */}
+            <SocialLoginButtons topDivider caption="or sign up with" captionLocation="top" />
         </AuthSceneCard>
     )
 }

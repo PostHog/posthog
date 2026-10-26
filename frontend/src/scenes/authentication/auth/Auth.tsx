@@ -62,7 +62,7 @@ export function Auth(): JSX.Element | null {
     useMountedLogic(loginTelemetryLogic)
     useMountedLogic(authTelemetryLogic)
     // Mounted at the scene root so the cookie is read once, not on every step change
-    useMountedLogic(pendingOAuthConnectionLogic)
+    const { pendingConnection } = useValues(pendingOAuthConnectionLogic)
     const { step, entry } = useValues(authLogic)
     const { user } = useValues(userLogic)
     const { preflight } = useValues(preflightLogic)
@@ -84,7 +84,8 @@ export function Auth(): JSX.Element | null {
 
     return (
         <AuthScene notes={authNotes(step, entry, isReturning)}>
-            {preflight?.cloud && <RedirectIfLoggedInOtherInstance />}
+            {/* Signup never had this redirect, and a pending OAuth connection belongs to this region */}
+            {preflight?.cloud && entry === 'login' && !pendingConnection && <RedirectIfLoggedInOtherInstance />}
             <StepComponent />
         </AuthScene>
     )

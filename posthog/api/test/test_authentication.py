@@ -311,15 +311,15 @@ class TestLoginPrecheckAPI(APIBaseTest):
     @parameterized.expand(
         [
             ("active", True, True),
-            ("deactivated", False, False),
+            ("deactivated", False, True),
             ("unknown", None, False),
         ]
     )
-    def test_login_precheck_reports_whether_an_active_account_exists(
+    def test_login_precheck_reports_whether_an_account_exists(
         self, _name: str, user_is_active: bool | None, expected_account_exists: bool
     ) -> None:
-        # The auth page sends `account_exists: false` to the signup step. A deactivated account
-        # cannot log in, so it must not route to the password step.
+        # The auth page sends `account_exists: false` to the signup step. Signup cannot reuse a
+        # deactivated account's email, so that account must route to the login step instead.
         email = "routed@posthog.com"
         if user_is_active is not None:
             user = User.objects.create_and_join(self.organization, email, None)
