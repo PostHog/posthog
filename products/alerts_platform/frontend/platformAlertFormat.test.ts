@@ -16,6 +16,8 @@ function makeConfiguration(overrides: Partial<PlatformAlertConfigurationApi> = {
         id: 'configuration-id',
         name: 'Error spike',
         enabled: true,
+        labels: {},
+        annotations: {},
         source_kind: 'logs',
         source_config: {},
         check_interval_minutes: 1,

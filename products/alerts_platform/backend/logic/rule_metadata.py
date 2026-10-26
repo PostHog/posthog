@@ -99,8 +99,10 @@ def _template_bodies(name: str, value: str) -> list[str]:
 
 
 def _check_name(name: str, kind: str) -> None:
-    # re2 cannot encode a lone surrogate, so it would raise instead of refusing the name.
-    if len(name) > _MAX_NAME_LENGTH or UNSTORABLE.search(name) or not _NAME.fullmatch(name):
+    # Before re2 and without the name, because neither re2 nor the JSON response can encode a lone surrogate.
+    if UNSTORABLE.search(name):
+        raise InvalidRuleMetadata(f"A {kind} name has a character that cannot be stored.")
+    if len(name) > _MAX_NAME_LENGTH or not _NAME.fullmatch(name):
         raise InvalidRuleMetadata(
             f"`{name}` is not a valid {kind} name. Use letters, digits and underscores, "
             f"start with a letter or underscore, and use at most {_MAX_NAME_LENGTH} characters."

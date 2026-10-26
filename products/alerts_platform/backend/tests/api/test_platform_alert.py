@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
@@ -362,6 +363,7 @@ class TestPlatformAlertAPI(APIBaseTest):
             ("enabled_without_filters", {"source_config": {"filters": {}, "condition": CONDITION}}, "source_config"),
             ("grouped_by_an_attribute", {"grouping": {"mode": "by_result_labels", "keys": ["http.route"]}}, "grouping"),
             ("reserved_label", {"labels": {"alertname": "Checkout"}}, "labels"),
+            ("unencodable_label_name", {"labels": {"te\ud800am": "checkout"}}, "labels"),
             (
                 "annotation_on_an_unknown_label",
                 {"annotations": {"summary": "{{ $labels.service_name }} errors"}},
@@ -373,7 +375,8 @@ class TestPlatformAlertAPI(APIBaseTest):
         self._set_flag(True)
         configuration = self._create_configuration(self.team, "API errors", owner="platform")
 
-        response = self.client.patch(self._edit_url(configuration), body, format="json")
+        # `json.dumps` escapes a lone surrogate as a client does. The test client's encoder cannot send one.
+        response = self.client.patch(self._edit_url(configuration), json.dumps(body), content_type="application/json")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["attr"] == field
