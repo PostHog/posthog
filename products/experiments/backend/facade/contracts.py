@@ -371,3 +371,18 @@ class ExperimentRunningTimeTarget:
     # The exposures so far that count toward the target: the control's and those of the variants that get traffic.
     # None in manual mode, and when no stored result can size the target.
     current_sample_size: int | None
+
+
+@frozen
+class EndedExperiment:
+    id: int
+    name: str
+    ended_at: datetime
+
+
+@frozen
+class RunningExperiment:
+    id: int
+    name: str
+    started_at: datetime
+    flag_key: str
