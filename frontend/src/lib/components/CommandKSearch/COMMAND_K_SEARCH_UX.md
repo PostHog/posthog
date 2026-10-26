@@ -43,6 +43,8 @@ When a change disagrees with this file, change this file in the same PR or don't
 
 Placeholder: `Search or ask PostHog AI… try is:dashboard`.
 
+Placement: with the `today-rail-nav` top bar, the palette opens over the top bar search field, so its input takes the place of the field and the list drops below it. Without that field, and at phone widths, the palette keeps its default place.
+
 Input controls, carried over from the current palette:
 
 - **Press Tab to ask AI** shows while Tab would ask AI: there is a question to ask (see **Ask PostHog AI**) and the highlighted row is not a filter row. Clicking it does the same as Tab.
