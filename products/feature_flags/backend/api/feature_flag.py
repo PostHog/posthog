@@ -3972,7 +3972,7 @@ class FlagLifecycleWriteRequest(ServiceRequest):
     extraction returns None for POST, so pending change requests for different flags collide and
     the second one is dropped as a duplicate. Reporting the write as the PATCH it is fixes both.
 
-    ``data`` stays empty because these endpoints declare no body. The serializer reads ``version``
+    ``data`` stays empty whatever the caller sent. The serializer reads ``version``
     and ``original_flag`` off the request, so a body echoed back from an earlier read could
     otherwise discard the state change and still return 200.
 

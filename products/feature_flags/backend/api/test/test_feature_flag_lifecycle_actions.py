@@ -15,6 +15,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.approvals.backend.models import ApprovalPolicy, ChangeRequest
 from products.approvals.backend.services import ChangeRequestService
+from products.feature_flags.backend.api.feature_flag import FeatureFlagViewSet
 from products.feature_flags.backend.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE, flag_payload_codec
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
@@ -152,6 +153,23 @@ class TestFeatureFlagLifecycleActions(APIBaseTest):
         flag.refresh_from_db()
         assert (flag.active, flag.version) == (active, 1)
         assert not ActivityLog.objects.filter(scope="FeatureFlag", item_id=str(flag.id), activity="updated").exists()
+
+    @parameterized.expand([("enable", False), ("disable", True)])
+    def test_toggle_refuses_a_version_that_went_stale_after_the_action_checked_it(self, action, active):
+        # The action's early check passes, then another write lands before the row lock.
+        flag = self._flag(active=active)
+        original = FeatureFlagViewSet._rollout_precondition
+
+        def precondition(view, feature_flag, version):
+            original(view, feature_flag, version)
+            FeatureFlag.objects.filter(pk=flag.pk).update(version=2)
+
+        with patch.object(FeatureFlagViewSet, "_rollout_precondition", precondition):
+            response = self._act(flag, action, {"version": 1})
+
+        assert response.status_code == status.HTTP_409_CONFLICT, response.content
+        flag.refresh_from_db()
+        assert (flag.active, flag.version) == (active, 2)
 
     @parameterized.expand([("enable", False, 1), ("disable", True, 1), ("enable", False, None)])
     def test_toggle_accepts_the_current_or_a_null_version(self, action, active, version):
