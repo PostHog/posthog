@@ -51,6 +51,8 @@ from products.stamphog.backend.logic.approvals import dismiss_stale_approvals_fo
 from products.stamphog.backend.logic.audiences import ResolvedAudience, resolve_audiences
 from products.stamphog.backend.logic.github_client import StamphogGitHubClient
 from products.stamphog.backend.logic.installations import delete_installation, remove_from_installation_snapshot
+from products.stamphog.backend.logic.renovate_config import renovate_reviews_enabled
+from products.stamphog.backend.logic.renovate_verification import RENOVATE_BOT_USER_ID, is_renovate_pr
 from products.stamphog.backend.logic.review_trigger import derive_review_trigger
 from products.stamphog.backend.logic.scrubbing import neutralize_active_markdown, scrub_credentials
 from products.stamphog.backend.models import (
@@ -81,6 +83,10 @@ RELEVANT_PR_ACTIONS = frozenset({"opened", "synchronize", "ready_for_review", "r
 # stamphog approval at the old head must still be retracted — the review workflow that normally does it
 # is skipped. `reopened` doesn't move the head itself but is included defensively.
 _HEAD_CHANGING_ACTIONS = frozenset({"synchronize", "reopened"})
+
+# The deliveries that review a Renovate PR. Renovate labels its PRs as it opens them, so a `labeled`
+# delivery would review the same head twice. A base retarget is somebody else's edit.
+_RENOVATE_REVIEW_ACTIONS = frozenset({"opened", "synchronize", "reopened"})
 
 # Approval dismissal message for the LABEL-mode skip path. Unlike the workflow's dismissal, no re-review
 # follows here (the trigger label is absent), so the copy tells the author how to re-request one.
@@ -284,6 +290,32 @@ def _inbox_rereview_carve_out(
             "acting_user_id": acting_user_id,
         }
     )
+
+
+def _renovate_carve_out(installation_id: str, repo: str, payload: dict[str, Any], action: str) -> dict[str, Any] | None:
+    """The provenance of a Renovate review for this delivery, or None when the bot refusal stands.
+
+    GitHub must attest the PR as Renovate's (``is_renovate_pr``), and the delivery's sender must be
+    Renovate too, so the push being reviewed is Renovate's own. A push by anyone else to a Renovate
+    branch keeps the refusal. The repo must be bound and enabled, and its default-branch policy must
+    opt in with ``renovate: {enabled: true}``. The run still proves every locked version before the
+    reviewer sees it, and an unproven update is refused.
+    """
+    pr = payload.get("pull_request") or {}
+    if action not in _RENOVATE_REVIEW_ACTIONS or not is_renovate_pr(pr, repo):
+        return None
+    if (payload.get("sender") or {}).get("id") != RENOVATE_BOT_USER_ID:
+        return None
+    repo_config = _resolve_repo_config(installation_id, repo)
+    if (
+        repo_config is None
+        or not repo_config.enabled
+        or not repo_config.installation_id
+        or repo_config.connected_by_user_id is None
+        or not renovate_reviews_enabled(repo_config)
+    ):
+        return None
+    return {"trigger": "webhook", "action": action}
 
 
 def _review_skip_reason(pr: dict[str, Any]) -> str | None:
@@ -1167,21 +1199,26 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
 
     # Cheap pre-sandbox drops (drafts, bots, fork/external authors) before we resolve config or spend a
     # sandbox. Only affects the review path — the merged/closed digest capture returned above already.
-    # Exception: an identified self-driving inbox PR with an opted-in reviewer re-reviews anyway,
-    # bypassing these filters plus the review-mode and write-permission gates below.
+    # Exceptions: an identified self-driving inbox PR with an opted-in reviewer re-reviews anyway, and
+    # so does a Renovate push to a repo that opted in. Both bypass these filters plus the review-mode
+    # and write-permission gates below.
     skip_reason = _review_skip_reason(pr)
     carve_out = _InboxCarveOut()
+    renovate_review: dict[str, Any] | None = None
     carve_out_error: Exception | None = None
     if skip_reason is not None:
-        # The stale-approval dismissal below must still run on a head-changing skip even if this
-        # cross-product lookup fails, so record the error, fall through to it, then retry.
+        # The stale-approval dismissal below must still run on a head-changing skip even if these
+        # lookups fail, so record the error, fall through to it, then retry.
         try:
             carve_out = _inbox_rereview_carve_out(installation_id, repo, pr, action, base_retargeted)
+            if carve_out.provenance is None and skip_reason == "bot_author":
+                renovate_review = _renovate_carve_out(installation_id, repo, payload, action)
         except Exception as e:
             logger.exception("stamphog_pr_event_inbox_carve_out_failed", delivery_id=delivery_id, error=str(e))
             carve_out_error = e
     inbox_review = carve_out.provenance
-    if skip_reason is not None and inbox_review is None:
+    carved_out = inbox_review is not None or renovate_review is not None
+    if skip_reason is not None and not carved_out:
         # A head-changing event skipped here still invalidates any standing approval — the author may
         # have lost their trusted association, or the PR flipped to draft, since the approval was
         # granted. Same hazard as the mode/permission skips below: without retraction the old approval
@@ -1247,9 +1284,10 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
             _mark_pr_event_processed(delivery_id)
         return
 
-    # Inbox re-reviews bypass the per-repo review mode: the reviewer's opt-in is the gate, and the
-    # bot author can't apply a LABEL-mode trigger label anyway. review_mode still governs human PRs.
-    mode_skip_reason = _review_mode_skip_reason(repo_config, action, payload, pr) if inbox_review is None else None
+    # Inbox and Renovate reviews bypass the per-repo review mode: the reviewer's or the repo's opt-in is
+    # the gate, and a bot author can't apply a LABEL-mode trigger label anyway. review_mode still
+    # governs human PRs.
+    mode_skip_reason = _review_mode_skip_reason(repo_config, action, payload, pr) if not carved_out else None
     if mode_skip_reason is not None:
         # Safety net before dropping the event: a LABEL-mode head change skipped for a missing trigger
         # label still invalidates any standing approval. Retract it before marking the delivery processed,
@@ -1270,12 +1308,10 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
     # author_association alone can't prove push access (see WRITE_PERMISSIONS), so the last gate before
     # spending a run verifies it against the repo. Retry (don't drop) on lookup failure: fail-open would
     # let a transient GitHub blip mint approvals for under-privileged authors, and dropping would lose
-    # legitimate reviews to the same blip. Inbox re-reviews skip the check: the App's machine user is
-    # never a collaborator, so the task linkage and the reviewer's toggle stand in for author trust.
+    # legitimate reviews to the same blip. Inbox and Renovate reviews skip the check: a bot is never a
+    # collaborator, so the attested provenance and the opt-in stand in for author trust.
     try:
-        author_below_write = (
-            False if inbox_review is not None else _author_lacks_write_permission(repo_config, repo, pr)
-        )
+        author_below_write = False if carved_out else _author_lacks_write_permission(repo_config, repo, pr)
     except GitHubRateLimitError as e:
         # Honor GitHub's own backoff hint: the default 5s retry delay lands inside the same rate
         # window and burns the attempt budget without ever succeeding.
@@ -1392,15 +1428,18 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
                 head_sha=head.get("sha", ""),
                 delivery_id=delivery_id or None,
                 status=ReviewRunStatus.QUEUED,
-                # Inbox provenance for a carved-out re-review. The engine turns on its self-driving
-                # behavior from this, and it attributes the run in the UI and analytics.
+                # Inbox or Renovate provenance for a carved-out review. The engine turns on its bot
+                # handling from this, and it attributes the run in the UI and analytics.
                 # review_trigger is stamped now, not derived when the sandbox runs: the reviewer is
                 # told this as fact in its trusted block, and re-deriving it later would read a
                 # review_mode an admin may have changed since this delivery was admitted.
                 output={
                     **({"inbox_review": inbox_review} if inbox_review is not None else {}),
+                    **({"renovate_review": renovate_review} if renovate_review is not None else {}),
                     "review_trigger": derive_review_trigger(
-                        has_inbox_review=inbox_review is not None, review_mode=repo_config.review_mode
+                        has_inbox_review=inbox_review is not None,
+                        has_renovate_review=renovate_review is not None,
+                        review_mode=repo_config.review_mode,
                     ).value,
                 },
             )

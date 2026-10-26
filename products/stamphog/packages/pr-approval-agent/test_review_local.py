@@ -554,6 +554,70 @@ def test_self_driving_flag_reviews_the_bot_authored_draft(monkeypatch) -> None:
     assert result["classification"]["self_driving"] is True  # provenance rides into the output contract
 
 
+_RENOVATE_CHANGE = {"ecosystem": "npm", "name": "left-pad", "old_version": "1.0.0", "new_version": "1.1.0"}
+_ENGINE_LOCKFILE = "products/stamphog/packages/pr-approval-agent/pnpm-lock.yaml"
+
+
+def _verified_renovate(*cleared_paths: str) -> dict:
+    return {"verified": True, "problems": [], "changes": [_RENOVATE_CHANGE], "cleared_paths": list(cleared_paths)}
+
+
+@pytest.mark.parametrize(
+    "lockfile, renovate_review, expected_verdict, expected_reasoning",
+    [
+        ("pnpm-lock.yaml", None, "REFUSED", "is a bot"),
+        (
+            "pnpm-lock.yaml",
+            {"verified": False, "problems": ["left-pad@1.1.0 was published less than 7 days ago."]},
+            "REFUSED",
+            "7 days",
+        ),
+        ("pnpm-lock.yaml", "not a mapping", "REFUSED", "could not verify"),
+        ("pnpm-lock.yaml", _verified_renovate(), "DENIED", None),
+        ("pnpm-lock.yaml", _verified_renovate("pnpm-lock.yaml"), "APPROVED", None),
+        # The proof lifts deps_toolchain only, so stamphog's own engine lockfile still needs a human.
+        (_ENGINE_LOCKFILE, _verified_renovate(_ENGINE_LOCKFILE), "DENIED", None),
+    ],
+)
+def test_renovate_review_needs_a_verified_proof_for_its_lockfile(
+    monkeypatch, lockfile: str, renovate_review: Any, expected_verdict: str, expected_reasoning: str | None
+) -> None:
+    # The lockfile is past the size ceiling and on the deps_toolchain deny-list, so only a verified
+    # proof that clears it lets the review reach the reviewer with gates that pass.
+    monkeypatch.setattr(review_local, "_git_diff_files", lambda *a, **k: [])
+    seen: dict = {}
+
+    def fake_llm(self, gate_verdict: str) -> None:
+        seen["gate_verdict"] = gate_verdict
+        seen["prompt_changes"] = self.classification["renovate_changes"]
+        self.final_verdict = "REFUSED" if gate_verdict == "DENIED" else "APPROVED"
+        self.reviewer_output = {"verdict": "APPROVE", "reasoning": "ok", "risk": "low", "issues": []}
+
+    monkeypatch.setattr(Pipeline, "_llm_review", fake_llm)
+    context: dict[str, Any] = {
+        "repo": "PostHog/posthog",
+        "head_sha": "abc123",
+        "base_sha": "def456",
+        "pr": {"number": 12, "title": "fix(deps): update left-pad", "state": "OPEN", "draft": False},
+        "files": [{"filename": lockfile, "status": "modified", "additions": 2400, "deletions": 2400}],
+        "renovate_review": renovate_review,
+    }
+    context["pr"]["user"] = {"login": "renovate[bot]", "type": "Bot"}
+
+    result = review_local.run(context)
+
+    if expected_verdict == "DENIED":
+        assert seen["gate_verdict"] == "DENIED"
+        return
+    assert result["final_verdict"] == expected_verdict
+    if expected_reasoning is not None:
+        assert "gate_verdict" not in seen
+        assert expected_reasoning in result["reviewer"]["reasoning"]
+    else:
+        assert seen == {"gate_verdict": "PENDING", "prompt_changes": [_RENOVATE_CHANGE]}
+        assert result["classification"]["renovate_verified"] is True
+
+
 def _stacked_context(base_ref: str, default_branch: str) -> dict:
     return {
         "repo": "PostHog/posthog",

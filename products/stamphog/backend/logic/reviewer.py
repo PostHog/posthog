@@ -120,6 +120,7 @@ def build_reviewer_invocation(
     engine_dir: str,
     context_path: str,
     self_driving_review: bool = False,
+    renovate_verification: dict | None = None,
     review_trigger: str = "",
     review_evidence: list[dict] | None = None,
 ) -> ReviewerInvocation:
@@ -151,6 +152,9 @@ def build_reviewer_invocation(
     ``self_driving_review`` lets the engine review a bot-authored draft, the one exception
     to its bot-author refusal. It defaults closed here and in the engine, the Action runtime
     never sets it, and only a run stamped with inbox provenance turns it on.
+    ``renovate_verification`` is the server's proof of a Renovate update
+    (``logic/renovate_verification.py``), set only for a run stamped with Renovate provenance. The
+    engine reviews a Renovate PR only when it is present and verified, and refuses it otherwise.
     ``review_trigger`` is a ReviewTrigger value naming why stamphog is looking at this PR, which
     the reviewer otherwise cannot tell: a requested review and an automatic one reach it identically.
     It stays separate from ``self_driving_review`` on purpose. That flag relaxes two security gates,
@@ -175,6 +179,7 @@ def build_reviewer_invocation(
         "familiarity_facts": familiarity_facts,
         "commit_messages": commit_messages,
         "self_driving_review": self_driving_review,
+        "renovate_review": renovate_verification,
         "review_trigger": review_trigger,
     }
     command = ["uv", "run", f"{engine_dir}/review_local.py", "--context", context_path]

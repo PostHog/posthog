@@ -117,11 +117,11 @@ add a read-then-act path, pin it; this class of bug has been found on five separ
   The default OpenAI reviewer (openai_reviewer.py) discovers no SDK settings, hooks or MCP servers from the tree; only the trusted `.stamphog/` guidance files shape its prompt. Its read_file/grep/glob tools refuse any path that resolves outside the checkout.
   Don't reintroduce filesystem settings discovery there.
 
-## The self-driving inbox carve-out (the one exception to the bot-author refusal)
+## The self-driving inbox carve-out (an exception to the bot-author refusal)
 
 Bot-authored PRs are refused at every layer — the webhook pre-filter (`_review_skip_reason`) and
-the engine (`review_pr.py::_refuse_bot_author`, called by `review_local.py`) — with ONE deliberate
-exception: a PR **positively linked** to a
+the engine (`review_pr.py::_refuse_bot_author`, called by `review_local.py`) — with two deliberate
+exceptions. The Renovate carve-out below is the other one. This one is a PR **positively linked** to a
 self-driving Inbox implementation run (a signal-report-carrying TaskRun at
 `ai_stage="implementation"`, matched through the tasks facade), one of whose assigned reviewers
 opted in via ReviewHog's per-user `stamphog_review_inbox_prs` toggle. Rules that keep the exception
@@ -177,6 +177,19 @@ narrow:
   In ALL mode an unconditional handoff also fires a second bot review on every PR the repo opens.
   The condition is the derived `ReviewTrigger`, not the raw provenance flag, so it stays aligned with
   what the reviewer prompt was told about its own invocation.
+
+## The Renovate carve-out (the other exception to the bot-author refusal)
+
+A Renovate dependency update is reviewed only when the repo opts in, and only when the server proves what its lockfiles install.
+The proof replaces the "no harmless file" rule for those lockfiles. It never marks a file harmless: it checks every locked version change line by line.
+
+- The opt-in is `renovate: {enabled: true}` in the default-branch `.stamphog/policy.yml` (`logic/renovate_config.py`). It is a server-only key, so a PR cannot opt its own repo in. Any other shape reads as off.
+- `_renovate_carve_out` admits a delivery only when GitHub attests the PR as Renovate's (`is_renovate_pr`: the numeric bot id, a repo-native `renovate/` head), the delivery's `sender` is Renovate, and the action is `opened` or `synchronize`. The sender check binds the run's head to a push Renovate made. A push by anyone else to a Renovate branch keeps the refusal, and its skip path still retracts approvals.
+- The run stamps `renovate_review` provenance and the `renovate` trigger, and it bypasses the review-mode and author-write-permission gates like an inbox run. Drafts stay refused.
+- The context fetch runs `verify_renovate_update` (`logic/renovate_verification.py`) and stores the result as `run.output["renovate_verification"]`. It requires exactly one commit, the reviewed head, authored by Renovate and signed by GitHub, because Renovate rebuilds its branch as one commit. The commit author alone proves nothing: GitHub maps it from an email any committer can set.
+- The verification fails closed on anything it cannot prove: a non-manifest file, a manifest change beyond a version specifier, a specifier with no matching lockfile change, a new package, a non-registry resolution, a `link:`/`file:` reference, a major or 0.x-minor update, a release younger than 7 days, a hash mismatch, lost provenance, or a new install script.
+- The engine (`Pipeline(renovate_review=...)`) refuses with the problem list unless the proof is verified. A verified proof lifts only the `deps_toolchain` deny for the lockfiles it covers, and drops them from the size gate. Every other category still denies, so a lockfile under stamphog's own engine needs a human. The LLM review still runs, with a TRUSTED block that lists the proven version changes.
+- Problem strings can quote lockfile text, so they reach only the deterministic refusal, which goes through `scrub_credentials` and `neutralize_active_markdown`. They never enter the reviewer prompt. The version changes in the TRUSTED block are names and versions the verifier checked against strict patterns.
 
 ## The manual trigger (the one exception to label mode)
 

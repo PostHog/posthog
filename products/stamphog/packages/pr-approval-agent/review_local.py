@@ -468,7 +468,7 @@ def _size_denial_is_final(pipeline: Pipeline, folder_policies_known: bool) -> bo
     """
     if folder_policies_known:
         return True
-    lines, files = substantive_size(pipeline.pr.files)
+    lines, files = substantive_size(pipeline.sized_files)
     line_contract = POLICY.overrides.get("size_gate.max_lines")
     file_contract = POLICY.overrides.get("size_gate.max_files")
     line_ceiling = max(POLICY.size_gate.max_lines, line_contract.ceiling if line_contract else 0)
@@ -538,6 +538,14 @@ def _gate_refusal_reasoning(pipeline: Pipeline) -> str:
     )
 
 
+def _renovate_review(context: dict) -> dict | None:
+    """The server's Renovate proof, or None. A value that is not a mapping refuses the PR as unverified."""
+    review = context.get("renovate_review")
+    if review is None:
+        return None
+    return review if isinstance(review, dict) else {"verified": False}
+
+
 def pregate(context: dict) -> dict:
     """Gate-only run for the hosted server, before it waits for other bots or makes a sandbox.
 
@@ -561,6 +569,7 @@ def pregate(context: dict) -> dict:
         0,
         context.get("repo") or "",
         self_driving=bool(context.get("self_driving_review")),
+        renovate_review=_renovate_review(context),
         review_trigger=str(context.get("review_trigger") or ""),
         head_checkout=True,
         checkout=False,
@@ -573,8 +582,7 @@ def pregate(context: dict) -> dict:
     folder_policies_known = context.get("folder_policies_known") is True
     outcome = {"final": False, "needs_summary": False, "summary_model": SUMMARY_MODEL, "result": None}
 
-    if pipeline.pr.author_is_bot and not pipeline.self_driving:
-        pipeline._refuse_bot_author()
+    if pipeline._refuse_unreviewable_bot():
         return {**outcome, "final": True, "result": pipeline.to_dict()}
 
     pipeline.author_team_slugs = _author_team_slugs(context)
@@ -611,6 +619,7 @@ def run(context: dict) -> dict:
         0,
         context.get("repo") or "",
         self_driving=bool(context.get("self_driving_review")),
+        renovate_review=_renovate_review(context),
         review_trigger=str(context.get("review_trigger") or ""),
         head_checkout=True,
     )
@@ -619,8 +628,7 @@ def run(context: dict) -> dict:
     # properties are null for every hosted review.
     pipeline.provenance = _context_provenance(context, pipeline.pr)
 
-    if pipeline.pr.author_is_bot and not pipeline.self_driving:
-        pipeline._refuse_bot_author()
+    if pipeline._refuse_unreviewable_bot():
         return pipeline.to_dict()
 
     try:

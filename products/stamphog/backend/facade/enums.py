@@ -38,13 +38,15 @@ TERMINAL_STATUSES = frozenset(
 class ReviewTrigger(StrEnum):
     """What caused a run to exist, derived from the run and its repo config.
 
-    Not stored: a run records `inbox_review` or `manual_review` provenance on its output and
+    Not stored: a run records `inbox_review`, `renovate_review` or `manual_review` provenance on its output and
     inherits the repo's review_mode, and this collapses them into the one answer a reader wants —
     why did stamphog look at this PR at all.
     """
 
     # Self-driving: stamphog reviewed a bot-authored PR off its own inbox provenance.
     SELF_DRIVING = "self_driving"
+    # Renovate: stamphog reviewed a Renovate dependency update in a repo that opted in.
+    RENOVATE = "renovate"
     # A project member asked for this review through the API.
     MANUAL = "manual"
     # The repo is in LABEL mode, so the trigger label opted this PR in.

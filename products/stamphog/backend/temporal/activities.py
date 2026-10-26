@@ -86,6 +86,7 @@ from products.stamphog.backend.logic.engine_pregate import (
 from products.stamphog.backend.logic.familiarity_facts import ReviewHistory, fetch_review_history
 from products.stamphog.backend.logic.github_client import StamphogGitHubClient, expected_app_bot_login
 from products.stamphog.backend.logic.refusal_summary import summarize_refusal
+from products.stamphog.backend.logic.renovate_verification import RenovateVerification, verify_renovate_update
 from products.stamphog.backend.logic.review_trigger import trigger_for_run
 from products.stamphog.backend.logic.reviewer import (
     ReviewerInvocation,
@@ -489,6 +490,36 @@ def _pr_commit_messages(client: StamphogGitHubClient, repo: str, pr_number: int,
         return None
 
 
+def _verify_renovate_update(
+    client: StamphogGitHubClient,
+    repo: str,
+    pr: dict[str, Any],
+    files: list[dict[str, Any]],
+    merge_base_sha: str | None,
+    head_sha: str,
+) -> dict[str, Any]:
+    """The engine's ``renovate_verification`` input, proving the update against GitHub and the registries.
+
+    The engine refuses whatever this does not verify. A GitHub error raises, so the activity retries
+    instead of refusing an update over a blip.
+    """
+    if not merge_base_sha:
+        unverified = RenovateVerification(
+            problems=("GitHub did not report the PR's merge base.",), changes=(), cleared_paths=()
+        )
+        return unverified.to_context()
+    return verify_renovate_update(
+        pr=pr,
+        repo=repo,
+        commits=client.get_pr_commits(repo, int(pr["number"])),
+        files=files,
+        merge_base_sha=merge_base_sha,
+        head_sha=head_sha,
+        read_file=lambda path, ref: client.get_file_text(repo, path, ref=ref),
+        now=timezone.now(),
+    ).to_context()
+
+
 class _StepTimer:
     """Wall-clock milliseconds per named step, for the run output and the worker log."""
 
@@ -584,6 +615,9 @@ def _fetch_review_context(input: StamphogReviewInput) -> dict:
     # familiarity from its merged PRs would read to the engine as human trust. Without facts the
     # engine only omits the familiarity section from the reviewer prompt; the review proceeds normally.
     is_inbox_review = bool((run.output or {}).get("inbox_review"))
+    is_renovate_review = bool((run.output or {}).get("renovate_review"))
+    # Renovate is a bot too, so the same reasoning skips its familiarity and team lookups.
+    is_bot_review = is_inbox_review or is_renovate_review
     timer = _StepTimer()
     started = time.monotonic()
     # Mint the installation token once up front. On a cold cache every pool thread would mint its own.
@@ -614,7 +648,7 @@ def _fetch_review_context(input: StamphogReviewInput) -> dict:
         commit_messages_future = submit("commit_messages", _pr_commit_messages, client, repo, number, run.head_sha)
         reactions_future = submit("pr_reactions", client.get_pr_reactions, repo, number)
         policy_futures = {
-            path: submit(f"policy:{path}", client.get_default_branch_file, repo, path)
+            path: submit(f"policy:{path}", client.get_file_text, repo, path)
             for path in (*STAMPHOG_POLICY_PATHS, *STAMPHOG_OPTIONAL_POLICY_PATHS)
         }
 
@@ -624,7 +658,7 @@ def _fetch_review_context(input: StamphogReviewInput) -> dict:
         # The familiarity facts depend only on the PR and its files. fetch_review_history bounds its
         # own time and never raises.
         history_future = submit(
-            "history", fetch_review_history, client, repo, pr, files, include_familiarity=not is_inbox_review
+            "history", fetch_review_history, client, repo, pr, files, include_familiarity=not is_bot_review
         )
         folder_policy_future = submit(
             "folder_policy_files", fetch_folder_policy_files, client, repo, run.head_sha, files
@@ -632,7 +666,7 @@ def _fetch_review_context(input: StamphogReviewInput) -> dict:
         # Skipped for self-driving runs, like the familiarity facts above.
         author_pr_numbers_future = (
             submit("author_pr_numbers", client.get_author_merged_pr_numbers, repo, author)
-            if author and not is_inbox_review
+            if author and not is_bot_review
             else None
         )
         # The engine cannot resolve which of the owning teams the author belongs to. The sandbox holds
@@ -643,7 +677,7 @@ def _fetch_review_context(input: StamphogReviewInput) -> dict:
         # user, so its team membership says nothing about who wrote the diff.
         author_team_slugs_future = (
             submit("author_team_slugs", client.get_user_team_slugs, repo.split("/")[0], author)
-            if author and not is_inbox_review
+            if author and not is_bot_review
             else None
         )
 
@@ -653,6 +687,12 @@ def _fetch_review_context(input: StamphogReviewInput) -> dict:
             if content is not None:
                 policy_files[path] = content
         history: ReviewHistory = history_future.result()
+        renovate_verification = None
+        if is_renovate_review:
+            with timer.step("renovate_verification"):
+                renovate_verification = _verify_renovate_update(
+                    client, repo, pr, files, history.merge_base_sha, run.head_sha
+                )
 
         context = {
             "pr": pr,
@@ -676,6 +716,7 @@ def _fetch_review_context(input: StamphogReviewInput) -> dict:
             # Read at the PR head, unlike policy_files: the sandbox checkout is the head, and the pre-check
             # must budget the size gate as the sandbox does. None means unknown.
             "folder_policy_files": folder_policy_future.result(),
+            **({"renovate_verification": renovate_verification} if renovate_verification is not None else {}),
             "context_timings_ms": {**timer.timings_ms, "total": int((time.monotonic() - started) * 1000)},
         }
     finally:
@@ -976,6 +1017,9 @@ def _review_invocation(run: ReviewRun, merge_base_sha: str | None) -> ReviewerIn
         # The engine's carve-out for bot-authored drafts keys off this flag alone. It comes only
         # from the run's inbox provenance, stamped after the PR is linked to a signals run.
         self_driving_review=bool(output.get("inbox_review")),
+        # Only a run stamped with Renovate provenance carries a verification. Without one the engine
+        # keeps refusing the bot author.
+        renovate_verification=output.get("renovate_verification") if output.get("renovate_review") else None,
         # Read as a description rather than a permission: the reviewer is told why it was asked,
         # and decides for itself what that means for this diff.
         review_trigger=trigger_for_run(output=output, review_mode=run.pull_request.repo_config.review_mode),

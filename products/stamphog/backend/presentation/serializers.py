@@ -452,7 +452,7 @@ class ReviewRunSerializer(DataclassSerializer):
     trigger = serializers.ChoiceField(
         choices=[(t.value, t.name) for t in ReviewTrigger],
         read_only=True,
-        help_text="What caused this run to exist: self-driving inbox provenance, a manual request through the API, the repo's trigger label, or the repo reviewing every PR event.",
+        help_text="What caused this run to exist: self-driving inbox provenance, a Renovate dependency update in a repo that opted in, a manual request through the API, the repo's trigger label, or the repo reviewing every PR event.",
     )
     status = serializers.ChoiceField(
         choices=[(s.value, s.name) for s in ReviewRunStatus],

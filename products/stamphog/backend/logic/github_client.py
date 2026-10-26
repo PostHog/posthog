@@ -735,12 +735,20 @@ class StamphogGitHubClient:
 
         Newest first, the order `git log` lists them, so the engine collects trailer values in the
         same order on both paths.
+        """
+        commits = self.get_pr_commits(repo, number)
+        if not commits or commits[-1].get("sha") != head_sha:
+            return None
+        return [str((commit.get("commit") or {}).get("message") or "") for commit in reversed(commits)]
+
+    def get_pr_commits(self, repo: str, number: int) -> list[dict[str, Any]]:
+        """The PR's commits as GitHub lists them, oldest first.
 
         The endpoint answers for the live head, so a push after the run was queued returns commits
         the run does not review. GitHub also lists at most 250 commits per PR, and past that cap
-        the list stops short of the head. Both cases end on a different commit and return None.
+        the list stops short of the head. Callers check that the last commit is the head they review.
         """
-        commits: list[dict] = []
+        commits: list[dict[str, Any]] = []
         for page in range(1, _MAX_PR_COMMIT_PAGES + 1):
             response = self._request(
                 "GET",
@@ -760,9 +768,7 @@ class StamphogGitHubClient:
             commits.extend(commit for commit in page_commits if isinstance(commit, dict))
             if len(page_commits) < _PER_PAGE:
                 break
-        if not commits or commits[-1].get("sha") != head_sha:
-            return None
-        return [str((commit.get("commit") or {}).get("message") or "") for commit in reversed(commits)]
+        return commits
 
     def compare_diff(self, repo: str, base_sha: str, head_sha: str) -> str:
         """The unified diff between two commits, as text.
@@ -1302,17 +1308,19 @@ class StamphogGitHubClient:
         except (binascii.Error, UnicodeDecodeError) as exc:
             raise StamphogGitHubError(f"Failed to decode base64 contents for {repo}:{path}") from exc
 
-    def get_default_branch_file(self, repo: str, path: str) -> str | None:
-        """Fetch a file's text from the repo's DEFAULT branch, or ``None`` if it doesn't exist.
+    def get_file_text(self, repo: str, path: str, *, ref: str | None = None) -> str | None:
+        """Fetch a file's text at ``ref``, or ``None`` if it doesn't exist.
 
-        Policy files are always read from the default branch (never PR head), so a PR can't rewrite the
-        policy that gates it. Omitting ``ref`` makes GitHub serve the default branch. The ``raw`` media
-        type returns the file body directly (no base64 wrapper); a 404 means the file is absent.
+        Omitting ``ref`` makes GitHub serve the repo's DEFAULT branch. Policy files are always read
+        that way (never PR head), so a PR can't rewrite the policy that gates it. The ``raw`` media
+        type returns the file body directly (no base64 wrapper), also past the 1 MB limit of the JSON
+        form; a 404 means the file is absent.
         """
         response = self._request(
             "GET",
             f"/repos/{repo}/contents/{path}",
             endpoint="/repos/{owner}/{repo}/contents/{path}",
+            params={"ref": ref} if ref else None,
             headers={"Accept": "application/vnd.github.raw+json"},
         )
         if response.status_code == 404:

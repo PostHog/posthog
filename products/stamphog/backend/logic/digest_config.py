@@ -54,7 +54,7 @@ def load_repo_digest_config(repo_config: StamphogRepoConfig) -> RepoDigestConfig
     merge to the author/team fallback instead of the declared channel. The merge-record Celery task
     retries on the raised error.
     """
-    raw_text = StamphogGitHubClient(repo_config.installation_id).get_default_branch_file(
+    raw_text = StamphogGitHubClient(repo_config.installation_id).get_file_text(
         repo_config.repository, DIGEST_CONFIG_PATH
     )
     if raw_text is None:

@@ -554,7 +554,7 @@ class DigestConfigFetchTests(SimpleTestCase):
         # yield None; a blip must raise so the merge-record Celery task retries the delivery.
         config = StamphogRepoConfig(repository="o/r", installation_id="1")
         with patch("products.stamphog.backend.logic.digest_config.StamphogGitHubClient") as client_cls:
-            client_cls.return_value.get_default_branch_file.side_effect = StamphogGitHubError("503 from GitHub")
+            client_cls.return_value.get_file_text.side_effect = StamphogGitHubError("503 from GitHub")
             with pytest.raises(StamphogGitHubError):
                 load_repo_digest_config(config)
 

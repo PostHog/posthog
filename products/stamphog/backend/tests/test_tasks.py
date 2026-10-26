@@ -20,6 +20,7 @@ from posthog.models.scoping import team_scope
 from products.stamphog.backend.facade.enums import AudienceReason, ReviewMode, ReviewRunStatus, ReviewVerdict
 from products.stamphog.backend.facade.review_requests import reviewing_team_ids
 from products.stamphog.backend.logic.audiences import ResolvedAudience
+from products.stamphog.backend.logic.renovate_verification import RENOVATE_BOT_LOGIN, RENOVATE_BOT_USER_ID
 from products.stamphog.backend.models import (
     PullRequest,
     PullRequestAudience,
@@ -470,7 +471,7 @@ def test_merge_capture_gates_on_review_enabled(team, repo_config, enabled, diges
     # Digest-eligible merges resolve their audience, which fetches the repo's declared digest
     # config from GitHub; stub the fetch as "file absent" (a transient error would now retry).
     with patch("products.stamphog.backend.logic.digest_config.StamphogGitHubClient") as digest_client_cls:
-        digest_client_cls.return_value.get_default_branch_file.return_value = None
+        digest_client_cls.return_value.get_file_text.return_value = None
         _run_task(payload, f"delivery-merged-{enabled}-{digest_enabled}", team.id)
 
     with team_scope(team.id):
@@ -1027,6 +1028,61 @@ def test_inbox_carve_out_requires_task_linkage(team, repo_config):
     with team_scope(team.id):
         assert ReviewRun.objects.count() == 0
     mock_execute.assert_not_called()
+
+
+def _renovate_payload(*, sender_id: int = RENOVATE_BOT_USER_ID, **overrides: Any) -> dict[str, Any]:
+    kwargs: dict[str, Any] = {
+        "head_repo": REPO,
+        "head_branch": "renovate/left-pad-1.x",
+        "author_login": RENOVATE_BOT_LOGIN,
+        "user_type": "Bot",
+        "author_association": "NONE",
+        **overrides,
+    }
+    payload = _pr_payload(**kwargs)
+    payload["pull_request"]["user"]["id"] = RENOVATE_BOT_USER_ID
+    payload["sender"] = {"id": sender_id}
+    return payload
+
+
+@pytest.mark.parametrize(
+    "payload_kwargs,opted_in,expect_run",
+    [
+        ({}, True, True),
+        ({"action": "synchronize", "head_sha": "sha-2"}, True, True),
+        ({}, False, False),
+        ({"sender_id": 42}, True, False),
+        ({"action": "labeled", "added_label": "dependencies"}, True, False),
+        ({"head_repo": "someone/fork"}, True, False),
+        ({"draft": True}, True, False),
+    ],
+    ids=["opened", "synchronize", "not_opted_in", "pushed_by_someone_else", "labeled", "fork", "draft"],
+)
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_renovate_carve_out_reviews_only_renovate_pushes_to_an_opted_in_repo(
+    team, repo_config, payload_kwargs, opted_in, expect_run
+):
+    # LABEL mode and a read-only author would each drop the PR, so a run proves the carve-out
+    # bypassed both. Every other case must keep the bot refusal.
+    _sync_repo_config(team.id, repo_config)
+    with team_scope(team.id):
+        StamphogRepoConfig.objects.filter(id=repo_config.id).update(review_mode=ReviewMode.LABEL)
+
+    with patch("products.stamphog.backend.tasks.tasks.renovate_reviews_enabled", return_value=opted_in):
+        mock_execute = _run_task(
+            _renovate_payload(**payload_kwargs), f"delivery-renovate-{uuid.uuid4()}", team.id, author_permission="read"
+        )
+
+    with team_scope(team.id):
+        runs = list(ReviewRun.objects.all())
+    if not expect_run:
+        assert runs == []
+        mock_execute.assert_not_called()
+        return
+    [run] = runs
+    assert run.output["renovate_review"] == {"trigger": "webhook", "action": payload_kwargs.get("action", "opened")}
+    assert run.output["review_trigger"] == "renovate"
+    mock_execute.assert_called_once_with(review_run_id=str(run.id), team_id=team.id)
 
 
 @pytest.mark.parametrize(
