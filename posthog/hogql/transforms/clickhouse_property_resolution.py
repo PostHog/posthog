@@ -43,9 +43,11 @@ from posthog.hogql.functions.mapping import HOGQL_COMPARISON_MAPPING
 from posthog.hogql.printer.base import resolve_field_type
 from posthog.hogql.printer.clickhouse import AI_BLOOM_FILTER_PROPERTIES, COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING
 from posthog.hogql.restricted_properties import (
+    EmbeddedDocumentKind,
     mirrored_column_is_restricted,
-    mirrored_properties_for_column,
+    mirrored_property_for_column,
     native_property_path_overlaps_restriction,
+    restricted_embedding_documents,
     restricted_feature_flag_names,
     restricted_property_keys_for_table_type,
 )
@@ -570,11 +572,11 @@ def _map_value_read(blob: ast.Expr, key: str) -> ast.Expr:
     )
 
 
-def _mirrored_source_properties(field_type: ast.FieldType, context: HogQLContext) -> tuple[str, ...]:
+def _mirrored_source_property(field_type: ast.FieldType, context: HogQLContext) -> str | None:
     resolved_field = field_type.resolve_database_field(context)
     if not isinstance(resolved_field, DatabaseField):
-        return ()
-    return mirrored_properties_for_column(field_type.table_type, resolved_field.name, context)
+        return None
+    return mirrored_property_for_column(field_type.table_type, resolved_field.name, context)
 
 
 def feature_flag_variant_read(value: ast.Expr) -> ast.Expr:
@@ -926,8 +928,8 @@ def _substitute_value_read(node: ast.PropertyAccess, context: HogQLContext) -> a
     # JSONDropKeys strips the key, so extracting it always yields '' which scrubs to NULL — so return that constant
     # directly and skip the wasted drop-then-extract. (The column resolvers also decline, so comparisons over a
     # restricted property never read the backing column either; their operand falls through to this same NULL.)
-    source_properties = _mirrored_source_properties(field_type, context) or (first_key,)
-    if not restricted_property_keys_for_table_type(field_type.table_type, context).isdisjoint(source_properties):
+    source_property = _mirrored_source_property(field_type, context)
+    if (source_property or first_key) in restricted_property_keys_for_table_type(field_type.table_type, context):
         _record_property_usage(context, None)
         return ast.Constant(value=None, type=ast.StringType(nullable=True))
 
@@ -1304,23 +1306,56 @@ class ClickHousePropertyResolver(CloningVisitor):
             and (masked := self._masked_mirrored_column(node.type)) is not None
         ):
             return masked
+        if self.context.restricted_properties and isinstance(node.type, ast.FieldType):
+            documents = restricted_embedding_documents(node.type.table_type, node.type.name, self.context)
+            if documents:
+                return self._masked_embedding_rows(node, node.type, documents)
         return super().visit_field(node)
 
-    def _masked_mirrored_column(self, field_type: ast.FieldType) -> ast.Expr | None:
+    def _masked_embedding_rows(
+        self, node: ast.Field, field_type: ast.FieldType, documents: list[EmbeddedDocumentKind]
+    ) -> ast.Expr:
+        """The column read as NULL on rows of a restricted property's documents, and as stored on every other row."""
+
+        def column(name: str) -> ast.Field:
+            return ast.Field(chain=[name], type=ast.FieldType(name=name, table_type=field_type.table_type))
+
+        is_restricted_row = ast.Or(
+            exprs=[
+                ast.And(
+                    exprs=[
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.Eq,
+                            left=column("product"),
+                            right=ast.Constant(value=document.product),
+                        ),
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.Eq,
+                            left=column("document_type"),
+                            right=ast.Constant(value=document.document_type),
+                        ),
+                    ]
+                )
+                for document in documents
+            ]
+        )
+        return ast.Call(
+            name="if",
+            args=[is_restricted_row, ast.Constant(value=None), super().visit_field(node)],
+            type=ast.CallType(name="if", arg_types=[], param_types=[], return_type=ast.StringType(nullable=True)),
+        )
+
+    def _masked_mirrored_column(self, field_type: ast.FieldType) -> ast.Constant | None:
         """The NULL constant a restricted mirror column reads as, or None if it is unrestricted.
 
         Must match what `_substitute_value_read` builds for the source property, so the mirror column and
         its source property become the same AST node and agree on nullability and comparison printing.
-        An array column of hashes copies no single value, so it reads as an empty array that array functions accept.
         """
         resolved_field = field_type.resolve_database_field(self.context)
         if not isinstance(resolved_field, DatabaseField):
             return None
         if not mirrored_column_is_restricted(field_type.table_type, resolved_field.name, self.context):
             return None
-        constant_type = resolved_field.get_constant_type()
-        if isinstance(constant_type, ast.ArrayType):
-            return ast.Array(exprs=[], type=replace(constant_type, nullable=False))
         return ast.Constant(value=None, type=ast.StringType(nullable=True))
 
     # --- comparison / call rewrites ---

@@ -7,19 +7,16 @@ from posthog.hogql.constants import FEATURE_FLAG_PROPERTY_PREFIX
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.postgres_table import PostgresTable
 from posthog.hogql.database.schema.ai_events import AI_PROPERTY_TO_COLUMN, AiEventsTable
+from posthog.hogql.database.schema.document_embeddings import ModelSpecificEmbeddingTable, RawDocumentEmbeddingsTable
 from posthog.hogql.database.schema.events import EventsGroupSubTable, EventsPersonSubTable, EventsTable
 from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsPersonSubTable, FlagEvaluationsTable
 from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
-from posthog.hogql.database.schema.mcp_intent_assignments import (
-    MCPIntentAssignmentsTable,
-    MCPIntentCallsHourlyTable,
-    MCPIntentTopicDailyTable,
-    RawMCPIntentAssignmentsTable,
-)
+from posthog.hogql.database.schema.mcp_intent_assignments import MCPIntentAssignmentsTable, RawMCPIntentAssignmentsTable
 from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
 
 from posthog.clickhouse.events_json import TEMPORARY_PROPERTIES_COLUMN, UNPARSEABLE_PROPERTIES_KEY
 from posthog.constants import GROUP_TYPES_LIMIT
+from posthog.dataclasses import frozen
 
 logger = structlog.get_logger(__name__)
 
@@ -56,24 +53,32 @@ _AI_EVENTS_MIRRORED_COLUMNS = {column: property_name for property_name, column i
 
 # The intent clustering pipeline stores a truncated copy of each `$mcp_intent` value, keyed by its unsalted
 # sha256. Anyone can hash a guessed text and compare, so the hash reveals the text as much as the copy does.
-# The rollups also keep the unsalted cityHash64 of each conversation id, which the pipeline reads from
-# `$mcp_session_id` and falls back to `$session_id`. The hash reveals the id, so restricting either masks it.
-_MCP_INTENT_MIRRORED_COLUMNS: dict[str, tuple[str, ...]] = {
-    "intent_text": ("$mcp_intent",),
-    "intent_hash": ("$mcp_intent",),
-    "conversation_hashes": ("$mcp_session_id", "$session_id"),
+_MCP_INTENT_ASSIGNMENTS_MIRRORED_COLUMNS = {"intent_text": "$mcp_intent", "intent_hash": "$mcp_intent"}
+
+
+# The same pipeline embeds each `$mcp_intent` value into the shared embedding tables, with the text in `content` and
+# the hash in `document_id`. Other products share those columns, so only the rows of the copied property mask.
+@frozen
+class EmbeddedDocumentKind:
+    product: str
+    document_type: str
+
+
+_EMBEDDED_PROPERTY_DOCUMENTS: dict[str, EmbeddedDocumentKind] = {
+    "$mcp_intent": EmbeddedDocumentKind(product="mcp_analytics", document_type="mcp-intent")
 }
+_EMBEDDING_MIRRORED_COLUMNS = frozenset({"content", "document_id"})
 
 
-def mirrored_properties_for_column(table_type: ast.Type, column_name: str, context: HogQLContext) -> tuple[str, ...]:
-    """The event properties a typed column copies, or an empty tuple when the column copies nothing.
+def mirrored_property_for_column(table_type: ast.Type, column_name: str, context: HogQLContext) -> str | None:
+    """The event property a typed column copies verbatim, or None when the column copies nothing.
 
     A caller that prints one of these columns must mask the read when the property is restricted, in a predicate
     as much as in a SELECT: an unmasked column lets a filter narrow down a value the same user cannot read.
     `events` exposes mirror columns of its own that nothing consults this for; see ACCESS_CONTROL.md.
     """
     if not isinstance(table_type, ast.BaseTableType):
-        return ()
+        return None
 
     try:
         table = table_type.resolve_database_table(context)
@@ -81,27 +86,40 @@ def mirrored_properties_for_column(table_type: ast.Type, column_name: str, conte
         # Fail-open to match restricted_property_keys_for_table_type, whose docstring explains why this is
         # unreachable today; log so a future table type that can raise does not silently unmask a column.
         logger.warning("mirrored_property_table_resolution_failed", table_type=type(table_type).__name__)
-        return ()
+        return None
 
-    source_property: str | None = None
     if isinstance(table, AiEventsTable):
-        source_property = _AI_EVENTS_MIRRORED_COLUMNS.get(column_name)
-    elif isinstance(table, FlagEvaluationsTable):
-        source_property = _FLAG_EVALUATIONS_MIRRORED_COLUMNS.get(column_name)
-    elif isinstance(
-        table,
-        MCPIntentAssignmentsTable | RawMCPIntentAssignmentsTable | MCPIntentCallsHourlyTable | MCPIntentTopicDailyTable,
-    ):
-        return _MCP_INTENT_MIRRORED_COLUMNS.get(column_name, ())
-    return (source_property,) if source_property is not None else ()
+        return _AI_EVENTS_MIRRORED_COLUMNS.get(column_name)
+    if isinstance(table, FlagEvaluationsTable):
+        return _FLAG_EVALUATIONS_MIRRORED_COLUMNS.get(column_name)
+    if isinstance(table, MCPIntentAssignmentsTable | RawMCPIntentAssignmentsTable):
+        return _MCP_INTENT_ASSIGNMENTS_MIRRORED_COLUMNS.get(column_name)
+    return None
 
 
 def mirrored_column_is_restricted(table_type: ast.Type, column_name: str, context: HogQLContext) -> bool:
-    """Whether a read of this stored column is masked because a property it copies is restricted."""
-    source_properties = mirrored_properties_for_column(table_type, column_name, context)
-    return bool(source_properties) and not restricted_property_keys_for_table_type(table_type, context).isdisjoint(
-        source_properties
+    """Whether a read of this stored column masks to NULL because the property it copies is restricted."""
+    source_property = mirrored_property_for_column(table_type, column_name, context)
+    return source_property is not None and source_property in restricted_property_keys_for_table_type(
+        table_type, context
     )
+
+
+def restricted_embedding_documents(
+    table_type: ast.Type, column_name: str, context: HogQLContext
+) -> list[EmbeddedDocumentKind]:
+    """The document kinds whose rows read as NULL in this embedding column, or an empty list."""
+    if column_name not in _EMBEDDING_MIRRORED_COLUMNS or not isinstance(table_type, ast.BaseTableType):
+        return []
+    try:
+        table = table_type.resolve_database_table(context)
+    except Exception:
+        logger.warning("embedding_table_resolution_failed", table_type=type(table_type).__name__)
+        return []
+    if not isinstance(table, ModelSpecificEmbeddingTable | RawDocumentEmbeddingsTable):
+        return []
+    restricted = restricted_property_keys_for_table_type(table_type, context)
+    return [document for source, document in sorted(_EMBEDDED_PROPERTY_DOCUMENTS.items()) if source in restricted]
 
 
 def restricted_feature_flag_names(keys: Iterable[str]) -> list[str]:
@@ -153,8 +171,8 @@ def restricted_property_keys_for_table_type(
         | AiEventsTable
         | MCPIntentAssignmentsTable
         | RawMCPIntentAssignmentsTable
-        | MCPIntentCallsHourlyTable
-        | MCPIntentTopicDailyTable,
+        | ModelSpecificEmbeddingTable
+        | RawDocumentEmbeddingsTable,
     ):
         prop_def_type = PropertyDefinition.Type.EVENT
     elif isinstance(table, (PersonsTable, RawPersonsTable)):
