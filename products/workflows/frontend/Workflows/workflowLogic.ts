@@ -3599,8 +3599,10 @@ export const workflowLogic = kea<workflowLogicType>([
                         // Content edits on an active workflow stage into its draft (publish promotes them).
                         // Metadata-only saves (rename, description) must not: staging the unchanged content
                         // would create a phantom draft identical to live.
-                        const stagingDraft =
-                            latest?.status === 'active' && updates.status === 'active' && contentChanged
+                        // A form save takes its status from the server copy, because one queued behind a
+                        // go-live still carries the status the workflow had when the save was dispatched.
+                        const routedStatus = isStatusSave ? updates.status : latest?.status
+                        const stagingDraft = latest?.status === 'active' && routedStatus === 'active' && contentChanged
                         // A status transition (enable/disable) toggles the lifecycle only. The button is
                         // disabled while the form is dirty, so content in the payload is at best a no-op
                         // re-send of the live row and at worst (with a staged draft merged into the form)
@@ -3648,7 +3650,11 @@ export const workflowLogic = kea<workflowLogicType>([
                             return result
                         } catch (error) {
                             if (error instanceof ApiError && error.status === 409) {
-                                if (initiatedByAutoSave && !reconciledGoLive && latest?.status === 'waiting_for_domain') {
+                                if (
+                                    initiatedByAutoSave &&
+                                    !reconciledGoLive &&
+                                    latest?.status === 'waiting_for_domain'
+                                ) {
                                     // The go-live bumped the stamp under this save. Take its lifecycle and
                                     // save again, instead of a reload that would drop the edit.
                                     reconciledGoLive = true
