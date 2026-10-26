@@ -129,6 +129,7 @@ FIVETRAN_SOURCE_TYPES: dict[str, ExternalDataSourceType] = {
     "documentdb": ExternalDataSourceType.AWSDOCUMENTDB,
     "doorloop": ExternalDataSourceType.DOORLOOP,
     "double_click_campaign_manager": ExternalDataSourceType.CAMPAIGNMANAGER360,
+    "double_click_publishers": ExternalDataSourceType.GOOGLEADMANAGER,
     "drata": ExternalDataSourceType.DRATA,
     "drip": ExternalDataSourceType.DRIP,
     "dropbox": ExternalDataSourceType.DROPBOX,
