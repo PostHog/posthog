@@ -39,6 +39,11 @@ export function PropertyFilterDatePicker({
     const [dateFormat, setDateFormat] = useState(valueIsYYYYMMDD ? onlyDateFormat : dateAndTimeFormat)
 
     useEffect(() => {
+        setDatePickerValue(dayJSMightParse(value) ? dayjs(value) : undefined)
+        setIncludeTimeInFilter(!!value && !valueIsYYYYMMDD)
+    }, [value, valueIsYYYYMMDD])
+
+    useEffect(() => {
         setDateFormat(includeTimeInFilter ? dateAndTimeFormat : onlyDateFormat)
     }, [includeTimeInFilter])
 

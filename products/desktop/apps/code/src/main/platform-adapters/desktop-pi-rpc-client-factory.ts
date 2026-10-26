@@ -14,7 +14,10 @@ import {
   type McpServerConnection,
 } from "@posthog/shared";
 import { buildPosthogScopedPropertyHeaderRecord } from "@posthog/shared/posthog-property-headers";
-import type { TaskContext } from "@posthog/shared/task-context";
+import type {
+  TaskContext,
+  TaskContextInput,
+} from "@posthog/shared/task-context";
 import { prepareContextWiki } from "@posthog/workspace-server/services/agent/context-wiki";
 import {
   AGENT_AUTH,
@@ -70,11 +73,7 @@ export class DesktopPiRpcClientFactory implements PiRpcClientFactory {
     // Four independent round-trips: proxy URL, auth proxy, MCP config, wiki mount.
     const [baseUrl, enrichmentApiUrl, mcpConfiguration, contextWikiPath] =
       await Promise.all([
-        this.getProxyUrl(
-          credentials.region,
-          projectId,
-          input.taskContext.taskId,
-        ),
+        this.getProxyUrl(credentials.region, projectId, input.taskContext),
         this.authProxy.start(access.apiHost),
         this.mcpServerSource.getMcpRuntimeConfiguration(),
         this.mountContextWiki(projectId),
@@ -166,7 +165,7 @@ export class DesktopPiRpcClientFactory implements PiRpcClientFactory {
   private async getProxyUrl(
     region: CloudRegion,
     projectId: number,
-    taskId: string,
+    { taskId, taskRunId }: Pick<TaskContextInput, "taskId" | "taskRunId">,
   ): Promise<string> {
     const { proxyUrl } = await resolveGatewayProxy({
       authProxy: this.authProxy,
@@ -174,7 +173,13 @@ export class DesktopPiRpcClientFactory implements PiRpcClientFactory {
       legacyGatewayUrl: getLlmGatewayUrl(getCloudUrlFromRegion(region)),
       projectId,
       headers: buildPosthogScopedPropertyHeaderRecord(
-        { task_id: taskId, $ai_session_id: taskId },
+        {
+          task_id: taskId,
+          task_run_id: taskRunId,
+          task_runtime_adapter: "pi",
+          task_execution_environment: "local",
+          $ai_session_id: taskId,
+        },
         projectId,
       ),
     });

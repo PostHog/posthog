@@ -11,7 +11,12 @@ from rest_framework import status
 
 from products.canvas.backend import error_reports
 from products.canvas.backend.actions import CANVAS_ACTIONS, CanvasActionDenied
-from products.canvas.backend.capabilities import declared_actions, declared_connectors, declared_state_scopes
+from products.canvas.backend.capabilities import (
+    declared_actions,
+    declared_connectors,
+    declared_state_scopes,
+    declared_tools,
+)
 from products.canvas.backend.connectors import ConnectorCallResult, call_connector_tool
 from products.canvas.backend.contract import contract_limits
 from products.canvas.backend.facade.contracts import (
@@ -25,6 +30,13 @@ from products.canvas.backend.facade.contracts import (
 )
 from products.canvas.backend.logic.canvases import canvas_row
 from products.canvas.backend.logic.records import state_entry_record
+from products.canvas.backend.mcp_tools import (
+    CANVAS_MCP_TOOL_ALLOWLIST,
+    CanvasMcpToolError,
+    call_canvas_mcp_tool,
+    canvas_mcp_tool,
+    canvas_mcp_tools,
+)
 from products.canvas.backend.models import Canvas, CanvasBuild, CanvasState
 from products.canvas.backend.state_reads import CanvasStateReader
 
@@ -137,6 +149,57 @@ def execute_action(team_id: int, user_id: int, canvas_id: UUID, verb: str, paylo
     except CanvasActionDenied as error:
         body = error.response.data if isinstance(error.response.data, dict) else {"detail": str(error.response.data)}
         raise CanvasRequestRejected(error.response.status_code, str(body.get("detail", "")), body=body) from error
+
+
+def list_tools() -> list[dict[str, Any]]:
+    return [
+        {
+            "name": tool.name,
+            "title": tool.title,
+            "summary": tool.summary,
+            "read_only": tool.read_only,
+            "destructive": tool.destructive,
+        }
+        for tool in canvas_mcp_tools()
+    ]
+
+
+def tool_required_scopes(tool: str) -> list[str] | None:
+    """The API scopes a scoped credential needs to run `tool`, or None for a tool canvases may not run."""
+    definition = canvas_mcp_tool(tool)
+    if definition is None:
+        return None
+    # A read-only tool needs only read access to the canvas, so a viewer-level member can load a board.
+    return ["canvas:read" if definition.read_only else "canvas:write", *definition.required_scopes]
+
+
+def validate_tool(capabilities: dict[str, Any] | None, tool: str) -> None:
+    """Raise CanvasRequestRejected unless canvases may run `tool` and this canvas declares it."""
+    if canvas_mcp_tool(tool) is None:
+        raise CanvasRequestRejected(
+            status.HTTP_400_BAD_REQUEST,
+            f'Canvases cannot run the tool "{tool}". Allowed tools: {", ".join(sorted(CANVAS_MCP_TOOL_ALLOWLIST))}.',
+        )
+    if tool not in declared_tools(capabilities):
+        raise CanvasRequestRejected(
+            status.HTTP_403_FORBIDDEN,
+            f'The canvas does not declare the tool "{tool}". Add it to capabilities.posthog.tools and publish.',
+        )
+
+
+def call_tool(team_id: int, user_id: int, tool: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    """Run a validated tool as the viewer. Raises CanvasRequestRejected when the tool fails."""
+    try:
+        return call_canvas_mcp_tool(team_id, user_id, tool, arguments).result
+    except CanvasMcpToolError as error:
+        status_code: int
+        if error.outcome_unknown:
+            status_code = status.HTTP_504_GATEWAY_TIMEOUT
+        elif error.server_unavailable:
+            status_code = status.HTTP_502_BAD_GATEWAY
+        else:
+            status_code = status.HTTP_400_BAD_REQUEST
+        raise CanvasRequestRejected(status_code, str(error)) from error
 
 
 def call_connector(

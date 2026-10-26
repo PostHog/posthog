@@ -150,6 +150,12 @@ def annotate_latest_send(queryset: QuerySet[HogFlow]) -> QuerySet[HogFlow]:
     return queryset.annotate(_latest_send_at=Subquery(latest_send))
 
 
+def delete_batch_jobs_for_teams(team_ids: Collection[int], batch_size: int = 1000) -> None:
+    jobs = HogFlowBatchJob.objects.filter(team_id__in=team_ids)
+    while batch_ids := list(jobs.values_list("id", flat=True)[:batch_size]):
+        jobs.filter(id__in=batch_ids).delete()
+
+
 REALTIME_COHORT_RESUMES = Counter(
     "workflows_realtime_cohort_resume_total",
     "Batch runs woken after their realtime cohort finished calculating, by the CDP API's outcome.",

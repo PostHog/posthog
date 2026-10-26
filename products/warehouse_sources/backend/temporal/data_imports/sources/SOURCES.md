@@ -122,6 +122,7 @@ the row lists both.
 | aws_cost_and_usage_report        | HTTP                        | requests + botocore (S3 SigV4) + pyarrow                        | ✅                          |
 | aws_cost_anomaly_detection       | HTTP                        | requests                                                        | ✅                          |
 | aws_cost_explorer                | HTTP                        | requests                                                        | ✅                          |
+| aws_documentdb                   | DB protocol                 | pymongo (delegates to MongoDBSource)                            | ➖                          |
 | aws_glue_data_catalog            | HTTP                        | requests                                                        | ✅                          |
 | aws_guardduty                    | HTTP                        | requests                                                        | ✅                          |
 | aws_iam_access_analyzer          | HTTP                        | requests                                                        | ✅                          |
@@ -136,10 +137,12 @@ the row lists both.
 | aws_systems_manager              | HTTP                        | requests                                                        | ✅                          |
 | aws_waf                          | HTTP                        | requests                                                        | ✅                          |
 | axiom                            | HTTP                        | requests                                                        | ✅                          |
+| azure_api_management             | HTTP                        | requests                                                        | ✅                          |
 | azure_application_insights       | HTTP                        | requests                                                        | ✅                          |
 | azure_blob                       | HTTP (vendor SDK)           | azure-storage-blob (listing), adlfs (reads), deltalake          | ⚠️                          |
 | azure_cost_management            | HTTP                        | requests                                                        | ✅                          |
 | azure_devops                     | HTTP                        | requests                                                        | ✅                          |
+| azure_log_analytics              | HTTP                        | requests                                                        | ✅                          |
 | babelforce                       | HTTP                        | requests                                                        | ✅                          |
 | back_market                      | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | bamboohr                         | HTTP                        | requests                                                        | ✅                          |
@@ -1060,15 +1063,14 @@ doesn't conflict with concurrent PRs.
 - aws_connect
 - aws_health
 - aws_rds_performance_insights
+- aws_s3_tables
 - aws_support
 - aws_trusted_advisor
 - aws_xray
 - azure_activity_log
 - azure_advisor
-- azure_api_management
 - azure_data_explorer
 - azure_data_factory
-- azure_log_analytics
 - azure_monitor_alerts
 - azure_monitor_metrics
 - azure_openai_usage
@@ -1082,6 +1084,7 @@ doesn't conflict with concurrent PRs.
 - backblaze
 - basecamp
 - bcms
+- beacons
 - bexio
 - billit
 - bitly
@@ -1156,6 +1159,7 @@ doesn't conflict with concurrent PRs.
 - drchrono
 - dreamdata
 - dremio
+- dripify
 - dropbox
 - dubsado
 - ducklake
@@ -1566,6 +1570,7 @@ doesn't conflict with concurrent PRs.
 - wistia
 - wiz
 - wompi
+- woopayments
 - workato
 - workflowmax
 - workramp

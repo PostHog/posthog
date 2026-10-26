@@ -3448,6 +3448,64 @@ class ConnectionTokenResponseSerializer(serializers.Serializer):
     token = serializers.CharField(help_text="JWT token for authenticating with the sandbox")
 
 
+class TaskRunLogsView(models.TextChoices):
+    FULL = "full", "full"
+    THREAD = "thread", "thread"
+
+
+class TaskRunLogsQuerySerializer(serializers.Serializer):
+    """Query parameters for reading part of a task run log"""
+
+    view = serializers.ChoiceField(
+        choices=TaskRunLogsView.choices,
+        default=TaskRunLogsView.FULL,
+        required=False,
+        help_text=(
+            "'full' returns every entry as stored. 'thread' drops the duplicate tool response copy in "
+            "_meta.claudeCode.toolResponse and keeps only its decisionReason and message, for clients that "
+            "render the conversation. It applies to the full log and to every slice."
+        ),
+    )
+
+    tail_bytes = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        help_text=(
+            "Return only the latest turns of the log: the shortest suffix that starts at a user turn and holds at "
+            "least this many bytes. The X-Log-Offset and X-Log-Count headers give the index of the first tail entry "
+            "and the size of the full log. The slice starts with X-Log-Preamble earlier entries that still set run "
+            "state, such as the run start, usage, mode, commands and open permission requests. X-Log-Turns-Before "
+            "counts the user turns before the slice, so a client numbers turns the way the full log does."
+        ),
+    )
+    before = serializers.IntegerField(
+        required=False,
+        min_value=0,
+        help_text=(
+            "With tail_bytes, end the window before this entry index, so a client can page back through older "
+            "turns: pass the X-Log-Offset of the oldest page it holds."
+        ),
+    )
+    start = serializers.IntegerField(
+        required=False,
+        min_value=0,
+        help_text=(
+            "With tail_bytes, return every entry from this index to the end, with no preamble, so a client that "
+            "holds the entries before it can catch up after a disconnect: pass the X-Log-Count of its last read. "
+            "When those entries are too large, the response holds the latest turns as tail_bytes alone returns "
+            "them, and X-Log-Offset is greater than start."
+        ),
+    )
+
+    def validate(self, attrs: dict) -> dict:
+        for field in ("before", "start"):
+            if field in attrs and "tail_bytes" not in attrs:
+                raise serializers.ValidationError(f"Use {field} together with tail_bytes.")
+        if "before" in attrs and "start" in attrs:
+            raise serializers.ValidationError("Use before or start, not both.")
+        return attrs
+
+
 class StreamReadTokenQuerySerializer(serializers.Serializer):
     """Query parameters for requesting a task run stream read token"""
 

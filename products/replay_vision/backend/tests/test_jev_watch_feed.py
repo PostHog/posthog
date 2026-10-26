@@ -104,22 +104,25 @@ class TestWatchFeedRankerFlag(SimpleTestCase):
             ("unknown_variant", "something-else", "weighted-score"),
             ("shadow", "jev-shadow", "jev-shadow"),
             ("graduated", "jev", "jev"),
+            ("embedding", "embedding", "embedding"),
         ]
     )
     def test_only_known_variants_leave_the_default_arm(self, _name: str, flag_value: object, expected: str) -> None:
         with patch(_FLAG, return_value=flag_value), patch(_REGION, return_value=True):
             assert watch_feed_ranker(1, "project-uuid") == expected
 
-    def test_the_flag_keys_on_the_project_uuid_and_skips_regions_without_jev(self) -> None:
+    def test_the_flag_keys_on_the_project_uuid_and_keeps_jev_arms_out_of_regions_without_jev(self) -> None:
         # Both regions evaluate this one flag and team ids repeat between them, so only the uuid is unique.
         with patch(_FLAG, return_value="jev") as flag, patch(_REGION, return_value=True):
             assert watch_feed_ranker_variant(2, "project-uuid") == "jev"
         assert flag.call_args.kwargs["groups"] == {"project": "project-uuid"}
         # A region with no sweep to fill the cache must not land a team on an empty jev feed.
-        with patch(_FLAG, return_value="jev") as flag, patch(_REGION, return_value=False):
+        with patch(_FLAG, return_value="jev"), patch(_REGION, return_value=False):
             assert watch_feed_ranker_variant(2, "project-uuid") is None
             assert watch_feed_ranker(2, "project-uuid") == "weighted-score"
-        flag.assert_not_called()
+        # The embedding arm needs no decision service.
+        with patch(_FLAG, return_value="embedding"), patch(_REGION, return_value=False):
+            assert watch_feed_ranker(2, "project-uuid") == "embedding"
 
 
 class TestJudgeScannerWindow(SimpleTestCase):
@@ -571,12 +574,13 @@ class TestJevWatchRankSweep(BaseTest):
         flag = f"{activities}.watch_feed_ranker"
         region = f"{activities}.decision_api.decisions_available_here"
 
-        with patch(flag, return_value="weighted-score"), patch(region, return_value=True), patch(_API) as api:
-            result = async_to_sync(_judge_watch_ranks)(JevWatchRankSweepInputs())
-        # A team on the default arm costs no Jev calls and gets no cache entry.
-        api.decide_when_available.assert_not_called()
-        assert result.teams_enrolled == 0
-        assert load_watch_ranks(self.team.id, [scanner.id]).probabilities == {}
+        # A team on the default or embedding arm costs no Jev calls and gets no cache entry.
+        for arm in ("weighted-score", "embedding"):
+            with patch(flag, return_value=arm), patch(region, return_value=True), patch(_API) as api:
+                result = async_to_sync(_judge_watch_ranks)(JevWatchRankSweepInputs())
+            api.decide_when_available.assert_not_called()
+            assert result.teams_enrolled == 0
+            assert load_watch_ranks(self.team.id, [scanner.id]).probabilities == {}
 
         with (
             patch(flag, side_effect=self._flag_arm("jev-shadow")),

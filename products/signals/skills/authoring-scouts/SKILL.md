@@ -244,6 +244,35 @@ Choosing between a note and an edit: a note is the right tool for _this project,
 A note that you keep re-leaving is a skill edit waiting to happen — promote it.
 Note lifecycle stays with humans: scouts never delete notes, so retire acted-on notes yourself (or set `expires_at` up front) to keep the channel high-signal.
 
+## Workflow-triggered runs
+
+A workflow's "Run scout" step starts a run when an event fires, for example a new GitHub issue or a pull request.
+Every run's prompt names how it started in _Your run identity_: `triggered_by` is `schedule`, `manual`, `workflow`, or `check` (`experiment` on a private trial run).
+A workflow run also carries `trigger_workflow_id`, the id of the workflow that fired.
+Branch on that value in the body ("if `triggered_by` is `workflow` ...") rather than on whether a note is present.
+
+What the run sees depends on the step's note:
+
+- **With a note**, the harness makes the subject the note names the run's first job.
+  The run handles that subject completely before anything else: it investigates, decides, files a report or records why it rejected the subject, and writes the memory the body asks for.
+  The scout's routine is optional on that run.
+  If the body says nothing about workflow-triggered runs, the run skips the routine and leaves it to the schedule.
+- **Without a note**, the run is told a workflow started it and that nothing names the event.
+  It runs the body as it would on a schedule, unless the body says what to do on a workflow-triggered run.
+
+Write a workflow-triggered section in the body when the default is wrong for the scout.
+For example, "on a workflow-triggered run, also refresh the label cache", or "on a workflow-triggered run with no note, only check the last hour".
+
+**Incremental state needs a full pass.**
+A run that skipped its routine or cut it short must leave cursors, baselines, and "last swept" markers as they were, and write memory only about the subject it handled.
+The harness tells every workflow run with a note this.
+Name the scout's own incremental keys in the body, because only the body knows which scratchpad entries a partial pass must not move.
+
+**Write the step's note from identifiers.**
+Use a pull request number, an issue URL, or an alert id, for example `Issue #{event.properties.issue_number}`.
+Do not paste a title, a body, or other free text from the event.
+The scout reads the note as untrusted input, and an identifier gives it something to look up with its own tools.
+
 ## Test loop
 
 **Dogfood the scout yourself before you ever spend a real run.** You — the agent authoring the scout — have the same PostHog MCP tools a scout uses at runtime (`execute-sql`, `read-data-schema`, the per-product list tools, `scout-project-profile-get`).

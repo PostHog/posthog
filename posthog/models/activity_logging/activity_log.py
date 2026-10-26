@@ -49,6 +49,7 @@ ACTIVITY_LOG_WRITE_FAILURES = Counter(
 ActivityScope = Literal[
     "Cohort",
     "CrossProjectDashboard",
+    "DevGatewayToken",
     "FeatureFlag",
     "Person",
     "Group",
@@ -111,6 +112,7 @@ ActivityScope = Literal[
     "EvaluationDirectory",
     "LLMPrompt",
     "LLMPromptLabel",
+    "LLMSkill",
     "LLMTrace",
     "AIGatewayCredit",
     "WebAnalyticsFilterPreset",
@@ -136,6 +138,9 @@ ActivityScope = Literal[
     "DataQualityCheck",
     "DataQualityCheckSchedule",
     "WarehouseSuggestion",
+    "AccessControl",
+    "DataWarehouseTable",
+    "DataWarehouseJoin",
     "Billing",
     "Loop",
     "StamphogRepoConfig",
@@ -374,6 +379,15 @@ common_field_exclusions = [
 
 
 field_with_masked_contents: dict[AuditableScope, list[str]] = {
+    # Any activity-log reader sees these rows, including readers denied the tables they name.
+    "DataWarehouseJoin": [
+        "source_table_name",
+        "source_table_key",
+        "joining_table_name",
+        "joining_table_key",
+        "field_name",
+        "configuration",
+    ],
     "SignalTeamConfig": ["onboarding"],
     "AccountView": ["name", "content", "text_content"],
     "WarehouseSuggestion": ["dismissal_note"],
@@ -933,6 +947,10 @@ field_exclusions: dict[AuditableScope, list[str]] = {
     ],
     "Project": ["id", "created_at"],
     "DataWarehouseExpression": ["deleted_at"],
+    "DataWarehouseJoin": ["deleted_at"],
+    # The subject is the identity of a rule and never changes. The receiver names it in the
+    # context, so the diff does not load the role and the membership for both sides.
+    "AccessControl": ["organization_member", "role"],
     "DataWarehouseSavedQuery": [
         "name",
         "columns",
@@ -1568,6 +1586,7 @@ def log_activity_with_soft_delete(
     user: "User | None",
     was_impersonated: bool,
     name: str | None = None,
+    organization_id: UUID | None = None,
 ) -> None:
     instance = current or previous
     if instance is None:
@@ -1579,7 +1598,7 @@ def log_activity_with_soft_delete(
     if deleted_change:
         activity = "deleted" if deleted_change.after else "restored"
     log_activity(
-        organization_id=None,
+        organization_id=organization_id,
         team_id=instance.serializable_value("team"),
         user=user,
         was_impersonated=was_impersonated,

@@ -75,7 +75,7 @@ Two sources, highest-confidence first:
 
 For each watchlist flow whose cadence is due (default: re-score daily flows ~daily, weekly cohorts ~weekly), first pass the volume gate below, then score the **latest complete window** against the flow's trailing baseline:
 
-- **Funnels** — `query-funnel` over the latest complete window (e.g. last 7 complete days), then the same query over each of the prior N comparable windows (prior weeks, same weekday span) for the baseline. The metric is **step-to-step conversion %**, not step counts. Compare the latest overall + per-step conversion to the baseline band (median + MAD, or a simple delta with floors). A step whose conversion dropped while its entrant count held is the signal.
+- **Funnels** — `query-funnel` over the latest complete _and mature_ entrant window (e.g. a 7-day entrant week; see conversion maturity below), compared with the prior N comparable mature windows (prior weeks, same weekday span) for the baseline. The metric is **step-to-step conversion %**, not step counts. Compare the latest overall + per-step conversion to the baseline band (median + MAD, or a simple delta with floors). A step whose conversion dropped while its entrant count held is the signal.
 - **Retention** — `query-retention` and compare, for each offset (day-1 / day-7 / day-N), the latest cohort whose cell at that offset is mature (see return-interval maturity below) to the prior cohorts' mature rates for the same offset. A retention _cliff_ is a cohort whose curve sits clearly below the prior cohorts' band.
 - **Lifecycle / stickiness** — `query-lifecycle` (new / returning / resurrecting / dormant composition) and `query-stickiness`; a composition tilting toward dormant, or stickiness dropping, against the trailing baseline.
 
@@ -128,6 +128,26 @@ That is the same shape as a real retention cliff.
 - In every retention verdict (report `evidence`, `baseline:` and `dedupe:` entries), record the cohort dates, the offset, the return-interval end of the scored cell, the cutoff, the window mode and the timezone.
 - A rate that rises as an open cell fills is accumulation, not recovery. Claim a recovery only from mature cells.
 
+**Funnels need a second check: conversion maturity.**
+A complete entrant window does not make its conversions complete.
+Each entrant has the saved conversion interval to finish the funnel, so a person who enters at the end of the window can still convert one full interval later.
+A window whose last entrants are still inside their interval shows a low conversion rate with steady entrants.
+That is the same shape as a real regression.
+
+- With `insight-get`, read the saved `funnelsFilter.funnelWindowInterval` and `funnelWindowIntervalUnit`. When they are absent, the interval is 14 days.
+  Write the interval into the flow's watchlist entry.
+- Use the same observation cutoff as retention: now minus an ingestion buffer of at least 6 hours (at least 1 hour when the interval is in minutes or hours).
+- An entrant window that ends at E is mature only when E + the conversion interval is at or before the cutoff. Exclude every immature window from scoring. Apply the same rule to every baseline window.
+- The funnel `dateRange` bounds every step, not only the entry step. A `steps` query over only the entrant window cuts off conversions at E, so its late entrants never get the full interval.
+  Score funnels with the trends-mode method in [`references/funnel-maturity.md`](references/funnel-maturity.md). Read it before you score your first funnel in a run.
+- Example: a 7-day entrant week Mon 1 – Sun 7 with a 14-day conversion interval. The week is calendar-complete after Sun 7 ends. Its final entrant can convert until Sun 21 ends, so the week is mature only after Sun 21 ends, plus the buffer.
+  From Mon 8 until then, the week is complete but not mature: score the latest mature week instead, and do not score Mon 1 – Sun 7 as a decline.
+- In every funnel verdict (report `evidence`, `baseline:` and `dedupe:` entries), record the entrant window dates, the conversion interval, the maturity end of the scored window, the cutoff and the timezone.
+- A rate that rises as an immature window fills is accumulation, not recovery. Claim a recovery only from mature windows.
+
+Keep the checks separate: calendar completeness applies to every flow, conversion maturity to funnels, and return-interval maturity to retention.
+A window can pass one check and fail another.
+
 **Attribute before deciding.** When a rate moves, re-run the flow with a breakdown (platform, country, browser, plan) or add a `GROUP BY`, and confirm the entrant volume. A drop isolated to one known segment ramping down is usually expected (→ `noise:`/`addressed:` memory); a drop broad across segments with steady entrants is a real regression. If the entrants themselves collapsed, it's not your signal (Disqualifiers).
 
 ### Explore — discover new flows to watch
@@ -138,7 +158,7 @@ Spend a slice of each run widening coverage: pull any newly-saved funnel/retenti
 
 Maintain the watchlist and baselines as you work, encoding the category in the key prefix so a future run finds it with one `text=` search:
 
-- `watchlist:product_analytics:flow:<short_id>` — a curated flow: name, kind (funnel/retention/lifecycle/stickiness), the events/steps, cadence, `inferred?`, and `last_scored` + `next_due`. For a flow below the volume floor, also `state: below_floor`, the floor, the last entrants, `below_floor_checks` and the cause (see the volume gate).
+- `watchlist:product_analytics:flow:<short_id>` — a curated flow: name, kind (funnel/retention/lifecycle/stickiness), the events/steps, the conversion interval for a funnel, cadence, `inferred?`, and `last_scored` + `next_due`. For a flow below the volume floor, also `state: below_floor`, the floor, the last entrants, `below_floor_checks` and the cause (see the volume gate).
 - `baseline:product_analytics:flow:<short_id>` — the learned normal: per-step conversion % band (median + MAD), or the retention curve band per day-offset, so the next run scores cheaply instead of recomputing the full baseline.
 - `dedupe:product_analytics:flow:<short_id>:<rate>` — a regression already surfaced on this flow's specific rate (the affected step/cohort/state), with the condition that should re-escalate it (a further drop, or recovery + relapse). **One stable key per regression — never date the key.** A dated key mints a fresh row every run, so the gate never matches and the same regression files again. Keep the dates in the content instead: first seen, each later observation, and what would re-escalate. For example, key `dedupe:product_analytics:flow:aB3xY9z:step2` — _"Step-2 conversion regression on `Signup → activation` (62% → 48%, step-1 entrants steady ~5.2k/day). First seen 2026-06-09, re-confirmed 2026-06-16 at 47%. While it sits below the 60–64% baseline band, append the fresh window to the report and update this entry in place — do not author again. Re-escalate only if it drops another ~5 points, or recovers above the band and then relapses."_ Re-confirming rewrites this same row; a distinct rate on the same insight gets its own key, so separate regressions on one insight do not collide.
 - `report:product_analytics:flow:<short_id>:<rate>` — the `report_id` of a report you authored for a regression on this flow's specific rate (the affected step/cohort/state), so the next run edits _that rate's_ report (`append_evidence` with the fresh window) instead of duplicating; a distinct rate on the same insight gets its own pointer and its own report.
@@ -167,6 +187,7 @@ One paragraph: which flows you scored, which you deferred below the volume floor
 - **Seasonal swings** — weekday/weekend, business-hours rhythm, end-of-month. Real only once the move clears the seasonality-matched baseline (compare same-weekday windows).
 - **The current partial window** — never score the in-progress day/week.
 - **An immature retention cell** — never score a retention cell whose return interval has not ended at the observation cutoff, even when its acquisition cohort is complete.
+- **An immature funnel window** — never score a funnel entrant window whose final entrant has not had the full saved conversion interval, plus the ingestion buffer, to convert, even when the window is calendar-complete.
 - **Low-volume flows** — funnels/cohorts whose entrant counts are too small for a stable rate (enforce a minimum-entrants floor; a few users' movement is not signal). Never report on them, and defer their next check with the volume gate instead of scoring them every run.
 - **Single known internal/test cohort** — a conversion change driven only by internal distinct_ids or a `dev`/`test` environment segment.
 - **Known launches / migrations / backfills** the team already knows about — if a `noise:` / `addressed:` entry names it, skip.
