@@ -165,10 +165,10 @@ export interface commandKSearchLogicActions {
         tab: SidePanelTab
     } // sidePanelStateLogic
     loadCurrentTeamSuccess: (
-        currentTeam: null | import('../../../types').TeamPublicType,
+        currentTeam: null | import('~/types').TeamPublicType,
         payload?: any
     ) => {
-        currentTeam: null | import('../../../types').TeamPublicType
+        currentTeam: null | import('~/types').TeamPublicType
         payload?: any
     } // teamLogic
     activateRow: (
