@@ -2,6 +2,7 @@
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { waitFor } from '@testing-library/react'
+import { getContext } from 'kea'
 import { router } from 'kea-router'
 import { expectLogic, truth } from 'kea-test-utils'
 import posthog from 'posthog-js'
@@ -1088,6 +1089,22 @@ describe('dashboardLogic', () => {
                         expect(logic.values.refreshStatus[shortId]).toMatchObject({ refreshed: true })
                     }
                     expect(logic.values.waitingTileRefresh).toBeNull()
+
+                    // A hidden browser tab pauses disposables and reruns them on return, so a finished one must not stay.
+                    await expectLogic(logic).delay(20).toFinishAllListeners()
+                    const dispatch = jest.spyOn(getContext().store, 'dispatch')
+                    for (const hidden of [true, false]) {
+                        Object.defineProperty(document, 'hidden', { configurable: true, value: hidden })
+                        document.dispatchEvent(new Event('visibilitychange'))
+                    }
+                    delete (document as { hidden?: boolean }).hidden
+                    await expectLogic(logic).delay(5).toFinishAllListeners()
+                    expect(
+                        dispatch.mock.calls.filter(
+                            ([action]) => action.type === logic.actionTypes.refreshOpenTileGroupsWaiting
+                        )
+                    ).toEqual([])
+                    dispatch.mockRestore()
                 }
             )
 

@@ -5557,13 +5557,29 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     settings: cancelled[0].refresh.settings,
                 })
                 // A group load skips a tile until its aborted load settles, which can be after the tile shows again.
+                // One keyed handler waits for every stopped load so far, and removes itself once it has run, because
+                // a hidden browser tab reruns every registered disposable when it shows again.
+                const stoppedLoadsSettled = (cache.stoppedTileLoadsSettled = Promise.all([
+                    cache.stoppedTileLoadsSettled,
+                    settled,
+                ]))
                 cache.disposables.add(() => {
+                    let active = true
                     let timerId: ReturnType<typeof setTimeout> | undefined
-                    void settled.then(() => {
-                        timerId = setTimeout(actions.refreshOpenTileGroupsWaiting, 0)
+                    void stoppedLoadsSettled.then(() => {
+                        if (active) {
+                            timerId = setTimeout(() => {
+                                cache.stoppedTileLoadsSettled = undefined
+                                cache.disposables.dispose('stoppedTileLoadsReload')
+                                actions.refreshOpenTileGroupsWaiting()
+                            }, 0)
+                        }
                     })
-                    return () => clearTimeout(timerId)
-                })
+                    return () => {
+                        active = false
+                        clearTimeout(timerId)
+                    }
+                }, 'stoppedTileLoadsReload')
             }
             posthog.capture('dashboard tile group tab opened', {
                 dashboard_id: props.id,
