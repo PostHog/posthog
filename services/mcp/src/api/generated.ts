@@ -44046,6 +44046,8 @@ export namespace Schemas {
          * @nullable
          */
       per_issue_rate_limit_bucket_size_minutes?: number | null;
+      /** Whether the project ingests exception events. When false, ingestion drops every $exception event for this project before it is stored or billed, and the events cannot be recovered. */
+      ingestion_enabled?: boolean;
     }
 
     /**
@@ -77800,9 +77802,9 @@ export namespace Schemas {
          * @nullable
          */
       readonly estimated_monthly_credits: number | null;
-      /** Credits this scanner's succeeded observations consumed in the current billing period (1 credit = $0.01). Matches the window of the org-wide quota meter. */
+      /** Credits billed for this scanner's observations created in the current billing period (1 credit = $0.01), each at the price frozen when it succeeded. Deleted observations still count. */
       readonly credits_this_month: number;
-      /** Succeeded observations this scanner produced in the current billing period. */
+      /** Billed observations this scanner created in the current billing period, including deleted ones. */
       readonly observations_this_month: number;
       /** Credits counted against `credit_limit` for the current billing period: settled receipts plus in-flight observations, priced from their frozen snapshot model. This is what the limit gate measures, so it includes work still in progress. It is not the same as `credits_this_month`, which counts only succeeded observations. For a `free_only` scanner bound by the organization's free credits, this is the organization's usage, not the scanner's own. */
       readonly credits_used_against_limit: number;
@@ -85813,6 +85815,8 @@ export namespace Schemas {
          * @nullable
          */
       per_issue_rate_limit_bucket_size_minutes?: number | null;
+      /** Whether the project ingests exception events. When false, ingestion drops every $exception event for this project before it is stored or billed, and the events cannot be recovered. */
+      ingestion_enabled?: boolean;
     }
 
     /**
@@ -90183,9 +90187,9 @@ export namespace Schemas {
          * @nullable
          */
       readonly estimated_monthly_credits?: number | null;
-      /** Credits this scanner's succeeded observations consumed in the current billing period (1 credit = $0.01). Matches the window of the org-wide quota meter. */
+      /** Credits billed for this scanner's observations created in the current billing period (1 credit = $0.01), each at the price frozen when it succeeded. Deleted observations still count. */
       readonly credits_this_month?: number;
-      /** Succeeded observations this scanner produced in the current billing period. */
+      /** Billed observations this scanner created in the current billing period, including deleted ones. */
       readonly observations_this_month?: number;
       /** Credits counted against `credit_limit` for the current billing period: settled receipts plus in-flight observations, priced from their frozen snapshot model. This is what the limit gate measures, so it includes work still in progress. It is not the same as `credits_this_month`, which counts only succeeded observations. For a `free_only` scanner bound by the organization's free credits, this is the organization's usage, not the scanner's own. */
       readonly credits_used_against_limit?: number;
@@ -90498,6 +90502,24 @@ export namespace Schemas {
     export interface PatchedReviewValidatorConfigSelect {
       /** Set true to make this the single validator that runs on the user's PR reviews. Only true is accepted — validators are single-active, so you switch by selecting a different one, not by deactivating the current one. */
       active?: boolean;
+    }
+
+    export interface PatchedReviewerExclusionUpdate {
+      /**
+         * Repository in `owner/name` form. Leave empty to cover every repository.
+         * @maxLength 200
+         */
+      repository?: string;
+      /**
+         * Path inside the repository, such as `src/billing`. Needs a repository.
+         * @maxLength 500
+         */
+      path_prefix?: string;
+      /**
+         * New text for the instruction.
+         * @maxLength 2000
+         */
+      instruction?: string;
     }
 
     export type PatchedRoleMembersItem = { [key: string]: unknown };
@@ -104711,6 +104733,79 @@ export namespace Schemas {
       Confirm: 'confirm',
     } as const;
 
+    /**
+     * * `active` - Active
+     * * `revoked` - Revoked
+     */
+    export type SignalReviewerExclusionStatusEnum = typeof SignalReviewerExclusionStatusEnum[keyof typeof SignalReviewerExclusionStatusEnum];
+
+
+    export const SignalReviewerExclusionStatusEnum = {
+      Active: 'active',
+      Revoked: 'revoked',
+    } as const;
+
+    export interface ReviewerExclusion {
+      /** Identifier of the instruction. */
+      readonly id: string;
+      /** Repository in `owner/name` form that the instruction covers. Empty covers every one. */
+      readonly repository: string;
+      /** Path inside the repository that the instruction covers. Empty covers the repository. */
+      readonly path_prefix: string;
+      /** Why the member stays off this area. */
+      readonly instruction: string;
+      /** `active` instructions apply to automatic reviewer selection. `revoked` instructions do not.
+       *
+       * * `active` - Active
+       * * `revoked` - Revoked */
+      readonly status: SignalReviewerExclusionStatusEnum;
+      /** Increases by one at each change. */
+      readonly revision: number;
+      /** When the member saved the instruction. */
+      readonly created_at: string;
+      /** When the instruction last changed. */
+      readonly updated_at: string;
+    }
+
+    export interface ReviewerExclusionCreate {
+      /**
+         * Repository in `owner/name` form. Leave empty to cover every repository.
+         * @maxLength 200
+         */
+      repository?: string;
+      /**
+         * Path inside the repository, such as `src/billing`. Needs a repository.
+         * @maxLength 500
+         */
+      path_prefix?: string;
+      /**
+         * Why you stay off this area, for the people who read it later.
+         * @maxLength 2000
+         */
+      instruction: string;
+      /** Optional report to take you off first. The report removal and the instruction save are separate steps. */
+      report_id?: string;
+    }
+
+    export interface ReviewerExclusionCreateResult {
+      /** True only when the instruction is saved. Only then does it keep you off automatic selection. */
+      instruction_saved: boolean;
+      /**
+         * True when the report removal succeeded. Null when no report was given.
+         * @nullable
+         */
+      report_removed: boolean | null;
+      /** The saved instruction, or null. */
+      exclusion: ReviewerExclusion | null;
+      /** What happened, and what to do next. */
+      detail: string;
+    }
+
+    export interface ReviewerExclusionError {
+      /** Why the request failed. */
+      detail: string;
+    }
+
     export interface RevokeOtherSessionsResponse {
       /** Number of other login sessions that were revoked. */
       revoked_count: number;
@@ -109625,6 +109720,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly updated_at: string | null;
+      /**
+         * Until when the previous secret keeps verifying after a rotation, or null when no grace window is active.
+         * @nullable
+         */
+      readonly previous_secret_valid_until: string | null;
     }
 
     export interface SlackChannel {

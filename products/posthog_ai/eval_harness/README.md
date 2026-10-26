@@ -18,6 +18,18 @@ Two other docs sit next to this one:
 - [`../evals/AGENTS.md`](../evals/AGENTS.md) is the Hedgebox dataset reference. Read it before writing eval cases: your `expected` values and scorers must match that taxonomy exactly.
 - [`harness/AGENTS.md`](harness/AGENTS.md) lists the invariants to preserve when changing the harness itself.
 
+## Scout evals
+
+`hogli evals signals/eval_first_report --trials 5 --max-sandboxes 1` runs the production first-report scout against three isolated projects: a Hedgebox project with a seeded upload regression, a matched control, and a project containing only a few signups. Use `--eval upload_regression` for the first smoke run. Scout suites use bundled skills and the normal scout context, permissions, report tools, structured closeout, and ten-minute investigation limit. They do not run through the generic chat prompt or the private scout-trial report overlay.
+
+The upload cases add synthetic, mature signup-to-upload cohorts, split by browser and release, and verify their counts through HogQL before launching the scout. Cohorts include browsing and identify events, opaque identities, the demo's normal URLs, and varied daily volumes and timestamps so fixture artifacts do not become the finding. The regression adds upload exceptions in the affected sessions; the control keeps conversion stable. These cases remove their copied warehouse table registrations because the shared immutable CSV snapshots do not describe the added event history. The sparse case starts without inherited Hedgebox data. Seed identities and oracle counts go to scorers, never into the scout prompt.
+
+Local artifacts include persisted reports, the structured outcome, context preparation time, first logged agent text time, and first visible report time. First progress uses the earliest saved agent text; streaming deltas that are not persisted are not measured. Report timing starts before context preparation and excludes fixture setup, harness boot, and the onboarding job queue. It therefore measures scout execution, not total onboarding latency. Quality and the five-minute qualified-report rate use separate binary LLM judgments grounded in successful tool results and the queried oracle. Planted-issue recall is a separate diagnostic, so another verified useful finding can pass quality. The matched control checks false positives; sparse data must produce an explicit explanation without a report. Inspect these metrics separately rather than treating their arithmetic mean as first value. Agent failures and timeouts score zero; infrastructure failures remain separately reported by the shared harness. Repeat trials before drawing conclusions about quality or latency.
+
+Product suites can supply `case_runner=` to `SandboxedEval` with the `SandboxedCaseRunner` protocol. The shared harness retains isolation, setup hooks, concurrency slots, timeout handling, logs, and scoring; the runner owns its task workflow cleanup and provider registration. Returning an `AgentArtifacts` subclass preserves product-specific fields in local artifacts and scorer input. Scout runners collect structured closeout fields from persisted run metadata, including when a visible report takes precedence over the agent's claimed outcome. The `scout_closeout` artifact preserves the final conclusion independently of the shared harness's text-only `last_message`.
+
+Test cases should keep the default `SandboxedEvalCase.inherit_demo_data=True` to inherit Hedgebox data. Setting it to `False` is an explicit opt-in only for cases that intentionally need an empty isolated project, such as testing abstention with insufficient data. The setup hook must seed any data the case needs. The sparse scout case uses this option to add just four signups: inheriting the populated Hedgebox dataset would invalidate that test. Regression and control cases keep the default.
+
 ## Running
 
 ```bash
@@ -128,6 +140,7 @@ git clone git@github.com:PostHog/ai-gateway.git ~/Development/ai-gateway
 ```
 
 The gateway runs on `:18080` with its own Postgres database and Valkey DB index in the clone's compose containers, so it does not touch a dev-stack gateway's ledger or blobs.
+Sandboxed agents and server-side tool judges, including the scout report safety judge, both use this isolated gateway.
 It uses `LLM_GATEWAY_ANTHROPIC_API_KEY` and `LLM_GATEWAY_OPENAI_API_KEY` as its provider keys.
 The harness adds test credits to the master demo team in this separate ledger. Scoped tokens require a positive balance and cannot use an overspend allowance.
 Each run gets a capped `phe_` token minted with a key on that team, so spend is per run and never reaches a real wallet. The harness refreshes the mint key during long runs. It retries temporary database or Redis errors until the credential expires. Retry delays increase to at most one minute.
