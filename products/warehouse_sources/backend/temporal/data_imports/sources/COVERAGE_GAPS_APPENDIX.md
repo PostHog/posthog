@@ -8761,15 +8761,15 @@ Note: Parsed the current endpoint index and entity references, including the col
 
 ## OpenAQ — gaps
 
-Today (12): `countries`, `instruments`, `licenses`, `locations`, `manufacturers`, `measurements`, `measurements_daily`, `measurements_hourly`, `owners`, `parameters`, `providers`, `sensors`
+Today (16): `countries`, `instruments`, `licenses`, `location_flags`, `location_latest`, `locations`, `manufacturers`, `measurements`, `measurements_daily`, `measurements_hourly`, `measurements_yearly`, `owners`, `parameters`, `providers`, `sensor_flags`, `sensors`
 
 Diffed against: <https://api.openaq.org/openapi.json>
 
-- [ ] `/v3/locations/{id}/latest` — most recent value per location - the headline 'current air quality' read (high)
-- [ ] `/v3/sensors/{id}/flags` — data-quality flags needed to exclude bad readings from measurement aggregates (medium)
-- [ ] `/v3/locations/{id}/flags` — location-level data-quality flags for the same filtering (medium)
+- [x] `/v3/locations/{id}/latest` — most recent value per location - the headline 'current air quality' read (high)
+- [x] `/v3/sensors/{id}/flags` — data-quality flags needed to exclude bad readings from measurement aggregates (medium)
+- [x] `/v3/locations/{id}/flags` — location-level data-quality flags for the same filtering (medium)
 - [ ] `/v3/parameters/{id}/latest` — latest reading per pollutant across the network (medium)
-- [ ] `/v3/sensors/{id}/years` — yearly rollups, cheaper than aggregating hourly data for long-range trends (medium)
+- [x] `/v3/sensors/{id}/years` — yearly rollups, cheaper than aggregating hourly data for long-range trends (medium)
 - [ ] `/v3/manufacturers/{id}/instruments` — join table linking manufacturers to instruments we already sync (low)
 - [ ] `/v3/sensors/{id}/hours/hourofday and /days/dayofweek, /days/monthofyear` — seasonal/diurnal aggregations the API precomputes (low)
 
