@@ -43,7 +43,6 @@ function ChangePill({ tab }: { tab: MetricTab }): JSX.Element | null {
     )
 }
 
-/** The headline numbers as tabs on the results card, so picking a number and seeing its chart happen in one place. */
 export function EvaluationMetricTabs(): JSX.Element {
     const { overview, rows, metric } = useValues(evaluationsOverviewLogic)
     const { selectCard } = useActions(evaluationsOverviewLogic)

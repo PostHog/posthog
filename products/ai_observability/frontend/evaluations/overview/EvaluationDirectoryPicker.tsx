@@ -11,7 +11,6 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { llmEvaluationsLogic } from '../llmEvaluationsLogic'
 import { evaluationsOverviewLogic } from './evaluationsOverviewLogic'
 
-/** Directories as one header button, next to the evaluation and date pickers. */
 export function EvaluationDirectoryPicker(): JSX.Element | null {
     const { directoryTiles, selectedDirectory } = useValues(evaluationsOverviewLogic)
     const { deletingDirectoryId } = useValues(llmEvaluationsLogic)

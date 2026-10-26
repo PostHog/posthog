@@ -11,7 +11,6 @@ const OPTIONS: { value: AttentionFilter; label: string }[] = [
     ...(['errored', 'silent', 'worse'] as const).map((reason) => ({ value: reason, label: ATTENTION_LABELS[reason] })),
 ]
 
-/** The table's attention filters as pills, so each count shows without opening a menu. */
 export function EvaluationAttentionPills(): JSX.Element {
     const { attentionFilter, attentionCounts } = useValues(evaluationsOverviewLogic)
     const { setAttentionFilter } = useActions(evaluationsOverviewLogic)
