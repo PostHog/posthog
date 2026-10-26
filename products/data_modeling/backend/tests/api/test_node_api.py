@@ -1075,6 +1075,16 @@ class TestNodeObjectVisibility(WarehouseAccessControlTestMixin):
         self.assertIn(str(self.events_node.id), node_ids)
         self.assertIn(str(self.orders_node.id), node_ids)
 
+    def test_a_table_node_named_in_another_case_keeps_the_allowed_table(self):
+        DataWarehouseTable.objects.create(name="Customers", team=self.team)
+        upper_case_node = table_node(self.team, self.dag, "Customers", {"origin": "warehouse"})
+        self._deny("warehouse_table", self.customers_table.id)
+
+        node_ids = self._listed_nodes().keys()
+
+        self.assertIn(str(upper_case_node.id), node_ids)
+        self.assertNotIn(str(self.customers_by_row_name_node.id), node_ids)
+
     def test_a_denied_view_drops_the_edges_that_touch_it(self):
         self._deny("warehouse_view", self.accounts_query.id)
 
