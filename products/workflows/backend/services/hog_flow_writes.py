@@ -11,6 +11,7 @@ from posthog.api.tagged_item import cleanup_orphan_tags, current_tag_names, set_
 from posthog.models.tag import tagify
 
 from products.workflows.backend.facade.contracts import (
+    BroadcastLocked,
     WorkflowEditState,
     WorkflowHasNoDraft,
     WorkflowStale,
@@ -360,6 +361,19 @@ def update_workflow(
         if "status" not in validated_data and before_update.status != validated_status:
             raise WorkflowStale()
         # The write target is a second read, so `before_update` keeps the pre-write state.
+        if before_update.origin_product == HogFlow.OriginProduct.BROADCASTS:
+            from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
+
+            if HogFlowBatchJob.objects.filter(hog_flow_id=hog_flow_id).exists():
+                if (
+                    route_to_draft
+                    or validated_data.get("status") == HogFlow.State.DRAFT
+                    or any(k in DRAFT_CONTENT_FIELDS for k in validated_data)
+                ):
+                    raise BroadcastLocked(
+                        "Broadcasts are locked once sent or sending. Duplicate the broadcast to send a variation."
+                    )
+
         instance = HogFlow.objects.get(pk=hog_flow_id, team_id=team_id)
         # The editor sends the tags with every save, so only write them when they change.
         tags_changed = tags is not None and {tagify(tag) for tag in tags} != current_tag_names(before_update)
@@ -449,6 +463,14 @@ def edit_workflow_content(
     with transaction.atomic():
         locked = HogFlow.objects.select_for_update().get(pk=hog_flow_id, team_id=team_id)
 
+        if locked.origin_product == HogFlow.OriginProduct.BROADCASTS:
+            from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
+
+            if HogFlowBatchJob.objects.filter(hog_flow_id=hog_flow_id).exists():
+                raise BroadcastLocked(
+                    "Broadcasts are locked once sent or sending. Duplicate the broadcast to send a variation."
+                )
+
         route_to_draft = stage_if_active and locked.status == HogFlow.State.ACTIVE
 
         # Optimistic concurrency, mirroring update_workflow: the surgical endpoints are the only MCP
@@ -509,6 +531,13 @@ def publish_draft(
     content, and returns the validated fields to write."""
     with transaction.atomic():
         locked = HogFlow.objects.select_for_update().get(pk=hog_flow_id, team_id=team_id)
+        if locked.origin_product == HogFlow.OriginProduct.BROADCASTS:
+            from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
+
+            if HogFlowBatchJob.objects.filter(hog_flow_id=hog_flow_id).exists():
+                raise BroadcastLocked(
+                    "Broadcasts are locked once sent or sending. Duplicate the broadcast to send a variation."
+                )
         if not locked.draft:
             raise WorkflowHasNoDraft()
         if previewed_value != publish_confirm_value(hog_flow_id=locked.id, draft_updated_at=locked.draft_updated_at):

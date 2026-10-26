@@ -335,7 +335,7 @@ export function BroadcastSummary(): JSX.Element {
             : null,
         canEditContent
             ? {
-                  label: 'Send again as a new broadcast',
+                  label: 'Duplicate as draft',
                   onClick: duplicateBroadcast,
                   'data-attr': 'broadcast-send-again',
               }
