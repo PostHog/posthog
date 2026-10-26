@@ -20,7 +20,7 @@ export const RECORD_KIND_LABEL: Record<EmailDomainSetupRecordKindEnumApi, string
     dmarc: 'Tells inboxes what to do with fakes (DMARC)',
 }
 
-const RECORD_KIND_HINT: Partial<Record<EmailDomainSetupRecordKindEnumApi, string>> = {
+export const RECORD_KIND_HINT: Partial<Record<EmailDomainSetupRecordKindEnumApi, string>> = {
     spf: 'Already have an SPF record at this name? Add include:amazonses.com to it instead of adding a second one.',
     mail_from_spf:
         'Already have an SPF record at this name? Add include:amazonses.com to it instead of adding a second one.',

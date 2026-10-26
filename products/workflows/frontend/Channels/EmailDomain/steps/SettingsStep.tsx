@@ -7,6 +7,7 @@ import { AgentSetupButton } from '../components/AgentSetupButton'
 import { BigAction } from '../components/BigAction'
 import { DnsHostLink } from '../components/DnsHostLink'
 import { DnsRecordRows } from '../components/DnsRecordRows'
+import { ShareRecordsMenu } from '../components/ShareRecordsMenu'
 import { StepHeading } from '../components/StepHeading'
 import { VerificationStepsStrip } from '../components/VerificationStepsStrip'
 import { dnsHostGotcha } from '../dnsHosts'
@@ -67,6 +68,7 @@ function AutoConfigureChoice(): JSX.Element {
                         </LemonButton>
                     )}
                     <AgentSetupButton />
+                    <ShareRecordsMenu />
                 </div>
             </div>
             {recordsRevealed && (
@@ -98,7 +100,10 @@ function ManualChoice(): JSX.Element {
                 ) : (
                     <AddedThemButton primary />
                 )}
-                <AgentSetupButton />
+                <div className="flex flex-wrap justify-center gap-1">
+                    <AgentSetupButton />
+                    <ShareRecordsMenu />
+                </div>
             </div>
             <Gotcha />
             <p className="m-0 text-sm text-secondary text-center">{RECORDS_EXPLAINER}</p>

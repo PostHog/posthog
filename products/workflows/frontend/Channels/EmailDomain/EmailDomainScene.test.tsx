@@ -301,6 +301,79 @@ describe('EmailDomainScene', () => {
         }
     )
 
+    describe('sending the settings to whoever manages DNS', () => {
+        const PAGE_LINK = `http://localhost/project/997${urls.workflowsEmailDomain(SENDER_ID)}`
+        let clipboard: jest.Mock
+
+        beforeEach(() => {
+            clipboard = jest.fn().mockResolvedValue(undefined)
+            Object.defineProperty(navigator, 'clipboard', { value: { writeText: clipboard }, configurable: true })
+        })
+
+        afterEach(() => {
+            Reflect.deleteProperty(navigator, 'clipboard')
+        })
+
+        const share = async (method: 'link' | 'text'): Promise<void> => {
+            click('email-domain-share-records')
+            click(`email-domain-share-records-${method}`)
+            await flush()
+        }
+
+        const RECORDS_TEXT = expect.stringContaining(
+            `DNS records for ${DOMAIN}\nThese records let PostHog send email from ${DOMAIN}.`
+        )
+
+        const onRecordsStep = (): void => {}
+        const onWaitingPage = (): void => backend.publishRecords(DOMAIN)
+
+        it.each<[string, 'link' | 'text', string, string, () => void, unknown]>([
+            ['records step', 'link', 'Add 8 settings at Cloudflare', 'settings', onRecordsStep, PAGE_LINK],
+            ['records step', 'text', 'Add 8 settings at Cloudflare', 'settings', onRecordsStep, RECORDS_TEXT],
+            ['waiting page', 'link', 'Checking your settings…', 'verifying', onWaitingPage, PAGE_LINK],
+            ['waiting page', 'text', 'Checking your settings…', 'verifying', onWaitingPage, RECORDS_TEXT],
+        ])('shares the %s as a %s', async (_, method, heading, step, prepare, copied) => {
+            const capture = jest.spyOn(posthog, 'capture')
+            seedSender()
+            prepare()
+            await open(urls.workflowsEmailDomain(SENDER_ID))
+            expectStep(heading)
+
+            await share(method)
+
+            expect(clipboard).toHaveBeenCalledWith(copied)
+            expect(capture).toHaveBeenCalledWith('email domain records shared', { method, step })
+        })
+
+        it('opens the copied link for a teammate on the settings and their live status', async () => {
+            seedSender()
+            await open(urls.workflowsEmailDomain(SENDER_ID))
+            click('email-domain-reveal-records')
+            click('email-domain-records-added')
+            await flush()
+            expectStep('Checking your settings…')
+            await share('link')
+            cleanup()
+
+            await open(new URL(clipboard.mock.calls[0][0]).pathname)
+            expectStep('Add 8 settings at Cloudflare')
+
+            backend.publishRecords(DOMAIN)
+            await flush(POLL_MS)
+            expectStep('Checking your settings…')
+            expectProgress('8 of 8 found')
+        })
+
+        it('offers nothing to send once the domain is ready', async () => {
+            seedSender()
+            backend.verifyDomain(DOMAIN)
+            await open(urls.workflowsEmailDomain(SENDER_ID))
+            expectStep(/You can send from/)
+
+            expect(document.querySelector('[data-attr="email-domain-share-records"]')).toBeNull()
+        })
+    })
+
     it('refuses a second submit while creating, shows the error, and lets the person try again', async () => {
         const release = backend.hold('integration_create')
         backend.failOnce('integration_create', {
