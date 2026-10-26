@@ -11059,6 +11059,66 @@
             "readOnlyHint": true
         }
     },
+    "message-categories-create": {
+        "description": "Create a message category, the topic a workflow message belongs to, such as a newsletter or product updates. Recipients can opt out of a marketing category, and sends skip the recipients who did. Use a transactional category for messages a recipient must get, such as receipts or password resets: those sends ignore opt-outs. Pass the returned id as message_category_id on a workflow email step, and set the step's message_category_type to the same category_type. The opt-out of messages step takes the id as its category_id input. Call message-categories-list first: the key must be unique in the project and can't change after creation.",
+        "category": "Messaging",
+        "feature": "messaging",
+        "summary": "Create a message category",
+        "title": "Create a message category",
+        "required_scopes": ["hog_flow:write"],
+        "api_operations": ["POST /api/projects/{project_id}/messaging_categories/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "message-categories-get": {
+        "description": "Get a message category by ID, with its key, name, descriptions, and category_type (marketing categories can be opted out of, transactional categories ignore opt-outs).",
+        "category": "Messaging",
+        "feature": "messaging",
+        "summary": "Get a message category",
+        "title": "Get a message category",
+        "required_scopes": ["hog_flow:read"],
+        "api_operations": ["GET /api/projects/{project_id}/messaging_categories/{id}/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "message-categories-list": {
+        "description": "List the project's message categories. Recipients can opt out of a marketing category, and transactional categories ignore opt-outs. Use a category's id as message_category_id on a workflow email step or as the category_id input of the opt-out of messages step, and its key as category_key in the opt-outs tools.",
+        "category": "Messaging",
+        "feature": "messaging",
+        "summary": "List message categories",
+        "title": "List message categories",
+        "required_scopes": ["hog_flow:read"],
+        "api_operations": ["GET /api/projects/{project_id}/messaging_categories/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "message-categories-update": {
+        "description": "Change a message category's name, description, public_description, or category_type. Only the fields you pass change, and the key can't change. Workflow steps keep the message_category_type they were saved with, so after a category_type change, update the message_category_type of the steps that use this category. A transactional send ignores opt-outs, so confirm a change to transactional with the user first.",
+        "category": "Messaging",
+        "feature": "messaging",
+        "summary": "Update a message category",
+        "title": "Update a message category",
+        "required_scopes": ["hog_flow:write"],
+        "api_operations": ["PATCH /api/projects/{project_id}/messaging_categories/{id}/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "metric-attribute-values-list": {
         "description": "List the values of one attribute key of a metric, from the most frequent value to the least frequent. Use it to find the exact value for a filter, for example the service.name of a service.",
         "category": "Metrics",
