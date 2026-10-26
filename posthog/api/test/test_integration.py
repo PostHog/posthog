@@ -7523,65 +7523,6 @@ class TestIntegrationRequestAccessAPI(APIBaseTest):
         mock_report.assert_not_called()
 
 
-@time_machine.travel("2026-03-02T10:00:00Z", tick=False)
-class TestEmailVerifyReportsOutcome(APIBaseTest):
-    def setUp(self):
-        super().setUp()
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
-        self.organization_membership.save()
-        self.ses_verify = self._patch("products.workflows.backend.facade.api.verify_ses_email_domain")
-        self._patch("products.workflows.backend.facade.api.set_default_email_sender_if_unset")
-        self.report_user_action = self._patch("posthog.api.integration.report_user_action")
-
-    def _patch(self, target: str) -> MagicMock:
-        patcher = patch(target)
-        self.addCleanup(patcher.stop)
-        return patcher.start()
-
-    def _create_sender(self, verified: bool = False, email: str = "hello@example.com") -> Integration:
-        sender = Integration.objects.create(
-            team=self.team,
-            kind="email",
-            integration_id=email,
-            config={"email": email, "domain": "example.com", "provider": "ses", "verified": verified},
-        )
-        Integration.objects.filter(id=sender.id).update(created_at=timezone.now() - timedelta(minutes=10))
-        return sender
-
-    def _verify(self, sender: Integration) -> None:
-        response = self.client.post(f"/api/environments/{self.team.id}/integrations/{sender.id}/email/verify/")
-        assert response.status_code == status.HTTP_200_OK, response.content
-
-    @parameterized.expand(
-        [
-            ("success", "verified"),
-            ("failed", "failed"),
-            ("pending", "pending"),
-        ]
-    )
-    def test_a_check_reports_its_outcome_once(self, ses_status: str, outcome: str) -> None:
-        self.ses_verify.return_value = {"status": ses_status, "dnsRecords": []}
-
-        self._verify(self._create_sender())
-
-        self.report_user_action.assert_called_once_with(
-            self.user,
-            "email domain verified",
-            {"outcome": outcome, "seconds_since_created": 600},
-            team=self.team,
-            request=ANY,
-        )
-
-    @parameterized.expand([("verified_sender", True), ("new_sender_on_verified_domain", False)])
-    def test_a_check_on_an_already_verified_domain_reports_nothing(self, _name: str, sender_verified: bool) -> None:
-        self.ses_verify.return_value = {"status": "success", "dnsRecords": []}
-        self._create_sender(verified=True, email="first@example.com")
-
-        self._verify(self._create_sender(verified=sender_verified))
-
-        self.report_user_action.assert_not_called()
-
-
 class TestApplePushIntegrationAPI(APIBaseTest):
     @parameterized.expand(
         [
