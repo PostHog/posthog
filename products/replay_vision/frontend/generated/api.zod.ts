@@ -1095,7 +1095,7 @@ export const visionScannersScoutsCreateBodyConfigOneRepositoriesItemMax = 255
 
 export const visionScannersScoutsCreateBodyConfigOneRepositoriesMax = 10
 
-export const visionScannersScoutsCreateBodyConfigOneWriteScopesMax = 12
+export const visionScannersScoutsCreateBodyConfigOneWriteScopesMax = 14
 
 export const visionScannersScoutsCreateBodyConfigOnePrecheckQueryMax = 10000
 
@@ -1182,7 +1182,7 @@ export const VisionScannersScoutsCreateBody = /* @__PURE__ */ zod
                     .max(visionScannersScoutsCreateBodyConfigOneWriteScopesMax)
                     .optional()
                     .describe(
-                        "Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run."
+                        "Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run."
                     ),
                 lifecycle_locked: zod
                     .boolean()
@@ -1580,3 +1580,23 @@ export const VisionScannersSuggestTagsCreateBody = /* @__PURE__ */ zod
             ),
     })
     .describe('Body of POST \/vision\/scanners\/suggest_tags\/ — the classifier config currently being edited.')
+
+/**
+ * Record that the calling user saw these cards in What to watch, so the feed ranks them lower next time.
+ */
+export const visionScannersWatchFeedImpressionsCreateBodyObservationIdsMax = 100
+
+export const VisionScannersWatchFeedImpressionsCreateBody = /* @__PURE__ */ zod
+    .object({
+        feed_load_id: zod
+            .uuid()
+            .describe("The client's id for the feed load that showed these cards. One load counts each card once."),
+        observation_ids: zod
+            .array(zod.uuid())
+            .min(1)
+            .max(visionScannersWatchFeedImpressionsCreateBodyObservationIdsMax)
+            .describe(
+                'Observations the calling user saw in What to watch, at most 100. Ids the user cannot read are ignored.'
+            ),
+    })
+    .describe('Body of POST \/vision\/scanners\/watch_feed_impressions\/.')

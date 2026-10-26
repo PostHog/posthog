@@ -10,6 +10,10 @@ import { userLogic } from 'scenes/userLogic'
 
 import { IntegrationType, UserType } from '~/types'
 
+import {
+    senderFrom,
+    senderIntegrationFor,
+} from '../../../../frontend/src/scenes/hog-functions/email-templater/emailSenderFields'
 import { HogflowTestResult } from '../Workflows/hogflows/steps/types'
 import { createExampleEvent } from '../Workflows/hogflows/testEventFactory'
 import type { HogFlow, HogFlowAction, HogFlowEdge } from '../Workflows/hogflows/types'
@@ -94,7 +98,8 @@ export interface messageTemplateTestSendLogicMeta {
         emailIntegrations: (integrations: IntegrationType[] | null) => IntegrationType[]
         senderIntegrationId: (
             senderIntegrationIdOverride: number | null,
-            emailIntegrations: IntegrationType[]
+            emailIntegrations: IntegrationType[],
+            template: MessageTemplate
         ) => number | null
         sendDisabledReason: (
             template: MessageTemplate,
@@ -163,7 +168,12 @@ export const messageTemplateTestSendLogic = kea<messageTemplateTestSendLogicType
                                         // cc/bcc that happened to be on the copied source content.
                                         cc: '',
                                         bcc: '',
-                                        from: { integrationId: senderIntegrationId ?? undefined },
+                                        // A custom name and address carry over, so the test shows what a send shows.
+                                        from: {
+                                            ...senderFrom(template.content.email ?? {}),
+                                            integrationIds: undefined,
+                                            integrationId: senderIntegrationId ?? undefined,
+                                        },
                                         to: { email: recipientEmail, name: '' },
                                     },
                                     templating: template.content.templating === 'hog' ? 'hog' : 'liquid',
@@ -209,9 +219,12 @@ export const messageTemplateTestSendLogic = kea<messageTemplateTestSendLogicType
                 ) ?? [],
         ],
         senderIntegrationId: [
-            (s) => [s.senderIntegrationIdOverride, s.emailIntegrations],
-            (override: number | null, emailIntegrations: IntegrationType[]): number | null =>
-                override ?? emailIntegrations[0]?.id ?? null,
+            (s) => [s.senderIntegrationIdOverride, s.emailIntegrations, s.template],
+            (override: number | null, emailIntegrations: IntegrationType[], template: MessageTemplate): number | null =>
+                override ??
+                senderIntegrationFor(template.content.email ?? {}, emailIntegrations)?.id ??
+                emailIntegrations[0]?.id ??
+                null,
         ],
         sendDisabledReason: [
             (s) => [s.template, s.recipientEmail, s.senderIntegrationId],

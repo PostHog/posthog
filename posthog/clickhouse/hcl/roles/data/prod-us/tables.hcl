@@ -607,6 +607,11 @@ database "posthog" {
       type        = "bloom_filter"
       granularity = 1
     }
+    index "minmax_sharded_events_inserted_at" {
+      expr        = "inserted_at"
+      type        = "minmax"
+      granularity = 1
+    }
     engine "replicated_replacing_merge_tree" {
       zoo_path       = "/clickhouse/tables/reshard3/{shard}/posthog.sharded_events"
       replica_name   = "{replica}"

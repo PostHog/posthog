@@ -222,7 +222,7 @@ class TestMetricsSqlMode(ClickhouseTestMixin, APIBaseTest):
                         if value is not None and actual_value is not None:
                             assert math.isclose(actual_value, value, rel_tol=1e-6, abs_tol=1e-9), (name, key, time)
 
-    def test_mixed_histogram_bounds_fail_in_both_languages(self) -> None:
+    def test_mixed_histogram_bounds_merge_in_builder_but_fail_in_sql(self) -> None:
         start = NOW - dt.timedelta(minutes=30)
         for bounds, service in (([10.0], "api"), ([100.0], "worker")):
             for m in range(0, 30):
@@ -237,8 +237,10 @@ class TestMetricsSqlMode(ClickhouseTestMixin, APIBaseTest):
                 )
         fixture = FIXTURES["histogram p99"]
 
-        with pytest.raises(ExposedHogQLError, match="histogram bounds differ"):
-            self._run(clauses=[MetricsQueryClause(**clause) for clause in fixture["builder"]["clauses"]])
+        # The builder merges the layouts onto their union edges. SQL mode still asks for one layout.
+        results = self._run(clauses=[MetricsQueryClause(**clause) for clause in fixture["builder"]["clauses"]])
+        # The worker's (0, 100] bucket straddles the api's 10 edge, so the estimate is only accurate to 100.
+        assert results[0].histogramBounds == [100.0]
         with pytest.raises(Exception, match="different histogram bounds"):
             self._run(clauses=[], language="sql", sql=fixture["sql"])
 
@@ -345,7 +347,7 @@ class TestMetricsSqlMode(ClickhouseTestMixin, APIBaseTest):
 
         assert {point.value for series in results for point in series.points} == {50.0, None}
 
-    @parameterized.expand([("UTC", "week", "-30d"), ("Asia/Kathmandu", "minute_30", "-3h")])
+    @parameterized.expand([("UTC", "week", "-30d"), ("Asia/Kathmandu", "minute_30", "-3h"), ("UTC", "$window", "-3h")])
     def test_interval_starts_are_zero_filled_in_any_timezone(
         self, timezone: str, interval: str, date_from: str
     ) -> None:
@@ -359,10 +361,23 @@ class TestMetricsSqlMode(ClickhouseTestMixin, APIBaseTest):
             clauses=[], language="sql", sql=sql, interval=interval, dateRange=DateRange(date_from=date_from)
         )
 
-        results = MetricsQueryRunner(query=query, team=self.team).calculate().results
+        runner = MetricsQueryRunner(query=query, team=self.team)
+        runner.apply_dashboard_filters(
+            DashboardFilter(
+                metricVariables=[
+                    MetricsDashboardVariable(
+                        name="window", source="custom", current=MetricsDashboardVariableSelection(values=["1h"])
+                    )
+                ]
+            )
+        )
+        results = runner.calculate().results
 
         by_service = {series.labels["service"]: [point.value for point in series.points] for series in results}
         assert by_service == {"api": [1.0, 0.0, 0.0], "worker": [0.0, 1.0, 1.0]}
+        if interval == "$window":
+            first, second = [dt.datetime.fromisoformat(point.time) for point in results[0].points[:2]]
+            assert second - first == dt.timedelta(hours=1)
 
     def test_caches_like_a_metrics_insight_not_a_sql_insight(self) -> None:
         sql = "SELECT now() AS time, 1 AS value FROM posthog.metrics"
@@ -457,17 +472,33 @@ class TestMetricsPromQLMode(APIBaseTest):
 
         assert (series.clause, series.labels) == (clause, labels)
 
-    def test_dashboard_variables_reach_the_promql_text_and_the_cache_key(self) -> None:
-        def runner_for(job: MetricsDashboardVariableSelection) -> MetricsQueryRunner:
-            runner = self._runner('sum(rate(http_requests_total{job=~"$job", env="${env}"}[$__rate_interval]))')
+    @parameterized.expand(
+        [
+            ("hourly_over_seven_days", "1h", "-7d", "$window", 3600),
+            ("five_minutes_over_six_hours", "5m", "-6h", "$window", 300),
+            ("variable_only_in_interval", "1h", "-7d", "$__rate_interval", 3600),
+        ]
+    )
+    def test_dashboard_variables_reach_the_promql_text_and_the_cache_key(
+        self, _name: str, window: str, date_from: str, lookback: str, step: int
+    ) -> None:
+        def runner_for(job: MetricsDashboardVariableSelection, selected_window: str = window) -> MetricsQueryRunner:
+            runner = self._runner('sum(rate(http_requests_total{job=~"$job", env="${env}"}[' + lookback + "]))")
+            runner.query.interval = "$window"
             runner.apply_dashboard_filters(
                 DashboardFilter(
+                    date_from=date_from,
                     metricVariables=[
                         MetricsDashboardVariable(name="job", source="custom", includeAll=True, current=job),
                         MetricsDashboardVariable(
                             name="env", source="textbox", current=MetricsDashboardVariableSelection(values=["prod"])
                         ),
-                    ]
+                        MetricsDashboardVariable(
+                            name="window",
+                            source="custom",
+                            current=MetricsDashboardVariableSelection(values=[selected_window]),
+                        ),
+                    ],
                 )
             )
             return runner
@@ -479,15 +510,32 @@ class TestMetricsPromQLMode(APIBaseTest):
         ) as request:
             all_jobs.calculate()
 
+        expected_lookback = window if lookback == "$window" else lookback
         assert (
-            request.call_args.kwargs["data"]["query"] == 'sum(rate(http_requests_total{env="prod"}[$__rate_interval]))'
+            request.call_args.kwargs["data"]["query"]
+            == 'sum(rate(http_requests_total{env="prod"}[' + expected_lookback + "]))"
         )
+        assert request.call_args.kwargs["data"]["step"] == str(step)
         assert all_jobs.get_cache_key() != runner_for(MetricsDashboardVariableSelection(values=["api"])).get_cache_key()
+        assert (
+            all_jobs.get_cache_key()
+            != runner_for(MetricsDashboardVariableSelection(values=["api", "web"], all=True), "6h").get_cache_key()
+        )
 
-    def test_unresolved_variable_is_explained_without_a_query(self) -> None:
+    @parameterized.expand(
+        [
+            ("promql", 'up{job="$job"}', None, r"\$job"),
+            ("interval", "up", "$window", r"\$window"),
+        ]
+    )
+    def test_unresolved_variable_is_explained_without_a_query(
+        self, _name: str, promql: str, interval: str | None, message: str
+    ) -> None:
+        runner = self._runner(promql)
+        runner.query.interval = interval
         with patch("posthog.api.snuffle_proxy.internal_requests.request") as request:
-            with pytest.raises(ExposedHogQLError, match=r"\$job"):
-                self._runner('up{job="$job"}').calculate()
+            with pytest.raises(ExposedHogQLError, match=message):
+                runner.calculate()
         request.assert_not_called()
 
     def _sql_runner_with_all(self, source: str, query: str) -> MetricsQueryRunner:
@@ -530,6 +578,27 @@ class TestMetricsPromQLMode(APIBaseTest):
         runner = self._sql_runner_with_all("sql", "SELECT FROM")
         with pytest.raises(ExposedHogQLError):
             runner.calculate()
+
+    def test_shared_histogram_quantiles_map_each_quantile_to_its_clause(self) -> None:
+        start = int(dt.datetime(2026, 9, 19, 11, 0, tzinfo=dt.UTC).timestamp())
+        payload = {
+            "status": "success",
+            "data": {
+                "resultType": "matrix",
+                "result": [
+                    {"metric": {"job": "api", "clause": quantile}, "values": [[start, value]]}
+                    for quantile, value in (("0.9", "9"), ("0.5", "5"))
+                ],
+            },
+        }
+        promql = 'histogram_quantiles("clause", 0.9, 0.5, sum by (le, job) (rate(x_bucket)))'
+        with patch("posthog.api.snuffle_proxy.internal_requests.request", return_value=_snuffle_response(200, payload)):
+            results = self._runner(promql).calculate().results
+
+        assert {series.clause: (series.labels, series.points[0].value) for series in results} == {
+            "a": ({"job": "api"}, 9.0),
+            "b": ({"job": "api"}, 5.0),
+        }
 
     def test_empty_scalar_result_has_no_series(self) -> None:
         payload = {"status": "success", "data": {"resultType": "scalar", "result": []}}

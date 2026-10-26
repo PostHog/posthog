@@ -46,9 +46,11 @@ logger = structlog.get_logger(__name__)
 
 
 SLACK_APP_AGENT_DESIGN_FLAG = "slack-app-agent-design"
+SLACK_APP_CHART_LINKS_FLAG = "slack-app-chart-links"
+SLACK_APP_FEATURE_TIPS_FLAG = "slack-app-feature-tips"
 SLACK_APP_FORKING_FLAG = "slack-app-forking"
-SLACK_APP_PROJECT_PICKER_FLAG = "slack-app-project-picker"
-SLACK_APP_REPLY_SUGGESTIONS_FLAG = "slack-app-reply-suggestions"
+SLACK_APP_MULTIPLAYER_APPROVALS_FLAG = "slack-app-multiplayer-approvals"
+SLACK_APP_BYOS_FLAG = "slack-app-byos"
 SLACK_APP_UNPROMPTED_ANSWERS_FLAG = "slack-app-unprompted-answers"
 
 
@@ -128,22 +130,64 @@ def is_slack_app_agent_design_enabled(integration: Integration, distinct_id: str
     )
 
 
-def is_slack_app_project_picker_enabled(integration: Integration, distinct_id: str | None = None) -> bool:
-    """Gate for the in-thread project picker. With the gate closed, a mention that could go
-    to more than one project gets the text hint."""
+def is_slack_app_chart_links_enabled(integration: Integration) -> bool:
+    """Gate for charts as insight links: a Slack task run shares a PostHog insight link
+    instead of rendering a chart image, and the link unfurl draws the chart. Resolved once,
+    when the run starts, and stored on the run for the unfurl webhook to read."""
     return _workspace_flag_enabled(
-        SLACK_APP_PROJECT_PICKER_FLAG,
+        SLACK_APP_CHART_LINKS_FLAG,
         integration,
-        failure_log_key="slack_app_project_picker_feature_flag_check_failed",
+        failure_log_key="slack_app_chart_links_feature_flag_check_failed",
+    )
+
+
+def is_slack_app_feature_tips_enabled(integration: Integration, distinct_id: str) -> bool:
+    """Gate for the one-line feature tip under an answer.
+
+    ``distinct_id`` is the reader's PostHog distinct id, or their Slack-derived id when no
+    PostHog user is linked. A tip is a per-person decision, so a percentage rollout splits
+    people and a holdout group can measure what tips change.
+    """
+    return _workspace_flag_enabled(
+        SLACK_APP_FEATURE_TIPS_FLAG,
+        integration,
+        failure_log_key="slack_app_feature_tips_feature_flag_check_failed",
         distinct_id=distinct_id,
     )
 
 
-def is_slack_app_reply_suggestions_enabled(integration: Integration) -> bool:
+def is_slack_app_multiplayer_approvals_enabled(integration: Integration, distinct_id: str | None) -> bool:
+    """Gate for the thread creator's choice of who may join their threads.
+
+    ``distinct_id`` is the thread creator's PostHog user. With the gate closed, anyone with
+    project access can join, and the Home tab hides the setting.
+    """
     return _workspace_flag_enabled(
-        SLACK_APP_REPLY_SUGGESTIONS_FLAG,
+        SLACK_APP_MULTIPLAYER_APPROVALS_FLAG,
         integration,
-        failure_log_key="slack_app_reply_suggestions_feature_flag_check_failed",
+        failure_log_key="slack_app_multiplayer_approvals_feature_flag_check_failed",
+        distinct_id=distinct_id,
+    )
+
+
+def is_slack_app_byos_enabled(integration: Integration, distinct_id: str | None, *, adapter: str = "codex") -> bool:
+    """Gate for Slack runs that bill to the user's own plan.
+
+    Depends on the tasks rollout flag for that plan, which is checked first. A Slack run
+    marked for a plan whose rollout is off fails when it starts, so Slack must never mark one.
+    ``distinct_id`` is the PostHog user whose plan the run would use.
+    """
+    from products.tasks.backend.facade import api as tasks_facade  # noqa: PLC0415 — keeps tasks off this import path
+
+    if not tasks_facade.own_subscription_cloud_enabled(
+        adapter, distinct_id=distinct_id, organization_id=str(integration.team.organization_id)
+    ):
+        return False
+    return _workspace_flag_enabled(
+        SLACK_APP_BYOS_FLAG,
+        integration,
+        failure_log_key="slack_app_byos_feature_flag_check_failed",
+        distinct_id=distinct_id,
     )
 
 

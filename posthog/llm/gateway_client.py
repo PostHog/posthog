@@ -41,7 +41,6 @@ Product = Literal[
     "subscriptions",
     "signals",
     "review_hog",
-    "custom_image_scans",
     "conversations",
     "warehouse_semantic_enrichment",
     "warehouse_custom_source_builder",
@@ -407,6 +406,11 @@ def anthropic_gateway_base_url(openai_base_url: str) -> str:
     return trimmed
 
 
+def openai_gateway_configured() -> bool:
+    """Whether :func:`build_openai_client` can build a client, without building one."""
+    return resolve_ai_gateway_config() is not None or bool(settings.LLM_GATEWAY_URL and settings.LLM_GATEWAY_API_KEY)
+
+
 def build_openai_client(
     product: Product,
     ai_product: str | None = None,
@@ -469,6 +473,34 @@ def build_async_openai_client(
         )
     fallback_headers = _python_gateway_observability_headers(trace_id, session_id, properties)
     return get_async_llm_client(product, default_headers=fallback_headers)
+
+
+def build_ai_gateway_openai_client(
+    api_key: str,
+    ai_product: str,
+    trace_id: str | None = None,
+    properties: Mapping[str, str] | None = None,
+    distinct_id: str | None = None,
+) -> OpenAI:
+    """Go ai-gateway client on the caller's own bearer (``pha_``, ``phe_``); no Python-gateway fallback."""
+    url = settings.AI_GATEWAY_URL
+    if not url:
+        raise GatewayNotConfiguredError("AI_GATEWAY_URL is not set")
+    if not urlparse(url).path.rstrip("/").endswith("/v1"):
+        raise GatewayNotConfiguredError(f"AI_GATEWAY_URL must end with /v1, got {url}")
+    if not api_key:
+        raise GatewayNotConfiguredError("api_key is required")
+    return OpenAI(
+        api_key=api_key,
+        base_url=url,
+        default_headers=ai_gateway_headers(
+            ai_product=ai_product,
+            trace_id=trace_id,
+            properties=properties,
+            distinct_id=distinct_id,
+        ),
+        http_client=httpx.Client(trust_env=False),
+    )
 
 
 def build_async_anthropic_client(

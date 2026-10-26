@@ -16,10 +16,11 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Iterable
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import requests
 import structlog
+import posthoganalytics
 
 from posthog.models.user import User
 from posthog.models.user_push_token import UserPushToken
@@ -29,6 +30,76 @@ logger = structlog.get_logger(__name__)
 EXPO_PUSH_API_URL = "https://exp.host/--/api/v2/push/send"
 EXPO_PUSH_API_TIMEOUT_SECONDS = 10
 EXPO_PUSH_BATCH_SIZE = 100
+
+
+MobilePushCategory = Literal["tasks", "reports", "report_updates"]
+
+
+def mobile_push_preference_enabled(user: User, category: MobilePushCategory) -> bool:
+    preferences = user.notification_settings
+    enabled = {
+        "tasks": preferences.get("mobile_push_tasks_enabled", True),
+        "reports": preferences.get("mobile_push_reports_enabled", True),
+        "report_updates": preferences.get("mobile_push_report_updates_enabled", True),
+    }
+    return preferences.get("mobile_push_enabled", True) and enabled[category]
+
+
+def mobile_push_delivery_allowed(user: User, data: dict[str, Any] | None) -> bool:
+    if not user.is_active:
+        return False
+
+    # Re-read eligibility on the worker: a queued push can outlive a preference or access change.
+    payload = data or {}
+    if payload.get("type") == "report":
+        if not posthoganalytics.feature_enabled(
+            "posthog-code-mobile-push", user.distinct_id or f"user_{user.id}", send_feature_flag_events=False
+        ):
+            return False
+        from products.access_control.backend.facade.user_access_control import (
+            UserAccessControl,  # noqa: PLC0415 — keep access control off the startup path
+        )
+        from products.signals.backend.models import SignalReport  # noqa: PLC0415 — keep signals off the startup path
+        from products.signals.backend.report_access import may_read_reports  # noqa: PLC0415
+        from products.signals.backend.scout_authorship import report_is_hidden_from_inbox  # noqa: PLC0415
+
+        category: MobilePushCategory = (
+            "reports" if payload.get("notificationKind") == "report_visible" else "report_updates"
+        )
+        if not mobile_push_preference_enabled(user, category):
+            return False
+        project_id = payload.get("project_id")
+        report_id = payload.get("report_id")
+        if not isinstance(project_id, (int, str)) or not isinstance(report_id, str):
+            return False
+        report = (
+            SignalReport.objects.filter(team_id=project_id, id=report_id)
+            .exclude(status__in=[SignalReport.Status.DELETED, SignalReport.Status.SUPPRESSED])
+            .select_related("team")
+            .first()
+        )
+        return bool(
+            report
+            and not report_is_hidden_from_inbox(report.team_id, str(report.id))
+            and User.objects.filter(
+                id=user.id,
+                is_active=True,
+                organization_membership__organization_id=report.team.organization_id,
+            ).exists()
+            and UserAccessControl(user=user, team=report.team).has_project_access
+            and may_read_reports(user=user, team=report.team)
+        )
+
+    if not mobile_push_preference_enabled(user, "tasks") or not payload.get("taskId"):
+        return False
+    project_id = payload.get("projectId")
+    if not isinstance(project_id, int) or not user.teams.filter(id=project_id).exists():
+        return False
+    from products.tasks.backend.facade.api import (
+        task_mobile_push_delivery_allowed,  # noqa: PLC0415 — keep product imports lazy
+    )
+
+    return task_mobile_push_delivery_allowed(task_id=str(payload["taskId"]), team_id=project_id, user_id=user.id)
 
 
 def send_push_to_user(
@@ -54,6 +125,16 @@ def send_push_to_user(
     ``DeviceNotRegistered`` are deleted for this user so we stop trying to
     deliver to dead devices.
     """
+    category: MobilePushCategory = (
+        "reports"
+        if (data or {}).get("notificationKind") == "report_visible"
+        else "report_updates"
+        if (data or {}).get("type") == "report"
+        else "tasks"
+    )
+    if not mobile_push_preference_enabled(user, category):
+        return 0
+
     qs = UserPushToken.objects.filter(user=user)
     if suppressed_push_token_ids:
         qs = qs.exclude(id__in=list(suppressed_push_token_ids))

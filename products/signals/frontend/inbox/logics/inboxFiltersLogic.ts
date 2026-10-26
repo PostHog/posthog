@@ -24,7 +24,6 @@ import {
 import { captureInboxQueryChanged, InboxQueryChange } from '../inboxAnalytics'
 import { parseTeammateInboxScope } from '../inboxMembership'
 import {
-    INBOX_LEGACY_TAB_KEYS,
     INBOX_REPORT_SECTION_KEYS,
     INBOX_SCOPE_FOR_YOU,
     INBOX_STAFF_ONLY_REPORT_SECTION_KEYS,
@@ -33,7 +32,6 @@ import {
     InboxScope,
     SignalReportPriority,
 } from '../types'
-import { isInboxRedesignEnabled } from '../utils/inboxRedesign'
 
 /** A teammate who can be scoped to / suggested as a reviewer. Matches the `available_reviewers` API row. */
 export interface InboxReviewerOption {
@@ -42,7 +40,7 @@ export interface InboxReviewerOption {
     email: string
 }
 
-export type InboxRankingSortField = 'ranking_open' | 'ranking_action' | 'ranking_fixed'
+export type InboxRankingSortField = 'ranking_open' | 'ranking_action' | 'ranking_fix'
 export type InboxSortField = 'recommended' | 'priority' | 'created_at' | 'updated_at' | InboxRankingSortField
 export type InboxSortDirection = 'asc' | 'desc'
 /** Preset for the created-in window filter. Null means any time. */
@@ -88,6 +86,13 @@ const VALID_STATE_VALUES = new Set<string>(INBOX_REPORT_SECTION_KEYS)
 const VALID_SORT_KEYS = new Set(INBOX_SORT_OPTIONS.map((o) => `${o.field}:${o.direction}`))
 const VALID_MODEL_SORT_KEYS = new Set(INBOX_MODEL_SORT_OPTIONS.map((o) => `${o.field}:${o.direction}`))
 const VALID_CREATED_WINDOWS = new Set<string>(INBOX_CREATED_WINDOW_OPTIONS.map((o) => o.value))
+
+// Old sort field names that URLs and local storage can still hold, so a stored sort does not fall back to the default.
+const RENAMED_SORT_FIELDS: Record<string, InboxSortField> = { ranking_fixed: 'ranking_fix' }
+
+function currentSortField(field: string): InboxSortField {
+    return RENAMED_SORT_FIELDS[field] ?? (field as InboxSortField)
+}
 
 function isOfferedSortKey(key: string, modelSortAvailable: boolean): boolean {
     return VALID_SORT_KEYS.has(key) || (modelSortAvailable && VALID_MODEL_SORT_KEYS.has(key))
@@ -165,10 +170,13 @@ export function parseFilterSearchParams(
 ): InboxFilterState {
     let sortField = DEFAULT_SORT_FIELD
     let sortDirection = DEFAULT_SORT_DIRECTION
-    if (typeof searchParams.sort === 'string' && isOfferedSortKey(searchParams.sort, modelSortAvailable)) {
-        const [field, direction] = searchParams.sort.split(':')
-        sortField = field as InboxSortField
-        sortDirection = direction as InboxSortDirection
+    if (typeof searchParams.sort === 'string') {
+        const [rawField, direction] = searchParams.sort.split(':')
+        const field = currentSortField(rawField)
+        if (isOfferedSortKey(`${field}:${direction}`, modelSortAvailable)) {
+            sortField = field
+            sortDirection = direction as InboxSortDirection
+        }
     }
     return {
         scope: parseScopeParam(searchParams.scope),
@@ -187,18 +195,16 @@ export function parseFilterSearchParams(
 
 /**
  * The inbox page tab the filters apply to, for the `tab` analytics property: the tab segment from
- * the URL (`reports`, `scouts`, or `settings` under the redesign, or a legacy tab key), or null off
- * a tab route (the scout panels, or a bare `/inbox`). The redesigned Reports tab is one flat list
- * with no sub-view, so it reports `reports` and stays consistent with the `tab` that
+ * the URL (`reports`, `scouts`, or `settings`), or null off a tab route (the scout panels, or a
+ * bare `/inbox`). The Reports tab is one flat list with no sub-view, so it reports `reports` and stays consistent with the `tab` that
  * `captureInboxViewed` sends for the same visit. Read from the router rather than connected from
  * `inboxSceneLogic`, which already connects this logic, because the reverse edge would be a cycle.
  */
-function currentInboxTab(redesign: boolean): string | null {
+function currentInboxTab(): string | null {
     const segments = router.values.location.pathname.split('/').filter(Boolean)
     const inboxIndex = segments.indexOf('inbox')
     const candidate = inboxIndex === -1 ? undefined : segments[inboxIndex + 1]
-    const tabKeys = (redesign ? INBOX_TAB_KEYS : INBOX_LEGACY_TAB_KEYS) as string[]
-    if (!candidate || !tabKeys.includes(candidate)) {
+    if (!candidate || !(INBOX_TAB_KEYS as string[]).includes(candidate)) {
         return null
     }
     return candidate
@@ -302,7 +308,6 @@ export interface inboxFiltersLogicValues {
     hasActiveFilters: boolean
     hasUserChosenScope: boolean
     hasUserChosenSort: boolean
-    isRedesign: boolean
     isScopedToMe: boolean
     knownTeammate: {
         label: string
@@ -443,7 +448,6 @@ export interface inboxFiltersLogicMeta {
             createdWindow: InboxCreatedWindow | null,
             timeWindowAvailable: boolean
         ) => InboxCreatedWindow | null
-        isRedesign: (featureFlags: FeatureFlagsSet) => boolean
         visibleStateFilter: (
             stateFilter: (
                 | 'dismissed'
@@ -545,7 +549,7 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
         const captureQueryChange = (change: InboxQueryChange): void =>
             captureInboxQueryChanged({
                 change,
-                tab: currentInboxTab(values.isRedesign),
+                tab: currentInboxTab(),
                 scope: values.scope,
                 sortField: values.activeSortField,
                 sortDirection: values.activeSortDirection,
@@ -731,7 +735,7 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
         // Whether any server-side list-narrowing filter is active. Scope and sort are excluded: they
         // don't hide reports the way search/source/priority/created window do, and `clearFilters` leaves them
         // untouched. The state filter is also excluded: it only narrows which states the flat
-        // Reports list renders (client-side, redesign only), so the surfaces that need it check
+        // Reports list renders (client-side), so the surfaces that need it check
         // `stateFilter` directly.
         hasActiveFilters: [
             (s) => [s.searchQuery, s.sourceProductFilter, s.scoutFilter, s.priorityFilter, s.activeCreatedWindow],
@@ -768,7 +772,9 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
                 sortDirection: InboxSortDirection,
                 modelSortAvailable: boolean
             ): InboxSortField =>
-                isOfferedSort(sortField, sortDirection, modelSortAvailable) ? sortField : DEFAULT_SORT_FIELD,
+                isOfferedSort(currentSortField(sortField), sortDirection, modelSortAvailable)
+                    ? currentSortField(sortField)
+                    : DEFAULT_SORT_FIELD,
         ],
         activeSortDirection: [
             (s) => [s.sortField, s.sortDirection, s.modelSortAvailable],
@@ -777,7 +783,9 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
                 sortDirection: InboxSortDirection,
                 modelSortAvailable: boolean
             ): InboxSortDirection =>
-                isOfferedSort(sortField, sortDirection, modelSortAvailable) ? sortDirection : DEFAULT_SORT_DIRECTION,
+                isOfferedSort(currentSortField(sortField), sortDirection, modelSortAvailable)
+                    ? sortDirection
+                    : DEFAULT_SORT_DIRECTION,
         ],
         timeWindowAvailable: [
             (s) => [s.featureFlags],
@@ -789,10 +797,6 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
             (s) => [s.createdWindow, s.timeWindowAvailable],
             (createdWindow: InboxCreatedWindow | null, timeWindowAvailable: boolean): InboxCreatedWindow | null =>
                 timeWindowAvailable ? createdWindow : null,
-        ],
-        isRedesign: [
-            (s) => [s.featureFlags],
-            (featureFlags: FeatureFlagsSet): boolean => isInboxRedesignEnabled(featureFlags),
         ],
         // The stored state filter can name states the current user cannot see: a staff-only state
         // from a shared link, or one persisted before staff access changed. The list and the filter

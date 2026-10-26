@@ -3,8 +3,10 @@ import type { Schemas } from '@/api/generated'
 import { hasScope } from '@/lib/api'
 import { classifyAuthMethod } from '@/lib/auth-method'
 import type { ScopedCache } from '@/lib/cache/ScopedCache'
+import { StateLookupCache } from '@/lib/cache/StateLookupCache'
 import {
     ErrorCode,
+    hasTimeoutCause,
     MissingOrganizationContextError,
     MissingProjectContextError,
     PostHogApiError,
@@ -13,7 +15,14 @@ import {
 import { getPostHogClient } from '@/lib/posthog'
 import { sanitizeHeaderValue } from '@/lib/utils'
 import type { ApiUser } from '@/schema/api'
-import type { CachedOrg, CachedProject, CachedUser, PinnedActiveContext, State } from '@/tools/types'
+import type {
+    CachedOrg,
+    CachedProject,
+    CachedUser,
+    PinnedActiveContext,
+    SessionScopedState,
+    State,
+} from '@/tools/types'
 
 const CACHE_TTL_MS = 10 * 60 * 1000 // 10 minutes
 // A personal API key keeps its value when its scopes change, and the cache is keyed by token, so
@@ -24,6 +33,9 @@ const GATEWAY_TOOLS_CACHE_TTL_MS = 2 * 60 * 1000 // 2 minutes
 // shows up within a minute. `ingested_event` never returns to false and warehouse sources are
 // rarely removed, so a positive answer keeps the default TTL.
 export const NO_DATA_CACHE_TTL_MS = 60 * 1000 // 1 minute
+// The integration list only adds a line to the environment prompt, so a slow response must not
+// hold `switch-project` for the full default request deadline. The caller serves the cached list.
+const INTEGRATION_KINDS_TIMEOUT_MS = 10 * 1000
 // Cached for the short TTL like an empty answer, so an unreadable list is not requested on every call.
 const UNKNOWN_WAREHOUSE_COUNT = -1
 
@@ -39,27 +51,23 @@ type OrgEntitlementFields = {
 }
 
 export class StateManager {
-    private _cache: ScopedCache<State>
-    private _api: ApiClient
-    private _user?: ApiUser
-    private _pinned: PinnedActiveContext | undefined
     private _pinnedOrgProject: Promise<string> | undefined
-    constructor(cache: ScopedCache<State>, api: ApiClient, pinned?: PinnedActiveContext) {
-        this._cache = cache
-        this._api = api
-        this._pinned = pinned
-    }
+
+    constructor(
+        private readonly _cache: ScopedCache<State>,
+        private readonly _api: ApiClient,
+        private readonly _pinned?: PinnedActiveContext,
+        private readonly _sessionCache?: ScopedCache<SessionScopedState>,
+        private readonly lookups = new StateLookupCache()
+    ) {}
 
     get pinnedContext(): PinnedActiveContext | undefined {
         return this._pinned
     }
 
     /**
-     * Set the active org and project. On a pinned request the ids only update the
-     * request-scoped context: the session store records the switch, and the token
-     * cache must not, because other sessions on the same credential read it. A
-     * pinned request without a session still persists the keys the pin leaves open.
-     * A project pin also fixes the org, because the project owns it.
+     * Session selections never enter the token cache because other sessions on
+     * the credential share it. Sessionless pins persist only the keys they leave open.
      */
     async setActiveContext(updates: { orgId?: string; projectId?: string }): Promise<void> {
         const pinned = this._pinned
@@ -71,13 +79,21 @@ export class StateManager {
             return
         }
         if (updates.orgId) {
+            if (updates.orgId !== pinned.orgId && !updates.projectId) {
+                pinned.projectId = undefined
+            }
             pinned.orgId = updates.orgId
         }
         if (updates.projectId) {
             pinned.projectId = updates.projectId
         }
         this._pinnedOrgProject = undefined
-        if (!pinned.sessionScoped) {
+        if (pinned.sessionScoped) {
+            await this._sessionCache?.setMany({
+                activeOrgId: pinned.orgId ?? null,
+                activeProjectId: pinned.projectId ?? null,
+            })
+        } else {
             await this._cache.setMany({
                 ...(updates.orgId && !pinned.pin.organizationId && !pinned.pin.projectId
                     ? { orgId: updates.orgId }
@@ -96,11 +112,7 @@ export class StateManager {
     }
 
     async getUser(): Promise<ApiUser> {
-        if (!this._user) {
-            this._user = await this._fetchUser()
-        }
-
-        return this._user
+        return this.lookups.get(this._cache.scope, 'user', () => this._fetchUser())
     }
 
     private async _fetchApiKey(): Promise<NonNullable<State['apiKey']>> {
@@ -150,10 +162,6 @@ export class StateManager {
         const sanitizedClientName = sanitizeHeaderValue(client_name)
         if (sanitizedClientName) {
             await this._cache.set('clientName', sanitizedClientName)
-            // Introspection is the first point the OAuth app name is known, and the client was
-            // already built for this request — stamp it on so the rest of the request forwards
-            // `x-posthog-mcp-oauth-client-name` instead of waiting for the next cache hit.
-            this._api.config.oauthClientName = sanitizedClientName
         }
 
         return {
@@ -163,10 +171,16 @@ export class StateManager {
             is_impersonated: introspectionResult.data.is_impersonated === true,
             // Only server-minted sandbox tokens can carry this scope; request headers cannot opt out.
             suppress_analytics: (scope ?? '').split(' ').includes('scout_experiment_internal:read'),
+            ...(introspectionResult.data.sandbox_task_id
+                ? { sandbox_task_id: introspectionResult.data.sandbox_task_id }
+                : {}),
+            ...(introspectionResult.data.mcp_allowed_tools
+                ? { mcp_allowed_tools: introspectionResult.data.mcp_allowed_tools }
+                : {}),
         }
     }
 
-    async getApiKey(): Promise<NonNullable<State['apiKey']>> {
+    private async _getApiKey(): Promise<NonNullable<State['apiKey']>> {
         // An OAuth token gets a new value, and so a new cache entry, whenever its scopes change.
         const refreshable = classifyAuthMethod(this._api.config.apiToken) !== 'oauth'
         const [cached, fetchedAt] = await Promise.all([
@@ -179,7 +193,9 @@ export class StateManager {
         }
 
         try {
-            const apiKey = await this._fetchApiKey()
+            const apiKey = await this.lookups.get(this._cache.scope, JSON.stringify(['apiKey', fetchedAt]), () =>
+                this._fetchApiKey()
+            )
             await Promise.all([
                 this._cache.set('apiKey', apiKey),
                 refreshable ? this._cache.set('apiKeyFetchedAt', Date.now()) : undefined,
@@ -197,6 +213,15 @@ export class StateManager {
         }
     }
 
+    async getApiKey(): Promise<NonNullable<State['apiKey']>> {
+        const apiKey = await this._getApiKey()
+        const clientName = await this._cache.get('clientName')
+        if (clientName) {
+            this._api.config.oauthClientName = sanitizeHeaderValue(clientName)
+        }
+        return apiKey
+    }
+
     async getDistinctId(): Promise<NonNullable<State['distinctId']>> {
         let _distinctId = await this._cache.get('distinctId')
 
@@ -210,20 +235,37 @@ export class StateManager {
         return _distinctId
     }
 
-    /**
-     * Resolve a default `(organizationId, projectId)` for a session that hasn't
-     * pinned them via header. The user's currently active team/org from
-     * `users/@me` is the source of truth; the API key's `scoped_teams` /
-     * `scoped_organizations` are treated as filters, not directives.
-     *
-     * Never throws. The agent can always recover via `switch-project` /
-     * `switch-organization` tools, so an opaque 500 here would be strictly
-     * worse than a best-effort default.
-     */
-    private async _getDefaultOrganizationAndProject(): Promise<{
-        organizationId?: string
-        projectId?: number
-    }> {
+    private async _getDefaultOrganizationAndProject(): Promise<NonNullable<SessionScopedState['defaultContext']>> {
+        const sessionCache = this._pinned?.sessionScoped ? this._sessionCache : undefined
+        if (!sessionCache) {
+            return this._fetchDefaultOrganizationAndProject()
+        }
+        const saved = await sessionCache.get('defaultContext')
+        if (saved) {
+            if (saved.projectId !== undefined || !saved.organizationId) {
+                return saved
+            }
+            const cachedProjectId = await sessionCache.get('defaultProjectId')
+            if (cachedProjectId !== undefined) {
+                return { ...saved, projectId: cachedProjectId }
+            }
+            const projectId = await this._fetchDefaultProjectInOrganization(saved.organizationId)
+            if (projectId !== undefined) {
+                await sessionCache.setIfAbsent('defaultProjectId', projectId)
+            }
+            return { ...saved, projectId: await sessionCache.get('defaultProjectId') }
+        }
+        const defaults = await this._fetchDefaultOrganizationAndProject()
+        if (!defaults.organizationId && defaults.projectId === undefined) {
+            return defaults
+        }
+        if (await sessionCache.setIfAbsent('defaultContext', defaults)) {
+            return defaults
+        }
+        return (await sessionCache.get('defaultContext')) ?? defaults
+    }
+
+    private async _fetchDefaultOrganizationAndProject(): Promise<NonNullable<SessionScopedState['defaultContext']>> {
         const [{ scoped_organizations, scoped_teams }, user] = await Promise.all([this.getApiKey(), this.getUser()])
         const { organization: activeOrganization, team: activeTeam } = user
 
@@ -261,37 +303,36 @@ export class StateManager {
         if (!organizationId) {
             return {}
         }
+        return { organizationId, projectId: await this._fetchDefaultProjectInOrganization(organizationId) }
+    }
+
+    private async _fetchDefaultProjectInOrganization(organizationId: string): Promise<number | undefined> {
         try {
-            const projectsResult = await this._api.organizations().projects({ orgId: organizationId }).list()
-            if (projectsResult.success && projectsResult.data.length > 0) {
-                return { organizationId, projectId: Number(projectsResult.data[0]!.id) }
-            }
-            if (!projectsResult.success) {
-                // A 404 here means the API key/OAuth token points at an org the
-                // requesting user can no longer access (or a deleted org): the
-                // org-nested projects endpoint is scoped to the user's
-                // memberships. That's a recoverable user-config state — the
-                // agent recovers via switch-project/switch-organization — so
-                // warn instead of capturing, mirroring the 403 permission_denied
-                // path in client.ts. Only genuine 5xx/unexpected failures reach
-                // error tracking.
-                if (this._isRecoverableNotFound(projectsResult.error)) {
-                    console.warn(
-                        `[StateManager] Scoped org ${organizationId} projects lookup returned 404 (org not accessible to this user or deleted); falling back to org-only context`
-                    )
-                } else {
-                    await this._reportException(projectsResult.error, 'default_org_project_projects_list_failed', {
-                        organization_id: organizationId,
-                    })
+            const projects = await this.lookups.get<Schemas.ProjectBackwardCompat[]>(
+                this._cache.scope,
+                `organizationProjects:${organizationId}`,
+                async () => {
+                    const result = await this._api.organizations().projects({ orgId: organizationId }).list()
+                    if (!result.success) {
+                        throw result.error
+                    }
+                    return result.data
                 }
-            }
+            )
+            return projects.length > 0 ? Number(projects[0]!.id) : undefined
         } catch (error) {
-            await this._reportException(error, 'default_org_project_projects_list_threw', {
-                organization_id: organizationId,
-            })
+            if (this._isRecoverableNotFound(error)) {
+                console.warn(
+                    `[StateManager] Scoped org ${organizationId} projects lookup returned 404 (org not accessible to this user or deleted); falling back to org-only context`
+                )
+            } else {
+                await this._reportException(error, 'default_org_project_projects_list_failed', {
+                    organization_id: organizationId,
+                })
+            }
         }
 
-        return { organizationId }
+        return undefined
     }
 
     /**
@@ -329,12 +370,11 @@ export class StateManager {
     }> {
         const { organizationId, projectId } = await this._getDefaultOrganizationAndProject()
 
-        if (organizationId) {
-            await this._cache.set('orgId', organizationId)
-        }
-
-        if (projectId !== undefined) {
-            await this._cache.set('projectId', projectId.toString())
+        if (this._pinned?.sessionScoped) {
+            this._pinned.orgId = organizationId
+            this._pinned.projectId = projectId?.toString()
+        } else {
+            await this.setActiveContext({ orgId: organizationId, projectId: projectId?.toString() })
         }
 
         return { organizationId, projectId }
@@ -363,6 +403,9 @@ export class StateManager {
             const project = await this.getCachedOrFetchProject().catch(() => undefined)
             pinned.orgId = project?.organization ?? undefined
             return pinned.orgId
+        }
+        if (pinned) {
+            return undefined
         }
 
         const cached = await this._cache.get('orgId')
@@ -415,11 +458,9 @@ export class StateManager {
     }
 
     /**
-     * An organization pin selects an org but no project. The shared token cache and
-     * the user's default can name a project in another org, so accept a candidate
-     * only when its lookup proves that it belongs to the selected org. A failed
-     * lookup rejects the candidate. The choice is never written to the shared
-     * cache, because other sessions on the credential read it.
+     * An organization selection can outlive its project, so accept a default only
+     * when its lookup proves that it belongs to the selected org. Sessionless
+     * requests also consider the token selection for compatibility.
      */
     private async _resolvePinnedOrgProjectId(pinned: PinnedActiveContext): Promise<string> {
         const orgId = pinned.orgId
@@ -431,14 +472,24 @@ export class StateManager {
             return project?.organization === orgId
         }
 
-        const cachedCandidate = await this._cache.get('projectId')
+        const cachedCandidate = pinned.sessionScoped ? undefined : await this._cache.get('projectId')
         if (await belongsToOrg(cachedCandidate)) {
             return cachedCandidate!
         }
-        const { projectId } = await this._getDefaultOrganizationAndProject().catch(() => ({ projectId: undefined }))
+        const { organizationId, projectId } = await this._getDefaultOrganizationAndProject().catch(() => ({
+            organizationId: undefined,
+            projectId: undefined,
+        }))
         const defaultCandidate = projectId?.toString()
-        if (defaultCandidate !== cachedCandidate && (await belongsToOrg(defaultCandidate))) {
-            return defaultCandidate!
+        if (
+            defaultCandidate &&
+            defaultCandidate !== cachedCandidate &&
+            ((organizationId !== undefined && organizationId === orgId) || (await belongsToOrg(defaultCandidate)))
+        ) {
+            if (pinned.sessionScoped) {
+                pinned.projectId = defaultCandidate
+            }
+            return defaultCandidate
         }
         throw new MissingProjectContextError({ organizationId: orgId })
     }
@@ -459,6 +510,8 @@ export class StateManager {
         fetchedAtKey: F
         fetcher: () => Promise<NonNullable<State[D]>>
         ttlMs?: number | ((cached: State[D]) => number)
+        /** Skip the error report when the fetch hits its deadline. Use it for optional data with a short timeout. */
+        expectTimeouts?: boolean
     }): Promise<State[D]> {
         const [cached, fetchedAt] = (await Promise.all([
             this._cache.get(opts.cacheKey),
@@ -471,14 +524,20 @@ export class StateManager {
         }
 
         try {
-            const data = await opts.fetcher()
+            const data = await this.lookups.get(
+                this._cache.scope,
+                JSON.stringify([opts.cacheKey, fetchedAt]),
+                opts.fetcher
+            )
             await Promise.all([
                 this._cache.set(opts.cacheKey, data as State[D]),
                 this._cache.set(opts.fetchedAtKey, Date.now() as State[F]),
             ])
             return data as State[D]
         } catch (error) {
-            this._reportException(error, `get_or_fetch_${opts.name}`)
+            if (!(opts.expectTimeouts && hasTimeoutCause(error))) {
+                this._reportException(error, `get_or_fetch_${opts.name}`)
+            }
             await this._cache.set(opts.fetchedAtKey, Date.now() as State[F]).catch(() => {})
             return cached
         }
@@ -617,9 +676,11 @@ export class StateManager {
                     method: 'GET',
                     path: `/api/projects/${encodeURIComponent(projectId)}/integrations/`,
                     query: { limit: 100 },
+                    timeoutMs: INTEGRATION_KINDS_TIMEOUT_MS,
                 })
                 return [...new Set((result.results ?? []).map((integration) => String(integration.kind)))].sort()
             },
+            expectTimeouts: true,
         })
     }
 

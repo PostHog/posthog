@@ -16,6 +16,8 @@ from django.utils import timezone as django_timezone
 from pydantic import ValidationError as PydanticValidationError
 
 from posthog.exceptions_capture import capture_exception
+from posthog.models.activity_logging.model_activity import get_current_user, get_was_impersonated
+from posthog.models.signals import model_activity_signal
 
 from products.alerts_platform.backend.facade.contracts import (
     MAX_EVALUATION_PERIODS,
@@ -54,7 +56,7 @@ def edit_of(configuration: PlatformAlertConfiguration) -> PlatformAlertConfigura
 
 
 def _validated(
-    source_kind: SourceKind, current: PlatformAlertConfigurationEdit, edit: PlatformAlertConfigurationEdit
+    source_kind: SourceKind, current: PlatformAlertConfigurationEdit | None, edit: PlatformAlertConfigurationEdit
 ) -> PlatformAlertConfigurationEdit:
     spec = source_configs.spec(source_kind)
     if spec is None:
@@ -75,7 +77,7 @@ def _validated(
         raise InvalidPlatformAlertEdit("schedule_restriction", str(error)) from error
     source_config = edit.source_config
     # Settings the edit leaves alone may predate the schema, and must not block an unrelated change.
-    if source_config != current.source_config:
+    if current is None or source_config != current.source_config:
         try:
             parsed = spec.model.model_validate(source_config)
         except PydanticValidationError as error:
@@ -128,6 +130,44 @@ def update_configuration(
     return platform_reads.get_configuration(
         team_id=team_id, source_kinds=source_kinds, configuration_id=configuration_id
     )
+
+
+def create_configuration(
+    *, team_id: int, source_kind: SourceKind, edit: PlatformAlertConfigurationEdit, created_by_id: int | None
+) -> PlatformAlertConfigurationView:
+    """Creates an alert the platform owns, through the hook its source registered.
+
+    Raises `PlatformAlertNotEditable` for a kind the API cannot create, `InvalidPlatformAlertEdit` for
+    settings its source kind rejects, and `PlatformAlertCreateRefused` when the source refuses.
+    """
+    spec = source_configs.spec(source_kind)
+    if spec is None or spec.create is None:
+        raise PlatformAlertNotEditable(f"{source_kind} alerts cannot be created through this API.")
+    validated = _validated(source_kind, None, edit)
+    with transaction.atomic():
+        legacy_configuration_id = spec.create(team_id=team_id, edit=validated, created_by_id=created_by_id)
+        configuration = _locked_owned_copy(team_id, legacy_configuration_id)
+        if configuration is None:
+            raise MissingPlatformCopy(f"The {source_kind} source created no platform copy of {legacy_configuration_id}")
+        # The copy was written as the source's and then handed over, so no write logged its creation.
+        model_activity_signal.send(
+            sender=PlatformAlertConfiguration,
+            scope=PlatformAlertConfiguration.__name__,
+            before_update=None,
+            after_update=configuration,
+            activity="created",
+            user=get_current_user(),
+            was_impersonated=get_was_impersonated(),
+        )
+        # The source wrote the settings it shares with the copy. This writes the rest, such as grouping.
+        _, pending = _apply(configuration, lambda _: validated, now=django_timezone.now())
+        control_plane.announce_after_commit(pending)
+
+    view = platform_reads.get_configuration(
+        team_id=team_id, source_kinds=[source_kind.value], configuration_id=configuration.id
+    )
+    assert view is not None
+    return view
 
 
 # A snoozed group keeps its slot under `max_instances`, so a forgotten long snooze would hold it.
@@ -230,6 +270,31 @@ def close_owned_firings_now(*, team_id: int, legacy_configuration_id: UUID) -> N
     control_plane.announce_now(pending)
 
 
+def delete_configuration(*, team_id: int, source_kinds: Sequence[str], configuration_id: UUID) -> bool:
+    """Deletes a configuration the platform owns through the hook its source registered. False when
+    the configuration does not exist or its kind is not among `source_kinds`.
+
+    Raises `PlatformAlertNotEditable` for a configuration its source owns, or of a kind the API
+    cannot delete. Runs outside any transaction, because the source sends its resolves first.
+    """
+    found = (
+        PlatformAlertConfiguration.objects.for_team(team_id, canonical=True)
+        .filter(id=configuration_id, source_kind__in=list(source_kinds))
+        .values_list("source_kind", "legacy_configuration_id", "owner")
+        .first()
+    )
+    if found is None:
+        return False
+    source_kind, legacy_configuration_id, owner = found
+    if owner != PlatformAlertOwner.PLATFORM:
+        raise PlatformAlertNotEditable(f"This alert is managed by the {source_kind} product. Delete it there.")
+    spec = source_configs.spec(SourceKind(source_kind))
+    if spec is None or spec.delete is None or legacy_configuration_id is None:
+        raise PlatformAlertNotEditable(f"{source_kind} alerts cannot be deleted through this API.")
+    spec.delete(team_id=team_id, legacy_configuration_id=legacy_configuration_id)
+    return True
+
+
 def delete_owned_copy(*, team_id: int, legacy_configuration_id: UUID) -> None:
     """Deletes the copy of a source alert the platform owns, with its instances and threads."""
     copies = PlatformAlertConfiguration.objects.for_team(team_id).filter(
@@ -237,9 +302,10 @@ def delete_owned_copy(*, team_id: int, legacy_configuration_id: UUID) -> None:
     )
     with transaction.atomic():
         # The configuration before its children, the order `record_outcomes` locks them in. The
-        # cascade deletes the children first, so without this the two can deadlock.
-        list(copies.select_for_update())
-        copies.delete()
+        # cascade deletes the children first, so without this the two can deadlock. Each row goes
+        # through the model's own delete, because a queryset delete skips the activity log.
+        for configuration in copies.select_for_update():
+            configuration.delete()
 
 
 def _locked_owned_copy(team_id: int, legacy_configuration_id: UUID) -> PlatformAlertConfiguration | None:

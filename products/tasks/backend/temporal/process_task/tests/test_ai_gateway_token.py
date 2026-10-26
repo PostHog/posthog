@@ -37,6 +37,7 @@ from products.tasks.backend.logic.services.gateway_model_pin import (
     FREE_TIER_PIN_KEY,
     MAX_GATEWAY_PIN_LENGTH,
     SDK_IMPLICIT_MODELS,
+    gateway_pin,
     pinned_run_allows_model,
 )
 from products.tasks.backend.logic.services.sandbox_config import MAX_SANDBOX_TTL_SECONDS
@@ -308,8 +309,14 @@ class TestMintScopedToken:
         pin = _PRODUCT_ALLOWED_MODELS[product]
         assert len(pin) == len(set(pin))
         expected = {model for model in registry if not model.startswith("@cf/")} | set(SDK_IMPLICIT_MODELS)
+        expected -= {"zai-org/glm-5.2"}
         if product != "review_hog":
-            expected -= {"deepseek-ai/deepseek-v4-flash-0731", "zai-org/glm-5.3", "zai-org/glm-5.3-flash"}
+            expected -= {
+                "deepseek-ai/deepseek-v4-flash-0731",
+                "deepseek-ai/deepseek-v4.1-flash-1017-fast",
+                "zai-org/glm-5.3",
+                "zai-org/glm-5.3-flash",
+            }
         assert set(pin) == expected
 
     def test_limit_tier_is_sent_only_when_given(self, mint_settings):
@@ -1254,9 +1261,14 @@ class TestSlackAppMint:
 
     def test_pin_covers_every_routed_catalog_model(self):
         routed = {entry.id for entry in model_catalog.MODELS if not entry.id.startswith("@cf/")}
-        reserved = {"deepseek-ai/deepseek-v4-flash-0731", "zai-org/glm-5.3", "zai-org/glm-5.3-flash"}
+        reserved = {
+            "deepseek-ai/deepseek-v4-flash-0731",
+            "deepseek-ai/deepseek-v4.1-flash-1017-fast",
+            "zai-org/glm-5.3",
+            "zai-org/glm-5.3-flash",
+        }
         assert reserved <= set(_PRODUCT_ALLOWED_MODELS["review_hog"])
-        missing = routed - reserved - set(_PRODUCT_ALLOWED_MODELS["slack_app"])
+        missing = routed - reserved - {"zai-org/glm-5.2"} - set(_PRODUCT_ALLOWED_MODELS["slack_app"])
         assert not missing, f"catalog models absent from the slack_app pin: {sorted(missing)}"
 
     def test_ttl_covers_the_sandbox_lifetime(self, mint_settings):
@@ -1522,7 +1534,8 @@ class TestPosthogCodeSandboxMint:
     def test_pin_holds_every_catalog_id_and_fits_the_gateway(self):
         pin = _PRODUCT_ALLOWED_MODELS["posthog_code"]
         assert pin == DESKTOP_AGENT_MODELS
-        assert len(pin) == len(set(pin)) <= MAX_GATEWAY_PIN_LENGTH
+        assert len(pin) == len(set(pin))
+        assert len(gateway_pin(pin)) <= MAX_GATEWAY_PIN_LENGTH
         assert {entry.id for entry in model_catalog.MODELS} <= set(pin)
         assert set(SDK_IMPLICIT_MODELS) <= set(pin)
         assert {"gpt-5.4", "gpt-5.3-codex", "gpt-5.2", "gpt-5-mini"} <= set(pin)
@@ -1608,8 +1621,8 @@ class TestPosthogCodeSandboxMint:
             post.return_value = self._mint_response()
             mint_scoped_token(ai_product="posthog_code", team_id=2)
             mint_scoped_token(ai_product="posthog_code", team_id=2, allowed_models=FREE_TIER_MODELS)
-        assert post.call_args_list[0].kwargs["json"]["allowed_models"] == DESKTOP_AGENT_MODELS
-        assert post.call_args_list[1].kwargs["json"]["allowed_models"] == FREE_TIER_MODELS
+        assert post.call_args_list[0].kwargs["json"]["allowed_models"] == gateway_pin(DESKTOP_AGENT_MODELS)
+        assert post.call_args_list[1].kwargs["json"]["allowed_models"] == gateway_pin(FREE_TIER_MODELS)
 
     @pytest.mark.django_db
     @pytest.mark.parametrize(

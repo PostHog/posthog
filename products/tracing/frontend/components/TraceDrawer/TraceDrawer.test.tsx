@@ -13,6 +13,7 @@ import { tracingSpansTraceAiEventsRetrieve } from 'products/tracing/frontend/gen
 
 import { makeSpan } from '../../__mocks__/span'
 import { EMPTY_TRACE_IDENTITY } from '../../traceIdentity'
+import { traceViewLogic } from '../TraceView/traceViewLogic'
 import { TraceDrawer, type TraceDrawerProps } from './TraceDrawer'
 
 jest.mock('products/tracing/frontend/generated/api', () => ({
@@ -38,9 +39,13 @@ describe('TraceDrawer', () => {
     })
 
     const renderDrawer = (props: Partial<TraceDrawerProps>): void => {
+        const view = traceViewLogic({ id: 'trace-drawer-test' })
+        view.mount()
+        view.actions.showTrace(null, 'attributes')
         render(
             <Provider>
                 <TraceDrawer
+                    viewId="trace-drawer-test"
                     isOpen
                     traceId="abc123"
                     ts={null}
@@ -48,14 +53,14 @@ describe('TraceDrawer', () => {
                     identity={EMPTY_TRACE_IDENTITY}
                     sessionId={null}
                     showErrorsTab={false}
-                    inspectorTab="attributes"
                     errorsScope={null}
-                    onSelectInspectorTab={jest.fn()}
+                    inspectorOpen
+                    onToggleInspector={jest.fn()}
+                    isFullscreen={false}
+                    onToggleFullscreen={jest.fn()}
                     loading={false}
                     loadFailed={false}
                     filtersActive={false}
-                    selectedSpanId={null}
-                    onSelectSpan={jest.fn()}
                     onClose={jest.fn()}
                     {...props}
                 />

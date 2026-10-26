@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_BASIC_USER, MOCK_DEFAULT_USER } from 'lib/api.mock'
+
 import type { Meta, StoryObj } from '@storybook/react'
 import { waitFor, within } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
@@ -1128,8 +1130,23 @@ export const UsageTab: StoryObj = {
     parameters: { pageUrl: `${urls.replayVision()}?tab=usage` },
 }
 
-// The home page lands on the What to watch feed.
-export const HomeWatchFeed: StoryObj = {}
+// The home page lands on the What to watch feed. The viewer created one scanner, so the feed offers the scope tabs.
+export const HomeWatchFeed: StoryObj = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/vision/scanners/': {
+                    ...scanners,
+                    results: scanners.results.map((item, index) =>
+                        index === 0
+                            ? { ...item, created_by: { ...MOCK_DEFAULT_BASIC_USER, id: MOCK_DEFAULT_USER.id } }
+                            : item
+                    ),
+                },
+            },
+        }),
+    ],
+}
 
 // The jev ranker arm: the same rows as the default arm, plus the reason Jev picked each finding. The
 // first row leads with the scan's notability sentence, the second falls back to the derived headline,
@@ -1211,6 +1228,74 @@ export const HomeWatchFeedJevArm: StoryObj = {
             },
         }),
     ],
+}
+
+// The embedding ranker arm: each pick names its category, and the first stands for three similar sessions.
+export const HomeWatchFeedEmbeddingArm: StoryObj = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/vision/scanners/watch_feed/': {
+                    ranker: 'embedding',
+                    has_more: false,
+                    results: [
+                        {
+                            observation: observation({
+                                id: '00000000-0000-0000-0000-0000000000a1',
+                                prompt_question: 'Did the user hesitate at checkout?',
+                                scanner_id: scanners.results[0].id,
+                                scanner_snapshot: {
+                                    name: 'Confused checkout',
+                                    scanner_type: 'monitor',
+                                    scanner_version: 1,
+                                    model: 'gemini-3.8-flash',
+                                    provider: 'google',
+                                    emits_signals: true,
+                                    scanner_config: { prompt: 'Did the user hesitate at checkout?' },
+                                },
+                                scanner_result: {
+                                    model_output: {
+                                        scanner_type: 'monitor',
+                                        verdict: 'yes',
+                                        confidence: 0.92,
+                                        reasoning:
+                                            'The card form rejected a valid card three times before the user left.',
+                                        key_moment_ms: 154000,
+                                    },
+                                    signals_count: 0,
+                                },
+                                viewed: false,
+                            }),
+                            reason: {
+                                kind: 'embedding_pick',
+                                watch_category: 'failure',
+                                similar_count: 3,
+                                affected_people: 3,
+                            },
+                        },
+                        {
+                            observation: observation({
+                                id: '00000000-0000-0000-0000-0000000000a2',
+                                prompt_question: 'What happened in this session?',
+                                scanner_result: {
+                                    model_output: {
+                                        scanner_type: 'summarizer',
+                                        confidence: 0.8,
+                                        title: 'Plan limit blocked an export',
+                                        summary: 'The export stopped at the plan limit and the user opened billing.',
+                                    },
+                                    signals_count: 0,
+                                },
+                                viewed: true,
+                            }),
+                            reason: { kind: 'embedding_pick', watch_category: 'revenue', similar_count: 0 },
+                        },
+                    ],
+                },
+            },
+        }),
+    ],
+    parameters: { featureFlags: { [FEATURE_FLAGS.VISION_WATCH_FEED_RANKER]: 'embedding' } },
 }
 
 // A quiet window: nothing scored on any source, so the feed pads to three newest clips and says so
@@ -2064,6 +2149,57 @@ export const ScannerEditorGoalOverviewExperiment: StoryObj = {
                             order: 0,
                         },
                     ],
+                } as RecordingsQuery,
+            }
+            logic.actions.draftScannerFromGoalSuccess(draft)
+            logic.actions.setScannerValues({
+                name: draft.name,
+                description: draft.description,
+                scanner_type: draft.scanner_type as ScannerType,
+                scanner_config: draft.scanner_config as ScannerConfig,
+                query: draft.query as RecordingsQuery,
+                sampling_mode: draft.sampling_mode as SamplingMode,
+                sampling_rate: draft.sampling_rate ?? 1,
+            })
+            return <StoryFn />
+        },
+    ],
+}
+
+// A filter with many values renders as one long snack, which must wrap inside the card rather than
+// push it past the edge of the page.
+export const ScannerEditorGoalOverviewLongFilters: StoryObj = {
+    parameters: {
+        pageUrl: urls.replayVisionScannerOverview('new'),
+    },
+    decorators: [
+        (StoryFn) => {
+            const logic = replayScannerLogic({ id: 'new' })
+            logic.mount()
+            const draft: DraftScannerResponseApi = {
+                ...goalDraft,
+                name: 'Sign-in friction monitor',
+                description: 'Flags sessions where a user struggles to sign in.',
+                query: {
+                    kind: 'RecordingsQuery',
+                    properties: [
+                        {
+                            type: 'event',
+                            key: '$screen_name',
+                            value: [
+                                '/sign-in',
+                                '/sign-in/verify-code',
+                                '/sign-in/magic-link',
+                                '/account/security',
+                                '/account/two-factor-setup',
+                                '/password/forgot',
+                                '/password/reset',
+                                '/sign-up/more-details',
+                            ],
+                            operator: 'exact',
+                        },
+                    ],
+                    events: [{ id: 'user_signed_in', name: 'user_signed_in', type: 'events', order: 0 }],
                 } as RecordingsQuery,
             }
             logic.actions.draftScannerFromGoalSuccess(draft)

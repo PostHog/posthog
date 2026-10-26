@@ -1,7 +1,19 @@
 """Azure Blob Storage integration."""
 
+import operator
+from functools import reduce
+from itertools import groupby
+from operator import itemgetter
+from urllib.parse import urlsplit
+
 from posthog.models.user import User
-from posthog.security.url_validation import _dev_bypass_enabled, _test_bypass_enabled, is_url_allowed
+from posthog.security.url_validation import (
+    ResolvedIPs,
+    _dev_bypass_enabled,
+    _test_bypass_enabled,
+    canonicalize_host,
+    validate_url_and_pin_ips,
+)
 
 from . import model
 
@@ -89,7 +101,7 @@ class EndpointNotAllowedError(ValueError):
     """Distinct error raised when an endpoint is not allowed."""
 
 
-def validate_azure_blob_connection_string(connection_string: str) -> None:
+def validate_azure_blob_connection_string(connection_string: str) -> dict[str, ResolvedIPs] | None:
     """Validate an Azure Blob connection string.
 
     Extract its parts, evaluate all required settings are included, and check
@@ -142,14 +154,26 @@ def validate_azure_blob_connection_string(connection_string: str) -> None:
         suffix = settings.get("ENDPOINTSUFFIX") or "core.windows.net"
         derived_endpoints.append(f"{protocol}://{account_name}.blob.{suffix}")
 
+    if not validation_applies:
+        return None
+
+    pinned_ips: list[tuple[str, ResolvedIPs]] = []
     for endpoint in explicit_endpoints + derived_endpoints:
-        if validation_applies and not endpoint.lower().startswith("https://"):
+        if not endpoint.lower().startswith("https://"):
             raise ValueError("Endpoints in the connection string must use https")
 
-        if validation_applies:
-            allowed, error = is_url_allowed(endpoint)
-            if not allowed:
-                raise EndpointNotAllowedError("Invalid endpoint found in connection string")
+        verdict = validate_url_and_pin_ips(endpoint)
+
+        if not verdict.allowed or not verdict.pinned_ips:
+            raise EndpointNotAllowedError("Invalid endpoint found in connection string")
+
+        host = canonicalize_host(urlsplit(endpoint).hostname or "")
+        pinned_ips.append((host, verdict.pinned_ips))
+
+    return {
+        host: reduce(operator.or_, (s[1] for s in grouped), set())
+        for host, grouped in groupby(sorted(pinned_ips, key=itemgetter(0)), key=itemgetter(0))
+    }
 
 
 def strip_leading_whitespace(conn_str: str) -> str:

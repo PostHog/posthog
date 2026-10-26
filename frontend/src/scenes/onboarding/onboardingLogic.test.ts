@@ -6,6 +6,8 @@ import { SetupTaskId } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
@@ -656,7 +658,7 @@ describe('onboardingLogic — flow composition', () => {
             [ProductKey.PRODUCT_ANALYTICS, /quickstart|insight/i],
             [ProductKey.WEB_ANALYTICS, /web/i],
             [ProductKey.SESSION_REPLAY, /replay/i],
-            [ProductKey.FEATURE_FLAGS, /feature_flag/i],
+            [ProductKey.FEATURE_FLAGS, /feature-flags/i],
             [ProductKey.SURVEYS, /survey/i],
             [ProductKey.ERROR_TRACKING, /error-tracking/i],
             [ProductKey.AI_OBSERVABILITY, /ai-observability/i],
@@ -766,9 +768,11 @@ describe('onboardingLogic — flow composition', () => {
         })
 
         it.each([
-            ['the welcome page', '', urls.onboardingWelcome()],
-            ['the page the user signed up to reach', '?next=%2Finsights', '/insights'],
-        ])('skipping the simple flow records the skip before landing on %s', async (_, search, landingPath) => {
+            ['the welcome page', '', OnboardingStepKey.INSTALL, urls.onboardingWelcome()],
+            ['the page the user signed up to reach', '?next=%2Finsights', OnboardingStepKey.MCP, '/insights'],
+            ['the welcome page from plans', '', OnboardingStepKey.PLANS, urls.onboardingWelcome()],
+        ])('skipping the simple flow records the skip before landing on %s', async (_, search, step, landingPath) => {
+            const capture = jest.spyOn(posthog, 'capture').mockImplementation()
             const skipRequests: unknown[] = []
             useMocks({
                 post: {
@@ -779,16 +783,102 @@ describe('onboardingLogic — flow composition', () => {
                 },
             })
             router.actions.push(urls.simpleOnboarding() + search)
+            logic.actions.setStepId(`${step}:${ProductKey.PRODUCT_ANALYTICS}`)
+            await expectLogic(logic).toFinishAllListeners()
             await expectLogic(logic, () => {
                 logic.actions.skipSimpleOnboarding()
             }).toFinishAllListeners()
 
-            expect(skipRequests).toEqual([
-                { reason: 'later', step_at_skip: OnboardingStepKey.INSTALL, flow_variant: 'simple' },
-            ])
+            expect(skipRequests).toEqual([{ reason: 'later', step_at_skip: step, flow_variant: 'simple' }])
             expect(currentPath()).toBe(landingPath)
             expect(logic.values.isSkippingOnboarding).toBe(false)
+            expect(capture.mock.calls.some(([event]) => event === 'onboarding completed')).toBe(false)
         })
+
+        it('skipping the final invites completes onboarding without sending pending invitations', async () => {
+            const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+            const skipRequests: unknown[] = []
+            useMocks({
+                post: {
+                    '/api/users/@me/onboarding/skip/': async ({ request }) => {
+                        skipRequests.push(await request.json())
+                        return [200, {}]
+                    },
+                },
+                patch: {
+                    '/api/environments/:team_id/': async ({ request }) => [
+                        200,
+                        { ...teamLogic.values.currentTeam, ...((await request.json()) as Record<string, unknown>) },
+                    ],
+                },
+            })
+            const invites = inviteLogic()
+            invites.mount()
+            invites.actions.updateInviteAtIndex({ target_email: 'teammate@example.com' }, 0)
+            router.actions.push(urls.simpleOnboarding(), { step: 'invite_teammates:product_analytics' })
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.skipSimpleOnboarding()
+                logic.actions.skipSimpleOnboarding()
+            })
+                .toNotHaveDispatchedActions([invites.actionTypes.inviteTeamMembers])
+                .toFinishAllListeners()
+
+            expect(currentPath()).toBe(urls.onboardingWelcome())
+            expect(teamLogic.values.currentTeam).toMatchObject({
+                completed_snippet_onboarding: true,
+                has_completed_onboarding_for: { [ProductKey.PRODUCT_ANALYTICS]: true },
+            })
+            expect(skipRequests).toEqual([])
+            expect(capture.mock.calls.filter(([event]) => event === 'onboarding completed')).toEqual([
+                [
+                    'onboarding completed',
+                    expect.objectContaining({ product_key: 'product_analytics', flow_variant: 'simple' }),
+                ],
+            ])
+            expect(capture).toHaveBeenCalledWith('onboarding step skipped', {
+                step_key: OnboardingStepKey.INVITE_TEAMMATES,
+                product_key: ProductKey.PRODUCT_ANALYTICS,
+                flow_variant: 'simple',
+                entry_point: 'simple_onboarding',
+                version: 1,
+            })
+            expect(logic.values.isCompleting).toBe(false)
+            invites.unmount()
+        })
+
+        it.each([OnboardingStepKey.INSTALL, OnboardingStepKey.INVITE_TEAMMATES])(
+            'allows retrying a failed exit from %s without navigating away',
+            async (step) => {
+                let failExit = true
+                useMocks({
+                    post: { '/api/users/@me/onboarding/skip/': () => [failExit ? 500 : 200, {}] },
+                    patch: {
+                        '/api/environments/:team_id/': async ({ request }) => [
+                            failExit ? 500 : 200,
+                            { ...teamLogic.values.currentTeam, ...((await request.json()) as Record<string, unknown>) },
+                        ],
+                    },
+                })
+                router.actions.push(urls.simpleOnboarding(), { step: `${step}:product_analytics` })
+                await expectLogic(logic).toFinishAllListeners()
+
+                await expectLogic(logic, () => {
+                    logic.actions.skipSimpleOnboarding()
+                }).toFinishAllListeners()
+
+                expect(currentPath()).toBe(urls.simpleOnboarding())
+                expect(logic.values.isCompleting).toBe(false)
+                expect(logic.values.isSkippingOnboarding).toBe(false)
+
+                failExit = false
+                await expectLogic(logic, () => {
+                    logic.actions.skipSimpleOnboarding()
+                }).toFinishAllListeners()
+                expect(currentPath()).toBe(urls.onboardingWelcome())
+            }
+        )
     })
 
     describe('flow stays consistent across product changes', () => {

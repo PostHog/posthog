@@ -21,8 +21,8 @@ from products.experiments.backend.facade.contracts import (
 from products.experiments.backend.health.checks.flag_state import is_single_variant_shipped, shipped_variant_key
 from products.experiments.backend.health.condition_changes import conditions_net_effect
 from products.experiments.backend.health.context import (
-    ConditionsChange,
     FlagHistory,
+    FlagState,
     HealthContext,
     ReachableCondition,
     VariantProperty,
@@ -35,7 +35,9 @@ from products.experiments.backend.health.pinned_share import (
     pinned_share_severity,
     pinned_variant_keys,
 )
+from products.experiments.backend.health.skips import CheckOutcome, CheckSkip, flag_to_check
 from products.experiments.backend.health.split_changes import format_change_time
+from products.feature_flags.backend.facade.edits import ConditionsChange
 
 # pinned: the subcodes are sent as `finding_variant` on the health finding events, so insights group on them.
 # Every condition that includes users pins a variant, so no user is randomly assigned. One variant gets
@@ -60,16 +62,21 @@ class _Pins:
 
 def overrides_to_grade(ctx: HealthContext) -> PinnedConditions | None:
     """The overrides in place that SOME_CONDITIONS_PINNED is graded by, or None when it is not graded."""
-    pins = _pins(ctx)
-    if not ctx.is_launched or pins is None or pins.all_pinned:
+    flag = flag_to_check(ctx, before_launch=True)
+    if isinstance(flag, CheckSkip) or not ctx.is_launched:
+        return None
+    pins = _pins(ctx, flag)
+    if pins is None or pins.all_pinned:
         return None
     return pins.graded
 
 
-def forced_variant_release_condition(ctx: HealthContext) -> ExperimentHealthFinding | None:
-    flag = ctx.flag
-    pins = _pins(ctx)
-    if flag is None or pins is None:
+def forced_variant_release_condition(ctx: HealthContext) -> CheckOutcome:
+    flag = flag_to_check(ctx, before_launch=True)
+    if isinstance(flag, CheckSkip):
+        return flag
+    pins = _pins(ctx, flag)
+    if pins is None:
         return None
     is_draft = not ctx.is_launched
 
@@ -106,11 +113,7 @@ def forced_variant_release_condition(ctx: HealthContext) -> ExperimentHealthFind
     )
 
 
-def _pins(ctx: HealthContext) -> _Pins | None:
-    flag = ctx.flag
-    # After the end the flag often holds the shipped decision, not the setup of the run.
-    if flag is None or flag.deleted or ctx.has_ended or ctx.archived:
-        return None
+def _pins(ctx: HealthContext, flag: FlagState) -> _Pins | None:
     pinned = tuple(condition for condition in flag.reachable_conditions if condition.pinned_variant is not None)
     if not pinned:
         return None

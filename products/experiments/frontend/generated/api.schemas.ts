@@ -324,6 +324,10 @@ export interface FeatureFlagFilterPropertyCohortInSchemaApi {
     operator: FeatureFlagFilterPropertyCohortInSchemaOperatorEnumApi
     /** Cohort comparison value (single or list, depending on usage). */
     value: unknown
+    /** Set to true in responses when the cohort is deleted or does not exist. The flag cannot evaluate this condition. Ignored on write. */
+    cohort_deleted?: boolean
+    /** Set to true in responses when no cohort with this id exists in the project, so it cannot be restored. `cohort_deleted` is also true. Absent for a soft-deleted cohort. Ignored on write. */
+    cohort_missing?: boolean
 }
 
 /**
@@ -1116,6 +1120,10 @@ export interface SessionPropertyFilterApi {
 }
 
 export interface CohortPropertyFilterApi {
+    /** Set by the feature flag API when the cohort is deleted or does not exist. */
+    cohort_deleted?: boolean | null
+    /** Set by the feature flag API when the cohort does not exist, so it cannot be restored. */
+    cohort_missing?: boolean | null
     cohort_name?: string | null
     key?: 'id'
     label?: string | null
@@ -2270,6 +2278,8 @@ export type _ExperimentApiMetricsListApi = ExperimentApiMetricApi[]
  * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
  * * `multiple_variants_share` - Multiple Variants Share
  * * `no_metric` - No Metric
+ * * `metric_event_not_ingested` - Metric Event Not Ingested
+ * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
  * * `srm` - Sample Ratio Mismatch
  * * `zero_exposures` - Zero Exposures
  * * `forced_variant_release_condition` - Forced Variant Release Condition
@@ -2277,6 +2287,8 @@ export type _ExperimentApiMetricsListApi = ExperimentApiMetricApi[]
  * * `split_changed_mid_run` - Split Changed Mid Run
  * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
  * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
+ * * `new_flag_no_traffic` - New Flag No Traffic
+ * * `early_significance` - Early Significance
  */
 export type ExperimentHealthFindingCodeEnumApi =
     (typeof ExperimentHealthFindingCodeEnumApi)[keyof typeof ExperimentHealthFindingCodeEnumApi]
@@ -2289,6 +2301,8 @@ export const ExperimentHealthFindingCodeEnumApi = {
     BiasRiskMultipleExcluded: 'bias_risk_multiple_excluded',
     MultipleVariantsShare: 'multiple_variants_share',
     NoMetric: 'no_metric',
+    MetricEventNotIngested: 'metric_event_not_ingested',
+    ExposureCriteriaCannotMatch: 'exposure_criteria_cannot_match',
     Srm: 'srm',
     ZeroExposures: 'zero_exposures',
     ForcedVariantReleaseCondition: 'forced_variant_release_condition',
@@ -2296,6 +2310,8 @@ export const ExperimentHealthFindingCodeEnumApi = {
     SplitChangedMidRun: 'split_changed_mid_run',
     BucketingChangedMidRun: 'bucketing_changed_mid_run',
     ReleaseConditionsChangedMidRun: 'release_conditions_changed_mid_run',
+    NewFlagNoTraffic: 'new_flag_no_traffic',
+    EarlySignificance: 'early_significance',
 } as const
 
 /**
@@ -2351,13 +2367,17 @@ export interface ExperimentHealthFindingApi {
      * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
      * * `multiple_variants_share` - Multiple Variants Share
      * * `no_metric` - No Metric
+     * * `metric_event_not_ingested` - Metric Event Not Ingested
+     * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
      * * `srm` - Sample Ratio Mismatch
      * * `zero_exposures` - Zero Exposures
      * * `forced_variant_release_condition` - Forced Variant Release Condition
      * * `flag_variants_mismatch` - Flag Variants Mismatch
      * * `split_changed_mid_run` - Split Changed Mid Run
      * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
-     * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run */
+     * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
+     * * `new_flag_no_traffic` - New Flag No Traffic
+     * * `early_significance` - Early Significance */
     code: ExperimentHealthFindingCodeEnumApi
     /**
      * The case within the code, when a code covers several, for example 'running_but_no_rollout' within 'flag_off_while_running'. Null when the code has one case.
@@ -2385,9 +2405,103 @@ export interface ExperimentHealthFindingApi {
     diagnostic_ref: string | null
 }
 
+/**
+ * * `flag_state` - Flag State
+ * * `flag_history` - Flag History
+ * * `split_changed_mid_run` - Split Changed Mid Run
+ * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
+ * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
+ * * `flag_variants_mismatch` - Flag Variants Mismatch
+ * * `forced_variant_release_condition` - Forced Variant Release Condition
+ * * `new_flag_no_traffic` - New Flag No Traffic
+ * * `no_metric` - No Metric
+ * * `metric_event_not_ingested` - Metric Event Not Ingested
+ * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
+ * * `early_significance` - Early Significance
+ * * `zero_exposures` - Zero Exposures
+ * * `srm` - Srm
+ * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
+ * * `multiple_variants_share` - Multiple Variants Share
+ */
+export type ExperimentHealthCheckKeyEnumApi =
+    (typeof ExperimentHealthCheckKeyEnumApi)[keyof typeof ExperimentHealthCheckKeyEnumApi]
+
+export const ExperimentHealthCheckKeyEnumApi = {
+    FlagState: 'flag_state',
+    FlagHistory: 'flag_history',
+    SplitChangedMidRun: 'split_changed_mid_run',
+    BucketingChangedMidRun: 'bucketing_changed_mid_run',
+    ReleaseConditionsChangedMidRun: 'release_conditions_changed_mid_run',
+    FlagVariantsMismatch: 'flag_variants_mismatch',
+    ForcedVariantReleaseCondition: 'forced_variant_release_condition',
+    NewFlagNoTraffic: 'new_flag_no_traffic',
+    NoMetric: 'no_metric',
+    MetricEventNotIngested: 'metric_event_not_ingested',
+    ExposureCriteriaCannotMatch: 'exposure_criteria_cannot_match',
+    EarlySignificance: 'early_significance',
+    ZeroExposures: 'zero_exposures',
+    Srm: 'srm',
+    BiasRiskMultipleExcluded: 'bias_risk_multiple_excluded',
+    MultipleVariantsShare: 'multiple_variants_share',
+} as const
+
+/**
+ * * `passed` - Passed
+ * * `finding` - Finding
+ * * `not_applicable` - Not Applicable
+ * * `not_checked` - Not Checked
+ */
+export type ExperimentHealthCheckStatusEnumApi =
+    (typeof ExperimentHealthCheckStatusEnumApi)[keyof typeof ExperimentHealthCheckStatusEnumApi]
+
+export const ExperimentHealthCheckStatusEnumApi = {
+    Passed: 'passed',
+    Finding: 'finding',
+    NotApplicable: 'not_applicable',
+    NotChecked: 'not_checked',
+} as const
+
+export interface ExperimentHealthCheckResultApi {
+    /** Stable identifier of the check. A check can report several finding codes, so the key is not a finding code.
+     *
+     * * `flag_state` - Flag State
+     * * `flag_history` - Flag History
+     * * `split_changed_mid_run` - Split Changed Mid Run
+     * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
+     * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
+     * * `flag_variants_mismatch` - Flag Variants Mismatch
+     * * `forced_variant_release_condition` - Forced Variant Release Condition
+     * * `new_flag_no_traffic` - New Flag No Traffic
+     * * `no_metric` - No Metric
+     * * `metric_event_not_ingested` - Metric Event Not Ingested
+     * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
+     * * `early_significance` - Early Significance
+     * * `zero_exposures` - Zero Exposures
+     * * `srm` - Srm
+     * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
+     * * `multiple_variants_share` - Multiple Variants Share */
+    key: ExperimentHealthCheckKeyEnumApi
+    /** What the check looks at, for example 'Feature flag variants'. */
+    name: string
+    /** passed: the check found no problem. finding: the check reported a finding in `findings`. not_applicable: the check does not cover the experiment's current state, for example a check of the changes since launch on a draft. not_checked: the check covers the experiment, but it could not read an input or it failed, so a problem it looks for can be present without a finding.
+     *
+     * * `passed` - Passed
+     * * `finding` - Finding
+     * * `not_applicable` - Not Applicable
+     * * `not_checked` - Not Checked */
+    status: ExperimentHealthCheckStatusEnumApi
+    /**
+     * Why the check did not look, for the statuses not_applicable and not_checked, for example 'Runs after launch'. Null for passed and finding.
+     * @nullable
+     */
+    reason: string | null
+}
+
 export interface ExperimentHealthApi {
-    /** Problems that the health checks found in the experiment's configuration and its feature flag. Empty when every check passed. */
+    /** Problems that the health checks found in the experiment's configuration and its feature flag. Empty when no check found a problem. An empty list does not mean that every check ran: read `checks`. */
     findings: ExperimentHealthFindingApi[]
+    /** The result of each health check, in the order the checks run. The checks that read the exposure counts are not here: the exposure query returns them as `health_checks`. */
+    checks: ExperimentHealthCheckResultApi[]
 }
 
 /**
@@ -3021,6 +3135,11 @@ export interface ExperimentFlagCleanupTaskApi {
     can_view_task: boolean
 }
 
+/**
+ * Whether the project has received each event that the metrics and the exposure criteria name, by event name. A name that ingestion keeps no record of is absent.
+ */
+export type ExperimentHealthInputsApiEventsReceived = { [key: string]: boolean }
+
 export interface ExperimentHealthInputsReleaseConditionApi {
     /** The condition's position in the flag, from 1, as the flag page labels it ('Set 2'). */
     number: number
@@ -3067,6 +3186,26 @@ export interface ExperimentHealthInputsFlagApi {
     variants: ExperimentHealthInputsVariantApi[]
     /** The split as text, in the form of a change's before and after, such as 'control 50%, test 50%'. */
     split_text: string
+}
+
+export interface ExperimentHealthInputsExposureEventsApi {
+    /**
+     * The event the exposure criteria count in place of the flag calls. Null for flag calls or an action.
+     * @nullable
+     */
+    custom_event: string | null
+    /**
+     * The flag key the exposure query requires on the flag call events. Null for a custom event or an action.
+     * @nullable
+     */
+    required_flag_key: string | null
+    /** The event property that holds the variant. */
+    variant_property: string
+    /**
+     * The event, or the action's name, that has to follow a user's flag call before the user counts. Null without an activation.
+     * @nullable
+     */
+    activation: string | null
 }
 
 /**
@@ -3460,6 +3599,25 @@ export interface ExperimentHealthInputsApi {
     secondary_metric_count: number
     /** The experiment's feature flag. Null when it has none. */
     flag: ExperimentHealthInputsFlagApi | null
+    /**
+     * The flag's latest recorded call, which a periodic sync of the flag call events sets. Null when the experiment has no flag, or the flag has no recorded call.
+     * @nullable
+     */
+    flag_last_called_at: string | null
+    /**
+     * Whether PostHog has recorded any call of the flag. The flag traffic check reads it on a draft. Null when the experiment has no flag, or the organization's flag calls are stored where the checks can't read them.
+     * @nullable
+     */
+    flag_called: boolean | null
+    /**
+     * Whether PostHog has recorded a call of the flag between launch and the end, or until now. The zero exposures check reads it to say whether the flag is called. Null before launch, after a latest call that came after the end, or when the organization's flag calls can't be read.
+     * @nullable
+     */
+    flag_called_during_run: boolean | null
+    /** The events the exposure criteria count. Null when the stored exposure criteria don't parse. */
+    exposure_events: ExperimentHealthInputsExposureEventsApi | null
+    /** Whether the project has received each event that the metrics and the exposure criteria name, by event name. A name that ingestion keeps no record of is absent. */
+    events_received: ExperimentHealthInputsApiEventsReceived
     /** The changes of the flag since launch that can move exposed people. Null when the experiment is not running, is archived, its flag is missing or deleted, or the read failed. */
     flag_history: ExperimentHealthInputsFlagHistoryApi | null
     /** Whether the condition-set traffic was read, or why not. The forced-variant check needs it when the experiment is launched and some but not all release conditions pin a variant that has a share of the split and is not excluded from the analysis. The release-condition check needs it when such an override was removed after launch.
@@ -3500,6 +3658,7 @@ export interface ExperimentInSessionExposureApi {
  * * `manual` - Manual
  * * `manual_retry` - Manual Retry
  * * `cold_run` - Cold Run
+ * * `stale_refresh` - Stale Refresh
  * * `heal_latest_run` - Heal Latest Run
  * * `experiment_config_change` - Experiment Config Change
  * * `metric_config_change` - Metric Config Change
@@ -3511,6 +3670,7 @@ export const ExperimentMetricsRecalculationRequestTriggerEnumApi = {
     Manual: 'manual',
     ManualRetry: 'manual_retry',
     ColdRun: 'cold_run',
+    StaleRefresh: 'stale_refresh',
     HealLatestRun: 'heal_latest_run',
     ExperimentConfigChange: 'experiment_config_change',
     MetricConfigChange: 'metric_config_change',
@@ -3525,6 +3685,7 @@ export interface RecalculateMetricsRequestApi {
      * * `manual` - Manual
      * * `manual_retry` - Manual Retry
      * * `cold_run` - Cold Run
+     * * `stale_refresh` - Stale Refresh
      * * `heal_latest_run` - Heal Latest Run
      * * `experiment_config_change` - Experiment Config Change
      * * `metric_config_change` - Metric Config Change */

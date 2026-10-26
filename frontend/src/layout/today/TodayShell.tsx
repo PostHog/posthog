@@ -1,6 +1,6 @@
 import './TodayShell.scss'
 
-import { useActions, useMountedLogic, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { Suspense, useEffect, useRef } from 'react'
 
 import { Skeleton, ToastProvider } from '@posthog/quill'
@@ -15,11 +15,9 @@ import { lazyWithRetry } from 'lib/utils/retryImport'
 
 import { QuillSceneHeader } from '~/layout/scenes/components/QuillSceneHeader'
 
-import { todayPanelChatSessionLogic } from './todayPanelChatSessionLogic'
 import { TodayPhoneHeader } from './TodayPhoneHeader'
 import { TodayRail } from './TodayRail'
 import { TODAY_PANES } from './todayRailItems'
-import { todayRecentsLogic } from './todayRecentsLogic'
 import { TODAY_RAIL_WIDTH, TODAY_SIDEBAR_CLOSE_THRESHOLD, clampSidebarWidth, todayShellLogic } from './todayShellLogic'
 import { TodaySidebarCollapseButton } from './TodaySidebarCollapseButton'
 import { TodaySidebarFooter } from './TodaySidebarFooter'
@@ -30,8 +28,8 @@ const TodaySpacesPane = lazyWithRetry(() => import('./TodaySpacesPane').then((m)
 const TodayAnalyticsSidebar = lazyWithRetry(() =>
     import('./TodayAnalyticsSidebar').then((m) => ({ default: m.TodayAnalyticsSidebar }))
 )
-const TodayProductsSidebar = lazyWithRetry(() =>
-    import('./TodayProductsSidebar').then((m) => ({ default: m.TodayProductsSidebar }))
+const TodayProductsPane = lazyWithRetry(() =>
+    import('./TodayProductsPane').then((m) => ({ default: m.TodayProductsPane }))
 )
 const TodaySettingsSidebar = lazyWithRetry(() =>
     import('./TodaySettingsSidebar').then((m) => ({ default: m.TodaySettingsSidebar }))
@@ -44,9 +42,6 @@ const NewSpaceDialog = lazyWithRetry(() =>
 export function TodayShell({ className }: { className?: string }): JSX.Element {
     const { activePane, mobileLayout, phoneLayout, sidebarVisible, sidebarWidth, phoneHeaderHidden } =
         useValues(todayShellLogic)
-    // Records the tools visited while other panes are open, so the Tools pane's Recent group is ready.
-    useMountedLogic(todayRecentsLogic)
-    useMountedLogic(todayPanelChatSessionLogic)
     const { setMobileSidebarOpen, setSidebarOpen, setSidebarWidth, toggleSidebar } = useActions(todayShellLogic)
     useShortcut({
         name: 'ToggleLeftNav',
@@ -101,7 +96,7 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
             ) : activePane === 'settings' ? (
                 <TodaySettingsSidebar />
             ) : (
-                <TodayProductsSidebar />
+                <TodayProductsPane />
             )}
         </Suspense>
     )

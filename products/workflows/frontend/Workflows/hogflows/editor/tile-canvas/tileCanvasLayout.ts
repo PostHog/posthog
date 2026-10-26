@@ -46,8 +46,13 @@ export interface PathFrameSpec {
     minWidth: number
 }
 
-export const edgeLabelWidth = (text: string): number => Math.ceil(text.length * 6.6) + 20
-export const frameChipWidth = (label: string): number => Math.ceil(label.length * 7.6) + 64
+const LABEL_MAX_CHARS = 40
+/** A condition name can run to a sentence, and a label that long would set the width of its whole path. */
+export const shortLabel = (text: string): string =>
+    text.length <= LABEL_MAX_CHARS ? text : `${text.slice(0, LABEL_MAX_CHARS - 1).trimEnd()}…`
+export const edgeLabelWidth = (text: string): number => Math.ceil(shortLabel(text).length * 6.6) + 20
+/** The chip also holds the Collapse control after the name. */
+export const frameChipWidth = (label: string): number => Math.ceil(shortLabel(label).length * 7.6) + 136
 
 export const frameId = (group: PathGroup): string => `frame:${group.id}`
 
@@ -347,6 +352,16 @@ export function insertPoint(points: Point[]): Point {
         }
     })
     return best.point
+}
+
+const QUICK_ADD_GAP = 14
+
+/** Where an arrow's + sits: past its label when it has one, else in the middle of its longest straight run. */
+export function quickAddPoint(routed: RoutedEdge, label: string | undefined): Point {
+    if (label && routed.label) {
+        return { x: routed.label.x + edgeLabelWidth(label) / 2 + QUICK_ADD_GAP, y: routed.label.y }
+    }
+    return insertPoint(routed.points)
 }
 
 export function entryX(points: Point[] | undefined, top: number, fallback: number): number {
