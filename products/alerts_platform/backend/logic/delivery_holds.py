@@ -20,7 +20,6 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformAlertOutcome,
 )
 from products.alerts_platform.backend.facade.enums import HoldRelease, HoldReleasedBy
-from products.alerts_platform.backend.facade.payload import payload_bytes
 from products.alerts_platform.backend.models import PlatformAlertConfiguration, PlatformAlertDeliveryHold
 from products.alerts_platform.backend.models.platform_alert_events_sql import PLATFORM_ALERT_EVENTS_TTL_DAYS
 
@@ -201,6 +200,9 @@ def send_swept(sweep: HoldSweep, now: datetime, *, max_bytes: int) -> tuple[Aler
     A hold left out stays as it was, so the next sweep finds it again. Each expired hold is released
     in a transaction of its own, so a hold another releaser locked delays only itself.
     """
+    # Deferred: the payload helper imports temporalio, which must stay off django.setup().
+    from products.alerts_platform.backend.facade.payload import payload_bytes  # noqa: PLC0415
+
     requests: list[AlertDeliveryRequest] = []
     spent = 0
     for address in (*sweep.unstarted, *sweep.expired):

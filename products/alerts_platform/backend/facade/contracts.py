@@ -14,8 +14,6 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Final, NotRequired, Protocol, TypedDict
 from uuid import UUID
 
-import temporalio.converter
-
 from posthog.dataclasses import frozen
 from posthog.enums import LabeledStrEnum
 
@@ -839,6 +837,8 @@ class AlertDeliveryRequest:
     @classmethod
     def from_stored(cls, stored: Mapping[str, Any]) -> AlertDeliveryRequest:
         # The converter Temporal decodes this type with, so the stored form loads the way the wire form does.
+        import temporalio.converter  # noqa: PLC0415 — keeps temporalio off django.setup(), which loads this via the models
+
         return temporalio.converter.value_to_type(cls, dict(stored))
 
 
