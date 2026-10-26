@@ -26,10 +26,6 @@ def _get_request_api_key_scopes(request: Request) -> list[str] | None:
     return None
 
 
-def is_api_key_or_oauth_request(request: Request) -> bool:
-    return _get_request_api_key_scopes(request) is not None
-
-
 def get_widget_api_scope_error(
     registry_entry: WidgetRegistryEntry,
     request: Request,

@@ -195,6 +195,8 @@ export type DashboardWidgetCatalogEntry = {
     availability?: WidgetAvailabilityConfig
     /** Quick filter context + property allowlist for on-tile filter bars. */
     tileFilters?: DashboardWidgetTileFiltersCatalogConfig
+    /** A feature flag the picker also needs before it offers this type, on top of the backend `creation_flag`. */
+    pickerFlag?: string
     /** Extra picker cards for this one widget type, each with its own label and default config. */
     pickerPresets?: readonly DashboardWidgetPickerPreset[]
     /** Open the widget settings right after the tile is added, when the default config shows nothing yet. */
@@ -368,6 +370,8 @@ export const DASHBOARD_WIDGET_CATALOG = {
         productAccess: 'metrics',
         titleHref: urls.metrics(),
         headerMeta: { showDateRange: false },
+        // Metric widgets reach the same audience as the metrics insight builder.
+        pickerFlag: FEATURE_FLAGS.METRICS_INSIGHT_BUILDER,
         pickerPresets: METRICS_WIDGET_PRESETS.map((preset) => ({
             id: preset.id,
             label: preset.label,
@@ -491,8 +495,9 @@ export type DashboardWidgetPickerItem = {
     presetId?: string
     entry: ResolvedDashboardWidgetCatalogEntry
     defaultConfig: Record<string, unknown>
-    /** Feature flag the user needs to add this widget type (`WidgetSpec.creation_flag`), or null. */
-    creationFlag: string | null
+    /** Feature flags the user needs before the picker offers this widget type (`WidgetSpec.creation_flag` and the
+     * catalog `pickerFlag` and `featureFlag`). */
+    requiredFlags: string[]
 }
 
 export type DashboardWidgetCatalogGroup = {
@@ -505,9 +510,11 @@ function getDashboardWidgetPickerItems(
     widgetType: DashboardWidgetCatalogKey,
     entry: ResolvedDashboardWidgetCatalogEntry
 ): DashboardWidgetPickerItem[] {
-    const creationFlag = getDashboardWidgetCreationFlag(widgetType)
+    const requiredFlags = [getDashboardWidgetCreationFlag(widgetType), entry.pickerFlag, entry.featureFlag].filter(
+        (flag): flag is string => !!flag
+    )
     if (!entry.pickerPresets?.length) {
-        return [{ key: widgetType, widgetType, entry, defaultConfig: entry.defaultConfig, creationFlag }]
+        return [{ key: widgetType, widgetType, entry, defaultConfig: entry.defaultConfig, requiredFlags }]
     }
     return entry.pickerPresets.map((preset) => ({
         key: `${widgetType}:${preset.id}`,
@@ -515,7 +522,7 @@ function getDashboardWidgetPickerItems(
         presetId: preset.id,
         entry: { ...entry, label: preset.label, description: preset.description },
         defaultConfig: preset.defaultConfig,
-        creationFlag,
+        requiredFlags,
     }))
 }
 
@@ -572,16 +579,12 @@ export function getDashboardWidgetPickerItem(key: string): DashboardWidgetPicker
     return DASHBOARD_WIDGET_PICKER_ITEMS_BY_KEY.get(key)
 }
 
-/** Picker groups without the widget types whose creation flag is off for this user. */
+/** Picker groups without the widget types whose required flags are off for this user. */
 export function getAvailableDashboardWidgetCatalogGroups(
     isFlagEnabled: (flag: string) => boolean
 ): DashboardWidgetCatalogGroup[] {
     return DASHBOARD_WIDGET_CATALOG_GROUPS.map((group) => ({
         ...group,
-        widgets: group.widgets.filter(
-            (item) =>
-                (!item.creationFlag || isFlagEnabled(item.creationFlag)) &&
-                (!item.entry.featureFlag || isFlagEnabled(item.entry.featureFlag))
-        ),
+        widgets: group.widgets.filter((item) => item.requiredFlags.every(isFlagEnabled)),
     })).filter((group) => group.widgets.length > 0)
 }

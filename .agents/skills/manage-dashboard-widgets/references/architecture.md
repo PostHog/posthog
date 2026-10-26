@@ -95,7 +95,7 @@ WIDGET_SPECS[YOUR_TYPE] = WidgetSpec(
 ```
 
 - Config validation is **Pydantic-only** — no per-type `validate_<type>_config` functions
-- Optional `WidgetSpec` fields: `receives_dashboard_filters` (run_widgets passes `dashboard_id` and the dashboard's date range and metric label filters, saved merged with the viewer's override), `throttle_policy="query_runner"` (session requests skip the shared widget throttle; API keys and OAuth keep it), `public_config_exclude` (config keys shared dashboards never receive), `creation_flag` (also written to `widget-form-fields.json` as `creationFlag`, which hides the type in the picker)
+- Optional `WidgetSpec` fields: `receives_dashboard_filters` (run_widgets passes `dashboard_id` and the dashboard's date range and metric label filters, saved merged with the viewer's override), `public_config_exclude` (config keys shared dashboards never receive), `creation_flag` (also written to `widget-form-fields.json` as `creationFlag`, which hides the type in the picker)
 - Raise `WidgetQueryError(message)` from `widgets/errors.py` for an expected failure the viewer should read (no access, an invalid query). The tile shows the message; other exceptions show a generic error and are logged
 - `run_<type>_widget` lives in `widgets/<widget_type>.py` — call the **same** query runner the standalone product uses
 - Registry wiring checklist: [checklist-new-widget-type.md §1–2](checklist-new-widget-type.md)

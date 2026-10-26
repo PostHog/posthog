@@ -98,10 +98,6 @@ class WidgetSpec:
     # filters like one. run_widgets then passes `dashboard_id`, the effective `dashboard_filters` and
     # `force_refresh` (a manual refresh) to `query_fn`.
     receives_dashboard_filters: bool = False
-    # "widget": every run counts against the shared per-team widget query throttle. "query_runner": the
-    # query runner enforces its own concurrency and budget limits, and serves repeat runs from the query cache,
-    # so a tile is limited like an insight tile instead.
-    throttle_policy: Literal["widget", "query_runner"] = "widget"
     # Config keys left out of the config that shared and public dashboards receive.
     public_config_exclude: tuple[str, ...] = ()
 
@@ -348,7 +344,6 @@ def _load_widget_specs() -> dict[str, WidgetSpec]:
             filter_fields=(),
             creation_flag=METRICS_FEATURE_FLAG,
             receives_dashboard_filters=True,
-            throttle_policy="query_runner",
             # Shared dashboards show a placeholder for widget tiles, so the query text has no reason to leave.
             public_config_exclude=("query",),
         ),

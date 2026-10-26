@@ -22,7 +22,6 @@ function EditMetricsWidgetModalContents(): JSX.Element {
         saving,
         saveDisabledReason,
         fieldErrors,
-        onClose,
         defaultTitle,
         hasUnsavedChanges,
     } = useValues(editMetricsWidgetModalLogic)
@@ -45,7 +44,7 @@ function EditMetricsWidgetModalContents(): JSX.Element {
             footer={
                 <>
                     <div className="flex-1" />
-                    <LemonButton type="secondary" onClick={onClose} disabled={saving}>
+                    <LemonButton type="secondary" onClick={requestClose} disabled={saving}>
                         Cancel
                     </LemonButton>
                     <LemonButton
