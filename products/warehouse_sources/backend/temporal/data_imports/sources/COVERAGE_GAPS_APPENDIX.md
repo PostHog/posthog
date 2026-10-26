@@ -8656,10 +8656,10 @@ Today (10): `actions`, `calls`, `companies`, `contacts`, `deals`, `lead_sources`
 
 Diffed against: <https://developer.onepagecrm.com/api/reference/>
 
-- [ ] `pipelines` — lookup that resolves the pipeline/stage IDs carried on the deals we already sync (high)
-- [ ] `call_results` — lookup resolving the call outcome IDs on synced calls (high)
-- [ ] `custom_fields` — field definitions needed to interpret custom field IDs on synced contacts (high)
-- [ ] `deal_fields` — definitions for custom deal fields, needed to name deal custom values (medium)
+- [x] `pipelines` — lookup that resolves the pipeline/stage IDs carried on the deals we already sync (high)
+- [x] `call_results` — lookup resolving the call outcome IDs on synced calls (high)
+- [x] `custom_fields` — field definitions needed to interpret custom field IDs on synced contacts (high)
+- [x] `deal_fields` — definitions for custom deal fields, needed to name deal custom values (medium)
 - [ ] `company_fields` — definitions for custom company fields (medium)
 - [ ] `action_stream` — chronological activity/state-change feed across records (medium)
 - [ ] `team_stream` — team-wide activity history for rep productivity analysis (medium)
