@@ -11,8 +11,8 @@ import type { ToolHooks } from '@/tools/tool-hooks'
 import type { Context } from '@/tools/types'
 
 // CI output prints names such as `key`, `code`, `session` and `input_tokens` for diagnostics, not credentials.
-const CI_CREDENTIAL_NAME_FRAGMENTS = ['apikey', 'secret', 'password', 'passwd', 'credential', 'privatekey']
-const CI_CREDENTIAL_NAMES = new Set(['pwd', 'authorization', 'jwt'])
+const CI_CREDENTIAL_NAME_FRAGMENTS = ['apikey', 'secret', 'password', 'passwd', 'credential', 'privatekey', 'signature']
+const CI_CREDENTIAL_NAMES = new Set(['pwd', 'authorization', 'jwt', 'sig', 'sessionid'])
 
 const isCiCredentialName: CredentialNameRule = (name) =>
     CI_CREDENTIAL_NAMES.has(name) ||

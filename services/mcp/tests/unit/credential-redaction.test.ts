@@ -195,6 +195,9 @@ describe('credential redaction', () => {
         { input: `client_secret: ${OTHER_SECRET}`, expected: 'client_secret: [REDACTED]' },
         { input: `private_key: ${OTHER_SECRET}`, expected: 'private_key: [REDACTED]' },
         { input: `AWS_SECRET_ACCESS_KEY: ${OTHER_SECRET}`, expected: 'AWS_SECRET_ACCESS_KEY: [REDACTED]' },
+        { input: `X-Hub-Signature: ${OTHER_SECRET}`, expected: 'X-Hub-Signature: [REDACTED]' },
+        { input: `?sig=${OTHER_SECRET}&a=1`, expected: '?sig=[REDACTED]&a=1' },
+        { input: `sessionid=${OTHER_SECRET}`, expected: 'sessionid=[REDACTED]' },
     ])('masks $expected in CI output', ({ input, expected }) => {
         expect(redactFailureLogsHooks.afterResponse({} as Context, {}, input)).toBe(expected)
     })
