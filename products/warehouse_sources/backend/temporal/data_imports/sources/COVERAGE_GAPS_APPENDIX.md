@@ -8719,14 +8719,14 @@ Today (20): `admin_api_keys`, `audit_logs`, `costs`, `invites`, `project_api_key
 
 Diffed against: <https://raw.githubusercontent.com/openai/openai-openapi/master/openapi.yaml>
 
-- [ ] `/models` — lookup resolving the model IDs that appear in every usage\_\* and costs row (high)
-- [ ] `/chat/completions (list stored completions)` — per-request log with model, tokens and metadata - the finest-grained usage fact table available (high)
+- [x] `/models` — lookup resolving the model IDs that appear in every usage\_\* and costs row (high). Added as `models`; like every platform table below it needs the optional project API key, because OpenAI rejects Admin API keys outside the organization endpoints
+- [x] `/chat/completions (list stored completions)` — per-request log with model, tokens and metadata - the finest-grained usage fact table available (high). Added as `chat_completions`; only completions created with `store: true` are listed, and there is no server-side time filter, so it is full refresh
 - [x] `/organization/groups and /organization/groups/{id}/users` — group membership table resolving which users belong to which group (high)
 - [x] `/organization/roles and /organization/users/{id}/roles` — role assignments for the users we already sync (medium)
 - [ ] `/organization/projects/{id}/groups` — project-to-group membership, complements the project_users table we sync (medium)
-- [ ] `/batches` — batch job records with request counts and completion status (medium)
+- [x] `/batches` — batch job records with request counts and completion status (medium). Added as `batches`
 - [ ] `/fine_tuning/jobs (+ /events, /checkpoints)` — training job history, cost and status over time (medium)
-- [ ] `/evals, /evals/{id}/runs, /evals/{id}/runs/{id}/output_items` — eval run results - the analytical object for model quality tracking (medium)
+- [x] `/evals, /evals/{id}/runs, /evals/{id}/runs/{id}/output_items` — eval run results - the analytical object for model quality tracking (medium). Added as `evals`, `eval_runs` and `eval_run_output_items`
 - [ ] `/chat/completions/{id}/messages` — message-level detail behind each stored completion (low)
 - [ ] `/vector_stores` — lookup resolving the vector store IDs in usage_vector_stores (low)
 
@@ -8751,11 +8751,11 @@ Today (20): `authors`, `awards`, `continents`, `countries`, `domains`, `fields`,
 
 Diffed against: <https://help.openalex.org/api/endpoints.md>
 
-- [ ] `Study Designs (GET /study-designs)` — resolve study design IDs on works and compare evidence types (high)
-- [ ] `Indexes (GET /indexes)` — resolve indexed_in values on works and compare coverage across bibliographic indexes (high)
-- [ ] `Source Lists (GET /source-lists)` — resolve listed_in IDs on sources for journal quality and coverage analysis (high)
+- [x] `Study Designs (GET /study-designs)` — resolve study design IDs on works and compare evidence types (high)
+- [x] `Indexes (GET /indexes)` — resolve indexed_in values on works and compare coverage across bibliographic indexes (high)
+- [x] `Source Lists (GET /source-lists)` — resolve listed_in IDs on sources for journal quality and coverage analysis (high)
 - [ ] `Collections and Members (GET /collections; GET /collections/{id}/members)` — track research portfolios and collection membership across works, authors, and journals (medium)
-- [ ] `Locations (GET /locations)` — analyze each harvested copy and its metadata beyond the locations embedded in works (medium)
+- [x] `Locations (GET /locations)` — analyze each harvested copy and its metadata beyond the locations embedded in works (medium)
 
 Note: Parsed the current endpoint index and entity references, including the collections member endpoint. Existing works already contain locations and affiliation strings; dedicated locations expose additional metadata. Collection members need requests for each collection. Excluded deprecated concepts, autocomplete, text tagging, saved searches, and correction workflows.
 
@@ -8781,11 +8781,11 @@ Today (2): `Companies`, `Officers`
 
 Diffed against: <https://api.opencorporates.com/documentation/API-Reference>
 
-- [ ] `Jurisdictions (GET /jurisdictions)` — resolve jurisdiction_code values in company records for geographic comparisons (high)
-- [ ] `Company Filings (GET /companies/:jurisdiction_code/:company_number/filings)` — analyze statutory filing history and changes in company status (high)
-- [ ] `Company Statements (GET /companies/:jurisdiction_code/:company_number/statements)` — analyze ownership relationships and other sourced facts omitted from company search results (high)
+- [x] `Jurisdictions (GET /jurisdictions)` — resolve jurisdiction_code values in company records for geographic comparisons (high)
+- [x] `Company Filings (GET /companies/:jurisdiction_code/:company_number/filings)` — analyze statutory filing history and changes in company status (high)
+- [x] `Company Statements (GET /companies/:jurisdiction_code/:company_number/statements)` — analyze ownership relationships and other sourced facts omitted from company search results (high)
 - [ ] `Gazette Notices (GET /statements/gazette_notices/search)` — track official notices about insolvency, dissolution, and other company events (medium)
-- [ ] `Registration Statements (GET /statements/alternate_registrations/search; GET /statements/subsequent_registrations/search)` — link alternate and successor registrations to avoid duplicate company counts (medium)
+- [x] `Registration Statements (GET /statements/alternate_registrations/search; GET /statements/subsequent_registrations/search)` — link alternate and successor registrations to avoid duplicate company counts (medium)
 - [ ] `Trademark Registrations (GET /statements/trademark_registrations/search)` — analyze trademark ownership, registration dates, and expirations (medium)
 - [ ] `Industry Codes (GET /industry_codes; GET /industry_codes/:code_scheme_id)` — build industry classifications for company segmentation and comparisons across code schemes (medium)
 

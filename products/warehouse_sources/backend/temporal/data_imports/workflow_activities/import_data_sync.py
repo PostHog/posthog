@@ -1,3 +1,4 @@
+import time
 import uuid
 import socket
 import asyncio
@@ -5,6 +6,7 @@ import datetime as dt
 import functools
 import dataclasses
 from concurrent.futures import ThreadPoolExecutor
+from contextvars import ContextVar
 from typing import TYPE_CHECKING, Any, NoReturn, Optional
 
 from django.conf import settings
@@ -55,6 +57,7 @@ from products.warehouse_sources.backend.temporal.data_imports.import_attempt imp
 )
 from products.warehouse_sources.backend.temporal.data_imports.metrics import (
     TERMINAL_JOB_STATUSES,
+    get_import_attempt_duration_metric,
     get_progressless_stand_down_metric,
     get_worker_shutdown_handoff_metric,
 )
@@ -131,6 +134,9 @@ from products.warehouse_sources.backend.temporal.data_imports.workload_report im
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 LOGGER = get_logger(__name__)
+
+# The source type is known only after the job row loads. The attempt wrapper reads it on exit.
+_attempt_source_type: ContextVar[str | None] = ContextVar("import_attempt_source_type", default=None)
 
 
 @frozen
@@ -442,6 +448,27 @@ def v3_pipeline_class(source_response: SourceResponse) -> "type[PipelineV3]":
 
 @activity.defn
 async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> PipelineResult:
+    started_at = time.monotonic()
+    outcome = "failed"
+    _attempt_source_type.set(None)
+    try:
+        result = await _run_import_attempt(inputs)
+        outcome = "handed_off" if result.get("handed_off") else "completed"
+        return result
+    except WorkerShuttingDownError:
+        outcome = "handed_off"
+        raise
+    except asyncio.CancelledError:
+        outcome = "cancelled"
+        raise
+    finally:
+        if activity.in_activity():
+            get_import_attempt_duration_metric(_attempt_source_type.get(), outcome).record(
+                time.monotonic() - started_at
+            )
+
+
+async def _run_import_attempt(inputs: ImportDataActivityInputs) -> PipelineResult:
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind()
     tag_queries(team_id=inputs.team_id, product=Product.WAREHOUSE, feature=Feature.IMPORT_PIPELINE)
@@ -549,6 +576,7 @@ async def _import_data_with_reporting(
         await logger.adebug("Running import_data_activity")
 
         source_type = ExternalDataSourceType(model.pipeline.source_type)
+        _attempt_source_type.set(str(source_type))
 
         bind_job_context(
             team_id=inputs.team_id,

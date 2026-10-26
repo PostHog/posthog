@@ -40,8 +40,8 @@ from posthog.dags.deletes import (
     ensure_no_concurrent_deletes_run,
     manual_deletes_job,
     mark_deletions_verified,
-    monthly_old_events_cleanup_job,
-    monthly_old_events_cleanup_schedule,
+    monthly_retention_events_cleanup_job,
+    monthly_retention_events_cleanup_schedule,
     plan_old_events_cleanup,
     resolve_sweep_targets,
     run_deletes_after_manual_trigger,
@@ -772,7 +772,7 @@ def test_cleanup_old_events_delete_query_format(cluster: ClickhouseCluster, snap
 
 
 @pytest.mark.django_db
-def test_monthly_old_events_cleanup_job(cluster: ClickhouseCluster):
+def test_monthly_retention_events_cleanup_job(cluster: ClickhouseCluster):
     thirteen, eighteen, no_retention = _teams_with_13_and_18_months()
     _insert_events(
         cluster,
@@ -785,7 +785,7 @@ def test_monthly_old_events_cleanup_job(cluster: ClickhouseCluster):
         + _events(no_retention.id, _mid_month(20), 0, 9),
     )
 
-    monthly_old_events_cleanup_job.execute_in_process(resources={"cluster": cluster})
+    monthly_retention_events_cleanup_job.execute_in_process(resources={"cluster": cluster})
 
     assert _count_by_team_and_partition(cluster, [thirteen.id, eighteen.id, no_retention.id]) == {
         (thirteen.id, _partition(_first_hour_of_month(13))): 5,
@@ -797,14 +797,14 @@ def test_monthly_old_events_cleanup_job(cluster: ClickhouseCluster):
 
 @pytest.mark.django_db
 @time_machine.travel("2027-01-01", tick=False)
-def test_monthly_old_events_cleanup_schedule_starts_one_run_when_a_retention_is_set():
+def test_monthly_retention_events_cleanup_schedule_starts_one_run_when_a_retention_is_set():
     with dagster.build_schedule_context(scheduled_execution_time=datetime(2027, 1, 1, tzinfo=UTC)) as context:
-        assert isinstance(monthly_old_events_cleanup_schedule(context), dagster.SkipReason)
+        assert isinstance(monthly_retention_events_cleanup_schedule(context), dagster.SkipReason)
 
         organization = Organization.objects.create(name="With default")
         OrganizationEventsRetentionConfig.objects.create(organization=organization, default_events_retention_months=13)
         Team.objects.create(organization=organization, name="Inherits default")
-        run_request = monthly_old_events_cleanup_schedule(context)
+        run_request = monthly_retention_events_cleanup_schedule(context)
 
     assert isinstance(run_request, dagster.RunRequest)
     assert (run_request.run_key, run_request.run_config) == ("202701", {})
@@ -1387,9 +1387,9 @@ def test_the_survivor_count_retries_before_reporting_unknown(failing_attempts: i
         # A squash run blocks whatever its age: manual_deletes_job's preflight can go stale
         # before the sensor launches the run, so the guard checks squash again at run start.
         (deletes_job, squash_person_overrides),
-        (deletes_job, monthly_old_events_cleanup_job),
-        (monthly_old_events_cleanup_job, deletes_job),
-        (monthly_old_events_cleanup_job, squash_person_overrides),
+        (deletes_job, monthly_retention_events_cleanup_job),
+        (monthly_retention_events_cleanup_job, deletes_job),
+        (monthly_retention_events_cleanup_job, squash_person_overrides),
     ],
 )
 def test_the_deletes_guard_yields_to_an_executing_run_that_mutates_events(
@@ -1416,7 +1416,7 @@ def test_the_deletes_guard_yields_to_an_executing_run_that_mutates_events(
         # A run that has not started yet blocks here even though the in-job guard ignores it: it
         # is a collision about to happen, and the manual trigger has launched nothing yet.
         (squash_person_overrides, dagster.DagsterRunStatus.NOT_STARTED),
-        (monthly_old_events_cleanup_job, dagster.DagsterRunStatus.STARTED),
+        (monthly_retention_events_cleanup_job, dagster.DagsterRunStatus.STARTED),
     ],
 )
 def test_the_manual_trigger_refuses_while_the_weekly_chain_is_active(
