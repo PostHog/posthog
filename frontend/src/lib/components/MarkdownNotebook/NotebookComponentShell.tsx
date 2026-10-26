@@ -395,6 +395,7 @@ export function NotebookComponentShell({
             return
         }
         if (nodeRef.current.props.hideInput === true) {
+            shellRef.current?.focus({ preventScroll: true })
             updateProps({ hideInput: undefined })
         }
         const deadline = Date.now() + EDIT_FOCUS_TIMEOUT_MS

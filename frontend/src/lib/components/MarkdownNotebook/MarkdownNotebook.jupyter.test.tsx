@@ -328,6 +328,18 @@ describe('MarkdownNotebook in Jupyter mode', () => {
         )
     })
 
+    it.each(['previous', 'next'] as const)('focuses hidden input when moving to the %s cell', async (direction) => {
+        const notebook = renderJupyterNotebook(TWO_CELLS)
+        const targetIndex = direction === 'previous' ? 0 : 1
+        const sourceIndex = 1 - targetIndex
+        fireEvent.click(within(notebook.cell(targetIndex)).getByLabelText('Hide input'))
+        act(() => notebook.editor(sourceIndex).focus())
+
+        act(() => commands!.moveEditFocus(commands!.store.getState().activeCellId!, direction))
+
+        await waitFor(() => expect(document.activeElement).toBe(notebook.editor(targetIndex)))
+    })
+
     it.each([
         ['Py', false],
         ['Sql', false],
