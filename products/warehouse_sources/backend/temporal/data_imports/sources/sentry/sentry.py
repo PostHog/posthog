@@ -1393,6 +1393,32 @@ def _skip_endpoint_on_forbidden(resource: Iterable[Any], endpoint: str) -> Itera
         raise
 
 
+def _skip_endpoint_on_not_found(resource: Iterable[Any], endpoint: str) -> Iterator[Any]:
+    """Yield pages from a resource, treating a 404 as "endpoint not available for
+    this organization or auth token" and stopping gracefully.
+
+    Sentry's /organizations/{organization_slug}/sentry-app-installations/ endpoint
+    returns 404 when using an internal integration token because Sentry requires
+    caller user membership in the organization (getsentry/sentry#128739). Letting
+    that 404 propagate marks the whole schema as a non-retryable failure (which
+    blames the organization slug in SentrySource.get_non_retryable_errors) and auto-disables
+    the table. Skipping the endpoint instead lets the sync complete with an empty table,
+    matching the graceful-skip approach used in _skip_endpoint_on_forbidden.
+    """
+    try:
+        yield from resource
+    except HTTPError as exc:
+        response = exc.response
+        if response is not None and response.status_code == 404:
+            logger.warning(
+                "sentry_source.endpoint_not_found_skipped",
+                endpoint=endpoint,
+                status_code=response.status_code,
+            )
+            return
+        raise
+
+
 def _make_source_response(endpoint_config: SentryEndpointConfig, items_fn) -> SourceResponse:
     return SourceResponse(
         name=endpoint_config.name,
@@ -1587,4 +1613,6 @@ def sentry_source(
         resume_hook=resume_hook,
         initial_paginator_state=initial_paginator_state,
     )
+    if endpoint == "sentry_app_installations":
+        return _make_source_response(endpoint_config, lambda: _skip_endpoint_on_not_found(resource, endpoint))
     return _make_source_response(endpoint_config, lambda: resource)

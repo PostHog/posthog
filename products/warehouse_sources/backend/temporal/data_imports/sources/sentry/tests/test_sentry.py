@@ -492,6 +492,61 @@ class TestSentrySourceValidation:
         with pytest.raises(HTTPError):
             list(cast(Any, resp.items()))
 
+    # ----- Sentry app installations: graceful skip on 404 (internal integration tokens) -----
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.rest_api_resource")
+    def test_sentry_app_installations_skips_on_not_found(self, mock_resource) -> None:
+        # Sentry's sentry-app-installations endpoint 404s for internal integration tokens
+        # (getsentry/sentry#128739) because caller isn't an org member. The schema should
+        # complete empty, not error out.
+        mock_resource.return_value = _RaisingResource(404)
+
+        resp = sentry_source(
+            auth_token="token",
+            organization_slug="acme",
+            api_base_url="https://sentry.io",
+            endpoint="sentry_app_installations",
+            team_id=123,
+            job_id="job-id",
+        )
+
+        assert list(cast(Any, resp.items())) == []
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.rest_api_resource")
+    def test_sentry_app_installations_propagates_non_not_found(self, mock_resource) -> None:
+        # A server error is not the unavailable signal — it must still propagate.
+        mock_resource.return_value = _RaisingResource(500)
+
+        resp = sentry_source(
+            auth_token="token",
+            organization_slug="acme",
+            api_base_url="https://sentry.io",
+            endpoint="sentry_app_installations",
+            team_id=123,
+            job_id="job-id",
+        )
+
+        with pytest.raises(HTTPError):
+            list(cast(Any, resp.items()))
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.rest_api_resource")
+    def test_other_flat_endpoint_propagates_not_found(self, mock_resource) -> None:
+        # A 404 on other flat endpoints is a genuine error and must still reach
+        # the non-retryable handler.
+        mock_resource.return_value = _RaisingResource(404)
+
+        resp = sentry_source(
+            auth_token="token",
+            organization_slug="acme",
+            api_base_url="https://sentry.io",
+            endpoint="integrations",
+            team_id=123,
+            job_id="job-id",
+        )
+
+        with pytest.raises(HTTPError):
+            list(cast(Any, resp.items()))
+
     # ----- Issue fan-out: dependent resources (issue_events, issue_hashes) -----
 
     @parameterized.expand(

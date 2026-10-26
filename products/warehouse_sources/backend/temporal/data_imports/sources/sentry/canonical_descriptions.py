@@ -331,7 +331,10 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         },
     },
     "sentry_app_installations": {
-        "description": "An integration platform app installed on the organization.",
+        "description": (
+            "An integration platform app installed on the organization. Note: this endpoint requires user token "
+            "authentication and is unavailable with internal integration tokens."
+        ),
         "docs_url": "https://docs.sentry.io/api/integration-platform/list-an-organizations-integration-platform-installations/",
         "columns": {
             "uuid": "Unique identifier for the installation.",
