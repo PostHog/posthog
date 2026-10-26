@@ -753,6 +753,8 @@ export function dashboardViewedProperties(
         item_count: dashboard.tiles?.length || 0,
         created_by_system: !dashboard.created_by,
         dashboard_id: id,
+        group_display: dashboard.customization?.group_display ?? 'sections',
+        group_count: new Set((dashboard.tiles || []).map((tile) => tile.group_key).filter(Boolean)).size,
         lastRefreshed: lastRefreshed?.toISOString(),
         refreshAge: lastRefreshed ? now().diff(lastRefreshed, 'seconds') : undefined,
         uses_data_warehouse_source: false,

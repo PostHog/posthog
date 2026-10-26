@@ -166,7 +166,6 @@ from products.dashboards.backend.models.dashboard import (
     DASHBOARD_GRID_SPACING_GAPS,
     DASHBOARD_TILE_GROUP_DISPLAY_MODES,
     Dashboard,
-    TileGroupDisplay,
 )
 from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, DashboardTileBadge, Text
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
@@ -259,10 +258,6 @@ class _GroupDictField(serializers.DictField):
 def _effective_layout_compaction(customization: Any) -> str:
     layout_compaction = normalize_dashboard_customization(customization).get("layout_compaction")
     return layout_compaction if layout_compaction in DASHBOARD_GRID_COMPACTION_MODES else "vertical"
-
-
-def _effective_group_display(customization: Any) -> str:
-    return stored_customization(customization).get("group_display", TileGroupDisplay.SECTIONS)
 
 
 logger = structlog.get_logger(__name__)
@@ -2160,7 +2155,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
     @monitor(feature=Feature.DASHBOARD, endpoint="dashboard", method="PATCH")
     def update(self, instance: Dashboard, validated_data: dict, *args: Any, **kwargs: Any) -> Dashboard:
         previous_layout_compaction = _effective_layout_compaction(instance.customization)
-        previous_group_display = _effective_group_display(instance.customization)
+        previous_group_display = instance.group_display
         self._check_delivered_dashboard_filters_access(
             cast(User, self.context["request"].user), instance, self.initial_data
         )
@@ -2558,6 +2553,13 @@ class DashboardSerializer(DashboardMetadataSerializer):
             if field in tile_defaults
         )
 
+        new_group_key = tile_defaults.get("group_key")
+        starts_group = (
+            new_group_key is not None
+            and new_group_key != existing.group_key
+            and not instance.tiles.filter(group_key=new_group_key).exclude(id=existing.id).exists()
+        )
+
         for attr, val in tile_defaults.items():
             setattr(existing, attr, val)
         # update_fields scopes the UPDATE to only the columns we changed, so concurrent writes
@@ -2566,6 +2568,18 @@ class DashboardSerializer(DashboardMetadataSerializer):
         existing.save(update_fields=list(tile_defaults.keys()))
         if marking_changed:
             _report_dashboard_tile_marking_changed(user=user, dashboard=instance, tile=existing, request=request)
+        if starts_group:
+            report_user_action(
+                user,
+                "dashboard tile group created",
+                {
+                    "dashboard_id": instance.id,
+                    "group_display": instance.group_display,
+                    "group_count": instance.tile_group_count,
+                },
+                team=instance.team,
+                request=request,
+            )
         return existing, became_deleted
 
     @staticmethod

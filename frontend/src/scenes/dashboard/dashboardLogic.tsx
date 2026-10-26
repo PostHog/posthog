@@ -5540,6 +5540,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
             if (!section) {
                 return
             }
+            posthog.capture('dashboard tile group tab selected', {
+                dashboard_id: props.id,
+                tile_count: section.tiles.length,
+            })
             // This listener runs before the URL changes, so the active tab is still the one the viewer leaves.
             const leftTab = values.activeTileGroupTab
             const leftTiles =

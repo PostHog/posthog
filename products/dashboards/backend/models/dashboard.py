@@ -178,4 +178,15 @@ class Dashboard(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin
             "has_description": self.description != "",
             "tags_count": self.tagged_items.count(),
             "creation_mode": self.creation_mode,
+            "group_display": self.group_display,
+            "group_count": self.tile_group_count,
         }
+
+    @property
+    def group_display(self) -> str:
+        group_display = self.customization.get("group_display") if isinstance(self.customization, dict) else None
+        return group_display if group_display in DASHBOARD_TILE_GROUP_DISPLAY_MODES else TileGroupDisplay.SECTIONS
+
+    @property
+    def tile_group_count(self) -> int:
+        return self.tiles.exclude(group_key__isnull=True).values("group_key").distinct().count()

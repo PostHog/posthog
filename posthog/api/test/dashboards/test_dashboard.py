@@ -2153,6 +2153,13 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         ]
         self.assertEqual(len(marking_calls), 1)
         self.assertEqual(marking_calls[0].args[2]["badge"], "winner")
+        group_created_calls = [
+            call for call in mock_report_user_action.call_args_list if call.args[1] == "dashboard tile group created"
+        ]
+        self.assertEqual(
+            [call.args[2] for call in group_created_calls],
+            [{"dashboard_id": dashboard_id, "group_display": "sections", "group_count": 1}],
+        )
 
         _, copied = self.dashboard_api.create_dashboard(
             {"name": "copy", "use_dashboard": dashboard_id, "duplicate_tiles": duplicate_tiles}
@@ -2248,6 +2255,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "duplicated": False,
                 "duplicated_from_dashboard_id": None,
                 "from_template": True,
+                "group_count": 0,
+                "group_display": "sections",
                 "has_description": True,
                 "is_shared": False,
                 "item_count": 6,
@@ -3611,6 +3620,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "dashboard_id": dashboard["id"],
                 "duplicated": False,
                 "from_template": True,
+                "group_count": 0,
+                "group_display": "sections",
                 "has_description": True,
                 "is_shared": False,
                 "item_count": 1,

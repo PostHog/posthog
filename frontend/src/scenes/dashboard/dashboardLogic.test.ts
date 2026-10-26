@@ -969,42 +969,52 @@ describe('dashboardLogic', () => {
                     open: () => logic.actions.selectTileGroupTab('group-target'),
                     beforeMount: () => {},
                     ungroupedLoads: 1,
+                    tabSelections: 1,
                 },
                 {
                     name: 'a link names it',
                     open: () => {},
                     beforeMount: () => router.actions.push('/dashboard/5', { tab: 'group-target' }),
                     ungroupedLoads: 0,
+                    tabSelections: 0,
                 },
                 {
                     name: 'the viewer follows a link to it',
                     open: () => router.actions.push('/dashboard/5', { tab: 'group-target' }),
                     beforeMount: () => {},
                     ungroupedLoads: 1,
+                    tabSelections: 0,
                 },
-            ])('shows tabs one at a time and loads a tab when $name', async ({ open, beforeMount, ungroupedLoads }) => {
-                groupTiles({ target: { collapsed: false } })
-                dashboards[5] = {
-                    ...dashboards[5],
-                    customization: { group_display: 'tabs' },
-                    tiles: dashboards[5].tiles.map((tile, index) =>
-                        index === 1 ? { ...tile, group_key: null } : tile
-                    ),
-                }
-                const ungrouped = dashboards[5].tiles[1].insight!.short_id
-                beforeMount()
-                await mountDashboard()
-                await expectLogic(logic, open).toFinishAllListeners()
+            ])(
+                'shows tabs one at a time and loads a tab when $name',
+                async ({ open, beforeMount, ungroupedLoads, tabSelections }) => {
+                    groupTiles({ target: { collapsed: false } })
+                    dashboards[5] = {
+                        ...dashboards[5],
+                        customization: { group_display: 'tabs' },
+                        tiles: dashboards[5].tiles.map((tile, index) =>
+                            index === 1 ? { ...tile, group_key: null } : tile
+                        ),
+                    }
+                    const ungrouped = dashboards[5].tiles[1].insight!.short_id
+                    beforeMount()
+                    await mountDashboard()
+                    const capture = jest.spyOn(posthog, 'capture').mockClear()
+                    await expectLogic(logic, open).toFinishAllListeners()
 
-                expect(logic.values.tileGroupSections.map((section) => section.key)).toEqual([
-                    'tiles-ungrouped',
-                    'group-target',
-                ])
-                expect(logic.values.activeTileGroupTab).toEqual('target')
-                expect(router.values.searchParams.tab).toEqual('group-target')
-                expect(loads(target)).toHaveLength(1)
-                expect(loads(ungrouped)).toHaveLength(ungroupedLoads)
-            })
+                    expect(logic.values.tileGroupSections.map((section) => section.key)).toEqual([
+                        'tiles-ungrouped',
+                        'group-target',
+                    ])
+                    expect(logic.values.activeTileGroupTab).toEqual('target')
+                    expect(router.values.searchParams.tab).toEqual('group-target')
+                    expect(loads(target)).toHaveLength(1)
+                    expect(loads(ungrouped)).toHaveLength(ungroupedLoads)
+                    expect(
+                        capture.mock.calls.filter(([event]) => event === 'dashboard tile group tab selected')
+                    ).toHaveLength(tabSelections)
+                }
+            )
 
             it.each([
                 { leftTabTiles: 5, cancelled: true, returnBeforeAbortsSettle: false, stop: false },
