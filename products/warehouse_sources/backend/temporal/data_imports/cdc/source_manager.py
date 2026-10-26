@@ -524,6 +524,7 @@ class ReplayFilter:
         # Taken from the position itself, so the batch is keyed exactly as the table was read.
         self._key_columns = list(position.key_columns)
         self._content_schema = position.content_schema
+        self._non_content = position.non_content_columns
         self._content_matched = position.content_matched
         self._load_applied = position.load_applied
         self.rows_skipped = 0
@@ -544,6 +545,7 @@ class ReplayFilter:
         self._load_applied = None
         self._applied = {key: list(rows) for key, rows in resolved.applied.items()}
         self._content_schema = resolved.content_schema
+        self._non_content = resolved.non_content_columns
         self._content_matched = resolved.content_matched
 
     def _count_skipped(self, dropped: int, reason: str) -> None:
@@ -615,7 +617,7 @@ class ReplayFilter:
         still compare different: dropping it would make a wrong match likelier, and a wrong match
         is a lost change where a missed one is only a copy.
         """
-        names = content_columns(table.column_names)
+        names = content_columns(table.column_names, self._non_content)
         if self._content_schema is None:
             return table.select(names).to_pylist(), set()
         columns: list[pa.ChunkedArray] = []

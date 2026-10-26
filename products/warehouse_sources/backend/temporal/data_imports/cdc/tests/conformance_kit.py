@@ -45,7 +45,11 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
     history_naming_of,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import get_buffer_prefix
-from products.warehouse_sources.backend.temporal.data_imports.cdc.lane_position import LanePosition, content_columns
+from products.warehouse_sources.backend.temporal.data_imports.cdc.lane_position import (
+    LanePosition,
+    content_columns,
+    non_content_columns,
+)
 from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import resolve_batch
 from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import (
     COMPANION_WRITE_MODE,
@@ -338,11 +342,14 @@ def lane_position(rows: Sequence[Row], key_columns: Sequence[str] | None) -> Lan
     if position is None or not key_columns:
         return LanePosition(position=position, applied={})
     applied: defaultdict[Key, list[Row]] = defaultdict(list)
+    non_content = non_content_columns({column for row in rows for column in row})
     for row in rows:
         if row.get(CDC_SEQ_COLUMN) == position:
             identity = tuple(row.get(column) for column in key_columns)
-            applied[identity].append({column: row[column] for column in content_columns(list(row))})
-    return LanePosition(position=position, applied=dict(applied), key_columns=tuple(key_columns))
+            applied[identity].append({column: row[column] for column in content_columns(list(row), non_content)})
+    return LanePosition(
+        position=position, applied=dict(applied), key_columns=tuple(key_columns), non_content_columns=non_content
+    )
 
 
 class Warehouse:
@@ -534,7 +541,7 @@ class ConformanceKit:
             patch(f"{_CDC}.activities.get_cdc_adapter", return_value=self._engine.adapter),
             patch(f"{_CDC}.activities.source_type_supports_cdc", return_value=True),
             # The kit registers no tables, so every history table is a new one.
-            patch(f"{_CDC}.activities.kept_history_naming", return_value=HISTORY_NAMING),
+            patch(f"{_CDC}.activities.history_naming_unless_taken", return_value=HISTORY_NAMING),
             patch(f"{_CDC}.activities.ExternalDataSource", source_model),
             patch.object(CDCExtractActivity, "_get_cdc_schemas", cdc_schemas),
             patch(f"{_CDC}.activities.update_sync_type_config_keys", merge_config),

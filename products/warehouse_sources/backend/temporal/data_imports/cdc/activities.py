@@ -45,11 +45,13 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.adapters impor
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
     CDC_SEQ_COLUMN,
+    HISTORY_NAMING,
     ChangeEventBatcher,
     HistoryNaming,
     enrich_delete_rows,
     enrich_toast_omitted_rows,
     history_columns,
+    is_history_table_mode,
     reserved_column_collisions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.billing_expiry import (
@@ -74,7 +76,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import 
     CDCSlotNotConfiguredError,
     classify_cdc_error,
 )
-from products.warehouse_sources.backend.temporal.data_imports.cdc.history_table import kept_history_naming
+from products.warehouse_sources.backend.temporal.data_imports.cdc.history_table import history_naming_unless_taken
 from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import has_engine_seq
 from products.warehouse_sources.backend.temporal.data_imports.cdc.naming import (
     CDC_EXTRACTION_WORKFLOW_ID_PREFIX,
@@ -618,9 +620,10 @@ class CDCExtractActivity:
         )
 
         for schema in self.cdc_schemas:
-            history = kept_history_naming(schema)
-            if history is not None:
-                self.history_naming_by_table[schema.name] = history
+            if is_history_table_mode(schema.cdc_table_mode):
+                # A taken name fails this table's own import. Capture only needs the names to refuse, and
+                # a name is only taken when the table would get the new naming.
+                self.history_naming_by_table[schema.name] = history_naming_unless_taken(schema) or HISTORY_NAMING
             enabled = schema.enabled_columns
             # `None` = sync all; `[]` = retain PKs + incremental only. Match the
             # invariant used by build_select_clause / pipeline_sync / filter_dwh_columns.

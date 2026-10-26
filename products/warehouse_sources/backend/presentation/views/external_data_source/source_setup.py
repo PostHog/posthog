@@ -48,7 +48,6 @@ from products.warehouse_sources.backend.facade.models import (
     sync_old_schemas_with_new_schemas,
 )
 from products.warehouse_sources.backend.facade.source_management import (
-    HISTORY_NAMING,
     PREVIEW_DEFAULT_ROWS,
     PREVIEW_MAX_ROWS,
     AnySource,
@@ -71,6 +70,8 @@ from products.warehouse_sources.backend.facade.source_management import (
     get_cdc_adapter,
     is_history_table_mode,
     is_team_allowlisted_for_internal_hosts,
+    new_history_names_taken,
+    new_history_naming,
     new_source_requires_ssl,
     reserved_column_collisions,
     reserved_column_names,
@@ -1439,12 +1440,11 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
             # Capture and the history table write their own columns next to the source's, so a synced
             # source column that loads under one of those names would fail the source's first sync.
             # Refuse before any replication state exists.
+            new_history = new_history_naming()
             reserved_columns_by_table = {
                 schema["name"]: reserved_column_collisions(
                     [column[0] for column in getattr(source_schemas_by_name.get(schema["name"]), "columns", [])],
-                    reserved_column_names(
-                        HISTORY_NAMING if is_history_table_mode(schema.get("cdc_table_mode")) else None
-                    ),
+                    reserved_column_names(new_history if is_history_table_mode(schema.get("cdc_table_mode")) else None),
                     enabled_columns=_payload_enabled_columns(schema),
                     primary_keys=pk_columns_by_table.get(schema["name"]),
                 )
@@ -1465,6 +1465,33 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                             "Change data capture can't sync a column that loads under a name PostHog writes. Rename "
                             "the column on your database, leave it out of the synced columns, or change the sync "
                             f"method or output tables for these tables: {'; '.join(tables_with_reserved_column)}."
+                        )
+                    },
+                )
+
+            synced_names = [
+                schema["name"]
+                for schema in payload_schemas
+                if schema.get("should_sync", False) and isinstance(schema.get("name"), str)
+            ]
+            history_names = [
+                schema["name"]
+                for schema in payload_schemas
+                if schema.get("sync_type") == "cdc"
+                and schema.get("should_sync", False)
+                and is_history_table_mode(schema.get("cdc_table_mode"))
+                and isinstance(schema.get("name"), str)
+            ]
+            tables_with_taken_history_name = new_history_names_taken(new_source_model, history_names, synced_names)
+            if tables_with_taken_history_name:
+                new_source_model.delete()
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={
+                        "message": (
+                            "A history table would have the same name as another table you chose to sync. Choose "
+                            "the consolidated table only, or leave the other table out, for these tables: "
+                            f"{', '.join(tables_with_taken_history_name)}."
                         )
                     },
                 )

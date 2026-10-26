@@ -5,6 +5,7 @@ import pytest
 from posthog.test.base import BaseTest
 
 from django.core.management import call_command
+from django.test import override_settings
 
 from parameterized import parameterized
 
@@ -17,10 +18,12 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.history_table 
     history_naming,
     history_tables,
     is_another_schemas_history_table,
+    new_history_names_taken,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import build_table_name
 
 
+@override_settings(DATA_WAREHOUSE_PH_HISTORY_NAMING=True)
 class TestHistoryNaming(BaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -65,6 +68,29 @@ class TestHistoryNaming(BaseTest):
             self._table(storage_name, options)
 
         assert history_naming(self.schema) == expected
+
+    @override_settings(DATA_WAREHOUSE_PH_HISTORY_NAMING=False)
+    def test_a_new_history_table_keeps_the_legacy_naming_until_the_setting_is_on(self) -> None:
+        assert history_naming(self.schema) == LEGACY_HISTORY_NAMING
+
+    def test_a_stamped_new_table_wins_over_a_legacy_named_table(self) -> None:
+        # An unlinked `orders_cdc` can be a source table that has not synced yet. Taking the legacy naming
+        # for it would stop writing the stamped history table.
+        self._table("orders_history", {"history_table": True, "history_naming": "ph_validity"})
+        self._table("orders_cdc")
+
+        assert history_naming(self.schema) == HISTORY_NAMING
+
+    def test_a_sibling_whose_catalog_name_differs_does_not_block_history(self) -> None:
+        # `ordersHistory` normalizes to the same folder leaf, but each schema's folder carries its id.
+        ExternalDataSchema.objects.create(name="ordersHistory", team=self.team, source=self.source, should_sync=True)
+
+        assert history_naming(self.schema) == HISTORY_NAMING
+
+    def test_new_history_names_taken_compares_the_payload_of_a_new_source(self) -> None:
+        assert new_history_names_taken(self.source, ["orders", "items"], ["orders", "orders_history", "items"]) == [
+            "orders"
+        ]
 
     def test_a_sibling_source_table_named_like_the_legacy_table_is_not_its_history(self) -> None:
         sibling = ExternalDataSchema.objects.create(name="orders_cdc", team=self.team, source=self.source)

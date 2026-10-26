@@ -231,6 +231,11 @@ DATA_WAREHOUSE_DELTA_MERGE_MAX_TEMP_DIRECTORY_SIZE_BYTES: int | None = get_from_
     "DATA_WAREHOUSE_DELTA_MERGE_MAX_TEMP_DIRECTORY_SIZE_BYTES", None, optional=True, type_cast=int
 )
 
+# New history tables are named `<table>_history` with `_ph_valid_from` / `_ph_valid_to`. Stays off until every
+# loader reads the validity names from the batch: a loader on an older release appends such a batch without
+# closing the open versions.
+DATA_WAREHOUSE_PH_HISTORY_NAMING: bool = get_from_env("DATA_WAREHOUSE_PH_HISTORY_NAMING", False, type_cast=str_to_bool)
+
 GOOGLE_ADS_SERVICE_ACCOUNT_CLIENT_EMAIL: str | None = os.getenv("GOOGLE_ADS_SERVICE_ACCOUNT_CLIENT_EMAIL")
 GOOGLE_ADS_SERVICE_ACCOUNT_PRIVATE_KEY: str | None = os.getenv("GOOGLE_ADS_SERVICE_ACCOUNT_PRIVATE_KEY")
 GOOGLE_ADS_SERVICE_ACCOUNT_PRIVATE_KEY_ID: str | None = os.getenv("GOOGLE_ADS_SERVICE_ACCOUNT_PRIVATE_KEY_ID")

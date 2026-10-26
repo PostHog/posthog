@@ -2364,7 +2364,7 @@ class TestBufferedIngressCapture:
         events = [_make_event(op="I", position="0/100", columns={"id": 1, column: 42})]
 
         with (
-            patch(f"{_ACTIVITIES}.kept_history_naming", return_value=history),
+            patch(f"{_ACTIVITIES}.history_naming_unless_taken", return_value=history),
             _capture_harness(source, [schema], events) as capture,
         ):
             if refused:

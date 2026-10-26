@@ -9,7 +9,7 @@ from posthog.test.base import APIBaseTest
 from unittest import mock
 
 from django.conf import settings
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 from django.test.client import Client as HttpClient
 
 import psycopg
@@ -4584,6 +4584,7 @@ class TestSerializerLostUpdateProtection(APIBaseTest):
             ),
         ]
     )
+    @override_settings(DATA_WAREHOUSE_PH_HISTORY_NAMING=True)
     def test_patch_checks_the_validity_columns_the_history_table_receives(
         self,
         _name: str,
