@@ -172,10 +172,12 @@ describe('focused Inbox setup', () => {
                     Object.assign(config, await request.json())
                     return [200, config]
                 },
-                '/api/projects/:id/external_data_schemas/:schema/': async ({ request }) => {
-                    expect(await request.json()).toEqual({ should_sync: true, sync_type: 'full_refresh' })
+                '/api/projects/:id/external_data_sources/linear-source/bulk_update_schemas/': async ({ request }) => {
+                    expect(await request.json()).toEqual({
+                        schemas: [{ id: 'issues', should_sync: true, apply_sync_defaults: true }],
+                    })
                     syncedSchemas++
-                    return [200, {}]
+                    return [200, []]
                 },
                 '/api/projects/:id/signals/source_configs/:source/': () => [200, sources[0]],
             },

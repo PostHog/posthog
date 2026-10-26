@@ -15,7 +15,7 @@ import { buildUserScopedPersistenceConfig } from 'lib/logic/persistence'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { productEnablementCreate } from '~/generated/core/api'
-import { ExternalDataSource, ExternalDataSourceSchema, IntegrationType, TeamPublicType, TeamType } from '~/types'
+import { ExternalDataSource, IntegrationType, TeamPublicType, TeamType } from '~/types'
 
 import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics/sourcesDataLogic'
 import {
@@ -28,7 +28,10 @@ import { eventDefinitionsList } from 'products/event_definitions/frontend/genera
 import { visionScannersList, visionScannersPartialUpdate } from 'products/replay_vision/frontend/generated/api'
 import type { ReplayScannerApi } from 'products/replay_vision/frontend/generated/api.schemas'
 import { SignalSourceProduct, SignalSourceType } from 'products/signals/frontend/inbox/types'
-import { externalDataSchemasPartialUpdate } from 'products/warehouse_sources/frontend/generated/api'
+import {
+    externalDataSchemasPartialUpdate,
+    externalDataSourcesBulkUpdateSchemasPartialUpdate,
+} from 'products/warehouse_sources/frontend/generated/api'
 import { ExternalDataSourceTypeEnumApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import { signalsOnboardingList } from '../generated/api'
@@ -215,10 +218,10 @@ export async function ensureRequiredTablesSyncing(
     const { dwSourceType, requiredTables, requiredTableSyncType } = setup
     const sourceSchemas = sources
         .filter((source) => source.source_type === dwSourceType)
-        .flatMap((source) => source.schemas ?? [])
+        .flatMap((source) => (source.schemas ?? []).map((schema) => ({ sourceId: source.id, schema })))
     for (const tableName of requiredTables) {
         const matchingSchemas = sourceSchemas.filter(
-            (schema) => schema.name === tableName || schema.name.endsWith(`.${tableName}`)
+            ({ schema }) => schema.name === tableName || schema.name.endsWith(`.${tableName}`)
         )
         if (matchingSchemas.length === 0) {
             throw new Error(
@@ -228,18 +231,20 @@ export async function ensureRequiredTablesSyncing(
             )
         }
         const schemas = matchingSchemas.filter(
-            (schema) => !schema.should_sync || (requiredTableSyncType && schema.sync_type !== requiredTableSyncType)
+            ({ schema }) => !schema.should_sync || (requiredTableSyncType && schema.sync_type !== requiredTableSyncType)
         )
         await Promise.all(
-            schemas.map((schema: ExternalDataSourceSchema) =>
-                externalDataSchemasPartialUpdate(projectId, schema.id, {
+            schemas.map(({ sourceId, schema }) => {
+                if (!requiredTableSyncType && !schema.sync_type) {
+                    return externalDataSourcesBulkUpdateSchemasPartialUpdate(projectId, sourceId, {
+                        schemas: [{ id: schema.id, should_sync: true, apply_sync_defaults: true }],
+                    })
+                }
+                return externalDataSchemasPartialUpdate(projectId, schema.id, {
                     should_sync: true,
-                    // The API rejects enabling a table with no sync type; full refresh needs no incremental field.
-                    ...(requiredTableSyncType || !schema.sync_type
-                        ? { sync_type: requiredTableSyncType ?? 'full_refresh' }
-                        : {}),
+                    ...(requiredTableSyncType ? { sync_type: requiredTableSyncType } : {}),
                 })
-            )
+            })
         )
     }
 }
