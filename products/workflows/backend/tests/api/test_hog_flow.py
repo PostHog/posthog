@@ -2095,7 +2095,7 @@ class TestHogFlowAPI(APIBaseTest):
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
 
         assert response.status_code == 400, response.json()
-        assert "Cohort membership can't be evaluated in real-time filters" in response.json()["detail"]
+        assert "Cohorts can't be used in real-time filters" in response.json()["detail"]
 
     def test_hog_flow_grandfathers_stored_cohort_conditions_after_flag_dial_down(self):
         cohort = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)
@@ -2129,7 +2129,7 @@ class TestHogFlowAPI(APIBaseTest):
                 {"actions": edited_actions},
             )
             assert new_adoption.status_code == 400, new_adoption.json()
-            assert "Cohort membership can't be evaluated" in new_adoption.json()["detail"]
+            assert "Cohorts can't be used in real-time filters" in new_adoption.json()["detail"]
 
     def _cohort_trigger_flow(self, config: dict) -> dict:
         return {
@@ -2368,7 +2368,7 @@ class TestHogFlowAPI(APIBaseTest):
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
 
         assert response.status_code == 400, response.json()
-        assert "Cohort membership can't be evaluated in real-time filters" in response.json()["detail"]
+        assert "Cohorts can't be used in real-time filters" in response.json()["detail"]
 
     def test_hog_flow_wait_until_condition_defaults_missing_condition(self):
         # An events-only wait omits 'condition'; the FE always seeds it and StepWaitUntilCondition

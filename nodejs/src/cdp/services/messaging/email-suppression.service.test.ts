@@ -1,6 +1,7 @@
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import { createTeam, createTestTeamFixture } from '~/tests/helpers/sql'
+import { INVALID_TEAM_ID_KEYS } from '~/tests/helpers/team'
 import { Hub, Team } from '~/types'
 
 import { EmailSuppressionService, emailSuppressionConfigFromEnv } from './email-suppression.service'
@@ -360,5 +361,31 @@ describe('EmailSuppressionService', () => {
 
             expect(await svc.isSuppressed(team.id, email)).toBe(expected)
         })
+
+        // isSuppressed fails open. A load that throws would therefore let a suppressed address receive mail.
+        it.each(INVALID_TEAM_ID_KEYS)(
+            'keeps an address suppressed when invalid team id %p shares its load',
+            async (key) => {
+                const svc = new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv())
+                const email = 'listed@example.com'
+                await hub.postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    `INSERT INTO posthog_messagesuppression
+                        (id, team_id, identifier, source, reason, transient_bounce_count,
+                         suppressed, suppressed_at, deleted, created_at, updated_at)
+                     VALUES (gen_random_uuid(), $1, $2, 'BOUNCE', 'test row', 5,
+                         true, NOW(), false, NOW(), NOW())`,
+                    [team.id, email],
+                    'test-insert-suppression'
+                )
+
+                const results = await Promise.all([
+                    svc.isSuppressed(team.id, email),
+                    svc.isSuppressed(key as unknown as number, email),
+                ])
+
+                expect(results).toEqual([true, false])
+            }
+        )
     })
 })

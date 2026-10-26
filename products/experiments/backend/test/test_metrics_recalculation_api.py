@@ -140,16 +140,21 @@ class TestMetricsRecalculationAPI(APIBaseTest):
             == ExperimentMetricsRecalculation.Trigger.AGENT_MCP
         )
 
+    @parameterized.expand(
+        [
+            ("manual", ExperimentMetricsRecalculation.Trigger.MANUAL),
+            ("stale_refresh", ExperimentMetricsRecalculation.Trigger.STALE_REFRESH),
+        ]
+    )
     @mock.patch("products.experiments.backend.recalculation.sync_connect")
     @mock.patch("products.experiments.backend.recalculation.asyncio.run")
-    def test_post_without_mcp_header_honors_body_trigger(self, mock_run, mock_connect):
+    def test_post_without_mcp_header_honors_body_trigger(
+        self, trigger: str, expected_trigger: str, mock_run, mock_connect
+    ):
         exp = self._launched_experiment()
-        resp = self.client.post(self._post_url(exp.id), {"trigger": "manual"}, format="json")
+        resp = self.client.post(self._post_url(exp.id), {"trigger": trigger}, format="json")
         assert resp.status_code == status.HTTP_201_CREATED, resp.content
-        assert (
-            ExperimentMetricsRecalculation.objects.get(experiment=exp).trigger
-            == ExperimentMetricsRecalculation.Trigger.MANUAL
-        )
+        assert ExperimentMetricsRecalculation.objects.get(experiment=exp).trigger == expected_trigger
 
     @mock.patch("products.experiments.backend.recalculation.sync_connect")
     @mock.patch("products.experiments.backend.recalculation.asyncio.run")

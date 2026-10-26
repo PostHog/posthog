@@ -428,8 +428,9 @@ class MCPToolFailureOccurrencesQueryRunner(AnalyticsQueryRunner[MCPToolFailureOc
 
 
 _IS_ERROR = "countIf(toBool(properties.$mcp_is_error))"
-_P50 = "round(quantile(0.5)(toFloat(properties.$mcp_duration_ms)))"
-_P95 = "round(quantile(0.95)(toFloat(properties.$mcp_duration_ms)))"
+# One sample for both levels keeps p50 <= p95. quantiles() returns NaN, not NULL, when there are no
+# durations, so map NaN back to NULL.
+_P50_P95 = "arrayMap(q -> if(isNaN(q), NULL, round(q)), quantiles(0.5, 0.95)({duration_ms}))"
 
 
 class MCPToolStatsQueryRunner(AnalyticsQueryRunner[MCPToolStatsQueryResponse]):
@@ -446,30 +447,34 @@ class MCPToolStatsQueryRunner(AnalyticsQueryRunner[MCPToolStatsQueryResponse]):
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         return parse_select(
             """
-            SELECT
-                countIf(is_tool) AS calls,
-                countIf(is_tool AND is_error) AS errors,
-                round(quantileIf(0.5)(duration_ms, is_tool)) AS p50_ms,
-                round(quantileIf(0.95)(duration_ms, is_tool)) AS p95_ms,
-                uniqIf(distinct_id, is_tool) AS users,
-                uniqIf(conversation_id, is_tool) AS conversations,
-                countIf(is_tool AND has_intent) AS with_intent,
-                count() AS total_calls,
-                uniq(conversation_id) AS total_conversations
+            SELECT calls, errors, latency[1] AS p50_ms, latency[2] AS p95_ms, users, conversations, with_intent,
+                total_calls, total_conversations
             FROM (
                 SELECT
-                    distinct_id,
-                    nullIf({_CONVERSATION_ID}, '') AS conversation_id,
-                    toBool(properties.$mcp_is_error) AS is_error,
-                    toFloat(properties.$mcp_duration_ms) AS duration_ms,
-                    notEmpty(toString(properties.$mcp_intent)) AND toString(properties.$mcp_intent) != '{}' AS has_intent,
-                    {is_tool} AS is_tool
-                FROM events
-                WHERE {where}
+                    countIf(is_tool) AS calls,
+                    countIf(is_tool AND is_error) AS errors,
+                    {_P50_P95} AS latency,
+                    uniqIf(distinct_id, is_tool) AS users,
+                    uniqIf(conversation_id, is_tool) AS conversations,
+                    countIf(is_tool AND has_intent) AS with_intent,
+                    count() AS total_calls,
+                    uniq(conversation_id) AS total_conversations
+                FROM (
+                    SELECT
+                        distinct_id,
+                        nullIf({_CONVERSATION_ID}, '') AS conversation_id,
+                        toBool(properties.$mcp_is_error) AS is_error,
+                        toFloat(properties.$mcp_duration_ms) AS duration_ms,
+                        notEmpty(toString(properties.$mcp_intent)) AND toString(properties.$mcp_intent) != '{}' AS has_intent,
+                        {is_tool} AS is_tool
+                    FROM events
+                    WHERE {where}
+                )
             )
             """,
             placeholders={
                 "_CONVERSATION_ID": parse_expr(CONVERSATION_ID_SQL),
+                "_P50_P95": parse_expr(_P50_P95, {"duration_ms": parse_expr("if(is_tool, duration_ms, NULL)")}),
                 "is_tool": effective_tool_expr(self.query.toolName),
                 "where": _tool_call_where(self.query, self.query_date_range, self.team, scope_to_tool=False),
             },
@@ -538,17 +543,19 @@ class MCPToolDailyStatsQueryRunner(AnalyticsQueryRunner[MCPToolDailyStatsQueryRe
         interval = self.query.interval.value if self.query.interval else "day"
         return parse_select(
             """
-            SELECT
-                toString(dateTrunc({interval}, timestamp)) AS day,
-                count() AS calls,
-                {_IS_ERROR} AS errors,
-                {_P50} AS p50,
-                {_P95} AS p95,
-                uniq(distinct_id) AS users,
-                uniq(nullIf({_CONVERSATION_ID}, '')) AS sessions
-            FROM events
-            WHERE {where}
-            GROUP BY day
+            SELECT day, calls, errors, latency[1] AS p50, latency[2] AS p95, users, sessions
+            FROM (
+                SELECT
+                    toString(dateTrunc({interval}, timestamp)) AS day,
+                    count() AS calls,
+                    {_IS_ERROR} AS errors,
+                    {_P50_P95} AS latency,
+                    uniq(distinct_id) AS users,
+                    uniq(nullIf({_CONVERSATION_ID}, '')) AS sessions
+                FROM events
+                WHERE {where}
+                GROUP BY day
+            )
             ORDER BY day
             LIMIT 10000
             """,
@@ -556,8 +563,7 @@ class MCPToolDailyStatsQueryRunner(AnalyticsQueryRunner[MCPToolDailyStatsQueryRe
                 "interval": ast.Constant(value=interval),
                 "_CONVERSATION_ID": parse_expr(CONVERSATION_ID_SQL),
                 "_IS_ERROR": parse_expr(_IS_ERROR),
-                "_P50": parse_expr(_P50),
-                "_P95": parse_expr(_P95),
+                "_P50_P95": parse_expr(_P50_P95, {"duration_ms": parse_expr("toFloat(properties.$mcp_duration_ms)")}),
                 "where": _tool_call_where(self.query, self.query_date_range, self.team),
             },
         )
