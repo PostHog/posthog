@@ -7770,15 +7770,15 @@ Today (11): `account_growth_items`, `activities`, `companies`, `contacts`, `cust
 
 Diffed against: <https://www.membrain.com/developers/api-documentation>
 
-- [ ] `Sales processes (GET /API/v2/salesProcesses/)` — resolve opportunity process and stage IDs, including stage order and process-specific fields (high)
-- [ ] `Prospecting processes (GET /API/v2/prospectingProcesses/)` — resolve prospect process and stage IDs for conversion analysis (high)
+- [x] `Sales processes (GET /API/v2/salesProcesses/)` — resolve opportunity process and stage IDs, including stage order and process-specific fields (high)
+- [x] `Prospecting processes (GET /API/v2/prospectingProcesses/)` — resolve prospect process and stage IDs for conversion analysis (high)
 - [x] `Account Growth processes (GET /API/v2/accountGrowthProcesses/)` — resolve account-growth process and stage IDs for expansion analysis (high)
 - [x] `Ticket processes (GET /API/v2/ticketProcesses/)` — resolve ticket process and stage IDs for support workflow analysis (high)
 - [x] `Currencies (GET /API/v2/currencies/)` — resolve ValueCurrencyId and supply exchange rates for comparable pipeline values (high)
-- [ ] `Labels (GET /API/v2/labels/)` — resolve LabelIds on companies and contacts for consistent segmentation (high)
+- [x] `Labels (GET /API/v2/labels/)` — resolve LabelIds on companies and contacts for consistent segmentation (high)
 - [x] `Activity types (GET /API/v2/activityTypes/)` — resolve ActivityTypeId and provide the complete activity taxonomy (high)
 - [ ] `Process Container Contacts (GET /API/v2/processContainerContacts/)` — connect contacts to sales processes and their stakeholder roles (medium)
-- [ ] `Opportunity Products (GET /API/v2/opportunityProducts/)` — join products to opportunities for product-level pipeline and revenue analysis (medium)
+- [x] `Opportunity Products (GET /API/v2/opportunityProducts/)` — join products to opportunities for product-level pipeline and revenue analysis (medium)
 - [ ] `Orders and Order Rows (GET /API/v2/orders/; GET /API/v2/orderRows/)` — measure booked sales and item-level amounts against opportunities and products (medium)
 
 Note: Fetched the complete official v2 reference and extracted top-level and nested GET operations. Process endpoints embed stages, steps, and custom fields; these definitions differ from the existing generic custom-fields table. Existing activities already cover notes, calls, emails, and tasks, so duplicate activity tables are excluded. Order rows and contact associations need joins; excluded automation configuration and batch transport.
@@ -8117,26 +8117,28 @@ Diffed against: <https://raw.githubusercontent.com/modal-labs/modal-client/main/
 - [x] `Workspace billing summary (SDK RPC WorkspaceBillingSummary, Workspace.billing.summary)` — reconcile metered cost with invoiced cost, credits, and other adjustments (high)
 - [ ] `Function statistics (SDK RPC FunctionGetTimeRangeStats, Function.stats)` — measure successful calls, failures, timeouts, latency, and resource utilization, which billing costs cannot show (high)
 - [x] `Sandboxes (SDK RPC SandboxList/SandboxListV2, Sandbox.list)` — resolve sandbox IDs in billing reports and compare sandbox populations across applications (high)
-- [ ] `App deployment history (SDK RPC AppDeploymentHistory)` — connect deployment revisions with cost changes, failed calls, and incident periods (medium)
-- [ ] `Workspace members (SDK RPC WorkspaceMembersList, Workspace.members.list)` — join application creators with workspace member identities for ownership and adoption reports (medium)
+- [x] `App deployment history (SDK RPC AppDeploymentHistory)` — connect deployment revisions with cost changes, failed calls, and incident periods (medium)
+- [x] `Workspace members (SDK RPC WorkspaceMembersList, Workspace.members.list)` — join application creators with workspace member identities for ownership and adoption reports (medium)
 - [ ] `App logs (SDK RPC AppFetchLogs, App.logs.fetch)` — analyze execution errors and runtime activity by function, container, and time (medium)
 
 Note: Compared the official SDK protobuf service and its documented read methods. Both current tables call Workspace.billing.report at different time resolutions. App and sandbox collections resolve billing object IDs; statistics, history, and logs need requests for each object. Billing summaries include credits and adjustments, and billing access requires an eligible plan.
 
 ## MoEngage — **thin**
 
-Today (3): `campaign_report`, `campaigns`, `daily_campaign_report`
+Today (6): `campaign_report`, `campaigns`, `daily_campaign_report`, `flows`, `segments`, `subscription_categories`
 
 Diffed against: <https://moengage.com/docs/llms-full.txt>
 
-- [ ] `Search Flows (POST /v5/flows/search; GET /v5/flows/{flow_id})` — resolve flow_id on synced child campaigns and analyze journey stages, versions, and lifecycle states (high)
-- [ ] `List Segments (GET /v3/custom-segments)` — resolve custom segment references in campaign audience filters and compare targeting definitions (high)
-- [ ] `Get Subscription Categories (GET /v5/subscription-categories)` — resolve subscription_category values on email campaigns to display names, groups, and descriptions (high)
+- [x] `Search Flows (POST /v5/flows/search; GET /v5/flows/{flow_id})` — resolve flow_id on synced child campaigns and analyze journey stages, versions, and lifecycle states (high)
+- [x] `List Segments (GET /v3/custom-segments)` — resolve custom segment references in campaign audience filters and compare targeting definitions (high)
+- [x] `Get Subscription Categories (GET /v5/subscription-categories)` — resolve subscription_category values on email campaigns to display names, groups, and descriptions (high)
 - [ ] `Get Query Results (GET /v5/analytics/query/{request_id}/results)` — import retention, funnel conversion, behavior, and acquisition results that campaign statistics cannot provide (high)
 - [ ] `Dashboard charts and chart data (GET /v5/analytics/dashboards; GET /v5/analytics/dashboards/{dashboard_id}/charts; GET /v5/analytics/dashboards/{dashboard_id}/charts/{chart_id})` — reproduce existing dashboard metrics and compare campaign performance with the underlying customer behavior (medium)
 - [ ] `Fetch All Coupon Lists (GET /v1/coupon-list)` — track available and issued coupon counts, expiry dates, and campaign incentive availability (medium)
 
 Note: Compared operations in the full official reference and parsed the corresponding OpenAPI files. Campaign search already includes child and archived campaigns, so execution listings are duplicate coverage. Chart imports need dashboard enumeration; analytics queries need registration, polling, and result schemas selected by users. Flow endpoints have early access restrictions; excluded write operations, template configuration, and streaming ingestion.
+
+Note: `Get Query Results` is left unticked on purpose. It only returns rows for a query registered first through a behavior, funnels, retention, session source, or user analysis POST, so each result set depends on a query definition the user chooses, not a fixed catalog the source can sync. `flows` syncs the Search Flows listing only; the per-flow detail call is not fanned out.
 
 ## Mollie — gaps
 
@@ -8189,10 +8191,10 @@ Diffed against: <https://docs.mono.co/llms.txt>
 - [x] `Fetch all Payments (GET /v2/payments/transactions)` — analyze payment collection revenue, failures, fees, and refunds separately from linked bank transactions (high)
 - [x] `Get all Mandates (GET /v3/payments/mandates)` — track direct debit authorizations, their states, and customer relationships for recurring collection analysis (high)
 - [x] `Retrieve All Debits (GET /v3/payments/mandates/debits)` — measure successful and failed mandate collections, collected amounts, and debit fees (high)
-- [ ] `Payout (GET /v2/payments/payouts)` — reconcile payment collections with settlement amounts and payout status (high)
-- [ ] `Payout Transactions (GET /v2/payments/payout/{payout}/transactions)` — match individual collections to settlements and explain payout totals (high)
-- [ ] `Disbursements and distributions (GET /v3/payments/disburse/disbursements; GET /v3/payments/disburse/disbursements/{batch_id}/distributions)` — analyze outgoing payment batches and recipient distributions, including payment status and amounts (high)
-- [ ] `Income Records (GET /v2/accounts/{id}/income-records)` — analyze completed income assessments and compare customer earning capacity over time (medium)
+- [x] `Payout (GET /v2/payments/payouts)` — reconcile payment collections with settlement amounts and payout status (high). Added as `payouts`. Mono requires a `status` filter and documents only `settled`, so the table holds settled payouts
+- [ ] `Payout Transactions (GET /v2/payments/payout/{payout}/transactions)` — match individual collections to settlements and explain payout totals (high). Skipped: the endpoint requires an `account` query parameter that payout records do not carry, so it cannot fan out from `payouts`
+- [x] `Disbursements and distributions (GET /v3/payments/disburse/disbursements; GET /v3/payments/disburse/disbursements/{batch_id}/distributions)` — analyze outgoing payment batches and recipient distributions, including payment status and amounts (high). Added as `disbursements` and `disbursement_distributions`
+- [x] `Income Records (GET /v2/accounts/{id}/income-records)` — analyze completed income assessments and compare customer earning capacity over time (medium). Added as `income_records`
 - [ ] `Assets (GET /v2/accounts/{id}/assets)` — analyze customer investment holdings that bank transaction tables do not expose (medium)
 - [ ] `Earnings (GET /v2/accounts/{id}/earnings)` — measure investment income and portfolio returns alongside customer holdings (medium)
 
@@ -8237,10 +8239,10 @@ Today (11): `clients`, `contacts`, `email_templates`, `form_names`, `invoice_tem
 
 Diffed against: <https://api-docs.withmoxie.com/sitemap.xml>
 
-- [ ] `List tasks (GET /public/action/tasks/list)` — analyze project workload, task completion, and status distributions beyond the synced project summaries (high)
-- [ ] `getCustomFields (GET /public/api/customFields)` — interpret customValues on synced client and project records with the workspace field definitions (high)
-- [ ] `Search Agreements (GET /public/action/agreements/search)` — measure agreement completion, signature status, and contract lifecycle by client (medium)
-- [ ] `List tickets (GET /public/action/tickets/list)` — analyze customer support workload and ticket states alongside synced clients and projects (medium)
+- [x] `List tasks (GET /public/action/tasks/list)` — analyze project workload, task completion, and status distributions beyond the synced project summaries (high). Added as `tasks`.
+- ~~`getCustomFields (GET /public/api/customFields)` — interpret customValues on synced client and project records with the workspace field definitions (high)~~ — skipped: it is a Zapier hook endpoint that needs a `type` value the spec does not document, and it returns only key and label pairs, not the field definitions
+- [x] `Search Agreements (GET /public/action/agreements/search)` — measure agreement completion, signature status, and contract lifecycle by client (medium). Added as `agreements`.
+- [x] `List tickets (GET /public/action/tickets/list)` — analyze customer support workload and ticket states alongside synced clients and projects (medium). Added as `tickets`.
 
 Note: Followed the retired help collection to the current reference, then read collection operations listed in its sitemap. Current paths use /public/action or /public/api, so the configured workspace base URL must have the matching prefix. These gaps do not require parent enumeration. Excluded write-only time, expense, invoice, payment, and opportunity operations, plus configuration templates.
 
@@ -8333,16 +8335,16 @@ Note: Compared the official Query API endpoint reference with the source discove
 
 ## Netlify — gaps
 
-Today (8): `accounts`, `builds`, `deploys`, `dns_zones`, `forms`, `members`, `sites`, `submissions`
+Today (11): `accounts`, `audit_events`, `builds`, `deploys`, `dns_records`, `dns_zones`, `forms`, `members`, `sites`, `submissions`, `traffic_splits`
 
 Diffed against: <https://open-api.netlify.com/swagger.json>
 
-- [ ] `/dns_zones/{zone_id}/dns_records` — the actual records inside the zones already synced — zones alone carry almost no queryable detail (high)
-- [ ] `/accounts/{account_id}/audit` — account audit log: who deployed, changed env vars, or altered site settings and when (high)
+- [x] `/dns_zones/{zone_id}/dns_records` — the actual records inside the zones already synced — zones alone carry almost no queryable detail (high). Added as `dns_records` (fan-out over `dns_zones`).
+- [x] `/accounts/{account_id}/audit` — account audit log: who deployed, changed env vars, or altered site settings and when (high). Added as `audit_events` (fan-out over `accounts`).
 - [ ] `/sites/{site_id}/functions` — serverless/edge function inventory per site, needed to attribute build and runtime behavior (medium)
 - [ ] `/sites/{site_id}/deployed-branches` — branch-to-deploy mapping for branch-deploy and preview analysis (medium)
-- [ ] `/sites/{site_id}/traffic_splits` — split test definitions and branch weights — the A/B testing objects (medium)
-- [ ] `/accounts/types` — lookup resolving the plan/type id on every account row (medium)
+- [x] `/sites/{site_id}/traffic_splits` — split test definitions and branch weights — the A/B testing objects (medium). Added as `traffic_splits` (fan-out over `sites`).
+- ~~`/accounts/types` — lookup resolving the plan/type id on every account row (medium)~~ — skipped: it lists the plans offered to new teams, not the plan of each existing account, and `accounts` rows already carry `type_id` and `type_name`
 - [ ] `/sites/{site_id}/plugin_runs/latest` — build plugin run outcomes per site, complementing build status (low)
 - [ ] `/sites/{site_id}/service-instances` — installed add-on instances per site (low)
 - [ ] `/sites/{site_id}/ssl/certificates` — certificate state and expiry per site (low)
@@ -8353,14 +8355,14 @@ Note: Official OpenAPI 2.0 spec (open-api.netlify.com/swagger.json, ~700 KB). Ho
 
 ## NewRelic — gaps
 
-Today (8): `alert_conditions`, `alert_policies`, `entities`, `logs`, `page_views`, `spans`, `transaction_errors`, `transactions`
+Today (11): `alert_conditions`, `alert_incidents`, `alert_issues`, `alert_policies`, `entities`, `javascript_errors`, `logs`, `page_views`, `spans`, `transaction_errors`, `transactions`
 
 Diffed against: <https://docs.newrelic.com/attribute-dictionary/>
 
-- [ ] `NrAiIncident` — incident open/close history for the alert conditions already synced - the state-transition table that makes alert_conditions queryable (high)
+- [x] `NrAiIncident` — incident open/close history for the alert conditions already synced - the state-transition table that makes alert_conditions queryable (high)
 - [ ] `Metric` — New Relic's dimensional metric timeslice data, the headline data type behind every APM/infra chart (high)
-- [ ] `JavaScriptError` — browser error events; the error-side counterpart to page_views, same way transaction_errors pairs with transactions (high)
-- [ ] `NrAiIssue` — correlated issue grouping over incidents, needed for MTTA/MTTR analysis (medium)
+- [x] `JavaScriptError` — browser error events; the error-side counterpart to page_views, same way transaction_errors pairs with transactions (high)
+- [x] `NrAiIssue` — correlated issue grouping over incidents, needed for MTTA/MTTR analysis (medium)
 - [ ] `Deployment / ChangeTrackingEvent` — deployment and change markers to correlate releases with transaction/error regressions (medium)
 - [ ] `MobileSession / MobileCrash / MobileRequest` — mobile monitoring events; no mobile coverage at all today (medium)
 - [ ] `SyntheticCheck / SyntheticRequest` — synthetic monitor results for uptime and SLA reporting (medium)
@@ -8444,14 +8446,14 @@ Note: The API reference is a single large HTML page; extracted all /api/v2/\* pa
 
 ## Northflank — gaps
 
-Today (5): `addons`, `jobs`, `projects`, `services`, `volumes`
+Today (9): `addons`, `job_runs`, `jobs`, `plans`, `projects`, `service_builds`, `services`, `usage`, `volumes`
 
 Diffed against: <https://northflank.com/docs/sitemap.xml>
 
-- [ ] `GET /v1/projects/{projectId}/services/{serviceId}/build` — build history per service (status, branch, sha, timings) - deployment frequency and build-failure analysis (high)
-- [ ] `GET /v1/projects/{projectId}/jobs/{jobId}/runs` — job run history with success/failure and durations; the jobs table alone has no execution record (high)
-- [ ] `GET /v1/billing/usage` — hourly resource usage entries - the basis for cost attribution per project/service (high)
-- [ ] `GET /v1/plans` — lookup table resolving the plan ids carried on every service, job, addon and volume already synced (vCPU, RAM, hourly cost) (high)
+- [x] `GET /v1/projects/{projectId}/services/{serviceId}/build` — build history per service (status, branch, sha, timings) - deployment frequency and build-failure analysis (high)
+- [x] `GET /v1/projects/{projectId}/jobs/{jobId}/runs` — job run history with success/failure and durations; the jobs table alone has no execution record (high)
+- [x] `GET /v1/billing/usage` — hourly resource usage entries - the basis for cost attribution per project/service (high)
+- [x] `GET /v1/plans` — lookup table resolving the plan ids carried on every service, job, addon and volume already synced (vCPU, RAM, hourly cost) (high)
 - [ ] `GET /v1/projects/{projectId}/jobs/{jobId}/build` — build history for jobs, the job-side counterpart to service builds (medium)
 - [ ] `GET /v1/projects/{projectId}/workflows/{workflowId}/runs` — workflow execution history, the release automation audit trail (medium)
 - [ ] `GET /v1/projects/{projectId}/pipelines` — pipeline definitions that services and release flows belong to - the missing grouping dimension (medium)
@@ -8511,9 +8513,9 @@ Today (3): `catalog_events`, `package_versions`, `packages`
 
 Diffed against: <https://api.nuget.org/v3/index.json>
 
-- [ ] `VulnerabilityInfo/6.7.0 (https://api.nuget.org/v3/vulnerabilities/index.json → vulnerability.base.json + vulnerability.update.json)` — Lookup keyed by the exact package IDs we already sync: advisory URL, severity, and affected version range — turns packages/package_versions into a security posture table (high)
-- [ ] `catalogEntry.dependencyGroups (registration leaf / catalog leaf child object)` — Per-version dependency graph (target framework + dependency id/range) already present in the leaves we fetch, but never flattened into a queryable table (medium)
-- [ ] `SearchQueryService/3.5.0 (query by owner/tag, not just tracked ids)` — Lets a user sync every package for an owner or tag instead of hand-listing package ids, and exposes verified/prefix-reserved and total download counts across a portfolio (low)
+- [x] `VulnerabilityInfo/6.7.0 (https://api.nuget.org/v3/vulnerabilities/index.json → vulnerability.base.json + vulnerability.update.json)` — Lookup keyed by the exact package IDs we already sync: advisory URL, severity, and affected version range — turns packages/package_versions into a security posture table (high)
+- [x] `catalogEntry.dependencyGroups (registration leaf / catalog leaf child object)` — Per-version dependency graph (target framework + dependency id/range) already present in the leaves we fetch, but never flattened into a queryable table (medium)
+- [ ] `SearchQueryService/3.5.0 (query by owner/tag, not just tracked ids)` — Lets a user sync every package for an owner or tag instead of hand-listing package ids, and exposes verified/prefix-reserved and total download counts across a portfolio (low) — skipped: a package-selection mode rather than a new table; `packages` already carries `verified` and `totalDownloads`
 
 Note: Source is package-id-scoped: the user configures a list of package ids and packages/package_versions are built from search + registration. NuGet v3's remaining service-index resources (Autocomplete, RepositorySignatures, PackagePublish, SymbolPackagePublish, ReportAbuse, PackageBaseAddress) are plumbing or write paths and correctly excluded.
 
@@ -8542,8 +8544,8 @@ Today (5): `feeds`, `keywords`, `mentions`, `notifications`, `org_members`
 
 Diffed against: <https://octolens.com/openapi.json>
 
-- [ ] `List past on-demand searches and search results (GET /api/v2/search; GET /api/v2/search/{searchId})` — include on-demand search activity and scored results that never appear in the synced mentions feed (high)
-- [ ] `Get usage stats (GET /api/v2/org/usage)` — track billing-cycle consumption, remaining allowances, plan limits, and usage-based billing state (medium)
+- [x] `List past on-demand searches and search results (GET /api/v2/search; GET /api/v2/search/{searchId})` — include on-demand search activity and scored results that never appear in the synced mentions feed (high)
+- [x] `Get usage stats (GET /api/v2/org/usage)` — track billing-cycle consumption, remaining allowances, plan limits, and usage-based billing state (medium)
 - [ ] `List agency workspaces and members (GET /api/v2/agency/workspaces; GET /api/v2/agency/workspaces/{orgId}/members)` — compare client workspace usage and memberships for agency reporting (medium)
 
 Note: Parsed every operation in the official OpenAPI 3.1 document, including nested agency and search routes. Search results are separate from monitored mentions and need requests for each search ID. Agency coverage requires agency permissions and workspace selection; the current source imports one authenticated organization. Excluded authentication, configuration, and analytic summaries that can be calculated from synced mentions, including sentiment and volume.
@@ -8554,10 +8556,10 @@ Today (11): `channels`, `deployments`, `environments`, `events`, `machines`, `pr
 
 Diffed against: <https://demo.octopus.app/api>
 
-- [ ] `users (/api/users)` — Lookup that resolves the user ids already carried on events, deployments, tasks and interruptions (high)
+- [x] `users (/api/users)` — Lookup that resolves the user ids already carried on events, deployments, tasks and interruptions (high)
 - [ ] `teams + teammembership (/api/teams, /api/teammembership)` — Team definitions and the user→team junction — the only way to aggregate deployment activity by team (high)
-- [ ] `lifecycles (/api/{space}/lifecycles)` — Lookup resolving the LifecycleId on projects/releases into ordered phases and environments, needed to judge whether a deployment progressed normally (high)
-- [ ] `interruptions (/api/{space}/interruptions)` — Manual intervention and approval records with responsible-team and resolution timestamps — the wait time inside deployment lead time (high)
+- [x] `lifecycles (/api/{space}/lifecycles)` — Lookup resolving the LifecycleId on projects/releases into ordered phases and environments, needed to judge whether a deployment progressed normally (high)
+- [x] `interruptions (/api/{space}/interruptions)` — Manual intervention and approval records with responsible-team and resolution timestamps — the wait time inside deployment lead time (high)
 - [ ] `insights/reports (/api/{space}/insights/reports)` — Octopus's own DORA-style reporting objects (deployment frequency, lead time, failure rate) — the vendor's headline metric (high)
 - [ ] `runbookRuns (/api/{space}/runbookRuns)` — Operational run history that sits alongside deployments; without it half of what Octopus executes is invisible (medium)
 - [ ] `runbooks (/api/{space}/runbooks)` — Lookup resolving the RunbookId on runbook runs and project triggers (medium)
@@ -8567,7 +8569,7 @@ Diffed against: <https://demo.octopus.app/api>
 - [ ] `workers + workerpools (/api/{space}/workers, /api/{space}/workerpools)` — We sync machines (deployment targets) but not the worker fleet that actually executes steps, so execution capacity analysis is impossible (medium)
 - [ ] `deploymentprocesses (/api/{space}/deploymentprocesses)` — Step-level definition per project, needed to break deployment duration down by step (low)
 
-Note: Diffed against the live self-describing API root on the public demo instance, which enumerates every resource link (space-scoped links are templated as /api/Spaces-1/...). Excluded as config/plumbing: subscriptions (webhooks), gitcredentials, certificates, signingkeys, accounts, feeds, proxies, smtp/telemetry/maintenance/performance configuration, migrations and import/export. Event lookup tables (events/categories, events/groups, events/agents, events/documenttypes) exist and would enrich the events table, but are low value on their own.
+Note: Diffed against the live self-describing API root on the public demo instance, which enumerates every resource link (space-scoped links are templated as /api/Spaces-1/...). Excluded as config/plumbing: subscriptions (webhooks), gitcredentials, certificates, signingkeys, accounts, feeds, proxies, smtp/telemetry/maintenance/performance configuration, migrations and import/export. Event lookup tables (events/categories, events/groups, events/agents, events/documenttypes) exist and would enrich the events table, but are low value on their own. `insights/reports` lists only Insights report definitions (scope filters and time zone, Enterprise-only); the DORA metrics sit behind a per-report `/metrics` call that returns pre-aggregated series for a chosen time range, which the synced `deployments` and `tasks` tables already let you compute, so it is not synced.
 
 ## Okendo — gaps
 
@@ -8583,14 +8585,14 @@ Note: Read the generated Merchant API reference for version 2025-02-01, includin
 
 ## Okta — gaps
 
-Today (6): `applications`, `group_rules`, `groups`, `logs`, `user_types`, `users`
+Today (10): `application_groups`, `application_users`, `applications`, `group_members`, `group_rules`, `groups`, `logs`, `user_factors`, `user_types`, `users`
 
 Diffed against: <https://raw.githubusercontent.com/okta/okta-management-openapi-spec/master/dist/2026.07.2/management-minimal.yaml>
 
-- [ ] `groups/{groupId}/users` — The user↔group membership junction; without it the groups and users tables cannot be joined at all (high)
-- [ ] `apps/{appId}/users` — Application assignment per user (with scope, status and credentials profile) — the core access-review question (high)
-- [ ] `apps/{appId}/groups` — Group-based application assignment, the other half of how access is actually granted (high)
-- [ ] `users/{userId}/factors and users/{userId}/authenticator-enrollments` — Enrolled MFA factors per user — the standard security-posture report over an Okta sync (high)
+- [x] `groups/{groupId}/users` — The user↔group membership junction; without it the groups and users tables cannot be joined at all (high). Added as `group_members`.
+- [x] `apps/{appId}/users` — Application assignment per user (with scope, status and credentials profile) — the core access-review question (high). Added as `application_users`.
+- [x] `apps/{appId}/groups` — Group-based application assignment, the other half of how access is actually granted (high). Added as `application_groups`.
+- [x] `users/{userId}/factors and users/{userId}/authenticator-enrollments` — Enrolled MFA factors per user — the standard security-posture report over an Okta sync (high). Added `users/{userId}/factors` as `user_factors`; `authenticator-enrollments` is skipped because it is Identity Engine only and would repeat the per-user fan-out for overlapping enrollment data.
 - [ ] `policies and policies/{policyId}/rules` — Sign-on, password and authenticator policies plus their rules; explains why the logs table shows the auth outcomes it does (medium)
 - [ ] `devices and devices/{deviceId}/users` — Managed device inventory plus the device↔user junction, needed for device-trust and BYOD analysis (medium)
 - [ ] `iam/roles, users/{userId}/roles, groups/{groupId}/roles` — Standard and custom admin-role assignments — privileged-access reporting over users and groups we already sync (medium)
@@ -8608,13 +8610,13 @@ Today (6): `Connections`, `Documents`, `Folders`, `Schedules`, `UserGroups`, `Us
 
 Diffed against: <https://docs.omni.co/sitemap.xml>
 
-- [ ] `models (GET /api/v1/models — list-models, list-model-schemas)` — Lookup resolving the model id carried by documents, queries and schedules; nothing in the current tables identifies which data model content sits on (high)
-- [ ] `schedule-recipients (list-schedule-recipients)` — Junction between the Schedules table we already sync and the users/groups actually receiving each delivery (high)
-- [ ] `document-permissions (get-document-permissions, all-users-and-groups-with-document-access)` — Who can see which dashboard — the access-audit join across Documents, Users and UserGroups (high)
+- [x] `models (GET /api/v1/models — list-models, list-model-schemas)` — Lookup resolving the model id carried by documents, queries and schedules; nothing in the current tables identifies which data model content sits on (high)
+- [x] `schedule-recipients (list-schedule-recipients)` — Junction between the Schedules table we already sync and the users/groups actually receiving each delivery (high)
+- [x] `document-permissions (get-document-permissions, all-users-and-groups-with-document-access)` — Who can see which dashboard — the access-audit join across Documents, Users and UserGroups (high)
 - [ ] `ai conversations (list-ai-conversations, get-conversation)` — AI query usage per user, the closest thing Omni's API offers to consumption analytics (medium)
 - [ ] `labels (list-labels)` — Lookup for the labels applied to documents; without it label ids on content are unresolvable (medium)
 - [ ] `user-model-roles and user-group-model-roles (retrieve endpoints)` — Per-model permission grants for users and groups — governance reporting over models (medium)
-- [ ] `user-attributes (list-user-attributes)` — Lookup for the attribute keys used in row-level access controls referenced on users (medium)
+- [x] `user-attributes (list-user-attributes)` — Lookup for the attribute keys used in row-level access controls referenced on users (medium)
 - [ ] `folder-permissions (get-folder-permissions)` — Folder-level access grants, the inherited layer above document permissions on the Folders table we sync (medium)
 - [ ] `document-favorites (list-document-favoriters)` — Per-document favorite counts and favoriters — an engagement signal on content (medium)
 - [ ] `embed users and email-only users (list-embed-users, list-email-only-users)` — Two user populations excluded from the main Users table, so seat and delivery counts are understated (medium)
@@ -8629,10 +8631,10 @@ Today (4): `campaigns`, `categories`, `contacts`, `products`
 
 Diffed against: <https://api-docs.omnisend.com/llms.txt>
 
-- [ ] `POST /analytics/statistics (Statistics)` — Aggregated delivery, engagement, revenue-attribution and audience-growth metrics grouped by event date — the vendor's headline marketing numbers, absent entirely today (high)
-- [ ] `POST /analytics/reports (Reports)` — Same metric family grouped by send date with campaign/automation dimensions, so campaigns can be ranked by performance rather than just listed (high)
-- [ ] `GET /segments and GET /segments/{segmentID}/statistics` — Segment definitions plus member counts — the lookup that resolves the segment ids automations and campaigns target (high)
-- [ ] `GET /automations (list automation workflows)` — Automated flows are the other half of Omnisend sending volume; only one-off campaigns are synced today (high)
+- [x] `POST /analytics/statistics (Statistics)` — Aggregated delivery, engagement, revenue-attribution and audience-growth metrics grouped by event date — the vendor's headline marketing numbers, absent entirely today (high)
+- [x] `POST /analytics/reports (Reports)` — Same metric family grouped by send date with campaign/automation dimensions, so campaigns can be ranked by performance rather than just listed (high)
+- [x] `GET /segments and GET /segments/{segmentID}/statistics` — Segment definitions plus member counts — the lookup that resolves the segment ids automations and campaigns target (high)
+- [x] `GET /automations (list automation workflows)` — Automated flows are the other half of Omnisend sending volume; only one-off campaigns are synced today (high)
 - [ ] `GET /brands/current` — Single-row account/brand context (currency, store connection) that makes revenue figures interpretable (low)
 
 Note: The connector targets v3 (https://api.omnisend.com/v3). The gaps above are on the current 2026-03-15 version (header-based versioning, base https://api.omnisend.com/api/), which added Segments, Automations, Analytics, Email Templates and Images — so closing them means reaching into a newer API version, not just adding v3 paths. Events are write-only (POST /events), so there is no queryable event stream. Email templates, universal layouts, images and batches were excluded as assets/plumbing.
