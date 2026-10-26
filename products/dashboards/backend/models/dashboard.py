@@ -2,7 +2,7 @@ from typing import TYPE_CHECKING, Any
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
-from django.db.models import QuerySet
+from django.db.models import Q, QuerySet
 
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.file_system.constants import DEFAULT_SURFACE
@@ -189,7 +189,8 @@ class Dashboard(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin
 
     @property
     def tile_group_keys(self) -> set[str]:
-        return set(self.tiles.exclude(group_key__isnull=True).values_list("group_key", flat=True))
+        visible_tiles = self.tiles.filter(Q(insight__deleted=False) | Q(insight__isnull=True))
+        return set(visible_tiles.exclude(group_key__isnull=True).values_list("group_key", flat=True))
 
     @property
     def tile_group_count(self) -> int:

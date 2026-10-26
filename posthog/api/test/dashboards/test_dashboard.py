@@ -2235,6 +2235,29 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
 
     @patch("products.dashboards.backend.api.dashboard.report_user_action")
+    def test_dashboard_tile_group_created_ignores_tiles_hidden_by_a_deleted_insight(
+        self, mock_report_user_action: MagicMock
+    ) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "test"})
+        self.dashboard_api.create_insight({"dashboards": [dashboard_id], "name": "insight"})
+        tile_id = self.dashboard_api.get_dashboard(dashboard_id)["tiles"][0]["id"]
+        self.dashboard_api.update_dashboard(dashboard_id, {"tiles": [{"id": tile_id, "group_key": "plans"}]})
+        Insight.objects.filter(team=self.team).update(deleted=True)
+        mock_report_user_action.reset_mock()
+
+        self.dashboard_api.update_dashboard(
+            dashboard_id, {"tiles": [{"text": {"body": "a"}, "layouts": {}, "group_key": "plans"}]}
+        )
+
+        group_created_calls = [
+            call for call in mock_report_user_action.call_args_list if call.args[1] == "dashboard tile group created"
+        ]
+        self.assertEqual(
+            [call.args[2] for call in group_created_calls],
+            [{"dashboard_id": dashboard_id, "group_display": "sections", "group_count": 1}],
+        )
+
+    @patch("products.dashboards.backend.api.dashboard.report_user_action")
     def test_dashboard_tile_group_created_is_not_reported_when_the_update_rolls_back(
         self, mock_report_user_action: MagicMock
     ) -> None:
