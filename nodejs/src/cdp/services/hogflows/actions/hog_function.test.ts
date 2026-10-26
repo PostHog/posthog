@@ -669,14 +669,10 @@ describe('HogFunctionHandler', () => {
             }
             const build = mockHogFlowFunctionsService.buildHogFunctionInvocation.bind(mockHogFlowFunctionsService)
             jest.spyOn(mockHogFlowFunctionsService, 'buildHogFunctionInvocation').mockImplementation(
-                async (flowInvocation, hogFunction, globals) => ({
-                    ...(await build(
-                        { ...flowInvocation, hogFlow: { ...flowInvocation.hogFlow, version: renderedVersion } },
-                        hogFunction,
-                        globals
-                    )),
-                    hogFlow: flowInvocation.hogFlow,
-                })
+                async (flowInvocation, hogFunction, globals) => {
+                    const built = await build(flowInvocation, hogFunction, globals)
+                    return { ...built, state: { ...built.state, renderedWorkflowVersion: renderedVersion } }
+                }
             )
 
             const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(republished, {

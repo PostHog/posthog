@@ -18,7 +18,6 @@ import {
     MinimalLogEntry,
 } from '../../../types'
 import { HogExecutorExecuteAsyncOptions } from '../../hog-executor-async.service'
-import { resolveEmailSendingVersion } from '../../messaging/email-tracking.service'
 import { EmailValidationService } from '../../messaging/email-validation.service'
 import { RecipientPreferencesService } from '../../messaging/recipient-preferences.service'
 import { CdpUsageReporterService } from '../../usage/cdp-usage-reporter.service'
@@ -265,8 +264,7 @@ export class HogFunctionHandler implements ActionHandler {
             // received, which is also the version `email_sent` was counted under. Leaving the
             // run-start stamp here would split a rate across two versions.
             if (this.hogFlowActionBillingType === 'email') {
-                result.invocation.state.flowVersion =
-                    resolveEmailSendingVersion(functionResult.invocation) ?? invocation.hogFlow.version
+                result.invocation.state.flowVersion = functionResult.invocation.state.renderedWorkflowVersion
             } else if (this.hogFlowActionBillingType === 'push') {
                 result.invocation.state.flowVersion = invocation.hogFlow.version
             }

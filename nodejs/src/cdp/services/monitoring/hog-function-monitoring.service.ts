@@ -166,7 +166,7 @@ export class HogFunctionMonitoringService {
             // Stamped here rather than at each of the ~10 sites that push onto `result.metrics`
             // (executor, action handlers, billing). The workflow is re-read from the manager on every
             // dequeue, so this is the version that actually executed the step — a run started on v2
-            // that reaches its email step after v3 is published attributes that step to v3.
+            // that reaches a step after v3 is published counts it under v3, unless the metric sets its own.
             const appSourceVersion = isHogFlowResult(result)
                 ? { id: result.invocation.hogFlow.id, version: result.invocation.hogFlow.version }
                 : undefined

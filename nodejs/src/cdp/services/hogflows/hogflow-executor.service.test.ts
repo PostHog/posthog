@@ -29,7 +29,6 @@ import { RecipientsManagerService } from '../managers/recipients-manager.service
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { EmailSuppressionService, emailSuppressionConfigFromEnv } from '../messaging/email-suppression.service'
 import { EmailValidationService } from '../messaging/email-validation.service'
-import { resolveEmailSendingVersion } from '../messaging/email-tracking.service'
 import { EmailService } from '../messaging/email.service'
 import { EmailTrackingCodeSigner } from '../messaging/helpers/tracking-code'
 import { RecipientPreferencesService } from '../messaging/recipient-preferences.service'
@@ -429,7 +428,10 @@ describe('Hogflow Executor', () => {
             })
         })
 
-        it('keeps the version a step rendered under when the workflow is republished before it sends', async () => {
+        it.each([
+            ['keeps the version a step rendered under', true, 2],
+            ['uses the live version for a step saved before the rendered version was stored', false, 3],
+        ])('%s when the workflow is republished before it sends', async (_name, storesRenderedVersion, expected) => {
             await insertHogFunctionTemplate(hub.postgres, customerTaskTemplate)
             const config = { template_id: customerTaskTemplate.id, inputs: { name: { value: 'Follow up' } } }
             const renderedFlow = { ...hogFlow, version: 2 }
@@ -441,7 +443,10 @@ describe('Hogflow Executor', () => {
                 event: invocation.state.event,
                 person: invocation.person,
             })
-            invocation.state.currentAction!.hogFunctionState = parseJSON(JSON.stringify(rendered.state))
+            const { renderedWorkflowVersion, ...legacyState } = rendered.state
+            invocation.state.currentAction!.hogFunctionState = parseJSON(
+                JSON.stringify(storesRenderedVersion ? { ...legacyState, renderedWorkflowVersion } : legacyState)
+            )
 
             invocation.hogFlow = { ...renderedFlow, version: 3 }
             const resumed = await hogFlowFunctionsService.buildHogFunctionInvocation(invocation, hogFunction, {
@@ -449,7 +454,7 @@ describe('Hogflow Executor', () => {
                 person: invocation.person,
             })
 
-            expect(resolveEmailSendingVersion(resumed)).toBe(2)
+            expect(resumed.state.renderedWorkflowVersion).toBe(expected)
         })
 
         it.each([false, true])('keeps legacy task keys with saved function state: %s', async (hasSavedState) => {

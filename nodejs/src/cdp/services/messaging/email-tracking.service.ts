@@ -3,13 +3,7 @@ import { Counter } from 'prom-client'
 import express from 'ultimate-express'
 
 import { HogFlow } from '~/cdp/schema/hogflow'
-import {
-    CyclotronJobInvocationHogFlow,
-    CyclotronJobInvocationHogFunction,
-    LogEntry,
-    LogEntryLevel,
-    MinimalAppMetric,
-} from '~/cdp/types'
+import { CyclotronJobInvocationHogFunction, LogEntry, LogEntryLevel, MinimalAppMetric } from '~/cdp/types'
 import { ModifiedRequest } from '~/common/api/router'
 import { isDevEnv, isTestEnv } from '~/common/utils/env-utils'
 import { parseJSON } from '~/common/utils/json-parse'
@@ -116,20 +110,11 @@ export const resolveEmailEngagementDistinctId = (
     return invocation.state?.globals?.event?.distinct_id || undefined
 }
 
-// A flow's email runs as a hog function invocation spread from the flow invocation, so `hogFlow` is
-// present at runtime although the hog function type does not declare it.
-const sendingHogFlow = (invocation: CyclotronJobInvocationHogFunction): HogFlow | undefined =>
-    'hogFlow' in invocation ? (invocation as unknown as CyclotronJobInvocationHogFlow).hogFlow : undefined
-
-export const resolveEmailSendingVersion = (invocation: CyclotronJobInvocationHogFunction): number | undefined =>
-    invocation.state.workflowVersion ?? sendingHogFlow(invocation)?.version
-
 export const resolveEmailSendingAppSourceVersion = (
     invocation: CyclotronJobInvocationHogFunction
 ): { id: string; version: number } | undefined => {
-    const hogFlow = sendingHogFlow(invocation)
-    const version = resolveEmailSendingVersion(invocation)
-    return hogFlow && version !== undefined ? { id: hogFlow.id, version } : undefined
+    const version = invocation.state.renderedWorkflowVersion
+    return version === undefined ? undefined : { id: invocation.functionId, version }
 }
 
 // HTML attribute values arrive entity-encoded (e.g. `&amp;`, `&#38;`). Decode before
@@ -165,7 +150,7 @@ export const addTrackingToEmail = (
     // The pixel and redirect codes carry the sending version too. SES-attributed opens and clicks
     // read the version off the signed header instead, but a provider we track ourselves has these
     // URLs as its only carrier, and without the version its engagement cannot split by version.
-    const trackingInvocation = { ...invocation, distinctId, workflowVersion: resolveEmailSendingVersion(invocation) }
+    const trackingInvocation = { ...invocation, distinctId, workflowVersion: invocation.state.renderedWorkflowVersion }
     const trackingUrl = signer.pixelUrl(trackingInvocation, isTest)
 
     // Incremented for every anchor LINK_REGEX matches, including ones that turn out to be opted

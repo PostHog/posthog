@@ -98,7 +98,7 @@ describe('EmailTrackingService', () => {
         // clicks we record ourselves, so a version missing here means those engagement metrics never
         // split by version however the send path is configured.
         it('carries the sending version into the pixel and redirect codes', () => {
-            const flowInvocation = { ...invocation, hogFlow: { id: 'flow-1', version: 7 } } as any
+            const flowInvocation = { ...invocation, state: { ...invocation.state, renderedWorkflowVersion: 7 } }
             const html = '<body><a href="https://example.com/">x</a></body>'
 
             const out = addTrackingToEmail(html, flowInvocation, signer)

@@ -26,7 +26,6 @@ import {
     addTrackingToEmail,
     resolveEmailEngagementDistinctId,
     resolveEmailSendingAppSourceVersion,
-    resolveEmailSendingVersion,
 } from './email-tracking.service'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
 import { maybeAddPreheaderToEmail } from './helpers/preheader'
@@ -726,7 +725,7 @@ export class EmailService {
         }
 
         const distinctId = resolveEmailEngagementDistinctId(invocation)
-        const workflowVersion = resolveEmailSendingVersion(invocation)
+        const workflowVersion = invocation.state.renderedWorkflowVersion
         if (
             distinctId &&
             !isTest &&
@@ -1104,7 +1103,7 @@ export class EmailService {
         // Full signed code (with distinct_id + isTest) rides in the header; the short unsigned
         // carrier (no distinct_id/isTest) goes in the SES EmailTag, guaranteed under the 256-char
         // tag-value limit. The webhook reads the header first and only falls back to the tag.
-        const workflowVersion = resolveEmailSendingVersion(result.invocation)
+        const workflowVersion = result.invocation.state.renderedWorkflowVersion
         const trackingCode = this.trackingCodeSigner.generate(
             { ...result.invocation, distinctId, workflowVersion },
             isTest
