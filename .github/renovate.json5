@@ -21,6 +21,10 @@
   ],
   dependencyDashboardOSVVulnerabilitySummary: 'all',
   dependencyDashboardReportAbandonment: false,
+  // Trunk's merge queue is the only path into master
+  automergeType: 'pr-comment',
+  automergeComment: '/trunk merge',
+  rebaseWhen: 'conflicted',
   prConcurrentLimit: 5,
   gitIgnoredAuthors: [
     '206114724+posthog[bot]@users.noreply.github.com',
@@ -155,14 +159,20 @@
       groupName: "{{manager}} non-major in {{lookup (split packageFileDir '/') 0}}/{{lookup (split packageFileDir '/') 1}}",
     },
     {
+      matchUpdateTypes: ['minor', 'patch'],
+      automerge: true,
+    },
+    {
       matchManagers: ['npm', 'pep621', 'cargo', 'gomod'],
       matchUpdateTypes: ['minor'],
       matchCurrentVersion: '/^v?0\\./',
       groupName: null,
+      automerge: false,
     },
     {
       matchDepTypes: ['requires-python', 'packageManager'],
       groupName: null,
+      automerge: false,
     },
     {
       matchDepNames: ['chrome-headless-shell'],
