@@ -151,7 +151,7 @@ function UpdateSourceConnectionFormContainer(): JSX.Element {
                     </AccessControlAction>
                 </div>
             </Form>
-            <CDCSection source={source} />
+            {sourceFieldConfig?.cdcEngine === 'postgres' && <CDCSection source={source} />}
         </>
     )
 }

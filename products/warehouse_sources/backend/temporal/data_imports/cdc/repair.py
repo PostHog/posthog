@@ -216,7 +216,7 @@ def _require_broken_evidence(
         return
 
     live_status = adapter.get_status(source)
-    if live_status.get("slot_exists") is False or live_status.get("publication_exists") is False:
+    if not adapter.capture_resources_present(live_status):
         return
 
     raise CDCRepairError(

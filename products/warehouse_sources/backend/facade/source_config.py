@@ -404,6 +404,13 @@ class SourceConfigResponse(SourceConfig):
         description="Vendor API docs or changelog URL, or null when the vendor publishes none.",
     )
     deprecatedVersions: list[SourceVersionDeprecation]
+    cdcEngine: str | None = Field(
+        default=None,
+        description=(
+            "Change data capture engine, which picks the CDC setup form and status panel. Null when"
+            " the source has no CDC."
+        ),
+    )
     tables: list[SourceDocumentedTable] | None = Field(
         default=None,
         description=(

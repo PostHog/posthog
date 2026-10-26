@@ -129,6 +129,8 @@ class FakeCDCStreamReader:
 
 
 class FakeCDCAdapter:
+    engine = "fake"
+
     def __init__(self, db: SourceDatabase) -> None:
         self._db = db
 
@@ -198,6 +200,9 @@ class FakeCDCAdapter:
         raise NotImplementedError(_NOT_EXERCISED)
 
     def get_status(self, source: ExternalDataSource) -> dict[str, Any]:
+        raise NotImplementedError(_NOT_EXERCISED)
+
+    def capture_resources_present(self, status: Mapping[str, Any]) -> bool:
         raise NotImplementedError(_NOT_EXERCISED)
 
     def add_table(self, source: ExternalDataSource, schema: str, table: str) -> None:

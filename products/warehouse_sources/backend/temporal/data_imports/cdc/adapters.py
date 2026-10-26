@@ -14,7 +14,7 @@ register it in ``_cdc_adapters`` below.
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Literal, Protocol, TypeVar
 
@@ -39,6 +39,10 @@ class CDCSourceAdapter(Protocol[CDCConfigT_co]):
     Generic over the engine's concrete CDC config type so that ``parse_cdc_config``
     is typed precisely without forcing callers to do ``isinstance`` checks.
     """
+
+    # Names the engine's setup form and status panel in the frontend, which the catalog serves as
+    # `cdcEngine`. Engines that are the same database on the wire share one.
+    engine: str
 
     def create_reader(self, source: ExternalDataSource) -> CDCStreamReader: ...
 
@@ -142,10 +146,17 @@ class CDCSourceAdapter(Protocol[CDCConfigT_co]):
     def get_status(self, source: ExternalDataSource) -> dict[str, Any]:
         """Live engine-side CDC health for the source, read from the source DB.
 
-        Opens a short management connection and returns at minimum
-        ``{"slot_exists": bool, "publication_exists": bool, "lag_bytes": int | None}``.
-        Engines may add extra fields. Raises on connection failure — the caller
-        surfaces that as a 400 / unreachable state.
+        Opens a short management connection and returns the engine's fields of the CDC status
+        payload: its stored stream identifiers, whether each engine-side resource exists, and the
+        lag. Raises on connection failure — the caller surfaces that as a 400 / unreachable state.
+        """
+        ...
+
+    def capture_resources_present(self, status: Mapping[str, Any]) -> bool:
+        """Whether a ``get_status`` result shows every engine-side resource capture reads from.
+
+        False is the evidence that lets Repair CDC run, and that stops Resume CDC from unpausing a
+        source that would only fail again.
         """
         ...
 
@@ -206,6 +217,12 @@ def get_cdc_adapter(source: ExternalDataSource) -> CDCSourceAdapter[CDCConfig]:
 def cdc_supported_source_types() -> list[ExternalDataSourceType]:
     """Source types that support CDC. Use for queries (e.g. ``source_type__in=...``)."""
     return list(_cdc_adapters().keys())
+
+
+def cdc_engine(source_type: ExternalDataSourceType) -> str | None:
+    """The engine name of the source type's CDC adapter, or None when it has no change stream."""
+    adapter = _cdc_adapters().get(source_type)
+    return adapter.engine if adapter is not None else None
 
 
 def source_type_supports_cdc(source_type: ExternalDataSourceType | str | None) -> bool:
