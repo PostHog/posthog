@@ -84,9 +84,12 @@ class FivetranClient:
         if not response.ok:
             raise _error_for(response)
         try:
-            return response.json().get("data") or {}
+            body = response.json()
         except ValueError as error:
             raise FivetranAPIError(response.status_code, "the response was not JSON") from error
+        if not isinstance(body, dict):
+            raise FivetranAPIError(response.status_code, "the response was not a JSON object")
+        return body.get("data") or {}
 
 
 class FivetranWriteBlockedError(Exception):
@@ -114,9 +117,10 @@ class _ReadOnlyAdapter(BaseAdapter):
 
 def _error_for(response: requests.Response) -> FivetranAPIError:
     try:
-        message = str(response.json().get("message") or response.reason)
+        body = response.json()
     except ValueError:
-        message = response.reason
+        body = None
+    message = str((body.get("message") if isinstance(body, dict) else None) or response.reason)
     if response.status_code in (401, 403):
         return FivetranAuthError(response.status_code, message)
     return FivetranAPIError(response.status_code, message)
