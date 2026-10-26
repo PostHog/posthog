@@ -38,6 +38,8 @@ class TestTombstoneOrganizationRecord(BaseTest):
         assert tombstone.is_active is False
         assert tombstone.is_not_active_reason == Organization.DeactivationReason.DELETED
         assert tombstone.is_pending_deletion is True
+        assert tombstone.is_ai_data_processing_approved is False
+        assert tombstone.is_ai_training_opted_in is False
 
         assert not OrganizationMembership.objects.filter(organization_id=organization.id).exists()
         assert not OrganizationInvite.objects.filter(organization_id=organization.id).exists()
@@ -69,6 +71,20 @@ class TestTombstoneOrganizationRecord(BaseTest):
 
     def test_missing_organization_is_a_noop(self):
         tombstone_organization_record(str(uuid.uuid4()))
+
+    def test_allocates_a_suffixed_slug_when_the_fixed_one_is_taken(self):
+        organization, _ = self._bootstrap_doomed_org()
+        fixed_slug = f"deleted-{organization.id.hex}"
+        squatter = Organization.objects.create(name="squatter")
+        Organization.objects.filter(id=squatter.id).update(slug=fixed_slug)
+
+        tombstone_organization_record(str(organization.id))
+
+        tombstone = Organization.objects.get(id=organization.id)
+        assert bool(tombstone.deleted) is True
+        assert tombstone.slug != fixed_slug
+        assert tombstone.slug.startswith("deleted-")
+        assert Organization.objects.get(id=squatter.id).slug == fixed_slug
 
     def test_does_not_enqueue_member_billing_sync(self):
         organization, _ = self._bootstrap_doomed_org()

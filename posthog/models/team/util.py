@@ -385,10 +385,11 @@ def tombstone_organization_record(organization_id: str) -> None:
     """
     import uuid
 
-    from django.db import transaction
+    from django.db import IntegrityError, transaction
     from django.utils import timezone
 
     from posthog.models.organization import Organization
+    from posthog.models.utils import generate_slug_candidates
 
     with transaction.atomic():
         original = (
@@ -403,16 +404,29 @@ def tombstone_organization_record(organization_id: str) -> None:
         tombstone = Organization(
             id=organization_id,
             name=original["name"],
-            # Frees the original slug for reuse, exactly like the hard delete did.
-            slug=f"deleted-{uuid.UUID(str(organization_id)).hex}",
             deleted=True,
             deleted_at=now,
             is_active=False,
             is_not_active_reason=Organization.DeactivationReason.DELETED,
             is_pending_deletion=True,
             customer_id=original["customer_id"],
+            # Dead orgs must not authorize AI processing of archived payloads queued before deletion.
+            is_ai_data_processing_approved=False,
+            is_ai_training_opted_in=False,
         )
-        Organization.objects.bulk_create([tombstone])
+        # Frees the original slug for reuse, exactly like the hard delete did. A user-created org
+        # can legitimately own the first candidate, so fall back to suffixed ones on collision.
+        for candidate in generate_slug_candidates(f"deleted-{uuid.UUID(str(organization_id)).hex}"):
+            tombstone.slug = candidate
+            try:
+                with transaction.atomic():
+                    Organization.objects.bulk_create([tombstone])
+                break
+            except IntegrityError:
+                continue
+        else:
+            # Rolls back the whole block, so the retried activity starts from the live row again.
+            raise RuntimeError(f"Could not allocate a tombstone slug for organization {organization_id}")
         # update() bypasses auto_now_add, pinning the original creation time.
         Organization.objects.filter(id=organization_id).update(created_at=original["created_at"])
 
