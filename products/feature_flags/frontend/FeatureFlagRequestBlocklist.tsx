@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonSkeleton } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
@@ -10,10 +10,8 @@ import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect
 import { featureFlagRequestBlocklistLogic } from './featureFlagRequestBlocklistLogic'
 
 export function FeatureFlagRequestBlocklist(): JSX.Element {
-    const { currentTeam, currentTeamLoading, blockedHosts, blockedIps, hasUnsavedChanges } = useValues(
-        featureFlagRequestBlocklistLogic
-    )
-    const { setBlockedHosts, setBlockedIps, saveBlocklist } = useActions(featureFlagRequestBlocklistLogic)
+    const { currentTeam, currentTeamLoading, blockedHosts, blockedIps } = useValues(featureFlagRequestBlocklistLogic)
+    const { setBlockedHosts, setBlockedIps } = useActions(featureFlagRequestBlocklistLogic)
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
@@ -61,17 +59,6 @@ export function FeatureFlagRequestBlocklist(): JSX.Element {
                     disabledReason={restrictedReason}
                 />
             </LemonField.Pure>
-            <div>
-                <LemonButton
-                    type="primary"
-                    data-attr="feature-flag-request-blocklist-save"
-                    onClick={saveBlocklist}
-                    loading={currentTeamLoading}
-                    disabledReason={restrictedReason || (!hasUnsavedChanges ? 'No changes to save' : undefined)}
-                >
-                    Save
-                </LemonButton>
-            </div>
         </div>
     )
 }
