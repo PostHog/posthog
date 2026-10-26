@@ -3147,6 +3147,22 @@ export interface SuggestedReviewerEntryWriteApi {
     reason?: string | null
 }
 
+/**
+ * * `wrong_area` - Not their area
+ * * `owned_by_someone_else` - Someone else owns it
+ * * `unavailable` - Not available
+ * * `other` - Other
+ */
+export type ReviewerRemovalReasonEnumApi =
+    (typeof ReviewerRemovalReasonEnumApi)[keyof typeof ReviewerRemovalReasonEnumApi]
+
+export const ReviewerRemovalReasonEnumApi = {
+    WrongArea: 'wrong_area',
+    OwnedBySomeoneElse: 'owned_by_someone_else',
+    Unavailable: 'unavailable',
+    Other: 'other',
+} as const
+
 export interface SignalReportArtefactWriteApi {
     /** Add or remove only the supplied people, replace the list, or explicitly confirm it.
      *
@@ -3167,6 +3183,18 @@ export interface SignalReportArtefactWriteApi {
      * @maxItems 10
      */
     targets?: SuggestedReviewerEntryWriteApi[]
+    /** Why the people in `targets` are removed. Remove action only. 'wrong_area': the report's area is not theirs. 'owned_by_someone_else': another person owns the work. 'unavailable': they are not available, which says nothing about ownership. 'other': explain in removal_note. Research and scouts read the reason when they pick reviewers for later reports.
+     *
+     * * `wrong_area` - Not their area
+     * * `owned_by_someone_else` - Someone else owns it
+     * * `unavailable` - Not available
+     * * `other` - Other */
+    removal_reason?: ReviewerRemovalReasonEnumApi
+    /**
+     * Optional context for the removal, such as the area the person does not work on. Remove action only.
+     * @maxLength 500
+     */
+    removal_note?: string
 }
 
 /**
@@ -3279,38 +3307,6 @@ export interface SignalReportSuggestedReviewersArtefactApi {
      * @nullable
      */
     readonly task_id: string | null
-}
-
-export interface SignalReportNotMineApi {
-    /**
-     * The organization member to hand the report to. Leave it out to let research pick reviewers again.
-     * @nullable
-     */
-    replacement_user_uuid?: string | null
-}
-
-/**
- * * `not_needed` - Not needed
- * * `started` - Started
- * * `unavailable` - Unavailable
- */
-export type ReviewerRepickEnumApi = (typeof ReviewerRepickEnumApi)[keyof typeof ReviewerRepickEnumApi]
-
-export const ReviewerRepickEnumApi = {
-    NotNeeded: 'not_needed',
-    Started: 'started',
-    Unavailable: 'unavailable',
-} as const
-
-export interface SignalReportNotMineResultApi {
-    /** Whether the caller was on the report's suggested reviewers. */
-    removed: boolean
-    /** 'started' when research is picking reviewers again. 'not_needed' when a replacement was named or other reviewers remain. 'unavailable' when research could not start, for example because of a usage limit or because the report is not ready.
-     *
-     * * `not_needed` - Not needed
-     * * `started` - Started
-     * * `unavailable` - Unavailable */
-    research: ReviewerRepickEnumApi
 }
 
 /**
@@ -5011,7 +5007,7 @@ export interface SignalReportStateRequestApi {
      * * `resolved` - resolved
      * * `monitoring` - monitoring */
     state: SignalReportStateEnumApi
-    /** Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wrong_assignee, wrong_repo, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, verified_manually, no_action_needed, pr_merged, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), 'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), or 'already_fixed' (it was fixed before the report was filed). Use 'no_action_needed' with state='resolved' when the report was useful but needs no implementation. A report that failed in processing resolves too, so a fix that landed is recorded as a fix rather than as a dismissal. These three codes claim the issue is gone, so a later signal about the same issue starts a fresh report linked to this one. Fixed reason codes require state='suppressed' or state='resolved', not 'potential'. The dismissal codes (report_unclear, analysis_wrong, wrong_assignee, wrong_repo, wontfix_*) go with state='suppressed' and absorb later signals silently. 'wrong_assignee' is accepted from older clients, but a report sent to the wrong person still holds work: hand it off with the reviewers not-mine action instead of suppressing it. 'wrong_repo' when the agent picked the wrong repository for this report, ideally with corrected_repository naming the right one. Use 'verified_manually' with state='resolved' to stop Monitoring after manual verification. It requires Monitoring to be enabled and a report with a Monitoring period, and records no automatic verification result or evidence amendment. Use 'other' together with a dismissal_note for anything that doesn't fit a code.
+    /** Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wrong_assignee, wrong_repo, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, verified_manually, no_action_needed, pr_merged, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), 'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), or 'already_fixed' (it was fixed before the report was filed). Use 'no_action_needed' with state='resolved' when the report was useful but needs no implementation. A report that failed in processing resolves too, so a fix that landed is recorded as a fix rather than as a dismissal. These three codes claim the issue is gone, so a later signal about the same issue starts a fresh report linked to this one. Fixed reason codes require state='suppressed' or state='resolved', not 'potential'. The dismissal codes (report_unclear, analysis_wrong, wrong_assignee, wrong_repo, wontfix_*) go with state='suppressed' and absorb later signals silently. 'wrong_assignee' is accepted from older clients, but a report sent to the wrong person still holds work: remove the person from the report's reviewers with a removal_reason instead of suppressing it. 'wrong_repo' when the agent picked the wrong repository for this report, ideally with corrected_repository naming the right one. Use 'verified_manually' with state='resolved' to stop Monitoring after manual verification. It requires Monitoring to be enabled and a report with a Monitoring period, and records no automatic verification result or evidence amendment. Use 'other' together with a dismissal_note for anything that doesn't fit a code.
      *
      * * `already_fixed` - Already fixed
      * * `report_unclear` - Report is unclear to me
@@ -5648,7 +5644,7 @@ export interface SignalReportBulkStateRequestApi {
      * * `resolved` - resolved
      * * `monitoring` - monitoring */
     state: SignalReportStateEnumApi
-    /** Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wrong_assignee, wrong_repo, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, verified_manually, no_action_needed, pr_merged, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), 'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), or 'already_fixed' (it was fixed before the report was filed). Use 'no_action_needed' with state='resolved' when the report was useful but needs no implementation. A report that failed in processing resolves too, so a fix that landed is recorded as a fix rather than as a dismissal. These three codes claim the issue is gone, so a later signal about the same issue starts a fresh report linked to this one. Fixed reason codes require state='suppressed' or state='resolved', not 'potential'. The dismissal codes (report_unclear, analysis_wrong, wrong_assignee, wrong_repo, wontfix_*) go with state='suppressed' and absorb later signals silently. 'wrong_assignee' is accepted from older clients, but a report sent to the wrong person still holds work: hand it off with the reviewers not-mine action instead of suppressing it. 'wrong_repo' when the agent picked the wrong repository for this report, ideally with corrected_repository naming the right one. Use 'verified_manually' with state='resolved' to stop Monitoring after manual verification. It requires Monitoring to be enabled and a report with a Monitoring period, and records no automatic verification result or evidence amendment. Use 'other' together with a dismissal_note for anything that doesn't fit a code.
+    /** Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wrong_assignee, wrong_repo, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, verified_manually, no_action_needed, pr_merged, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), 'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), or 'already_fixed' (it was fixed before the report was filed). Use 'no_action_needed' with state='resolved' when the report was useful but needs no implementation. A report that failed in processing resolves too, so a fix that landed is recorded as a fix rather than as a dismissal. These three codes claim the issue is gone, so a later signal about the same issue starts a fresh report linked to this one. Fixed reason codes require state='suppressed' or state='resolved', not 'potential'. The dismissal codes (report_unclear, analysis_wrong, wrong_assignee, wrong_repo, wontfix_*) go with state='suppressed' and absorb later signals silently. 'wrong_assignee' is accepted from older clients, but a report sent to the wrong person still holds work: remove the person from the report's reviewers with a removal_reason instead of suppressing it. 'wrong_repo' when the agent picked the wrong repository for this report, ideally with corrected_repository naming the right one. Use 'verified_manually' with state='resolved' to stop Monitoring after manual verification. It requires Monitoring to be enabled and a report with a Monitoring period, and records no automatic verification result or evidence amendment. Use 'other' together with a dismissal_note for anything that doesn't fit a code.
      *
      * * `already_fixed` - Already fixed
      * * `report_unclear` - Report is unclear to me
@@ -8087,6 +8083,16 @@ export interface ReviewerCorrectionEntryApi {
     before: string[]
     /** GitHub logins on the report after the human edit (lowercased). */
     after: string[]
+    /**
+     * Why the editor removed reviewers: wrong_area, owned_by_someone_else, unavailable, or other.
+     * @nullable
+     */
+    removal_reason?: string | null
+    /**
+     * The editor's own context for the removal, if they gave any.
+     * @nullable
+     */
+    removal_note?: string | null
     /**
      * ISO-8601 timestamp of the edit.
      * @nullable

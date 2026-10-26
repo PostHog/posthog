@@ -1094,13 +1094,12 @@ Suppression is per direction, so an edit that reverses an earlier one inside the
 Authorization, the 30-day TTL, the child-environment rule, and the read-side withholding are the dismissal ones (`dismissal_notes.principal_may_steer_scouts`); the key scopes aren't demanded on top, because the logins already reach scouts through the report's reviewers artefact and the profile.
 Forwarding runs after commit and is best-effort, and `signals_suggested_reviewers_resolved` carries `correction_notes_written` / `correction_note_targets` so what it achieved is measurable next to the edit itself.
 
-**Not mine.** A report sent to the wrong person still holds work, so the person hands it off instead of dismissing it: a `wrong_assignee` dismissal suppresses the report, and later signals about the issue then join it silently.
-`POST reports/{id}/reviewers/not-mine/` takes the caller off the reviewers, through the same removal as `DELETE reviewers/me` (`decline_suggested_review` in `views.py`).
-A named `replacement_user_uuid` joins in the same transaction, with `reevaluate_autostart=False`, because an add re-evaluates auto-start as the editor and would start work as the person who handed the report off.
-Without a replacement, and only when nobody is left on the report, `reviewer_repick.request_reviewer_repick` restarts research the way `rerun_signal_report` does.
-The run reuses the earlier findings and applies the report's reviewer corrections, so it does not pick the person again, and it can rewrite the title and summary like any re-research.
-It needs both the `signals-assignment-writer` and `signals-research-reviewer-selection` flags, respects the self-driving quota and the daily report limit, and puts the report back in its previous status when the workflow cannot start.
-The web dismiss dialog no longer offers `wrong_assignee`. The state API still accepts it from older clients.
+**Removal reasons.** A person who removes a reviewer through the reviewers PUT `remove` action can say why with `removal_reason` (`wrong_area`, `owned_by_someone_else`, `unavailable`, `other`) and an optional `removal_note`.
+The reason rides on the `suggested_reviewers_changed` activity row as extra changes, so `recent_reviewer_corrections` hands it to research and the scouts.
+It also rides on the forwarded correction note, where it replaces the generic caution with guidance for that reason.
+`wrong_area` is personal relevance and scopes an exclusion to the source report's area, `owned_by_someone_else` is ownership, and `unavailable` is never ownership evidence.
+The note is quoted line by line, so it cannot pose as a section that the suppression parser reads back.
+The web dismiss dialog no longer offers `wrong_assignee`: a removal with a reason reaches research, and a dismissal closes the report for everyone. The state API still accepts the code from older clients.
 
 **Wrong-repo dismissals.** The `wrong_repo` reason code carries an optional `corrected_repository` (`owner/repo`, refused with any other reason).
 The dismissal artefact denormalizes `selected_repository` (the report's latest `repo_selection` at dismissal time) next to the correction, so a selection mistake is one self-contained record.

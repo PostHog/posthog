@@ -2,14 +2,13 @@ import json
 import uuid
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 from django.core.management import call_command
 
 from parameterized import parameterized
 from rest_framework import status
 from social_django.models import UserSocialAuth
-from temporalio.client import WorkflowExecutionStatus
 
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import OrganizationMembership
@@ -38,6 +37,7 @@ from products.signals.backend.models import (
     SignalReportSuggestedReviewer,
 )
 from products.signals.backend.reviewer_correction_notes import ForwardedCorrectionNotes
+from products.signals.backend.scout_harness.profile.builders import _recent_reviewer_corrections
 from products.signals.backend.scout_harness.tools.notes import list_notes
 
 # Task ORM model needed to build cross-product fixtures; the tasks facade exposes DTOs only.
@@ -565,6 +565,38 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
             correction = mock_forward.call_args.kwargs["correction"]
             assert correction is not None
             assert correction.removed_reviewers == ("bob",)
+
+    def test_put_removal_reason_reaches_the_corrections_profile_and_the_scout_note(self):
+        report = self._create_report()
+        self._create_artefact(report, content=[{"github_login": "alice"}, {"github_login": "bob"}])
+
+        with patch(
+            "products.signals.backend.views.forward_reviewer_correction_note",
+            return_value=ForwardedCorrectionNotes(note_ids=(), targets_resolved=0),
+        ) as mock_forward:
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self.client.put(
+                    f"/api/projects/{self.team.id}/signals/reports/{report.id}/reviewers/",
+                    data=json.dumps(
+                        {
+                            "action": "remove",
+                            "content": [{"github_login": "alice"}],
+                            "targets": [{"github_login": "bob"}],
+                            "removal_reason": "wrong_area",
+                            "removal_note": "  Billing is mine, checkout is not.  ",
+                        }
+                    ),
+                    content_type="application/json",
+                )
+
+        assert response.status_code == status.HTTP_200_OK
+        (row,) = _recent_reviewer_corrections(self.team)["corrections"]
+        assert (row["removal_reason"], row["removal_note"]) == ("wrong_area", "Billing is mine, checkout is not.")
+        correction = mock_forward.call_args.kwargs["correction"]
+        assert (correction.removal_reason, correction.removal_note) == (
+            "wrong_area",
+            "Billing is mine, checkout is not.",
+        )
 
     def test_put_reviewers_autostart_delegates_when_report_complete(self):
         # With actionability + repo + priority + reviewers all present, the reconstruction reaches
@@ -1412,71 +1444,6 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         assert response.status_code == status.HTTP_204_NO_CONTENT
         assert self._reviewers_count(report) == 1
         assert [r["user_uuid"] for r in self._latest_reviewers(report)] == [str(teammate.uuid)]
-
-    # --- POST reviewers/not-mine (hand off a report) ---
-
-    def _not_mine_url(self, report_id: str) -> str:
-        return f"/api/projects/{self.team.id}/signals/reports/{report_id}/reviewers/not-mine/"
-
-    def test_not_mine_hands_the_report_to_a_named_teammate_without_starting_work(self):
-        teammate = self._create_org_member("teammate@example.com", github_login="teammate")
-        report = self._create_report()
-        self._create_artefact(report, content=[{"user_uuid": str(self.user.uuid)}])
-
-        with (
-            patch.object(SignalReportArtefact, "_schedule_autostart_reevaluation") as scheduled,
-            patch("products.signals.backend.reviewer_repick.async_connect") as connect,
-        ):
-            response = self.client.post(
-                self._not_mine_url(str(report.id)), {"replacement_user_uuid": str(teammate.uuid)}, format="json"
-            )
-
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json() == {"removed": True, "research": "not_needed"}
-        assert [r["user_uuid"] for r in self._latest_reviewers(report)] == [str(teammate.uuid)]
-        # Auto-start runs as the editor, so re-evaluating it here would start work as the person handing off.
-        assert scheduled.call_count == 0
-        assert connect.call_count == 0
-
-    @parameterized.expand(
-        [
-            ("last_reviewer", False, True, None, "started", SignalReport.Status.CANDIDATE, 1),
-            ("teammate_remains", True, True, None, "not_needed", SignalReport.Status.READY, 0),
-            ("outside_the_trial", False, False, None, "unavailable", SignalReport.Status.READY, 0),
-            ("research_fails_to_start", False, True, RuntimeError("down"), "unavailable", SignalReport.Status.READY, 1),
-        ]
-    )
-    def test_not_mine_without_a_replacement_repicks_only_when_nobody_is_left(
-        self, _name, teammate_stays, in_trial, start_error, expected_research, expected_status, expected_starts
-    ):
-        teammate = self._create_org_member("teammate@example.com", github_login="teammate")
-        report = self._create_report()
-        reviewers = [{"user_uuid": str(self.user.uuid)}]
-        if teammate_stays:
-            reviewers.append({"user_uuid": str(teammate.uuid)})
-        self._create_artefact(report, content=reviewers)
-        client = MagicMock()
-        client.start_workflow = AsyncMock(side_effect=start_error)
-        client.get_workflow_handle.return_value.describe = AsyncMock(
-            return_value=MagicMock(status=WorkflowExecutionStatus.COMPLETED)
-        )
-
-        with (
-            patch("products.signals.backend.reviewer_rules.assignment_writer_enabled", return_value=in_trial),
-            patch("products.signals.backend.reviewer_repick.assignment_writer_enabled", return_value=in_trial),
-            patch(
-                "products.signals.backend.reviewer_repick.team_research_reviewer_selection_enabled",
-                return_value=in_trial,
-            ),
-            patch("products.signals.backend.reviewer_repick.async_connect", return_value=client),
-        ):
-            response = self.client.post(self._not_mine_url(str(report.id)), {}, format="json")
-
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json() == {"removed": True, "research": expected_research}
-        report.refresh_from_db()
-        assert report.status == expected_status
-        assert client.start_workflow.call_count == expected_starts
 
     def test_diff_with_non_dict_content_returns_400_not_500(self):
         # Log content is stored as arbitrary JSON; a non-object commit payload must not 500.

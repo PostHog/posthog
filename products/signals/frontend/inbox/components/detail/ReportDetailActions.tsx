@@ -2,12 +2,11 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { type MouseEvent, useState } from 'react'
 
-import { IconCheckCircle, IconHide, IconLeave, IconReceipt, IconUndo, IconClock } from '@posthog/icons'
+import { IconCheckCircle, IconHide, IconReceipt, IconUndo, IconClock } from '@posthog/icons'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
 import { captureInboxReportAction } from '../../inboxAnalytics'
 import { inboxSceneLogic } from '../../inboxSceneLogic'
@@ -19,7 +18,6 @@ import { canMonitorReport, canResolveReport } from '../../utils/reportActions'
 import { hasMergedReportPullRequest } from '../../utils/reportPullRequests'
 import { useReportDismiss } from '../cards/useReportDismiss'
 import { useReportRefund } from '../cards/useReportRefund'
-import { openNotMineDialog } from '../shell/NotMineDialog'
 import { useReportResolve } from './useReportResolve'
 
 /**
@@ -42,9 +40,8 @@ export interface ReportDetailAction {
 
 export function useReportDetailActions(report: SignalReport): ReportDetailAction[] {
     const detailLogic = inboxReportDetailLogic({ reportId: report.id, report })
-    const { changeReportState, declineReport } = useActions(detailLogic)
-    const { reportStateSaving, reportChecks, decliningReport } = useValues(detailLogic)
-    const { user } = useValues(userLogic)
+    const { changeReportState } = useActions(detailLogic)
+    const { reportStateSaving, reportChecks } = useValues(detailLogic)
     const { reportStateChanged } = useActions(inboxBulkActionsLogic)
     const { activeTab } = useValues(inboxSceneLogic)
     const { loadSelectedReport } = useActions(inboxSceneLogic)
@@ -209,24 +206,6 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
               ]
             : []),
         ...(canResolve ? [resolve] : []),
-        // Offered instead of a "wrong assignee" dismissal, which would close a report that still holds work.
-        ...(report.is_suggested_reviewer
-            ? [
-                  {
-                      key: 'not_mine',
-                      label: 'Not mine',
-                      icon: <IconLeave />,
-                      loading: decliningReport,
-                      tooltip: 'Hand this report to someone else. It stays open.',
-                      onClick: () =>
-                          openNotMineDialog({
-                              reportTitle: report.title,
-                              currentUser: user ? { id: user.id, uuid: user.uuid } : null,
-                              onConfirm: (replacementUuid) => declineReport(replacementUuid),
-                          }),
-                  },
-              ]
-            : []),
         {
             key: 'dismiss',
             label: 'Dismiss',
@@ -238,7 +217,7 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
         ...(canRefund ? [refund] : []),
     ]
 
-    const updating = reportStateSaving || isResolving || isDismissing || isRefunding || decliningReport
+    const updating = reportStateSaving || isResolving || isDismissing || isRefunding
     return actions.map((action) => ({
         ...action,
         disabledReason: action.disabledReason ?? (updating ? 'Updating report…' : undefined),

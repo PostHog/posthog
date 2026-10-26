@@ -95,7 +95,8 @@ export function suppressDismissalPayload(dismissal: DismissalFeedback): {
 // refund action, which dismisses the report as part of the refund. `merged` is written by the
 // report merge action, which archives each duplicate it folds into the surviving report.
 // `wrong_assignee` is no longer offered: a report sent to the wrong person still holds work, so the
-// person hands it off with Not mine instead. Older dismissals and clients still carry it.
+// person removes themselves from its reviewers with a reason instead. Older dismissals and clients
+// still carry it.
 const EXTRA_DISMISSAL_REASON_LABELS: Record<string, string> = {
     pr_merged: 'PR already merged',
     wrong_assignee: 'Wrong assignee',

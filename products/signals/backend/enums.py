@@ -41,11 +41,13 @@ class ReviewerEditAction(LabeledStrEnum):
     CONFIRM = "confirm", "Confirm"
 
 
-class ReviewerRepick(LabeledStrEnum):
-    # Whether research was asked to pick reviewers again after a reviewer declined a report.
-    NOT_NEEDED = "not_needed", "Not needed"
-    STARTED = "started", "Started"
-    UNAVAILABLE = "unavailable", "Unavailable"
+class ReviewerRemovalReason(LabeledStrEnum):
+    # Why a person removed a reviewer. Ownership and personal relevance steer later routing in
+    # different ways, and availability must not steer it at all.
+    WRONG_AREA = "wrong_area", "Not their area"
+    OWNED_BY_SOMEONE_ELSE = "owned_by_someone_else", "Someone else owns it"
+    UNAVAILABLE = "unavailable", "Not available"
+    OTHER = "other", "Other"
 
 
 class ReportLinkKind(LabeledStrEnum):

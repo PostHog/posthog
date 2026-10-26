@@ -9,6 +9,8 @@ import { userLogic } from 'scenes/userLogic'
 
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { EnrichedReviewer, SignalReport } from '../../types'
+import { openRemoveReviewerDialog } from './RemoveReviewerDialog'
+import { getReviewerDisplayName } from './reviewerDisplay'
 import { removeSuggestedReviewers, ReviewerSearchList } from './ReviewerSearchList'
 import { SuggestedReviewersSectionView } from './SuggestedReviewersSectionView'
 
@@ -29,13 +31,21 @@ export function SuggestedReviewersSection({ report }: { report: SignalReport }):
         return null
     }
 
+    // The row's remove button asks why first, because a reason is what lets research route the next
+    // similar report better. The picker's untoggle stays a one-click edit.
     const removeReviewers = (targets: EnrichedReviewer[]): void =>
-        removeSuggestedReviewers({
-            report,
-            surface: 'detail_pane',
-            targets,
-            reviewers: baseReviewers,
-            updateReviewers,
+        openRemoveReviewerDialog({
+            reviewerName: targets.map(getReviewerDisplayName).join(', '),
+            isSelf: !!user?.uuid && targets.every((target) => (target.user?.uuid ?? target.user_uuid) === user.uuid),
+            onConfirm: (removal) =>
+                removeSuggestedReviewers({
+                    report,
+                    surface: 'detail_pane',
+                    targets,
+                    reviewers: baseReviewers,
+                    updateReviewers,
+                    removal,
+                }),
         })
 
     return (

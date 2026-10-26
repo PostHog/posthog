@@ -36,7 +36,7 @@ from products.signals.backend.contracts import (
 from products.signals.backend.enums import (
     ReportTaskActionKind,
     ReviewerEditAction,
-    ReviewerRepick,
+    ReviewerRemovalReason,
     ReviewerSelectionOutcome,
     SignalSourceProduct,
     SignalSourceType,
@@ -3000,6 +3000,7 @@ class SignalReportSuggestedReviewersArtefactSerializer(SignalReportArtefactSeria
 
 class SignalReportArtefactWriteSerializer(serializers.Serializer):
     MAX_ENTRIES = 10
+    REMOVAL_NOTE_MAX_LENGTH = 500
 
     action = serializers.ChoiceField(
         choices=ReviewerEditAction.choices,
@@ -3024,31 +3025,30 @@ class SignalReportArtefactWriteSerializer(serializers.Serializer):
         max_length=MAX_ENTRIES,
         help_text="Explicit add or remove targets. When supplied, content is only a fallback for older servers.",
     )
+    removal_reason = serializers.ChoiceField(
+        choices=ReviewerRemovalReason.choices,
+        required=False,
+        help_text=(
+            "Why the people in `targets` are removed. Remove action only. 'wrong_area': the report's area is not "
+            "theirs. 'owned_by_someone_else': another person owns the work. 'unavailable': they are not available, "
+            "which says nothing about ownership. 'other': explain in removal_note. Research and scouts read the "
+            "reason when they pick reviewers for later reports."
+        ),
+    )
+    removal_note = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=REMOVAL_NOTE_MAX_LENGTH,
+        help_text="Optional context for the removal, such as the area the person does not work on. Remove action only.",
+    )
 
     def validate(self, attrs: dict) -> dict:
         if "targets" in attrs and attrs["action"] not in {"add", "remove"}:
             raise serializers.ValidationError({"targets": "Targets require an add or remove action."})
+        attrs["removal_note"] = (attrs.get("removal_note") or "").strip() or None
+        if (attrs.get("removal_reason") or attrs["removal_note"]) and attrs["action"] != "remove":
+            raise serializers.ValidationError({"removal_reason": "A removal reason requires the remove action."})
         return attrs
-
-
-class SignalReportNotMineSerializer(serializers.Serializer):
-    replacement_user_uuid = serializers.UUIDField(
-        required=False,
-        allow_null=True,
-        help_text="The organization member to hand the report to. Leave it out to let research pick reviewers again.",
-    )
-
-
-class SignalReportNotMineResultSerializer(serializers.Serializer):
-    removed = serializers.BooleanField(help_text="Whether the caller was on the report's suggested reviewers.")
-    research = serializers.ChoiceField(
-        choices=ReviewerRepick.choices,
-        help_text=(
-            "'started' when research is picking reviewers again. 'not_needed' when a replacement was named "
-            "or other reviewers remain. 'unavailable' when research could not start, for example because of "
-            "a usage limit or because the report is not ready."
-        ),
-    )
 
 
 # Writable types only — `video_segment` (and any other NON_WRITABLE type) is read-only and rejected

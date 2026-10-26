@@ -966,6 +966,8 @@ class TestRecentReviewerCorrections(BaseTest):
             "report_title": "Report title",
             "before": ["alice"],
             "after": ["bob"],
+            "removal_reason": None,
+            "removal_note": None,
             "at": correction.created_at.isoformat(),
         }
 
