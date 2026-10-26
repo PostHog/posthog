@@ -610,6 +610,28 @@ describe('workflowLogic send once verified', () => {
             }
         )
 
+        it('takes the verified sender of a draft, whose stamps the verification leaves alone', async () => {
+            const draft = withEmailStep(makeWorkflow({ unverified_email_senders: [UNVERIFIED_SENDER] }), {
+                integrationId: 7,
+            })
+            await mountWith(draft)
+            logic.actions.openSenderDomainSetup(7)
+            logic.actions.setAutoSaveEnabled(false)
+            logic.actions.setWorkflowValue('name', 'Welcome, renamed')
+            storedWorkflow = { ...draft, unverified_email_senders: [] }
+            projectSenders = [{ ...PENDING_PROJECT_SENDER, verified: true }]
+
+            await expectLogic(logic, () => {
+                logic.actions.closeSenderDomainSetup()
+            })
+                .toFinishAllListeners()
+                .toNotHaveDispatchedActions(['loadWorkflow', 'setExternallyEdited'])
+
+            expect(logic.values.unverifiedSenderDomains).toEqual([])
+            expect(logic.values.senderDomainNotice).toBeNull()
+            expect(logic.values.workflow.name).toEqual('Welcome, renamed')
+        })
+
         it('leaves the workflow alone when nothing changed on the server', async () => {
             await mountWith(waiting())
             logic.actions.openSenderDomainSetup(7)

@@ -3701,7 +3701,11 @@ export const workflowLogic = kea<workflowLogicType>([
                             return result
                         } catch (error) {
                             if (error instanceof ApiError && error.status === 409) {
-                                if (initiatedByAutoSave && !reconciledGoLive && latest?.status === 'waiting_for_domain') {
+                                if (
+                                    initiatedByAutoSave &&
+                                    !reconciledGoLive &&
+                                    latest?.status === 'waiting_for_domain'
+                                ) {
                                     // The go-live bumped the stamp under this save. Take its lifecycle and
                                     // save again, instead of a reload that would drop the edit.
                                     reconciledGoLive = true
@@ -4774,6 +4778,15 @@ export const workflowLogic = kea<workflowLogicType>([
             // A domain verified while the setup was open can take the workflow live on the server. Its copy
             // goes through the edit events' path, which tells our own saves apart and holds it while one runs.
             const latest = await api.hogFlows.getHogFlow(props.id)
+            const local = (cache.lastSavedWorkflow as HogFlow | undefined) ?? values.originalWorkflow
+            if (local && !values.workflowLoading && newestStamp(latest) === newestStamp(local)) {
+                // Verifying a draft's sender moves no stamp, so the edit events would skip it as unchanged.
+                const lifecycle = lifecycleUpdate(local, latest)
+                if (lifecycle) {
+                    applyWorkflowLifecycle(cache, actions, lifecycle)
+                }
+                return
+            }
             actions.resourceEdited({
                 notification_type: 'resource_edited',
                 team_id: latest.team_id,
