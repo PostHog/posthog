@@ -2,7 +2,7 @@ import {
     clickAtIndex,
     createDefaultTooltipAccessor,
     hoverUntilTooltip,
-    renderHogChart,
+    renderChart,
 } from '@posthog/quill-charts/testing'
 
 import { MetricChart, MetricChartProps } from './MetricChart'
@@ -28,7 +28,7 @@ describe('MetricChart', () => {
         { key: '', label: 'No channel' },
     ])('selects the closest of several lines using the raw key "$key"', async ({ key, label }) => {
         const onFocus = jest.fn()
-        const { chart } = renderHogChart(
+        const { chart } = renderChart(
             <MetricChart
                 {...props}
                 series={[
@@ -47,7 +47,7 @@ describe('MetricChart', () => {
     })
 
     it('formats fractional rates as percentages in the axis and tooltip', async () => {
-        const { chart, container } = renderHogChart(
+        const { chart, container } = renderChart(
             <MetricChart
                 {...props}
                 format="percentage"
@@ -62,7 +62,7 @@ describe('MetricChart', () => {
     })
 
     it('shows the supplied error instead of stale data and hides it during retry', () => {
-        const { container, rerender, getByText, queryByText } = renderHogChart(
+        const { container, rerender, getByText, queryByText } = renderChart(
             <MetricChart {...props} series={[{ key: 'email', label: 'Email', data: [0, 12, 8] }]} />,
             { nativeTooltip: true }
         )
