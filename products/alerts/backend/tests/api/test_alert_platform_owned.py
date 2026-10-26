@@ -292,6 +292,17 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
         assert (self.alert.threshold.configuration["type"], self.alert.detector_config) == ("absolute", None)
         assert self._copy().source_config == stored_config
 
+    def test_a_platform_edit_cannot_turn_an_ai_alert_back_on(self) -> None:
+        self._edit_on_the_platform(lambda stored: replace(stored, enabled=False))
+        AlertConfiguration.objects.filter(id=self.alert.id).update(detector_config={"type": "llm"})
+
+        with pytest.raises(InvalidPlatformAlertEdit) as refused:
+            self._edit_on_the_platform(lambda stored: replace(stored, enabled=True))
+
+        assert refused.value.field_name == "enabled"
+        self.alert.refresh_from_db()
+        assert (self.alert.enabled, self._copy().enabled) == (False, False)
+
     def test_a_snooze_from_slack_mutes_the_platform_copy(self) -> None:
         outcome = snooze_alert_from_slack(self.alert.id, user=self.user, duration="1d")
 
