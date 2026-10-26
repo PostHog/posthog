@@ -713,6 +713,8 @@ def web_ensure_precomputed(
             schedule = replace(schedule, rules=[(forced_cutoff, 1), *schedule.rules])
         kwargs["ttl_seconds"] = schedule
     result = ensure_precomputed(team=team, **kwargs)
+    if result.ready and result.computed_at is not None and runner is not None:
+        runner.record_lazy_precompute_computed_at(result.computed_at)
     if not result.ready and not background and runner is not None and family is not None:
         # Check-only miss: warm in the background (debounced per team/family/shape)
         # so the next visit is served from precompute while this one goes live.

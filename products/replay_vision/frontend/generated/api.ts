@@ -80,6 +80,7 @@ import type {
     VisionScannersObservationsThumbnailRetrieveParams,
     VisionScannersWatchFeedRetrieveParams,
     VisionSpendSeriesApi,
+    WatchFeedImpressionsApi,
     WatchFeedResponseApi,
 } from './api.schemas'
 
@@ -1691,5 +1692,25 @@ export const visionScannersWatchFeedRetrieve = async (
     return apiMutator<WatchFeedResponseApi>(getVisionScannersWatchFeedRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getVisionScannersWatchFeedImpressionsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/vision/scanners/watch_feed_impressions/`
+}
+
+/**
+ * Record that the calling user saw these cards in What to watch, so the feed ranks them lower next time.
+ */
+export const visionScannersWatchFeedImpressionsCreate = async (
+    projectId: string,
+    watchFeedImpressionsApi: WatchFeedImpressionsApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getVisionScannersWatchFeedImpressionsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(watchFeedImpressionsApi),
     })
 }

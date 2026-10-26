@@ -194,7 +194,7 @@ services:
             retries: 10
 
     clickhouse:
-        image: ${CLICKHOUSE_SERVER_IMAGE:-clickhouse/clickhouse-server:26.9.13.15}
+        image: ${CLICKHOUSE_SERVER_IMAGE:-ghcr.io/posthog/clickhouse-posthog:26.9.5.2-posthog-aca5bdabb92f}
         restart: on-failure
         environment:
             CLICKHOUSE_SKIP_USER_SETUP: 1

@@ -15,6 +15,7 @@ from typing import Any
 from posthog.dataclasses import frozen
 from posthog.models import ActivityLog, Team
 
+from products.signals.backend.activity_summary.computed import compute_fields
 from products.signals.backend.activity_summary.inputs import TASK_ORIGIN_PRODUCTS, user_activity, user_tasks
 from products.signals.backend.activity_summary.queue import ActivitySummaryPair
 from products.signals.backend.activity_summary.render import (
@@ -269,19 +270,32 @@ def leave_one_out_pair(
     pair: ActivitySummaryPair, *, start: datetime.datetime, now: datetime.datetime, min_units: int
 ) -> list[dict[str, Any]]:
     """One record per variant. With no previous summary, so each summary reflects its input only."""
+    tasks = user_tasks(pair.team_id, pair.user_id, start, now)
+    activity = user_activity(pair.team_id, pair.user_id, start, now)
     variants = leave_one_out_inputs(
-        user_tasks(pair.team_id, pair.user_id, start, now),
-        user_activity(pair.team_id, pair.user_id, start, now),
+        tasks,
+        activity,
         as_of=now,
         seed=sampling_seed(now.date().isoformat(), pair.team_id, pair.user_id),
     )
     if Variant.ALL not in variants or variants[Variant.ALL].units < min_units:
         return []
     client = gateway_client(pair.team_id, pair.user_id, now.date())
+    sources = {
+        Variant.ALL: (tasks, activity),
+        Variant.WITHOUT_TASKS: ([], activity),
+        Variant.WITHOUT_ACTIVITY: (tasks, []),
+    }
     records: list[dict[str, Any]] = []
     for variant, rendered in variants.items():
+        variant_tasks, variant_activity = sources[variant]
         outcome = summarize(
-            client, rendered_input=rendered.text, previous_summary=None, model=DEFAULT_MODEL, as_of=now.date()
+            client,
+            rendered_input=rendered.text,
+            previous_summary=None,
+            model=DEFAULT_MODEL,
+            as_of=now.date(),
+            computed=compute_fields(variant_tasks, variant_activity, []).as_json(),
         )
         records.append(
             {
