@@ -164,7 +164,9 @@ from products.dashboards.backend.facade.api import DashboardTileBasicSerializer,
 from products.dashboards.backend.models.dashboard import (
     DASHBOARD_GRID_COMPACTION_MODES,
     DASHBOARD_GRID_SPACING_GAPS,
+    DASHBOARD_TILE_GROUP_DISPLAY_MODES,
     Dashboard,
+    TileGroupDisplay,
 )
 from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, DashboardTileBadge, Text
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
@@ -259,6 +261,10 @@ def _effective_layout_compaction(customization: Any) -> str:
     return layout_compaction if layout_compaction in DASHBOARD_GRID_COMPACTION_MODES else "vertical"
 
 
+def _effective_group_display(customization: Any) -> str:
+    return stored_customization(customization).get("group_display", TileGroupDisplay.SECTIONS)
+
+
 logger = structlog.get_logger(__name__)
 
 DASHBOARD_TILE_ERROR_TYPE = "DashboardTileError"
@@ -331,6 +337,7 @@ DASHBOARD_SHARED_FIELDS = [
     "customization",
     "grid_spacing",
     "layout_compaction",
+    "group_display",
     "groups",
     "group_titles",
 ]
@@ -1360,6 +1367,14 @@ class DashboardCustomizationSerializer(serializers.Serializer):
             "to the left, and stable preserves positions while moving colliding tiles."
         ),
     )
+    group_display = serializers.ChoiceField(
+        choices=DASHBOARD_TILE_GROUP_DISPLAY_MODES,
+        required=False,
+        help_text=(
+            "How tile groups show. sections shows each group as a band that opens and closes. tabs shows one "
+            "group at a time, and tiles outside any group get their own first tab."
+        ),
+    )
     groups = serializers.DictField(
         child=DashboardTileGroupSerializer(),
         required=False,
@@ -1431,6 +1446,15 @@ class DashboardMetadataSerializer(DashboardBasicSerializer):
         help_text=(
             "How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles "
             "to the left, and stable preserves positions while moving colliding tiles."
+        ),
+    )
+    group_display = serializers.ChoiceField(
+        choices=DASHBOARD_TILE_GROUP_DISPLAY_MODES,
+        required=False,
+        write_only=True,
+        help_text=(
+            "How tile groups show. sections shows each group as a band that opens and closes. tabs shows one "
+            "group at a time, and tiles outside any group get their own first tab."
         ),
     )
     groups = _GroupDictField(
@@ -1834,6 +1858,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
         team = self.context["get_team"]()
         grid_spacing = validated_data.pop("grid_spacing", None)
         layout_compaction = validated_data.pop("layout_compaction", None)
+        group_display = validated_data.pop("group_display", None)
         has_groups = "groups" in validated_data
         groups = validated_data.pop("groups", None)
         has_group_titles = "group_titles" in validated_data
@@ -1899,6 +1924,11 @@ class DashboardSerializer(DashboardMetadataSerializer):
             validated_data["customization"] = {
                 **validated_data.get("customization", {}),
                 "layout_compaction": layout_compaction,
+            }
+        if group_display is not None:
+            validated_data["customization"] = {
+                **validated_data.get("customization", {}),
+                "group_display": group_display,
             }
 
         def with_requested_groups(customization: dict[str, Any]) -> dict[str, Any]:
@@ -2130,6 +2160,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
     @monitor(feature=Feature.DASHBOARD, endpoint="dashboard", method="PATCH")
     def update(self, instance: Dashboard, validated_data: dict, *args: Any, **kwargs: Any) -> Dashboard:
         previous_layout_compaction = _effective_layout_compaction(instance.customization)
+        previous_group_display = _effective_group_display(instance.customization)
         self._check_delivered_dashboard_filters_access(
             cast(User, self.context["request"].user), instance, self.initial_data
         )
@@ -2137,11 +2168,13 @@ class DashboardSerializer(DashboardMetadataSerializer):
         validated_data.pop("use_template", None)  # Remove attribute if present
         grid_spacing = validated_data.pop("grid_spacing", None)
         layout_compaction = validated_data.pop("layout_compaction", None)
-        if grid_spacing is not None or layout_compaction is not None:
+        group_display = validated_data.pop("group_display", None)
+        if grid_spacing is not None or layout_compaction is not None or group_display is not None:
             validated_data["customization"] = {
                 **normalize_dashboard_customization(instance.customization),
                 **({"tile_spacing": grid_spacing} if grid_spacing is not None else {}),
                 **({"layout_compaction": layout_compaction} if layout_compaction is not None else {}),
+                **({"group_display": group_display} if group_display is not None else {}),
             }
         if "groups" in validated_data:
             validated_data["customization"] = _with_groups(
@@ -2250,6 +2283,18 @@ class DashboardSerializer(DashboardMetadataSerializer):
                         "dashboard_id": instance.id,
                         "previous_layout_compaction": previous_layout_compaction,
                         "layout_compaction": layout_compaction,
+                    },
+                    team=instance.team,
+                    request=self.context["request"],
+                )
+            if group_display is not None and group_display != previous_group_display:
+                report_user_action(
+                    user,
+                    "dashboard group display configured",
+                    {
+                        "dashboard_id": instance.id,
+                        "previous_group_display": previous_group_display,
+                        "group_display": group_display,
                     },
                     team=instance.team,
                     request=self.context["request"],
