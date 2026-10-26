@@ -258,6 +258,7 @@ async def _arun_signals_scout(
     verbose: bool = False,
     triggered_by: str = TRIGGERED_BY_SCHEDULE,
     run_note: str | None = None,
+    trigger_workflow_id: str | None = None,
     agent_runtime: AgentRuntime | None = None,
     trial_launch_id: str | None = None,
     check_id: str | None = None,
@@ -275,6 +276,9 @@ async def _arun_signals_scout(
     `run_note` is the one-off steering a person typed when triggering the run by hand. It renders
     its own prompt section and is stamped on the run row, so the run it steered says so in its own
     history; it is never carried into a later run.
+
+    `trigger_workflow_id` is the workflow whose "Run scout" step started a `"workflow"` run. It
+    renders in the run's identity and is stamped on the run row.
 
     `precheck_rows` are the rows the pre-check of a scheduled run found (`scout_harness/precheck.py`).
     They render in their own prompt section as untrusted data. `precheck_query_source` says which
@@ -527,6 +531,7 @@ async def _arun_signals_scout(
             service_tier=service_tier,
             triggered_by=triggered_by,
             run_note=run_note,
+            trigger_workflow_id=trigger_workflow_id,
             trial=trial,
             check_id=check_id,
             precheck_rows=precheck_rows,
@@ -726,6 +731,7 @@ async def arun_signals_scout(
     verbose: bool = False,
     triggered_by: str = TRIGGERED_BY_SCHEDULE,
     run_note: str | None = None,
+    trigger_workflow_id: str | None = None,
     agent_runtime: AgentRuntime | None = None,
     trial_launch_id: str | None = None,
     check_id: str | None = None,
@@ -741,6 +747,7 @@ async def arun_signals_scout(
             verbose=verbose,
             triggered_by=triggered_by,
             run_note=run_note,
+            trigger_workflow_id=trigger_workflow_id,
             agent_runtime=agent_runtime,
             trial_launch_id=trial_launch_id,
             check_id=check_id,
@@ -930,6 +937,7 @@ async def _spawn_and_run(
     service_tier: str | None = None,
     triggered_by: str = TRIGGERED_BY_SCHEDULE,
     run_note: str | None = None,
+    trigger_workflow_id: str | None = None,
     trial: TrialLaunch | None = None,
     check_id: str | None = None,
     precheck_rows: str | None = None,
@@ -1052,6 +1060,7 @@ async def _spawn_and_run(
         write_scopes=scope_posture["extra_write_scopes"],
         tool_allowlist_narrowed=mcp_tool_allowlist is not None,
         run_note=run_note,
+        trigger_workflow_id=trigger_workflow_id,
         # The repositories the sandbox clones, so the prompt can point the agent at the checkout
         # instead of leaving it to discover the tree. Same list the sandbox context carries, so
         # the prompt can never describe a tree the run does not have.
@@ -1091,6 +1100,7 @@ async def _spawn_and_run(
             repositories=repositories,
             triggered_by=triggered_by,
             run_note=run_note,
+            trigger_workflow_id=trigger_workflow_id,
             trial=trial,
             check_id=check_id,
             precheck_query_source=precheck_query_source,
@@ -1370,6 +1380,7 @@ def _create_run_row(
     repositories: list[str] | None = None,
     triggered_by: str = TRIGGERED_BY_SCHEDULE,
     run_note: str | None = None,
+    trigger_workflow_id: str | None = None,
     trial: TrialLaunch | None = None,
     check_id: str | None = None,
     precheck_query_source: str | None = None,
@@ -1454,6 +1465,9 @@ def _create_run_row(
     # were — a scheduled patrol or a human's "Run now" must not extend it.
     if triggered_by != TRIGGERED_BY_SCHEDULE:
         metadata["triggered_by"] = triggered_by
+    # The only record of which workflow spent the run, so its author can find the runs it started.
+    if trigger_workflow_id:
+        metadata["trigger_workflow_id"] = trigger_workflow_id
     # The only record of why a manual run behaved differently from the scheduled ones around it,
     # because the note is deliberately never stored as a scout note.
     if run_note:
