@@ -223,6 +223,7 @@ export interface SectionsInput extends SectionsQuery {
     local: LocalLists
     remote: RemoteSlots
     stale: boolean
+    personsFirst: boolean
 }
 
 const isRanked = (query: SectionsQuery): boolean =>
@@ -281,6 +282,24 @@ function rankedResultsSections(
 function lowerSections(input: SectionsInput, ranked: boolean, state: CommandKSection['state']): CommandKSection[] {
     const { local, remote, remoteQueries, localQuery } = input
     const sections: (CommandKSection | null)[] = []
+    const loaded = (): CommandKSection[] => sections.filter((section): section is CommandKSection => section !== null)
+    const loadingMore = (): CommandKSection[] =>
+        state === 'stale'
+            ? loaded()
+            : [...loaded(), readySection('loading-more', [{ kind: 'loading-more', key: 'loading-more/row' }])]
+    const appendInOrder = (sources: RemoteSource[]): boolean => {
+        for (const source of sources) {
+            const query = remoteQueries[source]
+            if (!isSettled(remote[source], query)) {
+                return false
+            }
+            sections.push(query ? remoteSection(source, remote[source].cache[query], state) : null)
+        }
+        return true
+    }
+    if (input.personsFirst && !appendInOrder(['persons'])) {
+        return loadingMore()
+    }
     if (localQuery) {
         for (const source of LOCAL_SOURCES) {
             if (ranked && source === 'products') {
@@ -297,21 +316,6 @@ function lowerSections(input: SectionsInput, ranked: boolean, state: CommandKSec
             sections.push(rows.length > 0 ? { ...readySection(source, rows), state } : null)
         }
     }
-    const loaded = (): CommandKSection[] => sections.filter((section): section is CommandKSection => section !== null)
-    const loadingMore = (): CommandKSection[] =>
-        state === 'stale'
-            ? loaded()
-            : [...loaded(), readySection('loading-more', [{ kind: 'loading-more', key: 'loading-more/row' }])]
-    const appendInOrder = (sources: RemoteSource[]): boolean => {
-        for (const source of sources) {
-            const query = remoteQueries[source]
-            if (!isSettled(remote[source], query)) {
-                return false
-            }
-            sections.push(query ? remoteSection(source, remote[source].cache[query], state) : null)
-        }
-        return true
-    }
     if (!appendInOrder(REMOTE_SOURCES.filter((source) => source !== 'results' && !TRAILING_SOURCES.includes(source)))) {
         return loadingMore()
     }
@@ -321,7 +325,8 @@ function lowerSections(input: SectionsInput, ranked: boolean, state: CommandKSec
             state,
         })
     }
-    return appendInOrder(TRAILING_SOURCES) ? loaded() : loadingMore()
+    const trailing = input.personsFirst ? TRAILING_SOURCES.filter((source) => source !== 'persons') : TRAILING_SOURCES
+    return appendInOrder(trailing) ? loaded() : loadingMore()
 }
 
 export function buildSections(input: SectionsInput): CommandKSection[] {
