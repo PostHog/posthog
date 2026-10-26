@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from typing import Any
 
 from drf_spectacular.utils import extend_schema
@@ -185,6 +185,7 @@ class ExternalDataSourceWebhookSetupMixin(base.ExternalDataSourceViewSetBase):
         source_id: str,
         source_schemas: list[SourceSchema],
         permission_errors: Mapping[str, str | None] | None = None,
+        only_tables: Collection[str] | None = None,
     ) -> dict | None:
         """Best-effort webhook auto-registration for one-shot setup.
 
@@ -202,6 +203,9 @@ class ExternalDataSourceWebhookSetupMixin(base.ExternalDataSourceViewSetBase):
         webhook_capable = {
             s.name for s in source_schemas if s.supports_webhooks and s.should_sync_default and s.name not in denied
         }
+        if only_tables is not None:
+            # The caller chose its tables, so the webhook must not turn on any others.
+            webhook_capable &= set(only_tables)
         if not webhook_capable or source.webhook_template is None:
             return None
 

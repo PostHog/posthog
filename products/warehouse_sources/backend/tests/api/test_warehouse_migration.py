@@ -130,6 +130,8 @@ class TestWarehouseMigrationAPI(APIBaseTest):
         )
         own = self._migration()
         assert self.client.get(f"{self.url}{migration.id}/").status_code == 404
+        assert self.client.get(f"{self.url}not-a-uuid/").status_code == 404
+        assert self.client.post(f"{self.url}{own.id}/items/not-a-uuid/skip/").status_code == 404
 
 
 _STRIPE_VALID = patch(
@@ -142,7 +144,7 @@ _NO_PERSON_JOIN = patch(
 _NO_VIEW_SYNC = patch(
     "products.data_modeling.backend.models.datawarehouse_managed_viewset.DataWarehouseManagedViewSet.sync_views"
 )
-_APPLY_FLAG = "products.warehouse_sources.backend.presentation.views.external_data_source.migration_apply.is_migration_import_enabled"
+_APPLY_FLAG = f"{_FACADE}.is_migration_import_enabled"
 
 
 class TestApplyMigrationItem(APIBaseTest):

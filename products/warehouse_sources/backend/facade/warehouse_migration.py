@@ -1,16 +1,27 @@
 """Fivetran migration import, for the warehouse presentation endpoints."""
 
+from collections.abc import Mapping
+from datetime import timedelta
 from uuid import UUID
 
-from django.db.models import QuerySet
+from django.db.models import Q, QuerySet
+from django.utils import timezone
+
+from pydantic import ValidationError
 
 from products.warehouse_sources.backend.facade import contracts
+from products.warehouse_sources.backend.facade.source_management import SourceSchema
 from products.warehouse_sources.backend.migration import service
+from products.warehouse_sources.backend.migration.apply import build_planned_schemas
 from products.warehouse_sources.backend.migration.flags import is_migration_import_enabled
+from products.warehouse_sources.backend.migration.types import ItemProposal
 from products.warehouse_sources.backend.models.warehouse_migration import (
     WarehouseMigration as _WarehouseMigration,
     WarehouseMigrationItem as _WarehouseMigrationItem,
 )
+
+# An apply that held an item this long died before it finished, so another one may take over.
+_APPLY_LEASE = timedelta(minutes=15)
 
 PROVIDER_CHOICES = _WarehouseMigration.Provider.choices
 STATUS_CHOICES = _WarehouseMigration.Status.choices
@@ -96,9 +107,80 @@ def skip_migration_item(team_id: int, migration_id: UUID, item_id: UUID) -> cont
     return _to_item(item) if item else None
 
 
+def find_migration_item(team_id: int, item_id: UUID) -> contracts.WarehouseMigrationItem | None:
+    item = _WarehouseMigrationItem.objects.for_team(team_id).filter(id=item_id).first()
+    return _to_item(item) if item else None
+
+
+def claim_migration_item(team_id: int, item_id: UUID) -> contracts.ClaimedWarehouseMigrationItem | None:
+    """Mark the item as being applied. Returns None when it is unsupported, done, skipped, or claimed."""
+    items = _WarehouseMigrationItem.objects.for_team(team_id).filter(id=item_id, proposal__isnull=False)
+    item = items.first()
+    if item is None:
+        return None
+    try:
+        proposal = ItemProposal.from_json(item.proposal or {})
+    except ValidationError:
+        fail_migration_item(
+            team_id, item_id, "The stored plan for this connection is not valid. Refresh the migration."
+        )
+        return None
+    now = timezone.now()
+    # Conditional, so two requests for one item cannot both create a source.
+    claimable = Q(status__in=(_WarehouseMigrationItem.Status.PENDING, _WarehouseMigrationItem.Status.FAILED)) | Q(
+        status=_WarehouseMigrationItem.Status.APPLYING, updated_at__lt=now - _APPLY_LEASE
+    )
+    if not items.filter(claimable).update(status=_WarehouseMigrationItem.Status.APPLYING, updated_at=now):
+        return None
+    return contracts.ClaimedWarehouseMigrationItem(
+        id=item.id,
+        migration_id=item.migration_id,
+        name=item.name,
+        caveats=list(item.caveats),
+        source_type=proposal.source_type,
+        prefix=proposal.prefix,
+        sync_frequency=proposal.sync_frequency,
+        start_paused=proposal.start_paused,
+        proposal=item.proposal or {},
+    )
+
+
+def plan_migration_schemas(
+    proposal: Mapping, source_schemas: list[SourceSchema], permission_errors: Mapping[str, str | None]
+) -> contracts.PlannedMigrationSchemas:
+    planned = build_planned_schemas(ItemProposal.from_json(proposal), source_schemas, permission_errors)
+    return contracts.PlannedMigrationSchemas(
+        schemas=planned.schemas,
+        unavailable=list(planned.unavailable),
+        webhook_only=list(planned.webhook_only),
+        planned=list(planned.planned),
+    )
+
+
+def finish_migration_item(team_id: int, item_id: UUID, *, source_id: UUID, caveats: list[str]) -> None:
+    _WarehouseMigrationItem.objects.for_team(team_id).filter(id=item_id).update(
+        status=_WarehouseMigrationItem.Status.APPLIED,
+        external_data_source_id=source_id,
+        caveats=caveats,
+        error="",
+        updated_at=timezone.now(),
+    )
+
+
+def fail_migration_item(team_id: int, item_id: UUID, error: str) -> None:
+    _WarehouseMigrationItem.objects.for_team(team_id).filter(id=item_id).update(
+        status=_WarehouseMigrationItem.Status.FAILED, error=error, updated_at=timezone.now()
+    )
+
+
 __all__ = [
     "ITEM_STATUS_CHOICES",
     "ITEM_VERDICT_CHOICES",
+    "claim_migration_item",
+    "fail_migration_item",
+    "find_migration_item",
+    "finish_migration_item",
+    "plan_migration_schemas",
     "PROVIDER_CHOICES",
     "STATUS_CHOICES",
     "create_migration",

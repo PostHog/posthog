@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Collection, Mapping
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
@@ -2048,8 +2048,12 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
         created_via: str,
         direct_query_enabled: bool = False,
         destination_ids: list | None = None,
+        webhook_tables: Callable[[], Collection[str]] | None = None,
     ) -> Response:
-        """Validate a payload, discover its tables, and create the source with `build_schemas(tables, permission_errors)`."""
+        """Validate a payload, discover its tables, and create the source with `build_schemas(tables, permission_errors)`.
+
+        `webhook_tables`, read after `build_schemas` runs, limits which tables a registered webhook may turn on.
+        """
         resolved = self._resolve_stored_credential(source_type, payload)
         if resolved.error_response is not None:
             return resolved.error_response
@@ -2146,7 +2150,12 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
 
         if response.status_code == status.HTTP_201_CREATED and isinstance(source, WebhookSource):
             webhook_result = self._auto_register_webhook(
-                source, source_config, str(response.data["id"]), source_schemas, permission_errors=setup_permissions
+                source,
+                source_config,
+                str(response.data["id"]),
+                source_schemas,
+                permission_errors=setup_permissions,
+                only_tables=webhook_tables() if webhook_tables else None,
             )
             if webhook_result is not None:
                 response.data["webhook"] = webhook_result

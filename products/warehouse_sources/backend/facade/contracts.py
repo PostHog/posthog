@@ -393,3 +393,31 @@ class WarehouseMigrationItem:
     status: str
     external_data_source_id: UUID | None
     error: str
+
+
+@dataclass(frozen=True)
+class ClaimedWarehouseMigrationItem:
+    """A migration item that one apply request now owns."""
+
+    id: UUID
+    migration_id: UUID
+    name: str
+    caveats: list[str]
+    source_type: str
+    prefix: str
+    sync_frequency: str
+    start_paused: bool
+    # The stored plan, passed back to `plan_migration_schemas`.
+    proposal: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class PlannedMigrationSchemas:
+    # The `schemas` payload for source creation, one entry per discovered table.
+    schemas: list[dict[str, Any]]
+    # Planned tables that PostHog did not find or cannot sync with these credentials.
+    unavailable: list[str]
+    # Planned tables that only sync through a webhook.
+    webhook_only: list[str]
+    # Discovered tables the plan covers.
+    planned: list[str]

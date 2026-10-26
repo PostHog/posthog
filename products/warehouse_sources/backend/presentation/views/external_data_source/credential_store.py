@@ -18,9 +18,9 @@ from rest_framework.response import Response
 from posthog.api.utils import action
 from posthog.models.user import User
 
+from products.warehouse_sources.backend.facade import warehouse_migration as migrations
 from products.warehouse_sources.backend.facade.models import PendingSourceCredential
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
-from products.warehouse_sources.backend.models.warehouse_migration import WarehouseMigrationItem
 
 from . import base, helpers
 
@@ -295,15 +295,11 @@ class ExternalDataSourceCredentialStoreMixin(base.ExternalDataSourceViewSetBase)
         connect_url = (
             f"{settings.SITE_URL}/project/{self.team_id}/data-warehouse/connect?kind={quote(str(source_type))}"
         )
+        create_step = 'call data-warehouse-source-setup with {"credential_id": <id>} in the payload'
         migration_item_id = request.query_params.get("migration_item_id")
         if migration_item_id:
             try:
-                item = (
-                    WarehouseMigrationItem.objects.for_team(self.team_id)
-                    .filter(id=uuid.UUID(migration_item_id))
-                    .values("id", "migration_id")
-                    .first()
-                )
+                item = migrations.find_migration_item(self.team_id, uuid.UUID(migration_item_id))
             except ValueError:
                 item = None
             if item is None:
@@ -311,7 +307,9 @@ class ExternalDataSourceCredentialStoreMixin(base.ExternalDataSourceViewSetBase)
                     status=status.HTTP_400_BAD_REQUEST,
                     data={"message": f"Unknown migration_item_id '{migration_item_id}'"},
                 )
-            connect_url += f"&migration_id={item['migration_id']}&migration_item_id={item['id']}"
+            connect_url += f"&migration_id={item.migration_id}&migration_item_id={item.id}"
+            # The apply tool creates the source with the planned tables, prefix and schedule.
+            create_step = f'call warehouse-migration-item-apply with {{"item_id": "{item.id}", "credential_id": <id>}}'
 
         data = {
             "source_type": source_type,
@@ -321,8 +319,8 @@ class ExternalDataSourceCredentialStoreMixin(base.ExternalDataSourceViewSetBase)
                 f"Share this link with the user. They {action_phrase} directly in PostHog — never ask them to "
                 "paste credentials or tokens into the chat. The page only stores the connection details; it does "
                 "not create the source. Once the user confirms they're done, find the stored credential id via "
-                f"data-warehouse-stored-credentials-list (source_type='{source_type}', newest first) and call "
-                'data-warehouse-source-setup with {"credential_id": <id>} in the payload. Stored credentials are '
+                f"data-warehouse-stored-credentials-list (source_type='{source_type}', newest first) and "
+                f"{create_step}. Stored credentials are "
                 "single-use, expire after 24 hours, and are only visible to and consumable by the PostHog user "
                 "who entered them — so the page must be filled by the same user this session authenticates as."
             ),
