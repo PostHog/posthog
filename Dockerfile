@@ -43,9 +43,7 @@ ENV COREPACK_ENABLE_NETWORK=0
 #
 # ---------------------------------------------------------
 #
-# The frontend pnpm install needs only the package.json of each products/* workspace package. This
-# stage runs again on any change under products/, but COPY --from caches on the content of the
-# copied files, so the install in frontend-build runs again only when a manifest changes.
+# Only the package.json files, so a product source change does not rerun the frontend pnpm install.
 FROM node:24.22.1-bookworm-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205 AS product-manifests
 COPY products/ /tmp/products/
 RUN cd /tmp/products && for manifest in */package.json; do install -D -m 644 "$manifest" "/manifests/products/$manifest"; done
