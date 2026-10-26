@@ -19,7 +19,10 @@ from products.access_control.backend.facade.api import valid_role_member_user_id
 from .. import logic, weekly_digest, weekly_digest_delivery
 from ..indexed_embedding import DOCUMENT_EMBEDDINGS_BUFFER_SHARDED_TABLE, EMBEDDING_TABLES
 from ..logic import built_in_filters, external_references, github_external_references, rules, sentry_migration
-from ..logic.sentry_migration import client as sentry_client
+from ..logic.sentry_migration import (
+    client as sentry_client,
+    errors as sentry_migration_errors,
+)
 from ..models import (
     ErrorTrackingIssue,
     override_error_tracking_issue_fingerprint as override_error_tracking_issue_fingerprint,
@@ -41,7 +44,7 @@ InvalidBytecodeError = rules.ErrorTrackingInvalidBytecodeError
 SeverityRuleLimitError = rules.ErrorTrackingSeverityRuleLimitError
 UnknownBuiltInFilterError = built_in_filters.UnknownBuiltInFilterError
 SentryApiError = sentry_client.SentryApiError
-SentryMigrationSelectionError = sentry_migration.SentryMigrationSelectionError
+SentryMigrationSelectionError = sentry_migration_errors.SentryMigrationSelectionError
 
 SOURCE_MAPS_DOCS_URL = contracts.SOURCE_MAPS_DOCS_URL
 
