@@ -431,7 +431,7 @@ class TestChartsOnSlackMessages:
             "image",
         ]
         assert message.blocks[2]["text"] == "A short report."
-        assert message.blocks[1]["text"]["text"] == "Weekly report"
+        assert message.blocks[1]["text"]["text"] == 'Your report "Weekly report" is ready! 🎉'
         assert message.blocks[3]["image_url"] == _CHART["image_url"]
         assert message.blocks[3]["alt_text"] == "signups by day"
         assert message.blocks[3]["title"] == {"type": "plain_text", "text": "signups by day"}
@@ -584,7 +584,7 @@ class TestBuildAISlackMessage:
     )
     def test_preserves_report_markdown(self, markdown: str, expected: str | None) -> None:
         message = _build_message(markdown)
-        assert message.blocks[1]["text"]["text"] == "Weekly report"
+        assert message.blocks[1]["text"]["text"] == 'Your report "Weekly report" is ready! 🎉'
         assert message.blocks[2] == {"type": "markdown", "text": markdown if expected is None else expected}
         assert message.thread_messages == []
 

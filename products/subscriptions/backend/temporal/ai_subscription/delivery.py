@@ -602,10 +602,11 @@ def _build_ai_slack_message(
     sections = _safe_slack_markdown_sections(markdown)
     title = subscription.title or "Your PostHog AI report"
     first_section = sections[0] if sections else "_No report content was generated._"
+    heading = f'Your report "{title}" is ready! 🎉'
 
     blocks: list[dict] = [
         {"type": "divider"},
-        {"type": "header", "text": {"type": "plain_text", "text": title[:150]}},
+        {"type": "header", "text": {"type": "plain_text", "text": heading[:150]}},
         *_slack_report_blocks(first_section, env),
     ]
     for chart in (charts or []) if subscription.includes_delivery_part("include_images") else []:
