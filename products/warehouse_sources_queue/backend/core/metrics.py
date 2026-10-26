@@ -75,6 +75,12 @@ ACTIVE_GROUPS = Gauge(
     multiprocess_mode="livesum",
 )
 
+# "orphans_found" counts the sweeps that found at least one executing batch without a shutdown
+# marker, which means a consumer died without notice (an OOM kill or a crash) or lost its lease.
+# "orphans_found_after_shutdown" counts the sweeps whose orphans all came from a graceful shutdown,
+# such as a deploy, a scale-down or a liveness restart. Alerts read "orphans_found".
+RECOVERY_SWEEP_OUTCOMES = ("clean", "orphans_found", "orphans_found_after_shutdown")
+
 RECOVERY_SWEEPS_TOTAL = Counter(
     "warehouse_pg_consumer_recovery_sweeps_total",
     "Total recovery sweeps executed",

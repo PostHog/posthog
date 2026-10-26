@@ -225,8 +225,7 @@ class SkillBuilder:
         match = next((s for s in skills if s.name == skill_name), None)
         if match is not None and match.source_file.suffix != ".j2":
             try:
-                metadata, _ = frontmatter.parse_frontmatter(match.source_file.read_text())
-                fm_name = metadata.get("name", skill_name)
+                fm_name = frontmatter.validate_frontmatter(match.source_file.read_text(), str(match.source_file)).name
                 if fm_name != skill_name and fm_name not in names_to_try:
                     names_to_try.append(fm_name)
             except Exception:

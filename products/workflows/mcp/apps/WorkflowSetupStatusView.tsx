@@ -16,7 +16,6 @@ export interface WorkflowSetupStatusData {
     ready_to_send_email: boolean
     email_sending_paused?: boolean
     next_open_step: string | null
-    data_suggestions_available: boolean
 }
 
 export interface WorkflowSetupStatusViewProps {

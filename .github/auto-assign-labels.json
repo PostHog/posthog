@@ -31,7 +31,6 @@
                 ".agents/skills/finding-llm-gateway-migration-candidates/",
                 ".agents/skills/migrating-llm-gateway-callers/",
                 ".github/workflows/cd-agent-proxy-image.yml",
-                ".github/workflows/cd-tasks-golden-snapshot.yml",
                 ".github/workflows/ci-agent-proxy.yml",
                 ".github/workflows/ci-llm-gateway.yml",
                 ".github/workflows/llm-gateway-cd.yml",

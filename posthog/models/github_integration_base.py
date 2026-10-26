@@ -11,12 +11,11 @@ import time
 import uuid
 from collections import deque
 from collections.abc import Callable, Collection, Iterable, Mapping
-from dataclasses import dataclass
-from datetime import datetime
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta
 from typing import Any, Literal, TypedDict, cast
 from urllib.parse import urlparse
 
-from django.conf import settings
 from django.core.cache import cache
 from django.db.models import Count, F, Func, JSONField, Value
 from django.db.models.functions import Cast
@@ -27,6 +26,10 @@ import requests
 import structlog
 from prometheus_client import Counter
 
+from posthog.cache_utils import cache_for
+from posthog.credentials_service.callers import CredentialsCaller
+from posthog.credentials_service.errors import CredentialsServiceFailure
+from posthog.credentials_service.settings_fallback import get_many_or_settings
 from posthog.dataclasses import frozen
 from posthog.egress.github.limiter import github_installation_pace_seconds, remember_observed_core_limit
 from posthog.egress.github.transport import GitHubRateLimitError, github_request, raise_if_github_rate_limited
@@ -46,6 +49,54 @@ github_cache_access_counter = Counter(
     "Number of GitHub integration cache accesses by cache type, repository, and result.",
     labelnames=["integration_id", "cache", "repository", "result"],
 )
+
+CREDENTIALS_CALLER = CredentialsCaller.INTEGRATIONS
+
+
+@frozen
+class GitHubAppJwtCredentials:
+    """What PostHog's GitHub App signs its App JWT with."""
+
+    client_id: str
+    private_key: str = field(repr=False)
+
+    @property
+    def configured(self) -> bool:
+        return bool(self.client_id and self.private_key)
+
+
+@frozen
+class GitHubAppOauthCredentials:
+    """What PostHog's GitHub App exchanges a user authorization code or refresh token with."""
+
+    client_id: str
+    client_secret: str = field(repr=False)
+
+
+@cache_for(timedelta(minutes=5))
+def github_app_jwt_credentials() -> GitHubAppJwtCredentials:
+    """The App's client id and private key, read from the credentials service.
+
+    Cached because an App JWT is signed for every installation token and every App API call. A
+    rotated key reaches each process within five minutes, and GitHub accepts more than one private
+    key per App, so the old key stays valid for that time.
+    """
+    values = get_many_or_settings(["GITHUB_APP_CLIENT_ID", "GITHUB_APP_PRIVATE_KEY"], CREDENTIALS_CALLER)
+    return GitHubAppJwtCredentials(
+        client_id=values["GITHUB_APP_CLIENT_ID"], private_key=values["GITHUB_APP_PRIVATE_KEY"]
+    )
+
+
+def github_app_oauth_credentials() -> GitHubAppOauthCredentials:
+    """The App's client id and secret, read from the credentials service.
+
+    Not cached: they are read only when a person authorizes the App or a user token is refreshed.
+    """
+    values = get_many_or_settings(["GITHUB_APP_CLIENT_ID", "GITHUB_APP_CLIENT_SECRET"], CREDENTIALS_CALLER)
+    return GitHubAppOauthCredentials(
+        client_id=values["GITHUB_APP_CLIENT_ID"], client_secret=values["GITHUB_APP_CLIENT_SECRET"]
+    )
+
 
 # Repository cache: 1-hour staleness window.
 GITHUB_REPOSITORY_CACHE_TTL_SECONDS = 60 * 60
@@ -278,8 +329,9 @@ class GitHubIntegrationBase:
         """
         from rest_framework.exceptions import ValidationError
 
-        github_app_client_id = settings.GITHUB_APP_CLIENT_ID
-        github_app_private_key = settings.GITHUB_APP_PRIVATE_KEY
+        credentials = github_app_jwt_credentials()
+        github_app_client_id = credentials.client_id
+        github_app_private_key = credentials.private_key
 
         if not github_app_client_id:
             raise ValidationError("GITHUB_APP_CLIENT_ID is not configured")
@@ -406,7 +458,12 @@ class GitHubIntegrationBase:
         """
         if not installation_id:
             return "skipped"
-        if not settings.GITHUB_APP_CLIENT_ID or not settings.GITHUB_APP_PRIVATE_KEY:
+        try:
+            app_configured = github_app_jwt_credentials().configured
+        except CredentialsServiceFailure:
+            logger.warning("GitHubIntegration: uninstall failed, GitHub App credentials unavailable", exc_info=True)
+            return "failed"
+        if not app_configured:
             logger.warning("GitHubIntegration: uninstall skipped, GitHub App not configured")
             return "skipped"
 
@@ -860,6 +917,22 @@ class GitHubIntegrationBase:
             logger.warning("GitHubIntegration: installation PATCH failed", url=url, exc_info=True)
             return None
 
+    def _installation_authenticated_delete(
+        self,
+        url: str,
+        *,
+        endpoint: str,
+        json_body: Mapping[str, object],
+        timeout: int = 10,
+    ) -> requests.Response | None:
+        """DELETE with installation auth for GitHub endpoints that accept a JSON body."""
+        path = url.removeprefix("https://api.github.com")
+        try:
+            return self.api_request("DELETE", path, endpoint=endpoint, json_body=json_body, timeout=timeout)
+        except GitHubIntegrationError:
+            logger.warning("GitHubIntegration: installation DELETE failed", url=url, exc_info=True)
+            return None
+
     def _installation_authenticated_post(
         self,
         url: str,
@@ -1245,6 +1318,11 @@ class GitHubIntegrationBase:
                 for entry in (pr.get("requested_reviewers") or [])
                 if isinstance(entry, dict) and entry.get("login")
             ],
+            "requested_teams": [
+                entry["slug"]
+                for entry in (pr.get("requested_teams") or [])
+                if isinstance(entry, dict) and entry.get("slug")
+            ],
             "created_at": pr.get("created_at"),
             "updated_at": pr.get("updated_at"),
             "merged_at": pr.get("merged_at"),
@@ -1425,6 +1503,37 @@ class GitHubIntegrationBase:
         ]
         return {"success": True, "assignees": assigned}
 
+    def remove_pull_request_assignees(
+        self, repository: str, pr_number: int, assignees: Iterable[str]
+    ) -> dict[str, Any]:
+        """Remove named assignees from a pull request and return the remaining assignees."""
+        unwanted = list(dict.fromkeys(login for login in assignees if login))[:MAX_PR_ASSIGNEES]
+        if not unwanted:
+            return {"success": True, "assignees": []}
+
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+        response = self._installation_authenticated_delete(
+            f"https://api.github.com/repos/{repo_path}/issues/{pr_number}/assignees",
+            endpoint="/repos/{owner}/{repo}/issues/{issue_number}/assignees",
+            json_body={"assignees": unwanted},
+        )
+        if response is None:
+            return {"success": False, "error": "Network error unassigning pull request"}
+        if response.status_code != 200:
+            return {
+                "success": False,
+                "error": f"Failed to unassign pull request: {response.text}",
+                "status_code": response.status_code,
+            }
+        try:
+            issue = response.json()
+        except Exception:
+            issue = {}
+        remaining = [
+            entry["login"] for entry in (issue.get("assignees") or []) if isinstance(entry, dict) and entry.get("login")
+        ]
+        return {"success": True, "assignees": remaining}
+
     def request_pull_request_reviews(self, repository: str, pr_number: int, reviewers: Iterable[str]) -> dict[str, Any]:
         """Request reviews from GitHub users on a pull request."""
         wanted = list(dict.fromkeys(login for login in reviewers if login))
@@ -1486,6 +1595,33 @@ class GitHubIntegrationBase:
                 rejected=rejected,
             )
         return {"success": True, "requested_reviewers": list(dict.fromkeys(requested_reviewers))}
+
+    def get_removed_pull_request_reviewers(self, repository: str, pr_number: int) -> set[str] | None:
+        """Return removed review recipients, or None when the history is incomplete."""
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+        responses, complete = self._installation_authenticated_get_pages(
+            f"https://api.github.com/repos/{repo_path}/issues/{pr_number}/timeline",
+            endpoint="/repos/{owner}/{repo}/issues/{issue_number}/timeline",
+            params={"per_page": 100},
+        )
+        if not complete:
+            return None
+
+        removed: set[str] = set()
+        for response in responses:
+            try:
+                events = response.json()
+            except Exception:
+                return None
+            if not isinstance(events, list):
+                return None
+            for event in events:
+                if not isinstance(event, dict) or event.get("event") != "review_request_removed":
+                    continue
+                reviewer = event.get("requested_reviewer")
+                if isinstance(reviewer, dict) and isinstance(reviewer.get("login"), str):
+                    removed.add(reviewer["login"].lower())
+        return removed
 
     def list_submitted_pull_request_reviewers(self, repository: str, pr_number: int) -> dict[str, Any]:
         repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"

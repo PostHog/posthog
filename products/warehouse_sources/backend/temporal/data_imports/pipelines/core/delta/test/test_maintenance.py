@@ -629,10 +629,47 @@ class TestDeltaliteCompaction:
 
     @parameterized.expand(
         [
-            ("committed", 1, 152, [152], {}, DEFAULT_COMPACT_TARGET_SIZE_BYTES),
-            ("nothing_to_rewrite", 0, 150, [], {}, DEFAULT_COMPACT_TARGET_SIZE_BYTES),
-            ("table_target", 1, 152, [152], {"delta.targetFileSize": str(32 * _MB)}, 32 * _MB),
-            ("invalid_table_target", 1, 152, [152], {"delta.targetFileSize": "-1"}, DEFAULT_COMPACT_TARGET_SIZE_BYTES),
+            (
+                "committed",
+                1,
+                152,
+                [152],
+                {},
+                DEFAULT_COMPACT_TARGET_SIZE_BYTES,
+                16 * _MB,
+                {"max_row_group_decoded_bytes": 16 * _MB},
+            ),
+            (
+                "nothing_to_rewrite",
+                0,
+                150,
+                [],
+                {},
+                DEFAULT_COMPACT_TARGET_SIZE_BYTES,
+                16 * _MB,
+                {"max_row_group_decoded_bytes": 16 * _MB},
+            ),
+            (
+                "table_target",
+                1,
+                152,
+                [152],
+                {"delta.targetFileSize": str(32 * _MB)},
+                32 * _MB,
+                16 * _MB,
+                {"max_row_group_decoded_bytes": 16 * _MB},
+            ),
+            (
+                "invalid_table_target",
+                1,
+                152,
+                [152],
+                {"delta.targetFileSize": "-1"},
+                DEFAULT_COMPACT_TARGET_SIZE_BYTES,
+                16 * _MB,
+                {"max_row_group_decoded_bytes": 16 * _MB},
+            ),
+            ("row_group_cap_off", 1, 152, [152], {}, DEFAULT_COMPACT_TARGET_SIZE_BYTES, 0, {}),
         ]
     )
     @pytest.mark.asyncio
@@ -644,13 +681,18 @@ class TestDeltaliteCompaction:
         expected_noted: list[int],
         configuration: dict[str, str],
         expected_target: int,
+        row_group_cap: int,
+        expected_row_group_kwargs: dict[str, int],
     ) -> None:
         compact = MagicMock(
             return_value={"commits": commits, "version": version, "numFilesAdded": 3, "numFilesRemoved": 300}
         )
         maintenance, table_ref, fake_class = self._setup(compact, configuration=configuration)
 
-        with patch(f"{_MAINTENANCE_MODULE}._sample_compression_ratio", side_effect=AssertionError("sampled")):
+        with (
+            patch(f"{_MAINTENANCE_MODULE}._sample_compression_ratio", side_effect=AssertionError("sampled")),
+            override_settings(DATA_WAREHOUSE_DELTALITE_MAX_ROW_GROUP_BYTES=row_group_cap),
+        ):
             ran, delta_rs_compact, plan, capture = await self._run(maintenance, fake_class)
 
         assert ran is True
@@ -666,6 +708,7 @@ class TestDeltaliteCompaction:
             min_partition_removable_files=1,
             max_bins_per_commit=COMPACT_MAX_BINS_PER_COMMIT,
             partitions=None,
+            **expected_row_group_kwargs,
         )
         assert [call.args[0] for call in table_ref.note_deltalite_commit.call_args_list] == expected_noted
         [done] = self._info_calls(table_ref, "compact: done")

@@ -16,10 +16,11 @@ from __future__ import annotations
 
 import math
 import time
-from collections.abc import Iterator, Mapping
+import functools
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
-from typing import Any, cast
+from typing import Any, ParamSpec, cast
 from urllib.parse import urlparse
 
 from django.conf import settings
@@ -80,13 +81,16 @@ def current_request_deadline() -> float | None:
 
 
 @contextmanager
-def request_deadline(deadline: float) -> Iterator[None]:
+def request_deadline(deadline: float | None = None) -> Iterator[None]:
     """Make requests in the block end by `deadline`, a `time.monotonic()` value.
 
     For a caller that retries a request itself, so that all of its tries share one deadline. Each
     try gets only the time that is left, and the adapter starts no retry that the deadline cuts off.
-    An earlier deadline that is already in effect wins.
+    An earlier deadline that is already in effect wins. With no `deadline`, the block ends
+    `retry_budget_seconds()` from now.
     """
+    if deadline is None:
+        deadline = _monotonic() + retry_budget_seconds()
     current = _request_deadline.get()
     token = _request_deadline.set(deadline if current is None else min(current, deadline))
     try:
@@ -174,7 +178,8 @@ class BoundedRetry(Retry):
     - All tries of one request end by one deadline. In `TrackedHTTPAdapter` it is the request
       deadline (see `request_deadline`). Outside it, it is `retry_budget_seconds()` after the first
       failure. No wait starts that would end at or after the deadline: the last response or error
-      goes to the caller.
+      goes to the caller. A `Retry-After` counts with the delay that the server asked for, before
+      the cap, so a server that asks for a day gets its 429 back at once and no capped wait.
     - A wait ends early when the worker starts to shut down, so the caller can hand the run off.
     """
 
@@ -206,15 +211,17 @@ class BoundedRetry(Retry):
         deadline = _request_deadline.get()
         if deadline is None:
             deadline = now + retry_budget_seconds() if self._retry_deadline is None else self._retry_deadline
-        if now + retry._next_wait(response) >= deadline:
+        if now + retry._requested_wait(response) >= deadline:
             raise MaxRetryError(_pool, url or "", error or ResponseError("retry budget spent"))
         retry._retry_deadline = deadline
         return retry
 
-    def _next_wait(self, response: Any) -> float:
-        # The same choice as `Retry.sleep`, which urllib3 calls on the object that `increment` returns.
+    def _requested_wait(self, response: Any) -> float:
+        # The same choice as `Retry.sleep`, which urllib3 calls on the object that `increment` returns,
+        # but with the delay the server asked for and not the capped one. A capped wait ends before the
+        # server is ready, so a retry after it fails again and only holds the worker.
         if self.respect_retry_after_header and response is not None:
-            retry_after = self.get_retry_after(response)
+            retry_after = super().get_retry_after(response)
             if retry_after:
                 return retry_after
         return self.get_backoff_time()
@@ -421,6 +428,34 @@ class _NoRedirectSession(requests.Session):
         return super().send(request, **kwargs)
 
 
+_P = ParamSpec("_P")
+_session_observers: list[Callable[[dict[str, Any]], None]] = []
+
+
+@contextmanager
+def observe_tracked_sessions(observer: Callable[[dict[str, Any]], None]) -> Iterator[None]:
+    """Pass the keyword arguments of each `make_tracked_session` call in the block to `observer`.
+
+    For the source test harness. Only the innermost observer sees a call, so a nested block records its own sessions.
+    """
+    _session_observers.append(observer)
+    try:
+        yield
+    finally:
+        _session_observers.remove(observer)
+
+
+def _observed(factory: Callable[_P, requests.Session]) -> Callable[_P, requests.Session]:
+    @functools.wraps(factory)
+    def make(*args: _P.args, **kwargs: _P.kwargs) -> requests.Session:
+        if _session_observers:
+            _session_observers[-1](dict(kwargs))
+        return factory(*args, **kwargs)
+
+    return make
+
+
+@_observed
 def make_tracked_session(
     *,
     retry: Retry | None = None,

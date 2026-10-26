@@ -364,6 +364,18 @@ everything would otherwise refill it. Pull requests split into two arms by a has
 (`budget_arm`). Only the `budget` arm applies the budget, and `finding_budget_arm` on `reviewhog_review_completed` and
 `reviewhog_finding_outcome` splits the measurement.
 
+The same module counts review rounds (`ReviewRound`): the turns that published on the pull request before this one, by
+any mode and trigger, plus one. From round `ROUND_CAP` (3) on, a review that posts findings ends with a line that names
+the round and asks the author to reconsider the approach, because an author and a reviewer that fix one finding at a
+time loop, and most of what a late round flags was already there in the first. A clean turn carries no note. Every
+`reviewhog_review_completed` event carries `review_round`, so convergence (how many rounds a pull request takes before
+a clean turn) reads from the events.
+
+The first review that posts findings on a pull request ends with one more note (`first_review_note` in
+`backend/label_reviews.py`). It links the report in the PostHog Review UI (`report_deep_link`). On a Standard review,
+where comment commands run, it also offers `@posthog review --deep`. A label review leaves the command out, because
+its own footer already names it. Later reviews do not repeat the note: the published watermark is set after the first post.
+
 Every finding the turn drops after scope cleaning persists as a `dropped_finding` artefact (`DroppedFindingArtefact`,
 written by `replace_dropped_findings` beside `replace_deduplicated_findings` in the dedup activity): the full finding
 with its `reported_priority`, the session's pass and part, the `disposition` (`old_code`, `dedup_prior`, `dedup_comment`,

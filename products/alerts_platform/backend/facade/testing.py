@@ -22,7 +22,12 @@ from products.alerts_platform.backend.facade.contracts import (
 )
 from products.alerts_platform.backend.logic.platform_alert_events import PlatformAlertEventRow, insert_events
 from products.alerts_platform.backend.logic.platform_reads import instance_view
-from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration, PlatformAlertDeliveryPath
+from products.alerts_platform.backend.models import (
+    PlatformAlert,
+    PlatformAlertConfiguration,
+    PlatformAlertDeliveryPath,
+    PlatformAlertThread,
+)
 
 
 def _configuration_snapshot(row: PlatformAlertConfiguration) -> PlatformConfigurationSnapshot:
@@ -72,25 +77,42 @@ def count_still_due(configuration_ids: Iterable[UUID], *, at: datetime) -> int:
 
 
 def start_firing(
-    configuration_id: UUID, *, team_id: int, at: datetime, delivered_via: DeliveryPath | None = None
+    configuration_id: UUID,
+    *,
+    team_id: int,
+    at: datetime,
+    delivered_via: DeliveryPath | None = None,
+    sent_natively: bool = False,
+    grouping_key: str = "",
 ) -> None:
     """Put a configuration's instance inside a firing, as live delivery can leave one.
 
     With `delivered_via`, the firing's first delivery took that path, so its resolve takes it too.
+    With `sent_natively`, a native transport sent the firing, as live delivery does for an alert
+    its source owns.
     """
     PlatformAlert.objects.update_or_create(
         team_id=team_id,
         configuration_id=configuration_id,
-        grouping_key="",
+        grouping_key=grouping_key,
         defaults={"state": "firing", "firing_started_at": at},
     )
     if delivered_via is not None:
         PlatformAlertDeliveryPath.objects.for_team(team_id).create(
             team_id=team_id,
             configuration_id=str(configuration_id),
-            grouping_key="",
+            grouping_key=grouping_key,
             episode_started_at=at,
             path=delivered_via.value,
+        )
+    if sent_natively:
+        PlatformAlertThread.objects.for_team(team_id).create(
+            team_id=team_id,
+            configuration_id=configuration_id,
+            grouping_key=grouping_key,
+            provider="slack",
+            channel_target="C0",
+            episode_started_at=at,
         )
 
 
@@ -98,6 +120,15 @@ def set_check_status(configuration_id: UUID, check_status: str) -> None:
     """Mark a configuration's checks as failing or not, as checks outside the test can leave it."""
     # nosemgrep: idor-lookup-without-team — fail-closed model; the caller holds the team scope
     PlatformAlertConfiguration.objects.filter(id=configuration_id).update(check_status=check_status)
+
+
+def set_enabled(configuration_id: UUID, enabled: bool) -> None:
+    """Switch a configuration on or off, as a broken check the platform owns leaves it.
+
+    A test door with no production caller. The caller holds the team scope.
+    """
+    # nosemgrep: idor-lookup-without-team, platform-alert-state-direct-mutation — test door, see the docstring
+    PlatformAlertConfiguration.objects.filter(id=configuration_id).update(enabled=enabled)
 
 
 def record_check(

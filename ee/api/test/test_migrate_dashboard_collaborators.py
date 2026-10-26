@@ -351,8 +351,21 @@ class TestMigrateDashboardCollaborators(APIBaseTest):
             team=self.team, resource=DASHBOARD_EDIT_LIMIT_RESOURCE, resource_id=str(dashboard.id)
         ).exists()
 
-    @parameterized.expand([("own_team", False), ("sibling_team", True)])
-    def test_migrated_access_gates_dashboard_sharing_and_insight_edits(self, _name: str, sibling: bool) -> None:
+    @parameterized.expand(
+        [
+            (f"{scope}_{mode}_{project_access}", sibling, most_specific, project_access)
+            for scope, sibling in (("own_team", False), ("sibling_team", True))
+            for mode, most_specific in (("legacy", False), ("most_specific", True))
+            for project_access in ("member", None)
+        ]
+    )
+    def test_migrated_access_gates_dashboard_sharing_and_insight_edits(
+        self, _name: str, sibling: bool, most_specific: bool, project_access: str | None
+    ) -> None:
+        self.organization.uses_most_specific_access_resolution = most_specific
+        self.organization.save()
+        if project_access is None:
+            AccessControl.objects.filter(team=self.team, resource="project").delete()
         member = self._create_user("member@example.com", level=OrganizationMembership.Level.MEMBER)
         dashboard = Dashboard.objects.create(team=self.team, name="restricted", created_by=self.user)
         self._set_legacy_restriction(dashboard, member, 21)

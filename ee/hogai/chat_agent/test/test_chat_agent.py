@@ -1467,7 +1467,6 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
             subscription_level=MaxBillingContextSubscriptionLevel.PAID,
             billing_plan="startup",
             has_active_subscription=True,
-            is_deactivated=False,
             products=[
                 MaxProductInfo(
                     name="Product Analytics",

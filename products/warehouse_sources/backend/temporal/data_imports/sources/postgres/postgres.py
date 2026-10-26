@@ -938,6 +938,11 @@ def _is_options_startup_param_unsupported(error: BaseException) -> bool:
 # reach a PostgreSQL server speaking the SSL protocol — a wrong port, an HTTP/proxy/edge endpoint,
 # or a TCP proxy fronting a paused/deleted database. Don't mislabel it "SSL not supported": let the
 # raw message reach `get_non_retryable_errors` for an accurate, non-retryable diagnosis.
+# The source type the managed-warehouse host exemption is keyed on. Kept next to the one
+# connect this module opens so a managed warehouse host is treated the same at connect time
+# as it is at validation time.
+_HOST_CHECK_SOURCE_TYPE = "postgres"
+
 _INVALID_SSL_NEGOTIATION_RESPONSE_SUBSTRING = "received invalid response to ssl negotiation"
 
 
@@ -959,6 +964,7 @@ def _open_connection(*, team_id: int | None = None, **connect_kwargs: Any) -> ps
             port=connect_kwargs.get("port", 5432),
             connect_timeout=connect_kwargs.get("connect_timeout", 15),
             team_id=team_id,
+            source_type=_HOST_CHECK_SOURCE_TYPE,
         )
     )
     try:
@@ -2852,6 +2858,15 @@ def _has_duplicate_primary_keys(
         # Swallowing it as "no duplicate keys" would be a false negative, and the extraction that
         # follows fails on the same denial — already surfaced as non-retryable with an actionable
         # message via `get_non_retryable_errors`. Propagate rather than capture it as noise.
+        raise
+    except psycopg.errors.RaiseException:
+        # SQLSTATE P0001, raised only by a plain `RAISE EXCEPTION` inside a PL/pgSQL function —
+        # never by Postgres itself. Since this source only reads, it's almost always a row-level
+        # security policy or computed-column function blocking the SELECT, and the extraction
+        # that follows hits the same raise. Swallowing it as "no duplicate keys" would be a false
+        # negative and double the error-tracking noise. Propagate so it surfaces once, through
+        # the same non-retryable classification (where the message names an access denial) as the
+        # extraction failure; a transient custom raise stays retryable either way.
         raise
     except psycopg.OperationalError:
         # A connection-level failure here (e.g. a foreign-data-wrapper server refusing a new

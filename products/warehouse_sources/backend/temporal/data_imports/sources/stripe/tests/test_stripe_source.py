@@ -29,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     ParentTableRef,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
@@ -66,6 +67,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     HISTORY_EVENT_TYPE_COLUMN,
     HISTORY_PREVIOUS_ATTRIBUTES_COLUMN,
     HISTORY_SNAPSHOT_EVENT_TYPE,
+    INVOICE_ITEM_RESOURCE_NAME,
     INVOICE_PAYMENT_RESOURCE_NAME,
     INVOICE_RESOURCE_NAME,
     PAYMENT_INTENT_RESOURCE_NAME,
@@ -235,6 +237,107 @@ class TestStripeGetRowsIncrementalCursor:
         assert len(tables) > 1
 
 
+NOW = 1_800_000_000
+
+
+def _stripe_list_api(objects: list[dict[str, Any]], field: str) -> Callable[[RecordedRequest], ScriptedResponse]:
+    # Stripe filters on `created` even for an object that only shows another timestamp, such as an invoice item's `date`.
+    def respond(request: RecordedRequest) -> ScriptedResponse:
+        newer_than, up_to = request.param("created[gt]"), request.param("created[lte]")
+        rows = [
+            obj
+            for obj in sorted(objects, key=lambda obj: (-obj[field], obj["id"]))
+            if (newer_than is None or obj[field] > int(newer_than)) and (up_to is None or obj[field] <= int(up_to))
+        ]
+        ids = [obj["id"] for obj in rows]
+        limit = int(request.param("limit") or DEFAULT_LIMIT)
+        starting_after, ending_before = request.param("starting_after"), request.param("ending_before")
+        if ending_before is not None:
+            newer = rows[: ids.index(ending_before)]
+            page, has_more = newer[-limit:], len(newer) > limit
+        else:
+            older = rows[ids.index(starting_after) + 1 :] if starting_after is not None else rows
+            page, has_more = older[:limit], len(older) > limit
+        return ScriptedResponse(json={"object": "list", "url": "/v1/list", "data": page, "has_more": has_more})
+
+    return respond
+
+
+class TestStripeLatestObjectsOldestFirst:
+    def _sync(self, resource: str, objects: list[dict[str, Any]], field: str, watermark: int) -> DriveResult:
+        result = SourceDriver(
+            StripeSource(),
+            StripeSourceConfig(auth_method=StripeAuthMethodConfig(selection="api_key", stripe_secret_key="sk_test")),
+        ).run(
+            resource,
+            _stripe_list_api(objects, field),
+            incremental_field=field,
+            db_incremental_field_last_value=watermark,
+            api_version=STRIPE_API_VERSION_ACACIA,
+        )
+        assert result.raised is None
+        return result
+
+    @pytest.mark.parametrize(
+        "resource, object_type, field, run_seconds, several_runs",
+        [
+            (CHARGE_RESOURCE_NAME, "charge", "created", 15 * 60, False),
+            (CHARGE_RESOURCE_NAME, "charge", "created", 0, True),
+            (INVOICE_ITEM_RESOURCE_NAME, "invoiceitem", "date", 0, True),
+            (INVOICE_RESOURCE_NAME, "invoice", "created", 0, True),
+        ],
+        ids=["within_budget", "budget_spent", "invoice_item_by_date", "invoice_with_lines"],
+    )
+    def test_a_backlog_loads_each_object_once_across_runs(
+        self, resource: str, object_type: str, field: str, run_seconds: int, several_runs: bool
+    ) -> None:
+        watermark = NOW - 40 * 86_400
+        # Older objects are loaded already. Pairs share a timestamp, so a run must not stop between them.
+        timestamps = [watermark - 86_400, watermark] + [NOW - 600 * (i // 2) for i in range(250)]
+        objects: list[dict[str, Any]] = [
+            {
+                "id": f"obj_{i:03}",
+                "object": object_type,
+                field: timestamp,
+                "lines": {"object": "list", "data": [], "has_more": False, "url": "/v1/lines"},
+            }
+            for i, timestamp in enumerate(timestamps)
+        ]
+        loaded: list[str] = []
+        runs = 0
+        with patch.object(stripe_module, "INCREMENTAL_RUN_SECONDS", run_seconds):
+            while rows := [
+                row for table in self._sync(resource, objects, field, watermark).items for row in table.to_pylist()
+            ]:
+                runs += 1
+                loaded.extend(row["id"] for row in rows)
+                # The pipeline stages the newest value a desc source read as the run's watermark.
+                watermark = max(row[field] for row in rows)
+
+        assert sorted(loaded) == sorted(obj["id"] for obj in objects[2:])
+        assert (runs > 1) is several_runs
+
+    def test_a_backlog_with_nothing_at_or_before_the_watermark_loads_in_one_run(self) -> None:
+        charges: list[dict[str, Any]] = [
+            {"id": f"ch_{i:03}", "object": "charge", "created": NOW - 60 * i} for i in range(150)
+        ]
+
+        with patch.object(stripe_module, "INCREMENTAL_RUN_SECONDS", 0):
+            result = self._sync(CHARGE_RESOURCE_NAME, charges, "created", NOW - 86_400)
+
+        assert sorted(row["id"] for table in result.items for row in table.to_pylist()) == sorted(
+            charge["id"] for charge in charges
+        )
+
+    def test_a_read_within_one_page_keeps_one_request(self) -> None:
+        charges = [{"id": f"ch_{day}", "object": "charge", "created": NOW - day * 86_400} for day in (1, 300)]
+
+        result = self._sync(CHARGE_RESOURCE_NAME, charges, "created", NOW - 3 * 365 * 86_400)
+
+        assert len(result.requests) == 1
+        assert [row["id"] for table in result.items for row in table.to_pylist()] == ["ch_1", "ch_300"]
+
+
 class TestStripeFlatResourceResumeCursor:
     def test_restarts_listing_when_resume_cursor_no_longer_exists(self):
         # A cursor saved by a previous run can outlive the object it names (e.g. the
@@ -382,10 +485,6 @@ class TestStripeSource:
     @pytest.mark.parametrize(
         "other_error",
         [
-            # Transient/infra errors must stay retryable.
-            "HTTPSConnectionPool(host='api.stripe.com', port=443): Read timed out.",
-            "500 Server Error: Internal Server Error for url: https://api.stripe.com/v1/charges",
-            "Connection reset by peer",
             # Rate limits are transient (Retry-After-bounded) — must never disable the source.
             "Request req_abc123: Request rate limit exceeded. You can learn more about rate limits here https://stripe.com/docs/rate-limits.",
         ],

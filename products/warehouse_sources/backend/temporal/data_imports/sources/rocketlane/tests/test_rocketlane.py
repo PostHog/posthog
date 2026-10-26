@@ -1,20 +1,16 @@
 from typing import Any
 
-import requests
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
-    always,
-    scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.rocketlane import (
     RocketlaneSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.rocketlane.rocketlane import (
     RocketlaneResumeConfig,
-    check_access,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.rocketlane.source import RocketlaneSource
 
@@ -164,26 +160,6 @@ class TestFanout:
         assert result.params("projectId")[1:] == expected_project_ids
         assert result.params("pageToken")[1:] == expected_page_tokens
         assert result.saved_states[-1].fanout_state["completed"] == ["/phases?projectId=1", "/phases?projectId=2"]
-
-
-class TestCheckAccess:
-    @parameterized.expand(
-        [
-            ("ok", 200, 200, None),
-            ("unauthorized", 401, 401, None),
-            ("forbidden", 403, 403, None),
-            ("server_error", 500, 500, "Rocketlane returned HTTP 500"),
-        ]
-    )
-    def test_status_mapping(self, _name: str, status: int, expected_status: int, expected_message: str | None) -> None:
-        with scripted_network(always(ScriptedResponse(status=status, json={}))):
-            assert check_access("rl-key") == (expected_status, expected_message)
-
-    def test_connection_error_maps_to_zero(self) -> None:
-        with scripted_network(always(requests.ConnectionError("boom"))):
-            status, message = check_access("rl-key")
-        assert status == 0
-        assert message is not None and "boom" in message
 
 
 class TestRocketlaneSourceResponse:

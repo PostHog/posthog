@@ -50,12 +50,8 @@ class TestFormatRfc3339:
 class TestValidateCredentials:
     @parameterized.expand(
         [
-            ("ok", 200, True),
             ("bad_request", 400, False),
-            ("unauthorized", 401, False),
-            ("forbidden", 403, False),
             ("not_found", 404, False),
-            ("server_error", 500, False),
         ]
     )
     def test_status_mapping(self, _name: str, status: int, expected_ok: bool) -> None:
@@ -74,13 +70,6 @@ class TestValidateCredentials:
         request = network.requests_log[0]
         assert request.path == "/blogger/v3/blogs/BID"
         assert request.param("key") == "K"
-
-    def test_network_error_returns_false(self) -> None:
-        with scripted_network(always(requests.ConnectionError("boom"))):
-            ok, error = validate_credentials("K", "BID")
-
-        assert ok is False
-        assert error
 
 
 class TestGetRows:

@@ -26,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.trino.trino import (
     TRINO_COLUMN_NOT_FOUND_ERROR,
     TRINO_KNOWN_ERROR_MESSAGES,
+    TRINO_OUT_OF_SPILL_SPACE_ERROR,
     TRINO_QUERY_MEMORY_LIMIT_ERROR,
     TRINO_QUERY_NOT_FOUND_ERROR,
     TRINO_SCHEMA_NOT_FOUND_ERROR,
@@ -41,6 +42,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.trino.trin
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _TRINO_IMPLEMENTATION = TrinoImplementation()
+
+
+# The source type the managed-warehouse host exemption is keyed on. A managed Trino tenant
+# endpoint answers on the gateway listener, not the pgwire one, so the exemption is asked
+# for under this name and grants port 443 only.
+_HOST_CHECK_SOURCE_TYPE = "trino"
 
 
 @SourceRegistry.register
@@ -74,7 +81,7 @@ class TrinoSource(SQLSource[TrinoSourceConfig], ValidateDatabaseHostMixin):
             caption="Connect to Trino to run read-only SQL against the catalogs available to this user.",
             iconPath="/static/services/trino.svg",
             docsUrl="https://posthog.com/docs/cdp/sources/trino",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [
@@ -214,7 +221,9 @@ class TrinoSource(SQLSource[TrinoSourceConfig], ValidateDatabaseHostMixin):
     def validate_credentials(
         self, config: TrinoSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
-        is_valid, error = self.is_database_host_valid(config.host, team_id)
+        is_valid, error = self.is_database_host_valid(
+            config.host, team_id, port=config.port, source_type=_HOST_CHECK_SOURCE_TYPE
+        )
         if not is_valid:
             return False, error
         try:
@@ -235,7 +244,9 @@ class TrinoSource(SQLSource[TrinoSourceConfig], ValidateDatabaseHostMixin):
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        is_valid, error = self.is_database_host_valid(config.host, team_id)
+        is_valid, error = self.is_database_host_valid(
+            config.host, team_id, port=config.port, source_type=_HOST_CHECK_SOURCE_TYPE
+        )
         if not is_valid:
             raise ValueError(error or "Invalid Trino host.")
         with trino_failures_as_discovery_error(), connect_trino(config) as connection:
@@ -292,7 +303,9 @@ class TrinoSource(SQLSource[TrinoSourceConfig], ValidateDatabaseHostMixin):
         }
 
     def get_retryable_errors(self) -> set[str]:
-        # Both are self-recovering vendor-side blips: the coordinator only raises the worker-node
-        # error after exhausting its own attempts to reach the worker, and a fresh attempt gets a
-        # new query ID, so a query the coordinator no longer holds ("Query not found") clears itself.
-        return {TRINO_WORKER_NODE_ERROR, TRINO_QUERY_NOT_FOUND_ERROR}
+        # The worker-node error and "Query not found" are self-recovering vendor-side blips: the
+        # coordinator only raises the former after exhausting its own attempts to reach the worker,
+        # and a fresh attempt gets a new query ID, so a query the coordinator no longer holds clears
+        # itself. Spill exhaustion depends on the workers' free disk at that moment, which frees up
+        # as other queries finish, so a later attempt can succeed.
+        return {TRINO_WORKER_NODE_ERROR, TRINO_QUERY_NOT_FOUND_ERROR, TRINO_OUT_OF_SPILL_SPACE_ERROR}

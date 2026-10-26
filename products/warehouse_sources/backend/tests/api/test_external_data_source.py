@@ -6066,6 +6066,7 @@ class TestExternalDataSource(APIBaseTest):
                     "sync_type": None,
                     "supports_webhooks": False,
                     "webhook_only": False,
+                    "prefers_full_refresh": False,
                     "available_columns": [
                         {"field": "id", "label": "id", "type": "integer", "nullable": True},
                     ],
@@ -6145,6 +6146,7 @@ class TestExternalDataSource(APIBaseTest):
                     "sync_type": None,
                     "supports_webhooks": False,
                     "webhook_only": False,
+                    "prefers_full_refresh": False,
                     "available_columns": [
                         {"field": "id", "label": "id", "type": "integer", "nullable": True},
                     ],
@@ -9340,10 +9342,10 @@ class TestExternalDataSource(APIBaseTest):
     )
     def test_source_behind_a_team_feature_flag(self, _name: str, path: str, flag_enabled: bool) -> None:
         payload = {
-            "bucket": "Not A Bucket",
-            "region": "us-east-1",
+            "url_pattern": "https://files.example.com/orders/*.csv",
             "access_key_id": "AKIAEXAMPLE",
             "secret_access_key": "secret",
+            "file_format": {"selection": "infer", "csv_allow_double_quotes": "true"},
         }
         with patch(
             "products.warehouse_sources.backend.presentation.views.external_data_source.helpers.feature_enabled_or_false",
@@ -9355,7 +9357,7 @@ class TestExternalDataSource(APIBaseTest):
             )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        # With the flag the request reaches credential validation, which rejects the bucket name
+        # With the flag the request reaches credential validation, which rejects the URL host
         # before any network call.
         expected = "The storage settings are invalid" if flag_enabled else "isn't available to connect yet"
         assert expected in response.json()["message"]
@@ -13022,10 +13024,10 @@ class TestExternalDataSourceSetup(APIBaseTest):
 
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.capture_exception")
     def test_setup_rejects_source_without_schema_discovery(self, mock_capture_exception):
-        # AmazonCloudWatch doesn't implement get_schemas, so the base raises NotImplementedError.
+        # AmazonEventBridge doesn't implement get_schemas, so the base raises NotImplementedError.
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/setup/",
-            data={"source_type": "AmazonCloudWatch", "prefix": "scaffold_setup_test", "payload": {}},
+            data={"source_type": "AmazonEventBridge", "prefix": "scaffold_setup_test", "payload": {}},
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert "isn't available to connect yet" in response.json()["message"]

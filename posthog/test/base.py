@@ -73,15 +73,9 @@ from posthog.clickhouse.preaggregation.sql import (
 )
 from posthog.clickhouse.query_log_archive import (
     DISTRIBUTED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL,
-    DISTRIBUTED_QUERY_LOG_ARCHIVE_V3_TABLE_SQL,
-    QUERY_LOG_ARCHIVE_OPS_MV,
-    QUERY_LOG_ARCHIVE_OPS_MV_SQL,
     QUERY_LOG_ARCHIVE_V3_BUFFER_TABLE_SQL,
     QUERY_LOG_ARCHIVE_V3_MV_SQL,
-    SHARDED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL,
     SHARDED_QUERY_LOG_ARCHIVE_V3_TABLE_SQL,
-    WRITABLE_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL,
-    WRITABLE_QUERY_LOG_ARCHIVE_TABLE,
     WRITABLE_QUERY_LOG_ARCHIVE_V3_TABLE_SQL,
 )
 from posthog.cloud_utils import TEST_clear_instance_license_cache
@@ -325,9 +319,6 @@ def clean_varying_query_parts(query, replace_all_numbers):
 
     # remove version suffix from funnel UDFs
     query = re.sub(r"aggregate_funnel(_(?:array|cohort))?(_trends)?(_json)?_v\d+", r"aggregate_funnel\1\2\3", query)
-
-    # remove version suffix from the restricted-property blob-strip UDF
-    query = re.sub(r"JSONDropKeys_v\d+", "JSONDropKeys", query)
 
     # replace django cursors
     query = re.sub(r"_django_curs_[0-9sync_]*\"", r'_django_curs_X"', query)
@@ -2230,7 +2221,6 @@ def reset_clickhouse_database() -> None:
             WEB_STATS_SQL(table_name="web_pre_aggregated_stats_staging"),
             WEB_BOUNCES_SQL(table_name="web_pre_aggregated_bounces_staging"),
             WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_SQL(),
-            SHARDED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(),
             SHARDED_QUERY_LOG_ARCHIVE_V3_TABLE_SQL(),
             QUERY_LOG_ARCHIVE_V3_BUFFER_TABLE_SQL(),
             COHORT_MEMBERSHIP_TABLE_SQL(),
@@ -2256,8 +2246,6 @@ def reset_clickhouse_database() -> None:
             CUSTOM_METRICS_REPLICATION_QUEUE_VIEW(),
             WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_SQL(),
             DISTRIBUTED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(),
-            WRITABLE_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(),
-            DISTRIBUTED_QUERY_LOG_ARCHIVE_V3_TABLE_SQL(),
             WRITABLE_QUERY_LOG_ARCHIVE_V3_TABLE_SQL(),
             COHORT_MEMBERSHIP_WRITABLE_TABLE_SQL(),
             KAFKA_COHORT_MEMBERSHIP_TABLE_SQL(),
@@ -2287,9 +2275,6 @@ def reset_clickhouse_database() -> None:
             COHORT_MEMBERSHIP_MV_SQL(),
             PRECALCULATED_EVENTS_MV_SQL(),
             PRECALCULATED_PERSON_PROPERTIES_MV_SQL(),
-            QUERY_LOG_ARCHIVE_OPS_MV_SQL(
-                view_name=QUERY_LOG_ARCHIVE_OPS_MV, dest_table=WRITABLE_QUERY_LOG_ARCHIVE_TABLE
-            ),
             QUERY_LOG_ARCHIVE_V3_MV_SQL(),
         ]
     )

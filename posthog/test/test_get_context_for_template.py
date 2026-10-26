@@ -99,14 +99,18 @@ STABLE_CHUNKS = StableChunks(
 class TestFlagsForAppEvaluationContext(SimpleTestCase):
     @parameterized.expand(
         [
-            ("no_contexts_is_kept", None, True),
-            ("empty_contexts_is_kept", [], True),
-            ("app_context_is_kept", ["posthog-web-app", "posthog-website"], True),
-            ("other_context_is_dropped", ["posthog-website"], False),
+            ("no_contexts_is_kept", {"evaluation_contexts": None}, True),
+            ("empty_contexts_is_kept", {"evaluation_contexts": []}, True),
+            ("app_context_is_kept", {"evaluation_contexts": ["posthog-web-app", "posthog-website"]}, True),
+            ("other_context_is_dropped", {"evaluation_contexts": ["posthog-website"]}, False),
+            ("active_is_kept", {"active": True}, True),
+            ("disabled_is_dropped", {"active": False}, False),
+            ("client_runtime_is_kept", {"evaluation_runtime": "client"}, True),
+            ("server_runtime_is_dropped", {"evaluation_runtime": "server"}, False),
         ]
     )
-    def test_keeps_flags_the_app_evaluates(self, _name, evaluation_contexts, kept):
-        definitions = [{"key": "the-flag", "evaluation_contexts": evaluation_contexts}]
+    def test_keeps_flags_the_app_evaluates(self, _name, definition, kept):
+        definitions = [{"key": "the-flag", **definition}]
 
         actual = flags_for_app_evaluation_context({"the-flag": True, "untagged": True}, definitions)
 

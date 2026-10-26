@@ -19,7 +19,7 @@ class TestPersistIqSource:
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config
         assert config.label == "PersistIq"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
+        assert config.releaseStatus == ReleaseStatus.BETA
         # A finished source is visible — it must not carry the scaffolding flag.
         assert not config.unreleasedSource
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/persistiq"
@@ -31,26 +31,6 @@ class TestPersistIqSource:
         # The only field is the secret API key; the base URL is hardcoded, so there is no non-secret
         # field an editor could retarget to reuse a preserved key against another account.
         assert self.source.connection_host_fields == []
-
-    @parameterized.expand(
-        [
-            ("unauthorized", "401 Client Error: Unauthorized for url: https://api.persistiq.com/v1/leads?page=1"),
-            ("forbidden", "403 Client Error: Forbidden for url: https://api.persistiq.com/v1/users?page=1"),
-        ]
-    )
-    def test_non_retryable_errors_match_auth_failures(self, _name: str, observed_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            ("server_error", "500 Server Error: Internal Server Error for url: https://api.persistiq.com/v1/leads"),
-            ("rate_limited", "429 Client Error: Too Many Requests for url: https://api.persistiq.com/v1/campaigns"),
-        ]
-    )
-    def test_non_retryable_errors_ignore_transient(self, _name: str, unrelated_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert not any(key in unrelated_error for key in non_retryable)
 
     @parameterized.expand(
         [

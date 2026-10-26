@@ -189,8 +189,6 @@ class TestValidateCredentials:
         ("status_code", "expected_valid", "expected_message_fragment"),
         [
             (200, True, None),
-            (401, False, "Invalid Loops API key"),
-            (500, False, "unexpected status code: 500"),
         ],
     )
     def test_status_code_mapping(

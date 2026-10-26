@@ -491,6 +491,10 @@ const meta: Meta = {
                 ],
                 '/api/environments/:team_id/error_tracking/issues/exists/': [200, { exists: true }],
                 '/api/environments/:team_id/error_tracking/issues/:id/': [200, STORY_ISSUE],
+                '/api/projects/:team_id/error_tracking/issues/:id/summary/': [
+                    200,
+                    { status: 'unavailable', summary: null },
+                ],
                 '/api/environments/:team_id/error_tracking/fingerprints': [
                     200,
                     {
@@ -677,7 +681,7 @@ export const ListPageWithSourceMapsBanner: Story = {
     decorators: [
         mswDecorator({
             get: {
-                'api/environments/:team_id/error_tracking/recommendations': () => [
+                'api/projects/:team_id/error_tracking/recommendations': () => [
                     200,
                     {
                         results: [
@@ -711,6 +715,160 @@ export const ListPageWithSourceMapsBanner: Story = {
 export const ListPageWithSourceMapsBannerNarrow: Story = {
     ...ListPageWithSourceMapsBanner,
     parameters: { testOptions: { viewport: { width: 760, height: 1000 } } },
+}
+
+// With source maps fine, the alerts banner takes the single banner slot and names
+// only the alert types that are still missing
+export const ListPageWithAlertsBanner: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                'api/projects/:team_id/error_tracking/recommendations': () => [
+                    200,
+                    {
+                        results: [
+                            {
+                                id: 'alerts-recommendation',
+                                type: 'alerts',
+                                completed: false,
+                                status: 'ready',
+                                computed_at: '2024-07-08T00:00:00Z',
+                                dismissed_at: null,
+                                created_at: '2024-07-08T00:00:00Z',
+                                updated_at: '2024-07-08T00:00:00Z',
+                                meta: {
+                                    alerts: [
+                                        { key: 'error-tracking-issue-created', enabled: true },
+                                        { key: 'error-tracking-issue-reopened', enabled: false },
+                                        { key: 'error-tracking-issue-spiking', enabled: false },
+                                    ],
+                                },
+                            },
+                            {
+                                id: 'source-maps-recommendation',
+                                type: 'source_maps',
+                                completed: true,
+                                status: 'ready',
+                                computed_at: '2024-07-08T00:00:00Z',
+                                dismissed_at: null,
+                                created_at: '2024-07-08T00:00:00Z',
+                                updated_at: '2024-07-08T00:00:00Z',
+                                meta: {
+                                    total_frames: 100,
+                                    unresolved_frames: 3,
+                                    unresolved_pct: 0.03,
+                                    threshold_pct: 0.25,
+                                    min_sample_frames: 50,
+                                    lookback_hours: 24,
+                                },
+                            },
+                        ],
+                    },
+                ],
+            },
+        }),
+    ],
+}
+
+// With source maps and alerts covered, the rate limit banner takes the single banner slot
+export const ListPageWithRateLimitsBanner: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                'api/projects/:team_id/error_tracking/recommendations': () => [
+                    200,
+                    {
+                        results: [
+                            {
+                                id: 'rate-limits-recommendation',
+                                type: 'rate_limits',
+                                completed: false,
+                                status: 'ready',
+                                computed_at: '2024-07-08T00:00:00Z',
+                                dismissed_at: null,
+                                created_at: '2024-07-08T00:00:00Z',
+                                updated_at: '2024-07-08T00:00:00Z',
+                                meta: {
+                                    rate_limits: [
+                                        { key: 'project', enabled: false },
+                                        { key: 'per_issue', enabled: false },
+                                    ],
+                                },
+                            },
+                        ],
+                    },
+                ],
+            },
+        }),
+    ],
+}
+
+// With every check failing, the banners stack: source maps on top, the other two peeking out below
+export const ListPageWithStackedBanners: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                'api/projects/:team_id/error_tracking/recommendations': () => [
+                    200,
+                    {
+                        results: [
+                            {
+                                id: 'source-maps-recommendation',
+                                type: 'source_maps',
+                                completed: false,
+                                status: 'ready',
+                                computed_at: '2024-07-08T00:00:00Z',
+                                dismissed_at: null,
+                                created_at: '2024-07-08T00:00:00Z',
+                                updated_at: '2024-07-08T00:00:00Z',
+                                meta: {
+                                    total_frames: 100,
+                                    unresolved_frames: 62,
+                                    unresolved_pct: 0.62,
+                                    threshold_pct: 0.25,
+                                    min_sample_frames: 50,
+                                    lookback_hours: 24,
+                                },
+                            },
+                            {
+                                id: 'alerts-recommendation',
+                                type: 'alerts',
+                                completed: false,
+                                status: 'ready',
+                                computed_at: '2024-07-08T00:00:00Z',
+                                dismissed_at: null,
+                                created_at: '2024-07-08T00:00:00Z',
+                                updated_at: '2024-07-08T00:00:00Z',
+                                meta: {
+                                    alerts: [
+                                        { key: 'error-tracking-issue-created', enabled: false },
+                                        { key: 'error-tracking-issue-reopened', enabled: false },
+                                        { key: 'error-tracking-issue-spiking', enabled: false },
+                                    ],
+                                },
+                            },
+                            {
+                                id: 'rate-limits-recommendation',
+                                type: 'rate_limits',
+                                completed: false,
+                                status: 'ready',
+                                computed_at: '2024-07-08T00:00:00Z',
+                                dismissed_at: null,
+                                created_at: '2024-07-08T00:00:00Z',
+                                updated_at: '2024-07-08T00:00:00Z',
+                                meta: {
+                                    rate_limits: [
+                                        { key: 'project', enabled: false },
+                                        { key: 'per_issue', enabled: false },
+                                    ],
+                                },
+                            },
+                        ],
+                    },
+                ],
+            },
+        }),
+    ],
 }
 
 // Autocapture must be on for the issue list to render instead of the full setup prompt,

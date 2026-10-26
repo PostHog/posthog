@@ -1,8 +1,11 @@
 import io
+import os
 import csv
 import gzip
-from datetime import UTC, datetime
+import tempfile
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -14,18 +17,26 @@ import pyarrow as pa
 import structlog
 import pyarrow.parquet as pq
 from botocore.stub import Stubber
-from deltalake import write_deltalake
+from deltalake import DeltaTable, WriterProperties, write_deltalake
 from fsspec.implementations.local import LocalFileSystem
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store import formats
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store import (
+    delta,
+    formats,
+    source_base,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.config import (
     CsvOptions,
     DiscoveryOptions,
     ObjectStoreConfig,
     ObjectStoreProvider,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.delta import iter_delta_tables
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.delta import (
+    ObjectStorageDeltaCursor,
+    iter_delta_tables,
+    plan_delta_read,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.discovery import (
     TableDefinition,
     group_tables,
@@ -50,13 +61,24 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.formats import (
     iter_csv_tables,
+    iter_file_tables,
     iter_jsonl_tables,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.settings import MAX_TABLES
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.incremental import (
+    FileSelection,
+    listing_digest,
+    plan_mirror,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.settings import (
+    JSONL_CHUNK_ROWS,
+    MAX_TABLES,
+    PARQUET_BATCH_ROWS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.source_base import (
     iter_table,
     validate_store_location,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import ReplaceScope
 
 MODIFIED_AT = datetime(2024, 5, 1, 12, 0, tzinfo=UTC)
 LOGGER = structlog.get_logger()
@@ -161,13 +183,66 @@ class TestGroupTables:
                 [("out", "files", "folder", "out", "csv", ["out/part-0.csv"])],
             ),
             (
-                "pattern_matches_across_folders",
-                ["a/x.csv", "a/y.json", "b/z.csv"],
-                DiscoveryOptions(file_pattern="*.csv"),
+                "a_hive_partition_folder_whose_key_starts_with_an_underscore_holds_data",
+                ["orders/_ph_partition_key=2024-w10/part.parquet", "orders/_ph_partition_key=2024-w11/part.parquet"],
+                DiscoveryOptions(),
                 [
-                    ("a", "files", "folder", "a", "csv", ["a/x.csv"]),
-                    ("b", "files", "folder", "b", "csv", ["b/z.csv"]),
+                    (
+                        "orders",
+                        "files",
+                        "folder",
+                        "orders",
+                        "parquet",
+                        [
+                            "orders/_ph_partition_key=2024-w10/part.parquet",
+                            "orders/_ph_partition_key=2024-w11/part.parquet",
+                        ],
+                    ),
                 ],
+            ),
+            (
+                "nested_underscore_hive_partitions_fold_into_the_table_above",
+                ["orders/_a=1/_b=2/part.parquet", "orders/_a=1/_b=3/part.parquet"],
+                DiscoveryOptions(),
+                [
+                    (
+                        "orders",
+                        "files",
+                        "folder",
+                        "orders",
+                        "parquet",
+                        ["orders/_a=1/_b=2/part.parquet", "orders/_a=1/_b=3/part.parquet"],
+                    ),
+                ],
+            ),
+            (
+                "bookkeeping_stays_skipped_inside_an_underscore_partition",
+                [
+                    "orders/_ph_partition_key=2024-w10/_SUCCESS",
+                    "orders/_ph_partition_key=2024-w10/_committed_123",
+                    "orders/_ph_partition_key=2024-w10/.part.parquet.crc",
+                    "orders/_ph_partition_key=2024-w10/_temporary/x.parquet",
+                    "orders/_temporary/_a=1/x.parquet",
+                    "orders/.hidden=1/x.parquet",
+                    "orders/_ph_partition_key=2024-w10/part.parquet",
+                ],
+                DiscoveryOptions(),
+                [
+                    (
+                        "orders",
+                        "files",
+                        "folder",
+                        "orders",
+                        "parquet",
+                        ["orders/_ph_partition_key=2024-w10/part.parquet"],
+                    ),
+                ],
+            ),
+            (
+                "a_delta_table_under_an_underscore_partition_folder_is_found",
+                ["_region=eu/sales/_delta_log/0.json", "_temporary/sales/_delta_log/0.json"],
+                DiscoveryOptions(),
+                [("region_eu_sales", "delta", None, "_region=eu/sales", "delta", [])],
             ),
             (
                 "a_folder_with_two_formats_names_a_table_per_format",
@@ -200,9 +275,96 @@ class TestGroupTables:
 
         assert summarize(tables) == expected
 
+    @parameterized.expand(
+        [
+            (
+                "star_stays_in_its_folder",
+                ["a.csv", "daily/b.csv"],
+                "*.csv",
+                "",
+                DiscoveryOptions(),
+                [("a", "files", "file", "a.csv", "csv", ["a.csv"])],
+            ),
+            (
+                "double_star_crosses_folders",
+                ["a.csv", "daily/b.csv", "daily/c.json"],
+                "**.csv",
+                "",
+                DiscoveryOptions(),
+                [
+                    ("a", "files", "file", "a.csv", "csv", ["a.csv"]),
+                    ("daily", "files", "folder", "daily", "csv", ["daily/b.csv"]),
+                ],
+            ),
+            (
+                "underscore_hive_partitions_under_the_root_make_one_table",
+                [
+                    "_part_key=2024-w10/part-0.parquet",
+                    "_part_key=2024-w11/part-0.parquet",
+                    "_part_key=2024-w11/_SUCCESS",
+                    "notes.txt",
+                ],
+                "**/*.parquet",
+                "",
+                DiscoveryOptions(),
+                [
+                    (
+                        "orders",
+                        "files",
+                        "folder",
+                        "",
+                        "parquet",
+                        ["_part_key=2024-w10/part-0.parquet", "_part_key=2024-w11/part-0.parquet"],
+                    )
+                ],
+            ),
+            (
+                "a_delta_table_needs_the_pattern_to_match_one_of_its_files",
+                ["sales/_delta_log/0.json", "sales/p.parquet", "refunds/_delta_log/0.json", "a.csv"],
+                "**.parquet",
+                "",
+                DiscoveryOptions(),
+                [("sales", "delta", None, "sales", "delta", [])],
+            ),
+        ]
+    )
+    def test_url_selection(
+        self,
+        _name: str,
+        paths: list[str],
+        pattern: str | None,
+        listing_prefix: str,
+        options: DiscoveryOptions,
+        expected: list[tuple[str, str, str | None, str, str, list[str]]],
+    ) -> None:
+        tables = group_tables(
+            [stored(path) for path in paths],
+            options,
+            root_name="orders",
+            pattern=pattern,
+            listing_prefix=listing_prefix,
+        )
+
+        assert summarize(tables) == expected
+
+    def test_a_combined_table_lists_only_its_listing_prefix_at_sync(self, tmp_path: Path) -> None:
+        for path in ("daily/a.csv", "daily/2024/b.csv", "daily-archive/c.csv", "other.csv"):
+            (tmp_path / path).parent.mkdir(parents=True, exist_ok=True)
+            (tmp_path / path).write_text("id\n1\n")
+        [table] = group_tables(
+            [stored("daily/a.csv")],
+            DiscoveryOptions(combined_table_name="daily"),
+            root_name="r",
+            listing_prefix="daily",
+        )
+
+        resolved = resolve_table_files(local_store(tmp_path), table)
+
+        assert [f.path for f in resolved.files] == ["daily/2024/b.csv", "daily/a.csv"]
+
     def test_metadata_round_trip_rebuilds_the_same_table(self) -> None:
-        options = DiscoveryOptions(file_format="csv_no_header", file_pattern="*.txt", allow_double_quotes=False)
-        [table] = group_tables([stored("exports/a.txt")], options, root_name="root")
+        options = DiscoveryOptions(file_format="csv_no_header", allow_double_quotes=False)
+        [table] = group_tables([stored("exports/a.txt")], options, root_name="root", pattern="**.txt")
 
         rebuilt = TableDefinition.from_schema_metadata(table.name, table.schema_metadata())
 
@@ -210,7 +372,7 @@ class TestGroupTables:
         assert rebuilt.same_location(table)
         assert (rebuilt.csv, rebuilt.pattern, rebuilt.source_format) == (
             CsvOptions(has_header=False, allow_double_quotes=False),
-            "*.txt",
+            "**.txt",
             "csv_no_header",
         )
 
@@ -464,6 +626,19 @@ class TestReadTable:
         with pytest.raises(ObjectStorageError, match=FILE_PARSE_ERROR):
             read_rows(store, table)
 
+    @parameterized.expand([("plain", "orders.parquet", False), ("gzipped", "orders.parquet.gz", True)])
+    def test_a_parquet_file_with_one_brotli_column_is_a_parse_error(self, _name: str, path: str, gzipped: bool) -> None:
+        buffer = io.BytesIO()
+        pq.write_table(
+            pa.table({"id": ["1", "2"], "note": ["a", "b"]}),
+            buffer,
+            compression={"id": "snappy", "note": "brotli"},
+        )
+        content = gzip.compress(buffer.getvalue()) if gzipped else buffer.getvalue()
+
+        with pytest.raises(ObjectStorageError, match=f"{FILE_PARSE_ERROR} '{path}' as Parquet: Brotli"):
+            list(iter_file_tables(io.BytesIO(content), stored(path), "parquet", CsvOptions()))
+
     def test_a_parquet_file_with_no_rows_still_yields_its_schema(self, tmp_path: Path) -> None:
         pq.write_table(pa.table({"id": pa.array([], pa.string())}), tmp_path / "empty.parquet")
         store = local_store(tmp_path)
@@ -505,6 +680,306 @@ class TestReadTable:
         tables = list(iter_delta_tables(store.delta_uri("sales"), {}, "sales"))
 
         assert [(table.column_names, table.num_rows) for table in tables] == [(["id"], 0)]
+
+    @parameterized.expand([("whole_snapshot", False), ("by_file", True)])
+    def test_a_delta_table_with_brotli_compression_is_a_parse_error(self, _name: str, with_file_names: bool) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            path = str(Path(folder) / "sales")
+            write_deltalake(path, pa.table({"id": [1, 2]}), writer_properties=WriterProperties(compression="BROTLI"))
+
+            read = plan_delta_read(path, {}, "sales")
+
+            with pytest.raises(ObjectStorageError, match=f"{FILE_PARSE_ERROR} '.+' in the Delta table 'sales': Brotli"):
+                list(read.iter_tables(with_file_names=with_file_names))
+
+
+def _append(path: str) -> None:
+    write_deltalake(path, pa.table({"id": [3], "day": ["b"]}), mode="append")
+
+
+def _overwrite(path: str) -> None:
+    write_deltalake(path, pa.table({"id": [9], "day": ["c"]}), mode="overwrite")
+
+
+def _delete(path: str) -> None:
+    DeltaTable(path).delete("id = 1")
+
+
+def _append_then_compact(path: str) -> None:
+    _append(path)
+    DeltaTable(path).optimize.compact()
+
+
+def _update(path: str) -> None:
+    DeltaTable(path).update(updates={"id": "10"}, predicate="id = 2")
+
+
+def _merge(path: str) -> None:
+    (
+        DeltaTable(path)
+        .merge(pa.table({"id": [2, 4], "day": ["b", "c"]}), predicate="t.id = s.id", source_alias="s", target_alias="t")
+        .when_matched_update(updates={"id": "s.id + 20"})
+        .when_not_matched_insert_all()
+        .execute()
+    )
+
+
+def _files_and_ids(path: str, version: int | None = None) -> list[tuple[str, int]]:
+    dataset = DeltaTable(path, version=version).to_pyarrow_dataset()
+    return sorted(
+        (fragment.path, row_id)
+        for fragment in dataset.get_fragments()
+        for row_id in fragment.to_table(columns=["id"]).column("id").to_pylist()
+    )
+
+
+class TestDeltaCursor:
+    @parameterized.expand(
+        [
+            ("no_cursor_reads_the_snapshot", None, [_append], False, False, [1, 2, 3], 1),
+            ("appends_read_only_the_new_files", "same", [_append], False, False, [3], 1),
+            ("an_unchanged_table_reads_nothing", "same", [], False, False, [], 0),
+            ("an_overwrite_rebuilds", "same", [_overwrite], False, True, [9], 1),
+            ("a_delete_rebuilds", "same", [_delete], False, True, [2], 1),
+            # Compaction keeps the rows but moves them to a new file, which an append would read twice.
+            ("a_compaction_rebuilds", "same", [_append_then_compact], False, True, [1, 2, 3], 2),
+            ("a_recreated_table_rebuilds", "other", [_append], False, True, [1, 2, 3], 1),
+            ("a_cursor_ahead_of_the_table_rebuilds", "ahead", [], False, True, [1, 2], 0),
+            # By file, a commit that removes files only replaces the rows of the files it touched.
+            ("by_file_an_append_reads_the_new_file", "same", [_append], True, False, [3], 1),
+            ("by_file_an_unchanged_table_reads_nothing", "same", [], True, False, [], 0),
+            ("by_file_a_delete_reads_nothing_and_drops_the_file", "same", [_delete], True, False, [], 1),
+            ("by_file_an_update_reads_the_rewritten_file", "same", [_update], True, False, [10], 1),
+            ("by_file_a_merge_reads_the_files_it_wrote", "same", [_merge], True, False, [4, 22], 1),
+            ("by_file_an_overwrite_reads_the_new_file", "same", [_overwrite], True, False, [9], 1),
+            ("by_file_a_compaction_reads_the_compacted_files", "same", [_append_then_compact], True, False, [2, 3], 2),
+            ("by_file_a_recreated_table_rebuilds", "other", [_append], True, True, [1, 2, 3], 1),
+            ("by_file_a_cursor_ahead_of_the_table_rebuilds", "ahead", [], True, True, [1, 2], 0),
+            (
+                "by_file_a_sync_that_named_no_files_rebuilds",
+                "same_without_file_names",
+                [_append],
+                True,
+                True,
+                [1, 2, 3],
+                1,
+            ),
+        ]
+    )
+    def test_plan(
+        self,
+        _name: str,
+        stored_cursor: str | None,
+        commits: list[Any],
+        by_file: bool,
+        expected_reset: bool,
+        expected_ids: list[int],
+        expected_version: int,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            path = str(Path(folder) / "sales")
+            write_deltalake(path, pa.table({"id": [1, 2], "day": ["a", "b"]}), partition_by=["day"])
+            table_id = str(DeltaTable(path).metadata().id)
+            stored = {
+                None: None,
+                "same": ObjectStorageDeltaCursor(version=0, table_id=table_id, file_names=by_file),
+                "same_without_file_names": ObjectStorageDeltaCursor(version=0, table_id=table_id),
+                "other": ObjectStorageDeltaCursor(version=0, table_id="another-table", file_names=by_file),
+                "ahead": ObjectStorageDeltaCursor(version=5, table_id=table_id, file_names=by_file),
+            }[stored_cursor]
+            for commit in commits:
+                commit(path)
+
+            read = plan_delta_read(path, {}, "sales", stored=stored, by_file=by_file)
+            rows = [
+                row
+                for table in read.iter_tables(with_version=True, with_file_names=by_file)
+                for row in table.to_pylist()
+            ]
+            if by_file and not expected_reset:
+                # The destination after the load: the rows of the last sync, less the rows the scope
+                # deletes, plus the rows read. It must match the table's current snapshot exactly.
+                held = _files_and_ids(path, version=0)
+                kept = [(file, row_id) for file, row_id in held if not self._deleted(read.replace_scope, file)]
+                loaded = [(row["_file_name"], row["id"]) for row in rows]
+                assert sorted(kept + loaded) == _files_and_ids(path)
+
+        assert read.reset_required is expected_reset
+        assert read.cursor == ObjectStorageDeltaCursor(version=expected_version, table_id=table_id, file_names=by_file)
+        assert sorted(row["id"] for row in rows) == expected_ids
+        # Rows read from a subset of the files keep the partition column and carry the version.
+        assert all(set(row) == {"id", "day", "_delta_version", *(["_file_name"] if by_file else [])} for row in rows)
+        assert {row["_delta_version"] for row in rows} <= {expected_version}
+        assert (read.replace_scope is not None) == by_file
+
+    @staticmethod
+    def _deleted(scope: ReplaceScope | None, file: str) -> bool:
+        return scope is not None and (file in scope.replaced or file not in scope.retained)
+
+    @parameterized.expand([("append", False), ("by_file", True)])
+    def test_a_cleaned_up_version_rebuilds(self, _name: str, by_file: bool) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            path = str(Path(folder) / "sales")
+            write_deltalake(path, pa.table({"id": [1, 2], "day": ["a", "b"]}))
+            table_id = str(DeltaTable(path).metadata().id)
+            _append(path)
+            DeltaTable(path).create_checkpoint()
+            # Log cleanup removes the entries before the checkpoint, so version 0 can no longer be loaded.
+            (Path(path) / "_delta_log" / f"{0:020d}.json").unlink()
+
+            read = plan_delta_read(
+                path,
+                {},
+                "sales",
+                stored=ObjectStorageDeltaCursor(version=0, table_id=table_id, file_names=by_file),
+                by_file=by_file,
+            )
+
+        assert read.reset_required is True
+
+    def test_a_storage_failure_loading_the_stored_version_propagates(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        path = str(tmp_path / "sales")
+        write_deltalake(path, pa.table({"id": [1, 2], "day": ["a", "b"]}))
+        table_id = str(DeltaTable(path).metadata().id)
+        _append(path)
+
+        def flaky_table(uri: str, version: int | None = None, **kwargs: Any) -> DeltaTable:
+            if version is not None:
+                raise OSError("Generic S3 error: request timed out")
+            return DeltaTable(uri, **kwargs)
+
+        monkeypatch.setattr(delta, "DeltaTable", flaky_table)
+
+        # A transient failure must be retried, not turned into a rebuild of the whole table.
+        with pytest.raises(OSError, match="timed out"):
+            plan_delta_read(path, {}, "sales", stored=ObjectStorageDeltaCursor(version=0, table_id=table_id))
+
+
+class TestFileSelection:
+    @parameterized.expand(
+        [
+            (
+                "changed_files_include_the_watermark_and_come_oldest_first",
+                "changed",
+                1,
+                10,
+                ["b.csv", "c.csv", "a.csv"],
+            ),
+            ("new_files_exclude_the_watermark", "new", 1, 10, ["a.csv"]),
+            ("a_first_append_reads_every_settled_file", "new", None, 10, ["d.csv", "b.csv", "c.csv", "a.csv"]),
+            # The newest file is 30 seconds old, so another file could still get its timestamp.
+            ("an_append_leaves_a_file_that_just_landed_for_the_next_sync", "new", 1, 2.5, []),
+            ("a_changed_sync_reads_a_file_that_just_landed", "changed", 2, 2.5, ["a.csv"]),
+        ]
+    )
+    def test_select(
+        self, _name: str, mode: Any, watermark_minutes: int | None, now_minutes: float, expected: list[str]
+    ) -> None:
+        def at(minutes: float) -> datetime:
+            return MODIFIED_AT + timedelta(minutes=minutes)
+
+        files = [
+            StoredObject(path="a.csv", size=1, modified_at=at(2)),
+            StoredObject(path="c.csv", size=1, modified_at=at(1)),
+            StoredObject(path="b.csv", size=1, modified_at=at(1)),
+            StoredObject(path="d.csv", size=1, modified_at=at(0)),
+        ]
+        selection = FileSelection(mode=mode, watermark=None if watermark_minutes is None else at(watermark_minutes))
+
+        assert [stored.path for stored in selection.select(files, now=at(now_minutes))] == expected
+
+    def test_the_append_settle_window_counts_from_before_the_listing(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        listing_started_at = MODIFIED_AT + timedelta(minutes=10)
+
+        monkeypatch.setattr(source_base, "datetime", SimpleNamespace(now=lambda tz=None: listing_started_at))
+        for name, age in (("settled.csv", timedelta(minutes=2)), ("fresh.csv", timedelta(seconds=30))):
+            (tmp_path / name).write_bytes(b"id\n1\n")
+            modified = (listing_started_at - age).timestamp()
+            os.utime(tmp_path / name, (modified, modified))
+        store = local_store(tmp_path)
+        [table] = group_tables(
+            store.list_objects("", 10), DiscoveryOptions(combined_table_name="orders"), root_name="root"
+        )
+
+        # The real clock is years past both files, so only a cutoff taken before listing leaves the fresh one out.
+        rows = [
+            row
+            for batch in iter_table(store, table, LOGGER, FileSelection(mode="new", watermark=MODIFIED_AT))
+            for row in batch.to_pylist()
+        ]
+
+        assert {row["_file_name"] for row in rows} == {"settled.csv"}
+
+    @parameterized.expand(
+        [
+            ("an_unchanged_listing_reads_and_deletes_nothing", [("a.csv", 0, 10), ("b.csv", 1, 10)], None),
+            (
+                "a_deleted_file_loses_its_rows",
+                [("b.csv", 1, 10)],
+                (["b.csv"], {"b.csv"}, {"b.csv"}),
+            ),
+            (
+                "a_shrunk_file_replaces_its_rows",
+                [("a.csv", 0, 10), ("b.csv", 2, 4)],
+                (["b.csv"], {"b.csv"}, {"a.csv", "b.csv"}),
+            ),
+            (
+                "a_renamed_file_moves_its_rows",
+                [("renamed.csv", 2, 10), ("b.csv", 1, 10)],
+                (["b.csv", "renamed.csv"], {"b.csv", "renamed.csv"}, {"b.csv", "renamed.csv"}),
+            ),
+        ]
+    )
+    def test_a_mirrored_read_replaces_the_changed_files_and_drops_the_deleted_ones(
+        self,
+        _name: str,
+        listing: list[tuple[str, int, int]],
+        expected: tuple[list[str], set[str], set[str]] | None,
+    ) -> None:
+        def files(entries: list[tuple[str, int, int]]) -> list[StoredObject]:
+            return [
+                StoredObject(path=path, size=size, modified_at=MODIFIED_AT + timedelta(minutes=minutes))
+                for path, minutes, size in entries
+            ]
+
+        last_sync = listing_digest(files([("a.csv", 0, 10), ("b.csv", 1, 10)]))
+        selection = FileSelection(mode="changed", watermark=MODIFIED_AT + timedelta(minutes=1))
+
+        plan = plan_mirror(files(listing), selection, last_sync)
+
+        assert len(plan.digest) == 64
+        if expected is None:
+            assert (plan.files, plan.replace_scope) == ([], None)
+            return
+        read, replaced, retained = expected
+        assert [stored.path for stored in plan.files] == read
+        assert plan.replace_scope == ReplaceScope(
+            column="_file_name", replaced=frozenset(replaced), retained=frozenset(retained)
+        )
+
+    def test_row_numbers_continue_across_the_chunks_of_one_file(self) -> None:
+        rows = JSONL_CHUNK_ROWS + 3
+        content = b"".join(b'{"n":%d}\n' % number for number in range(rows))
+
+        tables = list(iter_file_tables(io.BytesIO(content), stored("big.jsonl"), "jsonl", CsvOptions()))
+
+        assert len(tables) == 2
+        assert [number for table in tables for number in table["_file_row_number"].to_pylist()] == list(range(rows))
+
+    def test_row_numbers_continue_across_the_batches_of_a_gzipped_parquet_file(self) -> None:
+        rows = PARQUET_BATCH_ROWS + 3
+        buffer = io.BytesIO()
+        pq.write_table(pa.table({"n": list(range(rows))}), buffer)
+        content = gzip.compress(buffer.getvalue())
+
+        tables = list(iter_file_tables(io.BytesIO(content), stored("big.parquet.gz"), "parquet", CsvOptions()))
+
+        assert len(tables) == 2
+        assert [number for table in tables for number in table["_file_row_number"].to_pylist()] == list(range(rows))
 
 
 class TestLocationAndErrors:
@@ -656,6 +1131,47 @@ class TestS3Listing:
 
             with pytest.raises(ObjectStorageError, match=TOO_MANY_FILES_ERROR):
                 _s3_store(client).list_objects("", 10)
+
+    @parameterized.expand(
+        [
+            ("bucket_root", "", "exports/orders-", "exports/orders-", 10),
+            ("store_root", "root", "exports/orders-", "root/exports/orders-", 10),
+            ("empty_key_prefix", "root", "", "root/", 10),
+            ("empty_bucket_prefix", "", "", "", 10),
+            ("matching_file_limit", "root", "exports/orders-", "root/exports/orders-", 1),
+        ]
+    )
+    def test_list_key_prefix(
+        self, _name: str, prefix: str, key_prefix: str, expected_prefix: str, max_objects: int
+    ) -> None:
+        client = boto3.client(
+            "s3", region_name="us-east-1", aws_access_key_id="AKIAEXAMPLE", aws_secret_access_key="secret"
+        )
+        root_key = f"{prefix}/" if prefix else ""
+        store = S3ObjectStore(
+            fs=LocalFileSystem(),
+            root=f"customer-data/{prefix}" if prefix else "customer-data",
+            delta_uri_prefix="s3://",
+            delta_storage_options={},
+            client=client,
+            bucket="customer-data",
+            prefix=prefix,
+        )
+        with Stubber(client) as stubber:
+            stubber.add_response(
+                "list_objects_v2",
+                _listing(
+                    f"{expected_prefix}folder/",
+                    f"{root_key}exports/orders-1.csv",
+                    f"{root_key}exports/orders-2.csv",
+                ),
+                {"Bucket": "customer-data", "MaxKeys": 1000, "Prefix": expected_prefix},
+            )
+
+            listed = store.list_key_prefix(key_prefix, max_objects)
+
+            stubber.assert_no_pending_responses()
+        assert [stored.path for stored in listed] == ["exports/orders-1.csv", "exports/orders-2.csv"][:max_objects]
 
     def test_rejected_credentials_become_an_access_error(self) -> None:
         client = boto3.client(

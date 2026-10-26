@@ -256,16 +256,25 @@ def google_ads_client(config: GoogleAdsSourceConfigUnion, team_id: int) -> Googl
 
         client = _load_client_with_transient_retry(config_dict)
     else:
+        resolved = credentials_service.get_secrets(
+            [
+                "GOOGLE_ADS_SERVICE_ACCOUNT_PRIVATE_KEY",
+                "GOOGLE_ADS_SERVICE_ACCOUNT_PRIVATE_KEY_ID",
+                "GOOGLE_ADS_SERVICE_ACCOUNT_CLIENT_EMAIL",
+                "GOOGLE_ADS_SERVICE_ACCOUNT_TOKEN_URI",
+                "GOOGLE_ADS_DEVELOPER_TOKEN",
+            ]
+        )
         credentials = service_account.Credentials.from_service_account_info(
             {
-                "private_key": config.private_key,
-                "private_key_id": config.private_key_id,
-                "token_uri": config.token_uri,
-                "client_email": config.client_email,
+                "private_key": resolved["GOOGLE_ADS_SERVICE_ACCOUNT_PRIVATE_KEY"],
+                "private_key_id": resolved["GOOGLE_ADS_SERVICE_ACCOUNT_PRIVATE_KEY_ID"],
+                "token_uri": resolved["GOOGLE_ADS_SERVICE_ACCOUNT_TOKEN_URI"],
+                "client_email": resolved["GOOGLE_ADS_SERVICE_ACCOUNT_CLIENT_EMAIL"],
             },
             scopes=["https://www.googleapis.com/auth/adwords"],
         )
-        client = GoogleAdsClient(credentials=credentials, developer_token=config.developer_token)
+        client = GoogleAdsClient(credentials=credentials, developer_token=resolved["GOOGLE_ADS_DEVELOPER_TOKEN"])
     return client
 
 
@@ -440,6 +449,7 @@ class GoogleAdsTable(Table[GoogleAdsColumn]):
         description: str | None,
         partition_keys: list[str] | None = None,
         extra_where: str | None = None,
+        removed_filter: str | None = None,
         **kwargs,
     ):
         self.requires_filter = requires_filter
@@ -448,6 +458,7 @@ class GoogleAdsTable(Table[GoogleAdsColumn]):
         self.description = description
         self.partition_keys = [pkey.replace(".", "_") for pkey in partition_keys] if partition_keys else None
         self.extra_where = extra_where
+        self.removed_filter = removed_filter
         super().__init__(*args, **kwargs)
 
 
@@ -484,6 +495,7 @@ def get_schemas(config: GoogleAdsSourceConfigUnion, team_id: int, api_version: s
         requires_filter = resource_contents.get("filter_field_names", None) is not None
         primary_key = typing.cast(list[str], resource_contents.get("primary_key", []))
         extra_where = typing.cast(str | None, resource_contents.get("extra_where", None))
+        removed_filter = typing.cast(str | None, resource_contents.get("removed_filter", None))
         partition_keys = typing.cast(list[str] | None, resource_contents.get("partition_keys", None))
 
         should_sync_default = resource_contents.get("should_sync_default", True)
@@ -518,6 +530,7 @@ def get_schemas(config: GoogleAdsSourceConfigUnion, team_id: int, api_version: s
             requires_filter=requires_filter,
             primary_key=primary_key,
             extra_where=extra_where,
+            removed_filter=removed_filter,
             partition_keys=partition_keys,
             columns=columns,
             parents=None,
@@ -633,6 +646,7 @@ def google_ads_source(
     db_incremental_field_last_value_before_lookback: typing.Any = None,
     history_start: typing.Any = None,
     requested_start: str | None = None,
+    skip_removed: bool = False,
 ) -> SourceResponse:
     """A data warehouse Google Ads source.
 
@@ -711,6 +725,8 @@ def google_ads_source(
                 conditions.append(f"{incremental_field} < {upper_literal}")
         if table.extra_where:
             conditions.append(table.extra_where)
+        if skip_removed and table.removed_filter:
+            conditions.append(table.removed_filter)
 
         if conditions:
             query += " WHERE " + " AND ".join(conditions)

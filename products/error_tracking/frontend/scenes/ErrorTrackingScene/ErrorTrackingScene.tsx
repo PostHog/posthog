@@ -1,7 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
-import { LemonBadge, LemonButton, LemonTab, LemonTabs, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonTab, LemonTabs } from '@posthog/lemon-ui'
 import { Button } from '@posthog/quill'
 
 import api from 'lib/api'
@@ -21,13 +21,13 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, CyclotronJobFiltersType } from '~/types'
 
-import { IntegrationsMovedBanner } from '../../components/IntegrationsMovedBanner'
 import { ErrorTrackingIssueFilteringTool } from '../../components/IssueFilteringTool'
 import { issueFiltersLogic } from '../../components/IssueFilters/issueFiltersLogic'
 import { issueQueryOptionsLogic } from '../../components/IssueQueryOptions/issueQueryOptionsLogic'
 import { StyleVariables } from '../../components/StyleVariables'
 import { errorTrackingEmptyState } from '../../emptyState/errorTrackingEmptyState'
 import { ERROR_TRACKING_LOGIC_KEY } from '../../utils'
+import { ErrorTrackingBanners } from './banners/ErrorTrackingBanners'
 import {
     ERROR_TRACKING_SCENE_LOGIC_KEY,
     ErrorTrackingSceneActiveTab,
@@ -35,9 +35,6 @@ import {
 } from './errorTrackingSceneLogic'
 import { ErrorTrackingInsights } from './tabs/insights/ErrorTrackingInsights'
 import { IssuesList } from './tabs/issues/IssuesList'
-import { SourceMapsBanner } from './tabs/issues/SourceMapsBanner'
-import { RecommendationsTab } from './tabs/recommendations/RecommendationsTab'
-import { recommendationsTabLogic } from './tabs/recommendations/recommendationsTabLogic'
 
 const ERROR_TRACKING_ALERT_FILTER_GROUPS: CyclotronJobFiltersType[] = [
     { events: [{ id: '$error_tracking_issue_created', type: 'events' }] },
@@ -55,7 +52,6 @@ export const scene: SceneExport = {
 export function ErrorTrackingScene(): JSX.Element {
     const { activeTab } = useValues(errorTrackingSceneLogic)
     const { setActiveTab } = useActions(errorTrackingSceneLogic)
-    const hasRecommendations = useFeatureFlag('ERROR_TRACKING_RECOMMENDATIONS')
     // Same gate as the settings section: configuration endpoints require error tracking viewer access.
     const configurationAccessDeniedReason = getAccessControlDisabledReason(
         AccessControlResourceType.ErrorTracking,
@@ -84,7 +80,7 @@ export function ErrorTrackingScene(): JSX.Element {
             label: 'Issues',
             content: (
                 <>
-                    <SourceMapsBanner />
+                    <ErrorTrackingBanners />
                     <IssuesList />
                     {/* Renders a hidden div — keep it after IssuesList so the sticky bar's
                         first:-mt-4 can detect whether a banner renders above it */}
@@ -97,15 +93,6 @@ export function ErrorTrackingScene(): JSX.Element {
             label: 'Insights',
             content: <ErrorTrackingInsights />,
         },
-        ...(hasRecommendations
-            ? [
-                  {
-                      key: 'recommendations' as const,
-                      label: <RecommendationsTabLabel />,
-                      content: <RecommendationsTab />,
-                  },
-              ]
-            : []),
         {
             key: 'configuration',
             label: 'Configuration',
@@ -115,15 +102,12 @@ export function ErrorTrackingScene(): JSX.Element {
                 // content must deny too — not just the tab button.
                 <AccessDenied reason={configurationAccessDeniedReason} />
             ) : (
-                <>
-                    <IntegrationsMovedBanner />
-                    <Settings
-                        logicKey={ERROR_TRACKING_LOGIC_KEY}
-                        sectionId="environment-error-tracking-configuration"
-                        settingId="error-tracking-alerting"
-                        handleLocally
-                    />
-                </>
+                <Settings
+                    logicKey={ERROR_TRACKING_LOGIC_KEY}
+                    sectionId="environment-error-tracking-configuration"
+                    settingId="error-tracking-alerting"
+                    handleLocally
+                />
             ),
         },
     ]
@@ -139,21 +123,6 @@ export function ErrorTrackingScene(): JSX.Element {
                 </BindLogic>
             </BindLogic>
         </StyleVariables>
-    )
-}
-
-const RecommendationsTabLabel = (): JSX.Element => {
-    const { activeRecommendations, recommendationsLoading } = useValues(recommendationsTabLogic)
-
-    return (
-        <span className="flex items-center gap-1.5">
-            Recommendations
-            {recommendationsLoading ? (
-                <LemonBadge size="small" content={<Spinner textColored />} />
-            ) : (
-                <LemonBadge.Number count={activeRecommendations.length} size="small" showZero />
-            )}
-        </span>
     )
 }
 

@@ -79,6 +79,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers 
     incremental_type_to_operator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.credentials_service import get_secret
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.grpc import make_tracked_channel
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
     DEFAULT_RETRY,
@@ -265,9 +266,32 @@ BIGQUERY_IMPERSONATION_PERMISSION_ERROR = (
     "the source."
 )
 
+# Raised when the PostHog worker cannot get PostHog's own Google Cloud credentials, the first hop of
+# the impersonation chain. The customer's service account is never contacted, so no change on their
+# side can fix it. Deliberately absent from `get_non_retryable_errors`, so the sync retries and the
+# failure still reaches error tracking.
+BIGQUERY_POSTHOG_CREDENTIALS_ERROR = (
+    "PostHog could not get its own Google Cloud credentials, so it could not connect to your "
+    "service account. This is a problem on PostHog's side, and you don't need to change your service "
+    "account. Syncs retry automatically. If you are setting up the source, try again in a few minutes."
+)
+
 # Stable prefix of the ownership failure raised when the service account description does not name
 # the connecting organization. The rest of the message carries the organization ID the user must add.
 BIGQUERY_OWNERSHIP_UNVERIFIED_ERROR_PREFIX = "Could not verify that service account"
+
+# Raised as a `Forbidden` (403) by every BigQuery REST/gRPC call when a VPC Service Controls
+# perimeter in the customer's Google Cloud organization blocks the request outright, e.g. "VPC
+# Service Controls: Request is prohibited by organization's policy. vpcServiceControlsUniqueIdentifier:
+# ...". This is an org-level network policy the customer's Google Cloud admin controls, not an IAM
+# role we can tell them to grant — retrying the same request only repeats the same denial. Shared
+# between onboarding credential validation and the sync-path classifier in
+# `BigQuerySource.get_non_retryable_errors`, so the two stay in lockstep.
+BIGQUERY_VPC_SERVICE_CONTROLS_ERROR = (
+    "A VPC Service Controls policy in your Google Cloud organization is blocking this request to "
+    "BigQuery. Add an access level for PostHog to the perimeter around this project (or the "
+    "dataset's project), or exempt BigQuery from the perimeter, then reconnect the source."
+)
 
 
 class BigQueryAuthResolutionError(Exception):
@@ -649,15 +673,26 @@ def _impersonated_credentials(service_account_email: str, team_id: int) -> googl
     # Imported here so the source registry — which the API imports on every request path — does not
     # pull in the batch-export Temporal module.
     from products.batch_exports.backend.facade.destinations.bigquery import (  # noqa: PLC0415 — keeps the batch-export Temporal module off the source registry's import path
+        GoogleCloudCredentialsError,
         MissingRequiredPermissionsError,
         ServiceAccountNotFoundError,
         ServiceAccountOwnershipError,
+        ensure_our_google_cloud_credentials_are_valid,
         get_our_google_cloud_credentials,
         verify_impersonated_service_account_ownership,
     )
 
-    if not settings.BATCH_EXPORT_BIGQUERY_STS_AUDIENCE_FIELD or not settings.BATCH_EXPORT_BIGQUERY_SERVICE_ACCOUNT:
+    if not settings.BATCH_EXPORT_BIGQUERY_STS_AUDIENCE_FIELD or not get_secret("BATCH_EXPORT_BIGQUERY_SERVICE_ACCOUNT"):
         raise BigQueryAuthResolutionError(BIGQUERY_IMPERSONATION_UNAVAILABLE_ERROR)
+
+    # The ownership check below authenticates with PostHog's own credentials. If this worker cannot
+    # get them, the check fails with the same "getAccessToken denied" text that a missing grant on
+    # the customer's service account produces, and the sync tells the customer to fix IAM they
+    # already set up. Batch exports run the same check first for the same reason.
+    try:
+        async_to_sync(ensure_our_google_cloud_credentials_are_valid)()
+    except GoogleCloudCredentialsError as e:
+        raise BigQueryAuthResolutionError(BIGQUERY_POSTHOG_CREDENTIALS_ERROR) from e
 
     # Confirm the team owns the account before impersonating it, or a team that merely knows another
     # org's service account email could have PostHog read that org's data on its behalf. Batch
@@ -988,6 +1023,8 @@ def classify_bigquery_validation_error(e: Exception) -> str:
         return BIGQUERY_INVALID_IDENTIFIER_ERROR
     if "was not found in location" in message or "Not found: Dataset" in message:
         return BIGQUERY_DATASET_NOT_FOUND_ERROR
+    if "VPC Service Controls" in message:
+        return BIGQUERY_VPC_SERVICE_CONTROLS_ERROR
     if "Access Denied" in message or "PermissionDenied" in message or "permission denied" in message:
         return BIGQUERY_VALIDATION_PERMISSION_DENIED_ERROR
     # Genuinely unexpected — keep the signal, and fall back to a generic message so no raw

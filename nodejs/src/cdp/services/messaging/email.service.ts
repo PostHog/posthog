@@ -29,6 +29,7 @@ import {
 } from './email-tracking.service'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
 import { maybeAddPreheaderToEmail } from './helpers/preheader'
+import { SES_SENSITIVE_TAG } from './helpers/ses'
 import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME } from './helpers/tracking-code'
 import { addUtmTagsToEmail, renderUtmOverrides, resolveUtmTags } from './helpers/utm'
 import { MessageAssetsService } from './message-assets.service'
@@ -733,7 +734,8 @@ export class EmailService {
                     $workflow_id: invocation.functionId,
                     $workflow_action_id: invocation.state.actionId,
                     $email_to: params.to.email,
-                    $email_subject: params.subject,
+                    // A sensitive template's subject can carry a login code, so its events leave it out.
+                    ...(invocation.hogFunction?.metadata?.sensitive === true ? {} : { $email_subject: params.subject }),
                     // Always set, never conditional: an untracked send can never produce a
                     // `$workflows_email_opened` or `$workflows_email_link_clicked`, so without this
                     // dimension on the send there is no way to build an open rate in an insight that
@@ -1057,12 +1059,16 @@ export class EmailService {
 
         const ccAddresses = parseAddressList(params.cc)
         const bccAddresses = parseAddressList(params.bcc)
+        const replyToAddresses = parseAddressList(params.replyTo)
 
         if (ccAddresses) {
             mailOptions.cc = ccAddresses
         }
         if (bccAddresses) {
             mailOptions.bcc = bccAddresses
+        }
+        if (replyToAddresses) {
+            mailOptions.replyTo = replyToAddresses
         }
 
         const response = await mailDevTransport!.sendMail(mailOptions)
@@ -1135,7 +1141,12 @@ export class EmailService {
             ConfigurationSetName: this.resolveConfigurationSetName(trackingEnabled, result.invocation),
             // Short unsigned tag kept as a backwards-compat carrier for in-flight messages and
             // environments where the configuration set isn't yet emitting original headers.
-            EmailTags: [{ Name: 'ph_id', Value: shortTrackingCode }],
+            EmailTags: [
+                { Name: 'ph_id', Value: shortTrackingCode },
+                ...(result.invocation.hogFunction?.metadata?.sensitive === true
+                    ? [{ Name: SES_SENSITIVE_TAG, Value: 'true' }]
+                    : []),
+            ],
             FeedbackForwardingEmailAddress: from.email,
         }
 

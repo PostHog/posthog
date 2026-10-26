@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.template.loader import render_to_string
 
+from markdown_it import MarkdownIt
 from parameterized import parameterized
 from slack_sdk.errors import SlackApiError
 
@@ -18,7 +19,9 @@ from products.subscriptions.backend.models.subscription import AIQueryPlanStatus
 from products.subscriptions.backend.temporal.ai_subscription.activities import _deliver_ai_subscription
 from products.subscriptions.backend.temporal.ai_subscription.delivery import (
     CHART_IMAGE_URL_TTL,
+    SLACK_MARKDOWN_MESSAGE_LIMIT,
     SLACK_MRKDWN_SECTION_LIMIT,
+    SLACK_TABLE_CHARACTER_LIMIT,
     TEAMS_REPORT_BLOCK_COUNT,
     TEAMS_TEXT_BLOCK_LIMIT,
     _build_ai_slack_message,
@@ -88,7 +91,9 @@ class TestRenderAIEmailHtml:
         assert "<h2>" in html
 
     def test_renders_basic_markdown(self) -> None:
-        html = render_ai_email_html("**bold** and *italic*")
+        html = render_ai_email_html("- **bold** and *italic*")
+        assert "<ul>" in html
+        assert "<li>" in html
         assert "<strong>bold</strong>" in html
         assert "<em>italic</em>" in html
 
@@ -105,6 +110,67 @@ class TestExternalUrlExfilGuard:
     """A prompt-injected synthesis could embed a link to attacker.example; Slack auto-unfurls
     outbound links server-side, which is an exfil channel. External URLs and markdown images
     must be stripped from delivered output regardless of how the LLM was steered."""
+
+    @pytest.mark.parametrize(
+        "definitions,expected",
+        [
+            ("[source]: h&#116;tps://example.com/report", set()),
+            ("[source]: h&#116;tps://example.com/one\n  [source]: h&#116;tps://example.com/two", set()),
+            (
+                "[source]: https://posthog.com/docs?section=reports#slack",
+                {"https://posthog.com/docs?section=reports#slack"},
+            ),
+            (
+                "[source]: https://reports.example.com/report?view=weekly#traffic",
+                {"https://reports.example.com/report?view=weekly#traffic"},
+            ),
+        ],
+    )
+    @pytest.mark.parametrize("padding", ["", "\n\n" + "Supporting detail. " * 800 + "\n\n"])
+    async def test_slack_reference_destinations_follow_url_policy(
+        self, definitions: str, expected: set[str], padding: str
+    ) -> None:
+        markdown = f"## Highlights\n\n- [Open report][source]\n\n{padding}{definitions}\n"
+        with (
+            patch(f"{_DELIVERY}.absolute_uri", return_value="https://reports.example.com/"),
+            patch(f"{_DELIVERY}.deliver_slack_message_data", new_callable=AsyncMock) as send,
+        ):
+            await send_slack_ai_subscription_report(
+                subscription=_mock_subscription(), markdown=markdown, integration=MagicMock(), delivery_id=_DELIVERY_ID
+            )
+        message = send.call_args.args[2]
+        links = {
+            item["url"]
+            for block in message.blocks
+            if block["type"] == "container"
+            for child in block["child_blocks"]
+            for section in child["elements"]
+            for bullet in section.get("elements", [])
+            for item in bullet.get("elements", [])
+            if item["type"] == "link" and item["text"] == "Open report"
+        }
+        assert links == expected
+
+    @pytest.mark.parametrize("kind", ["inline", "list_fence", "limit"])
+    def test_slack_split_sections_keep_external_links_inert(self, kind: str) -> None:
+        link = "[Report](h&#116;tps://example.com/report)"
+        padding = "x" * SLACK_MARKDOWN_MESSAGE_LIMIT
+        markdown = f"`{padding} {link}`"
+        if kind == "list_fence":
+            markdown = f"- Item\n\n  ```\n  {padding}\n  {link}\n  ```"
+        elif kind == "limit":
+            markdown = "`" + padding + " " + link + "y" * (SLACK_MARKDOWN_MESSAGE_LIMIT - len(link) - 1) + "`"
+        message = _build_message(markdown)
+        messages = [message.blocks, *(reply["blocks"] for reply in message.thread_messages)]
+        assert message.thread_messages
+        for blocks in messages:
+            for block in blocks:
+                if block["type"] != "markdown":
+                    continue
+                assert len(block["text"]) <= SLACK_MARKDOWN_MESSAGE_LIMIT
+                tokens = MarkdownIt("commonmark").parse(block["text"])
+                assert not any(child.type == "link_open" for token in tokens for child in token.children or [])
+        assert "Report" in str(messages)
 
     def test_email_strips_external_link_href_keeps_text(self) -> None:
         html = render_ai_email_html("See [here](https://attacker.example/exfil?p=secret) for details.")
@@ -137,60 +203,60 @@ class TestExternalUrlExfilGuard:
 
     def test_slack_strips_external_link(self) -> None:
         message = _build_message("See [details](https://attacker.example/exfil?p=secret)")
-        all_text = " ".join(b["text"]["text"] for b in message.blocks if b["type"] == "section")
+        all_text = " ".join(b["text"] for b in message.blocks if b["type"] == "markdown")
         assert "attacker.example" not in all_text
         assert "details" in all_text
 
     def test_slack_keeps_posthog_link(self) -> None:
         message = _build_message("Open [dashboard](https://app.posthog.com/insights/abc)")
-        all_text = " ".join(b["text"]["text"] for b in message.blocks if b["type"] == "section")
+        all_text = " ".join(b["text"] for b in message.blocks if b["type"] == "markdown")
         assert "app.posthog.com/insights/abc" in all_text
 
     def test_slack_defangs_bare_external_url(self) -> None:
         # a bare (non-markdown) URL still gets linkified/unfurled by Slack — must be defanged
         message = _build_message("Visit https://attacker.example/exfil?p=secret now")
-        all_text = " ".join(b["text"]["text"] for b in message.blocks if b["type"] == "section")
+        all_text = " ".join(b["text"] for b in message.blocks if b["type"] == "markdown")
         assert "`https://attacker.example/exfil?p=secret`" in all_text
 
     def test_slack_defangs_autolink(self) -> None:
         message = _build_message("See <https://attacker.example/exfil> here")
-        all_text = " ".join(b["text"]["text"] for b in message.blocks if b["type"] == "section")
+        all_text = " ".join(b["text"] for b in message.blocks if b["type"] == "markdown")
         assert "`https://attacker.example/exfil`" in all_text
 
     def test_slack_keeps_bare_posthog_url(self) -> None:
         message = _build_message("Open https://app.posthog.com/insights/abc now")
-        all_text = " ".join(b["text"]["text"] for b in message.blocks if b["type"] == "section")
+        all_text = " ".join(b["text"] for b in message.blocks if b["type"] == "markdown")
         assert "https://app.posthog.com/insights/abc" in all_text
         assert "`https://app.posthog.com" not in all_text  # PostHog hosts stay live, not defanged
 
     def test_slack_defangs_scheme_less_www_url(self) -> None:
         # Slack also linkifies scheme-less www. URLs — those must be defanged too
         message = _build_message("Visit www.attacker.example/exfil now")
-        all_text = " ".join(b["text"]["text"] for b in message.blocks if b["type"] == "section")
+        all_text = " ".join(b["text"] for b in message.blocks if b["type"] == "markdown")
         assert "`www.attacker.example/exfil`" in all_text
 
     def test_slack_keeps_www_posthog_url(self) -> None:
         message = _build_message("Docs at www.posthog.com/docs here")
-        all_text = " ".join(b["text"]["text"] for b in message.blocks if b["type"] == "section")
+        all_text = " ".join(b["text"] for b in message.blocks if b["type"] == "markdown")
         assert "www.posthog.com/docs" in all_text
         assert "`www.posthog.com" not in all_text
 
     def test_slack_does_not_mangle_email_addresses(self) -> None:
         message = _build_message("Reach me@www.example.com for access")
-        all_text = " ".join(b["text"]["text"] for b in message.blocks if b["type"] == "section")
+        all_text = " ".join(b["text"] for b in message.blocks if b["type"] == "markdown")
         assert "me@www.example.com" in all_text
         assert "`www.example.com" not in all_text
 
     def test_slack_defangs_parenthetical_external_url(self) -> None:
         # a URL inside plain parentheses is preceded by `(` but is not a markdown link — still defang it
         message = _build_message("Revenue event (https://attacker.example/track) spiked")
-        all_text = " ".join(b["text"]["text"] for b in message.blocks if b["type"] == "section")
+        all_text = " ".join(b["text"] for b in message.blocks if b["type"] == "markdown")
         assert "`https://attacker.example/track`" in all_text
 
     def test_slack_defangs_uppercase_scheme_autolink(self) -> None:
         # URL schemes are case-insensitive — an uppercase scheme must not slip past the matcher
         message = _build_message("See <HTTPS://attacker.example/exfil> now")
-        all_text = " ".join(b["text"]["text"] for b in message.blocks if b["type"] == "section")
+        all_text = " ".join(b["text"] for b in message.blocks if b["type"] == "markdown")
         assert "`HTTPS://attacker.example/exfil`" in all_text
 
     def test_email_defangs_uppercase_autolink(self) -> None:
@@ -215,6 +281,7 @@ def _mock_subscription() -> MagicMock:
     sub = MagicMock()
     sub.target_value = "C123|#general"
     sub.title = "Weekly report"
+    sub.summary = "sent every week on Monday"
     sub.url = _SUBSCRIPTION_URL
     sub.team_id = 1
     sub.id = 2
@@ -230,6 +297,103 @@ def _build_message(markdown: str) -> SlackMessage:
 
 
 _CHART = {"title": "signups by day", "image_url": "https://ph.test/img.png"}
+
+
+class TestSlackMarkdownContinuation:
+    @pytest.mark.parametrize("row_count,cell_size,columns", [(110, 1, 2), (80, 140, 2), (1, 10010, 2), (1, 1, 21)])
+    def test_tables_respect_row_and_character_limits(self, row_count: int, cell_size: int, columns: int) -> None:
+        header = "| " + " | ".join(["Metric", *(["Value"] * (columns - 1))]) + " |\n" + "|---" * columns + "|\n"
+        markdown = header + "".join(
+            "| " + " | ".join([f"Row {index}", *(["x" * cell_size] * (columns - 1))]) + " |\n"
+            for index in range(row_count)
+        )
+        message = _build_message(markdown)
+        messages = [message.blocks, *(reply["blocks"] for reply in message.thread_messages)]
+        parser = MarkdownIt("commonmark").enable("table")
+        for blocks in messages:
+            characters = 0
+            for block in blocks:
+                if block["type"] != "markdown":
+                    continue
+                tokens = parser.parse(block["text"])
+                assert sum(token.type == "th_open" for token in tokens) <= 20
+                rows = 0
+                for token in tokens:
+                    if token.type == "table_open":
+                        rows = 0
+                    elif token.type == "tr_open":
+                        rows += 1
+                        assert rows <= 100
+                    elif token.type == "inline":
+                        characters += len(token.content)
+                assert characters <= 10000
+        rendered = str(messages)
+        assert all(f"Row {index}" in rendered for index in range(row_count))
+
+    @pytest.mark.parametrize("underline_every_paragraph", [False, True])
+    def test_formatted_report_respects_message_block_limit(self, underline_every_paragraph: bool) -> None:
+        paragraphs = [f"## Topic {index}\n\nFinding {index}." for index in range(80)]
+        if underline_every_paragraph:
+            paragraphs = [paragraph + " <u>Important</u>" for paragraph in paragraphs]
+        message = _build_message("<u>Overview</u>\n\n" + "\n\n".join(paragraphs))
+        messages = [message.blocks, *(reply["blocks"] for reply in message.thread_messages)]
+        assert all(len(blocks) <= 50 for blocks in messages)
+        rendered = str(messages)
+        assert all(f"Finding {index}." in rendered for index in range(80))
+        if underline_every_paragraph:
+            assert message.thread_messages
+        else:
+            assert not message.thread_messages
+
+    @pytest.mark.parametrize("kind", ["table", "wide_row", "backticks", "tildes"])
+    @pytest.mark.parametrize("overflow", [0, 1])
+    def test_markdown_keeps_its_structure_at_the_message_limit(self, kind: str, overflow: int) -> None:
+        limit = SLACK_MARKDOWN_MESSAGE_LIMIT
+        if kind in {"table", "wide_row"}:
+            limit = min(limit, SLACK_TABLE_CHARACTER_LIMIT)
+            header = "| Metric | Value |\n|---|---|\n"
+            first_row = "| First | " + "a" * (limit - len(header) - len("| First |  |\n")) + " |\n"
+            report = header + first_row
+            if overflow:
+                if kind == "wide_row":
+                    report = header + first_row.replace("First", "Firstx")
+                else:
+                    report += "| Second | 2 |\n"
+        else:
+            fence = "```"
+            if kind == "tildes":
+                fence = "~~~"
+            opening = fence + "sql\n"
+            closing = "\n" + fence
+            content = "    SELECT " + "a" * (limit - len(opening) - len(closing) - len("    SELECT "))
+            report = opening + content + closing
+            if overflow:
+                report = opening + content + "\n    SELECT 2;" + closing
+
+        message = _build_message(report)
+        blocks = [*message.blocks, *(block for reply in message.thread_messages for block in reply["blocks"])]
+        chunks = [block["text"] for block in blocks if block["type"] == "markdown"]
+        assert all(len(chunk) <= SLACK_MARKDOWN_MESSAGE_LIMIT for chunk in chunks)
+        if not overflow:
+            assert chunks == [report]
+            return
+
+        if kind != "wide_row":
+            assert len(chunks) > 1
+        parser = MarkdownIt("commonmark").enable("table")
+        tokens = [parser.parse(chunk) for chunk in chunks]
+        if kind == "table":
+            assert all(chunk.startswith(header) for chunk in chunks)
+            assert all(any(token.type == "table_open" for token in parsed) for parsed in tokens)
+            assert sum(chunk.count("| First |") for chunk in chunks) == 1
+            assert sum(chunk.count("| Second |") for chunk in chunks) == 1
+        elif kind == "wide_row":
+            assert all(parsed[0].type == "fence" for parsed in tokens)
+            assert sum(chunk.count("| Firstx |") for chunk in chunks) == 1
+        else:
+            assert all(chunk.startswith(opening) and chunk.rstrip().endswith(fence) for chunk in chunks)
+            assert all(parsed[0].type == "fence" for parsed in tokens)
+            assert "    SELECT 2;" in chunks[-1]
 
 
 class TestBuildChartImageUrls:
@@ -260,11 +424,19 @@ class TestChartsOnSlackMessages:
             _mock_subscription(), "A short report.", delivery_id=_DELIVERY_ID, charts=[_CHART]
         )
 
-        assert [block["type"] for block in message.blocks[:3]] == ["section", "section", "image"]
-        assert message.blocks[1]["text"]["text"] == "A short report."
-        assert message.blocks[2]["image_url"] == _CHART["image_url"]
-        assert message.blocks[2]["alt_text"] == "signups by day"
-        assert message.blocks[2]["title"] == {"type": "plain_text", "text": "signups by day"}
+        assert [block["type"] for block in message.blocks[:5]] == [
+            "divider",
+            "header",
+            "context",
+            "markdown",
+            "image",
+        ]
+        assert message.blocks[3]["text"] == "A short report."
+        assert message.blocks[1]["text"]["text"] == "Your subscription to Weekly report is ready! 🎉"
+        assert message.blocks[2]["elements"][0]["text"] == "🤖 AI prompt: Weekly report"
+        assert message.blocks[4]["image_url"] == _CHART["image_url"]
+        assert message.blocks[4]["alt_text"] == "signups by day"
+        assert message.blocks[4]["title"] == {"type": "plain_text", "text": "signups by day"}
 
     def test_an_untitled_chart_posts_no_title_block(self) -> None:
         message = _build_ai_slack_message(
@@ -274,8 +446,8 @@ class TestChartsOnSlackMessages:
             charts=[{"title": "", "image_url": "https://ph.test/img.png"}],
         )
 
-        assert "title" not in message.blocks[2]
-        assert message.blocks[2]["alt_text"] == "Chart"
+        assert "title" not in message.blocks[4]
+        assert message.blocks[4]["alt_text"] == "Chart"
 
     def test_a_chartless_report_posts_no_image_blocks(self) -> None:
         message = _build_message("A short report.")
@@ -303,7 +475,7 @@ class TestChartsOnSlackMessages:
         assert len(sent) == 2
         assert any(block["type"] == "image" for block in sent[0])
         assert all(block["type"] != "image" for block in sent[1])
-        assert any("A short report." in block.get("text", {}).get("text", "") for block in sent[1])
+        assert {"type": "markdown", "text": "A short report."} in sent[1]
 
     async def test_a_hidden_chart_does_not_trigger_the_resend(self) -> None:
         # A report that hides its charts already sends a payload with no image block, so the
@@ -360,6 +532,36 @@ class TestChartsOnSlackMessages:
 
 
 class TestBuildAISlackMessage:
+    def test_leading_callout_keeps_links_and_markdown_styles(self) -> None:
+        message = _build_message(
+            "## Main result\n\n- [**Check`out`**](https://us.posthog.com/project/2/dashboard/123) "
+            "rose **20%** on *Monday*, replacing ~~retired~~ `legacy`."
+        )
+        callout = next(block for block in message.blocks if block["type"] == "container")
+        elements = callout["child_blocks"][0]["elements"][0]["elements"][0]["elements"]
+        assert {
+            "type": "link",
+            "url": "https://us.posthog.com/project/2/dashboard/123",
+            "text": "Checkout",
+            "style": {"bold": True},
+        } in elements
+        for text, style in [("20%", "bold"), ("Monday", "italic"), ("retired", "strike"), ("legacy", "code")]:
+            assert {"type": "text", "text": text, "style": {style: True}} in elements
+
+    @pytest.mark.parametrize(
+        "content",
+        [
+            "- Parent\n  - Child",
+            "- Finding\n\n  ```sql\n  SELECT 1\n  ```",
+            "- <u>Parent</u>\n  - Child",
+            "- <u>Finding</u>\n\n  ```sql\n  SELECT 1\n  ```",
+        ],
+    )
+    def test_complex_findings_keep_native_markdown(self, content: str) -> None:
+        markdown = f"## Main result\n\n{content}"
+        message = _build_message(markdown)
+        assert message.blocks[3] == {"type": "markdown", "text": markdown}
+
     def test_single_section_report_has_no_thread_messages(self) -> None:
         message = _build_message("A short report.")
         assert message.channel == "C123"
@@ -367,13 +569,30 @@ class TestBuildAISlackMessage:
         section_texts = [b["text"]["text"] for b in message.blocks if b["type"] == "section"]
         assert all(text.strip() for text in section_texts), "no empty section text allowed"
 
+    @pytest.mark.parametrize(
+        "markdown",
+        [
+            "## Weekly report\n\n| Day | Sessions |\n|---|---|\n| Monday | **42** |",
+            "**Bold** and *italic* with [dashboard](https://app.posthog.com/insights/abc)",
+            "```\n| Day | Sessions |\n| Monday | 42 |\n```",
+            "x" * SLACK_MARKDOWN_MESSAGE_LIMIT,
+            "",
+        ],
+    )
+    def test_preserves_report_markdown(self, markdown: str) -> None:
+        message = _build_message(markdown)
+        assert message.blocks[3] == {"type": "markdown", "text": markdown or "_No report content was generated._"}
+        assert message.thread_messages == []
+
     def test_long_report_overflows_into_thread(self) -> None:
-        long_markdown = ("para\n\n" * 1).join("x" * (SLACK_MRKDWN_SECTION_LIMIT - 50) for _ in range(3))
+        long_markdown = ("para\n\n" * 1).join("x" * (SLACK_MARKDOWN_MESSAGE_LIMIT - 50) for _ in range(3))
         message = _build_message(long_markdown)
         assert len(message.thread_messages) >= 1
         for thread_msg in message.thread_messages:
             for block in thread_msg["blocks"]:
-                assert block["text"]["text"].strip(), "thread section text must be non-empty"
+                assert block["type"] == "markdown"
+                assert block["text"].strip(), "thread text must be non-empty"
+                assert len(block["text"]) <= SLACK_MARKDOWN_MESSAGE_LIMIT
 
     def test_minimal_delivery_keeps_only_the_title_and_report(self) -> None:
         subscription = _mock_subscription()
@@ -392,8 +611,8 @@ class TestBuildAISlackMessage:
             charts=[_CHART],
         )
 
-        assert [block["type"] for block in message.blocks] == ["section", "section"]
-        assert message.blocks[1]["text"]["text"] == "A short report."
+        assert [block["type"] for block in message.blocks] == ["divider", "header", "context", "markdown"]
+        assert message.blocks[3]["text"] == "A short report."
 
     def test_with_images_delivery_keeps_charts_without_posthog_controls(self) -> None:
         subscription = _mock_subscription()
@@ -412,8 +631,14 @@ class TestBuildAISlackMessage:
             charts=[_CHART],
         )
 
-        assert [block["type"] for block in message.blocks] == ["section", "section", "image"]
-        assert message.blocks[2]["image_url"] == _CHART["image_url"]
+        assert [block["type"] for block in message.blocks] == [
+            "divider",
+            "header",
+            "context",
+            "markdown",
+            "image",
+        ]
+        assert message.blocks[4]["image_url"] == _CHART["image_url"]
 
 
 class TestBuildAITeamsCard:
@@ -606,7 +831,7 @@ class TestFeedbackFooter:
     )
     def test_slack_footer_links_carry_feedback_params(self, feedback: str, label: str) -> None:
         message = _build_message("A short report.")
-        context_blocks = [b for b in message.blocks if b["type"] == "context"]
+        context_blocks = [b for b in message.blocks if b["type"] == "context" and b["elements"][0]["type"] == "mrkdwn"]
         assert len(context_blocks) == 1
         text = context_blocks[0]["elements"][0]["text"]
         assert "Was this report useful?" in text

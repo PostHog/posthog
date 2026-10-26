@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
 
 import * as chartPng from '@posthog/brand/hoggies/png/chart'
 import { IconChevronDown, IconPlus } from '@posthog/icons'
@@ -31,25 +30,21 @@ function DashboardEmptyActions({
     canEdit,
     dashboard,
     aiDisabledReason,
-    dashboardWidgetsEnabled,
     onAddInsight,
     onAddText,
     onAddImage,
     onAddButton,
     onAddWidget,
-    push,
     onOpenAiWithPrompt,
 }: {
     canEdit: boolean
     dashboard: DashboardType | null | undefined
     aiDisabledReason: string | false
-    dashboardWidgetsEnabled: boolean
     onAddInsight: () => void
     onAddText: () => void
     onAddImage: () => void
     onAddButton: () => void
     onAddWidget: () => void
-    push: (path: string) => void
     onOpenAiWithPrompt: (prompt: string) => void
 }): JSX.Element {
     const { reportDashboardEmptyAddChartClicked, reportDashboardEmptyWebAnalyticsClicked } = useActions(eventUsageLogic)
@@ -95,12 +90,10 @@ function DashboardEmptyActions({
                                 <LemonMenu
                                     placement="bottom-start"
                                     items={getAddTileMenuItems({
-                                        dashboardWidgetsEnabled,
                                         onAddInsight: handleAddInsight,
                                         onAddText,
                                         onAddImage,
                                         onAddButton,
-                                        push,
                                         setAddWidgetModalOpen: onAddWidget,
                                     })}
                                 >
@@ -131,10 +124,9 @@ function DashboardEmptyActions({
 
 function EmptyDashboardContent({ canEdit }: { canEdit: boolean }): JSX.Element {
     const { showAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
-    const { dashboard, dashboardWidgetsEnabled } = useValues(dashboardLogic)
+    const { dashboard } = useValues(dashboardLogic)
     const { setAddWidgetModalOpen, openTextTileModal, openImageTileModal, openButtonTileModal } =
         useActions(dashboardLogic)
-    const { push } = useActions(router)
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(maxGlobalLogic)
     const aiDisabledReason =
@@ -167,13 +159,11 @@ function EmptyDashboardContent({ canEdit }: { canEdit: boolean }): JSX.Element {
                     canEdit={canEdit}
                     dashboard={dashboard}
                     aiDisabledReason={aiDisabledReason}
-                    dashboardWidgetsEnabled={dashboardWidgetsEnabled}
                     onAddInsight={showAddInsightToDashboardModal}
                     onAddText={openTextTileModal}
                     onAddImage={openImageTileModal}
                     onAddButton={openButtonTileModal}
                     onAddWidget={() => setAddWidgetModalOpen(true)}
-                    push={push}
                     onOpenAiWithPrompt={onOpenAiWithPrompt}
                 />
             }

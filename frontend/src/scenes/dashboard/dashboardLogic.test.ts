@@ -1,9 +1,11 @@
 // let tiles assert an insight is present in tests i.e. `tile!.insight` when it must be present for tests to pass
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 
+import { waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic, truth } from 'kea-test-utils'
 import posthog from 'posthog-js'
+import type { Layout } from 'react-grid-layout'
 
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 import * as dashboardWidgetUtils from '@posthog/products-dashboards/frontend/utils'
@@ -16,10 +18,11 @@ import { dayjs, now } from 'lib/dayjs'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { pluralize } from 'lib/utils/strings'
 import { addInsightToDashboardLogic } from 'scenes/dashboard/addInsightToDashboardModalLogic'
 import { parseDashboardId } from 'scenes/dashboard/Dashboard'
 import { dashboardInsightColorsModalLogic } from 'scenes/dashboard/dashboardInsightColorsModalLogic'
-import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { DashboardLoadAction, dashboardLogic, RefreshDashboardItemsAction } from 'scenes/dashboard/dashboardLogic'
 import * as dashboardUtils from 'scenes/dashboard/dashboardUtils'
 import { liveDashboardIds } from 'scenes/dashboard/liveDashboardIds'
 import * as widgetFetchUtils from 'scenes/dashboard/widgetFetchUtils'
@@ -47,7 +50,8 @@ import {
     InsightModel,
 } from '~/types'
 
-import { DashboardGridCompaction } from 'products/dashboards/frontend/dashboardCustomization'
+import { DashboardGridCompaction, getDashboardGridCompactor } from 'products/dashboards/frontend/dashboardCustomization'
+import { dashboardTileGroupChoicesLogic } from 'products/dashboards/frontend/dashboardTileGroupChoicesLogic'
 
 import { dashboardResult, insightOnDashboard, tileFromInsight } from './dashboardLogic.testHelpers'
 
@@ -379,6 +383,943 @@ describe('dashboardLogic', () => {
 
         it('parses a full numeric route id', () => {
             expect(parseDashboardId('12')).toBe(12)
+        })
+    })
+
+    describe('tile group sections', () => {
+        let target: InsightShortId
+
+        // The band of group 'target' holds tiles 0 and 2, so on the dashboard tile 1 sits in a gap between them.
+        const groupTiles = (groups: Record<string, { collapsed: boolean }>, viewerChoice?: boolean): void => {
+            dashboards[5] = {
+                ...dashboards[5],
+                customization: { groups },
+                tiles: dashboards[5].tiles.map((tile, index) => ({
+                    ...tile,
+                    group_key: index === 1 ? 'other' : 'target',
+                    layouts: { sm: { x: 0, y: index * 2, w: 12, h: 2 } } as DashboardTile['layouts'],
+                })),
+            }
+            target = dashboards[5].tiles[0].insight!.short_id
+            if (viewerChoice !== undefined) {
+                dashboardTileGroupChoicesLogic.mount()
+                dashboardTileGroupChoicesLogic.actions.setTileGroupCollapsed(5, 'target', viewerChoice)
+            }
+        }
+
+        const mountDashboard = async (placement?: DashboardPlacement): Promise<void> => {
+            logic = dashboardLogic({ id: 5, placement })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+        }
+
+        const highlight = async (insightId: string): Promise<void> => {
+            await expectLogic(logic, () => {
+                router.actions.push('/dashboard/5', { highlightInsightId: insightId })
+            }).toFinishAllListeners()
+        }
+
+        beforeEach(() => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DASHBOARD_TILE_GROUP_SECTIONS], {
+                [FEATURE_FLAGS.DASHBOARD_TILE_GROUP_SECTIONS]: true,
+            })
+            useMocks({ get: { '/api/environments/:team_id/dashboards/5/': () => [200, dashboards[5]] } })
+        })
+
+        afterEach(() => {
+            localStorage.clear()
+            featureFlagLogic.actions.setFeatureFlags([], {})
+        })
+
+        it.each([
+            { name: 'a link opened before the dashboard loads', beforeLoad: true, viewerChoice: undefined },
+            { name: 'a link followed on a loaded dashboard', beforeLoad: false, viewerChoice: undefined },
+            { name: 'a group the viewer closed', beforeLoad: false, viewerChoice: true },
+        ])('opens the highlighted tile group for $name', async ({ beforeLoad, viewerChoice }) => {
+            groupTiles({ target: { collapsed: true }, other: { collapsed: true } }, viewerChoice)
+            if (beforeLoad) {
+                router.actions.push('/dashboard/5', { highlightInsightId: target })
+            }
+            await mountDashboard()
+            if (!beforeLoad) {
+                await highlight(target)
+            }
+
+            expect(logic.values.collapsedTileGroupKeys).toEqual(['other'])
+        })
+
+        it("opens a highlighted tile group without saving it as the viewer's choice", async () => {
+            groupTiles({ target: { collapsed: true } })
+            await mountDashboard()
+            await highlight(target)
+
+            expect(logic.values.collapsedTileGroupKeys).toEqual([])
+            expect(dashboardTileGroupChoicesLogic.values.tileGroupChoices).toEqual({})
+        })
+
+        it('closes a highlighted tile group on toggle and opens it again for a new highlight', async () => {
+            groupTiles({ target: { collapsed: true } })
+            await mountDashboard()
+            await highlight(target)
+
+            logic.actions.toggleTileGroup('target')
+            await highlight(target)
+            expect(logic.values.collapsedTileGroupKeys).toEqual(['target'])
+
+            await highlight('missing-insight')
+            await highlight(target)
+            expect(logic.values.collapsedTileGroupKeys).toEqual([])
+        })
+
+        it.each([
+            { placement: DashboardPlacement.Dashboard, expected: ['target'] },
+            { placement: DashboardPlacement.Export, expected: [] },
+        ])('closes saved tile groups on the $placement placement', async ({ placement, expected }) => {
+            groupTiles({ target: { collapsed: true } })
+            await mountDashboard(placement)
+
+            expect(logic.values.collapsedTileGroupKeys).toEqual(expected)
+        })
+
+        it('does not change the layout when a band grid reports the layout it was given', async () => {
+            groupTiles({})
+            await mountDashboard()
+            const compactor = getDashboardGridCompactor(DashboardGridCompaction.Vertical)
+
+            for (const sectionLayouts of logic.values.tileGroupSectionLayouts) {
+                logic.actions.updateTileGroupSectionLayout({ sm: compactor.compact(sectionLayouts.sm ?? [], 12) })
+            }
+
+            expect(logic.values.hasUnsavedLayoutChanges).toBe(false)
+        })
+
+        describe('moving a tile between tile groups', () => {
+            interface PendingSave {
+                tileIds: number[]
+                resolve: () => void
+                reject: () => void
+            }
+            let pendingSaves: PendingSave[]
+            let tileIds: number[]
+
+            const groupOf = (tileId: number): string | null =>
+                logic.values.tiles.find((tile) => tile.id === tileId)?.group_key ?? null
+            const enterEditMode = (): void =>
+                logic.actions.setDashboardEditing(
+                    { filters: true, layout: true },
+                    DashboardEventSource.SceneCommonButtons
+                )
+
+            beforeEach(async () => {
+                const groupKeys = ['plans', 'ops', null]
+                dashboards[5] = {
+                    ...dashboards[5],
+                    customization: { groups: { plans: { title: 'Pricing plans' }, ops: { collapsed: true } } },
+                    tiles: dashboards[5].tiles.map((tile, index) => ({
+                        ...tile,
+                        group_key: groupKeys[index],
+                        layouts: { sm: { x: 0, y: index * 2, w: 12, h: 2 } } as DashboardTile['layouts'],
+                    })),
+                }
+                tileIds = dashboards[5].tiles.map((tile) => tile.id)
+                pendingSaves = []
+                // Like the server, a save answers with the saved dashboard, which lacks moves still on their way.
+                jest.spyOn(api, 'update').mockImplementation((_url, data) => {
+                    const payload = data as { tiles: Partial<DashboardTile>[] }
+                    return new Promise((resolve, reject) =>
+                        pendingSaves.push({
+                            tileIds: payload.tiles.filter((entry) => 'group_key' in entry).map((entry) => entry.id!),
+                            resolve: () =>
+                                resolve({
+                                    ...dashboards[5],
+                                    tiles: dashboards[5].tiles.map((tile) => ({
+                                        ...tile,
+                                        ...payload.tiles.find((entry) => entry.id === tile.id),
+                                    })),
+                                }),
+                            reject: () => reject(new Error('network down')),
+                        })
+                    )
+                })
+                await mountDashboard()
+            })
+
+            afterEach(() => {
+                ;(api.update as jest.Mock).mockRestore()
+            })
+
+            const settleSaves = async (): Promise<void> => {
+                pendingSaves.forEach((save) => save.resolve())
+                await expectLogic(logic).toFinishAllListeners()
+            }
+
+            it.each([
+                {
+                    name: 'into a titled group',
+                    tileIndex: 2,
+                    sectionKey: 'group-plans',
+                    groupKey: 'plans',
+                    toast: 'Moved to the "Pricing plans" group',
+                },
+                // An untitled group is named by its tile count, which the move changes.
+                {
+                    name: 'into a closed untitled group',
+                    tileIndex: 0,
+                    sectionKey: 'group-ops',
+                    groupKey: 'ops',
+                    toast: `Moved to the "${pluralize(2, 'tile')}" group`,
+                },
+                {
+                    name: 'out of its group',
+                    tileIndex: 0,
+                    sectionKey: null,
+                    groupKey: null,
+                    toast: 'Tile taken out of its group',
+                },
+            ])('in view mode saves a tile moved $name at once', async ({ tileIndex, sectionKey, groupKey, toast }) => {
+                const tileId = tileIds[tileIndex]
+                const successToast = jest.spyOn(lemonToast, 'success')
+                const capture = jest.spyOn(posthog, 'capture')
+
+                logic.actions.moveTileToSection(tileId, sectionKey, null, 'menu')
+                await waitFor(() => expect(pendingSaves).toHaveLength(1))
+                await settleSaves()
+
+                expect(pendingSaves.map((save) => save.tileIds)).toEqual([[tileId]])
+                expect(groupOf(tileId)).toBe(groupKey)
+                expect(logic.values.hasUnsavedLayoutChanges).toBe(false)
+                expect(logic.values.collapsedTileGroupKeys).toEqual(['ops'])
+                expect(successToast).toHaveBeenCalledWith(toast)
+                expect(capture).toHaveBeenCalledWith(
+                    'dashboard tile moved between groups',
+                    expect.objectContaining({ method: 'menu', to_group: groupKey !== null })
+                )
+            })
+
+            it.each([
+                {
+                    name: 'two quick moves both save',
+                    firstSaves: true,
+                    secondMove: { tile: 'other', target: 'group-ops', inEditMode: false },
+                    expected: { first: 'ops', firstAtSavedCell: true, second: 'ops', unsaved: false, captures: 2 },
+                },
+                {
+                    name: 'a failed first move puts back only its own tile',
+                    firstSaves: false,
+                    secondMove: { tile: 'other', target: 'group-ops', inEditMode: false },
+                    expected: { first: 'plans', firstAtSavedCell: true, second: 'ops', unsaved: false, captures: 1 },
+                },
+                {
+                    name: 'a failed move keeps an edit-mode move of another tile',
+                    firstSaves: false,
+                    secondMove: { tile: 'other', target: 'group-ops', inEditMode: true },
+                    expected: { first: 'plans', firstAtSavedCell: true, second: 'ops', unsaved: true, captures: 1 },
+                },
+                {
+                    name: 'a failed move keeps a later edit-mode move of the same tile',
+                    firstSaves: false,
+                    secondMove: { tile: 'same', target: null, inEditMode: true },
+                    expected: { first: null, firstAtSavedCell: false, second: null, unsaved: true, captures: 1 },
+                },
+            ])('in view mode, $name', async ({ firstSaves, secondMove, expected }) => {
+                const first = tileIds[0]
+                const second = secondMove.tile === 'same' ? first : tileIds[2]
+                const capture = jest.spyOn(posthog, 'capture')
+
+                logic.actions.moveTileToSection(first, 'group-ops', null, 'menu')
+                await waitFor(() => expect(pendingSaves).toHaveLength(1))
+                if (secondMove.inEditMode) {
+                    enterEditMode()
+                }
+                logic.actions.moveTileToSection(second, secondMove.target, null, 'menu')
+                if (firstSaves) {
+                    pendingSaves[0].resolve()
+                } else {
+                    pendingSaves[0].reject()
+                }
+                if (!secondMove.inEditMode) {
+                    await waitFor(() => expect(pendingSaves).toHaveLength(2))
+                }
+                await settleSaves()
+
+                const firstCell = logic.values.layouts.sm?.find((item) => item.i === String(first))
+                const savedFirstCell = logic.values.savedTilePlacements[first]?.layouts?.sm
+                expect(pendingSaves.map((save) => save.tileIds)).toEqual(
+                    secondMove.inEditMode ? [[first]] : [[first], [second]]
+                )
+                expect({
+                    first: groupOf(first),
+                    firstAtSavedCell: firstCell?.y === savedFirstCell?.y,
+                    second: groupOf(second),
+                    unsaved: logic.values.hasUnsavedLayoutChanges,
+                    captures: capture.mock.calls.filter(([event]) => event === 'dashboard tile moved between groups')
+                        .length,
+                }).toEqual(expected)
+            })
+
+            it('keeps a view-mode move made while a layout save is on its way', async () => {
+                const [plansTile, , looseTile] = tileIds
+                enterEditMode()
+                logic.actions.moveTileToSection(looseTile, 'group-plans', { x: 0, y: 0 }, 'drag')
+                logic.actions.saveLayoutChanges()
+                await waitFor(() => expect(pendingSaves).toHaveLength(1))
+
+                logic.actions.moveTileToSection(plansTile, 'group-ops', null, 'menu')
+                pendingSaves[0].resolve()
+                await waitFor(() => expect(pendingSaves).toHaveLength(2))
+                await settleSaves()
+                expect(logic.values.hasUnsavedLayoutChanges).toBe(false)
+
+                logic.actions.setDashboardEditing(null, DashboardEventSource.DashboardHeaderDiscardChanges)
+                expect({ moved: groupOf(plansTile), saved: groupOf(looseTile) }).toEqual({
+                    moved: 'ops',
+                    saved: 'plans',
+                })
+            })
+
+            it.each([
+                { name: 'shows the move', afterDiscard: 'nothing', expectedGroup: 'ops', groupSaves: 1 },
+                {
+                    name: 'shows the move in a new edit session',
+                    afterDiscard: 'edit',
+                    expectedGroup: 'ops',
+                    groupSaves: 1,
+                },
+                {
+                    name: 'keeps a newer saved drag of the tile',
+                    afterDiscard: 'drag and save',
+                    expectedGroup: 'plans',
+                    groupSaves: 2,
+                },
+            ])(
+                'when a view-mode move saves after a discard put the tile back, $name',
+                async ({ afterDiscard, expectedGroup, groupSaves }) => {
+                    const plansTile = tileIds[0]
+                    logic.actions.moveTileToSection(plansTile, 'group-ops', null, 'menu')
+                    await waitFor(() => expect(pendingSaves).toHaveLength(1))
+                    enterEditMode()
+                    logic.actions.setDashboardEditing(null, DashboardEventSource.DashboardHeaderDiscardChanges)
+                    expect(groupOf(plansTile)).toBe('plans')
+
+                    if (afterDiscard !== 'nothing') {
+                        enterEditMode()
+                    }
+                    if (afterDiscard === 'drag and save') {
+                        logic.actions.stageLayouts({
+                            sm: (logic.values.layouts.sm ?? []).map((item) =>
+                                item.i === String(plansTile) ? { ...item, y: 1 } : item
+                            ),
+                        })
+                        logic.actions.saveLayoutChanges()
+                        pendingSaves[0].resolve()
+                        await waitFor(() => expect(pendingSaves).toHaveLength(2))
+                    }
+                    await settleSaves()
+
+                    expect({
+                        group: groupOf(plansTile),
+                        unsaved: logic.values.hasUnsavedLayoutChanges,
+                        groupSaves: pendingSaves.filter((save) => save.tileIds.includes(plansTile)).length,
+                    }).toEqual({ group: expectedGroup, unsaved: false, groupSaves })
+                }
+            )
+
+            it('runs a layout save queued behind a newer one without an error', async () => {
+                const [, opsTile, looseTile] = tileIds
+                const errorToast = jest.spyOn(lemonToast, 'error')
+                logic.actions.moveTileToSection(opsTile, null, null, 'menu')
+                await waitFor(() => expect(pendingSaves).toHaveLength(1))
+                enterEditMode()
+                logic.actions.moveTileToSection(looseTile, 'group-plans', { x: 0, y: 0 }, 'drag')
+
+                logic.actions.saveEditModeChanges('layout')
+                logic.actions.saveEditModeChanges('layout')
+                pendingSaves[0].resolve()
+                await waitFor(() => expect(pendingSaves).toHaveLength(2))
+                await settleSaves()
+
+                expect(errorToast).not.toHaveBeenCalled()
+                expect(pendingSaves.map((save) => save.tileIds)).toEqual([[opsTile], [looseTile]])
+                expect(groupOf(looseTile)).toBe('plans')
+            })
+
+            it('sends a queued layout save after the dashboard closes', async () => {
+                const [, opsTile, looseTile] = tileIds
+                logic.actions.moveTileToSection(opsTile, null, null, 'menu')
+                await waitFor(() => expect(pendingSaves).toHaveLength(1))
+                enterEditMode()
+                logic.actions.moveTileToSection(looseTile, 'group-plans', { x: 0, y: 0 }, 'drag')
+
+                logic.actions.saveEditModeChanges('layout')
+                logic.unmount()
+                pendingSaves[0].resolve()
+
+                await waitFor(() => expect(pendingSaves).toHaveLength(2))
+                expect(pendingSaves.map((save) => save.tileIds)).toEqual([[opsTile], [looseTile]])
+                pendingSaves[1].resolve()
+                await waitFor(() => expect(logic.isMounted()).toBe(false))
+            })
+
+            it.each([
+                { finish: 'save', saveFails: false, expectedGroup: 'plans', unsaved: false },
+                { finish: 'save', saveFails: true, expectedGroup: 'plans', unsaved: true },
+                { finish: 'cancel', saveFails: false, expectedGroup: null, unsaved: false },
+            ])(
+                'in edit mode keeps a dragged tile unsaved until $finish (save fails: $saveFails)',
+                async ({ finish, saveFails, expectedGroup, unsaved }) => {
+                    const looseTile = tileIds[2]
+                    const capture = jest.spyOn(posthog, 'capture')
+                    enterEditMode()
+
+                    logic.actions.moveTileToSection(looseTile, 'group-plans', { x: 0, y: 0 }, 'drag')
+
+                    expect(pendingSaves).toHaveLength(0)
+                    expect(logic.values.hasUnsavedLayoutChanges).toBe(true)
+                    expect(logic.values.tileGroupSectionLayouts[0].sm).toContainEqual(
+                        expect.objectContaining({ i: String(looseTile), y: 0 })
+                    )
+                    expect(capture).toHaveBeenCalledWith(
+                        'dashboard tile moved between groups',
+                        expect.objectContaining({ method: 'drag', from_group: false, to_group: true })
+                    )
+
+                    if (finish === 'save') {
+                        logic.actions.saveLayoutChanges()
+                        await waitFor(() => expect(pendingSaves).toHaveLength(1))
+                        if (saveFails) {
+                            pendingSaves[0].reject()
+                        }
+                    } else {
+                        logic.actions.setDashboardEditing(null, DashboardEventSource.DashboardHeaderDiscardChanges)
+                    }
+                    await settleSaves()
+
+                    expect(pendingSaves.map((save) => save.tileIds)).toEqual(finish === 'save' ? [[looseTile]] : [])
+                    expect(groupOf(looseTile)).toBe(expectedGroup)
+                    expect(logic.values.hasUnsavedLayoutChanges).toBe(unsaved)
+                }
+            )
+        })
+
+        it('keeps the changes of two bands that report in the same tick', async () => {
+            groupTiles({})
+            await mountDashboard()
+            const [targetBand, otherBand] = logic.values.tileGroupSectionLayouts.map((layouts) => layouts.sm ?? [])
+            const narrow = (layout: Layout): Layout => layout.map((item) => ({ ...item, w: 6 }))
+
+            logic.actions.updateTileGroupSectionLayout({ sm: narrow(targetBand) })
+            logic.actions.updateTileGroupSectionLayout({ sm: narrow(otherBand) })
+
+            expect(logic.values.layouts.sm?.map((item) => item.w)).toEqual([6, 6, 6])
+        })
+
+        describe('loading closed groups', () => {
+            let refreshInsight: jest.SpiedFunction<typeof dashboardUtils.getInsightWithRetry>
+            let fetchRunWidgetsMock: jest.SpiedFunction<typeof widgetFetchUtils.fetchRunWidgets>
+
+            const loads = (shortId: InsightShortId): Parameters<typeof dashboardUtils.getInsightWithRetry>[] =>
+                refreshInsight.mock.calls.filter((call) => call[1].short_id === shortId)
+
+            const toggle = async (): Promise<void> => {
+                await expectLogic(logic, () => logic.actions.toggleTileGroup('target')).toFinishAllListeners()
+            }
+
+            const hangUntilAborted = (signal: AbortSignal | undefined): Promise<never> =>
+                new Promise((_, reject) =>
+                    signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))
+                )
+
+            beforeEach(() => {
+                refreshInsight = jest
+                    .spyOn(dashboardUtils, 'getInsightWithRetry')
+                    .mockImplementation((_teamId, insight) => Promise.resolve(insight))
+                fetchRunWidgetsMock = jest
+                    .spyOn(widgetFetchUtils, 'fetchRunWidgets')
+                    .mockResolvedValue([
+                        { tile_id: WIDGET_TILE.id, widget_type: 'error_tracking_list', result: {}, error: null },
+                    ])
+            })
+
+            afterEach(() => {
+                refreshInsight.mockRestore()
+                fetchRunWidgetsMock.mockRestore()
+            })
+
+            it.each([
+                {
+                    name: 'a manual refresh',
+                    refresh: () => logic.actions.triggerDashboardRefresh(),
+                    mode: 'force_blocking',
+                    dateFrom: undefined,
+                },
+                // The preview has not finished, so settingsForRefresh still holds the saved filters.
+                {
+                    name: 'a filter preview',
+                    refresh: () => logic.actions.setDates('-7d', null),
+                    mode: 'blocking',
+                    dateFrom: '-7d',
+                },
+            ])('loads a closed group on open with the settings of $name', async ({ refresh, mode, dateFrom }) => {
+                groupTiles({ target: { collapsed: true } })
+                await mountDashboard()
+                const visible = dashboards[5].tiles[1].insight!.short_id
+                refreshInsight.mockImplementation((...args) =>
+                    args[1].short_id === visible ? hangUntilAborted(args[5]?.signal) : Promise.resolve(args[1])
+                )
+
+                refresh()
+                await expectLogic(logic).toDispatchActions(['setWaitingTileRefresh'])
+                expect(loads(target)).toHaveLength(0)
+
+                logic.actions.toggleTileGroup('target')
+                await expectLogic(logic).toDispatchActions(['clearWaitingTileRefresh'])
+
+                const [[, , , , refreshMode, , filters]] = loads(target)
+                expect(refreshMode).toBe(mode)
+                expect(filters?.date_from).toBe(dateFrom)
+                expect(logic.values.waitingTileRefresh).toBeNull()
+                await expectLogic(logic, () => logic.actions.cancelDashboardRefresh()).toFinishAllListeners()
+            })
+
+            it('settles a filter preview when every insight sits in a closed group', async () => {
+                groupTiles({ target: { collapsed: true }, other: { collapsed: true } })
+                await mountDashboard()
+
+                await expectLogic(logic, () => logic.actions.setDates('-7d', null)).toFinishAllListeners()
+
+                expect(loads(target)).toHaveLength(0)
+                expect(logic.values.previewedDashboardSettings?.filters.date_from).toBe('-7d')
+                expect(logic.values.breakdownValuesIncomplete).toBe(true)
+            })
+
+            it.each([
+                {
+                    name: 'its first load failed',
+                    holdBack: async (): Promise<void> => {
+                        refreshInsight.mockRejectedValueOnce(new Error('Queries are busy'))
+                        await toggle()
+                        await toggle()
+                    },
+                    expectedLoads: ['blocking', 'blocking'],
+                },
+                {
+                    name: 'the viewer cancelled a refresh',
+                    holdBack: async (): Promise<void> => {
+                        refreshInsight.mockImplementationOnce((...args) => hangUntilAborted(args[5]?.signal))
+                        logic.actions.triggerDashboardRefresh()
+                        await expectLogic(logic).toDispatchActions(['setRefreshStatus'])
+                        await expectLogic(logic, () => logic.actions.cancelDashboardRefresh()).toFinishAllListeners()
+                    },
+                    expectedLoads: ['force_blocking'],
+                },
+            ])('loads a closed group on open after $name', async ({ holdBack, expectedLoads }) => {
+                groupTiles({ target: { collapsed: true } })
+                await mountDashboard()
+                await holdBack()
+                expect(logic.values.waitingTileRefresh?.tileIds).toEqual([dashboards[5].tiles[0].id])
+
+                await toggle()
+
+                expect(loads(target).map((call) => call[4])).toEqual(expectedLoads)
+                expect(logic.values.waitingTileRefresh).toBeNull()
+            })
+
+            it('loads a closed group that a highlight link opens', async () => {
+                groupTiles({ target: { collapsed: true } })
+                await mountDashboard()
+                expect(loads(target)).toHaveLength(0)
+
+                await highlight(target)
+
+                expect(loads(target)).toHaveLength(1)
+                expect(logic.values.waitingTileRefresh).toBeNull()
+            })
+
+            it.each([
+                { name: 'the viewer closes and opens it again', open: () => logic.actions.toggleTileGroup('target') },
+                {
+                    name: 'a highlight link opens it',
+                    open: () => router.actions.push('/dashboard/5', { highlightInsightId: target }),
+                },
+            ])('loads each tile of a group once when $name during its load', async ({ open }) => {
+                groupTiles({ target: { collapsed: true } })
+                dashboards[5].tiles.push({ ...WIDGET_TILE, group_key: 'target' })
+                await mountDashboard()
+                refreshInsight.mockImplementation((...args) => hangUntilAborted(args[5]?.signal))
+                fetchRunWidgetsMock.mockImplementation((_projectId, _dashboardId, _tileIds, options) =>
+                    hangUntilAborted(options?.signal)
+                )
+
+                open()
+                await expectLogic(logic).toDispatchActions(['refreshTileGroup', 'setWidgetRefreshStatuses'])
+                logic.actions.toggleTileGroup('target')
+                logic.actions.toggleTileGroup('target')
+                await expectLogic(logic).toDispatchActions(['refreshTileGroup'])
+
+                expect(logic.values.collapsedTileGroupKeys).toEqual([])
+                expect(loads(target)).toHaveLength(1)
+                expect(fetchRunWidgetsMock).toHaveBeenCalledTimes(1)
+                await expectLogic(logic, () => logic.actions.cancelDashboardRefresh()).toFinishAllListeners()
+            })
+
+            it('loads a widget in a closed group on open', async () => {
+                groupTiles({ target: { collapsed: true } })
+                dashboards[5].tiles.push({ ...WIDGET_TILE, group_key: 'target' })
+                await mountDashboard()
+                expect(fetchRunWidgetsMock).not.toHaveBeenCalled()
+
+                await toggle()
+
+                expect(logic.values.widgetResultsByTileId[WIDGET_TILE.id]?.result).toEqual({})
+                expect(logic.values.widgetRefreshStatus[WIDGET_TILE.id]?.error).toBeNull()
+            })
+
+            it('a filter preview neither aborts nor repeats the widget load of an opened group', async () => {
+                groupTiles({ target: { collapsed: true } })
+                dashboards[5].tiles.push({ ...WIDGET_TILE, group_key: 'target' })
+                await mountDashboard()
+                let finishWidgetLoad: () => void = () => {}
+                fetchRunWidgetsMock.mockImplementationOnce(
+                    (_projectId, _dashboardId, _tileIds, options) =>
+                        new Promise((resolve, reject) => {
+                            options?.signal?.addEventListener('abort', () =>
+                                reject(new DOMException('Aborted', 'AbortError'))
+                            )
+                            finishWidgetLoad = () =>
+                                resolve([
+                                    {
+                                        tile_id: WIDGET_TILE.id,
+                                        widget_type: 'error_tracking_list',
+                                        result: {},
+                                        error: null,
+                                    },
+                                ])
+                        })
+                )
+                logic.actions.toggleTileGroup('target')
+                await expectLogic(logic).toDispatchActions(['setWidgetRefreshStatuses'])
+
+                logic.actions.setDates('-7d', null)
+                await expectLogic(logic).toDispatchActions(['abortAnyRunningQuery', 'setPreviewedDashboardSettings'])
+                finishWidgetLoad()
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(fetchRunWidgetsMock).toHaveBeenCalledTimes(1)
+                expect(logic.values.widgetResultsByTileId[WIDGET_TILE.id]?.result).toEqual({})
+                expect(logic.values.widgetRefreshStatus[WIDGET_TILE.id]?.error).toBeNull()
+            })
+
+            it.each([
+                { name: 'cancels the refresh', stop: () => logic.actions.cancelDashboardRefresh(), loading: false },
+                { name: 'refreshes again', stop: () => logic.actions.triggerDashboardRefresh(), loading: true },
+            ])('stops a widget load without an error when the viewer $name', async ({ stop, loading }) => {
+                groupTiles({})
+                dashboards[5].tiles.push(WIDGET_TILE)
+                await mountDashboard()
+                fetchRunWidgetsMock.mockImplementation((_projectId, _dashboardId, _tileIds, options) =>
+                    hangUntilAborted(options?.signal)
+                )
+                logic.actions.refreshDashboardWidgets({ tileIds: [WIDGET_TILE.id], forceRefresh: true })
+                await expectLogic(logic).toDispatchActions(['setWidgetRefreshStatuses'])
+
+                await expectLogic(logic, stop).toDispatchActions(['stopWidgetRefreshes'])
+
+                expect(logic.values.widgetRefreshStatus[WIDGET_TILE.id]).toMatchObject({ loading, error: null })
+                fetchRunWidgetsMock.mockResolvedValue([])
+                await expectLogic(logic, () => logic.actions.cancelDashboardRefresh()).toFinishAllListeners()
+            })
+
+            it('adds an opened group to the "X out of Y" count of a running refresh', async () => {
+                groupTiles({ target: { collapsed: true } })
+                await mountDashboard()
+                const visible = dashboards[5].tiles[1].insight!.short_id
+                refreshInsight.mockImplementation((...args) =>
+                    args[1].short_id === visible ? hangUntilAborted(args[5]?.signal) : Promise.resolve(args[1])
+                )
+                logic.actions.triggerDashboardRefresh()
+                await expectLogic(logic).toDispatchActions(['setWaitingTileRefresh'])
+                expect(logic.values.refreshMetrics).toEqual({ completed: 0, total: 1 })
+
+                logic.actions.toggleTileGroup('target')
+                await expectLogic(logic).toDispatchActions(['clearWaitingTileRefresh'])
+
+                expect(logic.values.refreshMetrics).toEqual({ completed: 1, total: 2 })
+                await expectLogic(logic, () => logic.actions.cancelDashboardRefresh()).toFinishAllListeners()
+            })
+
+            it('keeps a group waiting when the viewer cancels its load, and loads it on the next open', async () => {
+                groupTiles({ target: { collapsed: true } })
+                await mountDashboard()
+                refreshInsight.mockImplementationOnce((...args) => hangUntilAborted(args[5]?.signal))
+                logic.actions.toggleTileGroup('target')
+                await expectLogic(logic).toDispatchActions(['setRefreshStatus'])
+
+                await expectLogic(logic, () => logic.actions.cancelDashboardRefresh()).toFinishAllListeners()
+                expect(logic.values.waitingTileRefresh?.tileIds).toEqual([dashboards[5].tiles[0].id])
+                await toggle()
+                await toggle()
+
+                expect(loads(target)).toHaveLength(2)
+                expect(logic.values.waitingTileRefresh).toBeNull()
+            })
+
+            it.each([
+                { name: 'insight tiles', widgetsPerTile: 0 },
+                { name: 'insight and widget tiles', widgetsPerTile: 1 },
+            ])(
+                'runs at most four loads at once when the viewer opens several groups during a refresh of $name',
+                async ({ widgetsPerTile }) => {
+                    const groupKeys = ['a', 'b', 'c']
+                    const insightTile = dashboards[5].tiles[1]
+                    const tile = (id: number, groupKey?: string): DashboardTile => ({
+                        ...insightTile,
+                        id,
+                        group_key: groupKey,
+                        insight: { ...insightTile.insight!, id, short_id: `${id}` as InsightShortId },
+                    })
+                    const widgetTile = (id: number, groupKey?: string): DashboardTile => ({
+                        ...WIDGET_TILE,
+                        id,
+                        group_key: groupKey,
+                    })
+                    const tilesIn = (groupKey: string | undefined, offset: number): DashboardTile[] =>
+                        Array.from({ length: 4 }, (_, index) => [
+                            tile(offset + index, groupKey),
+                            ...(widgetsPerTile ? [widgetTile(offset + 50 + index, groupKey)] : []),
+                        ]).flat()
+                    dashboards[5] = {
+                        ...dashboards[5],
+                        customization: {
+                            groups: Object.fromEntries(groupKeys.map((groupKey) => [groupKey, { collapsed: true }])),
+                        },
+                        tiles: [
+                            ...tilesIn(undefined, 1000),
+                            ...groupKeys.flatMap((groupKey, index) => tilesIn(groupKey, 2000 + index * 100)),
+                        ],
+                    }
+                    await mountDashboard()
+
+                    let running = 0
+                    let maxRunning = 0
+                    const finishers: (() => void)[] = []
+                    const track = <T>(signal: AbortSignal | undefined, value: T): Promise<T> =>
+                        new Promise((resolve, reject) => {
+                            let settled = false
+                            const settleWith = (finish: () => void) => (): void => {
+                                if (!settled) {
+                                    settled = true
+                                    running--
+                                    finish()
+                                }
+                            }
+                            running++
+                            maxRunning = Math.max(maxRunning, running)
+                            signal?.addEventListener(
+                                'abort',
+                                settleWith(() => reject(new DOMException('Aborted', 'AbortError')))
+                            )
+                            finishers.push(settleWith(() => resolve(value)))
+                        })
+                    refreshInsight.mockImplementation((...args) => track(args[5]?.signal, args[1]))
+                    fetchRunWidgetsMock.mockImplementation((_projectId, _dashboardId, tileIds, options) =>
+                        track(
+                            options?.signal,
+                            tileIds.map((tileId) => ({
+                                tile_id: tileId,
+                                widget_type: 'error_tracking_list' as const,
+                                result: {},
+                                error: null,
+                            }))
+                        )
+                    )
+                    refreshInsight.mockClear()
+
+                    logic.actions.triggerDashboardRefresh()
+                    groupKeys.forEach((groupKey) => logic.actions.toggleTileGroup(groupKey))
+                    for (let round = 0; round < 100 && (finishers.length > 0 || round < 2); round++) {
+                        finishers.shift()?.()
+                        await new Promise((resolve) => setTimeout(resolve, 0))
+                    }
+                    await expectLogic(logic).toFinishAllListeners()
+
+                    expect(maxRunning).toBe(4)
+                    expect(new Set(refreshInsight.mock.calls.map((call) => call[1].short_id)).size).toBe(16)
+                    expect(logic.values.waitingTileRefresh).toBeNull()
+                }
+            )
+
+            it('keeps an opened group waiting when the viewer cancels a filter preview that took over its load', async () => {
+                groupTiles({ target: { collapsed: true } })
+                await mountDashboard()
+                refreshInsight.mockImplementation((...args) => hangUntilAborted(args[5]?.signal))
+                logic.actions.toggleTileGroup('target')
+                await expectLogic(logic).toDispatchActions(['setRefreshStatus'])
+                logic.actions.setDates('-7d', null)
+                await expectLogic(logic).toDispatchActions(['abortAnyRunningQuery'])
+
+                await expectLogic(logic, () => logic.actions.cancelDashboardRefresh()).toFinishAllListeners()
+                expect(logic.values.waitingTileRefresh?.tileIds).toEqual([dashboards[5].tiles[0].id])
+                refreshInsight.mockImplementation((_teamId, insight) => Promise.resolve(insight))
+                await toggle()
+                await toggle()
+
+                expect(loads(target)).toHaveLength(3)
+                expect(logic.values.waitingTileRefresh).toBeNull()
+            })
+
+            it('drops a group load that a filter change supersedes while every group is closed', async () => {
+                groupTiles({ target: { collapsed: true }, other: { collapsed: true } })
+                await mountDashboard()
+                let finishOldLoad: () => void = () => {}
+                refreshInsight.mockImplementationOnce(
+                    (...args) =>
+                        new Promise((resolve, reject) => {
+                            args[5]?.signal?.addEventListener('abort', () =>
+                                reject(new DOMException('Aborted', 'AbortError'))
+                            )
+                            finishOldLoad = () => resolve({ ...args[1], result: ['old filters'] })
+                        })
+                )
+                logic.actions.toggleTileGroup('target')
+                await expectLogic(logic).toDispatchActions(['setRefreshStatus'])
+                logic.actions.toggleTileGroup('target')
+
+                logic.actions.setDates('-7d', null)
+                finishOldLoad()
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(logic.values.insightTiles[0].insight?.result).not.toEqual(['old filters'])
+                expect(logic.values.waitingTileRefresh).toMatchObject({
+                    tileIds: expect.arrayContaining([dashboards[5].tiles[0].id]),
+                    settings: { filters: { date_from: '-7d' } },
+                })
+                await toggle()
+                expect(loads(target).map((call) => call[6]?.date_from)).toEqual([undefined, '-7d'])
+            })
+
+            it('loads an open group again after an update refresh aborts its forced load', async () => {
+                groupTiles({ target: { collapsed: true } })
+                dashboards[5].tiles[0].insight!.cache_target_age = now().add(1, 'hour').toISOString()
+                dashboards[5].tiles[1].insight!.cache_target_age = now().subtract(1, 'hour').toISOString()
+                await mountDashboard()
+                await expectLogic(logic, () => logic.actions.triggerDashboardRefresh()).toFinishAllListeners()
+                refreshInsight.mockImplementationOnce((...args) => hangUntilAborted(args[5]?.signal))
+                logic.actions.toggleTileGroup('target')
+                await expectLogic(logic).toDispatchActions(['refreshTileGroup', 'setRefreshStatus'])
+
+                await expectLogic(logic, () =>
+                    logic.actions.refreshDashboardItems({ action: DashboardLoadAction.Update })
+                )
+                    .toDispatchActions(['refreshTileGroup'])
+                    .toFinishAllListeners()
+
+                expect(loads(target).map((call) => call[4])).toEqual(['force_blocking', 'force_blocking'])
+                expect(logic.values.waitingTileRefresh).toBeNull()
+            })
+
+            it.each([
+                { cancelPoint: 'after the group dispatch', expectedLoads: 2 },
+                { cancelPoint: 'before the group dispatch', expectedLoads: 1 },
+            ])(
+                'keeps an open group queued during an update refresh, and a cancel $cancelPoint stops its reload',
+                async ({ cancelPoint, expectedLoads }) => {
+                    groupTiles({ target: { collapsed: true } })
+                    dashboards[5].tiles[0].insight!.cache_target_age = now().add(1, 'hour').toISOString()
+                    dashboards[5].tiles[1].insight!.cache_target_age = now().subtract(1, 'hour').toISOString()
+                    await mountDashboard()
+                    await expectLogic(logic, () => logic.actions.triggerDashboardRefresh()).toFinishAllListeners()
+                    refreshInsight.mockImplementation((...args) => hangUntilAborted(args[5]?.signal))
+                    logic.actions.toggleTileGroup('target')
+                    await expectLogic(logic).toDispatchActions(['refreshTileGroup', 'setRefreshStatus'])
+
+                    if (cancelPoint === 'after the group dispatch') {
+                        await expectLogic(logic, () =>
+                            logic.actions.refreshDashboardItems({ action: DashboardLoadAction.Update })
+                        ).toDispatchActions(['refreshTileGroup'])
+                        expect(logic.values.refreshStatus[target]).toMatchObject({ queued: true })
+
+                        await expectLogic(logic, () => logic.actions.cancelDashboardRefresh()).toFinishAllListeners()
+                    } else {
+                        await expectLogic(logic, () =>
+                            logic.actions.refreshDashboardItems({ action: DashboardLoadAction.Update })
+                        ).toDispatchActions(['abortAnyRunningQuery'])
+
+                        await expectLogic(logic, () => logic.actions.cancelDashboardRefresh())
+                            .delay(5)
+                            .toFinishAllListeners()
+                            .toNotHaveDispatchedActions(['refreshTileGroup'])
+                        expect(Object.values(logic.values.refreshStatus).filter((status) => status.queued)).toEqual([])
+                    }
+
+                    expect(loads(target)).toHaveLength(expectedLoads)
+                    expect(logic.values.waitingTileRefresh?.tileIds).toContain(dashboards[5].tiles[0].id)
+                }
+            )
+
+            it('an update refresh with nothing stale keeps a manual refresh running', async () => {
+                groupTiles({ target: { collapsed: true } })
+                dashboards[5].tiles[1].insight!.cache_target_age = now().add(1, 'hour').toISOString()
+                await mountDashboard()
+                const visible = dashboards[5].tiles[1].insight!.short_id
+                let finishForcedLoad: () => void = () => {}
+                refreshInsight.mockImplementation(
+                    (...args) =>
+                        new Promise((resolve, reject) => {
+                            args[5]?.signal?.addEventListener('abort', () =>
+                                reject(new DOMException('Aborted', 'AbortError'))
+                            )
+                            finishForcedLoad = () => resolve({ ...args[1], result: ['forced'] })
+                        })
+                )
+                logic.actions.triggerDashboardRefresh()
+                await expectLogic(logic).toDispatchActions(['setRefreshStatus'])
+
+                await expectLogic(logic, () => {
+                    logic.actions.refreshDashboardItems({ action: DashboardLoadAction.Update })
+                    finishForcedLoad()
+                })
+                    .toFinishAllListeners()
+                    .toNotHaveDispatchedActions(['abortQuery'])
+
+                expect(loads(visible).map((call) => call[4])).toEqual(['force_blocking'])
+                expect(logic.values.insightTiles[1].insight?.result).toEqual(['forced'])
+            })
+
+            it.each([
+                { group: 'closed', collapsed: true, counts: false },
+                { group: 'open', collapsed: false, counts: true },
+            ])(
+                'counts a stale tile in a $group group toward refreshing the dashboard: $counts',
+                async ({ collapsed, counts }) => {
+                    const blockRefresh = !counts
+                    const forcesRefresh = counts
+                    groupTiles({ target: { collapsed } })
+                    await mountDashboard()
+                    const [staleTile, freshTile] = logic.values.insightTiles
+                    await expectLogic(logic, () => {
+                        for (const [tile, lastRefresh] of [
+                            [staleTile, now().subtract(1, 'day')],
+                            [freshTile, now()],
+                        ] as const) {
+                            dashboardsModel.actions.updateDashboardInsight(
+                                { ...tile.insight!, last_refresh: lastRefresh.toISOString() },
+                                undefined,
+                                5
+                            )
+                        }
+                        logic.actions.updateDashboardLastRefresh(now())
+                    }).toFinishAllListeners()
+
+                    expect(logic.values.blockRefresh).toBe(blockRefresh)
+                    logic.actions.forceRefreshIfStale()
+                    await Promise.resolve()
+                    if (forcesRefresh) {
+                        await expectLogic(logic).toDispatchActions(['triggerDashboardRefresh'])
+                    } else {
+                        await expectLogic(logic).toNotHaveDispatchedActions(['triggerDashboardRefresh'])
+                    }
+                }
+            )
         })
     })
 
@@ -1059,6 +2000,28 @@ describe('dashboardLogic', () => {
             }
         })
 
+        it('refreshes a large builtin dashboard on a variable change, since it has no Preview button', async () => {
+            const autoPreviewLimit = jest.replaceProperty(dashboardUtils, 'AUTO_PREVIEW_TILE_LIMIT', 0)
+            logic.unmount()
+            logic = dashboardLogic({ id: 5, dashboard: dashboards[5], placement: DashboardPlacement.Builtin })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            try {
+                await expectLogic(logic, () => {
+                    logic.actions.setMetricVariables([{ name: 'env', source: 'custom', current: { values: ['a'] } }])
+                }).toDispatchActions([
+                    logic.actionCreators.refreshDashboardItems({
+                        action: RefreshDashboardItemsAction.Preview,
+                        forceRefresh: false,
+                        previewUnsavedFilters: true,
+                    }),
+                ])
+            } finally {
+                autoPreviewLimit.restore()
+            }
+        })
+
         it('keeps combined auto-preview filters after a page reload, then clears and saves them', async () => {
             const sevenTileDashboard = {
                 ...dashboards[5],
@@ -1180,7 +2143,6 @@ describe('dashboardLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.setInterval('week')
                 logic.actions.setFilterTestAccounts(true)
-                logic.actions.setMetricFilters([{ key: 'service.name', op: 'eq', value: 'checkout' }])
             }).toFinishAllListeners()
 
             expect(logic.values.dashboardSettingsDraft?.filters).toEqual(
@@ -1190,7 +2152,6 @@ describe('dashboardLogic', () => {
                     breakdown_filter: { breakdown: '$browser', breakdown_type: 'event' },
                     interval: 'week',
                     filterTestAccounts: true,
-                    metricFilters: [{ key: 'service.name', op: 'eq', value: 'checkout' }],
                 })
             )
             expect(logic.values.urlFilters).toEqual(
@@ -1200,7 +2161,6 @@ describe('dashboardLogic', () => {
                     breakdown_filter: { breakdown: '$browser', breakdown_type: 'event' },
                     interval: 'week',
                     filterTestAccounts: true,
-                    metricFilters: [{ key: 'service.name', op: 'eq', value: 'checkout' }],
                 })
             )
 
@@ -1342,7 +2302,7 @@ describe('dashboardLogic', () => {
             const payload = (api.update as jest.Mock).mock.calls.at(-1)[1]
             expect(payload).not.toHaveProperty('tiles')
             expect(logic.values.dashboard!.tiles[0].layouts?.sm?.x).toBe(modifiedLayouts.sm[0].x)
-            expect(logic.values.dashboardLayouts[firstTile.id]).toEqual(firstTile.layouts)
+            expect(logic.values.savedTilePlacements[firstTile.id]?.layouts).toEqual(firstTile.layouts)
             expect(logic.values.hasUnsavedLayoutChanges).toBe(true)
         })
 
@@ -1638,6 +2598,46 @@ describe('dashboardLogic', () => {
             expect(successToast).toHaveBeenCalledWith('Dashboard saved')
         })
 
+        it.each([
+            {
+                name: 'a failed layout save',
+                act: async (): Promise<void> => {
+                    const firstTile = logic.values.dashboard!.tiles[0]
+                    logic.actions.stageLayouts({
+                        sm: logic.values.layouts.sm?.map((layout) =>
+                            layout.i === String(firstTile.id) ? { ...layout, x: layout.x + 1 } : layout
+                        ),
+                    })
+                    jest.spyOn(api, 'update').mockRejectedValueOnce(new Error('network down'))
+                    logic.actions.saveLayoutChanges()
+                },
+                unsaved: true,
+            },
+            {
+                name: 'a duplicated tile',
+                act: async (): Promise<void> => {
+                    const sourceTile = logic.values.dashboard!.tiles[0]
+                    jest.spyOn(api, 'update').mockResolvedValueOnce({
+                        ...logic.values.dashboard!,
+                        tiles: [
+                            ...logic.values.dashboard!.tiles,
+                            { ...sourceTile, id: 999, layouts: { sm: { x: 0, y: 99, w: 6, h: 5 } } },
+                        ],
+                    })
+                    logic.actions.duplicateTile(sourceTile)
+                },
+                unsaved: false,
+            },
+        ])('counts $name as saved only when the server has it', async ({ act, unsaved }) => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, act)
+                .toFinishAllListeners()
+                .toNotHaveDispatchedActions([dashboardsModel.actionTypes.updateDashboardSuccess])
+
+            expect(logic.values.hasUnsavedLayoutChanges).toBe(unsaved)
+        })
+
         it('does not show a success toast when exiting edit mode with no changes', async () => {
             await expectLogic(logic).toFinishAllListeners()
 
@@ -1657,7 +2657,7 @@ describe('dashboardLogic', () => {
             expect(initialDashboard).not.toBeNull()
 
             const firstTile = initialDashboard!.tiles[0]
-            const originalLayouts = logic.values.dashboardLayouts[firstTile.id]
+            const originalLayouts = logic.values.savedTilePlacements[firstTile.id]?.layouts
 
             expect(originalLayouts).not.toBeUndefined()
 
@@ -1961,6 +2961,134 @@ describe('dashboardLogic', () => {
         })
 
         describe('hasUnsavedLayoutChanges selector', () => {
+            it('keeps dashboard data stable while a gesture stages a layout', async () => {
+                await expectLogic(logic).toFinishAllListeners()
+
+                const dashboard = logic.values.dashboard
+                const firstTile = dashboard!.tiles[0]
+                const layouts = logic.values.layouts
+                const changedLayouts = {
+                    ...layouts,
+                    sm: layouts.sm?.map((layout) =>
+                        layout.i === String(firstTile.id) ? { ...layout, x: layout.x + 1 } : layout
+                    ),
+                }
+
+                logic.actions.stageLayouts(changedLayouts)
+
+                expect(logic.values.dashboard).toBe(dashboard)
+                expect(logic.values.dashboard!.tiles[0]).toBe(firstTile)
+                expect(logic.values.layouts).toEqual(changedLayouts)
+                expect(logic.values.hasUnsavedLayoutChanges).toBe(true)
+
+                await expectLogic(logic, () => {
+                    logic.actions.setDashboardEditing(null, DashboardEventSource.DashboardHeaderDiscardChanges)
+                }).toFinishAllListeners()
+
+                expect(logic.values.draftLayouts).toBeNull()
+                expect(logic.values.hasUnsavedLayoutChanges).toBe(false)
+            })
+
+            it('saves staged geometry', async () => {
+                await expectLogic(logic).toFinishAllListeners()
+
+                const firstTile = logic.values.dashboard!.tiles[0]
+                const layouts = logic.values.layouts
+                const changedLayouts = {
+                    ...layouts,
+                    sm: layouts.sm?.map((layout) =>
+                        layout.i === String(firstTile.id) ? { ...layout, x: layout.x + 1 } : layout
+                    ),
+                }
+                logic.actions.stageLayouts(changedLayouts)
+
+                await expectLogic(logic, () => {
+                    logic.actions.saveLayoutChanges()
+                }).toFinishAllListeners()
+
+                expect(api.update).toHaveBeenCalledWith(
+                    `api/projects/${MOCK_TEAM_ID}/dashboards/5`,
+                    expect.objectContaining({
+                        tiles: expect.arrayContaining([
+                            expect.objectContaining({
+                                id: firstTile.id,
+                                layouts: { sm: changedLayouts.sm?.find((layout) => layout.i === String(firstTile.id)) },
+                            }),
+                        ]),
+                    })
+                )
+            })
+
+            it('keeps staged tile order and height when the scene becomes narrow', async () => {
+                await expectLogic(logic).toFinishAllListeners()
+
+                const layouts = logic.values.layouts
+                const first = layouts.sm![0]
+                const lastY = Math.max(...layouts.sm!.map((layout) => layout.y + layout.h))
+                const changedHeight = first.h + 2
+                logic.actions.stageLayouts({
+                    ...layouts,
+                    sm: layouts.sm?.map((layout) =>
+                        layout.i === first.i ? { ...layout, y: lastY, h: changedHeight } : layout
+                    ),
+                })
+                logic.actions.updateContainerWidth(500, 1)
+
+                expect(logic.values.layout?.at(-1)?.i).toBe(first.i)
+                expect(logic.values.layout?.at(-1)?.h).toBe(changedHeight)
+            })
+
+            it('keeps edits made while a layout save is in flight', async () => {
+                await expectLogic(logic).toFinishAllListeners()
+
+                const dashboard = logic.values.dashboard!
+                const firstTile = dashboard.tiles[0]
+                const layouts = logic.values.layouts
+                const firstDraft = {
+                    ...layouts,
+                    sm: layouts.sm?.map((layout) =>
+                        layout.i === String(firstTile.id) ? { ...layout, x: layout.x + 1 } : layout
+                    ),
+                }
+                const secondDraft = {
+                    ...layouts,
+                    sm: layouts.sm?.map((layout) =>
+                        layout.i === String(firstTile.id) ? { ...layout, x: layout.x + 2 } : layout
+                    ),
+                }
+                logic.actions.stageLayouts(firstDraft)
+
+                let finishSave: (dashboard: DashboardType) => void = () => {}
+                ;(api.update as jest.Mock).mockImplementationOnce(
+                    () =>
+                        new Promise((resolve) => {
+                            finishSave = resolve
+                        })
+                )
+                const save = expectLogic(logic, () => {
+                    logic.actions.saveLayoutChanges()
+                }).toFinishAllListeners()
+
+                logic.actions.stageLayouts(secondDraft)
+                finishSave({
+                    ...dashboard,
+                    tiles: dashboard.tiles.map((tile) =>
+                        tile.id === firstTile.id
+                            ? {
+                                  ...tile,
+                                  layouts: {
+                                      sm: firstDraft.sm!.find((layout) => layout.i === String(tile.id))!,
+                                  } as DashboardTile['layouts'],
+                              }
+                            : tile
+                    ),
+                })
+                await save
+
+                expect(logic.values.draftLayouts).toEqual(secondDraft)
+                expect(logic.values.hasUnsavedLayoutChanges).toBe(true)
+            })
+
             const moveFirstTile = (): void => {
                 const firstTile = logic.values.dashboard!.tiles[0]
                 const currentLayouts = logic.values.layouts
@@ -2279,7 +3407,7 @@ describe('dashboardLogic', () => {
                 await expectLogic(logic).toFinishAllListeners()
                 moveFirstTile()
                 const draftTile = logic.values.dashboard!.tiles[0]
-                const savedLayouts = logic.values.dashboardLayouts[draftTile.id]
+                const savedLayouts = logic.values.savedTilePlacements[draftTile.id]?.layouts
                 const addedTile = { ...WIDGET_TILE, id: 999 }
                 const updatedDashboard = {
                     ...logic.values.dashboard!,
@@ -2289,8 +3417,8 @@ describe('dashboardLogic', () => {
                 dashboardsModel.actions.updateDashboardSuccess(updatedDashboard)
 
                 expect(logic.values.dashboard!.tiles[0].layouts).toEqual(draftTile.layouts)
-                expect(logic.values.dashboardLayouts[draftTile.id]).toEqual(savedLayouts)
-                expect(logic.values.dashboardLayouts[addedTile.id]).toEqual(addedTile.layouts)
+                expect(logic.values.savedTilePlacements[draftTile.id]?.layouts).toEqual(savedLayouts)
+                expect(logic.values.savedTilePlacements[addedTile.id]?.layouts).toEqual(addedTile.layouts)
                 expect(logic.values.hasUnsavedLayoutChanges).toBe(true)
             })
 
@@ -2315,7 +3443,7 @@ describe('dashboardLogic', () => {
                     .toFinishAllListeners()
 
                 expect(logic.values.dashboard!.tiles[1].layouts).toEqual(serverLayouts)
-                expect(logic.values.dashboardLayouts[firstTile.id]).toEqual(serverLayouts)
+                expect(logic.values.savedTilePlacements[firstTile.id]?.layouts).toEqual(serverLayouts)
                 expect(logic.values.hasUnsavedLayoutChanges).toBe(false)
             })
 
@@ -2347,9 +3475,29 @@ describe('dashboardLogic', () => {
 
                 expect(logic.values.dashboard!.tiles[0].layouts).toEqual(draftTile.layouts)
                 expect(logic.values.dashboard!.tiles[1].layouts).toEqual(serverLayouts)
-                expect(logic.values.dashboardLayouts[unchangedTile.id]).toEqual(serverLayouts)
+                expect(logic.values.savedTilePlacements[unchangedTile.id]?.layouts).toEqual(serverLayouts)
                 expect(logic.values.hasUnsavedLayoutChanges).toBe(true)
             })
+
+            it.each([{ layoutsPersisted: false }, { layoutsPersisted: true }])(
+                'keeps an unsaved group move when an update echoes the saved group (layouts persisted: $layoutsPersisted)',
+                async ({ layoutsPersisted }) => {
+                    await expectLogic(logic).toFinishAllListeners()
+                    const draftTile = logic.values.dashboard!.tiles[0]
+                    logic.actions.setTileProperty(draftTile.id, { group_key: 'plans' })
+                    const echo = {
+                        ...logic.values.dashboard!,
+                        tiles: logic.values.dashboard!.tiles.map((tile) =>
+                            tile.id === draftTile.id ? { ...tile, group_key: null } : tile
+                        ),
+                    }
+
+                    dashboardsModel.actions.updateDashboardSuccess(echo, { layoutsPersisted })
+
+                    expect(logic.values.dashboard!.tiles[0].group_key).toBe('plans')
+                    expect(logic.values.hasUnsavedLayoutChanges).toBe(true)
+                }
+            )
 
             it('uses the returned saved layout as the snapshot when the same tile has a draft', async () => {
                 await expectLogic(logic).toFinishAllListeners()
@@ -2372,7 +3520,7 @@ describe('dashboardLogic', () => {
                     .toFinishAllListeners()
 
                 expect(logic.values.dashboard!.tiles[0].layouts).toEqual(draftTile.layouts)
-                expect(logic.values.dashboardLayouts[draftTile.id]).toEqual(savedLayouts)
+                expect(logic.values.savedTilePlacements[draftTile.id]?.layouts).toEqual(savedLayouts)
                 expect(logic.values.hasUnsavedLayoutChanges).toBe(true)
             })
 
@@ -2388,7 +3536,7 @@ describe('dashboardLogic', () => {
                     .toDispatchActions(['applyDashboardUpdate'])
                     .toFinishAllListeners()
 
-                expect(logic.values.dashboardLayouts[draftTile.id]).toEqual(draftTile.layouts)
+                expect(logic.values.savedTilePlacements[draftTile.id]?.layouts).toEqual(draftTile.layouts)
                 expect(logic.values.hasUnsavedLayoutChanges).toBe(false)
             })
 
@@ -4755,10 +5903,6 @@ describe('dashboardLogic', () => {
         }
 
         beforeEach(() => {
-            featureFlagLogic.mount()
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DASHBOARD_WIDGETS], {
-                [FEATURE_FLAGS.DASHBOARD_WIDGETS]: true,
-            })
             fetchRunWidgetsMock = jest.spyOn(widgetFetchUtils, 'fetchRunWidgets').mockResolvedValue([
                 {
                     tile_id: WIDGET_TILE.id,
@@ -4846,21 +5990,6 @@ describe('dashboardLogic', () => {
             expect(fetchRunWidgetsMock).not.toHaveBeenCalled()
         })
 
-        it('enables widget tiles on public dashboards when tile metadata is present', async () => {
-            logic = dashboardLogic({
-                id: 5,
-                placement: DashboardPlacement.Public,
-                dashboard: {
-                    ...dashboards[5],
-                    tiles: [...dashboards[5].tiles, WIDGET_TILE],
-                } as DashboardType,
-            })
-            logic.mount()
-            await expectLogic(logic).toFinishAllListeners()
-
-            expect(logic.values.dashboardWidgetsEnabled).toBe(true)
-        })
-
         it('refreshDashboardWidgets sets friendly error when run_widgets fails', async () => {
             logic = dashboardLogic({ id: 5 })
             logic.mount()
@@ -4934,20 +6063,42 @@ describe('dashboardLogic', () => {
         })
 
         it('duplicateTile refreshes newly duplicated widget tiles', async () => {
+            const savedSm = { x: 0, y: 0, w: 4, h: 5 }
+            const shiftedSm = { ...savedSm, y: 15 }
+            dashboards[5].tiles[0] = {
+                ...dashboards[5].tiles[0],
+                layouts: { sm: savedSm } as DashboardTile['layouts'],
+            }
+            const duplicatedSm = { i: '99', x: 0, y: 10, w: 6, h: 5 }
             const duplicatedTile = {
                 id: 99,
                 widget: { id: '3', widget_type: 'error_tracking_list', config: { limit: 5 } },
-                layouts: { sm: { i: '99', x: 0, y: 10, w: 6, h: 5 } },
+                layouts: { sm: duplicatedSm },
                 color: null,
             } as unknown as DashboardTile
 
             jest.spyOn(api, 'update').mockResolvedValueOnce(
-                dashboardResult(5, [...dashboards[5].tiles, WIDGET_TILE, duplicatedTile])
+                dashboardResult(5, [
+                    { ...dashboards[5].tiles[0], layouts: { sm: shiftedSm } as DashboardTile['layouts'] },
+                    ...dashboards[5].tiles.slice(1),
+                    WIDGET_TILE,
+                    duplicatedTile,
+                ])
             )
 
             logic = dashboardLogic({ id: 5 })
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
+
+            const firstTile = logic.values.dashboard!.tiles[0]
+            const layouts = logic.values.layouts
+            const changedX = (layouts.sm?.find((layout) => layout.i === String(firstTile.id))?.x ?? 0) + 1
+            logic.actions.stageLayouts({
+                ...layouts,
+                sm: layouts.sm?.map((layout) =>
+                    layout.i === String(firstTile.id) ? { ...layout, x: changedX } : layout
+                ),
+            })
 
             fetchRunWidgetsMock.mockResolvedValueOnce([
                 {
@@ -4974,6 +6125,39 @@ describe('dashboardLogic', () => {
                 results: [{ id: 'issue-1' }],
                 hasMore: false,
             })
+            expect(logic.values.layouts.sm?.find((layout) => layout.i === String(firstTile.id))).toMatchObject(
+                shiftedSm
+            )
+            expect(logic.values.layouts.sm?.find((layout) => layout.i === String(duplicatedTile.id))).toMatchObject(
+                duplicatedSm
+            )
+
+            logic.actions.stageLayouts({
+                ...logic.values.layouts,
+                sm: logic.values.layouts.sm?.map((layout) =>
+                    layout.i === String(firstTile.id) ? { ...layout, x: changedX } : layout
+                ),
+            })
+            expect(logic.values.layouts.sm?.find((layout) => layout.i === String(firstTile.id))?.x).toBe(changedX)
+
+            await expectLogic(logic, () => {
+                logic.actions.saveLayoutChanges()
+            }).toFinishAllListeners()
+            expect(api.update).toHaveBeenCalledWith(
+                `api/projects/${MOCK_TEAM_ID}/dashboards/5`,
+                expect.objectContaining({
+                    tiles: expect.arrayContaining([
+                        expect.objectContaining({
+                            id: firstTile.id,
+                            layouts: { sm: expect.objectContaining({ ...shiftedSm, x: changedX }) },
+                        }),
+                        expect.objectContaining({
+                            id: duplicatedTile.id,
+                            layouts: { sm: expect.objectContaining(duplicatedSm) },
+                        }),
+                    ]),
+                })
+            )
         })
 
         it('surfaces a failed tile duplicate instead of resolving it as a success', async () => {
@@ -5048,7 +6232,7 @@ describe('dashboardLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             const firstTile = logic.values.dashboard!.tiles[0]
-            const savedLayouts = logic.values.dashboardLayouts[firstTile.id]
+            const savedLayouts = logic.values.savedTilePlacements[firstTile.id]?.layouts
             logic.actions.updateLayouts({
                 ...logic.values.layouts,
                 sm: logic.values.layouts.sm?.map((layout) =>
@@ -5066,8 +6250,8 @@ describe('dashboardLogic', () => {
             }).toFinishAllListeners()
 
             expect(logic.values.dashboard!.tiles[0].layouts).toEqual(draftLayouts)
-            expect(logic.values.dashboardLayouts[firstTile.id]).toEqual(savedLayouts)
-            expect(logic.values.dashboardLayouts[addedTile.id]).toEqual(addedTile.layouts)
+            expect(logic.values.savedTilePlacements[firstTile.id]?.layouts).toEqual(savedLayouts)
+            expect(logic.values.savedTilePlacements[addedTile.id]?.layouts).toEqual(addedTile.layouts)
             expect(logic.values.hasUnsavedLayoutChanges).toBe(true)
         })
 

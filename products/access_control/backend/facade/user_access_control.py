@@ -882,7 +882,7 @@ class UserAccessControl:
 
     @cached_property
     def _is_project_admin(self) -> bool:
-        return self._team is not None and self.get_user_access_level(self._team) == "admin"
+        return self._team is not None and self.get_user_access_level(self._team, explicit=True) == "admin"
 
     def has_object_access_limit(self, resource: APIScopeObject, resource_id: str) -> bool:
         if resource != "dashboard" or self.is_organization_admin or not self.access_controls_supported:

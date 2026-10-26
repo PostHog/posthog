@@ -70,12 +70,12 @@
         "scope": "project"
     },
     "aiObservabilityDataset": {
-        "template": "/ai-evals/datasets/{id}",
+        "template": "/ai-evals/evaluations/offline/datasets/{id}",
         "params": ["id"],
         "scope": "project"
     },
     "aiObservabilityDatasets": {
-        "template": "/ai-evals/datasets",
+        "template": "/ai-evals/evaluations/offline/experiments?tab=datasets",
         "params": [],
         "scope": "project"
     },
@@ -425,7 +425,7 @@
         "scope": "project"
     },
     "cohortsStaffTools": {
-        "template": "/feature_flags/staff/cohorts",
+        "template": "/feature-flags/staff/cohorts",
         "params": [],
         "scope": "global"
     },
@@ -587,6 +587,11 @@
     "dataCatalogMetric": {
         "template": "/data-catalog/metrics/{name}",
         "params": ["name"],
+        "scope": "project"
+    },
+    "dataCatalogNewMetric": {
+        "template": "/data-catalog/new-metric",
+        "params": [],
         "scope": "project"
     },
     "dataManagementHistory": {
@@ -845,27 +850,27 @@
         "scope": "project"
     },
     "featureFlag": {
-        "template": "/feature_flags/{id}",
+        "template": "/feature-flags/{id}",
         "params": ["id"],
         "scope": "project"
     },
     "featureFlagNew": {
-        "template": "/feature_flags/new",
+        "template": "/feature-flags/new",
         "params": [],
         "scope": "project"
     },
     "featureFlagTemplates": {
-        "template": "/feature_flags/templates",
+        "template": "/feature-flags/templates",
         "params": [],
         "scope": "project"
     },
     "featureFlags": {
-        "template": "/feature_flags",
+        "template": "/feature-flags",
         "params": [],
         "scope": "project"
     },
     "featureFlagsStaffTools": {
-        "template": "/feature_flags/staff",
+        "template": "/feature-flags/staff",
         "params": [],
         "scope": "global"
     },
@@ -1309,6 +1314,11 @@
         "params": [],
         "scope": "project"
     },
+    "onboardingWelcome": {
+        "template": "/welcome",
+        "params": [],
+        "scope": "project"
+    },
     "organizationBilling": {
         "template": "/organization/billing",
         "params": [],
@@ -1599,6 +1609,11 @@
         "params": [],
         "scope": "global"
     },
+    "simpleOnboarding": {
+        "template": "/onboarding/simple",
+        "params": [],
+        "scope": "project"
+    },
     "site": {
         "template": "/site/{url}",
         "params": ["url"],
@@ -1831,6 +1846,11 @@
     },
     "unsubscribe": {
         "template": "/unsubscribe",
+        "params": [],
+        "scope": "project"
+    },
+    "uptimeMonitoring": {
+        "template": "/uptime-monitoring",
         "params": [],
         "scope": "project"
     },

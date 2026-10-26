@@ -89,7 +89,7 @@ class ZuoraSource(ResumableSource[ZuoraSourceConfig, ZuoraResumeConfig]):
 A Zuora admin can create an OAuth client under Settings > Administration > Manage Users (the client inherits the user's permissions). Pick the environment that matches your tenant — credentials only work against their own environment.""",
             iconPath="/static/services/zuora.png",
             docsUrl="https://posthog.com/docs/cdp/sources/zuora",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

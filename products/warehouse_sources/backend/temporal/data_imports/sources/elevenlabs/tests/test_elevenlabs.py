@@ -343,22 +343,32 @@ class TestUnpaginatedEndpoints:
         assert result.params("page_size") == [None]
 
 
+_INVALID_KEY_BODY = {"detail": {"status": "invalid_api_key", "message": "Invalid API key"}}
+_MISSING_PERMISSION_BODY = {
+    "detail": {"status": "missing_permissions", "message": "The API key you used is missing the permission user_read."}
+}
+
+
 class TestValidateCredentials:
     @parameterized.expand(
         [
-            ("valid", 200, None, True),
-            ("bad_key", 401, None, False),
+            ("valid", 200, None, None, True),
+            ("bad_key", 401, None, _INVALID_KEY_BODY, False),
             # A 400 (the status users actually hit) is a deterministic client error, not transient.
-            ("bad_request_at_create", 400, None, False),
-            ("missing_scope_at_create", 403, None, True),
-            ("missing_scope_at_schema", 403, "history", False),
+            ("bad_request_at_create", 400, None, None, False),
+            ("missing_scope_at_create", 403, None, None, True),
+            ("missing_scope_at_schema", 403, "history", None, False),
+            ("missing_permission_401_at_create", 401, None, _MISSING_PERMISSION_BODY, True),
+            ("missing_permission_401_at_schema", 401, "history", _MISSING_PERMISSION_BODY, False),
             # An unverified key (transient 429/5xx) must not be saved as valid at create time.
-            ("rate_limited_at_create", 429, None, False),
-            ("server_error_at_create", 500, None, False),
+            ("rate_limited_at_create", 429, None, None, False),
+            ("server_error_at_create", 500, None, None, False),
         ]
     )
-    def test_status_mapping(self, _name: str, status: int, schema_name: str | None, expected_ok: bool) -> None:
-        answer = ScriptedResponse(status=status)
+    def test_status_mapping(
+        self, _name: str, status: int, schema_name: str | None, body: Any, expected_ok: bool
+    ) -> None:
+        answer = ScriptedResponse(status=status, json=body)
         with scripted_network(always(answer) if status in (429, 500) else [answer]) as network:
             ok, _msg = validate_credentials("k", schema_name)
         assert ok is expected_ok
@@ -380,11 +390,12 @@ class TestValidateCredentials:
             assert validate_credentials("k", schema_name) == (True, None)
         assert [request.url for request in network.requests_log] == [expected_url]
 
-    def test_network_error_is_not_valid(self) -> None:
-        with scripted_network(always(requests.ConnectionError("boom"))):
+    @parameterized.expand([("unauthorized", 401), ("bad_request", 400)])
+    def test_rejected_key_message_is_actionable(self, _name: str, status: int) -> None:
+        with scripted_network([ScriptedResponse(status=status)]):
             ok, msg = validate_credentials("k")
         assert ok is False
-        assert msg is not None
+        assert "Create a new key in your ElevenLabs account settings" in (msg or "")
 
     def test_session_does_not_follow_redirects(self) -> None:
         # requests keeps the custom xi-api-key header across a cross-origin 3xx; following one would

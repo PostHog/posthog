@@ -3,30 +3,34 @@ import type React from 'react'
 
 import { IconWarning } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
-import { type MetricChange } from '@posthog/quill-charts'
+import { type ChartTheme, type MetricChange } from '@posthog/quill-charts'
 
 import { AnalyticsMetricCard } from 'lib/components/AnalyticsMetricCard/AnalyticsMetricCard'
 import { PreAggregatedBadge } from 'lib/components/PreAggregatedBadge'
+import { dayjs } from 'lib/dayjs'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { range } from 'lib/utils/arrays'
+import { cn } from 'lib/utils/css-classes'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { WebAnalyticsPreComputeStrategy } from '~/queries/schema/schema-general'
 
 import { formatItem, NO_BASELINE_CHANGE_SENTINEL, OverviewItem, SamplingNotice, SamplingRate } from './OverviewGrid'
 
-export interface OverviewMetricCardItem extends Omit<OverviewItem, 'value' | 'previous'> {
-    value: number | undefined
-    previous?: number
-}
+export type OverviewMetricCardItem = OverviewItem & { sparkline?: { data: number[]; labels: string[] } }
 
 interface OverviewMetricCardGridProps {
     items: OverviewMetricCardItem[]
     layout?: 'grid' | 'contents'
     loading: boolean
     numSkeletons: number
+    emptyMessage?: React.ReactNode
+    className?: string
+    sparklineTheme?: ChartTheme
     samplingRate?: SamplingRate
     preComputeStrategy?: WebAnalyticsPreComputeStrategy
+    preComputedAt?: string
+    preComputeStale?: boolean
     onDisablePrecompute?: () => void
     labelFromKey: (key: string) => React.ReactNode
 }
@@ -36,17 +40,23 @@ export function OverviewMetricCardGrid({
     layout = 'grid',
     loading,
     numSkeletons,
+    emptyMessage,
+    className,
+    sparklineTheme,
     samplingRate,
     preComputeStrategy,
+    preComputedAt,
+    preComputeStale,
     onDisablePrecompute,
     labelFromKey,
 }: OverviewMetricCardGridProps): JSX.Element {
     return (
         <>
             <div
-                className={
-                    layout === 'contents' ? 'contents' : 'grid gap-2 grid-cols-[repeat(auto-fit,minmax(10rem,1fr))]'
-                }
+                className={cn(
+                    layout === 'contents' ? 'contents' : 'grid gap-2 grid-cols-[repeat(auto-fit,minmax(10rem,1fr))]',
+                    className
+                )}
             >
                 {loading
                     ? range(numSkeletons).map((i) => <AnalyticsMetricCard key={i} title={null} loading />)
@@ -54,8 +64,12 @@ export function OverviewMetricCardGrid({
                           <MetricCardCell
                               key={item.key}
                               item={item}
+                              sparklineTheme={sparklineTheme}
+                              emptyMessage={emptyMessage}
                               stretch={layout === 'contents'}
                               preComputeStrategy={preComputeStrategy}
+                              preComputedAt={preComputedAt}
+                              preComputeStale={preComputeStale}
                               onDisablePrecompute={onDisablePrecompute}
                               labelFromKey={labelFromKey}
                           />
@@ -68,21 +82,31 @@ export function OverviewMetricCardGrid({
 
 function MetricCardCell({
     item,
+    sparklineTheme,
+    emptyMessage,
     stretch,
     preComputeStrategy,
+    preComputedAt,
+    preComputeStale,
     onDisablePrecompute,
     labelFromKey,
 }: {
     item: OverviewMetricCardItem
+    sparklineTheme?: ChartTheme
+    emptyMessage?: React.ReactNode
     stretch?: boolean
     preComputeStrategy?: WebAnalyticsPreComputeStrategy
+    preComputedAt?: string
+    preComputeStale?: boolean
     onDisablePrecompute?: () => void
     labelFromKey: (key: string) => React.ReactNode
 }): JSX.Element {
     const { baseCurrency } = useValues(teamLogic)
 
-    const format = (n: number): string => formatItem(n, item.kind, { currency: baseCurrency })
+    const format = (n: number | string): string => formatItem(n, item.kind, { currency: baseCurrency })
     const subtitle = item.previous != null ? `vs. ${format(item.previous)} prior` : item.caption
+    // MetricCard needs a numeric value to render text metrics through its formatter.
+    const numericValue = typeof item.value === 'number' ? item.value : typeof item.value === 'string' ? 0 : undefined
 
     return (
         <AnalyticsMetricCard
@@ -90,14 +114,30 @@ function MetricCardCell({
             title={<MetricCardTitle label={labelFromKey(item.key)} item={item} />}
             onClick={item.onClick}
             selected={item.selected}
-            value={item.value}
+            value={numericValue}
+            emptyMessage={emptyMessage}
             change={metricChange(item)}
             goodDirection={item.isIncreaseBad ? 'down' : 'up'}
-            formatValue={format}
-            subtitle={subtitle}
+            formatValue={(value) =>
+                formatItem(typeof item.value === 'number' ? value : item.value, item.kind, { currency: baseCurrency })
+            }
+            subtitle={item.sparkline && sparklineTheme ? undefined : subtitle}
+            restingSubtitle={subtitle}
+            data={sparklineTheme ? item.sparkline?.data : undefined}
+            labels={item.sparkline?.labels}
+            theme={sparklineTheme}
+            formatLabel={(label) => dayjs(label).format('MMM D')}
+            sparklineHeight={48}
+            sparklineClassName="mt-3"
             adornment={
                 preComputeStrategy === WebAnalyticsPreComputeStrategy.LazyPrecompute ? (
-                    <PreAggregatedBadge variant="precomputed" position="bottom-right" onDisable={onDisablePrecompute} />
+                    <PreAggregatedBadge
+                        variant="precomputed"
+                        position="bottom-right"
+                        onDisable={onDisablePrecompute}
+                        computedAt={preComputedAt}
+                        stale={preComputeStale}
+                    />
                 ) : preComputeStrategy === WebAnalyticsPreComputeStrategy.PreAggregated ? (
                     <PreAggregatedBadge variant="preagg" position="bottom-right" />
                 ) : undefined

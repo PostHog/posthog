@@ -151,6 +151,26 @@ class TestHogFlowDraftPublish(APIBaseTest):
         assert flow.name == "Renamed live"
         assert response.json()["draft"] is not None
 
+    def test_web_content_edit_with_stage_draft_applies_tags_live_and_advances_the_live_stamp(self):
+        flow_id = self._create_active_flow()
+        live_stamp_before = HogFlow.objects.get(pk=flow_id).updated_at
+
+        with time_machine.travel(live_stamp_before + timedelta(minutes=1)):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+                {
+                    "actions": [_trigger_action(), _webhook_action(url="https://changed.example.com")],
+                    "tags": ["growth"],
+                    "stage_draft": True,
+                },
+            )
+        assert response.status_code == 200, response.json()
+
+        flow = HogFlow.objects.get(pk=flow_id)
+        assert flow.draft is not None
+        assert response.json()["tags"] == ["growth"]
+        assert flow.updated_at > live_stamp_before
+
     def test_web_stage_draft_saves_incomplete_content_leniently(self):
         # The builder auto-saves mid-edit, so a staged draft must accept a step whose required
         # inputs aren't filled in yet; strict validation would 400 every auto-save while the

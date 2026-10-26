@@ -1,12 +1,18 @@
+import time
 import signal
 import typing
 import asyncio
+import datetime
 import threading
 import contextvars
 from collections.abc import Callable
 
 from structlog import get_logger
 from temporalio import activity
+
+# The SDK cancels activities still running this long after the shutdown started, unless the worker
+# was built with another timeout.
+DEFAULT_GRACEFUL_SHUTDOWN_TIMEOUT = datetime.timedelta(minutes=5)
 
 LOGGER = get_logger(__name__)
 
@@ -67,6 +73,7 @@ class ShutdownMonitor:
         self._is_shutdown_event = asyncio.Event()
         self._is_shutdown_event_sync = threading.Event()
         self._stop_event_sync = threading.Event()
+        self._shutdown_at: float | None = None
 
     def __str__(self) -> str:
         """Return a string representation of this `ShutdownMonitor`."""
@@ -108,6 +115,7 @@ class ShutdownMonitor:
                 # Not running in an activity context.
                 return
 
+            self._record_shutdown_time()
             self.logger.info("Shutdown detected.")
             # Run the callbacks before the event is set: a caller that sees the event can raise and
             # leave the monitor at once, and a callback that ran after that would never run at all.
@@ -154,6 +162,7 @@ class ShutdownMonitor:
                 # it's a wrapper on `threading.Event.wait`, which does return a `bool`
                 # indicating the reason. So we must also check if the event was set.
                 if activity.is_worker_shutdown():
+                    self._record_shutdown_time()
                     self.logger.info("Shutdown detected.")
                     self._is_shutdown_event_sync.set()
                     break
@@ -203,6 +212,20 @@ class ShutdownMonitor:
     def is_worker_shutdown(self) -> bool:
         """Check if worker is shutting down."""
         return self._is_shutdown_event.is_set() or self._is_shutdown_event_sync.is_set()
+
+    def _record_shutdown_time(self) -> None:
+        if self._shutdown_at is None:
+            self._shutdown_at = time.monotonic()
+
+    def seconds_since_shutdown(self) -> float | None:
+        """How long ago the worker started to shut down, or None while it still runs.
+
+        A caller created after the shutdown cannot learn the moment from a callback, because the
+        callbacks have already run by then. It reads the elapsed time here instead.
+        """
+        if self._shutdown_at is None:
+            return None
+        return time.monotonic() - self._shutdown_at
 
     def raise_if_is_worker_shutdown(self):
         """Raise an exception if worker is shutting down."""

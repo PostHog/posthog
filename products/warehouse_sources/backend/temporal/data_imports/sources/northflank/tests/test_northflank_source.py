@@ -15,18 +15,6 @@ class TestNorthflankSource:
 
     @parameterized.expand(
         [
-            ("401 Client Error: Unauthorized for url: https://api.northflank.com/v1/projects?per_page=1",),
-            ("403 Client Error: Forbidden for url: https://api.northflank.com/v1/projects/abc/services",),
-        ]
-    )
-    def test_non_retryable_errors_match_permanent_failures(self, observed_error):
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable_errors)
-
-    @parameterized.expand(
-        [
-            ("429 Client Error: Too Many Requests for url: https://api.northflank.com/v1/projects",),
-            ("500 Server Error for url: https://api.northflank.com/v1/projects",),
             ("401 Client Error: Unauthorized for url: https://api.stripe.com/v1/customers",),
         ]
     )

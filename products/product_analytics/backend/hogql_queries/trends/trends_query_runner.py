@@ -92,7 +92,10 @@ from products.product_analytics.backend.hogql_queries.trends.trend_validation_ru
     RequirePropertyForPropertyMath,
     ValidateDataWarehouseBreakdown,
 )
-from products.product_analytics.backend.hogql_queries.trends.trends_actors_query_builder import TrendsActorsQueryBuilder
+from products.product_analytics.backend.hogql_queries.trends.trends_actors_query_builder import (
+    ActorsDateWindow,
+    TrendsActorsQueryBuilder,
+)
 from products.product_analytics.backend.hogql_queries.trends.trends_query_builder import TrendsQueryBuilder
 from products.warehouse_sources.backend.facade.hogql import get_view_or_table_by_name
 
@@ -171,8 +174,6 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
     def single_flight_variant(self) -> str:
         # A caller can pass its own execution time, which does not reach the cache key.
         variant = super().single_flight_variant()
-        if self.ch_user != ClickHouseUser.DEFAULT:
-            variant = f"{variant}:ch_user={self.ch_user.value}"
         if self.hogql_settings is not None:
             variant = f"{variant}:max_execution_time={self.hogql_settings.max_execution_time}"
         return variant
@@ -253,6 +254,13 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             query = query_builder.build_actors_query()
 
         return query
+
+    def to_actors_date_window(
+        self, time_frame: Optional[str], series_index: int, compare_value: Optional[Compare] = None
+    ) -> ActorsDateWindow:
+        return self._get_trends_actors_query_builder(
+            time_frame=time_frame, series_index=series_index, compare_value=compare_value
+        ).actors_date_window()
 
     def _get_trends_actors_query_builder(
         self,
@@ -358,8 +366,8 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                     workload=self.workload,
                     ch_user=self.ch_user,
                     settings=self.hogql_settings,
+                    modifiers=self.modifiers,
                     # timings=timings,
-                    # modifiers=modifiers,
                 )
 
                 breakdown_values = [
@@ -405,6 +413,35 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         )
 
     def _calculate(self):
+        if self.query.marketingAnalyticsCostFallback is not None:
+            from products.marketing_analytics.backend.facade.queries import (
+                resolve_marketing_cost_trend,  # noqa: PLC0415 - keeps marketing adapters off the startup path
+            )
+
+            date_ranges = [self.query_date_range]
+            if self.query.compareFilter and self.query.compareFilter.compare:
+                date_ranges.append(self.query_previous_date_range)
+            resolved_query = resolve_marketing_cost_trend(
+                query=self.query,
+                team=self.team,
+                date_ranges=date_ranges,
+                get_database=lambda: self.shared_database,
+            )
+            runner = TrendsQueryRunner(
+                query=resolved_query,
+                team=self.team,
+                timings=self.timings,
+                modifiers=self.modifiers,
+                limit_context=self.limit_context,
+                user=self.user,
+                workload=self.workload,
+                hogql_settings=self.hogql_settings,
+            )
+            # The live fallback reads other warehouse tables, so it needs a database built with its own modifiers.
+            if runner.modifiers == self.modifiers:
+                runner._shared_database = self._shared_database
+            return runner.calculate()
+
         queries = self.to_queries()
 
         response_hogql = get_response_hogql(

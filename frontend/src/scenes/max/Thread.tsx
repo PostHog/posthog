@@ -1,95 +1,64 @@
 import clsx from 'clsx'
-import { BindLogic, useActions, useValues } from 'kea'
-import posthog from 'posthog-js'
-import React, { useCallback, useLayoutEffect, useMemo, useState } from 'react'
+import { BindLogic, useValues } from 'kea'
+import React, { useCallback, useMemo, useState } from 'react'
 
+import { IconChevronRight, IconWarning, IconWrench } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonDivider, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 import {
-    IconChevronRight,
-    IconCollapse,
-    IconCopy,
-    IconExpand,
-    IconEye,
-    IconHide,
-    IconNotebook,
-    IconRefresh,
-    IconThumbsDown,
-    IconThumbsDownFilled,
-    IconThumbsUp,
-    IconThumbsUpFilled,
-    IconWarning,
-    IconWrench,
-    IconX,
-} from '@posthog/icons'
-import {
-    LemonBanner,
-    LemonButton,
-    LemonButtonPropsBase,
-    LemonCheckbox,
-    LemonDialog,
-    LemonDivider,
-    LemonInput,
-    LemonSkeleton,
-    Tooltip,
-} from '@posthog/lemon-ui'
+    ChatBubble,
+    ChatBubbleContent,
+    ChatMarker,
+    ChatMarkerContent,
+    ChatMessage,
+    ChatMessageContent,
+    Skeleton,
+} from '@posthog/quill'
 
-import {
-    InsightBreakdownSummary,
-    PropertiesSummary,
-    SeriesSummary,
-} from 'lib/components/Cards/InsightCard/InsightDetails'
-import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { NotFound } from 'lib/components/NotFound'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { cn } from 'lib/utils/css-classes'
-import { pluralize } from 'lib/utils/strings'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
-import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
-import { copyToClipboard } from '~/lib/utils/copyToClipboard'
-import { stripMarkdown } from '~/lib/utils/markdown'
-import { Query } from '~/queries/Query/Query'
 import {
-    AssistantForm,
     AssistantMessage,
     AssistantToolCallMessage,
     TaskExecutionStatus as ExecutionStatus,
     FailureMessage,
     MultiQuestionForm,
-    MultiVisualizationMessage,
-    PlanningStep,
-    PlanningStepStatus,
 } from '~/queries/schema/schema-assistant-messages'
-import { DataVisualizationNode, InsightVizNode } from '~/queries/schema/schema-general'
-import { isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
-import { PendingApproval, RecordingUniversalFilters, Region } from '~/types'
+import { PendingApproval, RecordingUniversalFilters } from '~/types'
 
+import { RecordingsWidget } from 'products/posthog_ai/frontend/api/dataWidgets'
 import {
     AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM,
     getThinkingMessageFromResponse,
-    messageRatingsLogic,
     runStreamLogic,
     useAttachedContext,
     useForegroundStream,
+    useThreadSkin,
 } from 'products/posthog_ai/frontend/api/logics'
 import {
     AssistantFailureMessage,
     ContextUsageChip,
     MarkdownMessage,
     MessageTemplate,
+    QuillAssistantBubble,
+    QuillAssistantMarkdown,
+    MessageReveal,
+    NotQuill,
+    QuillHumanBubble,
+    QuillThreadSkin,
     ReasoningAnswer,
-    RecordingsWidget,
     ThreadView,
     TurnTrailerActions,
     type TurnTrailer,
-    useThreadSkin,
+    useQuillThread,
 } from 'products/posthog_ai/frontend/api/primitives'
 import { LogEntry } from 'products/posthog_ai/frontend/lib/parse-logs'
 import { isPiTaskRuntime } from 'products/posthog_ai/frontend/types/taskTypes'
 import { ReplayVisionScanWidget } from 'products/replay_vision/frontend/posthogAi/ReplayVisionScanWidget'
 
-import { LangGraphActivity, ShimmeringContent } from './components/Activity'
+import { LangGraphActivity } from './components/Activity'
 import { FeedbackDisplay } from './components/FeedbackDisplay'
 import { ContextSummary } from './Context'
 import { DangerousOperationApprovalCard } from './DangerousOperationApprovalCard'
@@ -98,15 +67,20 @@ import { EnhancedToolCall, ToolRegistration, getToolDefinitionFromToolCall } fro
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { SIDE_PANEL_PANEL_ID, ThreadMessage, maxLogic } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
+import { AssistantMessageForm } from './messages/AssistantMessageForm'
 import { MultiQuestionFormRecap } from './messages/MultiQuestionForm'
+import { MultiVisualizationAnswer } from './messages/MultiVisualizationAnswer'
 import { NotebookArtifactAnswer } from './messages/NotebookArtifactAnswer'
+import { PlanningAnswer } from './messages/PlanningAnswer'
+import { RetriableFailureActions } from './messages/RetriableFailureActions'
+import { SuccessActions } from './messages/SuccessActions'
 import { isRenderableUIPayloadTool } from './messages/UIPayloadAnswer'
 import { VisualizationArtifact } from './messages/VisualizationArtifact'
 import { MAX_SLASH_COMMANDS, SlashCommandName } from './slash-commands'
 import { TicketPrompt } from './TicketPrompt'
 import { getTicketPromptData, getTicketSummaryData, isTicketConfirmationMessage } from './ticketUtils'
 import { ToolCallWidgetDef, getToolCallDescriptionAndWidgetDef } from './toolCallDisplay'
-import { TraceIdProvider, useTraceId } from './TraceIdContext'
+import { TraceIdProvider } from './TraceIdContext'
 import { useFeedback } from './useFeedback'
 import {
     isArtifactMessage,
@@ -118,7 +92,6 @@ import {
     isMultiVisualizationMessage,
     isNotebookArtifactContent,
     isVisualizationArtifactContent,
-    visualizationTypeToQuery,
 } from './utils'
 
 // Helper function to check if a message is an error or failure
@@ -126,10 +99,31 @@ function isErrorMessage(message: ThreadMessage): boolean {
     return message.type !== 'human' && (message.status === 'error' || message.type === 'ai/failure')
 }
 
-export function Thread({ className }: { className?: string }): JSX.Element | null {
+/** A short assistant-side note (a feedback nudge, a retry notice): a lemon bubble, or quill ghost prose. */
+function AssistantNote({
+    children,
+    boxClassName,
+}: {
+    children: React.ReactNode
+    /** Lemon only: extra classes on the bubble's box. */
+    boxClassName?: string
+}): JSX.Element {
+    const quill = useQuillThread()
+    if (quill) {
+        return <QuillAssistantBubble>{children}</QuillAssistantBubble>
+    }
+    return (
+        <MessageTemplate type="ai" boxClassName={boxClassName}>
+            {children}
+        </MessageTemplate>
+    )
+}
+
+export function Thread({ compact = false }: { compact?: boolean }): JSX.Element | null {
     const { conversation, sandboxConversationKey, isConvertedConversation } = useValues(maxThreadLogic)
     const { panelId } = useValues(maxLogic)
     const threadSkin = useThreadSkin()
+    const quill = threadSkin === 'quill'
     const isSandboxRuntime = conversation?.agent_runtime === 'sandbox'
     const isPiTask = isPiTaskRuntime(conversation?.task?.runtime)
 
@@ -145,9 +139,12 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
         active: panelId === SIDE_PANEL_PANEL_ID && rendersSandboxThread,
     })
 
+    // The quill thread spaces its rows like PostHog Desktop, with the 2.0 thread's side gutter; the lemon
+    // thread keeps its tighter rhythm.
     const containerClassName = cn(
-        '@container/thread flex flex-col items-stretch w-full max-w-180 self-center gap-1.5 grow mx-auto',
-        className
+        '@container/thread flex flex-col items-stretch w-full max-w-180 self-center grow mx-auto',
+        quill ? 'gap-4 px-4' : 'gap-1.5',
+        quill ? (compact ? 'py-1' : 'py-3') : compact ? 'p-1' : 'p-3'
     )
 
     // Feedback identity: always the task, matching `$ai_session_id` on other surfaces.
@@ -191,22 +188,39 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
         if (!sandboxConversationKey) {
             return null
         }
-        return (
-            <div className={containerClassName}>
+        const converted = (
+            <>
                 <LegacyThread showTrailers={false} />
-                <LemonDivider dashed label="Message history was converted to the new format" className="my-3" />
+                {quill ? (
+                    <ChatMarker variant="separator" className="before:min-w-4 after:min-w-4">
+                        <ChatMarkerContent className="max-w-[80%] shrink">
+                            Message history was converted to the new format
+                        </ChatMarkerContent>
+                    </ChatMarker>
+                ) : (
+                    <LemonDivider dashed label="Message history was converted to the new format" className="my-3" />
+                )}
                 <BindLogic
                     logic={runStreamLogic}
                     props={{ streamKey: sandboxConversationKey, conversationId: sandboxConversationKey }}
                 >
                     <ThreadView virtualized={false} renderTurnTrailer={renderTurnTrailer} skin={threadSkin} />
                 </BindLogic>
-            </div>
+            </>
+        )
+        return quill ? (
+            <QuillThreadSkin className={containerClassName}>{converted}</QuillThreadSkin>
+        ) : (
+            <div className={containerClassName}>{converted}</div>
         )
     }
 
     // Pure LangGraph conversation.
-    return (
+    return quill ? (
+        <QuillThreadSkin className={containerClassName}>
+            <LegacyThread showTrailers />
+        </QuillThreadSkin>
+    ) : (
         <div className={containerClassName}>
             <LegacyThread showTrailers />
         </div>
@@ -237,6 +251,8 @@ function LegacyThread({ showTrailers }: { showTrailers: boolean }): JSX.Element 
         [threadGrouped, streamingActive, canCreateTicket]
     )
 
+    const lastErrorIndex = useMemo(() => threadGrouped.findLastIndex(isErrorMessage), [threadGrouped])
+
     return (conversationLoading || messagesLoading) && threadGrouped.length === 0 ? (
         <>
             <MessageGroupSkeleton groupType="human" />
@@ -265,11 +281,8 @@ function LegacyThread({ showTrailers }: { showTrailers: boolean }): JSX.Element 
                     }
 
                     // Hide old failed attempts - only show the most recent error
-                    if (isErrorMessage(message)) {
-                        const hasNewerError = threadGrouped.slice(index + 1).some(isErrorMessage)
-                        if (hasNewerError) {
-                            return null
-                        }
+                    if (isErrorMessage(message) && index < lastErrorIndex) {
+                        return null
                     }
 
                     // Hide duplicate human messages from retry pattern: Human → AI Error → Human (duplicate)
@@ -340,38 +353,44 @@ function LegacyThread({ showTrailers }: { showTrailers: boolean }): JSX.Element 
                                 (ticketSummaryData.discarded ? (
                                     <p className="m-0 ml-1 mt-1 text-xs text-muted italic">Ticket creation discarded</p>
                                 ) : (
-                                    <TicketPrompt
-                                        conversationId={conversationId}
-                                        traceId={traceId}
-                                        summary={ticketSummaryData.summary}
-                                    />
+                                    <NotQuill>
+                                        <TicketPrompt
+                                            conversationId={conversationId}
+                                            traceId={traceId}
+                                            summary={ticketSummaryData.summary}
+                                        />
+                                    </NotQuill>
                                 ))}
                         </React.Fragment>
                     )
                 })
             })()}
             {showTrailers && conversationId && isPromptVisible && !streamingActive && (
-                <MessageTemplate type="ai">
+                <AssistantNote>
                     <div className="flex flex-col gap-2">
                         <span className="text-xs text-muted">How is PostHog AI doing? (optional)</span>
                         <FeedbackDisplay conversationId={conversationId} />
                     </div>
-                </MessageTemplate>
+                </AssistantNote>
             )}
             {showTrailers && conversationId && isDetailedFeedbackVisible && !streamingActive && (
-                <FeedbackPrompt conversationId={conversationId} traceId={traceId} />
+                <NotQuill>
+                    <FeedbackPrompt conversationId={conversationId} traceId={traceId} />
+                </NotQuill>
             )}
             {showTrailers && conversationId && isThankYouVisible && !streamingActive && (
-                <MessageTemplate type="ai">
+                <AssistantNote>
                     <p className="m-0 text-sm text-secondary">Thanks for your feedback and using PostHog AI!</p>
-                </MessageTemplate>
+                </AssistantNote>
             )}
             {showTrailers && conversationId && ticketPromptData.needed && (
-                <TicketPrompt
-                    conversationId={conversationId}
-                    traceId={traceId}
-                    initialText={ticketPromptData.initialText}
-                />
+                <NotQuill>
+                    <TicketPrompt
+                        conversationId={conversationId}
+                        traceId={traceId}
+                        initialText={ticketPromptData.initialText}
+                    />
+                </NotQuill>
             )}
         </>
     ) : conversationId ? (
@@ -480,6 +499,7 @@ function MessageContainer({
     children: React.ReactNode
     className?: string
 }): JSX.Element {
+    const quill = useQuillThread()
     return (
         <div
             className={cn(
@@ -489,7 +509,8 @@ function MessageContainer({
                 // keystroke latency grow with thread length. `auto 100px` is only the pre-first-render
                 // estimate; after a message renders once, the browser remembers its real size.
                 '[content-visibility:auto] [contain-intrinsic-size:auto_100px]',
-                groupType === 'human' ? 'flex-row-reverse ml-4 @md/thread:ml-10 ' : 'mr-4 @md/thread:mr-10',
+                // The quill bubbles align themselves and cap their own width, so the row stays full width.
+                !quill && (groupType === 'human' ? 'flex-row-reverse ml-4 @md/thread:ml-10 ' : 'mr-4 @md/thread:mr-10'),
                 className
             )}
         >
@@ -526,6 +547,7 @@ const Message = React.memo(function Message({
         webSearchResultsByToolUseId,
     } = useValues(maxThreadLogic)
     const { conversationId } = useValues(maxLogic)
+    const quill = useQuillThread()
 
     const groupType = message.type === 'human' ? 'human' : 'ai'
     const key = message.id || 'no-id'
@@ -551,16 +573,17 @@ const Message = React.memo(function Message({
             return null
         }
         return matchingApprovals.map((approval) => (
-            <DangerousOperationApprovalCard
-                key={`approval-${approval.proposal_id}`}
-                operation={{
-                    status: 'pending_approval',
-                    proposalId: approval.proposal_id,
-                    toolName: approval.tool_name,
-                    preview: approval.preview,
-                    payload: approval.payload as Record<string, any>,
-                }}
-            />
+            <NotQuill key={`approval-${approval.proposal_id}`}>
+                <DangerousOperationApprovalCard
+                    operation={{
+                        status: 'pending_approval',
+                        proposalId: approval.proposal_id,
+                        toolName: approval.tool_name,
+                        preview: approval.preview,
+                        payload: approval.payload as Record<string, any>,
+                    }}
+                />
+            </NotQuill>
         ))
     }, [conversationId, message, pendingApprovalsData, resolvedApprovalStatuses])
 
@@ -588,6 +611,52 @@ const Message = React.memo(function Message({
                         const maybeCommand = MAX_SLASH_COMMANDS.find(
                             (cmd) => cmd.name === message.content.split(' ', 1)[0]
                         )
+                        const contextSummary = message.ui_context && Object.keys(message.ui_context).length > 0 && (
+                            <ContextSummary
+                                insights={message.ui_context.insights}
+                                dashboards={message.ui_context.dashboards}
+                                events={message.ui_context.events}
+                                actions={message.ui_context.actions}
+                                notebooks={message.ui_context.notebooks}
+                                useCurrentPageContext={false}
+                            />
+                        )
+                        const humanContent = maybeCommand ? (
+                            <div className="flex items-center">
+                                <Tooltip
+                                    title={
+                                        <>
+                                            This is a PostHog AI command:
+                                            <br />
+                                            <i>{maybeCommand.description}</i>
+                                        </>
+                                    }
+                                >
+                                    <span className="text-base mr-1.5">{maybeCommand.icon}</span>
+                                </Tooltip>
+                                <span className="font-mono">{message.content}</span>
+                            </div>
+                        ) : (
+                            <MarkdownMessage content={message.content || '*No text.*'} id={message.id || 'no-text'} />
+                        )
+
+                        if (quill) {
+                            return (
+                                <MessageReveal key={key}>
+                                    <QuillHumanBubble
+                                        copyText={message.content || undefined}
+                                        before={contextSummary || undefined}
+                                        className={cn(
+                                            'w-full',
+                                            message.status === 'error' &&
+                                                '[&_[data-slot=bubble-content]]:border-destructive-foreground'
+                                        )}
+                                    >
+                                        {humanContent}
+                                    </QuillHumanBubble>
+                                </MessageReveal>
+                            )
+                        }
 
                         return (
                             <MessageTemplate
@@ -595,37 +664,8 @@ const Message = React.memo(function Message({
                                 type="human"
                                 boxClassName={message.status === 'error' ? 'border-danger' : undefined}
                             >
-                                {message.ui_context && Object.keys(message.ui_context).length > 0 && (
-                                    <ContextSummary
-                                        insights={message.ui_context.insights}
-                                        dashboards={message.ui_context.dashboards}
-                                        events={message.ui_context.events}
-                                        actions={message.ui_context.actions}
-                                        notebooks={message.ui_context.notebooks}
-                                        useCurrentPageContext={false}
-                                    />
-                                )}
-                                {maybeCommand ? (
-                                    <div className="flex items-center">
-                                        <Tooltip
-                                            title={
-                                                <>
-                                                    This is a PostHog AI command:
-                                                    <br />
-                                                    <i>{maybeCommand.description}</i>
-                                                </>
-                                            }
-                                        >
-                                            <span className="text-base mr-1.5">{maybeCommand.icon}</span>
-                                        </Tooltip>
-                                        <span className="font-mono">{message.content}</span>
-                                    </div>
-                                ) : (
-                                    <MarkdownMessage
-                                        content={message.content || '*No text.*'}
-                                        id={message.id || 'no-text'}
-                                    />
-                                )}
+                                {contextSummary}
+                                {humanContent}
                             </MessageTemplate>
                         )
                     } else if (isAssistantMessage(message)) {
@@ -806,23 +846,26 @@ const Message = React.memo(function Message({
                     } else if (isArtifactMessage(message)) {
                         if (isVisualizationArtifactContent(message.content)) {
                             return (
-                                <VisualizationArtifact
-                                    key={key}
-                                    message={message}
-                                    content={message.content}
-                                    status={message.status}
-                                    isEditingInsight={editInsightToolRegistered}
-                                    activeSceneId={activeSceneId}
-                                />
+                                // A chart card needs more room from the text around it than the thread's row gap gives.
+                                <div key={key} className={quill ? 'my-2' : undefined}>
+                                    <VisualizationArtifact
+                                        message={message}
+                                        content={message.content}
+                                        status={message.status}
+                                        isEditingInsight={editInsightToolRegistered}
+                                        activeSceneId={activeSceneId}
+                                    />
+                                </div>
                             )
                         } else if (isNotebookArtifactContent(message.content)) {
                             return (
-                                <NotebookArtifactAnswer
-                                    key={key}
-                                    content={message.content}
-                                    status={message.status}
-                                    artifactId={message.artifact_id}
-                                />
+                                <NotQuill key={key} className="w-full">
+                                    <NotebookArtifactAnswer
+                                        content={message.content}
+                                        status={message.status}
+                                        artifactId={message.artifact_id}
+                                    />
+                                </NotQuill>
                             )
                         }
                         return null
@@ -832,7 +875,7 @@ const Message = React.memo(function Message({
                     return null // We currently skip other types of messages
                 })()}
                 {isLastInGroup && message.status === 'error' && (
-                    <MessageTemplate type="ai" boxClassName="border-warning">
+                    <AssistantNote boxClassName="border-warning">
                         <div className="flex items-center gap-1.5">
                             <IconWarning className="text-xl text-warning" />
                             <i>
@@ -840,7 +883,7 @@ const Message = React.memo(function Message({
                                 failed.
                             </i>
                         </div>
-                    </MessageTemplate>
+                    </AssistantNote>
                 )}
             </div>
         </MessageContainer>
@@ -854,6 +897,17 @@ function MessageGroupSkeleton({
     groupType: 'human' | 'ai'
     className?: string
 }): JSX.Element {
+    const quill = useQuillThread()
+    if (quill) {
+        return (
+            <MessageContainer className={clsx('items-center', className)} groupType={groupType}>
+                <Skeleton
+                    className={cn('h-10 w-3/5 rounded-lg', groupType === 'human' ? 'ml-auto' : 'mr-auto')}
+                    aria-label="Loading messages"
+                />
+            </MessageContainer>
+        )
+    }
     return (
         <MessageContainer className={clsx('items-center', className)} groupType={groupType}>
             <LemonSkeleton className="h-10 w-3/5 rounded-lg border" />
@@ -872,6 +926,7 @@ const TextAnswer = React.forwardRef<HTMLDivElement, TextAnswerProps>(function Te
     { message, interactable, isFinalGroup, withActions = true },
     ref
 ) {
+    const quill = useQuillThread()
     const retriable = !!(interactable && isFinalGroup)
 
     const action = withActions
@@ -912,6 +967,26 @@ const TextAnswer = React.forwardRef<HTMLDivElement, TextAnswerProps>(function Te
         )
     }
 
+    if (quill) {
+        return (
+            <ChatMessage align="start" ref={ref} data-message-type="ai" className="w-full">
+                <ChatMessageContent className="gap-1">
+                    <ChatBubble
+                        variant="ghost"
+                        className={cn(
+                            message.status === 'error' && '[&_[data-slot=bubble-content]]:border-destructive-foreground'
+                        )}
+                    >
+                        <ChatBubbleContent>
+                            <QuillAssistantMarkdown content={message.content || ''} id={message.id || 'in-progress'} />
+                        </ChatBubbleContent>
+                    </ChatBubble>
+                    {action}
+                </ChatMessageContent>
+            </ChatMessage>
+        )
+    }
+
     return (
         <MessageTemplate
             type="ai"
@@ -923,132 +998,6 @@ const TextAnswer = React.forwardRef<HTMLDivElement, TextAnswerProps>(function Te
         </MessageTemplate>
     )
 })
-
-interface AssistantMessageFormProps {
-    form: AssistantForm
-    linksOnly?: boolean
-}
-
-function AssistantMessageForm({ form, linksOnly }: AssistantMessageFormProps): JSX.Element {
-    const { askMax } = useActions(maxThreadLogic)
-
-    const options = linksOnly ? form.options.filter((option) => option.href) : form.options
-
-    return (
-        // ml-1 is because buttons have radius of 0.375rem, while messages of 0.65rem, where diff = 0.25rem
-        // Also makes it clear the form is subservient to the message. *Harmony*
-        <div className="flex flex-wrap gap-1.5 ml-1 mt-1">
-            {options.map((option) => (
-                <LemonButton
-                    key={option.value}
-                    onClick={!option.href ? () => askMax(option.value) : undefined}
-                    to={option.href}
-                    size="small"
-                    targetBlank={!!option.href}
-                    type={
-                        option.variant && ['primary', 'secondary', 'tertiary'].includes(option.variant)
-                            ? (option.variant as LemonButtonPropsBase['type'])
-                            : 'secondary'
-                    }
-                >
-                    {option.value}
-                </LemonButton>
-            ))}
-        </div>
-    )
-}
-
-interface PlanningAnswerProps {
-    toolCall: EnhancedToolCall
-    isLastPlanningMessage?: boolean
-}
-
-function PlanningAnswer({ toolCall, isLastPlanningMessage = true }: PlanningAnswerProps): JSX.Element {
-    const [isExpanded, setIsExpanded] = useState(isLastPlanningMessage)
-
-    useLayoutEffect(() => {
-        setIsExpanded(isLastPlanningMessage)
-    }, [isLastPlanningMessage])
-
-    // Extract planning steps from tool call args
-    // Assuming args has a 'todos' field with array of {content: string, status: string, activeForm: string}
-    const steps: PlanningStep[] = Array.isArray(toolCall.args.todos)
-        ? (
-              toolCall.args.todos as Array<{
-                  content: string
-                  status: string
-                  activeForm: string
-              }>
-          ).map((todo) => ({
-              description: todo.content,
-              status: todo.status as PlanningStepStatus,
-          }))
-        : []
-
-    const completedCount = steps.filter((step) => step.status === 'completed').length
-    const totalCount = steps.length
-    const hasMultipleSteps = steps.length > 1
-
-    return (
-        <div className="flex flex-col text-xs">
-            <div
-                className={clsx(
-                    'flex items-center select-none',
-                    !hasMultipleSteps ? 'cursor-default' : 'cursor-pointer'
-                )}
-                onClick={!hasMultipleSteps ? undefined : () => setIsExpanded(!isExpanded)}
-                aria-label={!hasMultipleSteps ? undefined : isExpanded ? 'Collapse plan' : 'Expand plan'}
-            >
-                <div className="flex items-center justify-center size-5">
-                    <IconNotebook />
-                </div>
-                <div className="flex items-center gap-1.5 flex-1 min-w-0">
-                    <span>Planning</span>
-                    <span className="text-muted">
-                        ({completedCount}/{totalCount})
-                    </span>
-                    {hasMultipleSteps && (
-                        <button className="cursor-pointer inline-flex items-center hover:opacity-70 transition-opacity flex-shrink-0">
-                            <span className={`transform transition-transform ${isExpanded ? 'rotate-90' : ''}`}>
-                                <IconChevronRight />
-                            </span>
-                        </button>
-                    )}
-                </div>
-            </div>
-            {isExpanded && (
-                <div className="mt-1.5 space-y-1.5 border-l-2 border-border-secondary pl-3.5 ml-2">
-                    {steps.map((step, index) => {
-                        const isCompleted = step.status === 'completed'
-                        const isInProgress = step.status === 'in_progress'
-
-                        return (
-                            <div key={index} className="flex items-start gap-2 animate-fade-in">
-                                <span className="flex-shrink-0">
-                                    <LemonCheckbox checked={isCompleted} disabled size="xsmall" />
-                                </span>
-                                <span
-                                    className={clsx(
-                                        'leading-relaxed',
-                                        isCompleted && 'text-muted line-through',
-                                        isInProgress && 'font-medium'
-                                    )}
-                                >
-                                    {step.description}
-                                    {isInProgress && (
-                                        <ShimmeringContent>
-                                            <span className="text-muted ml-1">(in progress)</span>
-                                        </ShimmeringContent>
-                                    )}
-                                </span>
-                            </div>
-                        )
-                    })}
-                </div>
-            )}
-        </div>
-    )
-}
 
 interface ToolCallsAnswerProps {
     toolCalls: EnhancedToolCall[]
@@ -1099,368 +1048,6 @@ function ToolCallsAnswer({ toolCalls, registeredToolMap }: ToolCallsAnswerProps)
                         )
                     })}
                 </div>
-            )}
-        </>
-    )
-}
-
-const Visualization = React.memo(function Visualization({
-    query,
-    collapsed,
-    editingChildren,
-}: {
-    query: InsightVizNode | DataVisualizationNode
-    collapsed?: boolean
-    editingChildren?: React.ReactNode
-}): JSX.Element | null {
-    const [isSummaryShown, setIsSummaryShown] = useState(false)
-    const [isCollapsed, setIsCollapsed] = useState(collapsed ?? false)
-
-    if (!query) {
-        return null
-    }
-
-    return (
-        <>
-            {!isCollapsed && <Query query={query} readOnly embedded />}
-            <div className={clsx('flex items-center justify-between', !isCollapsed && 'mt-2')}>
-                <div className="flex items-center gap-1.5">
-                    <LemonButton
-                        sideIcon={isSummaryShown ? <IconCollapse /> : <IconExpand />}
-                        onClick={() => setIsSummaryShown(!isSummaryShown)}
-                        size="xsmall"
-                        className="-m-1 shrink"
-                        tooltip={isSummaryShown ? 'Hide definition' : 'Show definition'}
-                    >
-                        <h5 className="m-0 leading-none">
-                            <TopHeading query={query} />
-                        </h5>
-                    </LemonButton>
-                </div>
-                <div className="flex items-center gap-1.5">
-                    {editingChildren}
-                    <LemonButton
-                        icon={isCollapsed ? <IconEye /> : <IconHide />}
-                        onClick={() => setIsCollapsed(!isCollapsed)}
-                        size="xsmall"
-                        className="-m-1 shrink"
-                        tooltip={isCollapsed ? 'Show visualization' : 'Hide visualization'}
-                    />
-                </div>
-            </div>
-            {isSummaryShown && !isDataVisualizationNode(query) && (
-                <>
-                    <SeriesSummary query={query.source} heading={null} />
-                    {!isHogQLQuery(query.source) && (
-                        <div className="flex flex-wrap gap-4 mt-1 *:grow">
-                            <PropertiesSummary properties={query.source.properties} />
-                            <InsightBreakdownSummary query={query.source} />
-                        </div>
-                    )}
-                </>
-            )}
-        </>
-    )
-})
-
-interface MultiVisualizationAnswerProps {
-    message: MultiVisualizationMessage
-    className?: string
-}
-
-export function MultiVisualizationAnswer({ message, className }: MultiVisualizationAnswerProps): JSX.Element | null {
-    const { visualizations } = message
-    const insights = useMemo(() => {
-        return visualizations
-            .map((visualization, index) => {
-                const query = visualizationTypeToQuery(visualization)
-                if (query) {
-                    return {
-                        query,
-                        title: visualization.plan || `Insight #${index + 1}`,
-                    }
-                }
-                return null
-            })
-            .filter(Boolean) as Array<{
-            query: InsightVizNode | DataVisualizationNode
-            title: string
-        }>
-    }, [visualizations])
-
-    const openModal = (): void => {
-        LemonDialog.open({
-            title: 'Insights',
-            content: <MultiVisualizationModal insights={insights} />,
-            primaryButton: null,
-            width: '90%',
-            maxWidth: 1400,
-        })
-    }
-
-    if (visualizations.length === 0) {
-        return null
-    }
-
-    // Render insights in a mosaic layout
-    const renderMosaic = (): JSX.Element => {
-        if (visualizations.length === 1) {
-            // Single insight takes full width
-            return (
-                <div className="w-full relative">
-                    <Visualization query={insights[0].query} />
-                </div>
-            )
-        }
-        // Two or more insights, show in a grid layout
-        // Currently, let's show a maximum of 4 insights inline with the following mapping
-        // 2 insights: 50/50 split
-        // 3 insights: 33/33/33 split
-        // 4 insights: 25/25/25/25 split, sso basically 2x2 grid
-        const insightsToShow = insights.slice(0, 4)
-        const gridCols =
-            insightsToShow.length === 2 ? 'grid-cols-2' : insightsToShow.length === 3 ? 'grid-cols-3' : 'grid-cols-2'
-
-        return (
-            <div className={`grid ${gridCols} gap-2`}>
-                {insightsToShow.map((insight, index) => (
-                    <div key={index} className="relative min-h-[200px]">
-                        <Query query={insight.query} readOnly embedded />
-                    </div>
-                ))}
-            </div>
-        )
-    }
-
-    return (
-        <div className={clsx('flex flex-col gap-px w-full break-words', className)}>
-            {/* Everything wrapped in a message bubble */}
-            <div className="max-w-full border py-3 px-4 rounded-lg bg-surface-primary">
-                <div className="space-y-2">
-                    <div className="w-full flex justify-between items-center">
-                        <h2 className="text-sm font-semibold text-secondary">
-                            {pluralize(visualizations.length, 'insight')} analyzed
-                        </h2>
-
-                        {visualizations.length > 1 && (
-                            <LemonButton
-                                icon={<IconExpand />}
-                                size="xsmall"
-                                type="tertiary"
-                                onClick={openModal}
-                                tooltip="View all insights in detail"
-                            >
-                                Expand
-                            </LemonButton>
-                        )}
-                    </div>
-
-                    {renderMosaic()}
-
-                    {message.commentary && <MarkdownMessage content={message.commentary} id="multi-viz-commentary" />}
-                </div>
-            </div>
-        </div>
-    )
-}
-
-// Modal for detailed view
-interface MultiVisualizationModalProps {
-    insights: Array<{
-        query: InsightVizNode | DataVisualizationNode
-        title: string
-    }>
-}
-
-function MultiVisualizationModal({ insights: messages }: MultiVisualizationModalProps): JSX.Element {
-    const [selectedIndex, setSelectedIndex] = React.useState(0)
-
-    return (
-        <div className="flex">
-            {/* Sidebar with visualization list */}
-            <div className="w-64 border-r pr-4 overflow-y-auto">
-                <h5 className="text-xs font-semibold text-muted mb-3">VISUALIZATIONS</h5>
-                <div className="space-y-1">
-                    {messages.map((item, index) => (
-                        <button
-                            key={index}
-                            onClick={() => setSelectedIndex(index)}
-                            className={clsx(
-                                'w-full text-left p-2 rounded transition-colors text-sm',
-                                selectedIndex === index
-                                    ? 'bg-primary text-primary-inverted font-semibold'
-                                    : 'hover:bg-surface-secondary'
-                            )}
-                        >
-                            {item.title}
-                        </button>
-                    ))}
-                </div>
-            </div>
-
-            {/* Main content area */}
-            <div className="flex-1 pl-4 overflow-auto">
-                {messages[selectedIndex] && (
-                    <>
-                        <h4 className="text-base font-semibold mb-3">
-                            <TopHeading query={messages[selectedIndex].query} />
-                        </h4>
-                        <div className="min-h-80">
-                            <Query query={messages[selectedIndex].query} readOnly embedded />
-                        </div>
-                    </>
-                )}
-            </div>
-        </div>
-    )
-}
-
-function RetriableFailureActions(): JSX.Element {
-    const { retryLastMessage } = useActions(maxThreadLogic)
-
-    return (
-        <LemonButton
-            icon={<IconRefresh />}
-            type="tertiary"
-            size="xsmall"
-            tooltip="Try again"
-            onClick={() => retryLastMessage()}
-            className="ml-1"
-        >
-            Try again
-        </LemonButton>
-    )
-}
-
-function SuccessActions({
-    retriable,
-    hideRatingAndRetry,
-    content,
-}: {
-    retriable: boolean
-    hideRatingAndRetry?: boolean
-    content?: string | null
-}): JSX.Element {
-    const { traceId: logicTraceId } = useValues(maxThreadLogic)
-    const { ratingForKey } = useValues(messageRatingsLogic)
-    const { setRating } = useActions(messageRatingsLogic)
-    const { retryLastMessage } = useActions(maxThreadLogic)
-    const { user } = useValues(userLogic)
-    const { isDev, preflight } = useValues(preflightLogic)
-    const contextTraceId = useTraceId()
-
-    // Use the context trace_id if available (for reloaded conversations), otherwise fall back to logic's traceId
-    const traceId = contextTraceId || logicTraceId
-
-    const rating = ratingForKey(traceId)
-    const [feedback, setFeedback] = useState<string>('')
-    const [feedbackInputStatus, setFeedbackInputStatus] = useState<'hidden' | 'pending' | 'submitted'>('hidden')
-
-    function submitRating(newRating: 'good' | 'bad'): void {
-        if (rating || !traceId) {
-            return // Already rated
-        }
-        setRating({ key: traceId, rating: newRating })
-        posthog.captureTraceMetric(traceId, 'quality', newRating)
-        if (newRating === 'bad') {
-            setFeedbackInputStatus('pending')
-        }
-    }
-
-    function submitFeedback(): void {
-        if (!feedback || !traceId) {
-            return // Input is empty
-        }
-        posthog.captureTraceFeedback(traceId, feedback)
-        setFeedbackInputStatus('submitted')
-    }
-
-    return (
-        <>
-            <div className="flex items-center ml-1">
-                {content && (
-                    <LemonButton
-                        icon={<IconCopy />}
-                        type="tertiary"
-                        size="xsmall"
-                        tooltip="Copy answer"
-                        onClick={() => copyToClipboard(stripMarkdown(content))}
-                    />
-                )}
-                {!hideRatingAndRetry && rating !== 'bad' && (
-                    <LemonButton
-                        icon={rating === 'good' ? <IconThumbsUpFilled /> : <IconThumbsUp />}
-                        type="tertiary"
-                        size="xsmall"
-                        tooltip="Good answer"
-                        onClick={() => submitRating('good')}
-                    />
-                )}
-                {!hideRatingAndRetry && rating !== 'good' && (
-                    <LemonButton
-                        icon={rating === 'bad' ? <IconThumbsDownFilled /> : <IconThumbsDown />}
-                        type="tertiary"
-                        size="xsmall"
-                        tooltip="Bad answer"
-                        onClick={() => submitRating('bad')}
-                    />
-                )}
-                {!hideRatingAndRetry && retriable && (
-                    <LemonButton
-                        icon={<IconRefresh />}
-                        type="tertiary"
-                        size="xsmall"
-                        tooltip="Try again"
-                        onClick={() => retryLastMessage()}
-                    />
-                )}
-                {(user?.is_staff || isDev) && traceId && (
-                    <LemonButton
-                        to={`${preflight?.region === Region.EU ? 'https://us.posthog.com/project/2' : ''}${urls.aiObservabilityTrace(traceId)}`}
-                        icon={<IconEye />}
-                        type="tertiary"
-                        size="xsmall"
-                        tooltip="View trace in AI observability"
-                    />
-                )}
-            </div>
-            {!hideRatingAndRetry && feedbackInputStatus !== 'hidden' && (
-                <MessageTemplate type="ai">
-                    <div className="flex items-center gap-1">
-                        <h4 className="m-0 text-sm grow">
-                            {feedbackInputStatus === 'pending'
-                                ? 'What disappointed you about the answer?'
-                                : 'Thank you for your feedback!'}
-                        </h4>
-                        <LemonButton
-                            icon={<IconX />}
-                            type="tertiary"
-                            size="xsmall"
-                            onClick={() => {
-                                setFeedbackInputStatus('hidden')
-                            }}
-                        />
-                    </div>
-                    {feedbackInputStatus === 'pending' && (
-                        <div className="flex w-full gap-1.5 items-center mt-1.5">
-                            <LemonInput
-                                placeholder="Help us improve PostHog AI…"
-                                fullWidth
-                                value={feedback}
-                                onChange={(newValue) => setFeedback(newValue)}
-                                onPressEnter={() => submitFeedback()}
-                                autoFocus
-                            />
-                            <LemonButton
-                                type="primary"
-                                onClick={() => submitFeedback()}
-                                disabledReason={!feedback ? 'Please type a few words!' : undefined}
-                            >
-                                Submit
-                            </LemonButton>
-                        </div>
-                    )}
-                </MessageTemplate>
             )}
         </>
     )

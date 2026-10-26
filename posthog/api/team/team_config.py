@@ -2,6 +2,7 @@
 
 from typing import Any
 
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from posthog.models import Team, TeamRevenueAnalyticsConfig
@@ -16,6 +17,16 @@ from products.customer_analytics.backend.facade.account_property_pins import (
 from products.customer_analytics.backend.facade.contracts import PinnedAccountProperty
 from products.customer_analytics.backend.facade.enums import AccountPropertyPinKind
 from products.customer_analytics.backend.facade.team_extension import TeamCustomerAnalyticsConfig
+from products.feature_flags.backend.facade.request_blocklist import (
+    MAX_BLOCKED_HOSTS,
+    MAX_BLOCKED_IPS,
+    MAX_BLOCKLIST_INPUT_ENTRIES,
+    MIN_BLOCKED_IPV4_PREFIX,
+    MIN_BLOCKED_IPV6_PREFIX,
+    BlocklistEntryError,
+    normalize_blocked_hosts,
+    normalize_blocked_ips,
+)
 from products.feature_flags.backend.models.team_feature_flag_policy_config import TeamFeatureFlagPolicyConfig
 from products.replay_vision.backend.facade.workflow_scan_limits import (
     MAX_SELF_SERVE_WORKFLOW_SCAN_RATE_CAP_PER_DAY,
@@ -97,7 +108,6 @@ TEAM_CONFIG_FIELDS = (
     "timezone",
     "data_attributes",
     "person_display_name_properties",
-    "correlation_config",
     "autocapture_opt_out",
     "autocapture_exceptions_opt_in",
     "autocapture_web_vitals_opt_in",
@@ -210,6 +220,44 @@ class TeamRevenueAnalyticsConfigSerializer(serializers.ModelSerializer, UserAcce
         return internal_value
 
 
+class EmailUtmParamsSerializer(serializers.Serializer):
+    utm_source = serializers.CharField(
+        required=False, allow_blank=True, max_length=500, help_text="Default utm_source. Supports Liquid variables."
+    )
+    utm_medium = serializers.CharField(
+        required=False, allow_blank=True, max_length=500, help_text="Default utm_medium. Supports Liquid variables."
+    )
+    utm_campaign = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=500,
+        help_text="Default utm_campaign. Empty uses the broadcast or workflow name. Supports Liquid variables.",
+    )
+    utm_content = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=500,
+        help_text="Default utm_content. Empty uses the email step name. Supports Liquid variables.",
+    )
+
+
+@extend_schema_field(EmailUtmParamsSerializer)
+class EmailUtmParamsField(serializers.JSONField):
+    def to_internal_value(self, data: Any) -> dict[str, str]:
+        # The value replaces the saved defaults, so a misspelled key would otherwise clear them silently.
+        if isinstance(data, dict) and (unknown := sorted(set(data) - set(EmailUtmParamsSerializer().fields))):
+            raise serializers.ValidationError(f"Unknown UTM parameters: {', '.join(unknown)}.")
+        serializer = EmailUtmParamsSerializer(data=data)
+        serializer.is_valid(raise_exception=True)
+        return {key: value for key, value in serializer.validated_data.items() if value.strip()}
+
+
+def drop_cached_workflows_config(team: Team) -> None:
+    # The config save writes every column, so a row this team instance loaded earlier would undo
+    # settings another admin changed since.
+    team.__dict__.pop(Team.workflows_config.cache_name, None)
+
+
 class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     capture_workflows_engagement_events = serializers.BooleanField(
         required=False,
@@ -305,11 +353,28 @@ class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessContr
         ),
     )
 
+    email_utm_tags_enabled = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Whether new email steps and broadcasts start with UTM tags on their links. "
+            "Each email can still change it. Existing emails keep their current values."
+        ),
+    )
+    email_utm_params = EmailUtmParamsField(
+        required=False,
+        help_text=(
+            "Default UTM values that new email steps and broadcasts copy. An empty value keeps the "
+            "built-in default for that tag."
+        ),
+    )
+
     class Meta:
         model = TeamWorkflowsConfig
         fields = [
             "capture_workflows_engagement_events",
             "email_tracking_consent_mode",
+            "email_utm_tags_enabled",
+            "email_utm_params",
             "workflow_task_rate_limit_per_day",
             "workflow_task_team_rate_limit_per_day",
             "replay_vision_scan_rate_limit_per_day",
@@ -397,17 +462,63 @@ class TeamFeatureFlagPolicyConfigSerializer(serializers.ModelSerializer, UserAcc
         ),
     )
 
+    # allow_blank lets a client send a list split from pasted lines, because the normalizers drop blank entries.
+    # The normalizers own the MAX_BLOCKED_* caps, because they count entries after dropping blanks and duplicates.
+    blocked_hosts = serializers.ListField(
+        child=serializers.CharField(max_length=2000, allow_blank=True),
+        max_length=MAX_BLOCKLIST_INPUT_ENTRIES,
+        required=False,
+        help_text=(
+            f"Domains to block from feature flag requests (/flags and /decide), up to {MAX_BLOCKED_HOSTS}. "
+            "A domain also covers its subdomains. It is compared with the Origin header, or with the Referer "
+            "header when Origin is missing. Entries are stored lowercase without duplicates. A pasted URL is "
+            "reduced to its domain, and an internationalized domain is stored as punycode."
+        ),
+    )
+    blocked_ips = serializers.ListField(
+        child=serializers.CharField(max_length=2000, allow_blank=True),
+        max_length=MAX_BLOCKLIST_INPUT_ENTRIES,
+        required=False,
+        help_text=(
+            f"IPv4 or IPv6 addresses or CIDR ranges to block from feature flag requests (/flags and /decide), "
+            f"up to {MAX_BLOCKED_IPS}. Ranges can be /{MIN_BLOCKED_IPV4_PREFIX} or narrower for IPv4 and "
+            f"/{MIN_BLOCKED_IPV6_PREFIX} or narrower for IPv6. Entries are stored in canonical form without "
+            "duplicates, and an IPv4-mapped IPv6 address is stored as IPv4."
+        ),
+    )
+
     class Meta:
         model = TeamFeatureFlagPolicyConfig
-        fields = ["require_tags"]
+        fields = ["require_tags", "blocked_hosts", "blocked_ips"]
+
+    def validate_blocked_hosts(self, value: list[str]) -> list[str]:
+        try:
+            return normalize_blocked_hosts(value)
+        except BlocklistEntryError as error:
+            raise serializers.ValidationError(str(error))
+
+    def validate_blocked_ips(self, value: list[str]) -> list[str]:
+        try:
+            return normalize_blocked_ips(value)
+        except BlocklistEntryError as error:
+            raise serializers.ValidationError(str(error))
 
 
 class TeamCustomerAnalyticsPinnedAccountPropertySerializer(serializers.Serializer):
     kind = serializers.ChoiceField(
         choices=AccountPropertyPinKind.choices,
-        help_text="Definition type for this default pinned account property.",
+        help_text=(
+            "Type of this default pinned account property: a custom property, a relationship, "
+            "or a built-in account field."
+        ),
     )
-    id = serializers.UUIDField(help_text="Project-scoped custom property or relationship definition UUID.")
+    id = serializers.CharField(
+        max_length=64,
+        help_text=(
+            "Project-scoped custom property or relationship definition UUID. "
+            "For an account_field pin, the account field name, such as stripe_customer_id."
+        ),
+    )
 
     class Meta:
         ref_name = "TeamCustomerAnalyticsPinnedAccountProperty"
@@ -470,12 +581,13 @@ class TeamCustomerAnalyticsConfigSerializer(serializers.ModelSerializer, UserAcc
     def validate_default_pinned_properties(self, value: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if self.instance is None:
             return value
-        pinned_properties = [PinnedAccountProperty(kind=reference["kind"], id=reference["id"]) for reference in value]
         try:
-            validate_pinned_account_properties(
+            pinned_properties = validate_pinned_account_properties(
                 team_id=self.instance.team_id,
-                pinned_properties=pinned_properties,
+                pinned_properties=[
+                    PinnedAccountProperty(kind=reference["kind"], id=reference["id"]) for reference in value
+                ],
             )
         except InvalidPinnedAccountProperties as error:
             raise serializers.ValidationError(error.errors)
-        return [{"kind": reference["kind"], "id": str(reference["id"])} for reference in value]
+        return [{"kind": reference.kind, "id": reference.id} for reference in pinned_properties]

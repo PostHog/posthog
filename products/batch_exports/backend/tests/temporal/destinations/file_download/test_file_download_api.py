@@ -945,9 +945,9 @@ class TestFileDownloadHogQL:
         mock_start_file_download_export.assert_called_once()
         batch_export_model = mock_start_file_download_export.call_args.kwargs["batch_export_model"]
         assert batch_export_model.name == "hogql"
-        assert batch_export_model.hogql_query == hogql_query
+        assert batch_export_model.query == hogql_query
         assert batch_export_model.user_id == user.pk
-        assert batch_export_model.hogql_modifiers == {"convertToProjectTimezone": False}
+        assert batch_export_model.modifiers == {"convertToProjectTimezone": False}
         assert mock_start_file_download_export.call_args.kwargs["max_size_mb"] == DEFAULT_MAX_SIZE_MB
         assert mock_start_file_download_export.call_args.kwargs["data_interval_start"] == run.data_interval_start
         assert mock_start_file_download_export.call_args.kwargs["data_interval_end"] == run.data_interval_end

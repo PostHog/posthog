@@ -295,6 +295,63 @@ export interface InstrumentationCheckActionApi {
 }
 
 /**
+ * * `engineering` - Engineering
+ * * `data` - Data
+ * * `product` - Product Management
+ * * `founder` - Founder
+ * * `leadership` - Leadership
+ * * `marketing` - Marketing
+ * * `sales` - Sales / Success
+ * * `student` - Student
+ * * `other` - Other
+ */
+export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
+
+export const RoleAtOrganizationEnumApi = {
+    Engineering: 'engineering',
+    Data: 'data',
+    Product: 'product',
+    Founder: 'founder',
+    Leadership: 'leadership',
+    Marketing: 'marketing',
+    Sales: 'sales',
+    Student: 'student',
+    Other: 'other',
+} as const
+
+export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
+
+export const BlankEnumApi = {
+    '': '',
+} as const
+
+/**
+ * @nullable
+ */
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
+
+export interface UserBasicApi {
+    readonly id: number
+    readonly uuid: string
+    /**
+     * @maxLength 200
+     * @nullable
+     */
+    distinct_id?: string | null
+    /** @maxLength 150 */
+    first_name?: string
+    /** @maxLength 150 */
+    last_name?: string
+    /** @maxLength 254 */
+    email: string
+    /** @nullable */
+    is_email_verified?: boolean | null
+    /** @nullable */
+    readonly hedgehog_config: UserBasicApiHedgehogConfig
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
+}
+
+/**
  * * `ci` - CI
  * * `local` - Local
  * * `scheduled` - Scheduled
@@ -323,6 +380,8 @@ export const OfflineExperimentStatusEnumApi = {
 } as const
 
 export interface OfflineExperimentReadApi {
+    /** User who submitted the experiment, or null for service credentials. */
+    readonly created_by: UserBasicApi | null
     /** Project tag names assigned to this experiment. */
     tags: string[]
     /** Stable experiment UUID. */
@@ -869,6 +928,8 @@ export interface OfflineScorerVersionReadApi {
     kind: ScoreDefinitionKindEnumApi
     /** Current scorer display name. */
     name: string
+    /** Current compact label. Blank uses the full name. */
+    short_name: string
     /** Current scorer description. */
     description: string
     /** Whether the scorer is archived. */
@@ -1283,6 +1344,8 @@ export interface OfflineHistoryPageApi {
     results: OfflineHistoryPointApi[]
 }
 
+export type TraceApiNodeIdsByAlias = { [key: string]: string }
+
 export interface TracePersonApi {
     distinctId: string
     label: string
@@ -1339,66 +1402,76 @@ export interface TraceApi {
     timeline: TraceTimelineRowApi[]
     totalMs: number
     threadNodeIds: string[]
+    defaultNodeId: string
+    nodeIdsByAlias: TraceApiNodeIdsByAlias
+}
+
+export type TraceEvaluationResultOutcomeEnumApi =
+    (typeof TraceEvaluationResultOutcomeEnumApi)[keyof typeof TraceEvaluationResultOutcomeEnumApi]
+
+export const TraceEvaluationResultOutcomeEnumApi = {
+    Pass: 'pass',
+    Fail: 'fail',
+    Inconclusive: 'inconclusive',
+    Unrated: 'unrated',
+} as const
+
+export interface TraceEvaluationResultApi {
+    id: string
+    evaluationId: string | null
+    evaluationName: string
+    /** The tree node the result grades: the generation's event uuid, or the trace id for a trace-level result. */
+    targetNodeId: string
+    outcome: TraceEvaluationResultOutcomeEnumApi
+    /** What the result says, such as "True", "0.82", "Positive" or "Skipped". */
+    label: string
+    reasoning: string | null
+    timestamp: string
+    isBackfill: boolean
+}
+
+export interface TraceEvaluationResultsApi {
+    results: TraceEvaluationResultApi[]
+}
+
+export interface TraceNodeMetadataApi {
+    provider: string | null
+    temperature: number | null
+    sessionId: string | null
+    promptName: string | null
+    promptVersion: number | null
+}
+
+export interface TraceNodeIOKeysApi {
+    input: string | null
+    output: string | null
+    tools: string | null
+}
+
+/**
+ * The event's properties as ingested, including its input and output values.
+ */
+export type TraceNodeEventApiProperties = { [key: string]: unknown }
+
+export interface TraceNodeEventApi {
+    name: string
+    uuid: string
+    timestamp: string
+    /** The event's properties as ingested, including its input and output values. */
+    properties: TraceNodeEventApiProperties
+    /** Which keys of `properties` hold the node's input, output and tools, or null when it has none. */
+    ioKeys: TraceNodeIOKeysApi
+}
+
+export interface TraceNodeDetailApi {
+    id: string
+    kind: TraceNodeKindEnumApi
+    error: string | null
+    metadata: TraceNodeMetadataApi
+    event: TraceNodeEventApi | null
 }
 
 export type DatasetJSONValueApi = { [key: string]: unknown } | unknown[] | string | number | boolean
-
-/**
- * * `engineering` - Engineering
- * * `data` - Data
- * * `product` - Product Management
- * * `founder` - Founder
- * * `leadership` - Leadership
- * * `marketing` - Marketing
- * * `sales` - Sales / Success
- * * `student` - Student
- * * `other` - Other
- */
-export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
-
-export const RoleAtOrganizationEnumApi = {
-    Engineering: 'engineering',
-    Data: 'data',
-    Product: 'product',
-    Founder: 'founder',
-    Leadership: 'leadership',
-    Marketing: 'marketing',
-    Sales: 'sales',
-    Student: 'student',
-    Other: 'other',
-} as const
-
-export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
-
-export const BlankEnumApi = {
-    '': '',
-} as const
-
-/**
- * @nullable
- */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
-
-export interface UserBasicApi {
-    readonly id: number
-    readonly uuid: string
-    /**
-     * @maxLength 200
-     * @nullable
-     */
-    distinct_id?: string | null
-    /** @maxLength 150 */
-    first_name?: string
-    /** @maxLength 150 */
-    last_name?: string
-    /** @maxLength 254 */
-    email: string
-    /** @nullable */
-    is_email_verified?: boolean | null
-    /** @nullable */
-    readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
-}
 
 /**
  * JSON object with item metadata.
@@ -2052,13 +2125,20 @@ export type EvaluationApiOutputConfigPassingRule =
     | null
 
 /**
- * Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. For 'categorical': options [{key, label}], selection_mode (single or multiple), allows_na, and optional passing_rule {categories: [key]}. Do not send true_is_failure for numeric or categorical output. For 'sentiment': {}.
+ * Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For boolean decision-model judges, decision_threshold is a probability from 0 to 1 (default 0.5). For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. For 'categorical': options [{key, label}], selection_mode (single or multiple), allows_na, and optional passing_rule {categories: [key]}. Do not send true_is_failure for numeric or categorical output. For 'sentiment': {}.
  */
 export type EvaluationApiOutputConfig = {
     /** Whether the evaluation can return N/A for non-applicable generations. */
     allows_na?: boolean
     /** Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
     true_is_failure?: boolean
+    /**
+     * Boolean decision-model judges only. Minimum probability of true required for a true result, inclusive. Omit or set null to use 0.5. Applies to new runs; historical results are unchanged.
+     * @minimum 0
+     * @maximum 1
+     * @nullable
+     */
+    decision_threshold?: number | null
     /**
      * Inclusive minimum numeric score. Omit for no lower bound. Required for numeric decision models.
      * @nullable
@@ -2155,7 +2235,7 @@ export interface EvaluationApi {
      * * `categorical` - Categorical
      * * `sentiment` - Sentiment */
     output_type: OutputTypeEnumApi
-    /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. For 'categorical': options [{key, label}], selection_mode (single or multiple), allows_na, and optional passing_rule {categories: [key]}. Do not send true_is_failure for numeric or categorical output. For 'sentiment': {}. */
+    /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For boolean decision-model judges, decision_threshold is a probability from 0 to 1 (default 0.5). For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. For 'categorical': options [{key, label}], selection_mode (single or multiple), allows_na, and optional passing_rule {categories: [key]}. Do not send true_is_failure for numeric or categorical output. For 'sentiment': {}. */
     output_config?: EvaluationApiOutputConfig
     /** Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads. */
     conditions?: EvaluationConditionApi[]
@@ -2385,13 +2465,20 @@ export type PatchedEvaluationApiOutputConfigPassingRule =
     | null
 
 /**
- * Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. For 'categorical': options [{key, label}], selection_mode (single or multiple), allows_na, and optional passing_rule {categories: [key]}. Do not send true_is_failure for numeric or categorical output. For 'sentiment': {}.
+ * Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For boolean decision-model judges, decision_threshold is a probability from 0 to 1 (default 0.5). For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. For 'categorical': options [{key, label}], selection_mode (single or multiple), allows_na, and optional passing_rule {categories: [key]}. Do not send true_is_failure for numeric or categorical output. For 'sentiment': {}.
  */
 export type PatchedEvaluationApiOutputConfig = {
     /** Whether the evaluation can return N/A for non-applicable generations. */
     allows_na?: boolean
     /** Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
     true_is_failure?: boolean
+    /**
+     * Boolean decision-model judges only. Minimum probability of true required for a true result, inclusive. Omit or set null to use 0.5. Applies to new runs; historical results are unchanged.
+     * @minimum 0
+     * @maximum 1
+     * @nullable
+     */
+    decision_threshold?: number | null
     /**
      * Inclusive minimum numeric score. Omit for no lower bound. Required for numeric decision models.
      * @nullable
@@ -2499,7 +2586,7 @@ export interface PatchedEvaluationApi {
      * * `categorical` - Categorical
      * * `sentiment` - Sentiment */
     output_type?: OutputTypeEnumApi
-    /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. For 'categorical': options [{key, label}], selection_mode (single or multiple), allows_na, and optional passing_rule {categories: [key]}. Do not send true_is_failure for numeric or categorical output. For 'sentiment': {}. */
+    /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For boolean decision-model judges, decision_threshold is a probability from 0 to 1 (default 0.5). For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. For 'categorical': options [{key, label}], selection_mode (single or multiple), allows_na, and optional passing_rule {categories: [key]}. Do not send true_is_failure for numeric or categorical output. For 'sentiment': {}. */
     output_config?: PatchedEvaluationApiOutputConfig
     /** Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads. */
     conditions?: EvaluationConditionApi[]
@@ -2524,6 +2611,234 @@ export interface PatchedEvaluationApi {
      * @nullable
      */
     readonly user_access_level?: string | null
+}
+
+/**
+ * Null when the evaluation has no passing rule, or the run was not graded by it.
+ */
+export type EvaluationRunApiOutcome = (typeof EvaluationRunApiOutcome)[keyof typeof EvaluationRunApiOutcome] | null
+
+export const EvaluationRunApiOutcome = {
+    Passed: 'passed',
+    Failed: 'failed',
+} as const
+
+export interface EvaluationRunApi {
+    timestamp: string
+    /** Null when the evaluation has no passing rule, or the run was not graded by it. */
+    outcome: EvaluationRunApiOutcome
+    /** The evaluator's reasoning, cut to about 1,000 characters. */
+    reasoning: string | null
+    /** The generation the run graded. Null for trace and session runs. */
+    targetEventId: string | null
+    traceId: string | null
+}
+
+export interface EvaluationRunsApi {
+    /** Newest first. */
+    results: EvaluationRunApi[]
+}
+
+export interface ScoreScaleApi {
+    min: number
+    max: number
+}
+
+export interface ScoreBucketApi {
+    label: string
+    count: number
+}
+
+export interface ScoreHistogramApi {
+    scale: ScoreScaleApi
+    /** One bucket per integer on a small integer scale, else ten equal buckets across the scale. */
+    buckets: ScoreBucketApi[]
+}
+
+export type EvaluationsOverviewIntervalEnumApi =
+    (typeof EvaluationsOverviewIntervalEnumApi)[keyof typeof EvaluationsOverviewIntervalEnumApi]
+
+export const EvaluationsOverviewIntervalEnumApi = {
+    Hour: 'hour',
+    Day: 'day',
+} as const
+
+export interface PassFailCountsApi {
+    passed: number
+    failed: number
+}
+
+export interface ScoreDistributionApi {
+    mean: number
+    /** The configured score bounds, or null when the evaluation sets none. */
+    scale: ScoreScaleApi | null
+}
+
+export interface PassRateSummaryApi {
+    kind: 'pass_rate'
+    passed: number
+    failed: number
+    /** Counts in the previous period, or null when it graded too few to compare. */
+    previous: PassFailCountsApi | null
+    /** The score of numeric evaluations with a passing rule. */
+    score: ScoreDistributionApi | null
+}
+
+export interface ScoreSummaryApi {
+    kind: 'score'
+    /** Null when the current period scored nothing. */
+    score: ScoreDistributionApi | null
+    previousMean: number | null
+}
+
+export interface CategoryCountApi {
+    key: string
+    label: string
+    count: number
+    /** Percentage of the previous period's graded runs with this category, or null when it graded too few to compare. */
+    previousShare: number | null
+}
+
+export interface CategoriesSummaryApi {
+    kind: 'categories'
+    multiple: boolean
+    /** Sorted by count, most frequent first. */
+    categories: CategoryCountApi[]
+    /** Multiple-selection runs that returned no category. */
+    noCategoriesCount: number
+}
+
+export interface SentimentSummaryApi {
+    kind: 'sentiment'
+    positive: number
+    neutral: number
+    negative: number
+    previousNegativeShare: number | null
+}
+
+export interface EvaluationResultTrendApi {
+    /** Headline value per bucket, aligned with the overview's `buckets`. Null where nothing was graded. */
+    values: (number | null)[]
+    /** Graded runs per bucket. */
+    volume: number[]
+}
+
+export type ResultChangeUnitEnumApi = (typeof ResultChangeUnitEnumApi)[keyof typeof ResultChangeUnitEnumApi]
+
+export const ResultChangeUnitEnumApi = {
+    Pp: 'pp',
+    Points: 'points',
+} as const
+
+export interface ResultChangeApi {
+    /** Signed difference against the previous period, rounded for display. */
+    value: number
+    unit: ResultChangeUnitEnumApi
+    /** What changed when it is not the headline, such as a category label. */
+    subject: string | null
+}
+
+export type AttentionReasonsEnumApi = (typeof AttentionReasonsEnumApi)[keyof typeof AttentionReasonsEnumApi]
+
+export const AttentionReasonsEnumApi = {
+    Errored: 'errored',
+    Silent: 'silent',
+    Worse: 'worse',
+} as const
+
+export type BucketStatusEnumApi = (typeof BucketStatusEnumApi)[keyof typeof BucketStatusEnumApi]
+
+export const BucketStatusEnumApi = {
+    None: 'none',
+    Dip: 'dip',
+    Normal: 'normal',
+} as const
+
+export interface EvaluationResultApi {
+    id: string
+    name: string
+    directoryName: string | null
+    evaluationType: string
+    outputType: string
+    enabled: boolean
+    /** Why the evaluation stopped with an error, as an evaluation status reason, or null when it has none. */
+    statusReason: string | null
+    createdBy: string | null
+    gradedCount: number
+    /** Graded runs in the previous period, or null when none. */
+    previousGradedCount: number | null
+    notApplicableCount: number
+    /** Runs skipped before scoring. */
+    skippedCount: number
+    /** The latest graded run in the current or previous period. */
+    lastRunAt: string | null
+    summary: PassRateSummaryApi | ScoreSummaryApi | CategoriesSummaryApi | SentimentSummaryApi
+    trend: EvaluationResultTrendApi
+    /** Change against the previous period, or null when not comparable. */
+    change: ResultChangeApi | null
+    lowEvidence: boolean
+    attentionReasons: AttentionReasonsEnumApi[]
+    /** Each bucket against the previous period. A bucket with too few graded runs to judge is never a dip. */
+    bucketStatus: BucketStatusEnumApi[]
+    /** Key of the category a categorical evaluation's trend follows. */
+    trackedCategory: string | null
+}
+
+/**
+ * The same figure for both periods, over only the evaluations with results in both.
+ */
+export interface PeriodComparisonApi {
+    current: number
+    previous: number
+}
+
+export interface OverviewSentimentApi {
+    evaluationId: string
+    negativeShare: number
+    previousShare: number | null
+}
+
+export interface OverviewTotalsApi {
+    graded: number
+    /** Graded runs in each period, over evaluations with results in both. Null when none has. */
+    gradedComparison: PeriodComparisonApi | null
+    gradedTrend: number[]
+    sentiment: OverviewSentimentApi | null
+}
+
+export interface PassRateOverviewEntryApi {
+    evaluationId: string
+    rate: number
+    lowEvidence: boolean
+}
+
+export interface PassRateOverviewApi {
+    /** Enabled pass rate evaluations, lowest rate first. */
+    entries: PassRateOverviewEntryApi[]
+    /** Median of the per-evaluation pass rates without low evidence. */
+    median: number | null
+    /** Median pass rate in each period, over evaluations with results in both. Null when none has. */
+    medianComparison: PeriodComparisonApi | null
+    /** Median pass rate per bucket, aligned with `buckets`. */
+    medianTrend: (number | null)[]
+}
+
+export interface EvaluationsOverviewApi {
+    /** Start of the period, in the project's timezone. */
+    start: string
+    /** End of the period, exclusive. */
+    end: string
+    previousStart: string
+    /** End of the previous period. While the current period runs, the previous one stops at the same point, so both cover the same length of time. */
+    previousEnd: string
+    /** `hour` for a period of two days or less, else `day`. */
+    interval: EvaluationsOverviewIntervalEnumApi
+    /** Start of each bucket, in the project's timezone. Every series is aligned with it. The first bucket can start before `start`. */
+    buckets: string[]
+    evaluations: EvaluationResultApi[]
+    /** Totals over the enabled evaluations. */
+    totals: OverviewTotalsApi
+    passRateOverview: PassRateOverviewApi
 }
 
 export type TestHogRequestApiOutputConfigOptionsItem = {
@@ -2577,6 +2892,13 @@ export type TestHogRequestApiOutputConfig = {
     allows_na?: boolean
     /** Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
     true_is_failure?: boolean
+    /**
+     * Boolean decision-model judges only. Minimum probability of true required for a true result, inclusive. Omit or set null to use 0.5. Applies to new runs; historical results are unchanged.
+     * @minimum 0
+     * @maximum 1
+     * @nullable
+     */
+    decision_threshold?: number | null
     /**
      * Inclusive minimum numeric score. Omit for no lower bound. Required for numeric decision models.
      * @nullable
@@ -3310,6 +3632,13 @@ export type EvaluationReportMetricsApiOutputConfig = {
     /** Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
     true_is_failure?: boolean
     /**
+     * Boolean decision-model judges only. Minimum probability of true required for a true result, inclusive. Omit or set null to use 0.5. Applies to new runs; historical results are unchanged.
+     * @minimum 0
+     * @maximum 1
+     * @nullable
+     */
+    decision_threshold?: number | null
+    /**
      * Inclusive minimum numeric score. Omit for no lower bound. Required for numeric decision models.
      * @nullable
      */
@@ -3695,6 +4024,8 @@ export interface PatchedReviewQueueUpdateApi {
 export interface ScoreDefinitionApi {
     readonly id: string
     readonly name: string
+    /** Optional compact label for table headers and other compact views. */
+    readonly short_name: string
     readonly description: string
     /** Project tag names assigned to this resource. */
     readonly tags: readonly string[]
@@ -3714,6 +4045,8 @@ export interface ScoreDefinitionApi {
     readonly created_at: string
     /** @nullable */
     readonly updated_at: string | null
+    /** User who last updated the scorer or created a version. */
+    readonly updated_by: UserBasicApi | null
     readonly team: number
 }
 
@@ -3738,6 +4071,11 @@ export interface ScoreDefinitionCreateApi {
      * @maxLength 255
      */
     name: string
+    /**
+     * Optional compact label. Blank uses the full name.
+     * @maxLength 40
+     */
+    short_name?: string
     /**
      * Optional human-readable description.
      * @nullable
@@ -3768,6 +4106,11 @@ export interface PatchedScoreDefinitionMetadataApi {
      */
     name?: string
     /**
+     * Updated compact label. Blank uses the full name.
+     * @maxLength 40
+     */
+    short_name?: string
+    /**
      * Updated scorer description.
      * @nullable
      */
@@ -3777,6 +4120,11 @@ export interface PatchedScoreDefinitionMetadataApi {
 }
 
 export interface ScoreDefinitionNewVersionApi {
+    /**
+     * Updated compact label, saved with this version.
+     * @maxLength 40
+     */
+    short_name?: string
     /**
      * Updated scorer name, saved with this version.
      * @maxLength 255
@@ -4761,6 +5109,15 @@ export type AiObservabilityOfflineExperimentsListParams = {
      */
     application_version?: string
     /**
+     * Filter experiments by the author's user ID.
+     * @minimum 1
+     */
+    created_by?: number
+    /**
+     * Only include experiments without an author.
+     */
+    created_by_is_null?: boolean
+    /**
      * Continuation cursor returned by the previous page.
      * @minLength 1
      * @maxLength 2048
@@ -4960,6 +5317,15 @@ export type AiObservabilityOfflineScorersHistoryListParams = {
      */
     application_version?: string
     /**
+     * Filter experiments by the author's user ID.
+     * @minimum 1
+     */
+    created_by?: number
+    /**
+     * Only include experiments without an author.
+     */
+    created_by_is_null?: boolean
+    /**
      * Continuation cursor returned by the previous page.
      * @minLength 1
      * @maxLength 2048
@@ -5062,6 +5428,13 @@ export const AiObservabilityOfflineScorersHistoryListTagMatch = {
 } as const
 
 export type AiObservabilityTracesRetrieveParams = {
+    /**
+     * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
+     */
+    timestamp_hint?: string
+}
+
+export type AiObservabilityTracesNodesRetrieveParams = {
     /**
      * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
      */
@@ -5282,6 +5655,77 @@ export type EvaluationsBackfillsListParams = {
     offset?: number
 }
 
+export type EvaluationsRunsRetrieveParams = {
+    /**
+     * Start of the period: a date for the whole day in the project's timezone, or an ISO 8601 datetime. Defaults to 13 days before `date_to`.
+     */
+    date_from?: string
+    /**
+     * End of the period: a date includes that whole day, a datetime is an exclusive instant. Defaults to today.
+     */
+    date_to?: string
+    /**
+     * How many runs to return, newest first.
+     * @minimum 1
+     * @maximum 50
+     */
+    limit?: number
+    /**
+     * Only runs with this outcome under the evaluation's passing rule. Without it, every graded run, including scored, categorized and sentiment runs. An evaluation without a passing rule rejects this filter with a 400.
+     *
+     * * `passed` - Passed
+     * * `failed` - Failed
+     * @minLength 1
+     */
+    outcome?: EvaluationsRunsRetrieveOutcome
+    /**
+     * Skip the result cached for the last five minutes and compute it again.
+     */
+    refresh?: boolean
+}
+
+export type EvaluationsRunsRetrieveOutcome =
+    (typeof EvaluationsRunsRetrieveOutcome)[keyof typeof EvaluationsRunsRetrieveOutcome]
+
+export const EvaluationsRunsRetrieveOutcome = {
+    Passed: 'passed',
+    Failed: 'failed',
+} as const
+
+export type EvaluationsScoreDistributionRetrieveParams = {
+    /**
+     * Start of the period: a date for the whole day in the project's timezone, or an ISO 8601 datetime. Defaults to 13 days before `date_to`.
+     */
+    date_from?: string
+    /**
+     * End of the period: a date includes that whole day, a datetime is an exclusive instant. Defaults to today.
+     */
+    date_to?: string
+    /**
+     * Skip the result cached for the last five minutes and compute it again.
+     */
+    refresh?: boolean
+}
+
+export type EvaluationsOverviewRetrieveParams = {
+    /**
+     * Start of the period: a date for the whole day in the project's timezone, or an ISO 8601 datetime. Defaults to 13 days before `date_to`.
+     */
+    date_from?: string
+    /**
+     * End of the period: a date includes that whole day, a datetime is an exclusive instant. Defaults to today.
+     */
+    date_to?: string
+    /**
+     * Only these evaluations. Defaults to every evaluation the user can see.
+     */
+    evaluation_ids?: string[]
+    /**
+     * Skip the result cached for the last five minutes and compute it again.
+     */
+    refresh?: boolean
+}
+
 export type LlmAnalyticsClusteringJobsListParams = {
     /**
      * Number of results to return per page.
@@ -5427,6 +5871,10 @@ export type LlmAnalyticsScoreDefinitionsListParams = {
      */
     archived?: boolean
     /**
+     * Filter by the creator's user ID.
+     */
+    created_by?: number
+    /**
      * Filter by scorer kind.
      */
     kind?: string
@@ -5443,7 +5891,7 @@ export type LlmAnalyticsScoreDefinitionsListParams = {
      */
     order_by?: string
     /**
-     * Search scorers by name or description.
+     * Search scorers by name, short name, or description.
      */
     search?: string
     /**

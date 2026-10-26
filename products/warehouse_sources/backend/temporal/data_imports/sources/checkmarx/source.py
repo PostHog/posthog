@@ -61,7 +61,7 @@ class CheckmarxSource(ResumableSource[CheckmarxSourceConfig, CheckmarxResumeConf
             name=ExternalDataSourceType.CHECKMARX,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Checkmarx (Checkmarx One)",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["checkmarx one", "sast", "sca", "appsec"],
             caption="""Enter your Checkmarx One credentials to automatically pull your application security data into the PostHog Data warehouse.
 

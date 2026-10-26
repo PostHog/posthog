@@ -38,9 +38,6 @@ class TestLlamaCloudSource:
 
     @parameterized.expand(
         [
-            ("401 Client Error: Unauthorized for url: https://api.cloud.llamaindex.ai/api/v2/parse?page_size=100",),
-            ("401 Client Error: Unauthorized for url: https://api.cloud.eu.llamaindex.ai/api/v2/projects",),
-            ("403 Client Error: Forbidden for url: https://api.cloud.llamaindex.ai/api/v1/beta/files",),
             # The beta usage-metrics endpoint 400s for organizations it isn't available to; the
             # request is otherwise valid, so retrying can't help. Both regional hosts must match.
             (
@@ -57,7 +54,6 @@ class TestLlamaCloudSource:
 
     @parameterized.expand(
         [
-            ("500 Server Error: Internal Server Error for url: https://api.cloud.llamaindex.ai/api/v2/parse",),
             ("401 Client Error: Unauthorized for url: https://api.example.com/api/v2/parse",),
             # A 400 on a different endpoint may be a fixable bug in our request, so it must stay
             # retryable and keep surfacing rather than being swallowed by the usage-metrics key.

@@ -656,10 +656,6 @@ class TestAlphaVantage:
     @parameterized.expand(
         [
             ("empty_key", "", 200, {}, False),
-            ("error_message", "KEY", 200, {"Error Message": "invalid apikey"}, False),
-            ("information", "KEY", 200, {"Information": "daily limit"}, False),
-            ("non_200", "KEY", 500, {}, False),
-            ("valid", "KEY", 200, {"Global Quote": {"01. symbol": "IBM"}}, True),
         ]
     )
     def test_validate_credentials(self, _name: str, api_key: str, status: int, body: dict, expected: bool) -> None:

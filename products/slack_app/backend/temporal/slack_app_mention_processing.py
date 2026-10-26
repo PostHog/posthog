@@ -25,6 +25,7 @@ from products.slack_app.backend.temporal import (
     classify_slack_app_model_router_activity,
     classify_slack_app_project_route_activity,
     classify_untagged_followup_activity,
+    classify_untagged_question_activity,
     collect_posthog_code_thread_messages_activity,
     create_posthog_code_task_for_repo_activity,
     discover_posthog_code_repository_via_agent_activity,
@@ -35,6 +36,7 @@ from products.slack_app.backend.temporal import (
     post_posthog_code_repo_picker_activity,
     posthog_code_thread_has_task_activity,
     request_untagged_followup_confirmation_activity,
+    request_untagged_question_confirmation_activity,
 )
 
 if TYPE_CHECKING:
@@ -42,16 +44,6 @@ if TYPE_CHECKING:
 
 POSTHOG_CODE_SLACK_MENTION_TIMEOUT_SECONDS = 10 * 60
 POSTHOG_CODE_SLACK_PICKER_TIMEOUT_MINUTES = 15
-
-# Temporal patch IDs — arbitrary strings recorded in workflow history. These gates have
-# drained: this workflow's longest wait is the 15-minute repo picker, and it is bounded
-# at an hour as a child of the queue workflow, so the pre-patch histories are gone within
-# hours of a deploy. The old branches are gone and only `deprecate_patch` remains, keeping the
-# recorded markers compatible for executions in flight across the deploy that removes the
-# branches. Standard two-step Temporal patch lifecycle: the calls come out once the
-# histories that recorded a plain marker have drained as well.
-_PATCH_ID_PARALLEL_PREWORK = "slack-app-parallel-prework-v1"
-_PATCH_ID_REPO_SELECTION_USAGE_LIMIT = "slack-app-repo-selection-usage-limit-v1"
 
 
 @workflow.defn(name="slack-app-mention-processing")
@@ -87,6 +79,9 @@ class SlackAppMentionProcessingWorkflow(PostHogWorkflow):
         if not channel or not thread_ts or not slack_user_id:
             return
 
+        # An untagged question stays silent, error replies included, until its author's
+        # mode lets the run answer. Old histories carry no such input, so they never skip.
+        silent_on_error = inputs.untagged_question and not inputs.untagged_question_confirmed
         try:
             # Gate every workflow entry on the team's AI-credits quota before any
             # other activity runs. Webhook-level short-circuit catches the common
@@ -104,7 +99,18 @@ class SlackAppMentionProcessingWorkflow(PostHogWorkflow):
             if blocked:
                 return
 
-            workflow.deprecate_patch(_PATCH_ID_PARALLEL_PREWORK)
+            # Both gates run before anything visible, because nobody tagged us in this message.
+            if silent_on_error:
+                answerable = await _execute_posthog_code_activity(classify_untagged_question_activity, inputs)
+                if not answerable:
+                    return
+                awaiting_confirmation = await _execute_posthog_code_activity(
+                    request_untagged_question_confirmation_activity, inputs
+                )
+                if awaiting_confirmation:
+                    return
+                silent_on_error = False
+
             prework = await _prework_in_parallel(inputs, channel, thread_ts, slack_user_id)
             if prework is None:
                 return
@@ -166,7 +172,6 @@ class SlackAppMentionProcessingWorkflow(PostHogWorkflow):
                     elif outcome.status == "no_match":
                         repository = None
                     else:
-                        workflow.deprecate_patch(_PATCH_ID_REPO_SELECTION_USAGE_LIMIT)
                         if outcome.usage_limited:
                             # The activity told the thread the team is out of credits. A picked repo would fail the same way.
                             return
@@ -236,6 +241,8 @@ class SlackAppMentionProcessingWorkflow(PostHogWorkflow):
                     "error_type": type(exc).__name__,
                 },
             )
+            if silent_on_error:
+                return
             await _execute_posthog_code_activity(
                 post_posthog_code_internal_error_activity,
                 inputs,
@@ -259,6 +266,7 @@ def _model_override_input(inputs: PostHogCodeSlackMentionWorkflowInputs, thread_
         slack_team_id=inputs.slack_team_id,
         event_text=inputs.event.get("text", ""),
         thread_ts=thread_ts,
+        slack_user_id=inputs.event.get("user") or None,
     )
 
 

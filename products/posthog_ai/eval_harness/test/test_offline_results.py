@@ -5,6 +5,7 @@ import asyncio
 from dataclasses import replace
 from datetime import UTC, datetime
 from functools import partial
+from pathlib import Path
 from uuid import UUID
 
 import pytest
@@ -594,6 +595,9 @@ def test_publish_refuses_a_different_destination(_name: str, host: str, project_
         ("custom", "https://posthog.example.com:8443", "https://posthog.example.com:8443"),
         ("custom_cloud_port", "https://us.i.posthog.com:8443", "https://us.i.posthog.com:8443"),
         ("ipv6", "https://[::1]:8443", "https://[::1]:8443"),
+        ("localhost", "http://localhost:8010", "http://localhost:8010"),
+        ("loopback", "http://127.0.0.1:8010/", "http://127.0.0.1:8010"),
+        ("loopback_ipv6", "http://[::1]:8010", "http://[::1]:8010"),
     ]
 )
 def test_publish_uses_the_same_origin_for_requests_and_result_links(_name: str, host: str, origin: str) -> None:
@@ -614,6 +618,96 @@ def test_publish_uses_the_same_origin_for_requests_and_result_links(_name: str, 
 
     assert all(str(request.url).startswith(f"{origin}/api/") for request in server.requests)
     assert url == f"{origin}/project/123/ai-evals/evaluations/offline/experiments/{EXPERIMENT_ID}"
+
+
+def test_local_config_routes_uploads_to_local_project_and_scorer_versions(tmp_path: Path) -> None:
+    local_versions = {
+        str(SCORER_VERSIONS["boolean_metric"]): "00000000-0000-4000-8000-000000000004",
+        str(SCORER_VERSIONS["numeric_metric"]): "00000000-0000-4000-8000-000000000005",
+    }
+    config = tmp_path / "local.json"
+    config.write_text(json.dumps({"project_id": 456, "scorer_versions": local_versions}))
+    with patch.dict(
+        "os.environ",
+        {
+            "POSTHOG_OFFLINE_EVAL_API_KEY": "test-only-token",
+            "POSTHOG_OFFLINE_EVAL_HOST": "http://localhost:8010",
+            "POSTHOG_OFFLINE_EVAL_LOCAL_CONFIG": str(config),
+        },
+        clear=True,
+    ):
+        settings = OfflineEvalSettings.from_env(SUITE)
+    assert settings is not None
+    publisher = OfflineEvalPublisher(settings, SUITE)
+    upload = _prepare(publisher, [_case()])
+    server = OfflineServer()
+
+    with patch("httpx.AsyncClient", new=partial(httpx.AsyncClient, transport=httpx.MockTransport(server.respond))):
+        url = asyncio.run(publisher.publish(upload))
+
+    assert all(str(request.url).startswith("http://localhost:8010/api/projects/456/") for request in server.requests)
+    assert [str(result.scorer_version_id) for result in upload.results] == list(local_versions.values())
+    assert url == f"http://localhost:8010/project/456/ai-evals/evaluations/offline/experiments/{EXPERIMENT_ID}"
+    assert SUITE.project_id == 123
+    assert SUITE.scorer_versions == SCORER_VERSIONS
+
+
+@pytest.mark.parametrize(
+    "contents,host",
+    [
+        (None, "http://localhost:8010"),
+        ("invalid json", "http://localhost:8010"),
+        ('{"project_id": 0, "scorer_versions": {}}', "http://localhost:8010"),
+        ('{"project_id": 456, "scorer_versions": {}}', "http://localhost:8010"),
+        ('{"project_id": 456, "scorer_versions": {"invalid": "invalid"}}', "http://localhost:8010"),
+        (
+            json.dumps(
+                {
+                    "project_id": 456,
+                    "scorer_versions": {str(version): str(version) for version in SCORER_VERSIONS.values()},
+                }
+            ),
+            "https://us.posthog.com",
+        ),
+        (
+            json.dumps(
+                {
+                    "project_id": 456,
+                    "scorer_versions": dict.fromkeys(
+                        map(str, SCORER_VERSIONS.values()), "00000000-0000-4000-8000-000000000004"
+                    ),
+                }
+            ),
+            "http://localhost:8010",
+        ),
+    ],
+    ids=[
+        "missing_file",
+        "invalid_json",
+        "invalid_project",
+        "missing_versions",
+        "invalid_uuid",
+        "cloud_host",
+        "duplicate_versions",
+    ],
+)
+def test_invalid_local_config_never_falls_back_to_catalog(tmp_path: Path, contents: str | None, host: str) -> None:
+    config = tmp_path / "local.json"
+    if contents is not None:
+        config.write_text(contents)
+    with (
+        patch.dict(
+            "os.environ",
+            {
+                "POSTHOG_OFFLINE_EVAL_API_KEY": "test-only-token",
+                "POSTHOG_OFFLINE_EVAL_HOST": host,
+                "POSTHOG_OFFLINE_EVAL_LOCAL_CONFIG": str(config),
+            },
+            clear=True,
+        ),
+        pytest.raises(OfflineUploadError),
+    ):
+        OfflineEvalSettings.from_env(SUITE)
 
 
 def test_settings_use_each_suite_destination_with_only_an_api_key() -> None:
@@ -661,6 +755,8 @@ def test_settings_reject_invalid_suite_configuration(_name: str, suite: OfflineE
         ("key_internal_space", {"POSTHOG_OFFLINE_EVAL_API_KEY": "test-only token"}),
         ("key_leading_tab", {"POSTHOG_OFFLINE_EVAL_API_KEY": "\ttest-only-token"}),
         ("insecure_host", {"POSTHOG_OFFLINE_EVAL_HOST": "http://posthog.example.com"}),
+        ("loopback_suffix", {"POSTHOG_OFFLINE_EVAL_HOST": "http://localhost.example.com:8010"}),
+        ("loopback_credentials", {"POSTHOG_OFFLINE_EVAL_HOST": "http://localhost@posthog.example.com:8010"}),
         ("malformed_host", {"POSTHOG_OFFLINE_EVAL_HOST": "https://["}),
         ("invalid_port", {"POSTHOG_OFFLINE_EVAL_HOST": "https://posthog.example.com:invalid"}),
         ("host_credentials", {"POSTHOG_OFFLINE_EVAL_HOST": "https://token@posthog.example.com"}),

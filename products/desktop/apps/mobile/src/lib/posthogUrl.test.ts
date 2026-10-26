@@ -22,13 +22,16 @@ describe("parsePostHogUrl", () => {
     });
   });
 
-  it("parses project feature flag links", () => {
-    expect(
-      parsePostHogUrl("https://us.posthog.com/project/7/feature_flags/42"),
-    ).toEqual({
+  it.each([
+    "project/7/feature_flags",
+    "project/7/feature-flags",
+    "feature_flags",
+    "feature-flags",
+  ])("parses %s links", (section) => {
+    expect(parsePostHogUrl(`https://us.posthog.com/${section}/42`)).toEqual({
       kind: "app",
       defaultLabel: "Feature flag (42)",
-      normalizedUrl: "https://us.posthog.com/project/7/feature_flags/42",
+      normalizedUrl: `https://us.posthog.com/${section}/42`,
       refId: "42",
     });
   });
@@ -67,19 +70,21 @@ describe("parsePostHogUrl", () => {
     });
   });
 
-  it("uses the feature flag search query when present", () => {
-    expect(
-      parsePostHogUrl(
-        "https://eu.posthog.com/project/1/feature_flags?search=checkout-redesign",
-      ),
-    ).toEqual({
-      kind: "app",
-      defaultLabel: "Feature flags / checkout-redesign",
-      normalizedUrl:
-        "https://eu.posthog.com/project/1/feature_flags?search=checkout-redesign",
-      refId: null,
-    });
-  });
+  it.each(["feature_flags", "feature-flags"])(
+    "uses the %s search query when present",
+    (section) => {
+      expect(
+        parsePostHogUrl(
+          `https://eu.posthog.com/project/1/${section}?search=checkout-redesign`,
+        ),
+      ).toEqual({
+        kind: "app",
+        defaultLabel: "Feature flags / checkout-redesign",
+        normalizedUrl: `https://eu.posthog.com/project/1/${section}?search=checkout-redesign`,
+        refId: null,
+      });
+    },
+  );
 
   it("falls back to generic website labels for non-docs pages", () => {
     expect(parsePostHogUrl("https://posthog.com/pricing")).toEqual({

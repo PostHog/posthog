@@ -60,7 +60,11 @@ from products.tasks.backend.temporal.metrics import (
     sandbox_runtime_label,
 )
 from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_run
-from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
+from products.tasks.backend.temporal.observability import (
+    emit_agent_log,
+    log_activity_execution,
+    log_with_activity_context,
+)
 from products.tasks.backend.temporal.process_task.organization import guard_organization_execution
 from products.tasks.backend.temporal.process_task.utils import (
     McpServerConfig,
@@ -79,7 +83,6 @@ from .get_task_processing_context import TaskProcessingContext
 
 logger = get_logger(__name__)
 
-AGENT_SERVER_SHADOW_FEATURE_FLAG = "agent-server-shadow-observer"
 
 PROTECTED_BASE_BRANCH_JOIN_TIMEOUT_SECONDS = 30.0
 
@@ -162,11 +165,10 @@ def _resolve_protected_base_branch(ctx: TaskProcessingContext) -> str | None:
         return branch
 
     if pr_base and pr_base != branch:
-        emit_agent_log(
-            ctx.run_id,
-            "debug",
+        log_with_activity_context(
             f"Working branch '{branch}' heads an open PR; protecting its base '{pr_base}' so commits to "
             f"'{branch}' are allowed",
+            run_id=ctx.run_id,
         )
         return pr_base
     return branch
@@ -208,23 +210,6 @@ def _ensure_repository_on_disk(ctx: TaskProcessingContext, sandbox: SandboxBase)
             )
 
 
-def _is_agent_shadow_enabled(ctx: TaskProcessingContext) -> bool:
-    try:
-        return bool(
-            posthoganalytics.feature_enabled(
-                AGENT_SERVER_SHADOW_FEATURE_FLAG,
-                distinct_id=ctx.distinct_id,
-                groups={"organization": ctx.organization_id},
-                group_properties={"organization": {"id": ctx.organization_id}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception:
-        logger.exception("agent_shadow_flag_check_failed", run_id=ctx.run_id)
-        return False
-
-
 def _has_agent_shadow_launch_marker(ctx: TaskProcessingContext, sandbox: SandboxBase) -> bool:
     try:
         result = sandbox.execute(
@@ -242,7 +227,7 @@ def _launch_agent_shadow(ctx: TaskProcessingContext, sandbox: SandboxBase) -> bo
         return False
     if current_activity_attempt() > 1 and _has_agent_shadow_launch_marker(ctx, sandbox):
         return True
-    if not _is_agent_shadow_enabled(ctx):
+    if not ctx.agent_shadow_enabled:
         return False
     quoted_run_id = shlex.quote(ctx.run_id)
     command = (
@@ -396,7 +381,6 @@ class _LaunchParams:
     task_run_session_token: str | None = field(repr=False)
     codex_run_token: str | None = field(repr=False)
     event_ingest_url: str | None
-    event_ingest_keep_stream_open: bool
 
 
 def _agentsh_domains_for(ctx: TaskProcessingContext) -> list[str] | None:
@@ -553,17 +537,15 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbo
 
     relayed_names = get_relayed_mcp_server_names(task_run, {config.name for config in mcp_configs})
     if relayed_names:
-        emit_agent_log(
-            ctx.run_id,
-            "debug",
+        log_with_activity_context(
             f"Resolved {len(relayed_names)} relayed MCP server name(s) for agent server: {', '.join(relayed_names)}",
+            run_id=ctx.run_id,
         )
 
     if mcp_configs:
-        emit_agent_log(
-            ctx.run_id,
-            "debug",
+        log_with_activity_context(
             f"Resolved {len(mcp_configs)} MCP config(s) for agent server: {', '.join(config.name for config in mcp_configs)}",
+            run_id=ctx.run_id,
         )
     else:
         emit_agent_log(
@@ -575,24 +557,20 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbo
     agentsh_domains = _agentsh_domains_for(ctx)
     if ctx.use_modal_network_allowlist and ctx.allowed_domains is not None:
         environment_name = ctx.sandbox_environment_name or ctx.sandbox_environment_id or "selected environment"
-        emit_agent_log(
-            ctx.run_id,
-            "debug",
-            f"Enforcing network allowlist for '{environment_name}' via Modal and agentsh",
+        log_with_activity_context(
+            f"Enforcing network allowlist for '{environment_name}' via Modal and agentsh", run_id=ctx.run_id
         )
     elif agentsh_domains is not None:
         environment_name = ctx.sandbox_environment_name or ctx.sandbox_environment_id or "selected environment"
-        emit_agent_log(
-            ctx.run_id,
-            "debug",
+        log_with_activity_context(
             f"Applying agentsh network policy for '{environment_name}' with allowlist: {format_allowed_domains_for_log(agentsh_domains)}",
+            run_id=ctx.run_id,
         )
     elif ctx.sandbox_environment_id:
         environment_name = ctx.sandbox_environment_name or ctx.sandbox_environment_id
-        emit_agent_log(
-            ctx.run_id,
-            "debug",
+        log_with_activity_context(
             f"Sandbox environment '{environment_name}' grants full network access; starting without agentsh restrictions",
+            run_id=ctx.run_id,
         )
 
     protected_base_branch = _join_protected_base_branch_lookup(ctx, protected_base_branch_lookup)
@@ -607,7 +585,6 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbo
         task_run_session_token=task_run_session_token,
         codex_run_token=codex_run_token,
         event_ingest_url=event_ingest_url,
-        event_ingest_keep_stream_open=ctx.agent_proxy_keep_stream_open,
     )
 
 
@@ -645,7 +622,6 @@ def _invoke_start_agent_server(
             event_ingest_token=params.event_ingest_token,
             task_run_session_token=params.task_run_session_token,
             event_ingest_url=params.event_ingest_url,
-            event_ingest_keep_stream_open=params.event_ingest_keep_stream_open,
             repo_ready_file=repo_ready_file,
             wait_for_health=wait_for_health,
             rtk_enabled=ctx.rtk_enabled,
@@ -810,7 +786,7 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
         ),
         guard_organization_execution(ctx.team_id),
     ):
-        emit_agent_log(ctx.run_id, "debug", "Starting agent server")
+        log_with_activity_context("Starting agent server", run_id=ctx.run_id)
 
         with StepTimer("sandbox_lookup"):
             sandbox = get_sandbox_class_for_sandbox_id(input.sandbox_id).get_by_id(input.sandbox_id)
@@ -903,7 +879,7 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
 
         _record_network_enforcement_observation(ctx)
 
-        emit_agent_log(ctx.run_id, "debug", f"Agent server started at {input.sandbox_url}")
+        log_with_activity_context(f"Agent server started at {input.sandbox_url}", run_id=ctx.run_id)
         activity.logger.info(f"Agent server started at {input.sandbox_url} for task {ctx.task_id}")
 
         session_init_ms, boot_phases_ms = _read_agent_boot_metrics(sandbox, input)
@@ -947,7 +923,7 @@ def launch_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
         ),
         guard_organization_execution(ctx.team_id),
     ):
-        emit_agent_log(ctx.run_id, "debug", "Launching agent server (deferred readiness)")
+        log_with_activity_context("Launching agent server (deferred readiness)", run_id=ctx.run_id)
 
         with StepTimer("sandbox_lookup"):
             sandbox = get_sandbox_class_for_sandbox_id(input.sandbox_id).get_by_id(input.sandbox_id)
@@ -1002,7 +978,7 @@ def mark_repo_ready(input: MarkRepoReadyInput) -> None:
             f"Repository clone failed; {action} empty workspace for: {', '.join(input.failed_repositories)}",
         )
     elif input.release_barrier:
-        emit_agent_log(input.run_id, "debug", "Repo ready; released agent-server session barrier")
+        log_with_activity_context("Repo ready; released agent-server session barrier", run_id=input.run_id)
 
 
 @activity.defn
@@ -1112,7 +1088,7 @@ def await_agent_server_ready(input: StartAgentServerInput) -> StartAgentServerOu
 
         _record_network_enforcement_observation(ctx)
 
-        emit_agent_log(ctx.run_id, "debug", f"Agent server ready at {input.sandbox_url}")
+        log_with_activity_context(f"Agent server ready at {input.sandbox_url}", run_id=ctx.run_id)
         activity.logger.info(f"Agent server ready at {input.sandbox_url} for task {ctx.task_id}")
 
         session_init_ms, boot_phases_ms = _read_agent_boot_metrics(sandbox, input)

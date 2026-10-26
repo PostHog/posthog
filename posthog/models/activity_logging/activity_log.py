@@ -49,6 +49,7 @@ ACTIVITY_LOG_WRITE_FAILURES = Counter(
 ActivityScope = Literal[
     "Cohort",
     "CrossProjectDashboard",
+    "DevGatewayToken",
     "FeatureFlag",
     "Person",
     "Group",
@@ -111,12 +112,14 @@ ActivityScope = Literal[
     "EvaluationDirectory",
     "LLMPrompt",
     "LLMPromptLabel",
+    "LLMSkill",
     "LLMTrace",
     "AIGatewayCredit",
     "WebAnalyticsFilterPreset",
     "CustomerProfileConfig",
     "Log",
     "LogsAlertConfiguration",
+    "PlatformAlertConfiguration",
     "LogsExclusionRule",
     "LogsRetentionRule",
     "TracesRetentionRule",
@@ -135,6 +138,9 @@ ActivityScope = Literal[
     "DataQualityCheck",
     "DataQualityCheckSchedule",
     "WarehouseSuggestion",
+    "AccessControl",
+    "DataWarehouseTable",
+    "DataWarehouseJoin",
     "Billing",
     "Loop",
     "StamphogRepoConfig",
@@ -255,6 +261,12 @@ class ActivityLog(UUIDTModel):
                 fields=["team_id", "-created_at"],
                 name="idx_alog_team_created_at",
             ),
+            # One user's rows in a time window, for the activity summary. Not partial, because the
+            # query keeps rows where `is_system` and `was_impersonated` are NULL.
+            models.Index(
+                fields=["team_id", "user", "-created_at"],
+                name="idx_alog_team_user_created_at",
+            ),
         ]
 
     team_id = models.PositiveIntegerField(null=True)
@@ -367,6 +379,15 @@ common_field_exclusions = [
 
 
 field_with_masked_contents: dict[AuditableScope, list[str]] = {
+    # Any activity-log reader sees these rows, including readers denied the tables they name.
+    "DataWarehouseJoin": [
+        "source_table_name",
+        "source_table_key",
+        "joining_table_name",
+        "joining_table_key",
+        "field_name",
+        "configuration",
+    ],
     "SignalTeamConfig": ["onboarding"],
     "AccountView": ["name", "content", "text_content"],
     "WarehouseSuggestion": ["dismissal_note"],
@@ -562,6 +583,18 @@ vision_alert_machine_fields = [
     "updated_at",
 ]
 
+# Written by checks, ownership handovers and the logs route's snooze, never by a settings edit.
+platform_alert_runtime_fields = [
+    "next_check_at",
+    "snooze_until",
+    "consecutive_failures",
+    "check_status",
+    "owner",
+    "owner_changed_at",
+    "switched_off_at",
+    "updated_at",
+]
+
 # Fields that prevent activity signal triggering entirely when only these fields change
 signal_exclusions: dict[ActivityScope, list[str]] = {
     "DataQualityCheckSchedule": ["next_run_at", "last_run_at", "last_suite_run", "updated_at"],
@@ -582,6 +615,7 @@ signal_exclusions: dict[ActivityScope, list[str]] = {
         "consecutive_failures",
         "state",
     ],
+    "PlatformAlertConfiguration": platform_alert_runtime_fields,
     "PersonalAPIKey": [
         "last_used_at",
     ],
@@ -720,6 +754,8 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "alerts",
     ],
     "VisionAlertConfiguration": [*vision_alert_machine_fields, "events", "matches"],
+    # The reverse relations hold runtime state per group and per notification thread.
+    "PlatformAlertConfiguration": [*platform_alert_runtime_fields, "alerts", "threads", "delivery_paths"],
     "DataQualityCheckSchedule": ["subject_type", "subject_uuid", "next_run_at", "last_run_at", "last_suite_run"],
     # The pointer names the tagged object, which a row never changes, and content_type and team
     # are model objects the diff cannot serialize.
@@ -911,6 +947,10 @@ field_exclusions: dict[AuditableScope, list[str]] = {
     ],
     "Project": ["id", "created_at"],
     "DataWarehouseExpression": ["deleted_at"],
+    "DataWarehouseJoin": ["deleted_at"],
+    # The subject is the identity of a rule and never changes. The receiver names it in the
+    # context, so the diff does not load the role and the membership for both sides.
+    "AccessControl": ["organization_member", "role"],
     "DataWarehouseSavedQuery": [
         "name",
         "columns",
@@ -1546,6 +1586,7 @@ def log_activity_with_soft_delete(
     user: "User | None",
     was_impersonated: bool,
     name: str | None = None,
+    organization_id: UUID | None = None,
 ) -> None:
     instance = current or previous
     if instance is None:
@@ -1557,7 +1598,7 @@ def log_activity_with_soft_delete(
     if deleted_change:
         activity = "deleted" if deleted_change.after else "restored"
     log_activity(
-        organization_id=None,
+        organization_id=organization_id,
         team_id=instance.serializable_value("team"),
         user=user,
         was_impersonated=was_impersonated,

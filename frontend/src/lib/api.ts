@@ -215,13 +215,13 @@ import type {
     ErrorTrackingRuleType,
 } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/rules/types'
 import type { SymbolSetOrder } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/symbol_sets/symbolSetLogic'
-import type { ErrorTrackingRecommendation } from 'products/error_tracking/frontend/scenes/ErrorTrackingScene/tabs/recommendations/types'
 import type { CopyFlagsResponseApi } from 'products/feature_flags/frontend/generated/api.schemas'
 import type {
     GitHubBranchesResponseApi,
     GitHubReposResponseApi,
 } from 'products/integrations/frontend/generated/api.schemas'
 import type { LogExplanation } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/Tabs/ExploreWithAI/types'
+import type { TasksRunsLogsRetrieveParams } from 'products/logs/frontend/generated/api.schemas'
 import type { NotebookCollabCursorApi } from 'products/notebooks/frontend/generated/api.schemas'
 import type { Task, TaskListParams, TaskRun, TaskUpsertProps } from 'products/posthog_ai/frontend/types/taskTypes'
 import type {
@@ -483,6 +483,22 @@ export class ApiConfig {
 
 /** A workflow's type: the surface that owns it, else what it does. */
 export type HogFlowListType = 'messaging' | 'automation' | 'loop' | 'broadcast'
+
+function parseLogEntries(text: string): Record<string, any>[] {
+    const entries: Record<string, any>[] = []
+    for (const line of text.split('\n')) {
+        const trimmed = line.trim()
+        if (!trimmed) {
+            continue
+        }
+        try {
+            entries.push(JSON.parse(trimmed))
+        } catch {
+            // Skip unparseable lines — the stream is best-effort historical replay.
+        }
+    }
+    return entries
+}
 
 export class ApiRequest {
     private pathComponents: string[]
@@ -1348,14 +1364,6 @@ export class ApiRequest {
 
     public errorTrackingSpikeEvents(teamId?: TeamType['id']): ApiRequest {
         return this.errorTracking(teamId).addPathComponent('spike_events')
-    }
-
-    public errorTrackingRecommendations(teamId?: TeamType['id']): ApiRequest {
-        return this.errorTracking(teamId).addPathComponent('recommendations')
-    }
-
-    public errorTrackingRecommendation(id: string, teamId?: TeamType['id']): ApiRequest {
-        return this.errorTrackingRecommendations(teamId).addPathComponent(id)
     }
 
     public quickFilters(teamId?: TeamType['id']): ApiRequest {
@@ -2456,8 +2464,17 @@ const api = {
             }
             return await request.get({ signal })
         },
-        async create(data: { path: string; href?: string; ref?: string; type?: string }): Promise<FileSystemEntry> {
-            return await new ApiRequest().fileSystemShortcut().create({ data })
+        async create(data: {
+            path: string
+            href?: string
+            ref?: string
+            type?: string
+        }): Promise<{ shortcut: FileSystemEntry; created: boolean }> {
+            const url = new ApiRequest().fileSystemShortcut().assembleFullUrl()
+            const response = await api.createResponse(url, data)
+            const shortcut: FileSystemEntry = await getJSONFromSuccessResponse(response, 'POST', url)
+            // The API answers 200 instead of 201 when the user already has this shortcut.
+            return { shortcut, created: response.status === 201 }
         },
         async delete(id: FileSystemEntry['id']): Promise<void> {
             return await new ApiRequest().fileSystemShortcutDetail(id).delete()
@@ -4142,31 +4159,6 @@ const api = {
             return await new ApiRequest().errorTrackingRules(ruleType).get()
         },
 
-        async listRecommendations({ poll = false }: { poll?: boolean } = {}): Promise<{
-            results: ErrorTrackingRecommendation[]
-        }> {
-            return await new ApiRequest().errorTrackingRecommendations().withQueryString({ poll }).get()
-        },
-
-        async dismissRecommendation(id: string): Promise<ErrorTrackingRecommendation> {
-            return await new ApiRequest().errorTrackingRecommendation(id).withAction('dismiss').create()
-        },
-
-        async restoreRecommendation(id: string): Promise<ErrorTrackingRecommendation> {
-            return await new ApiRequest().errorTrackingRecommendation(id).withAction('restore').create()
-        },
-
-        async refreshRecommendation(
-            id: string,
-            { force = true }: { force?: boolean } = {}
-        ): Promise<ErrorTrackingRecommendation> {
-            return await new ApiRequest()
-                .errorTrackingRecommendation(id)
-                .withAction('refresh')
-                .withQueryString({ force })
-                .create()
-        },
-
         async createRule(
             ruleType: ErrorTrackingRuleType,
             { id: _, ...data }: ErrorTrackingRule
@@ -5069,20 +5061,58 @@ const api = {
                     .taskRun(taskId, runId, options.projectId)
                     .withAction('logs')
                     .getResponse({ signal: options.signal })
-                const text = await response.text()
-                const entries: Record<string, any>[] = []
-                for (const line of text.split('\n')) {
-                    const trimmed = line.trim()
-                    if (!trimmed) {
-                        continue
-                    }
-                    try {
-                        entries.push(JSON.parse(trimmed))
-                    } catch {
-                        // Skip unparseable lines — the stream is best-effort historical replay.
-                    }
+                return parseLogEntries(await response.text())
+            },
+            /**
+             * Fetch part of a run's resume-chain log. With `tailBytes`, the latest turns (at least `tailBytes`, from a
+             * cut where a user turn starts) that end before entry index `before`, or with `start`, every entry from
+             * that index on. The page starts with `preamble` earlier entries that still set run state; `offset` is
+             * the full-log index of the first entry after them, `count` is the full-log size, and `turnsBefore`
+             * counts the user turns before `offset`. Without `tailBytes`, or for a log the server does not page, the
+             * response is the full log and `indexed` is false.
+             */
+            async getLogPage(
+                taskId: Task['id'],
+                runId: TaskRun['id'],
+                options: {
+                    signal?: AbortSignal
+                    projectId?: TeamType['id']
+                    tailBytes?: number
+                    before?: number
+                    start?: number
+                    view?: TasksRunsLogsRetrieveParams['view']
                 }
-                return entries
+            ): Promise<{
+                entries: Record<string, any>[]
+                offset: number
+                count: number
+                preamble: number
+                turnsBefore: number
+                origin: string
+                indexed: boolean
+            }> {
+                const response = await new ApiRequest()
+                    .taskRun(taskId, runId, options.projectId)
+                    .withAction('logs')
+                    .withQueryString({
+                        ...(options.tailBytes !== undefined ? { tail_bytes: options.tailBytes } : {}),
+                        ...(options.before !== undefined ? { before: options.before } : {}),
+                        ...(options.start !== undefined ? { start: options.start } : {}),
+                        ...(options.view ? { view: options.view } : {}),
+                    })
+                    .getResponse({ signal: options.signal })
+                const entries = parseLogEntries(await response.text())
+                const indexed = response.headers.get('X-Log-Offset') !== null
+                const header = (name: string): number => Number(response.headers.get(name) ?? 0) || 0
+                return {
+                    entries,
+                    offset: header('X-Log-Offset'),
+                    count: indexed ? header('X-Log-Count') : entries.length,
+                    preamble: header('X-Log-Preamble'),
+                    turnsBefore: header('X-Log-Turns-Before'),
+                    origin: response.headers.get('X-Log-Origin') ?? '',
+                    indexed,
+                }
             },
             /**
              * Open the live SSE stream for a run as a `fetch` response (the caller reads it with
@@ -6154,8 +6184,11 @@ const api = {
         async delete(id: PersonalAPIKeyType['id']): Promise<void> {
             await new ApiRequest().personalApiKey(id).delete()
         },
-        async roll(id: PersonalAPIKeyType['id']): Promise<PersonalAPIKeyType> {
-            return await new ApiRequest().personalApiKey(id).withAction('roll').create()
+        async roll(
+            id: PersonalAPIKeyType['id'],
+            data: Pick<Partial<PersonalAPIKeyType>, 'expires_at'> = {}
+        ): Promise<PersonalAPIKeyType> {
+            return await new ApiRequest().personalApiKey(id).withAction('roll').create({ data })
         },
     },
 
@@ -6313,6 +6346,8 @@ const api = {
             type?: HogFlowListType[]
             /** JSON-encoded object the stored trigger must contain, e.g. `{"type":"batch"}`. */
             trigger?: string
+            /** JSON-encoded list of tag names. A workflow matches when it carries at least one. */
+            tags?: string
             limit?: number
             offset?: number
         }): Promise<CountedPaginatedResponse<HogFlow>> {

@@ -1,3 +1,5 @@
+import type { ReactNode } from 'react'
+
 import type {
     MetricThresholdConfigApi,
     MonitoringMetricConfigApi,
@@ -11,12 +13,12 @@ export function ReportMonitoringDetails({
     config,
     monitoring,
     metric,
-    waitDescription,
+    timingDescription,
 }: {
     config: MetricThresholdConfigApi
     monitoring: MonitoringMetricConfigApi
     metric: ReportMetricApi
-    waitDescription: string
+    timingDescription: ReactNode
 }): JSX.Element {
     return (
         <details className="text-sm">
@@ -42,7 +44,7 @@ export function ReportMonitoringDetails({
                         )}
                     </p>
                 )}
-                <p className="m-0">{waitDescription}</p>
+                <div>{timingDescription}</div>
             </div>
         </details>
     )

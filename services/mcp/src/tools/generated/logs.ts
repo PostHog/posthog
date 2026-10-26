@@ -3,6 +3,12 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/logs/api'
+import hooks_logsAttributeValuesList from '@/tools/logs/redactCredentialsHooks'
+import hooks_logsFacetValuesCreate from '@/tools/logs/redactCredentialsHooks'
+import hooks_logsPatterns from '@/tools/logs/redactCredentialsHooks'
+import hooks_logsPatternsDiff from '@/tools/logs/redactCredentialsHooks'
+import hooks_queryLogs from '@/tools/logs/redactCredentialsHooks'
+import { transformRequestBody, withToolHooks } from '@/tools/tool-hooks'
 import { withPostHogUrl, pickResponseFields, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
@@ -50,6 +56,9 @@ const logsAlertsCreate = (): ToolBase<ReturnType<typeof LogsAlertsCreateSchema>,
         if (params.snooze_until !== undefined) {
             body['snooze_until'] = params.snooze_until
         }
+        if (params.grouping !== undefined) {
+            body['grouping'] = params.grouping
+        }
         const result = await context.api.request<Schemas.LogsAlertConfiguration>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/alerts/`,
@@ -70,6 +79,8 @@ const logsAlertsCreate = (): ToolBase<ReturnType<typeof LogsAlertsCreateSchema>,
             'cooldown_minutes',
             'schedule_restriction',
             'snooze_until',
+            'grouping',
+            'platform_owned',
             'next_check_at',
             'last_notified_at',
             'last_checked_at',
@@ -281,6 +292,8 @@ const logsAlertsList = (): ToolBase<
                     'threshold_operator',
                     'window_minutes',
                     'schedule_restriction',
+                    'grouping',
+                    'platform_owned',
                     'created_at',
                     'updated_at',
                 ])
@@ -338,6 +351,9 @@ const logsAlertsPartialUpdate = (): ToolBase<
         if (params.snooze_until !== undefined) {
             body['snooze_until'] = params.snooze_until
         }
+        if (params.grouping !== undefined) {
+            body['grouping'] = params.grouping
+        }
         const result = await context.api.request<Schemas.LogsAlertConfiguration>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/alerts/${encodeURIComponent(String(params.id))}/`,
@@ -358,6 +374,8 @@ const logsAlertsPartialUpdate = (): ToolBase<
             'cooldown_minutes',
             'schedule_restriction',
             'snooze_until',
+            'grouping',
+            'platform_owned',
             'next_check_at',
             'last_notified_at',
             'last_checked_at',
@@ -402,6 +420,8 @@ const logsAlertsRetrieve = (): ToolBase<
             'cooldown_minutes',
             'schedule_restriction',
             'snooze_until',
+            'grouping',
+            'platform_owned',
             'next_check_at',
             'last_notified_at',
             'last_checked_at',
@@ -545,23 +565,26 @@ const logsAttributeValuesList = (): ToolBase<
 > => ({
     name: 'logs-attribute-values-list',
     schema: LogsAttributeValuesListSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof LogsAttributeValuesListSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas._LogsValuesResponse>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/values/`,
-            query: {
-                attribute_type: params.attribute_type,
-                dateRange: params.dateRange,
-                filterGroup: params.filterGroup,
-                key: params.key,
-                serviceNames: params.serviceNames,
-                value: params.value,
-            },
-        })
-        const filtered = pickResponseFields(result, ['results']) as typeof result
-        return filtered
-    },
+    handler: withToolHooks(
+        hooks_logsAttributeValuesList,
+        async (context: Context, params: z.infer<ReturnType<typeof LogsAttributeValuesListSchema>>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const result = await context.api.request<Schemas._LogsValuesResponse>({
+                method: 'GET',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/values/`,
+                query: {
+                    attribute_type: params.attribute_type,
+                    dateRange: params.dateRange,
+                    filterGroup: params.filterGroup,
+                    key: params.key,
+                    serviceNames: params.serviceNames,
+                    value: params.value,
+                },
+            })
+            const filtered = pickResponseFields(result, ['results']) as typeof result
+            return filtered
+        }
+    ),
 })
 
 const LogsAttributesListSchema = () => {
@@ -656,18 +679,45 @@ const logsFacetValuesCreate = (): ToolBase<
 > => ({
     name: 'logs-facet-values-create',
     schema: LogsFacetValuesCreateSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof LogsFacetValuesCreateSchema>>) => {
+    handler: withToolHooks(
+        hooks_logsFacetValuesCreate,
+        async (context: Context, params: z.infer<ReturnType<typeof LogsFacetValuesCreateSchema>>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const body: Record<string, unknown> = {}
+            if (params.query !== undefined) {
+                body['query'] = params.query
+            }
+            const result = await context.api.request<Schemas._LogsFacetValuesResponse>({
+                method: 'POST',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/facet_values/`,
+                body: await transformRequestBody(hooks_logsFacetValuesCreate, context, params, body),
+            })
+            const filtered = pickResponseFields(result, ['results']) as typeof result
+            return filtered
+        }
+    ),
+})
+
+const LogsGroupBySchema = () => {
+    const LogsGroupByCreateBody = orvalSchemas.LogsGroupByCreateBody()
+    return LogsGroupByCreateBody
+}
+
+const logsGroupBy = (): ToolBase<ReturnType<typeof LogsGroupBySchema>, Schemas._LogsGroupByResponse> => ({
+    name: 'logs-group-by',
+    schema: LogsGroupBySchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof LogsGroupBySchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.query !== undefined) {
             body['query'] = params.query
         }
-        const result = await context.api.request<Schemas._LogsFacetValuesResponse>({
+        const result = await context.api.request<Schemas._LogsGroupByResponse>({
             method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/facet_values/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/group-by/`,
             body,
         })
-        const filtered = pickResponseFields(result, ['results']) as typeof result
+        const filtered = omitResponseFields(result, ['groups.*.value']) as typeof result
         return filtered
     },
 })
@@ -680,26 +730,29 @@ const LogsPatternsSchema = () => {
 const logsPatterns = (): ToolBase<ReturnType<typeof LogsPatternsSchema>, Schemas._LogsPatternsResponse> => ({
     name: 'logs-patterns',
     schema: LogsPatternsSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof LogsPatternsSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.query !== undefined) {
-            body['query'] = params.query
+    handler: withToolHooks(
+        hooks_logsPatterns,
+        async (context: Context, params: z.infer<ReturnType<typeof LogsPatternsSchema>>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const body: Record<string, unknown> = {}
+            if (params.query !== undefined) {
+                body['query'] = params.query
+            }
+            const result = await context.api.request<Schemas._LogsPatternsResponse>({
+                method: 'POST',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/patterns/`,
+                body: await transformRequestBody(hooks_logsPatterns, context, params, body),
+            })
+            const filtered = omitResponseFields(result, [
+                'patterns.*.examples',
+                'patterns.*.sparkline',
+                'patterns.*.count',
+                'patterns.*.error_count',
+                'sparkline_buckets',
+            ]) as typeof result
+            return filtered
         }
-        const result = await context.api.request<Schemas._LogsPatternsResponse>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/patterns/`,
-            body,
-        })
-        const filtered = omitResponseFields(result, [
-            'patterns.*.examples',
-            'patterns.*.sparkline',
-            'patterns.*.count',
-            'patterns.*.error_count',
-            'sparkline_buckets',
-        ]) as typeof result
-        return filtered
-    },
+    ),
 })
 
 const LogsPatternsDiffSchema = () => {
@@ -713,28 +766,33 @@ const logsPatternsDiff = (): ToolBase<
 > => ({
     name: 'logs-patterns-diff',
     schema: LogsPatternsDiffSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof LogsPatternsDiffSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.query !== undefined) {
-            body['query'] = params.query
+    handler: withToolHooks(
+        hooks_logsPatternsDiff,
+        async (context: Context, params: z.infer<ReturnType<typeof LogsPatternsDiffSchema>>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const body: Record<string, unknown> = {}
+            if (params.query !== undefined) {
+                body['query'] = params.query
+            }
+            if (params.baselineDateRange !== undefined) {
+                body['baselineDateRange'] = params.baselineDateRange
+            }
+            const result = await context.api.request<Schemas._LogsPatternsDiffResponse>({
+                method: 'POST',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/patterns_diff/`,
+                body: await transformRequestBody(hooks_logsPatternsDiff, context, params, body),
+            })
+            const filtered = omitResponseFields(result, [
+                'entries.*.pattern.pattern',
+                'entries.*.pattern.services',
+                'entries.*.pattern.examples',
+                'entries.*.pattern.sparkline',
+                'entries.*.pattern.count',
+                'entries.*.pattern.error_count',
+            ]) as typeof result
+            return filtered
         }
-        if (params.baselineDateRange !== undefined) {
-            body['baselineDateRange'] = params.baselineDateRange
-        }
-        const result = await context.api.request<Schemas._LogsPatternsDiffResponse>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/patterns_diff/`,
-            body,
-        })
-        const filtered = omitResponseFields(result, [
-            'entries.*.pattern.examples',
-            'entries.*.pattern.sparkline',
-            'entries.*.pattern.count',
-            'entries.*.pattern.error_count',
-        ]) as typeof result
-        return filtered
-    },
+    ),
 })
 
 const LogsServicesCreateSchema = () => {
@@ -754,12 +812,21 @@ const logsServicesCreate = (): ToolBase<
         if (params.query !== undefined) {
             body['query'] = params.query
         }
+        if (params.baselineDateRange !== undefined) {
+            body['baselineDateRange'] = params.baselineDateRange
+        }
         const result = await context.api.request<Schemas._LogsServicesResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/services/`,
             body,
         })
-        const filtered = pickResponseFields(result, ['services', 'sparkline']) as typeof result
+        const filtered = pickResponseFields(result, [
+            'services',
+            'sparkline',
+            'window',
+            'summary',
+            'next',
+        ]) as typeof result
         return filtered
     },
 })
@@ -798,20 +865,23 @@ const QueryLogsSchema = () => {
 const queryLogs = (): ToolBase<ReturnType<typeof QueryLogsSchema>, Schemas._LogsQueryResponse> => ({
     name: 'query-logs',
     schema: QueryLogsSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof QueryLogsSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.query !== undefined) {
-            body['query'] = params.query
+    handler: withToolHooks(
+        hooks_queryLogs,
+        async (context: Context, params: z.infer<ReturnType<typeof QueryLogsSchema>>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const body: Record<string, unknown> = {}
+            if (params.query !== undefined) {
+                body['query'] = params.query
+            }
+            const result = await context.api.request<Schemas._LogsQueryResponse>({
+                method: 'POST',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/query/`,
+                body: await transformRequestBody(hooks_queryLogs, context, params, body),
+            })
+            const filtered = pickResponseFields(result, ['results']) as typeof result
+            return filtered
         }
-        const result = await context.api.request<Schemas._LogsQueryResponse>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/query/`,
-            body,
-        })
-        const filtered = pickResponseFields(result, ['results']) as typeof result
-        return filtered
-    },
+    ),
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
@@ -831,6 +901,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'logs-count': logsCount,
     'logs-count-ranges': logsCountRanges,
     'logs-facet-values-create': logsFacetValuesCreate,
+    'logs-group-by': logsGroupBy,
     'logs-patterns': logsPatterns,
     'logs-patterns-diff': logsPatternsDiff,
     'logs-services-create': logsServicesCreate,

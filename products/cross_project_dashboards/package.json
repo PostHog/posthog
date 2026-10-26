@@ -13,6 +13,7 @@
         "posthog-js": "catalog:"
     },
     "devDependencies": {
+        "@testing-library/jest-dom": "^5.17.0",
         "@testing-library/react": "^14.3.1",
         "kea-test-utils": "catalog:"
     },
@@ -21,6 +22,6 @@
         "@posthog/icons": "catalog:",
         "@types/react": "*",
         "react": "*",
-        "react-grid-layout": "^2.2.4"
+        "react-grid-layout": "^2.3.0"
     }
 }

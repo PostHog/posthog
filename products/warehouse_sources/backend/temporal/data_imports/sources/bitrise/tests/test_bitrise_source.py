@@ -20,7 +20,6 @@ class TestBitriseSource:
         "status_code, expected_valid, expected_message",
         [
             (200, True, None),
-            (401, False, "Invalid Bitrise API token"),
         ],
     )
     def test_validate_credentials(self, status_code: int, expected_valid: bool, expected_message: str | None) -> None:

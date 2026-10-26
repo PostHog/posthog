@@ -114,6 +114,12 @@ jobs:
               with:
                   fetch-depth: 2
 
+            - name: Resolve commit timestamp
+              id: commit-time
+              env:
+                  HEAD_COMMIT_TIMESTAMP: ${{ github.event.head_commit.timestamp }}
+              run: echo "timestamp=${HEAD_COMMIT_TIMESTAMP:-$(TZ=UTC git show -s --date=format-local:%Y-%m-%dT%H:%M:%SZ --format=%cd HEAD)}" >> "$GITHUB_OUTPUT"
+
             - name: Set up Docker Buildx
               uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
 
@@ -217,7 +223,7 @@ jobs:
                       GITHUB_ACTIONS=true
                       GITHUB_SHA=${{ github.sha }}
                       GITHUB_REF_NAME=${{ github.ref_name }}
-                      GITHUB_REPOSITORY=${{ github.repository }}
+                      GITHUB_REPOSITORY=PostHog/posthog
                       GITHUB_SERVER_URL=${{ github.server_url }}
                   secrets: |
                       posthog_upload_sourcemaps_cli_api_key=${{ secrets.POSTHOG_UPLOAD_SOURCEMAPS_CLI_API_KEY }}
@@ -297,7 +303,7 @@ jobs:
                       GITHUB_ACTIONS=true
                       GITHUB_SHA=${{ github.sha }}
                       GITHUB_REF_NAME=${{ github.ref_name }}
-                      GITHUB_REPOSITORY=${{ github.repository }}
+                      GITHUB_REPOSITORY=PostHog/posthog
                       GITHUB_SERVER_URL=${{ github.server_url }}
                   secrets: |
                       posthog_upload_sourcemaps_cli_api_key=${{ secrets.POSTHOG_UPLOAD_SOURCEMAPS_CLI_API_KEY }}
@@ -362,7 +368,7 @@ jobs:
             - name: Verify image boots (web + temporal + celery)
               if: github.event_name == 'push'
               env:
-                  IMAGE: ghcr.io/posthog/posthog:${{ github.sha }}
+                  IMAGE: ${{ steps.docker-meta.outputs.ecr-registry }}/${{ env.ECR_REPOSITORY }}@${{ steps.image.outputs.digest }}
               run: |
                   set -euo pipefail
                   docker pull "$IMAGE"
@@ -401,6 +407,7 @@ jobs:
               uses: ./.github/actions/paths-filter
               id: check_temporal_worker_changes
               with:
+                  shared-image-policy: .github/shared-image-releases.yaml
                   filters: |
                       nodejs:
                         - 'nodejs/**'
@@ -617,24 +624,7 @@ jobs:
                         - bin/temporal-django-worker
                         - 'posthog/clickhouse/migrations/**'
 
-                      # posthog/hogql* covers hogql and hogql_queries, which the shell gate
-                      # this replaces matched as one prefix.
-                      dataWarehouse:
-                        - 'posthog/hogql*/**'
-                        - 'products/warehouse_sources_queue/**'
-                        - 'posthog/temporal/data_modeling/**'
-                        - 'products/customer_analytics/backend/**'
-                        # The extract worker imports the whole warehouse_sources backend
-                        # (models, facade, scheduling, tasks) and the data_warehouse facade.
-                        - 'products/warehouse_sources/backend/**'
-                        - 'products/data_warehouse/backend/**'
-                        - 'posthog/warehouse/**'
-                        - Dockerfile
-                        - 'posthog/temporal/common/**'
-                        - 'posthog/management/commands/start_temporal_worker.py'
-                        - pyproject.toml
-                        - bin/temporal-django-worker
-                        - 'posthog/clickhouse/migrations/**'
+                      dataWarehouse: null
 
                       # The CDP producer worker serves one task queue, and only the
                       # dwh-cdp-producer-job workflow starts on that queue. That workflow
@@ -754,7 +744,7 @@ jobs:
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
                       }
 
             - name: Trigger Ingestion Cloud deployment
@@ -775,7 +765,7 @@ jobs:
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": "PostHog/posthog",
                         "labels": ${{ toJson(steps.labels.outputs.labels) }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
                       }
 
             - name: Trigger Batch Exports Temporal Worker Cloud deployment
@@ -796,7 +786,7 @@ jobs:
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
                       }
 
             - name: Trigger Max AI Temporal worker cloud deployment
@@ -817,7 +807,7 @@ jobs:
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
                       }
 
             - name: Trigger Tasks Agent Temporal worker cloud deployment
@@ -838,7 +828,7 @@ jobs:
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
                       }
 
             - name: Install uv for dependency analysis
@@ -913,7 +903,7 @@ jobs:
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
                       }
 
             - name: Trigger Video Export Temporal Worker Cloud deployment
@@ -934,7 +924,7 @@ jobs:
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
                       }
 
             - name: Trigger Self-Driving Temporal Worker Cloud deployment
@@ -955,7 +945,7 @@ jobs:
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
                       }
 
             - name: Trigger Session Replay Temporal Worker Cloud deployment
@@ -976,7 +966,7 @@ jobs:
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
                       }
 
             - name: Trigger Replay Vision Temporal Worker Cloud deployment
@@ -997,7 +987,7 @@ jobs:
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
                       }
 
             - name: Trigger Web Analytics Temporal Worker Cloud deployment
@@ -1018,7 +1008,7 @@ jobs:
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
                       }
 
             - name: Trigger Experiments Recalculation Temporal Worker Cloud deployment
@@ -1039,7 +1029,7 @@ jobs:
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
                       }
 
             - name: Trigger Error Tracking Temporal Worker Cloud deployment
@@ -1060,7 +1050,7 @@ jobs:
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
                       }
 
             - name: Trigger Weekly Digest Temporal Worker Cloud deployment
@@ -1081,7 +1071,7 @@ jobs:
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
                       }
 
             - name: Trigger Analytics Platform Temporal Worker Cloud deployment
@@ -1102,7 +1092,7 @@ jobs:
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
                       }
 
             # The path list for this worker lives in the filter step above. This clause
@@ -1163,7 +1153,7 @@ jobs:
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
                       }
 
             - name: Trigger Signup Enrichment Temporal Worker Cloud deployment
@@ -1184,7 +1174,7 @@ jobs:
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
                       }
 
             # The product path list for this worker lives in the filter step above and
@@ -1230,7 +1220,7 @@ jobs:
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
                       }
 
             - name: Trigger LLM Analytics Evals Temporal Worker Cloud deployment
@@ -1251,7 +1241,7 @@ jobs:
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
                       }
 
             # NOTE: temporal-worker-llm-analytics rollout moved to cd-llm-analytics-image.yml
@@ -1275,7 +1265,7 @@ jobs:
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
                       }
 
             - name: Trigger Logs Alerting Temporal Worker Cloud deployment
@@ -1296,7 +1286,7 @@ jobs:
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
                       }
 
             - name: Trigger Stamphog Temporal Worker Cloud deployment
@@ -1317,7 +1307,7 @@ jobs:
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
                       }
 
             - name: Trigger DuckLake Temporal Worker Cloud deployment
@@ -1338,7 +1328,7 @@ jobs:
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
                       }
 
             - name: Trigger Data Warehouse Temporal Worker Cloud deployment
@@ -1359,7 +1349,7 @@ jobs:
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
                       }
 
             - name: Trigger Warehouse Sources Load Cloud deployment
@@ -1380,7 +1370,7 @@ jobs:
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
                       }
 
             - name: Trigger Data Warehouse CDP Producer Temporal Worker Cloud deployment
@@ -1401,7 +1391,7 @@ jobs:
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
                       }
 
             - name: Trigger Data Warehouse Modeling Temporal Worker Cloud deployment
@@ -1422,7 +1412,7 @@ jobs:
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
                       }
 
             - name: Trigger Dagster Code Location Reload
@@ -1442,7 +1432,7 @@ jobs:
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": "PostHog/posthog",
                         "labels": ${{ toJson(steps.labels.outputs.labels) }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
                       }
 
     # Main image plus the inbox-ranking dependency group, for the inbox ranking training code
@@ -1453,7 +1443,7 @@ jobs:
     dagster_ml_build:
         name: Build and push Dagster ML image
         needs: posthog_build
-        if: ${{ needs.posthog_build.result == 'success' && needs.posthog_build.outputs.image-digest != '' && github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true' && github.ref == 'refs/heads/master' }}
+        if: ${{ !cancelled() && needs.posthog_build.result == 'success' && needs.posthog_build.outputs.image-digest != '' && github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true' && github.ref == 'refs/heads/master' }}
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 30
         continue-on-error: true
@@ -1477,6 +1467,12 @@ jobs:
 
             - name: Check out
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            - name: Resolve commit timestamp
+              id: commit-time
+              env:
+                  HEAD_COMMIT_TIMESTAMP: ${{ github.event.head_commit.timestamp }}
+              run: echo "timestamp=${HEAD_COMMIT_TIMESTAMP:-$(TZ=UTC git show -s --date=format-local:%Y-%m-%dT%H:%M:%SZ --format=%cd HEAD)}" >> "$GITHUB_OUTPUT"
 
             - name: Set up Depot CLI
               uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
@@ -1575,9 +1571,9 @@ jobs:
                         },
                         "release": "dagster-ml-code-location",
                         "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
+                        "repository": "PostHog/posthog",
                         "labels": ${{ toJson(steps.labels.outputs.labels || '[]') }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
                       }
 
             - name: Warn when the ML image failed
@@ -1587,10 +1583,9 @@ jobs:
     ordered_image_alias:
         name: Publish ordered image alias
         needs: posthog_build
-        if: ${{ needs.posthog_build.result == 'success' && github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true' && vars.ORDERED_IMAGE_ALIAS_PAUSED != 'true' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+        if: ${{ !cancelled() && needs.posthog_build.result == 'success' && github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true' && vars.ORDERED_IMAGE_ALIAS_PAUSED != 'true' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
         runs-on: ubuntu-24.04
         timeout-minutes: 5
-        continue-on-error: true
         permissions:
             id-token: write
             contents: read
@@ -1603,67 +1598,17 @@ jobs:
               id: ordered-release
               timeout-minutes: 2
               shell: bash
-              env:
-                  ORDERED_RELEASE_TAG_REGEX: ^r[0-9]{12}-[0-9a-f]{6}$
-              run: |
-                  set -uo pipefail
-
-                  if [ "$(git rev-parse --is-shallow-repository)" = "true" ]; then
-                      fetch_status=0
-                      timeout --kill-after=10s 90s git fetch \
-                          --no-tags \
-                          --prune \
-                          --no-recurse-submodules \
-                          --unshallow \
-                          --filter=tree:0 \
-                          origin \
-                          "+${GITHUB_REF}:refs/remotes/origin/${GITHUB_REF_NAME}" || fetch_status=$?
-                      if [ "$fetch_status" -ne 0 ]; then
-                          echo "::warning title=Ordered release tag skipped::Source history could not be fetched (status $fetch_status)."
-                          exit 0
-                      fi
-                  fi
-
-                  if [ "$(git rev-parse --is-shallow-repository 2>/dev/null)" != "false" ]; then
-                      echo "::warning title=Ordered release tag skipped::Complete source history is unavailable."
-                      exit 0
-                  fi
-
-                  if ! head_revision="$(git rev-parse HEAD)" || [ "$head_revision" != "$GITHUB_SHA" ]; then
-                      echo "::warning title=Ordered release tag skipped::The checked-out revision does not match GITHUB_SHA."
-                      exit 0
-                  fi
-
-                  if ! position="$(git rev-list --first-parent --count "$GITHUB_SHA")"; then
-                      echo "::warning title=Ordered release tag skipped::The source position could not be computed."
-                      exit 0
-                  fi
-
-                  if ! [[ "$position" =~ ^[1-9][0-9]{0,11}$ ]]; then
-                      echo "::warning title=Ordered release tag skipped::The source position is out of range."
-                      exit 0
-                  fi
-
-                  if ! printf -v tag 'r%012d-%.6s' "$position" "$GITHUB_SHA"; then
-                      echo "::warning title=Ordered release tag skipped::The source position could not be formatted."
-                      exit 0
-                  fi
-
-                  if ! [[ "$tag" =~ $ORDERED_RELEASE_TAG_REGEX ]]; then
-                      echo "::warning title=Ordered release tag skipped::${tag} does not match the required format."
-                      exit 0
-                  fi
-
-                  echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+              run: bash .github/scripts/ordered-image-release.sh tag
 
             - name: Warn when ordered image alias tag is unavailable
               if: ${{ steps.ordered-release.outputs.tag == '' }}
               shell: bash
               run: echo "::warning title=Ordered image alias tag unavailable::Ordered image alias publication was skipped because no ordered release tag was generated."
 
-            - name: Set up Docker Buildx for ordered image alias
+            - name: Install ordered image copy client
               if: ${{ steps.ordered-release.outputs.tag != '' }}
-              uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+              timeout-minutes: 1
+              run: bash .github/scripts/ordered-image-release.sh install "$RUNNER_TEMP/regctl"
 
             - name: Configure AWS credentials for ordered image alias
               if: ${{ steps.ordered-release.outputs.tag != '' }}
@@ -1678,6 +1623,7 @@ jobs:
               uses: aws-actions/amazon-ecr-login@f2e9fc6c2b355c1890b65e6f6f0e2ac3e6e22f78 # v2.1.2
 
             - name: Publish and read back ordered image alias
+              id: publish-alias
               if: ${{ steps.ordered-release.outputs.tag != '' }}
               timeout-minutes: 2
               shell: bash
@@ -1686,66 +1632,13 @@ jobs:
                   ECR_REPO: ${{ env.ECR_REPOSITORY }}
                   EXPECTED_DIGEST: ${{ needs.posthog_build.outputs.image-digest }}
                   ORDERED_ALIAS: ${{ steps.ordered-release.outputs.tag }}
+                  REGCTL: ${{ runner.temp }}/regctl
+              run: bash .github/scripts/ordered-image-release.sh publish
+
+            - name: Fail when the ordered image alias is missing
+              if: ${{ steps.ordered-release.outputs.tag == '' || steps.publish-alias.outputs.outcome != 'present-at-expected-digest' }}
+              env:
+                  OUTCOME: ${{ steps.publish-alias.outputs.outcome || 'not published' }}
               run: |
-                  set -uo pipefail
-
-                  if [ -z "$EXPECTED_DIGEST" ]; then
-                      echo "::warning title=Ordered image alias source digest unavailable::Ordered image alias publication was skipped because no image digest was resolved."
-                      exit 0
-                  fi
-
-                  if [ -z "$ECR_REGISTRY" ] || [ -z "$ECR_REPO" ]; then
-                      echo "::warning title=Ordered image alias destination unavailable::Ordered image alias publication was skipped because the ECR registry or repository name resolved empty."
-                      exit 0
-                  fi
-
-                  SOURCE_IMAGE="${ECR_REGISTRY}/${ECR_REPO}@${EXPECTED_DIGEST}"
-                  TARGET_IMAGE="${ECR_REGISTRY}/${ECR_REPO}:${ORDERED_ALIAS}"
-
-                  publication_status=0
-                  timeout --kill-after=5s 40s docker buildx imagetools create \
-                      --prefer-index=false \
-                      --tag "$TARGET_IMAGE" \
-                      "$SOURCE_IMAGE" || publication_status=$?
-                  if [ "$publication_status" -ne 0 ]; then
-                      echo "::warning::Ordered alias publication exited with status $publication_status"
-                  fi
-
-                  readback_status=0
-                  resolved_digest="$(timeout --kill-after=5s 40s aws ecr batch-get-image \
-                      --repository-name "$ECR_REPO" \
-                      --image-ids imageTag="$ORDERED_ALIAS" \
-                      --accepted-media-types \
-                          "application/vnd.oci.image.index.v1+json" \
-                          "application/vnd.docker.distribution.manifest.list.v2+json" \
-                          "application/vnd.oci.image.manifest.v1+json" \
-                          "application/vnd.docker.distribution.manifest.v2+json" \
-                      --query 'images[0].imageId.imageDigest' \
-                      --output text)" || readback_status=$?
-
-                  if [ "$readback_status" -ne 0 ]; then
-                      result=unknown
-                  elif [ "$resolved_digest" = "None" ]; then
-                      result=absent
-                  elif [[ "$resolved_digest" =~ ^sha256:[0-9a-f]{64}$ ]] && [ "$resolved_digest" = "$EXPECTED_DIGEST" ]; then
-                      result=present-at-expected-digest
-                  elif [[ "$resolved_digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
-                      result=integrity-mismatch
-                  else
-                      result=unknown
-                  fi
-
-                  case "$result" in
-                      present-at-expected-digest)
-                          echo "::notice title=Ordered image alias present::The ordered image alias resolves to the expected image digest."
-                          ;;
-                      absent)
-                          echo "::warning title=Ordered image alias absent::The ordered image alias is absent after publication."
-                          ;;
-                      integrity-mismatch)
-                          echo "::error title=Ordered image alias integrity mismatch::The ordered image alias resolves to a different image digest."
-                          ;;
-                      unknown)
-                          echo "::error title=Ordered image alias read-back unavailable::The ordered image alias could not be read back from ECR."
-                          ;;
-                  esac
+                  echo "::error title=Ordered image alias missing::Kargo only creates freight from the ordered alias, so Kargo-delivered apps stay on the previous image (outcome: ${OUTCOME})."
+                  exit 1

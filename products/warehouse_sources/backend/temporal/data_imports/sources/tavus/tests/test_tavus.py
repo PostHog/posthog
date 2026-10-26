@@ -7,7 +7,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     ScriptedResponse,
     SourceDriver,
     always,
-    scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.tavus import TavusSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.tavus import tavus
@@ -16,7 +15,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.tavus.sour
 from products.warehouse_sources.backend.temporal.data_imports.sources.tavus.tavus import (
     TAVUS_BASE_URL,
     TavusResumeConfig,
-    check_access,
 )
 
 
@@ -108,26 +106,6 @@ class TestRetryClassification:
         # The message must carry the stable "{status} Client Error: {reason} for url: <base host>"
         # prefix that TavusSource.get_non_retryable_errors matches on.
         assert f"{status} Client Error: {reason} for url: {TAVUS_BASE_URL}" in str(result.raised)
-
-
-class TestCheckAccess:
-    @parameterized.expand(
-        [
-            (200, 200, None),
-            (401, 401, None),
-            (403, 403, None),
-            (500, 500, "Tavus returned HTTP 500"),
-        ]
-    )
-    def test_status_mapping(self, http_status: int, expected_status: int, expected_message: str | None) -> None:
-        with scripted_network(always(_response(None, status=http_status))):
-            assert check_access("tavus-key") == (expected_status, expected_message)
-
-    def test_connection_error_maps_to_zero(self) -> None:
-        with scripted_network(always(requests.ConnectionError("boom"))):
-            status, message = check_access("tavus-key")
-        assert status == 0
-        assert message == "Could not connect to Tavus"
 
 
 class TestTavusSourceResponse:

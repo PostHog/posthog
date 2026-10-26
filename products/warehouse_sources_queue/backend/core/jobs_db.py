@@ -1000,6 +1000,40 @@ _UNFINISHED_EARLIER_BATCHES_SQL = f"""
       AND b.latest_state <> 'succeeded'
 """
 
+_UNFINISHED_BATCHES_OF_JOBS_SQL = f"""
+    SELECT count(*), MIN(b.batch_index), COALESCE(array_agg(DISTINCT b.latest_state), '{{}}')
+    FROM {BATCH_TABLE} b
+    WHERE b.job_id = ANY(%(job_ids)s)
+      AND b.team_id = %(team_id)s
+      AND b.schema_id = %(schema_id)s
+      AND b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+      AND b.latest_state <> 'succeeded'
+"""
+
+
+# Batch metadata key for the watermark that the loaded batches of a run cover once this batch and
+# every earlier batch of the run are loaded. Only the producer writes it (see `get_loaded_prefix_sync`).
+LOADED_PREFIX_CURSOR_KEY = "loaded_prefix_cursor"
+
+# Server-side ceiling for the loaded-prefix read. The promotion is best effort, so on a struggling
+# queue DB it gives up and leaves the watermark where it is instead of holding the loader thread.
+LOADED_PREFIX_STATEMENT_TIMEOUT_MS = 5_000
+
+# Reads batches 0..last of one run through ``sb_run_uuid_bi_idx``. The final-only marker of a run can
+# repeat a batch_index, so the batches are counted by distinct index.
+_LOADED_PREFIX_SQL = f"""
+    SELECT
+        count(DISTINCT b.batch_index) FILTER (WHERE b.batch_index < %(first_batch_index)s),
+        count(*) FILTER (WHERE b.batch_index < %(first_batch_index)s AND b.latest_state <> 'succeeded'),
+        (array_agg(b.metadata -> %(cursor_key)s) FILTER (WHERE b.batch_index = %(last_batch_index)s))[1]
+    FROM {BATCH_TABLE} b
+    WHERE b.run_uuid = %(run_uuid)s
+      AND b.batch_index <= %(last_batch_index)s
+      AND b.team_id = %(team_id)s
+      AND b.schema_id = %(schema_id)s
+      AND b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+"""
+
 
 def _stale_executing_sql(scope_sql: str = "") -> str:
     """Shared body of the stale-executing sweep (async consumer and its sync ops twin).
@@ -1193,6 +1227,8 @@ class PendingBatch:
             "cdc_table_mode": self.metadata.get("cdc_table_mode"),
             "destination_ids": self.destination_ids or [],
             "external_destination_ids": self.metadata.get("external_destination_ids"),
+            "replace_scope": self.metadata.get("replace_scope"),
+            "continued_job_ids": self.metadata.get("continued_job_ids"),
         }
 
 
@@ -1250,6 +1286,14 @@ class UnfinishedEarlierBatches:
     count: int
     first_batch_index: int | None
     states: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class LoadedPrefix:
+    """Whether batches 0..last of a run are all loaded, and the cursor the last batch recorded."""
+
+    is_complete: bool
+    cursor: Any
 
 
 @dataclass(frozen=True, slots=True)
@@ -2097,6 +2141,102 @@ class BatchQueue:
                 return UnfinishedEarlierBatches(
                     count=count, first_batch_index=first_batch_index, states=tuple(sorted(states))
                 )
+        raise AssertionError("unreachable")
+
+    @staticmethod
+    def get_unfinished_batches_of_jobs_sync(
+        database_url: str,
+        *,
+        team_id: int,
+        schema_id: str,
+        job_ids: list[str],
+        connect_timeout_seconds: int = 10,
+        statement_timeout_ms: int = UNFINISHED_EARLIER_BATCHES_STATEMENT_TIMEOUT_MS,
+    ) -> UnfinishedEarlierBatches:
+        """The batches of ``job_ids`` that did not reach 'succeeded'.
+
+        The loader asks this before a run that continues the cursor of these jobs
+        completes. Their batches hold the rows before that cursor, so one that did
+        not load means the continuing run is not complete. Same pool and retry as
+        :meth:`get_unfinished_earlier_batches_sync`.
+
+        Raises ``psycopg.errors.QueryCanceled`` past ``statement_timeout_ms``.
+        """
+        pool = _sync_connection_pool(database_url, connect_timeout_seconds)
+        params = {
+            "team_id": team_id,
+            "schema_id": schema_id,
+            "job_ids": job_ids,
+        }
+        for attempt in (1, 2):
+            with pool.connection() as conn:
+                try:
+                    # The timeout is transaction-local, so it never leaks into the pooled session.
+                    with conn.transaction():
+                        conn.execute("SELECT set_config('statement_timeout', %s, true)", (str(statement_timeout_ms),))
+                        row = conn.execute(_UNFINISHED_BATCHES_OF_JOBS_SQL, params).fetchone()
+                except psycopg.errors.QueryCanceled:
+                    raise
+                except psycopg.OperationalError:
+                    pool.discard(conn)
+                    if attempt == 2:
+                        raise
+                    continue
+                assert row is not None
+                count, first_batch_index, states = row
+                return UnfinishedEarlierBatches(
+                    count=count, first_batch_index=first_batch_index, states=tuple(sorted(states))
+                )
+        raise AssertionError("unreachable")
+
+    @staticmethod
+    def get_loaded_prefix_sync(
+        database_url: str,
+        *,
+        team_id: int,
+        schema_id: str,
+        run_uuid: str,
+        first_batch_index: int,
+        last_batch_index: int,
+        connect_timeout_seconds: int = 10,
+        statement_timeout_ms: int = LOADED_PREFIX_STATEMENT_TIMEOUT_MS,
+    ) -> LoadedPrefix:
+        """Whether a write of batches ``first..last`` of a run completes a loaded prefix of the run.
+
+        The loader asks this after the write, while the batches of the write are still executing.
+        The prefix is complete when every index below ``first_batch_index`` has a row and every such
+        row reached 'succeeded'. Only a run that numbers its batches 0, 1, 2 and so on (no lanes)
+        records ``LOADED_PREFIX_CURSOR_KEY``, so a missing index means the batch is gone, for example
+        after the partition that held it was dropped.
+
+        Raises ``psycopg.errors.QueryCanceled`` past ``statement_timeout_ms``.
+        """
+        pool = _sync_connection_pool(database_url, connect_timeout_seconds)
+        params = {
+            "team_id": team_id,
+            "schema_id": schema_id,
+            "run_uuid": run_uuid,
+            "first_batch_index": first_batch_index,
+            "last_batch_index": last_batch_index,
+            "cursor_key": LOADED_PREFIX_CURSOR_KEY,
+        }
+        for attempt in (1, 2):
+            with pool.connection() as conn:
+                try:
+                    # The timeout is transaction-local, so it never leaks into the pooled session.
+                    with conn.transaction():
+                        conn.execute("SELECT set_config('statement_timeout', %s, true)", (str(statement_timeout_ms),))
+                        row = conn.execute(_LOADED_PREFIX_SQL, params).fetchone()
+                except psycopg.errors.QueryCanceled:
+                    raise
+                except psycopg.OperationalError:
+                    pool.discard(conn)
+                    if attempt == 2:
+                        raise
+                    continue
+                assert row is not None
+                earlier_batches, unfinished, cursor = row
+                return LoadedPrefix(is_complete=earlier_batches == first_batch_index and unfinished == 0, cursor=cursor)
         raise AssertionError("unreachable")
 
     @staticmethod

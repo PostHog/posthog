@@ -58,7 +58,7 @@ class CodesceneSource(ResumableSource[CodesceneSourceConfig, CodesceneResumeConf
             name=ExternalDataSourceType.CODESCENE,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="CodeScene",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Sync projects, analysis runs, delta analyses, per-file Code Health metrics, architectural components, code health issues, technical debt refactoring targets, commits, commit activity, branch statistics, and author statistics from CodeScene.
 
 Create a Personal Access Token from the CodeScene API tokens page with an Admin, Architect, or RestApi role. Leave the API base URL blank to use CodeScene Cloud, or enter your on-prem CodeScene server's API URL (for example `https://codescene.yourcompany.com:3003/api/v2`).""",

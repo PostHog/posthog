@@ -1184,6 +1184,13 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                 ).data,
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        if source.syncs_on_demand is True:
+            return Response(
+                ExternalDataSourceErrorResponseSerializer(
+                    {"message": f"A {source_type_model.label} source can't be created here. Use its own setup flow."}
+                ).data,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         if helpers.source_feature_flag_missing(source, self.team):
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,

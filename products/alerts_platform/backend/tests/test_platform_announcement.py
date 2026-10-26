@@ -65,7 +65,7 @@ class TestAnnouncement(ClickhouseTestMixin, APIBaseTest):
     def test_a_recorded_firing_comes_back_as_the_message_it_should_send(self) -> None:
         module = "products.alerts_platform.backend.logic.platform_alert_events"
         with patch(f"{module}.sync_execute", wraps=sync_execute) as executed:
-            insert_events(self.team.id, [self._row()])
+            insert_events(self.team.id, [self._row(source_detail={"breaches": ["above 10"]})])
             result = self._announcement()
 
         # As `default`, the history write and read share that user's per-user concurrency limit
@@ -85,6 +85,7 @@ class TestAnnouncement(ClickhouseTestMixin, APIBaseTest):
         # after the check it is rendered.
         assert transition.condition["threshold_count"] == 10
         assert transition.source_config["service_names"] == ["checkout"]
+        assert transition.source_detail == {"breaches": ["above 10"]}
 
     def test_a_check_that_announced_nothing_reaches_no_destination(self) -> None:
         insert_events(self.team.id, [self._row(kind=AlertEventKind.CHECK)])

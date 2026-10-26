@@ -1,11 +1,11 @@
 import { formatBreakdownLabel } from 'scenes/insights/utils'
 import { getResultSeries } from 'scenes/insights/utils/resultSeries'
-import { getResultSeriesName } from 'scenes/insights/utils/resultSeriesName'
 
 import { FormatPropertyValueForDisplayFunction } from '~/models/propertyDefinitionsModel'
 import { BreakdownFilter, InsightQueryNode } from '~/queries/schema/schema-general'
 import { CohortType } from '~/types'
 
+import { getResultSeriesName } from 'products/product_analytics/frontend/insights/shared/resultSeriesName'
 import type { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 
 import { humanizeSeriesLabel } from '../shared/humanizeSeriesLabel'

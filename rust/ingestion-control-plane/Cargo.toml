@@ -22,6 +22,7 @@ health = { path = "../common/health" }
 k8s-awareness = { path = "../common/k8s-awareness" }
 kube = { version = "0.98", features = ["client"] }
 personhog-coordination = { path = "../personhog-coordination" }
+common-kafka = { path = "../common/kafka" }
 rdkafka = { workspace = true }
 reqwest = { workspace = true }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }

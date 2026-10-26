@@ -7,6 +7,7 @@ from products.experiments.backend.facade.contracts import (
 )
 from products.experiments.backend.health.checks.bias_risk import MULTIPLE_VARIANT_KEY
 from products.experiments.backend.health.context import HealthContext
+from products.experiments.backend.health.skips import RUNS_AFTER_LAUNCH, CheckOutcome, not_applicable, not_checked
 
 # Some users get more than one ID in any experiment, for example one per device, so a low share is expected.
 # The share grows as users return and log in, so a lower line fires on a large part of all experiments. The cases
@@ -17,11 +18,13 @@ MULTIPLE_VARIANTS_SHARE_THRESHOLD = 5.0  # on the 0-100 scale (5.0 = 5%)
 MULTIPLE_VARIANTS_MINIMUM_COUNT = 5
 
 
-def multiple_variants_share(ctx: HealthContext) -> ExperimentHealthFinding | None:
+def multiple_variants_share(ctx: HealthContext) -> CheckOutcome:
     exposures = ctx.exposures
+    if exposures is None:
+        return not_applicable(RUNS_AFTER_LAUNCH)
     # Under "First seen" the exposure query gives each user their first variant, so it counts none of these users.
-    if exposures is None or exposures.multiple_variant_handling != MultipleVariantHandling.EXCLUDE:
-        return None
+    if exposures.multiple_variant_handling != MultipleVariantHandling.EXCLUDE:
+        return not_checked("Couldn't check because the First seen handling doesn't count these users")
     multiple = exposures.total_exposures.get(MULTIPLE_VARIANT_KEY, 0)
     total = sum(exposures.total_exposures.values())
     if multiple < MULTIPLE_VARIANTS_MINIMUM_COUNT:

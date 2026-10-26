@@ -360,6 +360,7 @@ def create_resources(
             allow_redirects=client_config.get("allow_redirects", True),
             request_timeout=client_config.get("request_timeout"),
             capture=client_config.get("capture", True),
+            cap_retry_after=client_config.get("cap_retry_after", False),
             **_retry_limit_overrides(client_config),
         )
 

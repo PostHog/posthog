@@ -20,7 +20,15 @@ class CredentialsCaller(StrEnum):
     """
 
     WAREHOUSE_SOURCES = "warehouse-sources"
+    # Batch exports use platform credentials to authenticate with export destinations.
+    BATCH_EXPORTS = "batch-exports"
     CDP = "cdp"
     MESSAGING = "messaging"
     TASKS = "tasks"
     WEB_ANALYTICS = "web-analytics"
+    STAMPHOG = "stamphog"
+    CONVERSATIONS = "conversations"
+    SKILLS = "skills"
+    # Shared integration plumbing (OAuth connect, token refresh, account listing) that runs on
+    # behalf of many products. The call sites cannot tell which product asked, so they say so.
+    INTEGRATIONS = "integrations"

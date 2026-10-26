@@ -167,15 +167,6 @@ TASKS_USE_MODAL_RESUME_SNAPSHOTS: bool = get_from_env(
     type_cast=str_to_bool,
 )
 
-# Force-enables process_task continue_as_new regardless of the tasks-continue-as-new flag
-# (for local E2E / emergency on). The flag is the normal cloud toggle. continue_as_new bounds
-# replay cost so long runs don't trip the 2s workflow-task deadlock detector on eviction.
-TASKS_CONTINUE_AS_NEW_ENABLED: bool = get_from_env(
-    "TASKS_CONTINUE_AS_NEW_ENABLED",
-    False,
-    type_cast=str_to_bool,
-)
-
 TASKS_COMPUTE_QUOTA_ENFORCEMENT_ENABLED: bool = get_from_env(
     "TASKS_COMPUTE_QUOTA_ENFORCEMENT_ENABLED",
     False,
@@ -194,7 +185,7 @@ TASKS_SANDBOX_PERSISTENT_FILESYSTEM_ENABLED: bool = get_from_env(
     type_cast=str_to_bool,
 )
 
-# Event-count threshold for the above; 0 relies on Temporal's is_continue_as_new_suggested().
+# process_task continue_as_new history threshold; 0 relies on Temporal's is_continue_as_new_suggested().
 TASKS_CONTINUE_AS_NEW_HISTORY_THRESHOLD: int = get_from_env(
     "TASKS_CONTINUE_AS_NEW_HISTORY_THRESHOLD", 4000, type_cast=int
 )
@@ -301,6 +292,14 @@ DATA_WAREHOUSE_IMPORT_FREE_HANDOFFS_ENABLED: bool = get_from_env(
 DATA_WAREHOUSE_IMPORT_WATERMARK_CARRY_OVER_ENABLED: bool = get_from_env(
     "DATA_WAREHOUSE_IMPORT_WATERMARK_CARRY_OVER_ENABLED", False, type_cast=str_to_bool
 )
+# An incremental merge import moves its watermark each time a contiguous prefix of its batches is
+# loaded, so a run that fails keeps the progress of the batches that loaded. The import pods record
+# the per-batch values and the load pods promote them, so set it on both. Enable it only when every
+# source that says sort_mode="asc" reads its rows in that order, because the next run reads only
+# the rows above the promoted value.
+DATA_WAREHOUSE_IMPORT_PREFIX_WATERMARK_ENABLED: bool = get_from_env(
+    "DATA_WAREHOUSE_IMPORT_PREFIX_WATERMARK_ENABLED", False, type_cast=str_to_bool
+)
 # At a worker shutdown the import pipeline stops waiting for a source that neither yields an item
 # nor reaches a safe point, and hands the run to another worker. It applies only to runs whose
 # hand-offs are free (DATA_WAREHOUSE_IMPORT_FREE_HANDOFFS_ENABLED), because preemption makes
@@ -313,6 +312,15 @@ DATA_WAREHOUSE_IMPORT_PREEMPTION_ENABLED: bool = get_from_env(
 # preemption is only the backstop.
 DATA_WAREHOUSE_IMPORT_PREEMPTION_QUIET_PERIOD_SECONDS: float = get_from_env(
     "DATA_WAREHOUSE_IMPORT_PREEMPTION_QUIET_PERIOD_SECONDS", 300.0, type_cast=float
+)
+# At a worker shutdown an import that has not yet committed a resume cursor or staged a carry-over
+# value keeps the worker, up to a deadline below the graceful shutdown timeout. The
+# `warehouse-import-ride-out` flag turns this on per schema. This is the longest such an import holds
+# the worker when it could have handed off sooner; a run that restarts from scratch either way keeps
+# the grace period minus a margin instead. The gate reads GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS, so set the grace through this
+# variable rather than the worker's command-line flag.
+DATA_WAREHOUSE_IMPORT_RIDE_OUT_MAX_SECONDS: float = get_from_env(
+    "DATA_WAREHOUSE_IMPORT_RIDE_OUT_MAX_SECONDS", 3600.0, type_cast=float
 )
 # Restore unfinished append runs only after all extract and load workers have this implementation.
 DATA_WAREHOUSE_APPEND_ROLLBACK_ENABLED: bool = get_from_env(
@@ -356,11 +364,16 @@ TASKS_DISPATCHER_RPC_TIMEOUT_SECONDS = get_from_env("TASKS_DISPATCHER_RPC_TIMEOU
 TASKS_DISPATCHER_MAX_DISPATCH_AGE_SECONDS = get_from_env(
     "TASKS_DISPATCHER_MAX_DISPATCH_AGE_SECONDS", 6 * 60 * 60, type_cast=int
 )
+TASKS_WORKFLOW_DISPATCH_OUTBOX_ENABLED: bool = get_from_env(
+    "TASKS_WORKFLOW_DISPATCH_OUTBOX_ENABLED",
+    CLOUD_DEPLOYMENT in ("US", "EU"),
+    type_cast=str_to_bool,
+)
 STAMPHOG_TASK_QUEUE = _set_temporal_task_queue("stamphog-task-queue")
 TEST_TASK_QUEUE = _set_temporal_task_queue("test-task-queue")
 BILLING_TASK_QUEUE = _set_temporal_task_queue("billing-task-queue")
-# Keep aggregation separate even when local development combines the other queues.
-USAGE_REPORT_AGGREGATION_TASK_QUEUE = f"{BILLING_TASK_QUEUE}-usage-report-aggregation"
+# A dedicated worker deployment polls this queue, so aggregation does not share a process with quota limiting.
+USAGE_REPORT_AGGREGATION_TASK_QUEUE = _set_temporal_task_queue("billing-task-queue-usage-report-aggregation")
 VIDEO_EXPORT_TASK_QUEUE = _set_temporal_task_queue("video-export-task-queue")
 ANALYTICS_PLATFORM_TASK_QUEUE = _set_temporal_task_queue("analytics-platform-task-queue")
 # Keep the smoke fleets separate in local development as well as deployed environments.

@@ -13,6 +13,10 @@ from unittest.mock import AsyncMock, patch
 import psycopg
 
 from products.warehouse_sources.backend.temporal.data_imports.metrics import LOCK_TAKEOVER_LATEST_ERROR
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import (
+    ExportSignalMessage,
+    ReplaceScopeRef,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer import (
     BatchConsumer,
     ConsumerConfig,
@@ -23,6 +27,7 @@ from products.warehouse_sources_queue.backend.core.jobs_db import (
     BATCH_TABLE,
     CLAIM_ELIGIBILITY_INTERVAL,
     LEASE_TABLE,
+    LOADED_PREFIX_CURSOR_KEY,
     PARTITION_PRUNING_INTERVAL,
     STATUS_TABLE,
     TAKEOVER_STALE_THRESHOLD_SECONDS,
@@ -30,6 +35,7 @@ from products.warehouse_sources_queue.backend.core.jobs_db import (
     ClaimCursor,
     ExecutingAttempt,
     InterruptionHistory,
+    LoadedPrefix,
     PendingBatch,
     QueueDepth,
     _claim_window_sql,
@@ -1071,6 +1077,7 @@ class TestPendingBatchToExportSignal:
                 "data_folder": "/tmp/data",
                 "primary_keys": ["id"],
                 "cdc_write_mode": "upsert",
+                "replace_scope": {"column": "_file_name", "manifest_path": "s3://bucket/replace_scope.parquet"},
             },
             latest_attempt=2,
         )
@@ -1090,6 +1097,10 @@ class TestPendingBatchToExportSignal:
         assert signal["data_folder"] == "/tmp/data"
         assert signal["primary_keys"] == ["id"]
         assert signal["cdc_write_mode"] == "upsert"
+        # Without the scope the loader would append the run's rows next to the rows they replace.
+        assert ExportSignalMessage.from_dict(signal).replace_scope == ReplaceScopeRef(
+            column="_file_name", manifest_path="s3://bucket/replace_scope.parquet"
+        )
 
 
 @pytest.mark.django_db(transaction=True)
@@ -1641,6 +1652,31 @@ class TestUnfinishedEarlierBatchesSync:
         assert self._check(_db_url).count == 0
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "states,expected_count",
+        [
+            (["succeeded", "succeeded"], 0),
+            (["succeeded", "failed"], 1),
+            (["pending", "succeeded"], 1),
+        ],
+    )
+    async def test_reports_the_batches_of_continued_jobs_that_did_not_succeed(
+        self, conn, _db_url, states, expected_count
+    ):
+        for index, state in enumerate(states):
+            bid = await _insert_batch(conn, batch_index=index, job_id="job-stopped", run_uuid="run-stopped-a1")
+            if state != "pending":
+                await BatchQueue.update_status(conn, batch_id=bid, job_state=state, attempt=1)
+        await _insert_batch(conn, batch_index=0, job_id="job-other", run_uuid="run-other-a1")
+        await _insert_batch(conn, batch_index=0, job_id="job-stopped", run_uuid="run-stopped-a1", schema_id="schema-2")
+
+        unfinished = BatchQueue.get_unfinished_batches_of_jobs_sync(
+            _db_url, team_id=1, schema_id="schema-1", job_ids=["job-stopped"], connect_timeout_seconds=5
+        )
+
+        assert unfinished.count == expected_count
+
+    @pytest.mark.asyncio
     async def test_reports_the_aged_out_batch_that_the_claim_skipped(self, conn, _db_url):
         # The run gates do not read an aged-out 'pending' batch, so the claim hands out the final
         # batch of its run. The completion check must still see the aged batch.
@@ -1676,6 +1712,81 @@ class TestUnfinishedEarlierBatchesSync:
 
         # A canceled check leaves the pooled connection usable.
         assert self._check(_db_url).count == 1
+
+
+@pytest.mark.django_db(transaction=True)
+class TestLoadedPrefixSync:
+    @pytest.fixture(autouse=True)
+    def _fresh_pool(self):
+        _SYNC_POOLS.clear()
+        yield
+        for pool in _SYNC_POOLS.values():
+            for pooled in pool._idle:
+                pooled.close()
+        _SYNC_POOLS.clear()
+
+    @staticmethod
+    def _cursor(index: int) -> dict[str, Any]:
+        return {"field": "id", "value": index * 10, "job_rows_synced": index}
+
+    async def _insert_run(self, conn: psycopg.AsyncConnection[Any], states: list[str | None]) -> None:
+        for index, state in enumerate(states):
+            if state is None:
+                continue
+            bid = await _insert_batch(conn, batch_index=index, metadata={LOADED_PREFIX_CURSOR_KEY: self._cursor(index)})
+            if state != "pending":
+                await BatchQueue.update_status(conn, batch_id=bid, job_state=state, attempt=1)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "states,first,last,expected_complete",
+        [
+            (["executing"], 0, 0, True),
+            (["succeeded", "succeeded", "executing"], 2, 2, True),
+            # A coalesced write of batches 2 and 3.
+            (["succeeded", "succeeded", "executing", "executing"], 2, 3, True),
+            # Batch 1 aged out or waits for a retry while batch 2 loaded out of order.
+            (["succeeded", "pending", "executing"], 2, 2, False),
+            (["succeeded", "waiting_retry", "executing"], 2, 2, False),
+            # A newer run superseded the rest of this run.
+            (["succeeded", "failed", "executing"], 2, 2, False),
+            # Batch 1 is gone, for example with a dropped partition.
+            (["succeeded", None, "executing"], 2, 2, False),
+        ],
+    )
+    async def test_a_prefix_is_complete_only_when_every_earlier_batch_succeeded(
+        self, conn, _db_url, states, first, last, expected_complete
+    ):
+        await self._insert_run(conn, states)
+        await _insert_batch(conn, run_uuid="run-other", batch_index=1)
+
+        prefix = BatchQueue.get_loaded_prefix_sync(
+            _db_url,
+            team_id=1,
+            schema_id="schema-1",
+            run_uuid="run-1",
+            first_batch_index=first,
+            last_batch_index=last,
+            connect_timeout_seconds=5,
+        )
+
+        assert prefix == LoadedPrefix(is_complete=expected_complete, cursor=self._cursor(last))
+
+    @pytest.mark.asyncio
+    async def test_a_batch_without_the_key_has_no_cursor(self, conn, _db_url):
+        await _insert_batch(conn, batch_index=0)
+
+        prefix = BatchQueue.get_loaded_prefix_sync(
+            _db_url,
+            team_id=1,
+            schema_id="schema-1",
+            run_uuid="run-1",
+            first_batch_index=0,
+            last_batch_index=0,
+            connect_timeout_seconds=5,
+        )
+
+        assert prefix == LoadedPrefix(is_complete=True, cursor=None)
 
 
 @pytest.mark.django_db(transaction=True)

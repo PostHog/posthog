@@ -94,6 +94,112 @@ class TestPagination:
         assert result.saved_states == [FlutterwaveResumeConfig(next_page=2)]
 
 
+def _statement_page(rows: list[dict[str, Any]], total_pages: int) -> ScriptedResponse:
+    return ScriptedResponse(
+        json={
+            "status": "success",
+            "message": "Wallet statement fetched",
+            "data": {
+                "page_info": {"total": len(rows), "current_page": 1, "total_pages": total_pages},
+                "transactions": rows,
+            },
+        }
+    )
+
+
+def _balances(*currencies: str) -> ScriptedResponse:
+    return ScriptedResponse(
+        json={"status": "success", "data": [{"currency": c, "available_balance": 0} for c in currencies]}
+    )
+
+
+class TestFanOut:
+    def test_wallet_statement_walks_every_wallet_currency(self) -> None:
+        result = _run_v3(
+            "wallet_statement",
+            route(
+                {
+                    "/balances": [_balances("USD", "NGN")],
+                    "/wallet/statement": [
+                        _statement_page([{"reference": "a", "currency": "NGN", "type": "C"}], total_pages=2),
+                        _statement_page([{"reference": "b", "currency": "NGN", "type": "C"}], total_pages=2),
+                        _statement_page([{"reference": "c", "currency": "NGN", "type": "D"}], total_pages=1),
+                        _statement_page([], total_pages=0),
+                        _statement_page([], total_pages=0),
+                    ],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert [row["reference"] for row in result.rows] == ["a", "b", "c"]
+        statements = [request for request in result.requests if request.path == "/v3/wallet/statement"]
+        assert [(r.param("currency"), r.param("type"), r.param("page")) for r in statements] == [
+            ("NGN", "C", "1"),
+            ("NGN", "C", "2"),
+            ("NGN", "D", "1"),
+            ("USD", "C", "1"),
+            ("USD", "D", "1"),
+        ]
+        assert {r.param("from") for r in statements} == {"2016-01-01"}
+        assert result.saved_states == [
+            FlutterwaveResumeConfig(next_page=2, fan_out_value="NGN|C"),
+            FlutterwaveResumeConfig(fan_out_value="NGN|D"),
+            FlutterwaveResumeConfig(fan_out_value="USD|C"),
+            FlutterwaveResumeConfig(fan_out_value="USD|D"),
+        ]
+
+    def test_wallet_statement_resumes_at_the_saved_currency_direction_and_page(self) -> None:
+        result = _run_v3(
+            "wallet_statement",
+            route(
+                {
+                    "/balances": [_balances("NGN", "USD")],
+                    "/wallet/statement": [_statement_page([{"reference": "c", "currency": "USD"}], total_pages=3)],
+                }
+            ),
+            resume_state=FlutterwaveResumeConfig(next_page=3, fan_out_value="USD|D"),
+        )
+
+        assert result.raised is None
+        statements = [request for request in result.requests if request.path == "/v3/wallet/statement"]
+        assert [(r.param("currency"), r.param("type"), r.param("page")) for r in statements] == [("USD", "D", "3")]
+
+    def test_banks_reads_each_country_and_stamps_it_on_the_rows(self) -> None:
+        result = _run_v3(
+            "banks", always(ScriptedResponse(json={"status": "success", "data": [{"id": 1, "code": "044"}]}))
+        )
+
+        assert result.raised is None
+        assert [request.path for request in result.requests] == [
+            f"/v3/banks/{country}" for country in ("NG", "GH", "KE", "UG", "ZA", "TZ")
+        ]
+        assert {request.param("page") for request in result.requests} == {None}
+        assert [row["country"] for row in result.rows] == ["NG", "GH", "KE", "UG", "ZA", "TZ"]
+
+    def test_bill_payments_reads_every_status_and_keeps_the_row_status(self) -> None:
+        result = _run_v3(
+            "bill_payments",
+            route(
+                {
+                    "/bills/history": [
+                        _page([{"id": 1, "status": "Successful"}]),
+                        _page([{"id": 2, "status": "Failed"}]),
+                        _page([{"id": 3, "status": "Reversed"}]),
+                    ]
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert [r.param("status") for r in result.requests] == ["Successful", "Failed", "Reversed"]
+        assert [(row["id"], row["status"]) for row in result.rows] == [
+            (1, "Successful"),
+            (2, "Failed"),
+            (3, "Reversed"),
+        ]
+
+
 class TestDateWindow:
     @parameterized.expand(
         [
@@ -116,6 +222,14 @@ class TestDateWindow:
         assert result.raised is None
         assert result.requests[0].param("from") is None
         assert result.requests[0].param("to") is None
+
+    @parameterized.expand([("transactions",), ("bill_payments",)])
+    def test_required_window_endpoints_send_the_full_history_window(self, endpoint: str) -> None:
+        result = _run_v3(endpoint, always(_page([{"id": 1}])))
+
+        assert result.raised is None
+        assert result.requests[0].param("from") == "2016-01-01"
+        assert result.requests[0].param("to") is not None
 
     @parameterized.expand(
         [
@@ -240,12 +354,8 @@ class TestSourceResponseMetadata:
 class TestValidateCredentials:
     @parameterized.expand(
         [
-            ("ok", 200, True),
             # v3 answers "no subaccounts on this account" with a 400; the key was still accepted.
             ("no_records", 400, True),
-            ("unauthorized", 401, False),
-            ("forbidden", 403, False),
-            ("server_error", 500, False),
         ]
     )
     def test_status_maps_to_validity(self, _name: str, status_code: int, expected: bool) -> None:

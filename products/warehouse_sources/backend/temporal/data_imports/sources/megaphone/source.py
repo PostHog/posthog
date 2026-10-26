@@ -57,7 +57,7 @@ class MegaphoneSource(ResumableSource[MegaphoneSourceConfig, MegaphoneResumeConf
 Create an API token in Megaphone under **Settings > Generate new token**. The organization ID is in the address bar after `/organizations/` when you are signed in.""",
             iconPath="/static/services/megaphone.png",
             docsUrl="https://posthog.com/docs/cdp/sources/megaphone",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["podcast"],
             fields=cast(
                 list[FieldType],

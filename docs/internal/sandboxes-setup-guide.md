@@ -380,7 +380,7 @@ SANDBOX_AGENT_OTEL_LOGS_TOKEN=<project API key of the telemetry project>
 SANDBOX_AGENT_OTEL_TRACES_URL=http://localhost:8000/i/v1/traces  # optional, enables APM spans
 ```
 
-In cloud, emission is additionally gated per run by the `tasks-agent-run-otel-telemetry` feature flag (org-targeted, stamped into run state at dispatch; it also gates the scout run-log mirror). `DEBUG` bypasses the flag, so locally these settings are the only switch. They're injected into the sandbox as `POSTHOG_AGENT_OTEL_LOGS_URL`/`_TOKEN`/`POSTHOG_AGENT_OTEL_TRACES_URL` (deliberately not standard `OTEL_*` names, so OTel SDKs in user code don't auto-export into the telemetry project).
+In cloud, dispatch stamps each run as telemetry-enabled in run state, and the scout run-log mirror only mirrors stamped runs. `DEBUG` skips the stamp, so locally these settings are the only switch. They're injected into the sandbox as `POSTHOG_AGENT_OTEL_LOGS_URL`/`_TOKEN`/`POSTHOG_AGENT_OTEL_TRACES_URL` (deliberately not standard `OTEL_*` names, so OTel SDKs in user code don't auto-export into the telemetry project).
 The agent-server exports run/turn/tool lifecycle metadata (never message content or tool arguments), tagged with `run_id`/`task_id`/`team_id`/`user_id`/`distinct_id` resource attributes and `service.name=posthog-code-agent`.
 Telemetry stays off when either of the first two vars is unset.
 For local Docker sandboxes the localhost URLs are rewritten to `host.docker.internal` automatically; local ingestion requires the `capture-logs` service to be running.
@@ -468,6 +468,10 @@ workspace-scoped in Modal, so a self-driving box still restores a snapshot baked
 Each name above is a class attribute on `ModalSandbox`, and the `MODAL_DOCKER` and `MODAL_EVALS` providers
 override all four (`posthog-sandbox-modal-docker-*`, `posthog-sandbox-evals`), so local and eval runs never land
 in a production app. A new app name has to be a class attribute for that to keep holding.
+
+Task sandboxes carry `task_id` and `task_run_id` tags for exact lookup, plus a readable `workflow_label`.
+The label keeps the workflow prefix, replaces characters outside `A-Z`, `a-z`, `0-9`, `_`, `.`, and `-` with dashes, and caps the result at 63 characters.
+Use `TaskRun.workflow_id` to recover the full Temporal workflow ID from the run.
 
 ### Sandbox templates
 

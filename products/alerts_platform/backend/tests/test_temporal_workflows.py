@@ -3,6 +3,7 @@ import asyncio
 import logging
 import datetime as dt
 from collections.abc import AsyncIterator, Iterator
+from pathlib import Path
 from typing import Literal
 
 import pytest
@@ -18,7 +19,7 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanE
 from parameterized import parameterized
 from temporalio import activity, workflow
 from temporalio.api.enums.v1 import EventType
-from temporalio.client import WorkflowExecutionStatus, WorkflowFailureError
+from temporalio.client import WorkflowExecutionStatus, WorkflowFailureError, WorkflowHistory
 from temporalio.common import SearchAttributeKey, SearchAttributePair, TypedSearchAttributes
 from temporalio.contrib.opentelemetry import OpenTelemetryPlugin
 from temporalio.exceptions import (
@@ -377,11 +378,15 @@ async def test_delivery_waits_out_a_held_thread_and_fails_when_it_never_frees(
 async def test_a_split_delivery_sends_every_part_in_turn_even_after_one_fails(
     environment: WorkflowEnvironment,
 ) -> None:
-    sent_parts: list[int] = []
+    steps: list[str] = []
+
+    @activity.defn(name="alerts_platform_emit_transitions_activity")
+    async def emit(request: AlertDeliveryRequest) -> None:
+        steps.append(f"emit {request.part}")
 
     @activity.defn(name="alerts_platform_deliver_preview_activity")
     async def deliver(request: AlertDeliveryRequest) -> None:
-        sent_parts.append(request.part)
+        steps.append(f"send {request.part}")
         if request.part == 0:
             raise ApplicationError("channel refused", non_retryable=True)
 
@@ -389,7 +394,7 @@ async def test_a_split_delivery_sends_every_part_in_turn_even_after_one_fails(
         environment.client,
         task_queue=settings.ALERTS_PLATFORM_DELIVERY_TASK_QUEUE,
         workflows=DELIVERY_WORKFLOWS,
-        activities=[deliver],
+        activities=[deliver, emit],
         workflow_runner=UnsandboxedWorkflowRunner(),
     ):
         handle = await environment.client.start_workflow(
@@ -411,7 +416,16 @@ async def test_a_split_delivery_sends_every_part_in_turn_even_after_one_fails(
             await handle.result()
 
     assert isinstance(failure.value.cause, ActivityError)
-    assert sent_parts == [0, 1, 2]
+    assert steps == ["send 0", "send 1", "send 2"]
+
+
+@pytest.mark.asyncio
+async def test_a_delivery_that_emitted_transition_events_before_the_removal_still_replays() -> None:
+    history = WorkflowHistory.from_json(
+        "alerts-deliver-preview-cfg-1:eval-1",
+        (Path(__file__).parent / "histories" / "split_delivery_with_transition_events.json").read_text(),
+    )
+    await Replayer(workflows=DELIVERY_WORKFLOWS, workflow_runner=UnsandboxedWorkflowRunner()).replay_workflow(history)
 
 
 @pytest.mark.parametrize("timeout_type", [TimeoutType.START_TO_CLOSE, TimeoutType.SCHEDULE_TO_CLOSE])
@@ -622,6 +636,20 @@ class TestDemandDiscovery(APIBaseTest):
     def test_discovery_rejects_a_limit_below_one(self) -> None:
         with pytest.raises(ValueError):
             demand.discover_demand(self.tick.isoformat(), limits_by_source={SourceKind.LOGS: 0})
+
+
+async def test_a_failed_inventory_count_does_not_raise() -> None:
+    with (
+        patch.object(
+            alert_workflows,
+            "count_inventory",
+            side_effect=OperationalError("canceling statement due to statement timeout"),
+        ),
+        patch.object(alert_workflows, "push_inventory") as push,
+    ):
+        await alert_workflows.alerts_platform_record_inventory_activity()
+
+    push.assert_not_called()
 
 
 @pytest.mark.parametrize("scheduled", [False, True])

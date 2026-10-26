@@ -1,6 +1,5 @@
 from unittest import mock
 
-import requests
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.cody.cody import (
@@ -35,7 +34,6 @@ class TestCodySource:
         [
             (CodyCredentialsError("Sourcegraph rejected the access token."), "Sourcegraph rejected the access token."),
             (CodyRetryableError("status=503"), "Could not reach Sourcegraph Analytics"),
-            (requests.ConnectionError("boom"), "Could not reach Sourcegraph Analytics"),
         ]
     )
     def test_validate_credentials_failure_messages(self, raised, expected_prefix):

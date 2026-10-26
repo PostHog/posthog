@@ -139,6 +139,17 @@ _ROLE_CANNOT_LOG_IN_ERROR = (
     "user, then re-enable the sync."
 )
 
+# A custom PL/pgSQL `RAISE EXCEPTION` (most often a row-level security policy) denying PostHog's
+# sync connection, which carries no authenticated application user. The message is customer-authored
+# free text, so this stays deliberately generic rather than naming the specific check that failed.
+_CUSTOM_ACCESS_DENIAL_ERROR = (
+    "A database function used by one or more of the tables you selected to sync denied the read "
+    '(PostgreSQL reported a custom "RAISE EXCEPTION" naming an access denial). This is often a '
+    "row-level security policy that expects an authenticated application user, which PostHog's "
+    "sync connection doesn't have. Update the policy or function to allow PostHog's connecting "
+    "role, or remove the affected tables from the sync, then re-enable the sync."
+)
+
 # A DNS-resolution failure for the database host, surfaced by libpq ("could not translate host
 # name") or the raw socket wording ("Name or service not known" / "No address associated with
 # hostname"). Already non-retryable, but the bare driver text gives the customer nothing to act on,
@@ -178,6 +189,10 @@ _DATABASE_NOT_FOUND_VALIDATION_ERROR = (
     "The database named in your connection details doesn't exist on this server. Check the database name is "
     "correct and try again."
 )
+
+# The source type the managed-warehouse host exemption is keyed on. It names the listener
+# set the exemption applies to, and both the validation and the connect path pass it.
+POSTGRES_HOST_CHECK_SOURCE_TYPE = "postgres"
 
 PostgresErrors = {
     "password authentication failed for user": _INVALID_CREDENTIALS_VALIDATION_ERROR,
@@ -1012,6 +1027,18 @@ class PostgresSource(
             # Match that message substring so the role-lacks-SELECT case is caught at both layers
             # and we stop retrying instead of re-reading into the same denial every attempt.
             "InsufficientPrivilege": None,
+            # A row-level security policy (or other PL/pgSQL function) can deny a read with a
+            # custom `RAISE EXCEPTION` (SQLSTATE P0001, psycopg's `RaiseException`) instead of
+            # Postgres's own `InsufficientPrivilege`. The message is customer-authored free text
+            # with no fixed wording, so matching the bare exception class would also catch a
+            # transient custom raise (a lock wait, a maintenance window) and wrongly auto-disable
+            # a healthy sync — match only phrasing that names an access denial. These substrings
+            # are also the raw psycopg message, so the same keys stop the in-activity retry loop
+            # in `_handle_import_error` (no Temporal wrapping/class name needed there), not just
+            # future scheduled runs.
+            "access denied": _CUSTOM_ACCESS_DENIAL_ERROR,
+            "not authorized": _CUSTOM_ACCESS_DENIAL_ERROR,
+            "unauthorized": _CUSTOM_ACCESS_DENIAL_ERROR,
             # A view selected for sync calls a function the connecting role can't execute (SQLSTATE
             # 42501) — most often a view that decrypts secrets via Supabase Vault / pgsodium
             # (`crypto_aead_det_decrypt`). Distinct from the table/view SELECT denial below: granting
@@ -1549,6 +1576,22 @@ class PostgresSource(
                 "division in that column or view definition (for example with a CASE or NULLIF), or "
                 "remove it from the sync, then re-enable the sync."
             ),
+            # A view or computed column in the customer's own schema calls a PL/pgSQL function that
+            # enforces its own access check and raises a custom RAISE EXCEPTION when it finds no
+            # user context — commonly a Supabase helper keyed off auth.uid(), which Supabase's
+            # PostgREST layer populates per-request but a direct database connection like ours never
+            # sets. We only ever run `SELECT ... FROM <relation>`; the check lives in the customer's
+            # own function and runs on every row, so it fails identically on every retry. Match the
+            # stable guard message and exclude the volatile CONTEXT line naming the function and
+            # line number.
+            "Access denied: No user ID provided": (
+                "A view or column you're syncing calls a function in your database that checks for "
+                'a signed-in user and rejects the read when none is present ("Access denied: No '
+                'user ID provided"). This usually means the function depends on request-scoped auth '
+                "context (for example Supabase's auth.uid()) that a direct database connection like "
+                "PostHog's never has. Update the function to allow the connecting role through, or "
+                "remove the affected view or column from the sync, then re-enable the sync."
+            ),
         }
 
     def get_retryable_errors(self) -> set[str]:
@@ -1693,7 +1736,7 @@ class PostgresSource(
     ) -> list[SourceSchema]:
         schemas = []
 
-        with self.with_ssh_tunnel(config, team_id) as (host, port):
+        with self.with_ssh_tunnel(config, team_id, POSTGRES_HOST_CHECK_SOURCE_TYPE) as (host, port):
             db_schemas = get_postgres_schemas(
                 host=host,
                 port=port,
@@ -1946,7 +1989,11 @@ class PostgresSource(
             return False, _RAILWAY_INTERNAL_HOST_ERROR
 
         valid_host, host_errors = self.is_database_host_valid(
-            config.host, team_id, using_ssh_tunnel=self.ssh_tunnel_enabled(config)
+            config.host,
+            team_id,
+            using_ssh_tunnel=self.ssh_tunnel_enabled(config),
+            port=config.port,
+            source_type=POSTGRES_HOST_CHECK_SOURCE_TYPE,
         )
         if not valid_host:
             return valid_host, host_errors
@@ -2015,7 +2062,7 @@ class PostgresSource(
     def get_connection_metadata(
         self, config: PostgresSourceConfig, team_id: int, require_ssl: bool = False
     ) -> dict[str, object]:
-        with self.with_ssh_tunnel(config, team_id) as (host, port):
+        with self.with_ssh_tunnel(config, team_id, POSTGRES_HOST_CHECK_SOURCE_TYPE) as (host, port):
             return get_postgres_connection_metadata(
                 host=host,
                 port=port,
@@ -2048,7 +2095,7 @@ class PostgresSource(
             _connect_to_postgres,
         )
 
-        with self.with_ssh_tunnel(config, team_id) as (host, port):
+        with self.with_ssh_tunnel(config, team_id, POSTGRES_HOST_CHECK_SOURCE_TYPE) as (host, port):
             conn = _connect_to_postgres(
                 host=host,
                 port=port,
@@ -2244,7 +2291,7 @@ class PostgresSource(
             ForeignServerUnreachableError,
         )
 
-        ssh_tunnel = self.make_ssh_tunnel_func(config, inputs.team_id)
+        ssh_tunnel = self.make_ssh_tunnel_func(config, inputs.team_id, POSTGRES_HOST_CHECK_SOURCE_TYPE)
 
         # This reads sync metadata from PostHog's own database, not the customer's Postgres — a
         # transient failure reaching it (e.g. a DNS blip resolving our host) is a plain Django

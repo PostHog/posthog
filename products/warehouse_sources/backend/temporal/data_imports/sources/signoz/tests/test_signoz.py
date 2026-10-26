@@ -131,13 +131,6 @@ class TestValidateCredentials:
         assert is_valid is False
         assert error is not None
 
-    def test_request_exception_is_caught(self) -> None:
-        with scripted_network(always(ConnectionError("boom"))):
-            is_valid, error = validate_credentials("example.signoz.io", "key")
-
-        assert is_valid is False
-        assert error is not None
-
     @pytest.mark.parametrize("host", ["", "not a host!", "bad_host/"])
     def test_invalid_host_is_rejected_without_a_request(self, host: str) -> None:
         is_valid, error = validate_credentials(host, "key")

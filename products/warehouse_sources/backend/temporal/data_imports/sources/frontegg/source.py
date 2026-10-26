@@ -145,7 +145,7 @@ class FronteggSource(ResumableSource[FronteggSourceConfig, FronteggResumeConfig]
             label="Frontegg",
             caption="Find your client ID and API key in your Frontegg environment under Keys & domains.",
             iconPath="/static/services/frontegg.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

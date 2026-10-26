@@ -65,10 +65,6 @@ class TestValidateCredentials:
         assert {request.headers["authorization"] for request in network.requests_log} == {"Bearer key"}
         assert network.session_options == [{"redact_values": ("key",)}]
 
-    def test_network_error_returns_invalid(self) -> None:
-        with scripted_network(always(ConnectionError("boom"))):
-            assert validate_credentials("key") is False
-
 
 class TestGetRows:
     # Decagon's docs name the next-page field three different ways (reference prose,

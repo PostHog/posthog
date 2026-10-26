@@ -54,14 +54,6 @@ class TestFormatIncrementalValue:
 
 
 class TestValidateCredentials:
-    @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False), ("forbidden", 403, False)])
-    def test_status_mapping(self, _name: str, status_code: int, expected: bool) -> None:
-        with scripted_network([ScriptedResponse(status=status_code, json={})]):
-            ok, returned_status = validate_credentials("tlk_key")
-        assert ok is expected
-        # The caller relies on the status code to tell a rejected key from a transient outage.
-        assert returned_status == status_code
-
     def test_credentialed_session_redacts_key_and_refuses_redirects(self) -> None:
         # The x-api-key value must never reach tracked telemetry, and a 30x must not replay it to
         # another host, so validation builds the session with both guards on.

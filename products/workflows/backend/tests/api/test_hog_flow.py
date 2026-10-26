@@ -1,10 +1,12 @@
 import json
+from collections.abc import Iterator
+from contextlib import contextmanager, nullcontext
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from io import StringIO
 from types import SimpleNamespace
 from typing import Any, Optional
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import ANY, MagicMock, patch
@@ -17,6 +19,7 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.api.tagged_item import set_tags_on_object
 from posthog.constants import AvailableFeature
 from posthog.event_usage import EventSource
 from posthog.models import Organization, OrganizationMembership, Team, User
@@ -24,8 +27,10 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.integration import Integration
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.scopes import APIScopeObject
 from posthog.test.fixtures import create_app_metric2
 
+from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
 from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.models.action import Action
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
@@ -36,6 +41,8 @@ from products.cdp.backend.templates.fixtures import template_slack
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.feature_flags.backend.user_blast_radius import BlastRadiusResult
+from products.messaging.backend.facade.categories import update_category
+from products.messaging.backend.facade.testing import create_message_category_for_test
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.replay_vision.backend.tests.helpers import create_experiment
 from products.skills.backend.models.skills import LLMSkill
@@ -115,6 +122,14 @@ def _secret_input_template() -> dict:
     template["inputs_schema"] = [
         {"key": "url", "type": "string", "label": "URL", "secret": False, "hidden": False, "required": True},
         {"key": "api_key", "type": "string", "label": "API key", "secret": True, "hidden": False, "required": False},
+        {
+            "key": "headers",
+            "type": "dictionary",
+            "label": "Headers",
+            "secret": False,
+            "hidden": False,
+            "required": False,
+        },
         {
             "key": "secret_headers",
             "type": "dictionary",
@@ -251,6 +266,7 @@ class TestHogFlowAPI(APIBaseTest):
             ("name_match", "search=welcome", {"Welcome email"}),
             ("case_insensitive", "search=WELCOME", {"Welcome email"}),
             ("description_match", "search=quarterly", {"Digest"}),
+            ("tag_match", "search=retent", {"Digest"}),
             ("space_matches_separators", "search=password reset", {"Password reset"}),
             ("step_name_match", "search=monthly invoice", {"Billing"}),
             ("email_subject_match", "search=for march", {"Billing"}),
@@ -279,7 +295,12 @@ class TestHogFlowAPI(APIBaseTest):
     def test_list_search_matches_name_description_and_step_content(self, _name, query, expected_names):
         HogFlow.objects.create(team=self.team, name="Welcome email", created_by=self.user)
         HogFlow.objects.create(team=self.team, name="Password reset", created_by=self.user)
-        HogFlow.objects.create(team=self.team, name="Digest", description="quarterly summary", created_by=self.user)
+        set_tags_on_object(
+            ["retention"],
+            HogFlow.objects.create(
+                team=self.team, name="Digest", description="quarterly summary", created_by=self.user
+            ),
+        )
         HogFlow.objects.create(team=self.team, name="March campaign", status=HogFlow.State.ACTIVE, created_by=self.user)
         HogFlow.objects.create(
             team=self.team,
@@ -405,6 +426,83 @@ class TestHogFlowAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?created_by={other_user.uuid}")
         assert response.status_code == 200, response.json()
         assert {flow["name"] for flow in response.json()["results"]} == {"Theirs"}
+
+    def test_bulk_update_tags_sets_tags_and_the_list_filters_on_them(self):
+        tagged = HogFlow.objects.create(team=self.team, name="Tagged", created_by=self.user)
+        HogFlow.objects.create(team=self.team, name="Untagged", created_by=self.user)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/bulk_update_tags",
+            {"ids": [str(tagged.id)], "action": "set", "tags": ["Launch", "q4"]},
+        )
+        assert response.status_code == 200, response.json()
+        assert response.json()["updated"] == [{"id": str(tagged.id), "tags": ["launch", "q4"]}]
+
+        # The filter takes a JSON list of stored names.
+        response = self.client.get(f'/api/projects/{self.team.id}/hog_flows?tags=["launch"]')
+        assert response.status_code == 200, response.json()
+        assert [(flow["name"], flow["tags"]) for flow in response.json()["results"]] == [("Tagged", ["launch", "q4"])]
+
+    @parameterized.expand(
+        [
+            ("one_tag", '["growth"]', {"Onboarding", "Upsell"}),
+            ("any_of_several_tags", '["billing", "support"]', {"Upsell", "Refunds"}),
+            ("unused_tag", '["unknown"]', set()),
+        ]
+    )
+    def test_list_filter_by_tags(self, _name, tags_param, expected_names):
+        for name, tags in (
+            ("Onboarding", ["growth"]),
+            ("Upsell", ["growth", "billing"]),
+            ("Refunds", ["support"]),
+            ("Untagged", []),
+        ):
+            set_tags_on_object(tags, HogFlow.objects.create(team=self.team, name=name, created_by=self.user))
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows", {"tags": tags_param})
+        assert response.status_code == 200, response.json()
+        assert {flow["name"] for flow in response.json()["results"]} == expected_names
+
+    @parameterized.expand([("not_json", "growth"), ("not_a_list", '"growth"'), ("not_strings", "[1]")])
+    def test_list_rejects_malformed_tags_filter(self, _name, tags_param):
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows", {"tags": tags_param})
+        assert response.status_code == 400, response.json()
+
+    def test_tags_round_trip_through_create_update_and_list(self):
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
+        )
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows", {**hog_flow, "tags": ["Onboarding", "growth"]}, format="json"
+        )
+        assert response.status_code == 201, response.json()
+        flow_id = response.json()["id"]
+        assert response.json()["tags"] == ["growth", "onboarding"]
+
+        url = f"/api/projects/{self.team.id}/hog_flows/{flow_id}"
+        response = self.client.patch(url, {"name": "Renamed"}, format="json")
+        assert response.json()["tags"] == ["growth", "onboarding"]
+
+        response = self.client.patch(url, {"tags": ["growth"]}, format="json")
+        assert response.status_code == 200, response.json()
+        assert response.json()["tags"] == ["growth"]
+        tag_changes = [
+            change
+            for entry in ActivityLog.objects.filter(scope="HogFlow", item_id=flow_id, activity="updated")
+            for change in (entry.detail or {}).get("changes") or []
+            if change["field"] == "tag"
+        ]
+        assert {(change["action"], change["before"], change["after"]) for change in tag_changes} == {
+            ("created", None, "growth"),
+            ("created", None, "onboarding"),
+            ("deleted", "onboarding", None),
+        }
+
+        list_response = self.client.get(f"/api/projects/{self.team.id}/hog_flows")
+        assert [flow["tags"] for flow in list_response.json()["results"]] == [["growth"]]
+
+        response = self.client.patch(url, {"tags": []}, format="json")
+        assert response.json()["tags"] == []
 
     @parameterized.expand(
         [
@@ -1119,6 +1217,9 @@ class TestHogFlowAPI(APIBaseTest):
             ("hours", "2h"),
             ("days", "1d"),
             ("fractional", "1.5h"),
+            ("past_the_wait_cap", "42d"),
+            ("day_cap", "365d"),
+            ("hour_cap", "24h"),
         ]
     )
     def test_hog_flow_delay_validation_accepts_canonical_config(self, _name, delay_duration):
@@ -1175,6 +1276,7 @@ class TestHogFlowAPI(APIBaseTest):
             ("seconds", "30s"),
             ("minutes", "30m"),
             ("fractional_days", "1.5d"),
+            ("day_cap", "30d"),
             # A falsy timeout is honoured as "wait indefinitely", so it stays valid to send
             ("null", None),
             ("empty_string", ""),
@@ -1183,6 +1285,118 @@ class TestHogFlowAPI(APIBaseTest):
     def test_hog_flow_wait_validation_accepts_canonical_max_wait_duration(self, _name, max_wait_duration):
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", self._make_wait_flow(max_wait_duration))
         assert response.status_code == 201, response.json()
+
+    @parameterized.expand(
+        [
+            ("delay_days", "delay_duration", "400d", 365),
+            ("delay_hours", "delay_duration", "36h", 365),
+            ("delay_minutes", "delay_duration", "90m", 365),
+            ("delay_until_ceiling", "max_delay_duration", "400d", 365),
+            ("wait_timeout", "max_wait_duration", "31d", 30),
+            # A web draft save is otherwise lenient, but the cap is checked on every save.
+            ("delay_days_on_a_web_draft", "delay_duration", "400d", 365, "draft"),
+        ]
+    )
+    def test_hog_flow_rejects_a_duration_the_executor_would_clamp(self, _name, field, value, max_days, status="active"):
+        if field == "max_wait_duration":
+            flow = self._make_wait_flow(value)
+        elif field == "max_delay_duration":
+            flow = self._make_delay_flow(
+                {"delay_until": {"expression": "person.properties.trial_end"}, "max_delay_duration": value}
+            )
+        else:
+            flow = self._make_delay_flow({field: value}, status=status)
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", flow)
+        assert response.status_code == 400, response.json()
+        assert response.json() == {
+            "attr": "actions__1__config",
+            "code": "invalid_input",
+            "detail": (
+                f"{field} can be at most {max_days}d, 24h, 60m or 60s, and a longer value only waits that long. "
+                "Use a larger unit, for example '1.5d' instead of '36h'."
+            ),
+            "type": "validation_error",
+        }
+
+    @parameterized.expand(
+        [
+            ("unrelated_edit_on_an_active_flow", "active", {}),
+            # Disabling sets the status to draft, so re-enabling revalidates every stored step.
+            ("re_enabling_a_disabled_flow", "draft", {"status": "active"}),
+        ]
+    )
+    def test_hog_flow_grandfathers_a_stored_over_cap_delay(self, _name, status, extra_payload):
+        create_response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows",
+            self._make_delay_flow({"delay_duration": "5m"}, status=status),
+        )
+        assert create_response.status_code == 201, create_response.json()
+        flow_id = create_response.json()["id"]
+
+        # Seed a row from before the cap check existed, bypassing the serializer that now refuses it.
+        flow = HogFlow.objects.get(id=flow_id)
+        actions = flow.actions
+        actions[1]["config"]["delay_duration"] = "400d"
+        flow.actions = actions
+        flow.save()
+
+        unrelated_edit = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"name": "Renamed", "actions": actions, **extra_payload},
+        )
+        assert unrelated_edit.status_code == 200, unrelated_edit.json()
+        assert unrelated_edit.json()["actions"][1]["config"]["delay_duration"] == "400d"
+
+        changed = [{**action} for action in actions]
+        changed[1] = {**changed[1], "config": {**changed[1]["config"], "delay_duration": "450d"}}
+        changed_response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"actions": changed})
+        assert changed_response.status_code == 400, changed_response.json()
+
+    @parameterized.expand(
+        [
+            # A fixed delay ignores max_delay_duration, so nothing checked the stored value.
+            (
+                "unused_by_the_stored_step",
+                "active",
+                {"delay_duration": "1d", "max_delay_duration": "400d"},
+                {
+                    "config": {
+                        "delay_until": {"expression": "person.properties.trial_end"},
+                        "max_delay_duration": "400d",
+                    }
+                },
+            ),
+        ]
+    )
+    def test_hog_flow_does_not_grandfather_an_unchecked_over_cap_value(self, _name, status, stored_config, change):
+        create_response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows", self._make_delay_flow({"delay_duration": "5m"}, status=status)
+        )
+        assert create_response.status_code == 201, create_response.json()
+        flow_id = create_response.json()["id"]
+
+        flow = HogFlow.objects.get(id=flow_id)
+        actions = flow.actions
+        actions[1]["config"] = stored_config
+        flow.actions = actions
+        flow.save()
+
+        payload: dict = {"actions": actions}
+        if "config" in change:
+            payload["actions"] = [actions[0], {**actions[1], "config": change["config"]}]
+        else:
+            payload.update(change)
+        response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", payload)
+        assert response.status_code == 400, response.json()
+        assert "can be at most 365d" in response.json()["detail"]
+
+    def test_hog_flow_web_draft_rejects_an_over_cap_max_delay_before_the_date_is_picked(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows",
+            self._make_delay_flow({"delay_until": {"offset": "-1d"}, "max_delay_duration": "400d"}, status="draft"),
+        )
+        assert response.status_code == 400, response.json()
+        assert "max_delay_duration can be at most 365d" in response.json()["detail"]
 
     def _make_conditional_branch_flow(self, config: dict) -> dict:
         flow = self._make_delay_flow({"delay_duration": "5m"})
@@ -1933,11 +2147,16 @@ class TestHogFlowAPI(APIBaseTest):
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_flows",
-            self._cohort_trigger_flow({"cohort_id": cohort.id, "transition": transition}),
+            {
+                **self._cohort_trigger_flow({"cohort_id": cohort.id, "transition": transition}),
+                "exit_condition": "exit_on_trigger_not_matched",
+            },
         )
 
         assert response.status_code == 201, response.json()
         assert response.json()["trigger"] == {"type": "cohort", "cohort_id": cohort.id, "transition": transition}
+        # The executor re-checks cohort membership, so the exit condition is kept rather than rewritten.
+        assert response.json()["exit_condition"] == "exit_on_trigger_not_matched"
 
     @parameterized.expand(
         [
@@ -4949,6 +5168,28 @@ class TestHogFlowAPI(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("schedule_trigger_not_matched", "schedule", "exit_on_trigger_not_matched", "exit_only_at_end"),
+            (
+                "schedule_trigger_not_matched_or_conversion",
+                "schedule",
+                "exit_on_trigger_not_matched_or_conversion",
+                "exit_on_conversion",
+            ),
+            ("schedule_conversion", "schedule", "exit_on_conversion", "exit_on_conversion"),
+            ("event_trigger_not_matched", "event", "exit_on_trigger_not_matched", "exit_on_trigger_not_matched"),
+        ]
+    )
+    def test_hog_flow_stores_the_exit_condition_its_trigger_can_run(self, _name, trigger_type, sent, stored):
+        flow = self._make_delay_flow({"delay_duration": "5m"}, status="draft")
+        if trigger_type == "schedule":
+            flow["actions"][0]["config"] = {"type": "schedule"}
+        flow["exit_condition"] = sent
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", flow)
+        assert response.status_code == 201, response.json()
+        assert response.json()["exit_condition"] == stored
+
+    @parameterized.expand(
+        [
             (
                 "locked_trigger_becomes_row_scoped",
                 "event",
@@ -4965,10 +5206,50 @@ class TestHogFlowAPI(APIBaseTest):
                 {"name": "Renamed"},
                 "exit_on_conversion",
             ),
+            (
+                "locked_trigger_stops_being_an_event_trigger",
+                "event",
+                "schedule",
+                "exit_on_trigger_not_matched",
+                {"exit_condition": "exit_on_trigger_not_matched"},
+                "exit_only_at_end",
+            ),
+            (
+                "explicit_exit_condition_survives_the_locked_trigger_becoming_an_event_trigger",
+                "schedule",
+                "event",
+                "exit_on_trigger_not_matched",
+                {"exit_condition": "exit_only_at_end"},
+                "exit_only_at_end",
+            ),
+            (
+                "explicit_trigger_exit_the_read_trigger_rewrote_runs_on_the_locked_event_trigger",
+                "schedule",
+                "event",
+                "exit_on_conversion",
+                {"exit_condition": "exit_on_trigger_not_matched"},
+                "exit_on_trigger_not_matched",
+            ),
+            (
+                "locked_trigger_becomes_an_event_trigger",
+                "schedule",
+                "event",
+                "exit_on_trigger_not_matched",
+                {"name": "Renamed"},
+                "exit_on_trigger_not_matched",
+                "exit_on_trigger_not_matched",
+            ),
         ]
     )
     def test_update_without_actions_derives_exit_condition_from_the_locked_trigger(
-        self, _name, initial_trigger_type, concurrent_trigger_type, concurrent_exit_condition, payload, expected
+        self,
+        _name,
+        initial_trigger_type,
+        concurrent_trigger_type,
+        concurrent_exit_condition,
+        payload,
+        expected,
+        stored_exit_condition=None,
     ):
         trigger_configs = {
             "event": {
@@ -4980,6 +5261,7 @@ class TestHogFlowAPI(APIBaseTest):
                 "table_name": "postgres.table_1",
                 "filters": {"properties": []},
             },
+            "schedule": {"type": "schedule"},
         }
         trigger_action = {"id": "trigger_node", "name": "trigger_1", "type": "trigger"}
         response = self.client.post(
@@ -4991,6 +5273,9 @@ class TestHogFlowAPI(APIBaseTest):
         )
         assert response.status_code == 201, response.json()
         flow_id = response.json()["id"]
+        if stored_exit_condition:
+            # A row saved before non-event triggers stored the exit condition they can run.
+            HogFlow.objects.filter(pk=flow_id).update(exit_condition=stored_exit_condition)
 
         def update_after_concurrent_trigger_change(**kwargs):
             HogFlow.objects.filter(pk=flow_id).update(
@@ -6616,16 +6901,19 @@ class TestHogFlowSecretInputs(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("string", {}, "api_key", "SUPER-SECRET"),
+            ("string", {}, "api_key", "SUPER-SECRET", {"secret": True}),
             (
                 "dictionary_without_templating",
                 {"secret_headers": {"value": {"Authorization": "Bearer SUPER-SECRET"}}},
                 "secret_headers",
                 {"Authorization": "Bearer SUPER-SECRET"},
+                {"secret": True, "value": {"Authorization": "********"}},
             ),
         ]
     )
-    def test_secret_action_input_is_encrypted_at_rest_and_masked_on_read(self, _name, extra_inputs, key, stored_value):
+    def test_secret_action_input_is_encrypted_at_rest_and_masked_on_read(
+        self, _name, extra_inputs, key, stored_value, masked
+    ):
         create = self.client.post(
             f"/api/projects/{self.team.id}/hog_flows", self._flow_payload(extra_inputs=extra_inputs)
         )
@@ -6636,7 +6924,7 @@ class TestHogFlowSecretInputs(APIBaseTest):
         retrieve = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}")
         for body in (create.json(), retrieve.json()):
             inputs = self._function_inputs(body)
-            assert inputs[key] == {"secret": True}
+            assert inputs[key] == masked
             assert inputs["url"]["value"] == "https://example.com"
 
         # The plaintext never reaches a project member, including through the list the web app reads.
@@ -6674,6 +6962,45 @@ class TestHogFlowSecretInputs(APIBaseTest):
 
         flow = HogFlow.objects.get(id=flow_id)
         assert flow.encrypted_inputs["action_1"]["api_key"]["value"] == expected_stored
+
+    @parameterized.expand(
+        [
+            (
+                "add_entry",
+                {"A": "********", "B": "********", "C": "c-new"},
+                False,
+                {"A": "a-old", "B": "b-old", "C": "c-new"},
+            ),
+            ("rotate_entry", {"A": "a-new", "B": "********"}, False, {"A": "a-new", "B": "b-old"}),
+            ("remove_entry", {"A": "********"}, False, {"A": "a-old"}),
+            # A failed validation keeps the raw inputs, so the masks must still turn back into stored values.
+            ("add_entry_lenient_save", {"A": "********", "C": "c-new"}, True, {"A": "a-old", "C": "c-new"}),
+        ]
+    )
+    def test_secret_header_edit_keeps_the_entries_it_does_not_change(
+        self, _name, edited_entries, invalid_url, expected_stored
+    ):
+        create = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows",
+            self._flow_payload(extra_inputs={"secret_headers": {"value": {"A": "a-old", "B": "b-old"}}}),
+        )
+        assert create.status_code == 201, create.json()
+        flow_id = create.json()["id"]
+
+        body = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}").json()
+        inputs = self._function_inputs(body)
+        assert inputs["secret_headers"] == {"secret": True, "value": {"A": "********", "B": "********"}}
+        inputs["secret_headers"] = {"secret": True, "value": edited_entries}
+        if invalid_url:
+            inputs["url"] = {"value": "{event.properties.url", "templating": "hog"}
+
+        patch_res = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"actions": body["actions"], "edges": body["edges"]}
+        )
+        assert patch_res.status_code == 200, patch_res.json()
+
+        flow = HogFlow.objects.get(id=flow_id)
+        assert flow.encrypted_inputs["action_1"]["secret_headers"]["value"] == expected_stored
 
     def test_metadata_only_update_leaves_secret_intact(self):
         # A PATCH that carries no actions must not clear the stored secret.
@@ -8029,11 +8356,15 @@ class TestRunScoutActionValidation(APIBaseTest):
         template["id"] = "template-posthog-run-scout"
         template["name"] = "Run scout"
         template["inputs_schema"] = [
-            {"key": "skill_name", "type": "string", "label": "Scout", "secret": False, "required": True}
+            {"key": "skill_name", "type": "string", "label": "Scout", "secret": False, "required": True},
+            {"key": "note", "type": "string", "label": "Note", "secret": False, "required": False},
         ]
         sync_template_to_db(template)
 
-    def _post_flow(self, team: Team):
+    def _actions(self, note: str | None = None) -> list[dict]:
+        inputs: dict[str, Any] = {"skill_name": {"value": "signals-scout-general"}}
+        if note is not None:
+            inputs["note"] = {"value": note}
         trigger_action = {
             "id": "trigger_node",
             "name": "trigger_1",
@@ -8049,17 +8380,65 @@ class TestRunScoutActionValidation(APIBaseTest):
             "type": "function",
             "config": {
                 "template_id": "template-posthog-run-scout",
-                "inputs": {"skill_name": {"value": "signals-scout-general"}},
+                "inputs": inputs,
             },
         }
+        return [trigger_action, action]
+
+    def _post_flow(self, team: Team, note: str | None = None, scopes: list[str] | None = None):
         # Strict validation, same as any programmatic caller - the path a misconfigured
         # workflow is actually authored through.
         with patch("products.workflows.backend.presentation.views.hog_flow.gated_template_enabled", return_value=True):
-            return self.client.post(
+            return self._client(scopes).post(
                 f"/api/projects/{team.id}/hog_flows",
-                {"name": "Test Flow", "actions": [trigger_action, action], "edges": []},
+                {"name": "Test Flow", "actions": self._actions(note), "edges": []},
                 HTTP_X_POSTHOG_CLIENT="mcp",
             )
+
+    def _patch_flow(self, flow_id: str, note: str | None, scopes: list[str] | None = None):
+        # A web builder draft save: lenient validation, which must still gate a new note.
+        with patch("products.workflows.backend.presentation.views.hog_flow.gated_template_enabled", return_value=True):
+            return self._client(scopes).patch(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"actions": self._actions(note)}
+            )
+
+    def _client(self, scopes: list[str] | None):
+        if scopes is None:
+            return self.client
+        key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="scout note", user=self.user, secure_value=hash_key_value(key), scopes=scopes
+        )
+        api_client = self.client_class()
+        api_client.defaults["HTTP_AUTHORIZATION"] = f"Bearer {key}"
+        return api_client
+
+    def _publish(self, flow_id: str):
+        with patch(
+            "products.workflows.backend.presentation.views.hog_flow.get_hog_flow_in_flight_count",
+            side_effect=Exception("down"),
+        ):
+            token = self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/publish", {}).json()[
+                "confirm_token"
+            ]
+        with patch("products.workflows.backend.presentation.views.hog_flow.gated_template_enabled", return_value=True):
+            return self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}/publish",
+                {"confirm": True, "confirm_token": token},
+            )
+
+    @contextmanager
+    def _without_skill_editor_access(self) -> Iterator[None]:
+        real_check = UserAccessControl.check_access_level_for_resource
+
+        def deny_llm_skill(
+            self_: UserAccessControl, resource: APIScopeObject, required_level: AccessControlLevel
+        ) -> bool:
+            return False if resource == "llm_skill" else real_check(self_, resource, required_level)
+
+        with patch.object(UserAccessControl, "check_access_level_for_resource", autospec=True) as check:
+            check.side_effect = deny_llm_skill
+            yield
 
     def test_rejects_the_action_in_a_child_environment(self):
         child = Team.objects.create(organization=self.organization, name="child env", parent_team=self.team)
@@ -8074,6 +8453,83 @@ class TestRunScoutActionValidation(APIBaseTest):
         response = self._post_flow(self.team)
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+    def test_a_note_needs_skill_editor_access(self):
+        with self._without_skill_editor_access():
+            response = self._post_flow(self.team, note="PR #{event.properties.pr_number}")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "actions__1__inputs__note"
+
+        response = self._post_flow(self.team, note="PR #{event.properties.pr_number}")
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+    @parameterized.expand(
+        [
+            ("hog_flow_write_only", ["hog_flow:write"], status.HTTP_400_BAD_REQUEST),
+            ("with_llm_skill_write", ["hog_flow:write", "llm_skill:write"], status.HTTP_201_CREATED),
+            ("all_scopes", ["*"], status.HTTP_201_CREATED),
+        ]
+    )
+    def test_a_key_needs_the_llm_skill_write_scope_to_add_a_note(self, _name: str, scopes: list[str], expected: int):
+        response = self._post_flow(self.team, note="PR #{event.properties.pr_number}", scopes=scopes)
+
+        assert response.status_code == expected, response.json()
+        if expected == status.HTTP_400_BAD_REQUEST:
+            assert response.json()["attr"] == "actions__1__inputs__note"
+
+    @parameterized.expand(
+        [
+            (f"{credential}_{name}", credential, note, expected)
+            for credential in ("session_without_skill_editor_access", "hog_flow_write_key")
+            for name, note, expected in (
+                ("keeps_the_stored_note", "PR #{event.properties.pr_number}", status.HTTP_200_OK),
+                ("removes_the_note", None, status.HTTP_200_OK),
+                ("changes_the_note", "Issue #{event.properties.issue_number}", status.HTTP_400_BAD_REQUEST),
+            )
+        ]
+    )
+    def test_an_editor_without_note_access_can_only_keep_or_remove_a_stored_note(
+        self, _name: str, credential: str, note: str | None, expected: int
+    ):
+        created = self._post_flow(self.team, note="PR #{event.properties.pr_number}")
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+
+        if credential == "hog_flow_write_key":
+            response = self._patch_flow(created.json()["id"], note, scopes=["hog_flow:write"])
+        else:
+            with self._without_skill_editor_access():
+                response = self._patch_flow(created.json()["id"], note)
+
+        assert response.status_code == expected, response.json()
+        if expected == status.HTTP_400_BAD_REQUEST:
+            assert response.json()["attr"] == "actions__1__inputs__note"
+
+    @parameterized.expand([("with_skill_editor_access", True), ("without_skill_editor_access", False)])
+    def test_publishing_a_restored_revision_brings_back_a_removed_note_only_with_skill_editor_access(
+        self, _name: str, has_access: bool
+    ):
+        flow_id = self._post_flow(self.team, note="PR #{event.properties.pr_number}").json()["id"]
+        assert self._patch_flow(flow_id, None).status_code == status.HTTP_200_OK
+        revisions = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/revisions").json()["results"]
+        noted_version = min(revision["version"] for revision in revisions)
+
+        with nullcontext() if has_access else self._without_skill_editor_access():
+            restore = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}/revisions/{noted_version}/restore", {}
+            )
+            assert restore.status_code == status.HTTP_200_OK, restore.json()
+            publish = self._publish(flow_id)
+
+        live_inputs = HogFlow.objects.get(id=flow_id).actions[1]["config"]["inputs"]
+        if has_access:
+            assert publish.status_code == status.HTTP_200_OK, publish.json()
+            assert live_inputs["note"]["value"] == "PR #{event.properties.pr_number}"
+        else:
+            assert publish.status_code == status.HTTP_400_BAD_REQUEST, publish.json()
+            assert publish.json()["attr"] == "actions__1__inputs__note"
+            assert "note" not in live_inputs
 
 
 class TestClassifyActionValidation(APIBaseTest):
@@ -8136,3 +8592,246 @@ class TestClassifyActionValidation(APIBaseTest):
         response = self._post_flow(categories, question, model)
 
         assert response.status_code == expected, response.json()
+
+
+class TestAddToStaticCohortActionValidation(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        template = deepcopy(webhook_template)
+        template["id"] = "template-posthog-add-to-static-cohort"
+        template["name"] = "Add to static cohort"
+        template["inputs_schema"] = [
+            {"key": "cohort_id", "type": "number", "label": "Static cohort", "secret": False, "required": True}
+        ]
+        sync_template_to_db(template)
+        self.cohort = Cohort.objects.create(team=self.team, name="Onboarded", is_static=True)
+
+    def _step(self, cohort_id: int) -> dict:
+        return {
+            "id": "add_to_cohort",
+            "name": "add_to_cohort",
+            "type": "function",
+            "config": {
+                "template_id": "template-posthog-add-to-static-cohort",
+                "inputs": {"cohort_id": {"value": cohort_id}},
+            },
+        }
+
+    def _save(self, trigger: dict = _TRIGGER, status_: str = "draft", **extra: Any):
+        with patch("products.workflows.backend.presentation.views.hog_flow.gated_template_enabled", return_value=True):
+            return self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows",
+                {
+                    "name": "Onboarding",
+                    "status": status_,
+                    "actions": [trigger, self._step(self.cohort.id)],
+                    "edges": [],
+                },
+                format="json",
+                HTTP_X_POSTHOG_CLIENT="mcp",
+                **extra,
+            )
+
+    def _restrict_cohort(self, *, resource_level: str | None, object_level: str | None) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        if resource_level:
+            AccessControl.objects.create(team=self.team, resource="cohort", access_level=resource_level)
+        if object_level:
+            AccessControl.objects.create(
+                team=self.team,
+                resource="cohort",
+                resource_id=str(self.cohort.id),
+                access_level=object_level,
+                organization_member=self.organization_membership,
+            )
+
+    @parameterized.expand(
+        [
+            ("cohort_editor", True, None, None, status.HTTP_201_CREATED),
+            ("dynamic_cohort", False, None, None, status.HTTP_400_BAD_REQUEST),
+            ("cohort_viewer", True, None, "viewer", status.HTTP_400_BAD_REQUEST),
+            ("editor_grant_on_a_viewer_resource", True, "viewer", "editor", status.HTTP_201_CREATED),
+        ]
+    )
+    def test_saving_the_step_needs_edit_access_to_a_static_cohort(
+        self, _name: str, is_static: bool, resource_level: str | None, object_level: str | None, expected: int
+    ) -> None:
+        Cohort.objects.filter(id=self.cohort.id).update(is_static=is_static)
+        self._restrict_cohort(resource_level=resource_level, object_level=object_level)
+
+        response = self._save()
+
+        assert response.status_code == expected, response.json()
+
+    @parameterized.expand(
+        [
+            ("without_cohort_write", ["hog_flow:write"], status.HTTP_400_BAD_REQUEST),
+            ("with_cohort_write", ["hog_flow:write", "cohort:write"], status.HTTP_201_CREATED),
+        ]
+    )
+    def test_an_api_key_needs_the_cohort_write_scope(self, _name: str, scopes: list[str], expected: int) -> None:
+        key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="test", user=self.user, secure_value=hash_key_value(key), scopes=scopes)
+        self.client.logout()
+
+        response = self._save(headers={"authorization": f"Bearer {key}"})
+
+        assert response.status_code == expected, response.json()
+
+    def test_another_editor_can_keep_saving_a_workflow_that_already_adds_to_the_cohort(self) -> None:
+        flow = HogFlow.objects.create(
+            team=self.team,
+            name="Onboarding",
+            trigger=_TRIGGER["config"],
+            actions=[_TRIGGER, self._step(self.cohort.id)],
+        )
+        self._restrict_cohort(resource_level=None, object_level="viewer")
+
+        with patch("products.workflows.backend.presentation.views.hog_flow.gated_template_enabled", return_value=True):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_flows/{flow.id}",
+                {"name": "Renamed", "actions": [_TRIGGER, self._step(self.cohort.id)]},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+    def test_a_trigger_without_a_person_cannot_use_the_step(self) -> None:
+        trigger = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {"type": "data-warehouse-table", "table_name": "some_table", "filters": {"properties": []}},
+        }
+
+        response = self._save(trigger=trigger, status_="active")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "actions", response.json()
+
+    def test_a_cohort_stored_on_a_non_function_action_is_still_checked(self) -> None:
+        exit_with_step_config = {**self._step(self.cohort.id), "type": "exit"}
+        flow = HogFlow.objects.create(
+            team=self.team, name="Onboarding", trigger=_TRIGGER["config"], actions=[_TRIGGER, exit_with_step_config]
+        )
+        self._restrict_cohort(resource_level=None, object_level="viewer")
+
+        with patch("products.workflows.backend.presentation.views.hog_flow.gated_template_enabled", return_value=True):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_flows/{flow.id}",
+                {"actions": [_TRIGGER, self._step(self.cohort.id)]},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
+    def test_a_lenient_draft_save_checks_the_cohort_while_the_flag_is_off(self) -> None:
+        self._restrict_cohort(resource_level=None, object_level="viewer")
+
+        with patch("products.workflows.backend.presentation.views.hog_flow.gated_template_enabled", return_value=False):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows",
+                {"name": "Onboarding", "actions": [_TRIGGER, self._step(self.cohort.id)], "edges": []},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
+
+class TestOptOutOfMessagesActionValidation(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        template = deepcopy(webhook_template)
+        template["id"] = "template-posthog-opt-out-of-messages"
+        template["inputs_schema"] = [
+            {"key": "category_id", "type": "string", "label": "Message category", "required": True},
+            {"key": "identifier", "type": "string", "label": "Recipient", "required": True},
+        ]
+        sync_template_to_db(template)
+
+    def _step(self, category_id: str | None) -> dict:
+        inputs: dict = {"identifier": {"value": "{person.properties.email}"}}
+        if category_id is not None:
+            inputs["category_id"] = {"value": category_id}
+        return {
+            "id": "opt_out",
+            "name": "opt_out",
+            "type": "function",
+            "config": {"template_id": "template-posthog-opt-out-of-messages", "inputs": inputs},
+        }
+
+    def _request(self, method: str, path: str, data: dict, strict: bool = True):
+        with patch("products.workflows.backend.presentation.views.hog_flow.gated_template_enabled", return_value=True):
+            return getattr(self.client, method)(
+                f"/api/projects/{self.team.id}/hog_flows{path}",
+                data,
+                format="json",
+                headers={"X-PostHog-Client": "mcp"} if strict else None,
+            )
+
+    def _category(self, category_type: str = "marketing") -> UUID:
+        category_id = create_message_category_for_test(team_id=self.team.id, key="updates", name="Updates")
+        if category_type != "marketing":
+            update_category(self.team.id, category_id, {"category_type": category_type})
+        return category_id
+
+    @parameterized.expand(
+        [
+            ("all_marketing", "$all", status.HTTP_201_CREATED),
+            ("marketing_category", "marketing", status.HTTP_201_CREATED),
+            ("transactional_category", "transactional", status.HTTP_400_BAD_REQUEST),
+            ("unknown_category", str(uuid4()), status.HTTP_400_BAD_REQUEST),
+            ("no_category", None, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_saving_the_step_needs_a_marketing_category_the_project_has(
+        self, _name: str, category_id: str | None, expected: int
+    ) -> None:
+        if category_id in ("marketing", "transactional"):
+            category_id = str(self._category(category_id))
+
+        response = self._request("post", "", {"name": "Unsubscribe", "actions": [_TRIGGER, self._step(category_id)]})
+
+        assert response.status_code == expected, response.json()
+
+    @parameterized.expand([("draft_save", False), ("strict_save", True)])
+    def test_a_workflow_only_editor_cannot_change_the_opt_out_list(self, _name: str, strict: bool) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        AccessControl.objects.create(team=self.team, resource="hog_flow", access_level="viewer")
+        flow = HogFlow.objects.create(
+            team=self.team, name="Unsubscribe", trigger=_TRIGGER["config"], actions=[_TRIGGER]
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="hog_flow",
+            resource_id=str(flow.id),
+            access_level="editor",
+            organization_member=self.organization_membership,
+        )
+
+        response = self._request("patch", f"/{flow.id}", {"actions": [_TRIGGER, self._step("$all")]}, strict=strict)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "edit access to all workflows" in str(response.json()), response.json()
+
+    @parameterized.expand([("deleted", {"deleted": True}), ("made_transactional", {"category_type": "transactional"})])
+    def test_enabling_rechecks_a_category_the_draft_already_saved(self, _name: str, change: dict) -> None:
+        category_id = self._category()
+        flow = HogFlow.objects.create(
+            team=self.team,
+            name="Unsubscribe",
+            trigger=_TRIGGER["config"],
+            actions=[_TRIGGER, self._step(str(category_id))],
+            edges=[],
+        )
+        update_category(self.team.id, category_id, change)
+
+        response = self._request("patch", f"/{flow.id}", {"status": "active"})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()

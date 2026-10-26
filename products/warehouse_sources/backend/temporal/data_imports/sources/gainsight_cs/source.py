@@ -166,7 +166,7 @@ class GainsightCsSource(ResumableSource[GainsightCsSourceConfig, GainsightCsResu
             ),
             docsUrl="https://posthog.com/docs/cdp/sources/gainsight-cs",
             iconPath="/static/services/gainsight_cs.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

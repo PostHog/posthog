@@ -1,6 +1,6 @@
 # Dockerfile for the base sandbox image.
 
-FROM golang:1.23 AS agent-shadow-builder
+FROM golang:1.27.3 AS agent-shadow-builder
 
 WORKDIR /src
 COPY packages/agent/agent-shadow/ ./
@@ -78,9 +78,12 @@ RUN set -eux; \
     git --version; \
     git help -a | grep -q '[[:space:]]backfill'
 
-# Install Node.js 24.x
+# Install Node.js 24.x. The layer cache keys on this RUN text, so cd-sandbox-base-image.yml
+# passes the newest nodesource package as NODEJS_VERSION to rebuild the layer when Node ships
+# a release. A build without the arg installs the newest package.
+ARG NODEJS_VERSION
 RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - && \
-    apt-get install -y --no-install-recommends nodejs && \
+    apt-get install -y --no-install-recommends "nodejs${NODEJS_VERSION:+=$NODEJS_VERSION}" && \
     rm -rf /var/lib/apt/lists/*
 
 # Install additional language package managers
@@ -90,7 +93,7 @@ RUN npm install -g yarn "pnpm@${PNPM_VERSION}" typescript ts-node nodemon
 # Install ruff and ty
 # uv comes from its pinned, registry-verified official image (same pattern as the
 # main Dockerfile) rather than piping a remote installer script to a shell.
-COPY --from=ghcr.io/astral-sh/uv:0.12.13 /uv /uvx /usr/local/bin/
+COPY --from=ghcr.io/astral-sh/uv:0.13.4 /uv /uvx /usr/local/bin/
 ARG RUFF_VERSION=0.14.11
 ARG TY_VERSION=0.0.29
 RUN UV_TOOL_BIN_DIR=/usr/local/bin uv tool install "ruff==${RUFF_VERSION}" && \
@@ -161,8 +164,8 @@ RUN set -eux; \
 # every sandbox image with no PostHog commit or review. Bump this deliberately
 # in a reviewed PR when picking up a new agent release. COMMIT_HASH invalidates
 # the layer for PostHog-side image changes that keep the agent version unchanged.
-ARG AGENT_VERSION=2.4.282
-ARG AGENT_TARBALL_SHA256="e716814c41324b0fd4b9bd7add17ccb2674c702a14acd5fc58f95401d1e62a4a"
+ARG AGENT_VERSION=2.4.291
+ARG AGENT_TARBALL_SHA256="96a09e5919bdd19e7c99739903d46bbb85f34291151bbe566f4f5511a77c5189"
 ARG AGENT_TARBALL_URL=https://github.com/PostHog/posthog/releases/download/agent-v${AGENT_VERSION}/posthog-agent-${AGENT_VERSION}.tgz
 ARG COMMIT_HASH
 RUN mkdir -p /scripts && \

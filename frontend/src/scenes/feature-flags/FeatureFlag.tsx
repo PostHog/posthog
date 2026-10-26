@@ -39,6 +39,7 @@ import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { FeatureFlagPermissions } from 'scenes/FeatureFlagPermissions'
 import { NotebookNodeType } from 'scenes/notebooks/types'
+import { SceneContentFallback } from 'scenes/SceneContentFallback'
 import { SceneExport } from 'scenes/sceneTypes'
 import { SURVEY_CREATED_SOURCE } from 'scenes/surveys/constants'
 import { QuickSurveyType } from 'scenes/surveys/quick-create/types'
@@ -80,6 +81,7 @@ import {
     PropertyOperator,
 } from '~/types'
 
+import { deletedCohortDisabledReason, restoreChecksCohorts } from 'products/feature_flags/frontend/deletedCohortFilters'
 import {
     ARCHIVE_UNAVAILABLE_DISABLED_REASON,
     RESTORE_UNAVAILABLE_DISABLED_REASON,
@@ -88,6 +90,7 @@ import {
     featureFlagConfigFormatLabel,
     isRulesV2EditableConfig,
 } from 'products/feature_flags/frontend/featureFlagConfigFormat'
+import { FeatureFlagDeletedCohortBanner } from 'products/feature_flags/frontend/FeatureFlagDeletedCohortBanner'
 import { FeatureFlagStaleBanner } from 'products/feature_flags/frontend/FeatureFlagStaleBanner'
 import { AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM, useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
@@ -158,11 +161,14 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         dependentFlags,
         configFormat,
         editorKind,
+        deletedCohortFilters,
         broadcastCohortLoading,
     } = useValues(featureFlagLogic)
     const isV1Config = configFormat === 'v1'
     const canRestore = canRestoreFeatureFlag(featureFlag.filters)
     const restoreUnavailable = !!featureFlag.deleted && !canRestore
+    const deletedCohortReason = deletedCohortDisabledReason(deletedCohortFilters)
+    const restoreBlockedReason = restoreChecksCohorts(featureFlag) ? deletedCohortReason : undefined
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const {
         deleteFeatureFlag,
@@ -321,7 +327,13 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         }
         return (
             <ChunkLoadErrorBoundary>
-                <Suspense fallback={<FeatureFlagFormSkeleton />}>
+                <Suspense
+                    fallback={
+                        <SceneContentFallback>
+                            <FeatureFlagFormSkeleton />
+                        </SceneContentFallback>
+                    }
+                >
                     <FeatureFlagForm id={id} />
                 </Suspense>
             </ChunkLoadErrorBoundary>
@@ -504,6 +516,9 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                             [ARCHIVE_UNAVAILABLE_DISABLED_REASON]: !canArchiveFeatureFlag(
                                                 featureFlag.filters
                                             ),
+                                            ...(featureFlag.archived && deletedCohortReason
+                                                ? { [deletedCohortReason]: true }
+                                                : {}),
                                             'Updating…': featureFlagActiveUpdateLoading,
                                         }}
                                     >
@@ -539,6 +554,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                             "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator.":
                                                 !featureFlag.can_edit,
                                             [RESTORE_UNAVAILABLE_DISABLED_REASON]: restoreUnavailable,
+                                            ...(restoreBlockedReason ? { [restoreBlockedReason]: true } : {}),
                                             'Restoring…': featureFlagRestoreLoading,
                                         }}
                                     >
@@ -564,6 +580,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                           children: 'Restore',
                                           onClick: () => restoreFeatureFlag(featureFlag),
                                           loading: featureFlagRestoreLoading,
+                                          disabledReason: restoreBlockedReason,
                                           'data-attr': 'restore-feature-flag-banner',
                                       }
                                     : undefined
@@ -585,7 +602,9 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                     ? {
                                           children: 'Unarchive',
                                           onClick: () => updateFeatureFlagArchived({ archived: false }),
-                                          disabledReason: featureFlagActiveUpdateLoading ? 'Updating…' : undefined,
+                                          disabledReason: featureFlagActiveUpdateLoading
+                                              ? 'Updating…'
+                                              : deletedCohortReason,
                                       }
                                     : undefined
                             }
@@ -594,6 +613,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                             experiments and surveys keep their data.
                         </LemonBanner>
                     )}
+                    {isV1Config && <FeatureFlagDeletedCohortBanner />}
                     {isV1Config && <FeatureFlagStaleBanner />}
                     {earlyAccessFeature && earlyAccessFeature.stage === EarlyAccessFeatureStage.Concept && (
                         <LemonBanner type="info">
@@ -666,12 +686,13 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                                     disabled={
                                                         !!disabledReason ||
                                                         featureFlagRestoreLoading ||
-                                                        restoreUnavailable
+                                                        restoreUnavailable ||
+                                                        !!restoreBlockedReason
                                                     }
                                                     tooltip={
                                                         restoreUnavailable
                                                             ? RESTORE_UNAVAILABLE_DISABLED_REASON
-                                                            : undefined
+                                                            : restoreBlockedReason
                                                     }
                                                     data-attr={
                                                         featureFlag.deleted

@@ -1,4 +1,4 @@
-"""Clean up unused agent worktrees (Claude Code, Codex, PostHog Desktop).
+"""Clean up unused agent and phw worktrees (Claude Code, Codex, PostHog Desktop, phw).
 
 These tools each create throwaway git worktrees that accumulate over time. A
 single PostHog worktree carries multi-GB `node_modules`, Python venvs, and Rust
@@ -43,11 +43,15 @@ from .doctor import _format_size
 # Roots that hold agent-created worktrees, keyed by the tool that owns them.
 # Claude Code and Codex nest worktrees directly under the repo; PostHog Desktop
 # keeps them in the home directory as <id>/posthog. Returned as (source, root).
+# The phw root must match WORKTREE_BASE in bin/posthog-worktree, including its
+# POSTHOG_WORKTREE_BASE override.
 def _worktree_roots(repo_root: Path) -> list[tuple[str, Path]]:
+    phw_base = os.environ.get("POSTHOG_WORKTREE_BASE") or str(Path.home() / ".worktrees" / "posthog")
     return [
         ("claude", repo_root / ".claude" / "worktrees"),
         ("codex", repo_root / ".codex" / "worktrees"),
         ("posthog-code", Path.home() / ".posthog-code" / "worktrees"),
+        ("phw", Path(phw_base).expanduser()),
     ]
 
 
@@ -131,7 +135,7 @@ class Worktree:
 
 @click.command(
     name="worktrees:clean",
-    help="Clear out unused Claude Code / Codex / PostHog Desktop worktrees by age",
+    help="Clear out unused Claude Code / Codex / PostHog Desktop / phw worktrees by age",
 )
 @click.option(
     "--before",
@@ -150,8 +154,8 @@ class Worktree:
     "--source",
     "sources",
     multiple=True,
-    type=click.Choice(["claude", "codex", "posthog-code"], case_sensitive=False),
-    help="Restrict to specific tool(s). Repeatable. Default: all three.",
+    type=click.Choice(["claude", "codex", "posthog-code", "phw"], case_sensitive=False),
+    help="Restrict to specific tool(s). Repeatable. Default: all of them.",
 )
 @click.option(
     "--repo",
@@ -221,7 +225,7 @@ def worktrees_clean(
     for source, root in _worktree_roots(repo_root):
         if selected_sources is not None and source not in selected_sources:
             continue
-        for path in _discover_worktrees(root):
+        for path in _discover_root_worktrees(root, registry):
             resolved = _resolve(path)
             if resolved in protected:
                 continue
@@ -454,6 +458,16 @@ def _discover_worktrees(root: Path, max_depth: int = 2) -> list[Path]:
                 scan(child, depth + 1)
 
     scan(root, 1)
+    return found
+
+
+def _discover_root_worktrees(root: Path, registry: dict[Path, dict]) -> list[Path]:
+    found = _discover_worktrees(root)
+    seen = {_resolve(path) for path in found}
+    resolved_root = _resolve(root)
+    for path in registry:
+        if path not in seen and path != resolved_root and _is_under(path, resolved_root) and path.is_dir():
+            found.append(path)
     return found
 
 

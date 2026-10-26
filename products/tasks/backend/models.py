@@ -65,7 +65,7 @@ from products.tasks.backend.metrics import (
     observe_task_run_terminal,
 )
 from products.tasks.backend.pr_urls import read_pr_urls
-from products.tasks.backend.redis import evaluate_dedicated_stream_flag, run_uses_dedicated_stream
+from products.tasks.backend.redis import dedicated_stream_configured, run_uses_dedicated_stream
 from products.tasks.backend.storage import append_jsonl_object
 
 logger = structlog.get_logger(__name__)
@@ -87,6 +87,7 @@ MCPBuiltInAgentKey = Literal["support", "scout", "workflow"]
 MCP_BUILT_IN_AGENT_STATE_KEY = "mcp_builtin_agent_key"
 MCP_CREDENTIAL_OWNER_STATE_KEY = "mcp_credential_owner_id"
 MCP_GATEWAY_SERVER_ALLOWLIST_STATE_KEY = "mcp_gateway_server_ids"
+MCP_TOOL_ALLOWLIST_STATE_KEY = "mcp_tool_allowlist"
 TASK_OWNERSHIP_VERSION_STATE_KEY = "task_ownership_version"
 TASK_RUN_SUMMARY_STATE_KEY = "task_summary"
 PRIOR_RUN_SUMMARY_STATE_KEY = "prior_run_summary"
@@ -651,6 +652,24 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             return None
         return [str(i) for i in ids] if isinstance(ids, list) else []
 
+    @property
+    def mcp_tool_allowlist(self) -> list[str] | None:
+        """PostHog MCP tool names the run picked, stamped once at dispatch.
+
+        None (no snapshot) means the run is not narrowed to a tool list. Once a snapshot
+        exists, a malformed value fails closed to an empty list, so the run holds only what
+        its caller always grants. Reads through `mcp_builtin_agent_key` like the gateway
+        allowlist: only a stamped agent task carries one.
+        """
+        if self.mcp_builtin_agent_key is None:
+            return None
+        tools = (self.state or {}).get(MCP_TOOL_ALLOWLIST_STATE_KEY)
+        if tools is None:
+            return None
+        if not isinstance(tools, list) or not all(isinstance(tool, str) for tool in tools):
+            return []
+        return list(tools)
+
     @classmethod
     def scout_experiment_q(cls, *, relation: Literal["", "task"] = "") -> models.Q:
         prefix = {"": "", "task": "task__"}[relation]
@@ -797,6 +816,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         acting_user_id: int | None = None,
         scheduled_at: datetime | None = None,
         startup_requested_at: datetime | None = None,
+        subscription_owner_id: int | None = None,
     ) -> "TaskRun":
         startup_requested_at = startup_requested_at or django_timezone.now()
         if scheduled_at is not None and django_timezone.is_naive(scheduled_at):
@@ -808,11 +828,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         expected_ownership_version = self.ownership_version
         dedicated_stream = (extra_state or {}).get("use_dedicated_stream")
         if dedicated_stream is None:
-            distinct_id = (self.created_by.distinct_id if self.created_by else None) or f"team_{self.team_id}"
-            dedicated_stream = evaluate_dedicated_stream_flag(
-                organization_id=str(self.team.organization_id),
-                distinct_id=distinct_id,
-            )
+            dedicated_stream = dedicated_stream_configured()
 
         with transaction.atomic():
             task = (
@@ -884,7 +900,9 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             task._apply_ai_run_defaults(state, acting_user_id)
             model_access = resolve_model_access(state)
             if model_access.adapter is not None:
-                state[f"{model_access.adapter}_subscription_user_id"] = acting_user_id or task.created_by_id
+                state[f"{model_access.adapter}_subscription_user_id"] = (
+                    subscription_owner_id or acting_user_id or task.created_by_id
+                )
             if task.ownership_version is not None:
                 state[TASK_OWNERSHIP_VERSION_STATE_KEY] = task.ownership_version
 
@@ -1152,6 +1170,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         client_provenance: TaskClientProvenance | None = None,
         mcp_credential_owner_id: int | None = None,
         mcp_gateway_server_ids: list[str] | None = None,
+        mcp_tool_allowlist: list[str] | None = None,
     ) -> tuple["Task", dict[str, Any]]:
         """Prepare an unsaved Task and the initial run's `extra_state`.
 
@@ -1274,6 +1293,8 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                 initial_state[MCP_CREDENTIAL_OWNER_STATE_KEY] = mcp_credential_owner_id
             if mcp_gateway_server_ids is not None:
                 initial_state[MCP_GATEWAY_SERVER_ALLOWLIST_STATE_KEY] = [str(i) for i in mcp_gateway_server_ids]
+            if mcp_tool_allowlist is not None:
+                initial_state[MCP_TOOL_ALLOWLIST_STATE_KEY] = sorted(set(mcp_tool_allowlist))
 
         task = Task(
             team=team,
@@ -1540,6 +1561,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
         mcp_credential_owner_id: int | None = None,
         mcp_gateway_server_ids: list[str] | None = None,
+        mcp_tool_allowlist: list[str] | None = None,
         before_task_dispatch: Callable[[uuid.UUID], dict[str, JsonValue] | None] | None = None,
     ) -> "Task":
         startup_requested_at = django_timezone.now()
@@ -1601,6 +1623,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             mcp_builtin_agent_key=mcp_builtin_agent_key,
             mcp_credential_owner_id=mcp_credential_owner_id,
             mcp_gateway_server_ids=mcp_gateway_server_ids,
+            mcp_tool_allowlist=mcp_tool_allowlist,
         )
 
         run_extra_state = dict(extra_state or {})
@@ -1624,11 +1647,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             "workflow_id_prefix": workflow_id_prefix,
         }
         if run_extra_state.get("use_dedicated_stream") is None:
-            distinct_id = (task.created_by.distinct_id if task.created_by else None) or f"team_{task.team_id}"
-            run_extra_state["use_dedicated_stream"] = evaluate_dedicated_stream_flag(
-                organization_id=str(task.team.organization_id),
-                distinct_id=distinct_id,
-            )
+            run_extra_state["use_dedicated_stream"] = dedicated_stream_configured()
 
         with transaction.atomic():
             task.save()
@@ -2847,8 +2866,7 @@ class TaskRun(models.Model):
         if not settings.TASK_RUN_LOGS_MIRROR_ORIGIN_PRODUCTS:
             return
 
-        # Per-run rollout decision (tasks-agent-run-otel-telemetry), stamped into run
-        # state at dispatch; fail closed while the stamp is absent.
+        # Fail closed while the dispatch stamp is absent, so runs that never dispatch stay unmirrored.
         if not agent_otel_telemetry_enabled_for_state(self.state if isinstance(self.state, dict) else None):
             return
 

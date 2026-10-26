@@ -1,3 +1,6 @@
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
+
 import { dayjs } from 'lib/dayjs'
 
 import type { SignalReportCheckApi } from 'products/signals/frontend/generated/api.schemas'
@@ -13,6 +16,7 @@ import {
     reportChecksMeta,
     splitReportCheckRows,
 } from './reportCheckPresentation'
+import { ReportCheckTiming } from './ReportCheckTiming'
 
 function makeCheck(overrides: Partial<SignalReportCheckApi> = {}): SignalReportCheckApi {
     return {
@@ -45,7 +49,7 @@ function rowFor(
     tag: string
     detail: string
 } {
-    const [row] = buildReportCheckRows([makeCheck(overrides)], explanations)
+    const [row] = buildReportCheckRows([makeCheck(overrides)], explanations, 'monitoring')
     return { tag: row.tag.label, detail: row.detail }
 }
 
@@ -61,6 +65,55 @@ describe('reportCheckPresentation', () => {
     })
 
     describe('buildReportCheckRows', () => {
+        it('hides cached measurement dates after the report leaves Monitoring', () => {
+            const markup = renderToStaticMarkup(
+                createElement(ReportCheckTiming, {
+                    check: makeCheck({
+                        monitoring_timing: {
+                            state: 'scheduled',
+                            started_at: '2026-09-20T09:00:00Z',
+                            ends_at: '2026-09-27T09:00:00Z',
+                            next_measurement_at: '2026-09-21T09:00:00Z',
+                        },
+                    }),
+                    reportStatus: 'resolved',
+                    detail: 'Checks run only while this report is in Monitoring.',
+                })
+            )
+            expect(markup).toContain('Checks run only while this report is in Monitoring.')
+            expect(markup).not.toContain('Next measurement:')
+            expect(markup).not.toContain('Window end:')
+        })
+
+        it.each(['resolved', 'ready', 'suppressed', 'potential'] as const)(
+            'pauses open checks on a %s report without hiding historical verdicts',
+            (reportStatus) => {
+                const checks = [
+                    makeCheck({ id: 'pending', status: 'pending' }),
+                    makeCheck({ id: 'scheduled', kind: 'metric_threshold' }),
+                    makeCheck({ id: 'dispatched', dispatched_at: '2026-09-21T09:00:00Z' }),
+                    makeCheck({
+                        id: 'stale-timing',
+                        monitoring_timing: {
+                            state: 'scheduled',
+                            started_at: null,
+                            ends_at: null,
+                            next_measurement_at: '2026-09-27T09:00:00Z',
+                        },
+                    }),
+                    makeCheck({ id: 'passed', status: 'passed', last_run_at: '2026-09-27T09:00:00Z' }),
+                ]
+                const rows = buildReportCheckRows(checks, new Map([['passed', 'The expectation held.']]), reportStatus)
+                for (const row of rows.filter(({ cancellable }) => cancellable)) {
+                    expect(row.tag).toEqual({ label: 'Paused', type: 'muted' })
+                    expect(row.detail).toBe('Checks run only while this report is in Monitoring.')
+                    expect(row.check).toBe(checks.find(({ id }) => id === row.check.id))
+                }
+                expect(rows.find(({ check }) => check.id === 'passed')?.detail).toBe('Sep 27 · The expectation held.')
+                expect(reportChecksMeta(checks, reportStatus)).toBe('5 · paused')
+            }
+        )
+
         // The section exists so a reader can tell a scheduled check from a waiting one from a check
         // that never ran. A wrong mapping here puts the wrong verdict word on the row.
         it.each<[string, Partial<SignalReportCheckApi>, string, string]>([
@@ -75,6 +128,32 @@ describe('reportCheckPresentation', () => {
                 { status: 'pending', kind: 'metric_threshold', soak_minutes: 1440 },
                 'Waiting',
                 'At least 1 day after this report is resolved',
+            ],
+            [
+                'a Monitoring deadline does not promise another run',
+                {
+                    monitoring_timing: {
+                        state: 'window_ended',
+                        started_at: '2026-09-20T09:00:00Z',
+                        ends_at: '2026-09-27T09:00:00Z',
+                        next_measurement_at: null,
+                    },
+                },
+                'Awaiting verification',
+                'The observation window has ended. Interim measurements have stopped. A final verdict has not been recorded.',
+            ],
+            [
+                'a paused Monitoring check does not promise a scout run',
+                {
+                    monitoring_timing: {
+                        state: 'paused',
+                        started_at: '2026-09-20T09:00:00Z',
+                        ends_at: '2026-09-27T09:00:00Z',
+                        next_measurement_at: null,
+                    },
+                },
+                'Paused',
+                'This check is paused during Monitoring.',
             ],
             [
                 'a scheduled check leads with its run date and its lane',
@@ -175,7 +254,8 @@ describe('reportCheckPresentation', () => {
                     makeCheck({ id: 'running', dispatched_at: '2026-09-21T09:00:00Z' }),
                     makeCheck({ id: 'sooner', next_run_at: '2026-09-27T09:00:00Z' }),
                 ],
-                new Map()
+                new Map(),
+                'monitoring'
             )
             expect(rows.map((row) => row.check.id)).toEqual([
                 'running',
@@ -192,7 +272,7 @@ describe('reportCheckPresentation', () => {
             ['a check waiting for the resolve', 'pending', true],
             ['a check that already decided', 'passed', false],
         ])('offers Stop on %s', (_name, status, cancellable) => {
-            const [row] = buildReportCheckRows([makeCheck({ status })], new Map())
+            const [row] = buildReportCheckRows([makeCheck({ status })], new Map(), 'monitoring')
             expect(row.cancellable).toEqual(cancellable)
         })
     })
@@ -207,7 +287,8 @@ describe('reportCheckPresentation', () => {
                     makeCheck({ id: 'running', dispatched_at: '2026-09-21T09:00:00Z' }),
                     makeCheck({ id: 'scheduled' }),
                 ],
-                new Map()
+                new Map(),
+                'monitoring'
             )
             const { visible, hidden } = splitReportCheckRows(rows)
             expect(visible.map((row) => row.check.id)).toEqual(['running', 'scheduled', 'cancelled-4', 'cancelled-3'])
@@ -232,9 +313,28 @@ describe('reportCheckPresentation', () => {
                 '2 · running now',
             ],
             ['says what pending checks are waiting on', [{ status: 'pending' }], '1 · waiting for resolve'],
+            [
+                'does not advertise a closed Monitoring window as the next run',
+                [
+                    {
+                        monitoring_timing: {
+                            state: 'window_ended',
+                            started_at: null,
+                            ends_at: null,
+                            next_measurement_at: null,
+                        },
+                    },
+                ],
+                '1',
+            ],
             ['says nothing is left to run', [{ status: 'passed' }, { status: 'failed' }], '2 · all done'],
         ])('%s', (_name, overrides, expected) => {
-            expect(reportChecksMeta(overrides.map((o) => makeCheck(o)))).toEqual(expected)
+            expect(
+                reportChecksMeta(
+                    overrides.map((o) => makeCheck(o)),
+                    'monitoring'
+                )
+            ).toEqual(expected)
         })
     })
 

@@ -13,6 +13,7 @@ from products.workflows.backend.facade.contracts import (
     EmailDomainDnsRecord,
     EmailDomainVerification,
     RecentWorkflow,
+    TeamUtmDefaults,
     TierDecision,
     TwilioAccount,
     TwilioPhoneNumber,
@@ -25,6 +26,8 @@ from products.workflows.backend.facade.contracts import (
     WorkflowVisionScanDailyLimits,
 )
 from products.workflows.backend.models import HogFlow, TeamWorkflowsConfig
+from products.workflows.backend.models.hog_flow.hog_flow import opt_out_category_ids, static_cohort_ids
+from products.workflows.backend.services import email_utm_defaults
 from products.workflows.backend.services.batch_jobs import create_batch_job
 from products.workflows.backend.services.default_email_sender import (
     clear_default_email_sender,
@@ -142,6 +145,22 @@ def get_workflow_owner_id(*, team_id: int, workflow_id: UUID) -> int | None:
         raise WorkflowNotFound() from None
 
 
+def get_workflow_static_cohort_ids(*, team_id: int, workflow_id: UUID) -> set[int]:
+    try:
+        actions = HogFlow.objects.values_list("actions", flat=True).get(team_id=team_id, id=workflow_id)
+    except HogFlow.DoesNotExist:
+        raise WorkflowNotFound() from None
+    return static_cohort_ids(actions)
+
+
+def get_workflow_opt_out_category_ids(*, team_id: int, workflow_id: UUID) -> set[str]:
+    try:
+        actions = HogFlow.objects.values_list("actions", flat=True).get(team_id=team_id, id=workflow_id)
+    except HogFlow.DoesNotExist:
+        raise WorkflowNotFound() from None
+    return opt_out_category_ids(actions)
+
+
 def workflow_exists(*, team_id: int, workflow_id: UUID) -> bool:
     return HogFlow.objects.filter(team_id=team_id, id=workflow_id).exists()
 
@@ -216,6 +235,20 @@ def has_active_workflow_for_warehouse_table(*, team_id: int, trigger_source: str
         trigger__type=trigger_source,
         trigger__table_name=table_name,
     ).exists()
+
+
+def active_workflow_warehouse_table_names(
+    *, team_id: int, trigger_source: str, table_names: Collection[str]
+) -> set[str]:
+    """The given warehouse table names that an active workflow triggers on."""
+    return set(
+        HogFlow.objects.filter(
+            team_id=team_id,
+            status=HogFlow.State.ACTIVE,
+            trigger__type=trigger_source,
+            trigger__table_name__in=list(table_names),
+        ).values_list("trigger__table_name", flat=True)
+    )
 
 
 def get_workflow_activity_summary(*, team_id: int, recent_limit: int) -> WorkflowActivitySummary:
@@ -322,3 +355,24 @@ def get_twilio_account_info(*, account_sid: str, auth_token: str) -> TwilioAccou
     from products.workflows.backend import providers  # noqa: PLC0415
 
     return providers.TwilioProvider(account_sid=account_sid, auth_token=auth_token).get_account_info()
+
+
+def load_team_utm_defaults(team_id: int) -> TeamUtmDefaults:
+    return email_utm_defaults.load_team_utm_defaults(team_id)
+
+
+def seed_new_email_steps_with_utm_defaults(
+    actions: list[dict[str, Any]], existing_action_ids: Iterable[str], defaults: TeamUtmDefaults
+) -> None:
+    email_utm_defaults.seed_new_email_actions(actions, existing_action_ids, defaults)
+
+
+def release_edited_email_utm_keys(
+    actions: list[dict[str, Any]],
+    stored_actions: list[Any],
+    stored_draft: dict[str, Any] | None,
+    defaults: TeamUtmDefaults,
+    *,
+    saving_draft: bool,
+) -> None:
+    email_utm_defaults.release_edited_keys(actions, stored_actions, stored_draft, defaults, saving_draft=saving_draft)
