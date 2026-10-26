@@ -31,6 +31,7 @@ class TestCDCErrorInfo:
         [
             (CDCErrorCategory.AUTH_FAILED, False),
             (CDCErrorCategory.SSL_REQUIRED, False),
+            (CDCErrorCategory.CERTIFICATE_REJECTED, False),
             (CDCErrorCategory.CONNECTION_FAILED, True),
             (CDCErrorCategory.HOST_UNREACHABLE, False),
             (CDCErrorCategory.QUOTA_EXCEEDED, False),
