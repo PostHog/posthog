@@ -145,6 +145,10 @@ export function watchReasonCopy(reason: WatchFeedReasonApi): string {
             const category = reason.watch_category
                 ? WATCH_CATEGORY_COPY[reason.watch_category]
                 : 'This session stands out for this scanner.'
+            const people = reason.affected_people ?? 1
+            if (people > 1) {
+                return `${category} ${people} people had a similar session.`
+            }
             const similar = reason.similar_count ?? 0
             if (similar === 0) {
                 return category
