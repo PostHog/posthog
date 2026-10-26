@@ -9,8 +9,6 @@ from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
-from parameterized import parameterized
-
 from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
 
 from posthog.hogql.context import HogQLContext
