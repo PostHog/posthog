@@ -64,7 +64,7 @@ export function HomepageThread(): JSX.Element {
                         }
                     >
                         <ThreadAutoScroller>
-                            <Thread className="p-3" />
+                            <Thread />
                         </ThreadAutoScroller>
                     </Suspense>
                 </ScrollableShadows>

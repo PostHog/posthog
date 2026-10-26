@@ -37,6 +37,7 @@ from ..facade.models import Metric, RelationshipProposal, TableCertification
 from .serializers import (
     CertificationCreateSerializer,
     CertificationSerializer,
+    MetricApproveRequestSerializer,
     MetricBulkApproveResponseSerializer,
     MetricBulkDeleteResponseSerializer,
     MetricBulkNamesRequestSerializer,
@@ -237,12 +238,18 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         detail=True,
         methods=["POST"],
         required_scopes=["data_catalog_approval:write", "data_catalog:read"],
-        request=None,
+        request=MetricApproveRequestSerializer,
         responses={200: MetricSerializer},
     )
-    def approve(self, request: Request, **kwargs) -> Response:
+    @validated_request(request_serializer=MetricApproveRequestSerializer)
+    def approve(self, request: ValidatedRequest, **kwargs) -> Response:
         """Bless a metric as canonical. Returns 409 while the metric is drifted from its insight."""
-        metric = api.approve_metric(self.get_object(), cast(User, request.user), request=request)
+        metric = api.approve_metric(
+            self.get_object(),
+            cast(User, request.user),
+            request=request,
+            expected_updated_at=request.validated_data.get("expected_updated_at"),
+        )
         return Response(self.get_serializer(metric).data)
 
     # DRF routes detail=False actions before the {name} detail route, so these paths can't be

@@ -57,13 +57,17 @@ The toolbox CLI:
 
 ### Available Flags
 
-| Flag                     | Description                                      | Default |
-| ------------------------ | ------------------------------------------------ | ------- |
-| `--claim-duration HOURS` | Number of hours to claim the pod for             | 12      |
-| `--update-claim`         | Update the termination time of your existing pod | False   |
+| Flag                     | Description                                               | Default |
+| ------------------------ | --------------------------------------------------------- | ------- |
+| `--claim-duration HOURS` | Number of hours to claim the pod for                      | 12      |
+| `--update-claim`         | Update the termination time of your existing pod          | False   |
+| `--kubectl-debug`        | Enable kubectl stream debug logs for the shell connection | False   |
 
 Set `KUBE_CONTEXT` to bypass environment selection for expert workflows. The context is scoped to this process and
 must have the pod permissions required by the toolbox; the CLI never changes your global current context.
+
+Shell connections ignore the local `DEBUG` variable by default because Flox sets it for Django development.
+Use `--kubectl-debug` to enable stream debug logs explicitly. This only changes the environment of the local kubectl connection.
 
 ### Examples
 

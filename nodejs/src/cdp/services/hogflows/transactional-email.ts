@@ -24,6 +24,9 @@ export type TransactionalEmailOutcome =
     | 'not_found'
     | 'not_sendable'
     | 'quota_limited'
+    | 'sending_suspended'
+    | 'sending_paused'
+    | 'recipient_suppressed'
     | 'error'
 
 export const transactionalEmailRequestsTotal = new Counter({
