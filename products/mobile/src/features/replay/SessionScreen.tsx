@@ -2,7 +2,6 @@ import * as Clipboard from 'expo-clipboard'
 import { useRouter } from 'expo-router'
 import { type ReactElement, useEffect, useRef, useState } from 'react'
 import { Linking, Platform, ScrollView, Share, Text, View } from 'react-native'
-
 import { useViewer } from '@/auth/useViewer'
 import { RECORDING_OBJECT_TYPE } from '@/features/chat/objectContext'
 import { HeaderMenu } from '@/features/views/screen/HeaderMenu'
@@ -22,9 +21,11 @@ import { WarningIcon } from '@/ui/icons/WarningIcon'
 import { OverlayHost } from '@/ui/OverlayPortal'
 import { Pressable44 } from '@/ui/Pressable44'
 import { StateView } from '@/ui/StateView'
+import { SCREEN_CONTENT_TOP } from '@/ui/screenLayout'
 import { createStyles, useColors, useTheme } from '@/ui/theme'
 import { iconSizes, layout, prettyWrap, radii, type } from '@/ui/tokens'
 import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
+import { type ScrollTitleState, useScrollTitle } from '@/ui/useScrollTitle'
 
 import { ChapterList } from './ChapterList'
 import { FrameSheet } from './FrameSheet'
@@ -49,7 +50,7 @@ import {
 } from './replayAnalytics'
 import { type SessionOpenSource, sessionWebUrl, shareSeconds } from './replayLinks'
 import type { RecordingView, SessionTimeline } from './replayModel'
-import { SESSION_CONTENT_TOP, SessionChrome } from './SessionChrome'
+import { SessionChrome } from './SessionChrome'
 import { SessionSkeleton } from './SessionSkeleton'
 import { SessionTimelineSection } from './SessionTimelineSection'
 import { SummaryCard } from './SummaryCard'
@@ -135,7 +136,7 @@ function Frame({ onBack, children }: { onBack: () => void; children: ReactElemen
     const insets = useScreenInsets()
     return (
         <View style={styles.screen}>
-            <View style={[styles.fill, { paddingTop: topOffset(insets, SESSION_CONTENT_TOP) }]}>{children}</View>
+            <View style={[styles.fill, { paddingTop: topOffset(insets, SCREEN_CONTENT_TOP) }]}>{children}</View>
             <SessionChrome onBack={onBack} />
         </View>
     )
@@ -187,6 +188,7 @@ function SessionBody({ recording, t, source, onBack }: SessionBodyProps): ReactE
     const [framePosition, setFramePosition] = useState<number | null>(null)
     const { sessionId } = recording
     const summary = flow.summary
+    const scrollTitle = useScrollTitle(summary?.title ?? fallbackTitle(recording, timeline.data ?? null))
     const seconds = shareSeconds(summary?.keyMomentMs ?? null, t)
     const webUrl = sessionWebUrl(scope, sessionId, seconds)
     const safeWebUrl = webUrl ? safeHttpsUrl(webUrl) : undefined
@@ -250,13 +252,16 @@ function SessionBody({ recording, t, source, onBack }: SessionBodyProps): ReactE
                 contentContainerStyle={[
                     styles.content,
                     {
-                        paddingTop: topOffset(insets, SESSION_CONTENT_TOP),
+                        paddingTop: topOffset(insets, SCREEN_CONTENT_TOP),
                         paddingBottom: bottomOffset(insets, 120),
                     },
                 ]}
+                onScroll={scrollTitle.onScroll}
+                scrollEventThrottle={16}
                 testID="session-scroll"
             >
                 <Header
+                    onTitleLayout={scrollTitle.onTitleLayout}
                     recording={recording}
                     timeline={timeline}
                     projectName={projectName}
@@ -284,7 +289,12 @@ function SessionBody({ recording, t, source, onBack }: SessionBodyProps): ReactE
                     onOpenIssue={openIssue}
                 />
             </ScrollView>
-            <SessionChrome onBack={onBack} onOpenFull={safeWebUrl ? openFull : null} onMore={() => setMenuOpen(true)} />
+            <SessionChrome
+                title={scrollTitle.title}
+                onBack={onBack}
+                onOpenFull={safeWebUrl ? openFull : null}
+                onMore={() => setMenuOpen(true)}
+            />
             <Pressable44
                 onPress={openChat}
                 accessibilityLabel="Chat about this session"
@@ -338,6 +348,7 @@ function useOpenedEvent(sessionId: string, source: SessionOpenSource, flow: Sess
 }
 
 interface HeaderProps {
+    onTitleLayout: ScrollTitleState['onTitleLayout']
     recording: RecordingView
     timeline: QueryState<SessionTimeline>
     projectName: string
@@ -346,7 +357,15 @@ interface HeaderProps {
     onKeyMoment: (() => void) | null
 }
 
-function Header({ recording, timeline, projectName, title, keyMomentMs, onKeyMoment }: HeaderProps): ReactElement {
+function Header({
+    recording,
+    timeline,
+    projectName,
+    title,
+    keyMomentMs,
+    onKeyMoment,
+    onTitleLayout,
+}: HeaderProps): ReactElement {
     const colors = useColors()
     const styles = useStyles()
     const events = timeline.data ?? null
@@ -361,15 +380,17 @@ function Header({ recording, timeline, projectName, title, keyMomentMs, onKeyMom
     const firstError = events?.firstExceptionMs ?? null
     return (
         <View>
-            <View style={styles.eyebrowRow}>
-                <RecordingIcon size={iconSizes.small} color={colors.tertiary} />
-                <Text style={styles.eyebrow} numberOfLines={1}>
-                    {projectName ? `Session · ${projectName}` : 'Session'}
+            <View onLayout={onTitleLayout}>
+                <View style={styles.eyebrowRow}>
+                    <RecordingIcon size={iconSizes.small} color={colors.tertiary} />
+                    <Text style={styles.eyebrow} numberOfLines={1}>
+                        {projectName ? `Session · ${projectName}` : 'Session'}
+                    </Text>
+                </View>
+                <Text style={[styles.title, prettyWrap]} lineBreakStrategyIOS="standard" accessibilityRole="header">
+                    {title ?? fallbackTitle(recording, events)}
                 </Text>
             </View>
-            <Text style={[styles.title, prettyWrap]} lineBreakStrategyIOS="standard" accessibilityRole="header">
-                {title ?? fallbackTitle(recording, events)}
-            </Text>
             <Text style={styles.meta}>{meta.join(' · ')}</Text>
             <View style={styles.chips}>
                 {keyMomentMs !== null ? (

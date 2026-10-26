@@ -1,4 +1,5 @@
 import { Fragment, type ReactElement, type ReactNode } from 'react'
+import type { LayoutChangeEvent } from 'react-native'
 import { Text, View } from 'react-native'
 
 import type { ErrorsWindow, IssueReleaseApi } from '@/api/errorTracking'
@@ -55,6 +56,7 @@ export function Section({
 }
 
 interface IssueHeaderProps {
+    onTitleLayout?: (event: LayoutChangeEvent) => void
     eyebrow: string
     status: string
     badge: IssueBadge | null
@@ -69,6 +71,7 @@ interface IssueHeaderProps {
 }
 
 export function IssueHeader({
+    onTitleLayout,
     eyebrow,
     status,
     badge,
@@ -89,15 +92,17 @@ export function IssueHeader({
     ].filter(Boolean)
     return (
         <View>
-            <View style={styles.eyebrowRow}>
-                <Eyebrow>{eyebrow}</Eyebrow>
-                <StatusChip status={status} />
-                {badge ? <IssueBadgePill badge={badge} /> : null}
+            <View onLayout={onTitleLayout}>
+                <View style={styles.eyebrowRow}>
+                    <Eyebrow>{eyebrow}</Eyebrow>
+                    <StatusChip status={status} />
+                    {badge ? <IssueBadgePill badge={badge} /> : null}
+                </View>
+                <Text style={styles.headline} accessibilityRole="header" numberOfLines={5} testID="issue-title">
+                    <Text style={styles.headlineType}>{name}</Text>
+                    {description ? ` ${description}` : ''}
+                </Text>
             </View>
-            <Text style={styles.headline} accessibilityRole="header" numberOfLines={5} testID="issue-title">
-                <Text style={styles.headlineType}>{name}</Text>
-                {description ? ` ${description}` : ''}
-            </Text>
             {seen.length > 0 ? (
                 <View style={styles.byline}>
                     <ClockIcon size={iconSizes.inline} color={colors.tertiary} />

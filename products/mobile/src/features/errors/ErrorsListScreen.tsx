@@ -1,7 +1,6 @@
 import { useFocusEffect, useRouter } from 'expo-router'
 import { type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { FlatList, Linking, RefreshControl, Text, View } from 'react-native'
-
 import type { ErrorsWindow } from '@/api/errorTracking'
 import { useViewer } from '@/auth/useViewer'
 import { changeNavPin } from '@/features/tabs/navPinActions'
@@ -9,7 +8,7 @@ import { useIsNavPinned } from '@/features/tabs/navPinStore'
 import { TABS_HEADER_BOTTOM } from '@/features/tabs/TabsHeader'
 import { useTabHeader } from '@/features/tabs/tabHeaderStore'
 import { HeaderMenu } from '@/features/views/screen/HeaderMenu'
-import { COMPACT_VIEW_CONTENT_TOP, ViewChrome } from '@/features/views/screen/ViewChrome'
+import { ViewChrome } from '@/features/views/screen/ViewChrome'
 import { useViewBack } from '@/features/views/screen/ViewScreenFrame'
 import { useFeatureAccess } from '@/features/views/useViewsAccess'
 import { ViewsReauthState } from '@/features/views/ViewsReauthState'
@@ -25,9 +24,11 @@ import { OverlayHost } from '@/ui/OverlayPortal'
 import { Pressable44 } from '@/ui/Pressable44'
 import { SegmentedPill } from '@/ui/SegmentedPill'
 import { StateView } from '@/ui/StateView'
+import { SCREEN_CONTENT_TOP } from '@/ui/screenLayout'
 import { createStyles, useColors } from '@/ui/theme'
 import { iconSizes, layout, radii, type } from '@/ui/tokens'
 import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
+import { useScrollTitle } from '@/ui/useScrollTitle'
 import {
     type ErrorsChrome,
     trackErrorsErrorShown,
@@ -71,6 +72,7 @@ function ErrorsListBody({ chrome }: { chrome: ErrorsChrome }): ReactElement {
     const styles = useStyles()
     const router = useRouter()
     const insets = useScreenInsets()
+    const scrollTitle = useScrollTitle('Errors')
     const access = useFeatureAccess('errors')
     const context = useErrorsContext()
     const viewer = useViewer()
@@ -125,14 +127,14 @@ function ErrorsListBody({ chrome }: { chrome: ErrorsChrome }): ReactElement {
         trackErrorsFilterChanged({ filter: value })
     }
 
-    const contentTop = topOffset(insets, chrome === 'tab' ? TABS_HEADER_BOTTOM : COMPACT_VIEW_CONTENT_TOP)
+    const contentTop = topOffset(insets, chrome === 'tab' ? TABS_HEADER_BOTTOM : SCREEN_CONTENT_TOP)
     const contentBottom = bottomOffset(insets, chrome === 'tab' ? TAB_BOTTOM : STACK_BOTTOM)
 
     // A pushed screen draws its own title; on a tab the shared tabs header draws it.
     const stackTitle =
         chrome === 'stack' ? (
             <View style={styles.titleBlock}>
-                <Text style={styles.title} accessibilityRole="header">
+                <Text style={styles.title} accessibilityRole="header" onLayout={scrollTitle.onTitleLayout}>
                     Errors
                 </Text>
                 {status ? <Text style={styles.status}>{status}</Text> : null}
@@ -225,6 +227,8 @@ function ErrorsListBody({ chrome }: { chrome: ErrorsChrome }): ReactElement {
         const empty = emptyCopy(filter, window)
         body = (
             <FlatList
+                onScroll={scrollTitle.onScroll}
+                scrollEventThrottle={16}
                 data={rows}
                 keyExtractor={keyOf}
                 renderItem={({ item }) => <IssueListRow row={item} now={now} myName={viewer.name} onOpen={openIssue} />}
@@ -265,7 +269,7 @@ function ErrorsListBody({ chrome }: { chrome: ErrorsChrome }): ReactElement {
             {body}
             {chrome === 'stack' ? (
                 <>
-                    <ViewChrome compact onBack={goBack} onMore={() => setMenuOpen(true)} />
+                    <ViewChrome title={scrollTitle.title} onBack={goBack} onMore={() => setMenuOpen(true)} />
                     <HeaderMenu
                         visible={menuOpen}
                         onClose={() => setMenuOpen(false)}
@@ -352,7 +356,7 @@ const useStyles = createStyles(({ colors }) => ({
     },
     titleBlock: {
         gap: 2,
-        paddingHorizontal: 2,
+        paddingHorizontal: 6,
     },
     title: {
         ...type.screenTitle,

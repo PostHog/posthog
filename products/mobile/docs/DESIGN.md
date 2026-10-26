@@ -88,10 +88,12 @@ Its 16pt input has an explicit 20pt line height, centered vertically without And
   (54pt) and home indicator (34pt). `topOffset(insets, designTop)` and
   `bottomOffset(insets, designBottom)` swap those for the device's insets. The web build has no
   insets, so `useScreenInsets` uses the prototype's values there.
-- **View titles.** Dashboard, insight, web analytics and full-screen chart content starts 8pt below
-  the floating header's blur fade at rest, so titles stay sharp before scrolling.
-  The pushed Errors and Sessions lists use a compact 46pt navigation row with a 20pt gap before
-  the title, matching Settings. Their blur fade ends 10pt before the title.
+- **Page titles.** Pushed pages share a 46pt navigation row and a 20pt gap before their title block.
+  Their blur fade ends 10pt before the content. `screenLayout` supplies these offsets to every page.
+  As the title scrolls under navigation, `ScreenChrome` fades in a smaller copy centered between the controls.
+  The title truncates before either control and stays out of the accessibility tree; the content title remains the heading.
+  This pattern covers Settings, browse lists, dashboards, insights, web analytics, scrollable full-screen charts,
+  Errors, issues, Sessions, recordings, reports and full reports. Tab titles stay in their shared navigation row.
 - **Text wrapping.** The prototype sets `text-wrap: pretty`. iOS gets the same behavior from
   `lineBreakStrategyIOS="standard"`, and web from the CSS property (`prettyWrap`).
   Android wraps greedily.
@@ -215,10 +217,8 @@ Its 16pt input has an explicit 20pt line height, centered vertically without And
   chat sheet with @-mention popover, the Model and Mode chips, and the session thread. The chat sheet shares the sheets' grabber
   and drag-down dismissal (`useSheetDrag`), on its header only, so a drag never competes with the thread's scroll.
 - **Sign-in**: the logo, form and account link are vertically centered above the legal footer. Privacy policy and Terms sit at the bottom safe area. The page scrolls when the form needs more room, including with the keyboard open.
-- **Settings**: minimal, built from the same tokens. Settings keeps its Back chip on blurred floating chrome; the
-  large title scrolls up into the chrome beside the chip, shrinking to section-header size (`SettingsChrome`, `collapsingTitle`).
-  On iOS and Android, only the moving title is visible; the in-content heading stays available to screen readers.
-  With reduced motion enabled, the content title stays visible and the chrome title fades in as it scrolls out.
+- **Settings**: minimal, built from the same tokens. The large title scrolls with the content.
+  A centered title fades into the navigation row as the large title scrolls out, using the shared page-title pattern.
   Groups run Start page, Project, Notifications, Appearance, Demo (dev builds), App, Account, Environment (internal builds), Legal, then Sign out.
   Start page, Project and Appearance use the same radio rows (`SettingsRadioRow`).
   Appearance is Match system, Light or Dark, saved on the device; screens wait for it to load so they never paint in the wrong scheme.
@@ -258,7 +258,7 @@ Its 16pt input has an explicit 20pt line height, centered vertically without And
   Loading (row-shaped blocks), "Couldn't load your sessions" with Try again, "No recordings yet", the sign-in state and
   the demo state are separate screens. More (pushed only) holds Pin to navigation or Unpin from navigation, with the
   Views toast and Undo, and Open on web.
-- **Session** (`features/replay/SessionScreen.tsx`): Back on the left; on the right one pill with "Open full replay"
+- **Session** (`features/replay/SessionScreen.tsx`): Back on the left; on the right one pill with the "Open full replay" icon
   (the only way to the web player) and More (Share link at m:ss, Copy session ID). "Session · project" eyebrow, the 22pt
   title (the scan's, else one built from the events), the meta line (person · date and time · length · browser on OS),
   then a "Key moment 2:14" chip in orange (it opens that chapter's frame) or "First error 2:14", and a city chip.

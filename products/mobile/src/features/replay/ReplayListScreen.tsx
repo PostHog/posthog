@@ -1,13 +1,12 @@
 import { useFocusEffect, useRouter } from 'expo-router'
 import { type ReactElement, useCallback, useEffect, useState } from 'react'
 import { FlatList, Linking, RefreshControl, Text, View } from 'react-native'
-
 import { changeNavPin } from '@/features/tabs/navPinActions'
 import { useIsNavPinned } from '@/features/tabs/navPinStore'
 import { TABS_HEADER_BOTTOM } from '@/features/tabs/TabsHeader'
 import { useTabHeader } from '@/features/tabs/tabHeaderStore'
 import { HeaderMenu } from '@/features/views/screen/HeaderMenu'
-import { COMPACT_VIEW_CONTENT_TOP, ViewChrome } from '@/features/views/screen/ViewChrome'
+import { ViewChrome } from '@/features/views/screen/ViewChrome'
 import { useViewBack } from '@/features/views/screen/ViewScreenFrame'
 import { ViewsReauthState } from '@/features/views/ViewsReauthState'
 import { useToasts, ViewsToast } from '@/features/views/ViewsToast'
@@ -20,9 +19,11 @@ import { RecordingIcon } from '@/ui/icons/RecordingIcon'
 import { WarningIcon } from '@/ui/icons/WarningIcon'
 import { OverlayHost } from '@/ui/OverlayPortal'
 import { StateView } from '@/ui/StateView'
+import { SCREEN_CONTENT_TOP } from '@/ui/screenLayout'
 import { createStyles, useColors } from '@/ui/theme'
 import { iconSizes, layout, type } from '@/ui/tokens'
 import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
+import { useScrollTitle } from '@/ui/useScrollTitle'
 
 import { useReplayContext, useSessionList } from './hooks'
 import {
@@ -60,6 +61,7 @@ function ReplayListBody({ chrome }: { chrome: 'tab' | 'stack' }): ReactElement {
     const styles = useStyles()
     const router = useRouter()
     const insets = useScreenInsets()
+    const scrollTitle = useScrollTitle('Sessions')
     const back = useViewBack()
     const now = useNow()
     const toasts = useToasts()
@@ -106,12 +108,12 @@ function ReplayListBody({ chrome }: { chrome: 'tab' | 'stack' }): ReactElement {
     const webUrl = navListWebUrl(scope, 'replay')
     const safeWebUrl = webUrl ? safeHttpsUrl(webUrl) : undefined
 
-    const contentTop = topOffset(insets, chrome === 'tab' ? TABS_HEADER_BOTTOM : COMPACT_VIEW_CONTENT_TOP)
+    const contentTop = topOffset(insets, chrome === 'tab' ? TABS_HEADER_BOTTOM : SCREEN_CONTENT_TOP)
     const contentBottom = bottomOffset(insets, chrome === 'tab' ? TAB_BOTTOM : STACK_BOTTOM)
     const header =
         chrome === 'stack' ? (
             <View style={styles.titleBlock}>
-                <Text style={styles.title} accessibilityRole="header">
+                <Text style={styles.title} accessibilityRole="header" onLayout={scrollTitle.onTitleLayout}>
                     Sessions
                 </Text>
                 {status ? <Text style={styles.status}>{status}</Text> : null}
@@ -170,6 +172,8 @@ function ReplayListBody({ chrome }: { chrome: 'tab' | 'stack' }): ReactElement {
     } else {
         body = (
             <FlatList
+                onScroll={scrollTitle.onScroll}
+                scrollEventThrottle={16}
                 data={rows}
                 keyExtractor={keyOf}
                 renderItem={({ item }) => <SessionListRow row={item} now={now} onOpen={openSession} />}
@@ -204,7 +208,7 @@ function ReplayListBody({ chrome }: { chrome: 'tab' | 'stack' }): ReactElement {
             {body}
             {chrome === 'stack' ? (
                 <>
-                    <ViewChrome compact onBack={back} onMore={() => setMenuOpen(true)} />
+                    <ViewChrome title={scrollTitle.title} onBack={back} onMore={() => setMenuOpen(true)} />
                     <HeaderMenu
                         visible={menuOpen}
                         onClose={() => setMenuOpen(false)}

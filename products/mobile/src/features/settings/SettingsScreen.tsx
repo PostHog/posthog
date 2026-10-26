@@ -1,17 +1,18 @@
 import { useRouter } from 'expo-router'
 import { type ReactElement, useMemo } from 'react'
-import { Platform, Switch, Text, View } from 'react-native'
-import Animated, { useAnimatedScrollHandler, useReducedMotion, useSharedValue } from 'react-native-reanimated'
-
+import { Platform, ScrollView, Switch, Text, View } from 'react-native'
 import { useAuthStore } from '@/auth/authStore'
 import { useViewer } from '@/auth/useViewer'
 import { useDemoMode } from '@/demo/demoMode'
 import { track } from '@/lib/analytics'
 import { isInternalBuild } from '@/lib/environment'
 import { EnvironmentRibbon } from '@/ui/EnvironmentRibbon'
+import { ScreenChrome } from '@/ui/ScreenChrome'
+import { SCREEN_CONTENT_TOP } from '@/ui/screenLayout'
 import { createStyles, useColors } from '@/ui/theme'
 import { layout, type } from '@/ui/tokens'
 import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
+import { useScrollTitle } from '@/ui/useScrollTitle'
 
 import { AppearanceGroup } from './AppearanceGroup'
 import { readAppVersion } from './appInfo'
@@ -22,7 +23,6 @@ import { LegalGroup } from './LegalGroup'
 import { NotificationPreferencesGroup } from './NotificationPreferencesGroup'
 import { ProjectSwitcher } from './ProjectSwitcher'
 import { PushStatusGroup } from './PushStatusGroup'
-import { SETTINGS_CHROME_ROW_HEIGHT, SETTINGS_CHROME_TOP, SETTINGS_TITLE_GAP, SettingsChrome } from './SettingsChrome'
 import { SettingsGroup } from './SettingsGroup'
 import { SettingsRow } from './SettingsRow'
 import { SignOutSection } from './SignOutSection'
@@ -43,11 +43,7 @@ export function SettingsScreen(): ReactElement {
     const setDemo = useDemoMode((state) => state.setEnabled)
     const version = useMemo(readAppVersion, [])
     const sessionHost = signedIn ? host : null
-    const reduceMotion = useReducedMotion()
-    const scrollY = useSharedValue(0)
-    const onScroll = useAnimatedScrollHandler((event) => {
-        scrollY.value = event.contentOffset.y
-    })
+    const scrollTitle = useScrollTitle('Settings')
 
     const goBack = (): void => {
         if (router.canGoBack()) {
@@ -66,20 +62,19 @@ export function SettingsScreen(): ReactElement {
 
     return (
         <View style={styles.screen} testID="settings-screen">
-            <Animated.ScrollView
+            <ScrollView
                 contentContainerStyle={[
                     styles.content,
                     {
-                        paddingTop: topOffset(insets, SETTINGS_CHROME_TOP),
+                        paddingTop: topOffset(insets, SCREEN_CONTENT_TOP),
                         paddingBottom: bottomOffset(insets, 48),
                     },
                 ]}
-                onScroll={onScroll}
+                onScroll={scrollTitle.onScroll}
                 scrollEventThrottle={16}
+                testID="settings-scroll"
             >
-                <View style={styles.chipSpacer} />
-                {/* The accessible header, kept in reading order; transparent rather than opacity 0 because iOS accessibility skips zero-alpha views. */}
-                <Text style={[styles.title, reduceMotion ? null : styles.titleHidden]} accessibilityRole="header">
+                <Text style={styles.title} accessibilityRole="header" onLayout={scrollTitle.onTitleLayout}>
                     Settings
                 </Text>
                 <EnvironmentRibbon host={sessionHost} style={styles.ribbon} />
@@ -124,8 +119,8 @@ export function SettingsScreen(): ReactElement {
                 {isInternalBuild ? <EnvironmentGroup host={sessionHost} /> : null}
                 <LegalGroup accountHost={signedIn && !demo ? host : null} />
                 <SignOutSection />
-            </Animated.ScrollView>
-            <SettingsChrome title="Settings" scrollY={scrollY} onBack={goBack} />
+            </ScrollView>
+            <ScreenChrome title={scrollTitle.title} onBack={goBack} backTestID="settings-back" />
         </View>
     )
 }
@@ -138,18 +133,9 @@ const useStyles = createStyles(({ colors }) => ({
     content: {
         paddingHorizontal: layout.detailGutter,
     },
-    chipSpacer: {
-        height: SETTINGS_CHROME_ROW_HEIGHT,
-    },
     title: {
         ...type.screenTitle,
         color: colors.ink,
-        marginTop: SETTINGS_TITLE_GAP,
-    },
-    titleHidden: {
-        // Android treats transparent black as an unset text color, so keep nonzero RGB with zero alpha.
-        // https://github.com/facebook/react-native/issues/53343
-        color: '#FFFFFF00',
     },
     ribbon: {
         alignSelf: 'flex-start',

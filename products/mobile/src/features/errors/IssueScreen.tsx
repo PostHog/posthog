@@ -2,13 +2,12 @@ import * as Clipboard from 'expo-clipboard'
 import { useRouter } from 'expo-router'
 import { type ReactElement, useEffect, useMemo, useRef, useState } from 'react'
 import { Linking, RefreshControl, ScrollView, View } from 'react-native'
-
 import { ApiError } from '@/api/client'
 import type { ErrorsWindow, IssueApi, IssueStatusApi, WritableIssueStatus } from '@/api/errorTracking'
 import { useViewer } from '@/auth/useViewer'
 import { ISSUE_OBJECT_TYPE } from '@/features/chat/objectContext'
 import { HeaderMenu } from '@/features/views/screen/HeaderMenu'
-import { VIEW_CONTENT_TOP, ViewChrome } from '@/features/views/screen/ViewChrome'
+import { ViewChrome } from '@/features/views/screen/ViewChrome'
 import { useViewBack } from '@/features/views/screen/ViewScreenFrame'
 import { useFeatureAccess } from '@/features/views/useViewsAccess'
 import { ViewsReauthState } from '@/features/views/ViewsReauthState'
@@ -22,9 +21,11 @@ import { PersonIcon } from '@/ui/icons/PersonIcon'
 import { WarningIcon } from '@/ui/icons/WarningIcon'
 import { OverlayHost } from '@/ui/OverlayPortal'
 import { LoadingView, StateView } from '@/ui/StateView'
+import { SCREEN_CONTENT_TOP } from '@/ui/screenLayout'
 import { createStyles, useColors } from '@/ui/theme'
 import { iconSizes, layout } from '@/ui/tokens'
 import { topOffset, useScreenInsets } from '@/ui/useScreenInsets'
+import { useScrollTitle } from '@/ui/useScrollTitle'
 import {
     type IssueOpenSource,
     trackErrorsErrorShown,
@@ -146,7 +147,7 @@ function IssueGate({
     if (body) {
         return (
             <>
-                <View style={[styles.fill, { paddingTop: topOffset(insets, VIEW_CONTENT_TOP) }]}>{body}</View>
+                <View style={[styles.fill, { paddingTop: topOffset(insets, SCREEN_CONTENT_TOP) }]}>{body}</View>
                 <ViewChrome onBack={goBack} />
             </>
         )
@@ -182,7 +183,7 @@ function IssueContent({
     }
     return (
         <>
-            <View style={[styles.fill, { paddingTop: topOffset(insets, VIEW_CONTENT_TOP) }]}>
+            <View style={[styles.fill, { paddingTop: topOffset(insets, SCREEN_CONTENT_TOP) }]}>
                 {failed ? (
                     <StateView
                         icon={<WarningIcon size={iconSizes.empty} color={colors.tertiary} />}
@@ -314,12 +315,13 @@ function IssueLoaded({
     }
 
     const heading = issue.description ? `${title}: ${issue.description}` : title
+    const scrollTitle = useScrollTitle(heading)
 
     return (
         <>
             <ScrollView
                 style={styles.fill}
-                contentContainerStyle={[styles.content, { paddingTop: topOffset(insets, VIEW_CONTENT_TOP) }]}
+                contentContainerStyle={[styles.content, { paddingTop: topOffset(insets, SCREEN_CONTENT_TOP) }]}
                 refreshControl={
                     <RefreshControl
                         refreshing={pulling}
@@ -327,12 +329,15 @@ function IssueLoaded({
                         tintColor={colors.tertiary}
                         progressBackgroundColor={colors.surface}
                         colors={[colors.tertiary]}
-                        progressViewOffset={topOffset(insets, VIEW_CONTENT_TOP)}
+                        progressViewOffset={topOffset(insets, SCREEN_CONTENT_TOP)}
                     />
                 }
+                onScroll={scrollTitle.onScroll}
+                scrollEventThrottle={16}
                 testID="issue-scroll"
             >
                 <IssueHeader
+                    onTitleLayout={scrollTitle.onTitleLayout}
                     eyebrow={viewer.projectName ? `Error · ${viewer.projectName}` : 'Error'}
                     status={issue.status}
                     badge={badge}
@@ -407,7 +412,7 @@ function IssueLoaded({
                     </Section>
                 ) : null}
             </ScrollView>
-            <ViewChrome onBack={onBack} onMore={() => setOverlay('menu')} />
+            <ViewChrome title={scrollTitle.title} onBack={onBack} onMore={() => setOverlay('menu')} />
             <IssueActionBar
                 active={issue.status === 'active'}
                 pending={statusAction.pending}
