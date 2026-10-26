@@ -52,6 +52,7 @@ SLACK_APP_FORKING_FLAG = "slack-app-forking"
 SLACK_APP_MULTIPLAYER_APPROVALS_FLAG = "slack-app-multiplayer-approvals"
 SLACK_APP_BYOS_FLAG = "slack-app-byos"
 SLACK_APP_UNPROMPTED_ANSWERS_FLAG = "slack-app-unprompted-answers"
+SLACK_APP_INTERVIEW_RECRUITMENT_FLAG = "slack-app-interview-recruitment"
 
 
 # Linking a Slack identity to a PostHog user resolves the Slack profile and its email.
@@ -201,6 +202,20 @@ def is_slack_app_unprompted_answers_enabled(integration: Integration) -> bool:
         SLACK_APP_UNPROMPTED_ANSWERS_FLAG,
         integration,
         failure_log_key="slack_app_unprompted_answers_feature_flag_check_failed",
+    )
+
+
+def is_slack_app_interview_recruitment_enabled(integration: Integration, distinct_id: str) -> bool:
+    """Gate for the interview invitations on the Home tab and after a frustration signal.
+
+    ``distinct_id`` is the reader's PostHog distinct id, or their Slack-derived id when no
+    PostHog user is linked. A rule on email or a cohort only matches a linked reader.
+    """
+    return _workspace_flag_enabled(
+        SLACK_APP_INTERVIEW_RECRUITMENT_FLAG,
+        integration,
+        failure_log_key="slack_app_interview_recruitment_feature_flag_check_failed",
+        distinct_id=distinct_id,
     )
 
 

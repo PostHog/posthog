@@ -42,7 +42,7 @@ from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 
 from posthog.api.mixins import PydanticModelMixin
-from posthog.api.query import _process_query_request
+from posthog.api.query import CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS, _process_query_request
 from posthog.api.services.query import process_query_model
 from posthog.auth import SessionAuthentication
 from posthog.clickhouse.client.connection import Workload
@@ -78,7 +78,6 @@ from products.endpoints.backend.logic.materialized_serving import serving_state_
 from products.endpoints.backend.logic.pagination import EndpointPagination
 from products.endpoints.backend.logic.rate_limit_signal import EndpointRateLimitReason, record_endpoint_rate_limited
 from products.endpoints.backend.logic.strategies import EndpointQueryStrategy, strategy_for
-from products.endpoints.backend.logic.validation import NATIVE_CLUSTER_UNSUPPORTED
 from products.endpoints.backend.logs import build_execution_message, log_endpoint_execution
 from products.endpoints.backend.metrics import (
     ENDPOINT_CACHE_RESULT_TOTAL,
@@ -375,8 +374,6 @@ class EndpointExecutionService(PydanticModelMixin):
         version: EndpointVersion,
         offset: int | None = None,
     ) -> None:
-        if (version.query.get("modifiers") or {}).get("useNewEventsCluster"):
-            raise ValidationError({"query": NATIVE_CLUSTER_UNSUPPORTED})
         strategy = strategy_for(endpoint, version, self.team)
 
         is_materialized = bool(version.is_materialized and version.saved_query)
@@ -653,7 +650,10 @@ class EndpointExecutionService(PydanticModelMixin):
                 reason=EndpointRateLimitReason.CONCURRENCY,
                 scope=EndpointRateLimitReason.CONCURRENCY.value,
             )
-            raise Throttled(detail="Too many concurrent requests. Please try again later.")
+            raise Throttled(
+                wait=CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS,
+                detail="Too many concurrent requests. Please try again later.",
+            )
         except APIQueriesBudgetExceeded:
             # The platform refused this query on purpose, so it is not an endpoint fault. Leave the
             # execution counter alone: the budget path counts its own refusals.

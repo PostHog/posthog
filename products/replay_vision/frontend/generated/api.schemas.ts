@@ -1345,9 +1345,9 @@ export interface ReplayScannerApi {
      * @nullable
      */
     readonly estimated_monthly_credits: number | null
-    /** Credits this scanner's succeeded observations consumed in the current billing period (1 credit = $0.01). Matches the window of the org-wide quota meter. */
+    /** Credits billed for this scanner's observations created in the current billing period (1 credit = $0.01), each at the price frozen when it succeeded. Deleted observations still count. */
     readonly credits_this_month: number
-    /** Succeeded observations this scanner produced in the current billing period. */
+    /** Billed observations this scanner created in the current billing period, including deleted ones. */
     readonly observations_this_month: number
     /** Credits counted against `credit_limit` for the current billing period: settled receipts plus in-flight observations, priced from their frozen snapshot model. This is what the limit gate measures, so it includes work still in progress. It is not the same as `credits_this_month`, which counts only succeeded observations. For a `free_only` scanner bound by the organization's free credits, this is the organization's usage, not the scanner's own. */
     readonly credits_used_against_limit: number
@@ -1489,9 +1489,9 @@ export interface PatchedReplayScannerApi {
      * @nullable
      */
     readonly estimated_monthly_credits?: number | null
-    /** Credits this scanner's succeeded observations consumed in the current billing period (1 credit = $0.01). Matches the window of the org-wide quota meter. */
+    /** Credits billed for this scanner's observations created in the current billing period (1 credit = $0.01), each at the price frozen when it succeeded. Deleted observations still count. */
     readonly credits_this_month?: number
-    /** Succeeded observations this scanner produced in the current billing period. */
+    /** Billed observations this scanner created in the current billing period, including deleted ones. */
     readonly observations_this_month?: number
     /** Credits counted against `credit_limit` for the current billing period: settled receipts plus in-flight observations, priced from their frozen snapshot model. This is what the limit gate measures, so it includes work still in progress. It is not the same as `credits_this_month`, which counts only succeeded observations. For a `free_only` scanner bound by the organization's free credits, this is the organization's usage, not the scanner's own. */
     readonly credits_used_against_limit?: number
