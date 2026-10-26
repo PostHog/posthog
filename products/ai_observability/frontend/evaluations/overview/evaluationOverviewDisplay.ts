@@ -219,6 +219,15 @@ export function resultEvidence(row: EvaluationResultApi): string {
 }
 
 /** Whether the row has at least one day the compare chart can draw. */
+/** True when a bucket has results but neither neighbor does, so the chart draws it as a dot with no line. */
+export function hasIsolatedPoints(row: EvaluationResultApi): boolean {
+    const { values } = row.trend
+    return (
+        values.length > 1 &&
+        values.some((value, index) => value !== null && values[index - 1] == null && values[index + 1] == null)
+    )
+}
+
 export function isChartable(row: EvaluationResultApi): boolean {
     return row.gradedCount > 0 && percentTrend(row).some(Number.isFinite)
 }

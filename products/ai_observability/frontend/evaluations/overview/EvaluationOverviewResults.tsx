@@ -8,7 +8,6 @@ import { getColorVar } from 'lib/colors'
 import { type BucketInterval, toChartValues } from './evaluationOverviewDisplay'
 import { EvaluationOverviewMetricChart } from './EvaluationOverviewMetricChart'
 import { EvaluationPassRateOverview } from './EvaluationPassRateOverview'
-import { EvaluationRankedBars } from './EvaluationRankedBars'
 import { type OverviewMetric, type OverviewView, evaluationsOverviewLogic } from './evaluationsOverviewLogic'
 import { EvaluationStatusGrid } from './EvaluationStatusGrid'
 
@@ -22,8 +21,6 @@ function viewTitle(view: OverviewView, metric: OverviewMetric, interval: BucketI
                   : 'Negative sentiment over time'
         case 'by_bucket':
             return `Each evaluation, ${interval} by ${interval}`
-        case 'ranked':
-            return 'Each evaluation, ranked'
     }
 }
 
@@ -33,8 +30,6 @@ function viewSubtitle(view: OverviewView, interval: BucketInterval): string {
             return 'Pick evaluations in the list to compare them.'
         case 'by_bucket':
             return `Every evaluation, most unusual ${interval}s first. Hover a${interval === 'hour' ? 'n' : ''} ${interval} for details.`
-        case 'ranked':
-            return 'Lowest first, on a scale where higher is better. Click a row to open it.'
     }
 }
 
@@ -46,32 +41,14 @@ function viewOptions(interval: BucketInterval): { value: OverviewView; label: st
             label: interval === 'hour' ? 'Hour by hour' : 'Day by day',
             'data-attr': 'evaluation-overview-view-by-bucket',
         },
-        { value: 'ranked', label: 'Ranked', 'data-attr': 'evaluation-overview-view-ranked' },
     ]
 }
 
 function ResultsBody(): JSX.Element {
-    const { view, metric, overview, buckets, sentimentRow, ranked } = useValues(evaluationsOverviewLogic)
+    const { view, metric, overview, buckets, sentimentRow } = useValues(evaluationsOverviewLogic)
 
     if (view === 'by_bucket') {
         return <EvaluationStatusGrid />
-    }
-    if (view === 'ranked') {
-        return (
-            <div className="flex flex-col gap-6">
-                {ranked.results.length > 0 && (
-                    <EvaluationRankedBars labelHeader="Evaluation" valueHeader="Result" items={ranked.results} />
-                )}
-                {ranked.labels.length > 0 && (
-                    <EvaluationRankedBars
-                        labelHeader="Labels"
-                        valueHeader="Tracked label"
-                        fullScale
-                        items={ranked.labels}
-                    />
-                )}
-            </div>
-        )
     }
     if (metric === 'graded') {
         return (

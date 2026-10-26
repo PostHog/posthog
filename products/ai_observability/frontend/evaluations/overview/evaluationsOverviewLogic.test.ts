@@ -10,6 +10,7 @@ import { initKeaTests } from '~/test/init'
 
 import type { EvaluationApi, EvaluationResultApi } from '../../generated/api.schemas'
 import { llmEvaluationsLogic } from '../llmEvaluationsLogic'
+import { hasIsolatedPoints } from './evaluationOverviewDisplay'
 import { evaluationResultDrawerLogic } from './evaluationResultDrawerLogic'
 import {
     evaluationsOverviewLogic,
@@ -137,6 +138,16 @@ function detailRequest(endpoint: string, id: string, url: string): string {
 const FAILURES_QUERY = 'outcome=failed&limit=5'
 
 describe('evaluationsOverviewLogic', () => {
+    test.each([
+        ['a point between two empty buckets', [null, 50, null, 60, 70], true],
+        ['a point at the edge next to an empty bucket', [40, null, 60, 70], true],
+        ['a connected line with a gap', [40, 50, null, 60, 70], false],
+        ['a single bucket', [40], false],
+    ])('finds isolated points in %s', (_, values, expected) => {
+        const sparse = { ...ROWS[0], trend: { values, volume: values.map((value) => (value === null ? 0 : 10)) } }
+        expect(hasIsolatedPoints(sparse)).toBe(expected)
+    })
+
     let requests: URLSearchParams[]
     /** Statuses the next overview reads fail with, one per read. */
     let overviewFailures: number[]

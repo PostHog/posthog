@@ -91,6 +91,9 @@ export interface evaluationResultDrawerLogicActions {
     resetDetails: () => {
         value: true
     }
+    trackBackfillHint: (source: string) => {
+        source: string
+    }
     trackEmptyStateAction: (
         action: string,
         state: string
@@ -132,6 +135,7 @@ export const evaluationResultDrawerLogic = kea<evaluationResultDrawerLogicType>(
         openDrawer: (evaluationId: string) => ({ evaluationId }),
         closeDrawer: true,
         trackEmptyStateAction: (action: string, state: string) => ({ action, state }),
+        trackBackfillHint: (source: string) => ({ source }),
         prefetchDetails: (evaluationId: string) => ({ evaluationId }),
         loadDetails: (evaluationId: string, trigger: DetailsTrigger) => ({ evaluationId, trigger }),
         detailsRequested: (key: string, evaluationId: string) => ({ key, evaluationId }),
@@ -191,6 +195,9 @@ export const evaluationResultDrawerLogic = kea<evaluationResultDrawerLogicType>(
         },
         trackEmptyStateAction: ({ action, state }) => {
             posthog.capture('llma evaluation overview drawer empty action', { action, state })
+        },
+        trackBackfillHint: ({ source }) => {
+            posthog.capture('llma evaluation overview backfill hint clicked', { source })
         },
         openDrawer: ({ evaluationId }) => {
             const row = values.rowsById.get(evaluationId)

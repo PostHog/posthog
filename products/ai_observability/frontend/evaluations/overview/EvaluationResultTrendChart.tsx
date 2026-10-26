@@ -9,13 +9,16 @@ import { getColorVar } from 'lib/colors'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import type { EvaluationResultApi } from '../../generated/api.schemas'
-import { formatBucket, hourTick, toChartValues, trackedCategory } from './evaluationOverviewDisplay'
+import { EvaluationBackfillHint } from './EvaluationBackfillHint'
+import { formatBucket, hasIsolatedPoints, hourTick, toChartValues, trackedCategory } from './evaluationOverviewDisplay'
 import { evaluationsOverviewLogic } from './evaluationsOverviewLogic'
 
 const VOLUME_KEY = 'volume'
+const PASSED_KEY = 'passed'
+const FAILED_KEY = 'failed'
 const VOLUME_CEILING_KEY = 'volume-ceiling'
 /** Volume bars use at most this share of the plot height, so they read as context behind the line. */
-const VOLUME_HEIGHT_SHARE = 1 / 4
+const VOLUME_HEIGHT_SHARE = 1 / 3
 
 const HEADLINE_LABELS: Record<EvaluationResultApi['summary']['kind'], string> = {
     pass_rate: 'Pass rate',
@@ -41,17 +44,48 @@ export function EvaluationResultTrendChart({ row }: { row: EvaluationResultApi }
     const isScore = summary.kind === 'score'
     const label = trackedCategory(row)?.label ?? HEADLINE_LABELS[summary.kind]
     const values = useMemo(() => toChartValues(trend.values), [trend])
+    // The pass rate is passed / (passed + failed), so the two counts come back exactly from the rate and the volume.
+    const passed = useMemo(
+        () =>
+            summary.kind === 'pass_rate'
+                ? trend.volume.map((volume, index) => Math.round((volume * (trend.values[index] ?? 0)) / 100))
+                : null,
+        [summary.kind, trend]
+    )
 
     const series = useMemo<Series[]>(() => {
+        // Pass rates split the bars into passed and failed, because a rate can drop while failures stay flat.
+        const volumeBars: Series[] = passed
+            ? [
+                  {
+                      key: PASSED_KEY,
+                      label: 'Passed',
+                      data: passed,
+                      type: 'bar',
+                      yAxisId: VOLUME_KEY,
+                      color: withAlpha(getColorVar('success'), 0.35),
+                  },
+                  {
+                      key: FAILED_KEY,
+                      label: 'Failed',
+                      data: trend.volume.map((volume, index) => volume - passed[index]),
+                      type: 'bar',
+                      yAxisId: VOLUME_KEY,
+                      color: withAlpha(getColorVar('danger'), 0.35),
+                  },
+              ]
+            : [
+                  {
+                      key: VOLUME_KEY,
+                      label: 'Graded',
+                      data: trend.volume,
+                      type: 'bar',
+                      yAxisId: VOLUME_KEY,
+                      color: withAlpha(getColorVar('muted'), 0.3),
+                  },
+              ]
         return [
-            {
-                key: VOLUME_KEY,
-                label: 'Graded',
-                data: trend.volume,
-                type: 'bar',
-                yAxisId: VOLUME_KEY,
-                color: withAlpha(getColorVar('muted'), 0.3),
-            },
+            ...volumeBars,
             // The combo chart ignores axis bounds, so an invisible line at the ceiling stretches the volume axis
             // and keeps the real bars in the bottom part of the plot.
             {
@@ -73,7 +107,7 @@ export function EvaluationResultTrendChart({ row }: { row: EvaluationResultApi }
                 points: { radius: 3 },
             },
         ]
-    }, [trend, values, label, theme])
+    }, [trend, values, passed, label, theme])
 
     const config = useMemo<TimeSeriesComboChartConfig>(() => {
         const finite = values.filter(Number.isFinite)
@@ -111,12 +145,29 @@ export function EvaluationResultTrendChart({ row }: { row: EvaluationResultApi }
                 ) : (
                     <div className="mt-1 opacity-70">No graded results</div>
                 )}
-                <div className="flex items-center gap-2 opacity-70">
-                    <span>Graded results</span>
-                    <span className="ml-auto tabular-nums">
-                        {humanFriendlyNumber(trend.volume[ctx.dataIndex] ?? 0)}
-                    </span>
-                </div>
+                {passed ? (
+                    <>
+                        <div className="flex items-center gap-2 opacity-70">
+                            <span>Passed</span>
+                            <span className="ml-auto tabular-nums">
+                                {humanFriendlyNumber(passed[ctx.dataIndex] ?? 0)}
+                            </span>
+                        </div>
+                        <div className="flex items-center gap-2 opacity-70">
+                            <span>Failed</span>
+                            <span className="ml-auto tabular-nums">
+                                {humanFriendlyNumber((trend.volume[ctx.dataIndex] ?? 0) - (passed[ctx.dataIndex] ?? 0))}
+                            </span>
+                        </div>
+                    </>
+                ) : (
+                    <div className="flex items-center gap-2 opacity-70">
+                        <span>Graded results</span>
+                        <span className="ml-auto tabular-nums">
+                            {humanFriendlyNumber(trend.volume[ctx.dataIndex] ?? 0)}
+                        </span>
+                    </div>
+                )}
             </TooltipSurface>
         )
     }
@@ -132,7 +183,12 @@ export function EvaluationResultTrendChart({ row }: { row: EvaluationResultApi }
                     tooltip={tooltip}
                 />
             </div>
-            <div className="text-xs text-secondary">{`Shaded bars show how many results were graded each ${interval}.`}</div>
+            <div className="text-xs text-secondary">
+                {passed
+                    ? `Bars show how many results passed and failed each ${interval}.`
+                    : `Shaded bars show how many results were graded each ${interval}.`}
+            </div>
+            {hasIsolatedPoints(row) && <EvaluationBackfillHint row={row} source="drawer" />}
         </div>
     )
 }
