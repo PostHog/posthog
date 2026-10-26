@@ -462,11 +462,11 @@ class TestInboxSummary(APIBaseTest):
         if days_ago > 7:
             github.get_pull_request_reviews.assert_not_called()
         pr.refresh_from_db()
-        report.refresh_from_db()
+        completed_report = SignalReport.objects.get(team_id=self.team.id, id=report.id)
         assert pr.merged_at == merged_at
-        assert report.status == SignalReport.Status.MONITORING
-        assert report.monitoring_started_at == merged_at
-        attempt = SignalReportMonitoringAttempt.objects.for_team(self.team.id).get(report=report)
+        assert completed_report.status == SignalReport.Status.MONITORING
+        assert completed_report.monitoring_started_at == merged_at
+        attempt = SignalReportMonitoringAttempt.objects.for_team(self.team.id).get(report=completed_report)
         assert attempt.monitoring_started_at == merged_at
         assert list(attempt.check_versions) == [str(check.id)]
 
