@@ -8,6 +8,8 @@ from typing import Any, Optional
 from django.db import transaction
 from django.utils import timezone
 
+from posthog.models.scoping.manager import resolve_effective_team_id
+
 from products.messaging.backend.models.message_category import MessageCategory, MessageCategoryType
 from products.messaging.backend.models.message_preferences import (
     ALL_MESSAGE_PREFERENCE_CATEGORY_ID,
@@ -421,6 +423,8 @@ class CustomerIOImportService:
         if not self.client:
             return
 
+        # bulk_create skips the save() that moves a child environment's rows to its parent project.
+        team_id = resolve_effective_team_id(self.team_id)
         for suppression_type, (source, reason) in CUSTOMERIO_SUPPRESSION_TYPES.items():
             offset = 0
             while True:
@@ -438,24 +442,24 @@ class CustomerIOImportService:
                     }
                 )
                 if emails:
-                    self.progress["suppressions_imported"] += self._add_suppressions(emails, source, reason)
+                    self.progress["suppressions_imported"] += self._add_suppressions(team_id, emails, source, reason)
                 if len(page) < SUPPRESSION_PAGE_SIZE:
                     break
                 offset += len(page)
                 time.sleep(SUPPRESSION_PAGE_DELAY_SECONDS)
 
-    def _add_suppressions(self, emails: list[str], source: SuppressionSource, reason: str) -> int:
+    def _add_suppressions(self, team_id: int, emails: list[str], source: SuppressionSource, reason: str) -> int:
         """Suppress the addresses that have no suppression row yet, and return how many it added.
 
         An existing row is left alone. It can be a manual entry, an address someone removed from the list on
         purpose, or a row the bounce feedback already manages.
         """
-        suppressions = MessageSuppression.objects.for_team(self.team_id)
+        suppressions = MessageSuppression.objects.for_team(team_id, canonical=True)
         existing = set(suppressions.filter(identifier__in=emails).values_list("identifier", flat=True))
         now = timezone.now()
         new_rows = [
             MessageSuppression(
-                team_id=self.team_id,
+                team_id=team_id,
                 identifier=email,
                 source=source,
                 reason=reason,

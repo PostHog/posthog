@@ -43,6 +43,7 @@ function Step1Content(): JSX.Element {
     // Prefer local reducer state, fall back to DB-persisted result
     const displayResult = importProgress?.status === 'completed' ? importProgress : null
     const persistedResult = !displayResult && result?.status === 'completed' ? result : null
+    const partialErrors = displayResult?.errors ?? persistedResult?.errors ?? []
 
     if (isImporting) {
         return (
@@ -74,6 +75,11 @@ function Step1Content(): JSX.Element {
                     <LemonBanner type="success">
                         <span className="font-semibold">API import complete</span>
                     </LemonBanner>
+                    {partialErrors.length > 0 && (
+                        <LemonBanner type="warning">
+                            Some data didn't import. Run the import again to retry. {partialErrors.join(', ')}
+                        </LemonBanner>
+                    )}
                     <div className="space-y-2 text-sm">
                         {(persistedResult?.imported_at || displayResult) && (
                             <div className="flex items-center justify-between">

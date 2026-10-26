@@ -48,6 +48,7 @@ export interface AppImportResult {
     categories_created?: number
     globally_unsubscribed_count?: number
     suppressions_imported?: number
+    errors?: string[]
     error?: string
 }
 

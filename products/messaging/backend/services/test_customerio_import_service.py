@@ -5,6 +5,8 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
+from posthog.models import Team
+
 from products.messaging.backend.models.message_category import MessageCategory, MessageCategoryType
 from products.messaging.backend.models.message_preferences import (
     ALL_MESSAGE_PREFERENCE_CATEGORY_ID,
@@ -287,10 +289,18 @@ user4@example.com,cio_6,"{""topics"": {""topic_1"": true, ""topic_2"": true}}"
         preference = MessageRecipientPreference.objects.get(team=self.team, identifier="unsubscribed@example.com")
         assert preference.get_preference(ALL_MESSAGE_PREFERENCE_CATEGORY_ID) == PreferenceStatus.OPTED_OUT
 
+    @parameterized.expand([("project", False), ("child_environment", True)])
     @patch("products.messaging.backend.services.customerio_import_service.SUPPRESSION_PAGE_DELAY_SECONDS", 0)
     @patch("products.messaging.backend.services.customerio_import_service.SUPPRESSION_PAGE_SIZE", 2)
     @patch("products.messaging.backend.services.customerio_import_service.CustomerIOClient")
-    def test_api_import_adds_customerio_suppressions(self, mock_client_class) -> None:
+    def test_api_import_adds_customerio_suppressions(
+        self, _name: str, from_child_environment: bool, mock_client_class: MagicMock
+    ) -> None:
+        import_team_id = self.team.id
+        if from_child_environment:
+            import_team_id = Team.objects.create(
+                organization=self.organization, project=self.project, parent_team=self.team
+            ).id
         MessageSuppression.objects.for_team(self.team.id).create(
             team=self.team, identifier="manual@example.com", source=SuppressionSource.MANUAL, suppressed=True
         )
@@ -314,7 +324,7 @@ user4@example.com,cio_6,"{""topics"": {""topic_1"": true, ""topic_2"": true}}"
         mock_client.get_globally_unsubscribed_customers.return_value = {"identifiers": []}
         mock_client.get_suppressions.side_effect = get_suppressions
 
-        result = self.service.import_api_data()
+        result = CustomerIOImportService(import_team_id, self.api_key, self.user.id).import_api_data()
 
         assert result["status"] == "completed"
         assert result["suppressions_imported"] == 2
