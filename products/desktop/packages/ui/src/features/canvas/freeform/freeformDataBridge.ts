@@ -21,6 +21,8 @@ import { hostClient } from "../hostClient";
 // Namespace for every cached canvas read.
 export const CANVAS_QUERY_KEY = "canvasData/read";
 
+const TOOL_REGISTRY_STALE_MS = 5 * 60 * 1_000;
+
 // Deterministic stringify for cache keys: object keys are emitted in sorted order
 // at every depth so two reads that differ only by key order share a cache entry.
 // `undefined` and non-finite numbers get distinct tokens — JSON.stringify would
@@ -310,12 +312,14 @@ export async function handleFreeformDataRequest(
           arguments: input.arguments ?? {},
         },
         method === "toolCall",
-        // The allowlist changes only with a deploy, so a board that reads many flags fetches it once.
+        // Cached so a board that reads many flags fetches the registry once. A desktop session
+        // outlives backend deploys, so the cache expires: `read_only` decides which tools skip
+        // the click and the confirm.
         () =>
           queryClient.fetchQuery({
             queryKey: [CANVAS_QUERY_KEY, "tools"],
             queryFn: () => client.listTools.query(),
-            staleTime: Infinity,
+            staleTime: TOOL_REGISTRY_STALE_MS,
           }),
         (tool, args) =>
           window.confirm(
