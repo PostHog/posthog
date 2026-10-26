@@ -38,6 +38,17 @@ fn substitute_chunk_id(template: &str, chunk_id: &str) -> Result<String> {
     ))
 }
 
+/// Byte offset just past a leading hashbang line, or 0 when there is none. A hashbang is only
+/// valid at the very start of a script, so injected code must go after it.
+fn hashbang_end(source: &str) -> usize {
+    if !source.starts_with("#!") {
+        return 0;
+    }
+    source
+        .find('\n')
+        .map_or(source.len(), |newline| newline + 1)
+}
+
 struct ReleaseSnippetSpan {
     start: usize,
     end: usize,
@@ -267,9 +278,11 @@ impl MinifiedSourceFile {
             let source_content = &self.inner.content;
             let mut magic_source = MagicString::new(source_content);
             let code_snippet = build_code_snippet(chunk_id, release_id)?;
-            magic_source
-                .prepend(&code_snippet)
-                .map_err(|err| anyhow!("Failed to prepend code snippet: {err}"))?;
+            match hashbang_end(source_content) {
+                0 => magic_source.prepend(&code_snippet),
+                end => magic_source.append_left(end as u32, &code_snippet),
+            }
+            .map_err(|err| anyhow!("Failed to insert code snippet: {err}"))?;
             let chunk_comment = CHUNKID_COMMENT_PREFIX.replace(CHUNKID_PLACEHOLDER, chunk_id);
             magic_source
                 .append(&chunk_comment)
@@ -635,6 +648,27 @@ mod tests {
             get_injected_release_id(&format!("{snippet}code();"), chunk_id).as_deref(),
             Some(release_id)
         );
+    }
+
+    #[test]
+    fn set_chunk_id_injects_after_hashbang() {
+        // A hashbang is only valid at byte 0. A snippet in front of it is a SyntaxError.
+        let original = "#!/usr/bin/env node\nconsole.log(1);\n//# sourceMappingURL=cli.js.map\n";
+        let mut source = minified_source(original);
+        let snippet = build_code_snippet("0", Some("1")).unwrap();
+
+        source.set_chunk_id("0", Some("1")).unwrap();
+        assert!(
+            source
+                .inner
+                .content
+                .starts_with(&format!("#!/usr/bin/env node\n{snippet}console.log(1);\n")),
+            "content: {}",
+            source.inner.content
+        );
+
+        source.remove_chunk_id("0".to_string()).unwrap();
+        assert_eq!(source.inner.content, original);
     }
 
     #[test]

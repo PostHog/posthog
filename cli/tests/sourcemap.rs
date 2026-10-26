@@ -556,6 +556,54 @@ fn map_with_debug_id(debug_id: Option<&str>) -> serde_json::Value {
 }
 
 #[test]
+fn test_inject_keeps_hashbang_first_and_maps_shifted_code() {
+    let pair = make_named_pair(
+        "cli.js",
+        "#!/usr/bin/env node\nconsole.log(1);\n//# sourceMappingURL=cli.js.map\n",
+        json!({
+            "version": 3,
+            "file": "cli.js",
+            "sources": ["src/cli.ts"],
+            "sourcesContent": ["console.log(1)\n"],
+            "names": [],
+            "mappings": ";AAAA,QAAQ",
+        }),
+    );
+
+    let pairs = inject_pairs(vec![pair], Some("release")).expect("Failed to inject pairs");
+    let pair = pairs.first().expect("Failed to get first pair");
+    let content = &pair.source.inner.content;
+    assert!(
+        content.starts_with("#!/usr/bin/env node\n"),
+        "content: {content}"
+    );
+
+    let code_column = content
+        .lines()
+        .nth(1)
+        .and_then(|line| line.find("console.log(1);"))
+        .expect("code stays on the line after the hashbang") as u32;
+    assert!(code_column > 0, "the snippet goes in front of the code");
+
+    let map = sourcemap::SourceMap::from_slice(
+        serde_json::to_string(&pair.sourcemap.inner.content)
+            .unwrap()
+            .as_bytes(),
+    )
+    .expect("Failed to parse adjusted sourcemap");
+    for (code_offset, src_col) in [(0, 0), (8, 8)] {
+        let token = map
+            .lookup_token(1, code_column + code_offset)
+            .expect("Failed to find token");
+        assert_eq!(
+            (token.get_src_line(), token.get_src_col()),
+            (0, src_col),
+            "column {code_offset} of the code"
+        );
+    }
+}
+
+#[test]
 fn test_inject_adopts_bundler_debug_id() {
     // The bundler already stamped a debug id into the chunk and its map. Inject must adopt it
     // as the chunk id and still apply the mapping adjustment for the prepended snippet — the
