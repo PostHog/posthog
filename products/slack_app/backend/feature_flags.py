@@ -48,7 +48,6 @@ logger = structlog.get_logger(__name__)
 SLACK_APP_AGENT_DESIGN_FLAG = "slack-app-agent-design"
 SLACK_APP_CHART_LINKS_FLAG = "slack-app-chart-links"
 SLACK_APP_FORKING_FLAG = "slack-app-forking"
-SLACK_APP_MULTIPLAYER_APPROVALS_FLAG = "slack-app-multiplayer-approvals"
 SLACK_APP_BYOS_FLAG = "slack-app-byos"
 SLACK_APP_UNPROMPTED_ANSWERS_FLAG = "slack-app-unprompted-answers"
 
@@ -137,20 +136,6 @@ def is_slack_app_chart_links_enabled(integration: Integration) -> bool:
         SLACK_APP_CHART_LINKS_FLAG,
         integration,
         failure_log_key="slack_app_chart_links_feature_flag_check_failed",
-    )
-
-
-def is_slack_app_multiplayer_approvals_enabled(integration: Integration, distinct_id: str | None) -> bool:
-    """Gate for the thread creator's choice of who may join their threads.
-
-    ``distinct_id`` is the thread creator's PostHog user. With the gate closed, anyone with
-    project access can join, and the Home tab hides the setting.
-    """
-    return _workspace_flag_enabled(
-        SLACK_APP_MULTIPLAYER_APPROVALS_FLAG,
-        integration,
-        failure_log_key="slack_app_multiplayer_approvals_feature_flag_check_failed",
-        distinct_id=distinct_id,
     )
 
 
