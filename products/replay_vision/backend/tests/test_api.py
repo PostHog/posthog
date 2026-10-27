@@ -5268,7 +5268,9 @@ class TestWatchFeedAPI(_VisionAPITestCase):
 
     def test_query_count_stays_flat_as_data_grows(self) -> None:
         scanner = self._create_scanner(name="m")
-        self._succeeded_observation(scanner, "s-0", 1, self._monitor_result("no"))
+        # Enough rows to fill the feed's floor, so both samples skip the extra query a thin feed makes for filler.
+        for i in range(3):
+            self._succeeded_observation(scanner, f"s-0-{i}", i + 1, self._monitor_result("no"))
         self.client.get(self.feed_url)  # warm request-scoped caches
         # Both measured loads rank afresh, since a load in the same bucket would reuse the picks cached before it.
         real_get = cache.get
