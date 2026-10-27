@@ -349,8 +349,6 @@ describe('broadcastWizardLogic', () => {
                     }).then((body) => [200, body]),
             },
         })
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_AI_EMAIL_DRAFT]: true })
         logic.unmount()
         router.actions.push(
             urlForNewBroadcastWithAudience({
