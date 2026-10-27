@@ -1,7 +1,5 @@
 import { Meta, StoryObj } from '@storybook/react'
 
-import { CardGroup, TooltipProvider } from '@posthog/quill'
-
 import type { SentryMigrationItemApi } from '../../../generated/api.schemas'
 import { SentryMigrationItemCard } from './SentryMigrationItemCard'
 
@@ -86,23 +84,21 @@ const RATE_LIMIT_TOO_LARGE: SentryMigrationItemApi = {
 /** A manual rule, an automatic rule that is already on, a rate limit, and a rate limit PostHog can't hold. */
 export const Variants: Story = {
     render: () => (
-        <TooltipProvider>
-            <CardGroup size="sm" className="w-160">
-                <SentryMigrationItemCard item={ERROR_MESSAGE} selected disabledReason={null} onToggle={() => {}} />
-                <SentryMigrationItemCard
-                    item={LEGACY_BROWSER}
-                    selected={false}
-                    disabledReason="This automatic suppression rule is already on"
-                    onToggle={() => {}}
-                />
-                <SentryMigrationItemCard item={RATE_LIMIT} selected disabledReason={null} onToggle={() => {}} />
-                <SentryMigrationItemCard
-                    item={RATE_LIMIT_TOO_LARGE}
-                    selected={false}
-                    disabledReason="PostHog can't import this setting"
-                    onToggle={() => {}}
-                />
-            </CardGroup>
-        </TooltipProvider>
+        <div className="w-160 rounded border bg-surface-primary divide-y">
+            <SentryMigrationItemCard item={ERROR_MESSAGE} selected disabledReason={null} onToggle={() => {}} />
+            <SentryMigrationItemCard
+                item={LEGACY_BROWSER}
+                selected={false}
+                disabledReason="This automatic suppression rule is already on"
+                onToggle={() => {}}
+            />
+            <SentryMigrationItemCard item={RATE_LIMIT} selected disabledReason={null} onToggle={() => {}} />
+            <SentryMigrationItemCard
+                item={RATE_LIMIT_TOO_LARGE}
+                selected={false}
+                disabledReason="PostHog can't import this setting"
+                onToggle={() => {}}
+            />
+        </div>
     ),
 }

@@ -1,7 +1,5 @@
 import { ReactNode } from 'react'
 
-import { Heading, Text } from '@posthog/quill'
-
 export interface ImportWizardStepHeadingProps {
     title: string
     description: ReactNode
@@ -9,13 +7,9 @@ export interface ImportWizardStepHeadingProps {
 
 export function ImportWizardStepHeading({ title, description }: ImportWizardStepHeadingProps): JSX.Element {
     return (
-        <div className="flex flex-col gap-1">
-            <Heading size="lg" render={<h3 className="m-0" />}>
-                {title}
-            </Heading>
-            <Text size="xs" variant="muted" className="m-0">
-                {description}
-            </Text>
+        <div>
+            <h3 className="text-lg font-semibold mb-1">{title}</h3>
+            <p className="text-secondary text-sm mb-0">{description}</p>
         </div>
     )
 }

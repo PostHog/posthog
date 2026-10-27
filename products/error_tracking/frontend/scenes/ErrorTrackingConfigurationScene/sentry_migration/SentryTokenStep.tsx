@@ -1,6 +1,8 @@
 import { useActions, useValues } from 'kea'
 
-import { Button, Field, FieldDescription, FieldLabel, Input } from '@posthog/quill'
+import { LemonButton, LemonInput } from '@posthog/lemon-ui'
+
+import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { errorTrackingEditAccessDisabledReason } from '../../../utils'
 import { ImportWizardStepHeading } from './ImportWizardStepHeading'
@@ -32,31 +34,33 @@ export function SentryTokenStep(): JSX.Element {
                     }
                 }}
             >
-                <Field>
-                    <FieldLabel htmlFor="sentry-migration-token">Sentry auth token</FieldLabel>
-                    <Input
-                        id="sentry-migration-token"
+                <LemonField.Pure
+                    label="Sentry auth token"
+                    help={
+                        <>
+                            PostHog uses the token only to read your Sentry settings from{' '}
+                            <span translate="no">{baseUrl}</span> and doesn't store it.
+                        </>
+                    }
+                >
+                    <LemonInput
                         type="password"
                         value={authToken}
-                        onChange={(event) => setAuthToken(event.target.value)}
+                        onChange={setAuthToken}
                         autoComplete="off"
                         data-attr="error-tracking-sentry-migration-token"
                     />
-                    <FieldDescription>
-                        PostHog uses the token only to read your Sentry settings from{' '}
-                        <span translate="no">{baseUrl}</span> and doesn't store it.
-                    </FieldDescription>
-                </Field>
+                </LemonField.Pure>
                 <div>
-                    <Button
-                        type="submit"
-                        variant="primary"
+                    <LemonButton
+                        type="primary"
+                        htmlType="submit"
                         loading={projectsLoading}
                         disabledReason={disabledReason}
                         data-attr="error-tracking-sentry-migration-connect"
                     >
                         Connect to Sentry
-                    </Button>
+                    </LemonButton>
                 </div>
             </form>
         </>

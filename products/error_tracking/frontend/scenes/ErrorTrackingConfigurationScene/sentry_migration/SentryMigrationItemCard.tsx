@@ -1,12 +1,12 @@
-import { Badge, Card, CardContent, CardHeader, Checkbox, Label, Text } from '@posthog/quill'
+import { LemonCheckbox, LemonTag, LemonTagType } from '@posthog/lemon-ui'
 
 import type { SentryMigrationFitEnumApi, SentryMigrationItemApi } from '../../../generated/api.schemas'
 import { describeSuppressionFilters, formatRateLimit } from './sentryMigrationFormat'
 
-const FIT_BADGES: Record<SentryMigrationFitEnumApi, { label: string; variant: 'success' | 'warning' | 'default' }> = {
-    good: { label: 'Same behavior', variant: 'success' },
-    partial: { label: 'Close match', variant: 'warning' },
-    unsupported: { label: "Can't import", variant: 'default' },
+const FIT_TAGS: Record<SentryMigrationFitEnumApi, { label: string; type: LemonTagType }> = {
+    good: { label: 'Same behavior', type: 'success' },
+    partial: { label: 'Close match', type: 'warning' },
+    unsupported: { label: "Can't import", type: 'muted' },
 }
 
 export interface SentryMigrationItemCardProps {
@@ -22,50 +22,43 @@ export function SentryMigrationItemCard({
     disabledReason,
     onToggle,
 }: SentryMigrationItemCardProps): JSX.Element {
-    const fitBadge = FIT_BADGES[item.fit]
-    const checkboxId = `sentry-migration-${item.id}`
+    const fitTag = FIT_TAGS[item.fit]
     const filters = item.suppression_rule_filters
     const filterRows = filters ? describeSuppressionFilters(filters) : []
     const builtInFilter = item.built_in_filter
 
     return (
-        <Card size="sm">
-            <CardHeader>
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex min-w-0 items-center gap-2">
-                        <Checkbox
-                            id={checkboxId}
-                            checked={selected}
-                            onCheckedChange={onToggle}
-                            disabledReason={disabledReason}
-                            data-attr="error-tracking-sentry-migration-item"
-                        />
-                        <Label htmlFor={checkboxId}>{item.sentry_setting}</Label>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-1">
-                        {builtInFilter ? (
-                            <Badge variant={item.already_in_posthog ? 'completed' : 'success'}>
-                                {item.already_in_posthog ? 'Already on' : 'Built into PostHog'}
-                            </Badge>
-                        ) : (
-                            <>
-                                {item.already_in_posthog && <Badge variant="completed">Already in PostHog</Badge>}
-                                <Badge variant={fitBadge.variant}>{fitBadge.label}</Badge>
-                            </>
-                        )}
-                    </div>
+        <div className="flex flex-col gap-2 p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+                <LemonCheckbox
+                    checked={selected}
+                    onChange={onToggle}
+                    disabledReason={disabledReason}
+                    label={item.sentry_setting}
+                    labelClassName="font-semibold"
+                    data-attr="error-tracking-sentry-migration-item"
+                />
+                <div className="flex flex-wrap items-center gap-1">
+                    {builtInFilter ? (
+                        <LemonTag type={item.already_in_posthog ? 'completion' : 'success'}>
+                            {item.already_in_posthog ? 'Already on' : 'Built into PostHog'}
+                        </LemonTag>
+                    ) : (
+                        <>
+                            {item.already_in_posthog && <LemonTag type="completion">Already in PostHog</LemonTag>}
+                            <LemonTag type={fitTag.type}>{fitTag.label}</LemonTag>
+                        </>
+                    )}
                 </div>
-            </CardHeader>
+            </div>
             {builtInFilter ? (
-                <CardContent className="flex flex-col gap-1">
-                    <Text size="sm" className="m-0">
-                        Turns on the <span className="font-medium">{builtInFilter.name}</span> rule
-                    </Text>
-                    <Text size="xs" variant="muted" className="m-0">
-                        {builtInFilter.description}
-                    </Text>
+                <div className="flex flex-col gap-1 pl-6">
+                    <p className="text-sm mb-0">
+                        Turns on the <span className="font-semibold">{builtInFilter.name}</span> rule
+                    </p>
+                    <p className="text-xs text-secondary mb-0">{builtInFilter.description}</p>
                     {builtInFilter.compared_with_sentry.length > 0 && (
-                        <ul className="m-0 mt-1 flex list-disc flex-col gap-0.5 pl-4">
+                        <ul className="list-disc pl-4 mb-0 flex flex-col gap-0.5">
                             {builtInFilter.compared_with_sentry.map((point) => (
                                 <li key={point} className="text-xs">
                                     {point}
@@ -73,49 +66,40 @@ export function SentryMigrationItemCard({
                             ))}
                         </ul>
                     )}
-                </CardContent>
+                </div>
             ) : (
-                <CardContent className="flex flex-col gap-2">
-                    <div className="flex flex-col gap-1">
-                        <Text size="xs" variant="muted" weight="medium" className="m-0">
-                            In Sentry
-                        </Text>
-                        <Text size="xs" className="m-0 break-all font-mono" translate="no">
+                <div className="flex flex-col gap-2 pl-6">
+                    <div className="flex flex-col gap-0.5">
+                        <span className="text-xs font-semibold text-secondary">In Sentry</span>
+                        <span className="text-xs font-mono break-all" translate="no">
                             {item.sentry_value}
-                        </Text>
+                        </span>
                     </div>
                     {item.rate_limit ? (
-                        <div className="flex flex-col gap-1">
-                            <Text size="xs" variant="muted" weight="medium" className="m-0">
-                                Project rate limit in PostHog
-                            </Text>
-                            <Text size="xs" className="m-0" translate="no">
+                        <div className="flex flex-col gap-0.5">
+                            <span className="text-xs font-semibold text-secondary">Project rate limit in PostHog</span>
+                            <span className="text-xs" translate="no">
                                 {formatRateLimit(item.rate_limit)}
-                            </Text>
+                            </span>
                         </div>
                     ) : filters && filterRows.length > 0 ? (
-                        <div className="flex flex-col gap-1">
-                            <Text size="xs" variant="muted" weight="medium" className="m-0">
+                        <div className="flex flex-col gap-0.5">
+                            <span className="text-xs font-semibold text-secondary">
                                 Manual suppression rule in PostHog, matching {filters.type === 'OR' ? 'any' : 'all'} of
-                            </Text>
+                            </span>
                             {filterRows.map((row, index) => (
-                                <Text key={index} size="xs" className="m-0 break-all">
-                                    <span>{row.property}</span>{' '}
-                                    <span className="text-muted-foreground">{row.operator}</span>{' '}
+                                <span key={index} className="text-xs break-all">
+                                    <span>{row.property}</span> <span className="text-secondary">{row.operator}</span>{' '}
                                     <span className="font-mono" translate="no">
                                         {row.value}
                                     </span>
-                                </Text>
+                                </span>
                             ))}
                         </div>
                     ) : null}
-                    {item.note && (
-                        <Text size="xs" variant="muted" className="m-0">
-                            {item.note}
-                        </Text>
-                    )}
-                </CardContent>
+                    {item.note && <p className="text-xs text-secondary mb-0">{item.note}</p>}
+                </div>
             )}
-        </Card>
+        </div>
     )
 }
