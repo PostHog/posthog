@@ -16,6 +16,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { ChartParams, FunnelStepReference } from '~/types'
 
 import { funnelDataLogic } from '../funnelDataLogic'
+import { FunnelGoalLines } from '../FunnelGoalLines'
 import { funnelPersonsModalLogic } from '../funnelPersonsModalLogic'
 import { FunnelStepsBarTooltip } from './FunnelStepsBarTooltip'
 import {
@@ -193,6 +194,7 @@ export function FunnelStepsBarChart({
                     dataAttr="funnel-steps-bar-chart-canvas"
                     onError={handleChartError}
                 >
+                    <FunnelGoalLines />
                     {hasBarLabels && <ValueLabels valueFormatter={formatFunnelStepBarLabel} offset={4} />}
                     {conversionChipStepIndexes.length > 0 && (
                         <StepConversionChips steps={steps} stepIndexes={conversionChipStepIndexes} />
