@@ -59056,6 +59056,10 @@
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
+                },
+                "webQueryModifiers": {
+                    "$ref": "#/definitions/WebAnalyticsQueryModifiers",
+                    "description": "Per-request switches for how web analytics serves this query."
                 }
             },
             "required": ["kind", "properties"],

@@ -30733,6 +30733,10 @@ class WebPageDirectoryQuery(BaseModel):
     tags: QueryLogTags | None = None
     useSessionsTable: bool | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+    webQueryModifiers: WebAnalyticsQueryModifiers | None = Field(
+        default=None,
+        description="Per-request switches for how web analytics serves this query.",
+    )
 
 
 class WebVitalsPathBreakdownQuery(BaseModel):
