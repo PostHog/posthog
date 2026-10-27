@@ -391,6 +391,66 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         assert project_response.status_code == 200
         assert project_response.json()["results"] == []
 
+    @parameterized.expand(
+        [
+            ("relative", {"firstSeenAfter": "-1d"}, {"new"}),
+            ("relative_minutes", {"firstSeenAfter": "-180M"}, {"new"}),
+            ("absolute", {"firstSeenAfter": "2026-04-23T12:00:00Z"}, {"new"}),
+            ("milliseconds", {"firstSeenAfter": "2026-04-24T10:00:00.500Z"}, set()),
+            ("before_both", {"firstSeenAfter": "-3d"}, {"new", "old"}),
+            (
+                "filter_group_before",
+                {
+                    "filterGroup": [
+                        {
+                            "key": "first_seen",
+                            "type": "error_tracking_issue",
+                            "operator": "lt",
+                            "value": "2026-04-23T12:00:00Z",
+                        }
+                    ]
+                },
+                {"old"},
+            ),
+        ]
+    )
+    @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
+    def test_issues_list_filters_by_merged_issue_first_seen(
+        self, _name: str, request_fields: dict[str, object], expected: set[str]
+    ) -> None:
+        old_issue_id = "01936e7f-d7ff-7314-b2d4-7627981e34f1"
+        self.create_issue()
+        self.create_issue(issue_id=old_issue_id, fingerprint="old-fingerprint")
+        for issue_id, first_seen in [
+            (self.issue_id, (now() - timedelta(hours=2)).replace(microsecond=200000)),
+            (old_issue_id, now() - timedelta(days=2)),
+        ]:
+            ErrorTrackingIssueFingerprintV2.objects.filter(team=self.team, issue_id=issue_id).update(
+                first_seen=first_seen
+            )
+        ErrorTrackingIssueFingerprintV2.objects.create(
+            team=self.team, issue_id=old_issue_id, fingerprint="new-fingerprint-on-old-issue"
+        )
+        with time_machine.travel("2026-04-24T12:00:01Z", tick=False):
+            sync_issues_to_clickhouse(issue_ids=[self.issue_id, old_issue_id], team_id=self.team.pk)
+        self.create_exception_event()
+        self.create_exception_event(issue_id=old_issue_id, fingerprint="new-fingerprint-on-old-issue")
+        flush_persons_and_events()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/query/issues",
+            data={
+                "status": "all",
+                "dateRange": {"date_from": "-1d", "date_to": "2026-04-25T00:00:00Z"},
+                **request_fields,
+            },
+            format="json",
+        )
+
+        assert response.status_code == 200
+        ids_by_name = {"new": self.issue_id, "old": old_issue_id}
+        assert {row["id"] for row in response.json()["results"]} == {ids_by_name[name] for name in expected}
+
     @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
     def test_issue_queries_return_severity(self) -> None:
         self.create_issue(severity=ErrorTrackingIssue.Severity.HIGH)
@@ -413,15 +473,42 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         assert detail_response.status_code == 200
         assert detail_response.json()["severity"] == "high"
 
-    def test_rejects_hogql_property_filters(self) -> None:
+    @parameterized.expand(
+        [
+            ({"filterGroup": [{"key": "1 = 1", "type": "hogql", "value": "1"}]}, "HogQL property filters"),
+            *(
+                (
+                    {
+                        "filterGroup": [
+                            {"key": "first_seen", "type": "error_tracking_issue", "operator": op, "value": v}
+                        ]
+                    },
+                    "firstSeenAfter",
+                )
+                for op, v in [
+                    ("gt", "-24h"),
+                    ("gte", "-24h"),
+                    ("lt", "-24h"),
+                    ("lte", "-24h"),
+                    ("is_date_after", "-24h"),
+                    ("is_date_before", "-24h"),
+                    ("gt", "-24H"),
+                    ("gt", "yesterday"),
+                ]
+            ),
+            ({"firstSeenAfter": "yesterday"}, "firstSeenAfter"),
+            ({"firstSeenAfter": "-100000y"}, "firstSeenAfter"),
+        ]
+    )
+    def test_rejects_unsupported_filters(self, request_fields: dict[str, object], message: str) -> None:
         response = self.client.post(
             f"/api/environments/{self.team.id}/error_tracking/query/issues",
-            data={"filterGroup": [{"key": "1 = 1", "type": "hogql", "value": "1"}]},
+            data=request_fields,
             format="json",
         )
 
         assert response.status_code == 400
-        assert "HogQL property filters are not supported here" in str(response.json())
+        assert message in str(response.json())
 
     def test_rejects_invalid_person_id(self) -> None:
         response = self.client.post(

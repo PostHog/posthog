@@ -43806,6 +43806,8 @@ export namespace Schemas {
     }
 
     export interface ErrorTrackingIssuesListQueryRequest {
+      /** Only include issues first seen strictly after this ISO timestamp or relative date, such as -24h or -7d. Independent of dateRange, which filters occurrences. */
+      firstSeenAfter?: string;
       /** Date range for issue aggregates. Defaults to the last 7 days. */
       dateRange?: ErrorTrackingDateRange;
       /** Filter by issue status. Defaults to active.
