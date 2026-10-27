@@ -2,6 +2,9 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { useMocks } from '~/mocks/jest'
 import { recentItemsModel } from '~/models/recentItemsModel'
 import { initKeaTests } from '~/test/init'
@@ -53,7 +56,12 @@ describe('todayLogic', () => {
         initKeaTests()
     })
 
-    it.each([200, 500])('uses frequent items or falls back to recents when the request returns %i', async (status) => {
+    it.each([
+        { status: 200, variant: 'test' },
+        { status: 500, variant: 'test' },
+        { status: 200, variant: 'control' },
+        { status: 200, variant: false },
+    ])('selects $variant ranking when the request returns $status', async ({ status, variant }) => {
         const entry = (id: string): { id: string; path: string; type: string; ref: string } => ({
             id,
             path: `Dashboards/${id}`,
@@ -61,17 +69,23 @@ describe('todayLogic', () => {
             ref: id,
         })
         frequentResponse = [status, status === 200 ? [entry('daily'), entry('weekly')] : {}]
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TODAY_JUMP_BACK_RANKING]: variant })
         const logic = todayLogic()
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
         recentItemsModel.actions.loadRecentsSuccess(['a', 'b', 'c', 'd'].map(entry))
+        const mixed = status === 200 && variant === 'test'
         expect(logic.values.recentObjects.map((item) => item.id)).toEqual(
-            status === 200 ? ['a', 'b', 'daily', 'weekly', 'c', 'd'] : ['a', 'b', 'c', 'd']
+            mixed ? ['a', 'b', 'daily', 'weekly', 'c', 'd'] : ['a', 'b', 'c', 'd']
         )
-        logic.actions.jumpBackOpened(logic.values.recentObjects[2], 3, status === 200)
+        logic.actions.jumpBackOpened(logic.values.recentObjects[2], 3, mixed)
         expect(posthog.capture).toHaveBeenCalledWith(
             'today jump back opened',
-            expect.objectContaining({ position: 3, reason: status === 200 ? 'frequent' : 'recent' })
+            expect.objectContaining({
+                position: 3,
+                reason: mixed ? 'frequent' : 'recent',
+                ranking_variant: variant === 'test' ? 'test' : 'control',
+            })
         )
     })
 

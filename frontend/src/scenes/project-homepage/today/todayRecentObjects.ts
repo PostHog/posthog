@@ -1,19 +1,39 @@
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { baseObjectType, libraryObjectHref } from 'scenes/library/libraryUtils'
 
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
+function objectKey(entry: FileSystemEntry): string {
+    const href = libraryObjectHref({ type: baseObjectType(entry.type), ref: entry.ref }) ?? libraryObjectHref(entry)
+    if (!href) {
+        return `${baseObjectType(entry.type)}:${entry.ref ?? entry.id}`
+    }
+    const destination = removeProjectIdIfPresent(href).split('#')[0]
+    const queryStart = destination.indexOf('?')
+    const pathname = queryStart === -1 ? destination : destination.slice(0, queryStart)
+    const search = queryStart === -1 ? '' : destination.slice(queryStart)
+    return `${pathname.replace(/\/+$/, '')}${search}`
+}
+
 /** Recently viewed objects for the home, without tasks, which are agent sessions rather than things people look at. */
 export function recentObjectsForHome(recents: FileSystemEntry[], limit: number): FileSystemEntry[] {
+    const seen = new Set<string>()
     return recents
-        .filter((entry) => libraryObjectHref(entry) !== null && baseObjectType(entry.type) !== 'task')
+        .filter((entry) => {
+            if (libraryObjectHref(entry) === null || baseObjectType(entry.type) === 'task') {
+                return false
+            }
+            const key = objectKey(entry)
+            if (seen.has(key)) {
+                return false
+            }
+            seen.add(key)
+            return true
+        })
         .slice(0, limit)
 }
 
 export type JumpBackObject = FileSystemEntry & { jumpBackReason: 'recent' | 'frequent' }
-
-function objectKey(entry: FileSystemEntry): string {
-    return `${baseObjectType(entry.type)}:${entry.ref ?? entry.id}`
-}
 
 export function jumpBackObjectsForHome(
     recents: FileSystemEntry[],
