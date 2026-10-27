@@ -17,13 +17,17 @@ export function SpikeTooltip({ datum, clickable }: SpikeTooltipProps): JSX.Eleme
             <div className="flex items-center justify-between gap-4">
                 <span className="flex items-center gap-1.5 font-semibold">
                     {swatchColor && <TooltipSwatch color={swatchColor} />}
-                    Spike detected
+                    <span>Spike detected</span>
                 </span>
-                <span className="opacity-60">{formatCompactVolumeHoverDate(datum)} (UTC)</span>
+                <span className="opacity-60">
+                    <span>{formatCompactVolumeHoverDate(datum)}</span> (UTC)
+                </span>
             </div>
             <div className="tabular-nums">{formatCompactVolumeHoverOccurrences(datum)}</div>
             {datum.spikeMultiplier !== undefined && (
-                <div className="tabular-nums">{datum.spikeMultiplier.toFixed(1)}x the usual volume</div>
+                <div className="tabular-nums">
+                    <span>{datum.spikeMultiplier.toFixed(1)}x</span> the usual volume
+                </div>
             )}
             {clickable && <TooltipFooter>Click to see spike details</TooltipFooter>}
         </TooltipSurface>
