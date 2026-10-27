@@ -26,6 +26,7 @@ logger = structlog.get_logger(__name__)
 # ASCII only, so a lookalike Unicode host can't match. `_download` checks the host again after unescaping.
 _ASSET_URL = re.compile(r"https://[a-z0-9-]+\.customeriomail\.com/[^\s\"'<>]*", re.IGNORECASE | re.ASCII)
 _ASSET_HOST_SUFFIX = ".customeriomail.com"
+_LINK_ATTRIBUTE = re.compile(r"href\s*=\s*[\"']?$", re.IGNORECASE)
 _MAX_BYTES = 4 * 1024 * 1024
 _TIMEOUT_SECONDS = 10
 _DOWNLOAD_THREADS = 4
@@ -43,15 +44,16 @@ def rehost_images(
     all_urls = list(dict.fromkeys(url for urls in urls_by_step.values() for url in urls))
     if not all_urls:
         return RehostedWorkflow(workflow=workflow, notes=())
+    count = len({html.unescape(url) for url in all_urls})
     if not budget.can_upload:
         return RehostedWorkflow(
             workflow=workflow,
             notes=(
                 ImportNote(
                     level=WorkflowImportNoteLevel.NEEDS_INPUT,
-                    message=f"{len(all_urls)} email {_images(len(all_urls))} still {_load(len(all_urls))} from Customer.io's servers, "
+                    message=f"{count} email {_images(count)} still {_load(count)} from Customer.io's servers, "
                     "because this API key can't write to the media library (uploaded_media:write). Import with a "
-                    f"key that can, or upload {_them(len(all_urls))} before you close your Customer.io account.",
+                    f"key that can, or upload {_them(count)} before you close your Customer.io account.",
                 ),
             ),
         )
@@ -61,7 +63,7 @@ def rehost_images(
             notes=(
                 ImportNote(
                     level=WorkflowImportNoteLevel.APPROXIMATED,
-                    message=f"{len(all_urls)} email {_images(len(all_urls))} on Customer.io's servers will be "
+                    message=f"{count} email {_images(count)} on Customer.io's servers will be "
                     "copied into your email media library when you import.",
                 ),
             ),
@@ -76,7 +78,7 @@ def rehost_images(
             actions.append(action)
             continue
         # One pass over whole matches, so a URL that starts with another copied URL keeps its own copy.
-        body = _ASSET_URL.sub(lambda match: _replace(match.group(0), copied), body)
+        body = _ASSET_URL.sub(lambda match: _replace(match, copied), body)
         actions.append(_with_html(action, body))
         missed = [url for url in urls_by_step.get(action["id"], []) if url not in copied]
         if missed:
@@ -108,11 +110,15 @@ def _copy_images(team: Team, user: User, urls: list[str], budget: ImageBudget) -
         .order_by("created_at")
     ):
         existing.setdefault(media.file_name, media)
+    # Spellings of one image, like `&amp;` and `&`, share a name, so it is downloaded once.
+    spellings: dict[str, list[str]] = {}
     for url, name in names.items():
         if name in existing:
             copied[url] = existing[name].get_absolute_url()
         else:
-            to_download.append(url)
+            if name not in spellings:
+                to_download.append(url)
+            spellings.setdefault(name, []).append(url)
     to_download = to_download[: max(budget.remaining, 0)]
     budget.remaining -= len(to_download)
     pool = ThreadPoolExecutor(max_workers=_DOWNLOAD_THREADS)
@@ -128,7 +134,8 @@ def _copy_images(team: Team, user: User, urls: list[str], budget: ImageBudget) -
                 content = future.result() if future in done else None
                 media = _save(team, user, url, content) if content is not None else None
                 if media is not None:
-                    copied[url] = media.get_absolute_url()
+                    for spelling in spellings[names[url]]:
+                        copied[spelling] = media.get_absolute_url()
     finally:
         # A download still running stops at its next read after the deadline, so the request does not wait for it.
         pool.shutdown(wait=False, cancel_futures=True)
@@ -147,12 +154,21 @@ def _download(url: str, deadline: float) -> bytes | None:
     ):
         return None
     try:
-        with requests.get(source, timeout=_TIMEOUT_SECONDS, allow_redirects=False, stream=True) as response:
+        with requests.get(
+            source,
+            timeout=_TIMEOUT_SECONDS,
+            allow_redirects=False,
+            stream=True,
+            headers={"Accept-Encoding": "identity"},
+        ) as response:
             if response.status_code != 200:
                 logger.info("workflows.import.image_download_failed", status=response.status_code)
                 return None
+            # `read1` returns what one socket read gives, so a host that sends a byte at a time can't hold the
+            # thread past the deadline. A buffered read waits until it has the whole chunk.
+            read = getattr(getattr(response.raw, "_fp", None), "read1", None) or response.raw.read
             content = b""
-            for chunk in response.iter_content(16 * 1024):
+            while chunk := read(16 * 1024):
                 content += chunk
                 if len(content) > _MAX_BYTES or time.monotonic() > deadline:
                     logger.info("workflows.import.image_download_failed", reason="too_large_or_slow")
@@ -164,20 +180,32 @@ def _download(url: str, deadline: float) -> bytes | None:
 
 
 def _asset_urls(body: str) -> list[str]:
-    return [url for match in _ASSET_URL.finditer(body) if (url := _trimmed(match.group(0))) is not None]
+    return [
+        url
+        for match in _ASSET_URL.finditer(body)
+        if not _is_link(match) and (url := _trimmed(match.group(0))) is not None
+    ]
+
+
+def _is_link(match: re.Match[str]) -> bool:
+    # A link to a Customer.io asset, like a PDF, is not an image the email shows.
+    return _LINK_ATTRIBUTE.search(match.string, max(0, match.start() - 20), match.start()) is not None
 
 
 def _trimmed(found: str) -> str | None:
     """The image URL in a match, or None for a URL built with Liquid, whose real address only exists at send time."""
-    url = found
     # A parenthesis is part of the URL unless it closes a CSS `url(...)` around it.
-    while url.endswith(")") and url.count(")") > url.count("("):
-        url = url[:-1]
+    end, extra_closing = len(found), found.count(")") - found.count("(")
+    while extra_closing > 0 and end > 0 and found[end - 1] == ")":
+        end -= 1
+        extra_closing -= 1
+    url = found[:end]
     return None if "{" in url else url
 
 
-def _replace(found: str, copied: dict[str, str]) -> str:
-    url = _trimmed(found)
+def _replace(match: re.Match[str], copied: dict[str, str]) -> str:
+    found = match.group(0)
+    url = None if _is_link(match) else _trimmed(found)
     if url is None or url not in copied:
         return found
     return copied[url] + found[len(url) :]

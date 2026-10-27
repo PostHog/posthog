@@ -534,20 +534,39 @@ class TestWorkflowImportAPI(APIBaseTest):
         assert response.status_code == 400
         assert not HogFlow.objects.filter(team=self.team).exists()
 
-    def test_unreadable_delay_fails_only_that_automation(self) -> None:
+    @parameterized.expand(
+        [
+            ("delay that is not a number", {"3": {"delay": "soon"}}, None, "failed"),
+            (
+                "message condition naming a plain event",
+                {"4": {"multi_conditions": [_encode([{"type": "message", "event": "delivered"}])]}},
+                None,
+                "created",
+            ),
+            ("branch index that is not a number", {}, "x", "failed"),
+            ("branch index as a string", {}, "1", "created"),
+        ]
+    )
+    def test_an_odd_value_affects_only_that_automation(
+        self, _name: str, action_changes: dict[str, dict[str, Any]], branch_index: str | None, status: str
+    ) -> None:
         source = _onboarding_campaign()
-        broken = [{**action, "delay": "soon"} if action["id"] == "3" else action for action in source.actions]
+        changed = [{**action, **action_changes.get(action["id"], {})} for action in source.actions]
+        edges = [
+            {**edge, "index": branch_index} if branch_index is not None and edge.get("index") == 1 else edge
+            for edge in source.campaign["edges"]
+        ]
         body = {
             "source": "customerio",
             "campaigns": [
-                {"campaign": source.campaign, "actions": broken},
+                {"campaign": {**source.campaign, "edges": edges}, "actions": changed},
                 {"campaign": {**source.campaign, "id": "43"}, "actions": source.actions},
             ],
         }
         response = self._post(body)
 
         assert response.status_code == 200, response.json()
-        assert [result["status"] for result in response.json()["results"]] == ["failed", "created"]
+        assert [result["status"] for result in response.json()["results"]] == [status, "created"]
 
     def test_dry_run_saves_nothing(self) -> None:
         result = self._import(dry_run=True)
@@ -630,12 +649,13 @@ class TestWorkflowImportAPI(APIBaseTest):
         templated = "https://userimg-assets.customeriomail.com/images/client-env-1/v.png?v={{ person.properties.v }}"
         smuggled = "https://userimg-assets.customeriomail.com&#64;evil.example.com/a.png"
         lookalike = "https://userimg-assets.customeriomaİl.com/a.png"
+        guide = "https://userimg-assets.customeriomail.com/files/client-env-1/guide.pdf"
         served = {hero, hero_webp, f"{hero}?w=1&h=2", logo}
 
         def respond(url: str, **kwargs: Any) -> MagicMock:
             response = MagicMock(status_code=200 if url in served else 404)
             response.__enter__.return_value = response
-            response.iter_content.return_value = [png.getvalue()]
+            response.raw = io.BytesIO(png.getvalue())
             return response
 
         mock_get.side_effect = respond
@@ -646,7 +666,8 @@ class TestWorkflowImportAPI(APIBaseTest):
                 **source.templates["11"],
                 "body": f'<img src="{hero}"><img src="{gone}"><img src="https://cdn.example.com/logo.png">'
                 f'<img src="{hero_webp}"><img src="{sized}"><div style="background: url({logo})"></div>'
-                f'<img src="{templated}"><img src="{smuggled}"><img src="{lookalike}">',
+                f'<img src="{templated}"><img src="{smuggled}"><img src="{lookalike}">'
+                f'<a href="{guide}">Guide</a><img src="{hero}?w=1&h=2">',
             },
         }
         campaigns = [{"campaign": source.campaign, "actions": source.actions, "templates": list(templates.values())}]
@@ -666,8 +687,12 @@ class TestWorkflowImportAPI(APIBaseTest):
             f'<img src="{urls[0]}"><img src="{gone}"><img src="https://cdn.example.com/logo.png">'
             f'<img src="{urls[1]}"><img src="{urls[2]}"><div style="background: url({urls[3]})"></div>'
             f'<img src="{templated}"><img src="{smuggled}"><img src="{lookalike}">'
+            f'<a href="{guide}">Guide</a><img src="{urls[2]}">'
         )
-        assert "evil.example.com" not in " ".join(call.args[0] for call in mock_get.call_args_list)
+        requested = [call.args[0] for call in mock_get.call_args_list]
+        assert "evil.example.com" not in " ".join(requested)
+        assert guide not in requested
+        assert requested.count(f"{hero}?w=1&h=2") == 1
         assert any(n["step_id"] == "cio_1" and gone in n["message"] for n in first["notes"])
 
         self._import(campaigns=campaigns)
@@ -715,4 +740,4 @@ class TestWorkflowImportAPI(APIBaseTest):
         assert response.json()["notes"] == result["notes"]
 
         other = HogFlow.objects.create(team=self.team, name="Built by hand")
-        assert self.client.get(url, {"hog_flow_id": str(other.id)}).status_code == 404
+        assert self.client.get(url, {"hog_flow_id": str(other.id)}).status_code == 204

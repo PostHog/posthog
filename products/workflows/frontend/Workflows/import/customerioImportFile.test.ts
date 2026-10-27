@@ -34,7 +34,11 @@ describe('parseCustomerioFiles', () => {
 
     it('keeps every option and step of the import request shape', () => {
         const request = {
-            campaigns: [{ ...automation, actions: [...automation.actions, 'not a step'] }],
+            campaigns: [
+                { ...automation, actions: [...automation.actions, 'not a step'] },
+                { campaign: { id: 3 }, actions: [], templates: ['not a template'] },
+                { campaign: { id: 4 } },
+            ],
             layouts: { 5: '<html>{{ content }}</html>' },
             segment_cohorts: { 7: 42 },
             sender_identities: [{ id: '4', email: 'team@example.com' }],
@@ -42,7 +46,8 @@ describe('parseCustomerioFiles', () => {
         }
         const parsed = parseCustomerioFiles([JSON.stringify(request)])
 
-        expect(parsed.campaigns[0].actions).toEqual(request.campaigns[0].actions)
+        expect(parsed.campaigns.slice(0, 1).map((c) => c.actions)).toEqual([request.campaigns[0].actions])
+        expect(parsed.campaigns.slice(1)).toEqual(request.campaigns.slice(1))
         expect(parsed).toMatchObject({
             layouts: request.layouts,
             segment_cohorts: request.segment_cohorts,

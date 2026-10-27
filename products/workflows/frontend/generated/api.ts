@@ -1601,8 +1601,8 @@ export const workflowImportsForWorkflowRetrieve = async (
     projectId: string,
     params: WorkflowImportsForWorkflowRetrieveParams,
     options?: RequestInit
-): Promise<WorkflowImportRecordApi> => {
-    return apiMutator<WorkflowImportRecordApi>(getWorkflowImportsForWorkflowRetrieveUrl(projectId, params), {
+): Promise<WorkflowImportRecordApi | void> => {
+    return apiMutator<WorkflowImportRecordApi | void>(getWorkflowImportsForWorkflowRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
