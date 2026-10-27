@@ -59,6 +59,8 @@ const MOCK_PROPERTY_DEFINITIONS = {
     ],
 }
 
+const MOCK_QUERY_USAGE: Record<string, number> = { $browser: 4210, $os: 1388, plan: 52, $current_url: 9934 }
+
 const meta: Meta = {
     component: App,
     title: 'Scenes-App/Data Management/Property Definitions',
@@ -81,6 +83,22 @@ const meta: Meta = {
                     }
 
                     return [200, { ...MOCK_PROPERTY_DEFINITIONS, results, count: results.length }]
+                },
+            },
+            post: {
+                '/api/projects/:team_id/property_definitions/usage_metrics/': async ({ request }) => {
+                    const { properties } = (await request.json()) as { properties: { name: string }[] }
+                    return [
+                        200,
+                        {
+                            results: properties.map(({ name }) => ({
+                                type: 'event',
+                                name,
+                                group_type_index: null,
+                                query_usage_30_day: MOCK_QUERY_USAGE[name] ?? 0,
+                            })),
+                        },
+                    ]
                 },
             },
         }),

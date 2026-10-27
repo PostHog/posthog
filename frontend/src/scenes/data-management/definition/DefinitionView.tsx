@@ -21,13 +21,14 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { getPrimaryPropertyForEvent } from 'lib/utils/events'
+import { DefinitionInsights } from 'scenes/data-management/definition/DefinitionInsights'
 import {
     DefinitionLogicProps,
     decodeDefinitionId,
     definitionLogic,
 } from 'scenes/data-management/definition/definitionLogic'
+import { PropertyDefinitionUsage } from 'scenes/data-management/definition/PropertyDefinitionUsage'
 import { EventDefinitionExperiments } from 'scenes/data-management/events/EventDefinitionExperiments'
-import { EventDefinitionInsights } from 'scenes/data-management/events/EventDefinitionInsights'
 import { EventDefinitionProperties } from 'scenes/data-management/events/EventDefinitionProperties'
 import { EventDefinitionSchema } from 'scenes/data-management/events/EventDefinitionSchema'
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
@@ -132,8 +133,19 @@ export function DefinitionView(rawProps: DefinitionLogicProps): JSX.Element {
     // The app renders scene components with raw route params, so decode the id like paramsToProps does
     const props = { ...rawProps, id: decodeDefinitionId(rawProps.id) }
     const logic = definitionLogic(props)
-    const { definition, definitionLoading, definitionMissing, singular, isEvent, isProperty, metrics, metricsLoading } =
-        useValues(logic)
+    const {
+        definition,
+        definitionLoading,
+        definitionMissing,
+        singular,
+        isEvent,
+        isProperty,
+        metrics,
+        metricsLoading,
+        propertyUsage,
+        propertyUsageLoading,
+        propertyUsageFailed,
+    } = useValues(logic)
     const { deleteDefinition } = useActions(logic)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
@@ -434,6 +446,37 @@ export function DefinitionView(rawProps: DefinitionLogicProps): JSX.Element {
                         <b>{(definition as PropertyDefinition).property_type ?? '-'}</b>
                     </div>
                 )}
+                {isProperty && !isVirtual && (
+                    <div className="flex flex-col flex-1 basis-48 min-w-48">
+                        <h5>
+                            30 day queries{' '}
+                            <Tooltip title="Number of times a query used this property in the last 30 days, including views of cached insights">
+                                <IconInfo className="text-sm" />
+                            </Tooltip>
+                        </h5>
+                        <b>
+                            {propertyUsageLoading ? (
+                                <Spinner textColored />
+                            ) : (
+                                <span>{propertyUsage ? propertyUsage.query_usage_30_day.toLocaleString() : '-'}</span>
+                            )}
+                        </b>
+                    </div>
+                )}
+                {isProperty && !isVirtual && (
+                    <div className="flex flex-col flex-1 basis-48 min-w-48">
+                        <h5>Last queried</h5>
+                        <b>
+                            {propertyUsageLoading ? (
+                                <Spinner textColored />
+                            ) : propertyUsage?.last_queried_at ? (
+                                <TZLabel time={propertyUsage.last_queried_at} />
+                            ) : (
+                                '-'
+                            )}
+                        </b>
+                    </div>
+                )}
 
                 {isEvent && <PrimaryPropertyDetail definition={definition as EventDefinition} />}
             </div>
@@ -448,7 +491,7 @@ export function DefinitionView(rawProps: DefinitionLogicProps): JSX.Element {
                     </FlaggedFeature>
                     <EventDefinitionProperties definition={definition} />
                     <SceneDivider />
-                    <EventDefinitionInsights definition={definition} />
+                    <DefinitionInsights definition={definition} filterKey="events" />
                     <SceneDivider />
                     <EventDefinitionExperiments definition={definition} />
                     <SceneDivider />
@@ -478,6 +521,18 @@ export function DefinitionView(rawProps: DefinitionLogicProps): JSX.Element {
                     >
                         <Query query={memoizedQuery} />
                     </SceneSection>
+                </>
+            )}
+
+            {isProperty && !isVirtual && definition.id !== 'new' && (
+                <>
+                    <PropertyDefinitionUsage
+                        usage={propertyUsage}
+                        loading={propertyUsageLoading}
+                        failed={propertyUsageFailed}
+                    />
+                    <SceneDivider />
+                    <DefinitionInsights definition={definition} filterKey="properties" />
                 </>
             )}
         </SceneContent>

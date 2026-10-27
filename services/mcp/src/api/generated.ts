@@ -95111,6 +95111,40 @@ export namespace Schemas {
       Person: 'person',
     } as const;
 
+    export interface PropertyUsageDay {
+      /** Day in the project's timezone. */
+      date: string;
+      /** Query executions that referenced the property on this day. */
+      count: number;
+    }
+
+    export interface PropertyUsageUser {
+      /** Organization member who ran the queries. */
+      user: UserBasic;
+      /** Query executions by this member in the last 30 days. */
+      count: number;
+      /** Most recent query by this member that referenced the property, to the hour. */
+      last_queried_at: string;
+    }
+
+    export interface PropertyUsageDetail {
+      /** Number of query executions in the last 30 days that referenced this property, including cached insight views. */
+      query_usage_30_day: number;
+      /**
+         * Most recent query that referenced the property in the last 30 days, to the hour. Null if none.
+         * @nullable
+         */
+      last_queried_at: string | null;
+      /** One entry per day for the last 30 days, oldest first, including days with no queries. */
+      daily: PropertyUsageDay[];
+      /** Up to 10 organization members who queried the property most, highest first. */
+      top_users: PropertyUsageUser[];
+      /** Number of distinct users who queried the property in the last 30 days. */
+      distinct_users: number;
+      /** Query executions with no user attached, such as shared dashboards, subscriptions and alerts. Included in `query_usage_30_day`. */
+      automated_query_usage_30_day: number;
+    }
+
     /**
      * * `event` - Event
      * * `person` - Person

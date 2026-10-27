@@ -6,18 +6,28 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
-import { INSIGHTS_PER_PAGE, eventInsightsLogic } from 'scenes/data-management/events/eventInsightsLogic'
+import {
+    DefinitionInsightsLogicProps,
+    INSIGHTS_PER_PAGE,
+    definitionInsightsLogic,
+} from 'scenes/data-management/definition/definitionInsightsLogic'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 import { InsightIcon } from 'scenes/saved-insights/InsightIcon'
 import { urls } from 'scenes/urls'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
-import { EventDefinition, InsightModel } from '~/types'
+import { Definition, InsightModel } from '~/types'
 
-export function EventDefinitionInsights({ definition }: { definition: EventDefinition }): JSX.Element {
-    const event = definition.name
-    const { page, insights, filters, insightsLoading, sorting } = useValues(eventInsightsLogic({ event }))
-    const { setPage, setFilters } = useActions(eventInsightsLogic({ event }))
+export interface DefinitionInsightsProps {
+    definition: Definition
+    filterKey: DefinitionInsightsLogicProps['filterKey']
+}
+
+export function DefinitionInsights({ definition, filterKey }: DefinitionInsightsProps): JSX.Element {
+    const logic = definitionInsightsLogic({ filterKey, name: definition.name })
+    const { page, insights, filters, insightsLoading, sorting } = useValues(logic)
+    const { setPage, setFilters } = useActions(logic)
+    const isEvent = filterKey === 'events'
     const summarizeInsight = useSummarizeInsight()
 
     const columns: LemonTableColumns<InsightModel> = [
@@ -61,7 +71,13 @@ export function EventDefinitionInsights({ definition }: { definition: EventDefin
     ]
 
     return (
-        <SceneSection title="Insights using event" className="saved-insights">
+        <SceneSection
+            title={isEvent ? 'Insights using event' : 'Insights using property'}
+            description={
+                isEvent ? undefined : 'Saved insights that use a property with this name, of any property type.'
+            }
+            className="saved-insights"
+        >
             <LemonInput
                 type="search"
                 placeholder="Search..."
@@ -69,10 +85,11 @@ export function EventDefinitionInsights({ definition }: { definition: EventDefin
                 value={filters.search || ''}
             />
             <LemonTable
-                id={`event-definition-insights-table-${definition.id}`}
+                id={`${isEvent ? 'event' : 'property'}-definition-insights-table-${definition.id}`}
                 loading={insightsLoading}
                 columns={columns}
-                data-attr="event-definition-insights-table"
+                // pinned: data-attr values are used by autocapture dashboards
+                data-attr={isEvent ? 'event-definition-insights-table' : 'property-definition-insights-table'}
                 dataSource={insights.results}
                 pagination={{
                     controlled: true,

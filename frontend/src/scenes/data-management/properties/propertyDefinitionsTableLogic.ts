@@ -1,4 +1,16 @@
-import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import {
+    MakeLogicType,
+    actions,
+    connect,
+    isBreakpoint,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    reducers,
+    selectors,
+} from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
@@ -12,8 +24,11 @@ import {
     PropertyDefinitionsPaginatedResponse,
     normalizePropertyDefinitionEndpointUrl,
 } from 'scenes/data-management/events/eventDefinitionsTableLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { propertyDefinitionsUsageMetricsCreate } from '~/generated/core/api'
+import { PropertyUsageEntryApi, PropertyUsageTypeEnumApi } from '~/generated/core/api.schemas'
 import { PropertyDefinition } from '~/types'
 
 import { groupsModel } from '../../../models/groupsModel'
@@ -46,6 +61,23 @@ function removeDefaults(filter: Filters): Partial<Filters> {
     }
 }
 
+/** Builds the usage request for one page of the list, or null for a type that has no usage tracking. */
+export function usageMetricsEntries(
+    names: string[],
+    type: string,
+    groupTypeIndex: number | null
+): PropertyUsageEntryApi[] | null {
+    if (!(Object.values(PropertyUsageTypeEnumApi) as string[]).includes(type) || names.length === 0) {
+        return null
+    }
+    if (type === PropertyUsageTypeEnumApi.Group) {
+        return groupTypeIndex === null
+            ? null
+            : names.map((name) => ({ type: PropertyUsageTypeEnumApi.Group, name, group_type_index: groupTypeIndex }))
+    }
+    return names.map((name) => ({ type: type as PropertyUsageTypeEnumApi, name }))
+}
+
 export interface PropertyDefinitionsTableLogicProps {
     key: string
 }
@@ -54,11 +86,14 @@ export interface PropertyDefinitionsTableLogicProps {
 export interface propertyDefinitionsTableLogicValues {
     aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
     groupTypes: Map<GroupTypeIndex, GroupType> // groupsModel
+    currentProjectId: number | string // teamLogic
     filters: Filters
     hoveredDefinition: string | null
     propertyDefinitions: PropertyDefinitionsPaginatedResponse
     propertyDefinitionsLoading: boolean
     propertyTypeOptions: LemonSelectOption<string>[]
+    queryUsageByName: Record<string, number> | null
+    queryUsageByNameLoading: boolean
     showVerifiedFilter: boolean
 }
 
@@ -83,6 +118,27 @@ export interface propertyDefinitionsTableLogicActions {
         propertyDefinitions: PropertyDefinitionsPaginatedResponse
         payload?: {
             url: string | null
+        }
+    }
+    loadQueryUsageByName: () => {
+        value: true
+    }
+    loadQueryUsageByNameFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadQueryUsageByNameSuccess: (
+        queryUsageByName: Record<string, number> | null,
+        payload?: {
+            value: true
+        }
+    ) => {
+        queryUsageByName: Record<string, number> | null
+        payload?: {
+            value: true
         }
     }
     setFilters: (filters: Partial<Filters>) => {
@@ -144,7 +200,7 @@ export const propertyDefinitionsTableLogic = kea<propertyDefinitionsTableLogicTy
     props({} as PropertyDefinitionsTableLogicProps),
     key((props) => props.key || 'scene'),
     connect(() => ({
-        values: [groupsModel, ['groupTypes', 'aggregationLabel']],
+        values: [groupsModel, ['groupTypes', 'aggregationLabel'], teamLogic, ['currentProjectId']],
     })),
     actions({
         loadPropertyDefinitions: (url: string | null = '') => ({
@@ -155,6 +211,7 @@ export const propertyDefinitionsTableLogic = kea<propertyDefinitionsTableLogicTy
         setOpenedDefinition: (id: string | null) => ({ id }),
         setLocalPropertyDefinition: (definition: PropertyDefinition) => ({ definition }),
         setPropertyType: (propertyType: string) => ({ propertyType }),
+        loadQueryUsageByName: true,
     }),
     reducers({
         filters: [
@@ -198,6 +255,40 @@ export const propertyDefinitionsTableLogic = kea<propertyDefinitionsTableLogicTy
         ],
     }),
     loaders(({ values, cache }) => ({
+        queryUsageByName: [
+            null as Record<string, number> | null,
+            {
+                loadQueryUsageByName: async (_, breakpoint) => {
+                    // Read the type from the loaded page's URL, since the filters can change before it loads
+                    const { type = 'event', group_type_index = null } = combineUrl(
+                        values.propertyDefinitions.current ?? ''
+                    ).searchParams
+                    const entries = usageMetricsEntries(
+                        values.propertyDefinitions.results.map((definition) => definition.name),
+                        type,
+                        group_type_index === null ? null : Number(group_type_index)
+                    )
+                    if (!entries) {
+                        return null
+                    }
+                    // The column falls back to a dash, so a failed request shouldn't toast on every page load
+                    try {
+                        const response = await propertyDefinitionsUsageMetricsCreate(String(values.currentProjectId), {
+                            properties: entries,
+                        })
+                        breakpoint()
+                        return Object.fromEntries(
+                            response.results.map((result) => [result.name, result.query_usage_30_day])
+                        )
+                    } catch (error) {
+                        if (error instanceof Error && isBreakpoint(error)) {
+                            throw error
+                        }
+                        return null
+                    }
+                },
+            },
+        ],
         propertyDefinitions: [
             {
                 count: 0,
@@ -278,6 +369,7 @@ export const propertyDefinitionsTableLogic = kea<propertyDefinitionsTableLogicTy
             )
         },
         loadPropertyDefinitionsSuccess: () => {
+            actions.loadQueryUsageByName()
             if (cache.propertiesStartTime !== undefined) {
                 posthog.capture('event property definitions page load succeeded', {
                     load_time: performance.now() - cache.propertiesStartTime,

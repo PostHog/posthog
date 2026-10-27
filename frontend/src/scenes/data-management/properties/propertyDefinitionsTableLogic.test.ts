@@ -5,7 +5,10 @@ import { expectLogic, partial } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { EVENT_PROPERTY_DEFINITIONS_PER_PAGE } from 'lib/constants'
-import { propertyDefinitionsTableLogic } from 'scenes/data-management/properties/propertyDefinitionsTableLogic'
+import {
+    propertyDefinitionsTableLogic,
+    usageMetricsEntries,
+} from 'scenes/data-management/properties/propertyDefinitionsTableLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
 
@@ -57,6 +60,9 @@ describe('propertyDefinitionsTableLogic', () => {
                     }
                 },
                 'api/projects/:team/groups_types': MOCK_GROUP_TYPES,
+            },
+            post: {
+                '/api/projects/:team/property_definitions/usage_metrics/': { results: [] },
             },
         })
         initKeaTests()
@@ -189,6 +195,18 @@ describe('propertyDefinitionsTableLogic', () => {
                     }),
                 })
             expect(api.get).toHaveBeenCalledTimes(2)
+        })
+    })
+
+    describe('usage metrics request', () => {
+        it.each([
+            ['event', null, [{ type: 'event', name: '$browser' }]],
+            ['person', null, [{ type: 'person', name: '$browser' }]],
+            ['group', 1, [{ type: 'group', name: '$browser', group_type_index: 1 }]],
+            ['group', null, null],
+            ['event_metadata', null, null],
+        ])('builds %s entries with group type index %s', (type, groupTypeIndex, expected) => {
+            expect(usageMetricsEntries(['$browser'], type, groupTypeIndex)).toEqual(expected)
         })
     })
 })

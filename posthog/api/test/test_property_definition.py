@@ -1,7 +1,9 @@
 import json
+from datetime import datetime
 from typing import Any, Optional, Union, cast
 
-from posthog.test.base import APIBaseTest
+import time_machine
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import ANY, patch
 
 from django.core.cache import cache
@@ -10,13 +12,14 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import ActivityLog, EventDefinition, EventProperty, Organization, PropertyDefinition, Team
+from posthog.models import ActivityLog, EventDefinition, EventProperty, Organization, PropertyDefinition, Team, User
 from posthog.taxonomy.property_definition_api import (
     PropertyDefinitionQuerySerializer,
     PropertyDefinitionViewSet,
     PropertyUsageMetricsRequestSerializer,
     QueryContext,
 )
+from posthog.test.fixtures import create_app_metric2
 
 
 def exclude_virtual_properties(results: list) -> list:
@@ -1208,3 +1211,52 @@ class TestPropertyUsageMetricsAPI(APIBaseTest):
             f"/api/projects/{self.team.pk}/property_definitions/usage_metrics/", {"properties": []}, format="json"
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+
+class TestPropertyUsageDetailAPI(ClickhouseTestMixin, APIBaseTest):
+    @time_machine.travel("2026-10-27T12:00:00Z", tick=False)
+    def test_usage_detail_buckets_by_project_day_and_names_current_members(self) -> None:
+        self.team.timezone = "America/New_York"
+        self.team.save()
+        definition = PropertyDefinition.objects.create(
+            team=self.team, name="industry", type=PropertyDefinition.Type.GROUP, group_type_index=1
+        )
+        former_member = User.objects.create(email="former@example.com")
+        other_team = Team.objects.create(organization=self.organization)
+        instance_id = "property:group:1:industry"
+        for team_id, app_source_id, timestamp, count, row_instance_id in [
+            (self.team.pk, str(self.user.pk), "2026-10-27T02:00:00", 3, instance_id),
+            (self.team.pk, str(self.user.pk), "2026-10-27T11:00:00", 2, instance_id),
+            (self.team.pk, "anonymous", "2026-10-20T12:00:00", 4, instance_id),
+            (self.team.pk, str(former_member.pk), "2026-10-25T12:00:00", 5, instance_id),
+            (self.team.pk, str(self.user.pk), "2026-09-01T12:00:00", 100, instance_id),
+            (self.team.pk, str(self.user.pk), "2026-10-27T11:00:00", 100, "property:group:0:industry"),
+            (other_team.pk, str(self.user.pk), "2026-10-27T11:00:00", 100, instance_id),
+        ]:
+            create_app_metric2(
+                team_id=team_id,
+                app_source="property_usage",
+                app_source_id=app_source_id,
+                instance_id=row_instance_id,
+                metric_kind="",
+                metric_name="viewed",
+                count=count,
+                timestamp=datetime.fromisoformat(timestamp),
+            )
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/{definition.id}/usage/")
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert len(data["daily"]) == 30
+        assert data["daily"][0] == {"date": "2026-09-28", "count": 0}
+        assert data["daily"][-2:] == [{"date": "2026-10-26", "count": 3}, {"date": "2026-10-27", "count": 2}]
+        assert {key: value for key, value in data.items() if key not in ("daily", "top_users")} == {
+            "query_usage_30_day": 14,
+            "last_queried_at": "2026-10-27T11:00:00Z",
+            "distinct_users": 2,
+            "automated_query_usage_30_day": 4,
+        }
+        assert [(row["user"]["id"], row["count"], row["last_queried_at"]) for row in data["top_users"]] == [
+            (self.user.pk, 5, "2026-10-27T11:00:00Z")
+        ]

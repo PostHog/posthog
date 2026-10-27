@@ -8,6 +8,7 @@ import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { EVENT_PROPERTY_DEFINITIONS_PER_PAGE } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { cn } from 'lib/utils/css-classes'
 import { DefinitionsSceneTabs } from 'scenes/data-management/DefinitionsSceneTabs'
@@ -23,8 +24,15 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { PropertyDefinition } from '~/types'
 
 export function PropertyDefinitionsTable(): JSX.Element {
-    const { propertyDefinitions, propertyDefinitionsLoading, filters, propertyTypeOptions, showVerifiedFilter } =
-        useValues(propertyDefinitionsTableLogic)
+    const {
+        propertyDefinitions,
+        propertyDefinitionsLoading,
+        filters,
+        propertyTypeOptions,
+        showVerifiedFilter,
+        queryUsageByName,
+        queryUsageByNameLoading,
+    } = useValues(propertyDefinitionsTableLogic)
     const { loadPropertyDefinitions, setFilters, setPropertyType } = useActions(propertyDefinitionsTableLogic)
 
     const columns: LemonTableColumns<PropertyDefinition> = [
@@ -80,6 +88,24 @@ export function PropertyDefinitionsTable(): JSX.Element {
             },
         },
         {
+            title: '30 day queries',
+            key: 'query_usage_30_day',
+            align: 'right',
+            tooltip:
+                'Number of times a query used this property in the last 30 days, including views of cached insights. Counts can be up to a day old.',
+            render: function RenderQueryUsage(_, definition: PropertyDefinition) {
+                if (queryUsageByNameLoading) {
+                    return <LemonSkeleton className="w-8 h-4 ml-auto" />
+                }
+                const count = queryUsageByName?.[definition.name]
+                return count === undefined ? (
+                    <span className="text-secondary">-</span>
+                ) : (
+                    <span translate="no">{count.toLocaleString()}</span>
+                )
+            },
+        },
+        {
             title: 'Tags',
             key: 'tags',
             render: function Render(_, definition: PropertyDefinition) {
@@ -99,7 +125,7 @@ export function PropertyDefinitionsTable(): JSX.Element {
                 }}
             />
             <LemonBanner type="info">
-                Looking for {filters.type === 'person' ? 'person ' : ''}property usage statistics?{' '}
+                Looking for how often each {filters.type === 'person' ? 'person ' : ''}property appears in your data?{' '}
                 <Link
                     to={urls.insightNewHogQL({
                         query:

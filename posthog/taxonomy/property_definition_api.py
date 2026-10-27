@@ -21,6 +21,7 @@ from posthog.api.documentation import extend_schema
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.pagination import PrecountedLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.shared import UserBasicSerializer
 from posthog.api.statement_timeout import statement_timeout
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import action
@@ -42,6 +43,7 @@ from posthog.taxonomy.definition_listing import (
     definition_read_db_alias,
 )
 from posthog.taxonomy.definition_search import search_plan
+from posthog.taxonomy.property_usage import TOP_USERS_LIMIT, fetch_property_usage_detail
 from posthog.taxonomy.taxonomy import (
     CORE_FILTER_DEFINITIONS_BY_GROUP,
     PROPERTY_NAME_ALIASES,
@@ -217,6 +219,49 @@ class PropertyUsageMetricsResponseSerializer(serializers.Serializer):
     results = PropertyUsageMetricsItemSerializer(
         many=True,
         help_text="One entry per requested property, in request order.",
+    )
+
+
+class PropertyUsageDaySerializer(serializers.Serializer):
+    date = serializers.DateField(help_text="Day in the project's timezone.")
+    count = serializers.IntegerField(help_text="Query executions that referenced the property on this day.")
+
+
+class PropertyUsageUserSerializer(serializers.Serializer):
+    user = UserBasicSerializer(help_text="Organization member who ran the queries.")
+    count = serializers.IntegerField(help_text="Query executions by this member in the last 30 days.")
+    last_queried_at = serializers.DateTimeField(
+        help_text="Most recent query by this member that referenced the property, to the hour."
+    )
+
+
+class PropertyUsageDetailSerializer(serializers.Serializer):
+    query_usage_30_day = serializers.IntegerField(
+        help_text=(
+            "Number of query executions in the last 30 days that referenced this property, "
+            "including cached insight views."
+        ),
+    )
+    last_queried_at = serializers.DateTimeField(
+        allow_null=True,
+        help_text="Most recent query that referenced the property in the last 30 days, to the hour. Null if none.",
+    )
+    daily = PropertyUsageDaySerializer(
+        many=True,
+        help_text="One entry per day for the last 30 days, oldest first, including days with no queries.",
+    )
+    top_users = PropertyUsageUserSerializer(
+        many=True,
+        help_text=f"Up to {TOP_USERS_LIMIT} organization members who queried the property most, highest first.",
+    )
+    distinct_users = serializers.IntegerField(
+        help_text="Number of distinct users who queried the property in the last 30 days.",
+    )
+    automated_query_usage_30_day = serializers.IntegerField(
+        help_text=(
+            "Query executions with no user attached, such as shared dashboards, subscriptions and alerts. "
+            "Included in `query_usage_30_day`."
+        ),
     )
 
 
@@ -1134,6 +1179,24 @@ class PropertyDefinitionViewSet(
             for key in keys
         ]
         return response.Response(PropertyUsageMetricsResponseSerializer({"results": results}).data)
+
+    @validated_request(
+        responses={
+            200: OpenApiResponse(
+                response=PropertyUsageDetailSerializer,
+                description="30-day query usage for this property.",
+            )
+        },
+        summary="30-day query usage details for one property",
+        description=(
+            "Returns how often queries referenced this property in the last 30 days: the total, a daily series, "
+            "and the organization members who queried it most. Counts include cached insight views."
+        ),
+    )
+    @action(methods=["GET"], detail=True, required_scopes=["property_definition:read"])
+    def usage(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> response.Response:
+        detail = fetch_property_usage_detail(self.team, self.get_object())
+        return response.Response(PropertyUsageDetailSerializer(detail).data)
 
     def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         instance: PropertyDefinition = self.get_object()

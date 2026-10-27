@@ -97,6 +97,7 @@ import type {
     ProjectSecretAPIKeyApi,
     ProjectSecretApiKeysListParams,
     PropertyDefinitionsListParams,
+    PropertyUsageDetailApi,
     PropertyUsageMetricsRequestApi,
     PropertyUsageMetricsResponseApi,
     RevokeOtherSessionsResponseApi,
@@ -2580,6 +2581,25 @@ export const propertyDefinitionsDestroy = async (
     return apiMutator<void>(getPropertyDefinitionsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getPropertyDefinitionsUsageRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/property_definitions/${id}/usage/`
+}
+
+/**
+ * Returns how often queries referenced this property in the last 30 days: the total, a daily series, and the organization members who queried it most. Counts include cached insight views.
+ * @summary 30-day query usage details for one property
+ */
+export const propertyDefinitionsUsageRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<PropertyUsageDetailApi> => {
+    return apiMutator<PropertyUsageDetailApi>(getPropertyDefinitionsUsageRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
     })
 }
 

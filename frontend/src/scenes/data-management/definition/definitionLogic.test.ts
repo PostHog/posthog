@@ -12,6 +12,15 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { mockEventDefinitions, mockEventPropertyDefinition } from '~/test/mocks'
 
+const mockPropertyUsage = {
+    query_usage_30_day: 12,
+    last_queried_at: '2026-04-29T18:00:00Z',
+    daily: [],
+    top_users: [],
+    distinct_users: 1,
+    automated_query_usage_30_day: 0,
+}
+
 describe('definitionLogic', () => {
     let logic: ReturnType<typeof definitionLogic.build>
 
@@ -20,6 +29,7 @@ describe('definitionLogic', () => {
             get: {
                 '/api/projects/:team/event_definitions/:id': mockEventDefinitions[0],
                 '/api/projects/:team/property_definitions/:id': mockEventPropertyDefinition,
+                '/api/projects/:team/property_definitions/:id/usage/': mockPropertyUsage,
             },
         })
         initKeaTests()
@@ -53,9 +63,13 @@ describe('definitionLogic', () => {
             router.actions.push(urls.propertyDefinition('1'))
             logic = definitionLogic({ id: '1' })
             logic.mount()
-            await expectLogic(logic).toDispatchActions(['loadDefinition', 'loadDefinitionSuccess']).toMatchValues({
-                definition: mockEventPropertyDefinition,
-            })
+            await expectLogic(logic)
+                .toDispatchActions(['loadDefinition', 'loadDefinitionSuccess', 'loadPropertyUsageSuccess'])
+                .toNotHaveDispatchedActions(['loadMetrics'])
+                .toMatchValues({
+                    definition: mockEventPropertyDefinition,
+                    propertyUsage: mockPropertyUsage,
+                })
         })
 
         it('load new definition on mount', async () => {
@@ -82,6 +96,7 @@ describe('definitionLogic', () => {
             logic.mount()
             await expectLogic(logic)
                 .toDispatchActions(['loadDefinition', 'loadDefinitionSuccess'])
+                .toNotHaveDispatchedActions(['loadPropertyUsage'])
                 .toMatchValues({
                     definition: expect.objectContaining({
                         id: '$builtin_$virt_bot_name',
