@@ -16,6 +16,7 @@ from django.conf import settings
 
 import aiohttp
 import pyarrow as pa
+from compression.zstd import ZstdFile
 from structlog import get_logger
 from temporalio import activity
 
@@ -332,6 +333,7 @@ class ClickHouseClient:
         timeout: None | aiohttp.ClientTimeout = None,
         ssl: ssl.SSLContext | bool = True,
         password_file: str | None = None,
+        http_compression: bool | None = None,
         **kwargs,
     ):
         self.url = url
@@ -352,6 +354,14 @@ class ClickHouseClient:
             self.params["database"] = database
 
         self.params["max_query_size"] = str(MAX_QUERY_SIZE_BYTES)
+
+        if http_compression is None:
+            http_compression = settings.TEMPORAL_CLICKHOUSE_HTTP_COMPRESSION
+        if http_compression:
+            self.params["enable_http_compression"] = "1"
+            self.headers["Accept-Encoding"] = "zstd"
+        else:
+            self.params["enable_http_compression"] = "0"
 
         self.params.update(kwargs)
 
@@ -654,8 +664,6 @@ class ClickHouseClient:
             The response received from the ClickHouse HTTP interface.
         """
         params = {**self.params}
-        # PyArrow reads response.raw directly in stream_query_as_arrow, so keep the HTTP body uncompressed.
-        params["enable_http_compression"] = "0"
         if query_id is not None:
             params["query_id"] = query_id
 
@@ -684,6 +692,9 @@ class ClickHouseClient:
                 verify=False,
                 timeout=timeout,
             )
+            # urllib3 does not decode zstd, and callers read response.raw directly.
+            if response.headers.get("Content-Encoding") == "zstd":
+                response.raw = ZstdFile(response.raw)
             self.check_response(response, query)
             yield response
 

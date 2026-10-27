@@ -258,6 +258,9 @@ CLICKHOUSE_MAX_MEMORY_USAGE: int = get_from_env(
     "CLICKHOUSE_MAX_MEMORY_USAGE", 150 * 1000 * 1000 * 1000, type_cast=int
 )  # 150GB
 CLICKHOUSE_MAX_BLOCK_SIZE_DEFAULT: int = get_from_env("CLICKHOUSE_MAX_BLOCK_SIZE_DEFAULT", 10000, type_cast=int)
+TEMPORAL_CLICKHOUSE_HTTP_COMPRESSION: bool = get_from_env(
+    "TEMPORAL_CLICKHOUSE_HTTP_COMPRESSION", True, type_cast=str_to_bool
+)
 # Comma separated list of overrides in the format "team_id:block_size"
 CLICKHOUSE_MAX_BLOCK_SIZE_OVERRIDES: dict[int, int] = dict(
     [map(int, o.split(":")) for o in os.getenv("CLICKHOUSE_MAX_BLOCK_SIZE_OVERRIDES", "").split(",") if o]  # type: ignore

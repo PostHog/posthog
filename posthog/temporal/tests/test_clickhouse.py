@@ -1,3 +1,4 @@
+import io
 import json
 import uuid
 import asyncio
@@ -9,6 +10,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import aiohttp
 import pyarrow as pa
+from compression import zstd
 
 from posthog.clickhouse.query_tagging import QueryTags
 from posthog.temporal.common.asyncpa import InvalidMessageFormat
@@ -210,14 +212,53 @@ def test_clickhouse_error_code_maps_to_exception(clickhouse_client, error_text, 
                 pass
 
 
-def test_post_query_disables_http_compression(clickhouse_client):
-    mock_response = MagicMock(status_code=200)
-    with _mock_internal_session_post(mock_response) as mock_factory:
-        with clickhouse_client.post_query("SELECT 1", query_parameters={}, query_id=None):
+@pytest.mark.parametrize("http_compression,expected_setting", [(True, "1"), (False, "0")])
+def test_post_query_requests_zstd_only_when_enabled(http_compression, expected_setting):
+    client = ClickHouseClient(http_compression=http_compression)
+    with _mock_internal_session_post(MagicMock(status_code=200)) as mock_factory:
+        with client.post_query("SELECT 1", query_parameters={}, query_id=None):
             pass
 
     call_kwargs = mock_factory.return_value.post.call_args.kwargs
-    assert call_kwargs["params"]["enable_http_compression"] == "0"
+    assert call_kwargs["params"]["enable_http_compression"] == expected_setting
+    assert call_kwargs["headers"].get("Accept-Encoding") == ("zstd" if http_compression else None)
+
+
+def _arrow_stream(batch: pa.RecordBatch) -> bytes:
+    sink = pa.BufferOutputStream()
+    with pa.ipc.new_stream(sink, batch.schema) as writer:
+        writer.write_batch(batch)
+    return sink.getvalue().to_pybytes()
+
+
+def test_stream_query_as_arrow_decodes_zstd_body():
+    batch = pa.RecordBatch.from_pylist([{"id": i, "name": f"name-{i}"} for i in range(1000)])
+    mock_response = MagicMock(
+        status_code=200,
+        headers={"Content-Encoding": "zstd"},
+        raw=io.BytesIO(zstd.compress(_arrow_stream(batch))),
+    )
+
+    with _mock_internal_session_post(mock_response):
+        batches = list(ClickHouseClient(http_compression=True).stream_query_as_arrow("SELECT 1"))
+
+    assert pa.Table.from_batches(batches).equals(pa.Table.from_batches([batch]))
+
+
+async def test_arrow_streams_round_trip_through_compressed_http(clickhouse_client, django_db_setup):
+    query = "SELECT number AS n, toString(number) AS s FROM numbers(100000) FORMAT ArrowStream"
+
+    async with clickhouse_client.apost_query(query, query_parameters=None, query_id=None) as response:
+        assert response.headers.get("Content-Encoding") == "zstd"
+    with clickhouse_client.post_query(query, query_parameters=None, query_id=None) as response:
+        assert response.headers.get("Content-Encoding") == "zstd"
+
+    async_rows = 0
+    async for batch in clickhouse_client.astream_query_as_arrow(query):
+        async_rows += batch.num_rows
+    sync_rows = sum(batch.num_rows for batch in clickhouse_client.stream_query_as_arrow(query))
+
+    assert async_rows == sync_rows == 100000
 
 
 def test_post_query_sends_freshly_read_token(tmp_path):

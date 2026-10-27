@@ -362,6 +362,8 @@ QUERYSERVICE_VERIFY: bool = get_from_env("QUERYSERVICE_VERIFY", CLICKHOUSE_VERIF
 
 CLICKHOUSE_CONN_POOL_MIN: int = get_from_env("CLICKHOUSE_CONN_POOL_MIN", 20, type_cast=int)
 CLICKHOUSE_CONN_POOL_MAX: int = get_from_env("CLICKHOUSE_CONN_POOL_MAX", 1000, type_cast=int)
+# Native-protocol block compression for the clickhouse_driver pool: "lz4", "lz4hc" or "zstd". Empty disables it.
+CLICKHOUSE_NATIVE_COMPRESSION: str = os.getenv("CLICKHOUSE_NATIVE_COMPRESSION", "")
 
 # Connection to the autoresearch test cluster, used by the query-performance
 # autoresearch proxy. Unset host fails closed at the call site.

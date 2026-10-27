@@ -1120,6 +1120,26 @@ wheels = [
 ]
 
 [[package]]
+name = "clickhouse-cityhash"
+version = "1.0.2.6"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/2f/fd/e0a428811f8ecc27c8a31365b33148d10a787c496dabff99e00ae3f42b8c/clickhouse_cityhash-1.0.2.6.tar.gz", hash = "sha256:62af6cadac6655613770664ab268028e5c8b72fc9782b30c0f5d8724af52c7bf", size = 66329, upload-time = "2026-07-14T12:38:12.502Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/30/26/f933dc014e930a6b8422e49f29e737e711d1cfd7a521aca549bb3692a483/clickhouse_cityhash-1.0.2.6-cp314-cp314-macosx_10_15_x86_64.whl", hash = "sha256:f70fe80c8e3682ec387b2525184a45b93b947d454635e19ab3075a6adb61bfc7", size = 28199, upload-time = "2026-07-14T12:37:24.31Z" },
+    { url = "https://files.pythonhosted.org/packages/e7/a8/1133fdf37d24a1b38ea2c881d27a13409ce2479ba30f6eee4132f794bc1d/clickhouse_cityhash-1.0.2.6-cp314-cp314-macosx_11_0_arm64.whl", hash = "sha256:e4d4418c8a8faf2c5d8c397da51a04a1a1859d00ba4226897528af10450fc1a9", size = 29115, upload-time = "2026-07-14T12:37:25.424Z" },
+    { url = "https://files.pythonhosted.org/packages/14/d8/699a03657b2ef4c4dca584f215280b61a28c65ca5620ae8e3894aa0bd58b/clickhouse_cityhash-1.0.2.6-cp314-cp314-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl", hash = "sha256:e32acfeeb73e449b64023329697d01b641d838e85a2942cca8ddfaa849205f43", size = 193720, upload-time = "2026-07-14T12:37:26.738Z" },
+    { url = "https://files.pythonhosted.org/packages/73/3e/9b446bf359dc4bac6396a9ac4a73ef88d5bf436383f75c1577bee66cc9bd/clickhouse_cityhash-1.0.2.6-cp314-cp314-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:a75efc8c2b3cd20516eb6fa1e6336e45757cd1fe6124a3341a4cb1f0d6e4ad09", size = 193381, upload-time = "2026-07-14T12:37:28.068Z" },
+    { url = "https://files.pythonhosted.org/packages/39/9c/0aae8f100f5631825850a428ffcacb992fcb737c368ad26a448e8f7bdce3/clickhouse_cityhash-1.0.2.6-cp314-cp314-manylinux2014_ppc64le.manylinux_2_17_ppc64le.manylinux_2_28_ppc64le.whl", hash = "sha256:15166e26a650072fb8836b310aa6a767e8a675556decc1c55aaf37e62bee4e74", size = 201511, upload-time = "2026-07-14T12:37:29.622Z" },
+    { url = "https://files.pythonhosted.org/packages/b9/a6/98ad41157285c245c204bb9957fc7fa42a3f67a57b0aaa5727745883fec1/clickhouse_cityhash-1.0.2.6-cp314-cp314-manylinux2014_s390x.manylinux_2_17_s390x.manylinux_2_28_s390x.whl", hash = "sha256:900a512f2d2157f708033a0211cde31608940eb2691aef8539b670ad56c54536", size = 206475, upload-time = "2026-07-14T12:37:30.969Z" },
+    { url = "https://files.pythonhosted.org/packages/14/8d/4c227a9a4b3cddccf6f5f8776fda87d6620033ba570914587318065137ed/clickhouse_cityhash-1.0.2.6-cp314-cp314-musllinux_1_2_aarch64.whl", hash = "sha256:2a5a83cf75eb156b0badb5b2891f591a20e6839d94869f6b1088d3e647bbe358", size = 186286, upload-time = "2026-07-14T12:37:32.332Z" },
+    { url = "https://files.pythonhosted.org/packages/6f/b0/a1cd92902ecf896dcbf0465cdd2bb1ad320e9aa8ec5617ffbbccb2c258f8/clickhouse_cityhash-1.0.2.6-cp314-cp314-musllinux_1_2_ppc64le.whl", hash = "sha256:7dd0e0f8c94f766e40c0e0b1e1a1206d65d805bc85a7a8ab60028de8c3cae2c5", size = 194762, upload-time = "2026-07-14T12:37:33.567Z" },
+    { url = "https://files.pythonhosted.org/packages/73/33/0d3ca199e7780c73d5fbb288616c1f1009246f5bbcec11d2eace223881ae/clickhouse_cityhash-1.0.2.6-cp314-cp314-musllinux_1_2_s390x.whl", hash = "sha256:31c9f47ca0c504cb7f6455d217973cd4633ecc7c824b6d1955369ae129e8a098", size = 198120, upload-time = "2026-07-14T12:37:34.842Z" },
+    { url = "https://files.pythonhosted.org/packages/78/b0/91b392033cb5f0bc3e79b12f7abd09b065207715d0671692f70b0c5b3a74/clickhouse_cityhash-1.0.2.6-cp314-cp314-musllinux_1_2_x86_64.whl", hash = "sha256:652b4d4235e5e754093f1393f086c5b0b396bf19fa6b7aba6951ff5f0cae3409", size = 190422, upload-time = "2026-07-14T12:37:36.181Z" },
+    { url = "https://files.pythonhosted.org/packages/32/ad/4c05ae21fa436de346cd0a1f21fd04c3fdd4870426f0b1f918985d62cc85/clickhouse_cityhash-1.0.2.6-cp314-cp314-win32.whl", hash = "sha256:902efd90394a26c223cd54509efb34f2bcdbdedaf6ad4146b9151b8d4b041e82", size = 27806, upload-time = "2026-07-14T12:37:37.523Z" },
+    { url = "https://files.pythonhosted.org/packages/2b/af/4928fb21ace66546c9f9386e33b35d72862c1c2db8dc0203b0acc6597411/clickhouse_cityhash-1.0.2.6-cp314-cp314-win_amd64.whl", hash = "sha256:d90efef900ba44dd7c8dbd22983617afdc20ca55af57a57fc26bdf530c0407f1", size = 28049, upload-time = "2026-07-14T12:37:38.636Z" },
+]
+
+[[package]]
 name = "clickhouse-connect"
 version = "0.10.0"
 source = { registry = "https://pypi.org/simple" }
@@ -5910,6 +5930,7 @@ dependencies = [
     { name = "chdb-core" },
     { name = "circular-dict" },
     { name = "click" },
+    { name = "clickhouse-cityhash" },
     { name = "clickhouse-connect" },
     { name = "clickhouse-driver" },
     { name = "clickhouse-pool" },
@@ -6210,6 +6231,7 @@ requires-dist = [
     { name = "chdb-core", specifier = "==26.9.0" },
     { name = "circular-dict", specifier = "==1.9" },
     { name = "click", specifier = "~=8.0" },
+    { name = "clickhouse-cityhash", specifier = "==1.0.2.6" },
     { name = "clickhouse-connect", specifier = "==0.10.0" },
     { name = "clickhouse-driver", specifier = "==0.2.10" },
     { name = "clickhouse-pool", specifier = "==0.5.3" },
