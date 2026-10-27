@@ -107,6 +107,8 @@ from products.canvas.backend.presentation.serializers import (
     CanvasStateValueQuerySerializer,
     CanvasStateValueResponseSerializer,
     CanvasSummarySerializer,
+    CanvasToolInvokeSerializer,
+    CanvasToolResultSerializer,
     CanvasUpdateSerializer,
     CanvasValidateRequestSerializer,
     CanvasValidateResponseSerializer,
@@ -272,6 +274,13 @@ class CanvasActionInvokeThrottle(CanvasStateWriteThrottle):
     rate = "60/min"
 
 
+class CanvasToolInvokeThrottle(CanvasStateWriteThrottle):
+    """Shares the action ceiling: a tool call is a real PostHog read or write as the viewer."""
+
+    scope = "canvas_tool_invoke"
+    rate = "60/min"
+
+
 class CanvasConnectorCallThrottle(CanvasStateWriteThrottle):
     scope = "canvas_connector_call"
     rate = "120/min"
@@ -378,6 +387,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         "request_fix",
         "set_state",
         "invoke_action",
+        "invoke_tool",
         "call_connector",
         "request_agent",
         "publish_layout",
@@ -392,6 +402,8 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
             return [*super().get_throttles(), CanvasStateWriteThrottle()]
         if self.action == "invoke_action":
             return [*super().get_throttles(), CanvasActionInvokeThrottle()]
+        if self.action == "invoke_tool":
+            return [*super().get_throttles(), CanvasToolInvokeThrottle()]
         if self.action == "call_connector":
             return [*super().get_throttles(), CanvasConnectorCallThrottle()]
         return super().get_throttles()
@@ -400,7 +412,11 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         # Invoking a verb writes the target resource, so a scoped credential
         # must hold that resource's scope — canvas:write alone is not consent
         # to create tasks or annotations.
-        if getattr(view, "action", None) != "invoke_action":
+        action = getattr(view, "action", None)
+        if action == "invoke_tool":
+            tool = request.data.get("tool") if isinstance(request.data, dict) else None
+            return canvas_api.tool_required_scopes(tool) if isinstance(tool, str) else None
+        if action != "invoke_action":
             return None
         verb = request.data.get("verb") if isinstance(request.data, dict) else None
         return canvas_api.action_required_scopes(verb) if isinstance(verb, str) else None
@@ -1791,8 +1807,12 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
     )
     @action(methods=["GET"], detail=False, url_path="actions")
     def actions(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        """List the action registry: every verb a canvas may declare and invoke."""
-        return Response(CanvasActionsResponseSerializer(instance={"actions": canvas_api.list_actions()}).data)
+        """List the action registry: every verb and PostHog MCP tool a canvas may declare and invoke."""
+        return Response(
+            CanvasActionsResponseSerializer(
+                instance={"actions": canvas_api.list_actions(), "tools": canvas_api.list_tools()}
+            ).data
+        )
 
     @extend_schema(
         operation_id="canvases_actions_invoke",
@@ -1851,6 +1871,74 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         )
         self._report_canvas_action("canvas action invoked", canvas, verb=verb)
         return Response(CanvasActionResultSerializer(instance={"verb": verb, "result": result}).data)
+
+    @extend_schema(
+        operation_id="canvases_tools_invoke",
+        request=CanvasToolInvokeSerializer,
+        responses={
+            200: CanvasToolResultSerializer,
+            400: OpenApiResponse(
+                description="Canvases cannot run the tool, or the tool ran and failed. `detail` holds the tool's error."
+            ),
+            403: OpenApiResponse(
+                description="The tool is not declared in the canvas's capabilities, canvas tools are off for the team, "
+                "or the caller is a sandbox or an impersonated session."
+            ),
+            502: OpenApiResponse(description="The PostHog MCP server could not run the tool."),
+            504: OpenApiResponse(
+                description="A tool that changes data did not answer in time. The change can still apply."
+            ),
+        },
+    )
+    @action(methods=["POST"], detail=True, url_path="tools/invoke")
+    def invoke_tool(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Run one PostHog MCP tool as the viewer.
+
+        The canvas must declare the tool in capabilities.posthog.tools. The
+        tool runs on the MCP server with a token minted for the viewer, so it
+        has the viewer's own permissions, exactly as if they called it from
+        an MCP client.
+        """
+        canvas = self._canvas()
+        user = self._state_actor(request)
+        # A sandbox token authenticates as its user, so the user check alone lets an agent through.
+        if user is None or self._is_sandbox_authenticated(request):
+            return Response(
+                {"detail": "Canvas tools are run by viewers; sandbox tokens cannot use them."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        # A minted token would carry the impersonated user's access past the read-only session rules.
+        if is_impersonated(request):
+            return Response(
+                {"detail": "Canvas tools are not available in an impersonated session."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        if canvas_actions_disabled(self.team.uuid) or not canvas_api.canvas_mcp_tools_enabled(self.team.uuid):
+            return Response(
+                {"detail": "Canvas tools are not enabled for this team."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        payload = CanvasToolInvokeSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        tool = payload.validated_data["tool"]
+        try:
+            canvas_api.validate_tool(canvas.head_capabilities, tool)
+            result = canvas_api.call_tool(self.team_id, user.id, tool, payload.validated_data["arguments"])
+        except CanvasRequestRejected as rejection:
+            self._report_canvas_action(
+                "canvas tool invoked", canvas, tool=tool, succeeded=False, status_code=rejection.status_code
+            )
+            return Response(rejection.body, status=rejection.status_code)
+        self._log_canvas_activity(
+            canvas,
+            "tool_invoked",
+            Detail(
+                name=canvas.name,
+                trigger=Trigger(job_type="canvas_tool", job_id=tool, payload={"tool": tool}),
+            ),
+        )
+        self._report_canvas_action("canvas tool invoked", canvas, tool=tool, succeeded=True, status_code=200)
+        return Response(CanvasToolResultSerializer(instance={"tool": tool, "result": result}).data)
 
     @extend_schema(
         operation_id="canvases_connectors_retrieve",

@@ -36,8 +36,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads i
 from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads import (
     AD_ACCOUNT_LISTING_TIMEOUT_SECONDS,
     ENTITY_PAGE_REFUSED_ERROR_MESSAGE,
+    INCONSISTENT_INSIGHTS_ERROR_MESSAGE,
     MALFORMED_JSON_MAX_ATTEMPTS,
     MAX_AD_ACCOUNT_PAGES,
+    META_AD_ACCOUNT_LISTING_UNAVAILABLE_MESSAGE,
     META_ADS_API_VERSION_V25,
     META_ADS_API_VERSION_V26,
     META_ADS_MAX_HISTORY_DAYS,
@@ -1081,6 +1083,44 @@ class TestTimeRangePagination:
         tr = json.loads(mock_get.return_value.get.call_args_list[1].kwargs["params"]["time_range"])
         assert tr == {"since": "2026-03-01", "until": "2026-03-07"}
 
+    def test_inconsistent_multi_day_chunk_is_reread_one_day_at_a_time(self) -> None:
+        manager = _build_manager()
+        zeroed = {"campaign_id": "c", "date_start": "2026-03-01", "impressions": "0", "spend": "0", "cpm": "3.1"}
+        day_one = {"campaign_id": "c", "date_start": "2026-03-01", "impressions": "3000", "spend": "9.3", "cpm": "3.1"}
+        no_delivery = {"campaign_id": "c", "date_start": "2026-03-02", "impressions": "0", "spend": "0"}
+
+        with scripted_network(
+            [
+                ScriptedResponse(json={"data": [zeroed, no_delivery], "paging": {}}),
+                ScriptedResponse(json={"data": [day_one], "paging": {}}),
+                ScriptedResponse(json={"data": [no_delivery], "paging": {}}),
+            ]
+        ) as network:
+            batches = list(
+                _iter_time_range_pagination(
+                    self.URL, self.PARAMS, {"since": "2026-03-01", "until": "2026-03-02"}, None, manager
+                )
+            )
+
+        assert batches == [[day_one], [no_delivery]]
+        assert [json.loads(request.param("time_range") or "") for request in network.requests_log] == [
+            {"since": "2026-03-01", "until": "2026-03-02"},
+            {"since": "2026-03-01", "until": "2026-03-01"},
+            {"since": "2026-03-02", "until": "2026-03-02"},
+        ]
+        restart_save: MetaAdsResumeConfig = manager.save_state.call_args_list[0].args[0]
+        assert (restart_save.chunk_since, restart_save.chunk_size_days) == ("2026-03-01", 1)
+
+    def test_inconsistent_single_day_chunk_raises_instead_of_yielding(self) -> None:
+        zeroed = {"campaign_id": "c", "date_start": "2026-03-01", "impressions": "0", "spend": "0", "ctr": "0.09"}
+
+        with scripted_network([ScriptedResponse(json={"data": [zeroed], "paging": {}})]):
+            gen = _iter_time_range_pagination(
+                self.URL, self.PARAMS, {"since": "2026-03-01", "until": "2026-03-01"}, None, _build_manager()
+            )
+            with pytest.raises(Exception, match=INCONSISTENT_INSIGHTS_ERROR_MESSAGE):
+                next(gen)
+
     def test_heavy_query_subcode_retries_unchanged_then_shrinks_chunk(self, monkeypatch) -> None:
         monkeypatch.setattr(meta_ads_module, "_backoff_sleep", lambda attempt: None)
         manager = _build_manager()
@@ -1512,7 +1552,7 @@ class TestMidChunkLimitFallback:
                 self.URL, self.PARAMS, {"since": "2026-04-21", "until": "2026-04-21"}, None, manager
             )
             assert next(gen) == [{"ad_id": "1"}]
-            with pytest.raises(Exception, match="Please re-authorize the integration"):
+            with pytest.raises(Exception, match="Reconnect with a Facebook account"):
                 list(gen)
 
         # Initial + failed cursor only — the limit ladder is not exercised for auth errors.
@@ -2130,6 +2170,20 @@ class TestListAdAccounts:
             [ScriptedResponse(status=400, json={"error": {"code": 190, "message": "Invalid OAuth token"}})]
         ):
             with pytest.raises(MetaAdsAuthError):
+                list_ad_accounts(self._integration())
+
+    @pytest.mark.parametrize(
+        "answer",
+        [
+            ScriptedResponse(status=500, json={"error": {"message": "Service temporarily unavailable", "code": 2}}),
+            ScriptedResponse(status=503, body=b""),
+            ConnectionResetError(104, "Connection reset by peer"),
+        ],
+        ids=["meta_transient_code", "empty_5xx", "connection_reset"],
+    )
+    def test_transient_failure_surfaces_retry_message_to_the_picker(self, answer: Any) -> None:
+        with scripted_network(always(answer)):
+            with pytest.raises(IntegrationAccountListingError, match=META_AD_ACCOUNT_LISTING_UNAVAILABLE_MESSAGE):
                 list_ad_accounts(self._integration())
 
     def test_page_limit_exceeded_fails_closed_instead_of_returning_partial(self) -> None:

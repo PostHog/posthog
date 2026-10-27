@@ -29,6 +29,7 @@ from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 
 from products.data_modeling.backend.facade.api import (
+    SchedulingUnavailableError,
     UnsatisfiableFrequencyError,
     UnsupportedFrequencyTargetError,
     is_materialization_fresh,
@@ -285,6 +286,9 @@ class EndpointMaterializationService:
                 # The chosen data freshness can't be honored (e.g. finer than an upstream import
                 # delivers) — a request problem, not a server one.
                 raise ValidationError(str(e))
+            except SchedulingUnavailableError as e:
+                # Raising unwinds the atomic block, so the endpoint keeps the state it had before.
+                raise APIException(f"Failed to schedule materialization for endpoint {endpoint.name}.") from e
 
             # schedule_materialization applies a disable-on-failure contract rather than raising,
             # so a failure to schedule shows up only as is_materialized flipping back. Checking it

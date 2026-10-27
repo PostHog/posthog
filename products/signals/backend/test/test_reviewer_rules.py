@@ -4,13 +4,15 @@ from uuid import UUID
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.db import connection
 from django.test import SimpleTestCase
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
 from social_django.models import UserSocialAuth
 
-from posthog.models import OrganizationMembership, User
+from posthog.models import OrganizationMembership, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
@@ -25,10 +27,22 @@ from products.signals.backend.artefact_schemas import (
     WorkClaim,
 )
 from products.signals.backend.assignment_flags import assignment_side_effects_allowed, assignment_writer_enabled
-from products.signals.backend.models import SignalReport, SignalReportArtefact
+from products.signals.backend.models import (
+    SignalReport,
+    SignalReportArtefact,
+    SignalReviewerExclusion,
+    SignalReviewerExclusionRevision,
+)
 from products.signals.backend.report_generation.resolve_reviewers import (
     get_org_member_github_logins_by_user_uuid,
     resolve_org_github_login_to_users,
+)
+from products.signals.backend.reviewer_exclusions import (
+    DuplicateExclusion,
+    StandingExclusions,
+    create_exclusion,
+    revise_exclusion,
+    revoke_exclusion,
 )
 from products.signals.backend.reviewer_rules import ReviewerRules, ReviewerWriteError, StaleReviewerProposal
 from products.signals.backend.suggested_reviewer_index import report_ids_naming_reviewers, sync_suggested_reviewer_index
@@ -445,6 +459,297 @@ class TestReviewerRules(BaseTest):
                 logins_match_unidentified_only=True,
             )
         ) == [{"report_id": self.report.id}]
+
+
+class TestStandingExclusions(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.enabled = True
+        self.flag = patch(
+            "products.signals.backend.reviewer_rules.assignment_writer_enabled", side_effect=lambda _: self.enabled
+        )
+        self.flag.start()
+        self.addCleanup(self.flag.stop)
+        effects = patch("products.signals.backend.reviewer_rules.assignment_side_effects_enabled", return_value=False)
+        effects.start()
+        self.addCleanup(effects.stop)
+        capture = patch("products.signals.backend.reviewer_rules.capture_reviewer_exclusion_applied")
+        self.capture = capture.start()
+        self.addCleanup(capture.stop)
+        self.report = SignalReport.objects.create(team=self.team, status="ready", title="A report")
+        self.rules = ReviewerRules(team=self.team, report_id=str(self.report.id))
+        self.member = User.objects.create(email="reviewer@example.com")
+        OrganizationMembership.objects.create(user=self.member, organization=self.organization)
+        self.me = SuggestedReviewerEntry(user_uuid=str(self.user.uuid))
+        self.other = SuggestedReviewerEntry(user_uuid=str(self.member.uuid))
+        SignalReportArtefact.objects.create(
+            team=self.team, report=self.report, type="repo_selection", content=json.dumps({"repository": "Org/App"})
+        )
+        SignalReportArtefact.objects.create(
+            team=self.team,
+            report=self.report,
+            type="signal_finding",
+            content=json.dumps({"signal_id": "s1", "relevant_code_paths": ["/src/billing/charge.py"]}),
+        )
+
+    def exclude(self, **area: str) -> str:
+        exclusion, _ = create_exclusion(
+            team_id=self.team.id,
+            actor_id=self.member.id,
+            instruction="I moved off this area.",
+            subject_user_uuid=self.member.uuid,
+            **area,
+        )
+        return str(exclusion.id)
+
+    def write(self, *reviewers: SuggestedReviewerEntry, source: str = "research") -> None:
+        with self.captureOnCommitCallbacks(execute=True):
+            SignalReportArtefact.append_status(
+                team_id=self.team.id,
+                report_id=str(self.report.id),
+                content=SuggestedReviewers(root=list(reviewers)),
+                attribution=ArtefactAttribution.system(),
+                reviewer_proposal=ReviewerProposal(expected_state=self.rules.read().state, source=source),
+            )
+
+    @parameterized.expand(
+        [
+            ("research_any_repo", "research", {}, True, True, None, False),
+            ("scout_same_repo", "scout", {"repository": "org/app"}, True, True, None, False),
+            (
+                "custom_agent_path",
+                "custom_agent",
+                {"repository": "org/app", "path_prefix": "src/billing"},
+                True,
+                True,
+                None,
+                False,
+            ),
+            ("other_repo", "research", {"repository": "org/other"}, True, False, None, False),
+            ("other_path", "scout", {"repository": "org/app", "path_prefix": "src/bill"}, True, False, None, False),
+            (
+                "superseded_finding_path",
+                "research",
+                {"repository": "org/app", "path_prefix": "src/billing"},
+                True,
+                False,
+                ["src/search/query.py"],
+                False,
+            ),
+            ("writer_disabled", "research", {"repository": "org/app"}, False, True, None, False),
+            ("writer_disabled_login_only", "custom_agent", {}, False, True, None, True),
+        ]
+    )
+    def test_matching_instruction_suppresses_the_subject_for_every_writer(
+        self,
+        _name: str,
+        source: str,
+        area: dict[str, str],
+        enabled: bool,
+        suppressed: bool,
+        rewritten_paths: list[str] | None,
+        by_login: bool,
+    ) -> None:
+        self.enabled = enabled
+        if rewritten_paths is not None:
+            SignalReportArtefact.objects.create(
+                team=self.team,
+                report=self.report,
+                type="signal_finding",
+                content=json.dumps({"signal_id": "s1", "relevant_code_paths": rewritten_paths}),
+            )
+        other = self.other
+        if by_login:
+            UserSocialAuth.objects.create(user=self.member, provider="github", uid="1", extra_data={"login": "member"})
+            other = SuggestedReviewerEntry(github_login="member")
+        exclusion_id = self.exclude(**area)
+        self.write(self.me, other, source=source)
+        assert [entry.user_uuid or entry.github_login for entry in self.rules.read().reviewers] == (
+            [self.me.user_uuid] if suppressed else [self.me.user_uuid, other.user_uuid or other.github_login]
+        )
+        assert [call.kwargs for call in self.capture.call_args_list] == (
+            [
+                {
+                    "team_id": self.team.id,
+                    "report_id": str(self.report.id),
+                    "source": source,
+                    "events": [("suppressed", [exclusion_id])],
+                }
+            ]
+            if suppressed
+            else []
+        )
+
+    def test_unreadable_findings_do_not_block_a_path_instruction(self) -> None:
+        for content in ["{not json", '{"signal_id": "s2", "relevant_code_paths": ["src/search/\\u0000.py"]}']:
+            SignalReportArtefact.objects.create(
+                team=self.team, report=self.report, type="signal_finding", content=content
+            )
+        self.exclude(repository="org/app", path_prefix="src/billing")
+        self.write(self.me, self.other)
+        assert [entry.user_uuid for entry in self.rules.read().reviewers] == [self.me.user_uuid]
+
+    def test_login_only_writer_skips_identity_resolution_without_instructions(self) -> None:
+        self.enabled = False
+        UserSocialAuth.objects.create(user=self.member, provider="github", uid="1", extra_data={"login": "member"})
+        with self.assertNumQueries(25):
+            self.write(self.me, SuggestedReviewerEntry(github_login="member"), source="custom_agent")
+
+    def test_revoked_instruction_stops_suppressing_and_keeps_history(self) -> None:
+        exclusion_id = self.exclude()
+        revise_exclusion(team_id=self.team.id, exclusion_id=exclusion_id, actor_id=self.user.id, repository="org/app")
+        revise_exclusion(team_id=self.team.id, exclusion_id=exclusion_id, actor_id=self.user.id, repository=" Org/App ")
+        revoke_exclusion(team_id=self.team.id, exclusion_id=exclusion_id, actor_id=self.user.id)
+        self.write(self.other)
+        assert [entry.user_uuid for entry in self.rules.read().reviewers] == [self.other.user_uuid]
+        assert list(
+            SignalReviewerExclusionRevision.objects.for_team(self.team.id)
+            .filter(exclusion_id=exclusion_id)
+            .order_by("revision")
+            .values_list("revision", "action", "repository", "status", "actor_id")
+        ) == [
+            (1, "created", "", "active", self.member.id),
+            (2, "revised", "org/app", "active", self.user.id),
+            (3, "revoked", "org/app", "revoked", self.user.id),
+        ]
+
+    @parameterized.expand(
+        [
+            ("no_repository", {"repository": "org/app"}, "repo_selection", True),
+            ("no_repository_writer_disabled", {"repository": "org/app"}, "repo_selection", False),
+            ("no_paths", {"repository": "org/app", "path_prefix": "src"}, "signal_finding", True),
+            ("no_paths_writer_disabled", {"repository": "org/app", "path_prefix": "src"}, "signal_finding", False),
+        ]
+    )
+    def test_missing_area_state_keeps_the_current_selection(
+        self, _name: str, area: dict[str, str], missing: str, enabled: bool
+    ) -> None:
+        self.enabled = enabled
+        self.write(self.me)
+        SignalReportArtefact.objects.filter(report=self.report, type=missing).delete()
+        self.exclude(**area)
+        self.write(self.other)
+        assert [entry.user_uuid for entry in self.rules.read().reviewers] == [self.me.user_uuid]
+        assert [event for call in self.capture.call_args_list for event in call.kwargs["events"]] == [
+            ("unresolved", [])
+        ]
+
+    @parameterized.expand([("covered", True), ("repository_unknown", False)])
+    def test_report_pin_wins_and_needs_a_person(self, _name: str, area_known: bool) -> None:
+        SignalReportArtefact.append_status(
+            team_id=self.team.id,
+            report_id=str(self.report.id),
+            content=SuggestedReviewers(root=[self.other]),
+            attribution=ArtefactAttribution.from_user(self.user.id),
+            reviewer_edit=ReviewerEdit(action="add"),
+        )
+        if not area_known:
+            SignalReportArtefact.objects.filter(report=self.report, type="repo_selection").delete()
+        exclusion_id = self.exclude(repository="org/app")
+        self.write(self.me, self.other)
+        snapshot = self.rules.read()
+        assert [entry.user_uuid for entry in snapshot.reviewers] == (
+            [self.me.user_uuid, self.other.user_uuid] if area_known else [self.other.user_uuid]
+        )
+        assert snapshot.corrections.needs_review is area_known
+        assert [event for call in self.capture.call_args_list for event in call.kwargs["events"]] == [
+            ("pin_conflict", [exclusion_id]) if area_known else ("unresolved", [])
+        ]
+
+    def test_confirmed_list_is_kept_without_reading_instructions(self) -> None:
+        self.write(self.me)
+        SignalReportArtefact.append_status(
+            team_id=self.team.id,
+            report_id=str(self.report.id),
+            content=SuggestedReviewers(root=[]),
+            attribution=ArtefactAttribution.from_user(self.user.id),
+            reviewer_edit=ReviewerEdit(action="confirm", expected_state=self.rules.read().state),
+        )
+        self.exclude()
+        with CaptureQueriesContext(connection) as queries:
+            self.write(self.other)
+        assert [entry.user_uuid for entry in self.rules.read().reviewers] == [self.me.user_uuid]
+        assert not [query for query in queries.captured_queries if "signalreviewerexclusion" in query["sql"]]
+
+    def test_finding_paths_are_read_only_for_a_path_instruction_in_the_report_repository(self) -> None:
+        self.exclude(repository="org/other", path_prefix="src/billing")
+        self.exclude(repository="org/app")
+        with CaptureQueriesContext(connection) as queries:
+            StandingExclusions.load(team_id=self.team.id, report_id=str(self.report.id))
+        assert not [query for query in queries.captured_queries if "signal_finding" in query["sql"]]
+
+    def test_create_returns_the_active_twin_and_revise_rejects_one(self) -> None:
+        first = self.exclude(repository="org/app")
+        assert self.exclude(repository=" Org/App ") == first
+        after_github_connect, created = create_exclusion(
+            team_id=self.team.id,
+            actor_id=self.member.id,
+            instruction="I moved off this area.",
+            subject_user_uuid=self.member.uuid,
+            subject_github_login="Reviewer",
+            repository="org/app",
+        )
+        assert (str(after_github_connect.id), created) == (first, False)
+        second = self.exclude(repository="org/other")
+        with self.assertRaises(DuplicateExclusion):
+            revise_exclusion(team_id=self.team.id, exclusion_id=second, actor_id=self.user.id, repository="org/app")
+        # A concurrent amend can pass the twin check and still lose the unique index.
+        with (
+            patch(
+                "products.signals.backend.reviewer_exclusions._active_twins",
+                return_value=SignalReviewerExclusion.objects.none(),
+            ),
+            self.assertRaises(DuplicateExclusion),
+        ):
+            revise_exclusion(team_id=self.team.id, exclusion_id=second, actor_id=self.user.id, repository="org/app")
+        assert SignalReviewerExclusion.objects.for_team(self.team.id).get(id=second).repository == "org/other"
+
+    def test_a_moved_login_does_not_make_another_member_a_twin(self) -> None:
+        theirs, _ = create_exclusion(
+            team_id=self.team.id,
+            actor_id=self.member.id,
+            instruction="Off.",
+            subject_user_uuid=self.member.uuid,
+            subject_github_login="shared-login",
+        )
+        mine, created = create_exclusion(
+            team_id=self.team.id,
+            actor_id=self.user.id,
+            instruction="Off.",
+            subject_user_uuid=self.user.uuid,
+            subject_github_login="shared-login",
+        )
+        assert created
+        assert {theirs.subject_user_uuid, mine.subject_user_uuid} == {self.member.uuid, self.user.uuid}
+
+    def test_each_login_resolves_once_per_load(self) -> None:
+        UserSocialAuth.objects.create(user=self.member, provider="github", uid="1", extra_data={"login": "member"})
+        self.exclude()
+        standing = StandingExclusions.load(team_id=self.team.id, report_id=str(self.report.id))
+        with patch(
+            "products.signals.backend.reviewer_exclusions.resolve_org_github_login_to_users",
+            wraps=resolve_org_github_login_to_users,
+        ) as resolve:
+            assert standing.allowed_logins(["member", "someone"]) == ["someone"]
+            assert standing.allowed_logins(["Member"]) == []
+        assert resolve.call_count == 1
+
+    def test_active_twin_is_scoped_to_one_team(self) -> None:
+        self.exclude(repository="org/app")
+        self.exclude(repository="org/other")
+        other_team = Team.objects.create(organization=self.organization)
+        same_area, created = create_exclusion(
+            team_id=other_team.id,
+            actor_id=self.member.id,
+            instruction="I moved off this area.",
+            subject_user_uuid=self.member.uuid,
+            repository="org/app",
+        )
+        assert created
+        revised = revise_exclusion(
+            team_id=other_team.id, exclusion_id=same_area.id, actor_id=self.member.id, repository="org/other"
+        )
+        assert (revised.team_id, revised.repository) == (other_team.id, "org/other")
 
 
 class TestAssignmentReleaseControls(SimpleTestCase):

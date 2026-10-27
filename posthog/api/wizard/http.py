@@ -19,7 +19,7 @@ from rest_framework.response import Response
 from posthog.api.email_verification import email_verification_pending
 from posthog.auth import OAuthAccessTokenAuthentication, SessionAuthentication
 from posthog.exceptions_capture import capture_exception
-from posthog.llm.wizard_blocklist import WIZARD_BLOCKED_DETAIL, wizard_identity_blocked
+from posthog.llm.wizard_blocklist import WIZARD_BLOCKED_DETAIL
 from posthog.llm.wizard_gateway_token import (
     WizardGatewayMintError,
     WizardPosture,
@@ -248,17 +248,6 @@ class SetupWizardViewSet(viewsets.ViewSet):
             )
 
         distinct_id = str(user.distinct_id)
-        if wizard_identity_blocked(
-            distinct_id=distinct_id,
-            email=user.email,
-            user_uuid=str(user.uuid),
-            organization_ids=[str(team.organization_id)],
-            team_ids=[team.id],
-            surface="gateway_token",
-        ):
-            # Ahead of the rollout gate, so a ban reads as a ban whatever the flag says.
-            refuse("blocked", exceptions.PermissionDenied(WIZARD_BLOCKED_DETAIL), user=user)
-
         try:
             refused = security_access_refused(
                 SecuritySubject(
@@ -274,7 +263,6 @@ class SetupWizardViewSet(viewsets.ViewSet):
             logger.exception("security_access_check_site_failed", call_site="wizard_gateway_token")
             refused = False
         if refused:
-            # The flag's refusal, word for word, so a client cannot tell which blocklist matched.
             refuse("blocked", exceptions.PermissionDenied(WIZARD_BLOCKED_DETAIL), user=user)
 
         # Read once, after every gate that needs no flag, so an unauthenticated or
@@ -422,18 +410,6 @@ class SetupWizardViewSet(viewsets.ViewSet):
         user = cast(User, request.user)
         # The sandbox this starts mints its own gateway token. Refused before the
         # attempt is reserved, so a ban does not also cost a daily slot.
-        if wizard_identity_blocked(
-            distinct_id=str(user.distinct_id),
-            email=user.email,
-            user_uuid=str(user.uuid),
-            organization_ids=[str(project.organization_id)],
-            team_ids=[project.id],
-            surface="cloud_run",
-        ):
-            # No outcome label: `cloud_run` already counts every PermissionDenied as
-            # permission_denied.
-            raise exceptions.PermissionDenied(WIZARD_BLOCKED_DETAIL)
-
         try:
             refused = security_access_refused(
                 SecuritySubject(
@@ -449,6 +425,8 @@ class SetupWizardViewSet(viewsets.ViewSet):
             logger.exception("security_access_check_site_failed", call_site="wizard_cloud_run")
             refused = False
         if refused:
+            # No outcome label: `cloud_run` already counts every PermissionDenied as
+            # permission_denied.
             raise exceptions.PermissionDenied(WIZARD_BLOCKED_DETAIL)
 
         self._reserve_cloud_run_attempt(user.id)

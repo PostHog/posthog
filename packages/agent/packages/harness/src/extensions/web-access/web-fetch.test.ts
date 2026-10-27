@@ -221,7 +221,14 @@ describe("createWebFetchTool", () => {
     });
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
-    const tool = createWebFetchTool({ region: "us", apiKey: "pha_test" });
+    const tool = createWebFetchTool({
+      region: "us",
+      apiKey: "pha_test",
+      headers: {
+        "X-PostHog-Task-Run-Id": "run-1",
+        Authorization: "Bearer not-the-key",
+      },
+    });
     const result = await tool.execute(
       "call-1",
       { url: "https://example.com/other-page", prompt: "extract title" },
@@ -234,11 +241,13 @@ describe("createWebFetchTool", () => {
       type: "text",
       text: "Summary text",
     });
-    expect(
-      fetchMock.mock.calls.some(([url]) =>
-        String(url).includes("/v1/chat/completions"),
-      ),
-    ).toBe(true);
+    const summarizeCall = fetchMock.mock.calls.find(([url]) =>
+      String(url).includes("/v1/chat/completions"),
+    ) as unknown as [string, RequestInit] | undefined;
+    expect(summarizeCall?.[1].headers).toMatchObject({
+      Authorization: "Bearer pha_test",
+      "X-PostHog-Task-Run-Id": "run-1",
+    });
   });
 
   it("reports cross-host redirects instead of following them", async () => {

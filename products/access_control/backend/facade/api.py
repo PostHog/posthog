@@ -198,6 +198,15 @@ def team_has_property_access_rules(*, team_id: int) -> bool:
     return PropertyAccessControl.objects.filter(team_id=team_id, property_definition__isnull=False).exists()
 
 
+def person_property_names_with_access_rules(*, team_id: int) -> frozenset[str]:
+    """Person properties with any access rule on the team, for callers that share a result across users."""
+    return frozenset(
+        PropertyAccessControl.objects.filter(
+            team_id=team_id, property_definition__type=PropertyDefinition.Type.PERSON
+        ).values_list("property_definition__name", flat=True)
+    )
+
+
 def team_has_public_sharing_access_rules(*, team_id: int) -> bool:
     return (
         AccessControl.objects.filter(
@@ -610,13 +619,15 @@ def set_object_access_control(
     team = Team.objects.only("id", "organization_id").get(id=team_id)
     resource = _validate_object_access_control(organization_id=team.organization_id, input=input)
     if input.access_level is None:
-        AccessControl.objects.filter(
+        # Deleted one by one because a queryset delete writes no activity log row.
+        for rule in AccessControl.objects.filter(
             team_id=team_id,
             resource=resource,
             resource_id=input.resource_id,
             organization_member_id=input.organization_member_id,
             role_id=cast(UUID | str, input.role_id),
-        ).delete()
+        ):
+            rule.delete()
         return None
 
     rule, _created = AccessControl.objects.update_or_create(

@@ -4,6 +4,7 @@ import {
     type SignalReportApi,
     type ReportChartApi,
     type ReportMetricApi,
+    type ReportPlanApi,
     type ReportRankingApi,
     type ReportSourceSuggestionApi,
     type SignalReportPullRequestApi,
@@ -108,6 +109,8 @@ export interface SignalReport extends Pick<SignalReportApi, 'monitoring_started_
     suggested_prompts?: string[]
     /** A product the team doesn't use that would have given this report better evidence. Detail responses only. */
     source_suggestion?: ReportSourceSuggestionApi | null
+    /** The plan this report leads or is a step of, with every step in it. Detail responses only. */
+    plan?: ReportPlanApi | null
     /** Count of signals at the time the latest research run kicked off. */
     signals_at_run?: number
     /** Scout notes the work log dropped because they restate earlier ones. 0 when nothing was dropped. */
@@ -122,6 +125,10 @@ export interface SignalReport extends Pick<SignalReportApi, 'monitoring_started_
     source_products?: string[]
     /** skill_name slug of the authoring scout, when scout-authored (raw slug — prettify with `scoutDisplayName`). */
     scout_name?: string | null
+    /** Whether the report proposes an improvement to a scout. */
+    is_self_improvement_report?: boolean
+    /** Selected code repository, when the report has one. */
+    repo_slug?: string | null
     /** PR URL from the latest implementation task run, if available. */
     implementation_pr_url?: string | null
     /** Whether that implementation PR is merged, per the GitHub webhook. Status doesn't imply it: a
@@ -149,7 +156,7 @@ export interface SignalReport extends Pick<SignalReportApi, 'monitoring_started_
     billing_exempt_reason?: string | null
     /** Backend-owned refund eligibility: why a refund would be rejected right now, null when it would be accepted. */
     refund_ineligibility_reason?: string | null
-    /** The served ranking model's score. Null for users outside staff and the model sort flag, and for unscored reports. Raw scores and model metadata are staff only. */
+    /** The served ranking model's predictions. Its status says whether the report is scored, stale or unscored, or that the user cannot see the ranking model. */
     ranking?: ReportRankingApi | null
     /** Coarse sort key from the list response's ranker, for the Recommended sort only. Lower keys rank first. */
     inbox_merge_key?: number | null
@@ -161,6 +168,7 @@ export enum SignalReportStatus {
     IN_PROGRESS = 'in_progress',
     PENDING_INPUT = 'pending_input',
     READY = 'ready',
+    MONITORING = 'monitoring',
     RESOLVED = 'resolved',
     FAILED = 'failed',
     // Out-of-inbox terminal states (backend: SignalReport.Status). Excluded from every tab.

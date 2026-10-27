@@ -1,10 +1,11 @@
 import json
 import uuid
+import dataclasses
 from collections.abc import Mapping
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, cast
 
-from django.db.models import TextChoices
+from django.db.models import Prefetch, TextChoices
 from django.utils import timezone
 
 import structlog
@@ -16,6 +17,7 @@ from rest_framework.request import Request
 
 from posthog.api.fields import RepeatedOrCommaSeparatedListField
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
+from posthog.auth import is_mcp_request
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
@@ -56,6 +58,7 @@ from products.signals.backend.report_checks import (
 )
 from products.signals.backend.report_content_gates import team_report_monitoring_enabled
 from products.signals.backend.reviewer_rules import ReviewerRules
+from products.signals.backend.scout_harness.tools.report import is_self_improvement_title
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 from products.warehouse_sources.backend.facade.types import ExternalDataSchemaStatus
 
@@ -65,6 +68,7 @@ if TYPE_CHECKING:
 
     from products.signals.backend.implementation_pr import ImplementationPr
     from products.signals.backend.report_claims import ReportClaim
+    from products.signals.backend.report_plan import ReportPlan, ReportPlanStep
 
 from .artefact_schemas import (
     NON_WRITABLE_ARTEFACT_TYPES,
@@ -95,6 +99,7 @@ from .models import (
 )
 from .pull_request_label import DEFAULT_PULL_REQUEST_LABEL
 from .ranking.inbox_sort import inbox_merge_key
+from .ranking.public_outcomes import PUBLIC_OUTCOMES, RankingOutcome
 from .ranking.staleness import EDIT_ARTEFACT_TYPES, is_stale_score
 from .report_charts import CHART_SIZES, MAX_CHART_CAPTION_LENGTH, MAX_CHART_ID_LENGTH, MAX_CHART_TITLE_LENGTH
 from .report_generation.resolve_reviewers import enrich_reviewer_dicts_with_org_members, trusted_manual_reviewer_adders
@@ -698,6 +703,13 @@ class SignalReportClaimSerializer(serializers.Serializer):
     takeover = serializers.BooleanField(
         required=False, default=False, help_text="Explicitly end another actor's claim and take ownership."
     )
+    takeover_claim_id = serializers.UUIDField(
+        required=False,
+        help_text=(
+            "With takeover, the claim the caller expects to replace. The takeover is rejected when a different "
+            "claim is active, so a takeover based on a stale read cannot replace a newer claim."
+        ),
+    )
     pr_url = serializers.URLField(
         required=False,
         help_text="Compatibility alias for adding one PR. Prefer pull_requests for new callers.",
@@ -713,6 +725,8 @@ class SignalReportClaimSerializer(serializers.Serializer):
             raise serializers.ValidationError("Release cannot be combined with PR attachment or takeover.")
         if attrs.get("claim_id") and attrs.get("takeover"):
             raise serializers.ValidationError("A claim ID cannot be combined with takeover.")
+        if attrs.get("takeover_claim_id") and not attrs.get("takeover"):
+            raise serializers.ValidationError("takeover_claim_id requires takeover.")
         return attrs
 
 
@@ -1203,44 +1217,122 @@ class ReportSourceSuggestionSerializer(serializers.Serializer):
     )
 
 
-class ReportRankingSerializer(serializers.Serializer):
-    served_key = serializers.CharField(
+class RankingStatus(TextChoices):
+    SCORED = "scored", "scored"
+    STALE = "stale", "stale"
+    UNSCORED = "unscored", "unscored"
+    NOT_AVAILABLE = "not_available", "not_available"
+
+
+class RankingOutcomesStatus(TextChoices):
+    SCORED = "scored", "scored"
+    UNSCORED = "unscored", "unscored"
+    NOT_AVAILABLE = "not_available", "not_available"
+
+
+class ReportRankingPredictionSerializer(serializers.Serializer):
+    outcome = serializers.ChoiceField(
+        choices=RankingOutcome.choices,
+        help_text="Outcome the model predicts. Read inbox-ranking-outcomes-list for what each outcome means.",
+    )
+    probability = serializers.FloatField(
+        help_text="The model's calibrated probability that the outcome happens within the outcome's horizon."
+    )
+    lift = serializers.FloatField(
+        allow_null=True,
         help_text=(
-            "Key of the served model in the scoring pass, as `<model_name>@<model_version>`. Empty for non-staff users."
+            "The probability divided by the outcome's base rate. 1.0 is an average report, 2.7 means 2.7x as "
+            "likely as the average report. Compare lifts across outcomes, not raw probabilities. Null when the "
+            "model has no saved base rate for the outcome."
+        ),
+    )
+    readable = serializers.BooleanField(
+        help_text=(
+            "True when the training run could read the outcome's holdout AUC. Treat other outcomes with caution."
         )
     )
-    model_name = serializers.CharField(help_text="Feature family of the served model. Empty for non-staff users.")
-    model_version = serializers.CharField(
-        help_text="Training partition of the served model, as `YYYY-MM-DD`. Empty for non-staff users."
-    )
-    manifest_version = serializers.CharField(
-        help_text="Version of the serving manifest that chose the model. Empty for non-staff users."
-    )
-    scored_at = serializers.DateTimeField(help_text="When the scoring sweep scored the report.")
-    scores = serializers.DictField(
-        child=serializers.FloatField(),
+
+
+class ReportRankingSerializer(serializers.Serializer):
+    status = serializers.ChoiceField(
+        choices=RankingStatus.choices,
         help_text=(
-            "Outcome head name to its calibrated probability. Empty when the served model skipped the report, "
-            "and always empty for non-staff users."
+            "scored: the predictions describe the current text. stale: the title or summary changed after the text "
+            "the model read, so the predictions describe the old text and the model sorts and filters treat the report as "
+            "unscored. unscored: the model has not scored the report yet, or skipped it. This does not mean a low "
+            "score. not_available: you cannot see the ranking model's output, so every other field is empty."
         ),
     )
-    lifts = serializers.DictField(
-        child=serializers.FloatField(),
+    model = serializers.CharField(
+        allow_null=True,
         help_text=(
-            "Outcome head name to its probability divided by the head's training base rate, e.g. 2.7 means "
-            "2.7x as likely as the average report. A head without a saved base rate has no entry."
+            "Key of the served model that wrote the score, as `<model_name>@<model_version>`. "
+            "Do not compare predictions from different keys."
         ),
     )
-    readable_heads = serializers.ListField(
-        child=serializers.CharField(),
-        help_text="Heads whose holdout AUC the training run could read. Treat scores of other heads with caution.",
-    )
-    stale = serializers.BooleanField(
+    scored_at = serializers.DateTimeField(allow_null=True, help_text="When the scoring sweep scored the report.")
+    predictions = ReportRankingPredictionSerializer(
+        many=True,
         help_text=(
-            "True when the report's title or summary was edited after the text this score read. The score "
-            "describes the old text: the inbox hides its lift and the model sort treats the report as unscored."
+            "The served model's predictions, one per public outcome that it scored. A prediction says what may "
+            "happen, never what did: the report's status and its PR fields say whether it was resolved."
         ),
     )
+
+
+class RankingOutcomeInfoSerializer(serializers.Serializer):
+    outcome = serializers.ChoiceField(
+        choices=RankingOutcome.choices, help_text="Name of the outcome in the `ranking` field's predictions."
+    )
+    label = serializers.CharField(  # type: ignore[assignment]  # field name intentionally shadows Field.label
+        help_text="Short label the inbox shows for the outcome."
+    )
+    description = serializers.CharField(help_text="What the outcome predicts, in one sentence.")
+    horizon_days = serializers.IntegerField(
+        allow_null=True,
+        help_text="Days after scoring within which the outcome counts. Null when the served model did not save it.",
+    )
+    cohort = serializers.CharField(
+        allow_null=True,
+        help_text="Name of the report set the outcome was trained on. Null when the served model did not save it.",
+    )
+    base_rate = serializers.FloatField(
+        allow_null=True,
+        help_text=(
+            "The outcome's base rate: a report's lift is its probability divided by this value. "
+            "Null when the served model has no saved base rate for the outcome."
+        ),
+    )
+    readable = serializers.BooleanField(
+        help_text=(
+            "True when the training run could read the outcome's holdout AUC. Treat other outcomes with caution."
+        )
+    )
+
+
+class RankingOutcomesResponseSerializer(serializers.Serializer):
+    status = serializers.ChoiceField(
+        choices=RankingOutcomesStatus.choices,
+        help_text=(
+            "scored: the served model has scored reports in this project. unscored: no readable score yet. "
+            "not_available: you cannot see the ranking model's output."
+        ),
+    )
+    model = serializers.CharField(
+        allow_null=True,
+        help_text="Key of the served model, as `<model_name>@<model_version>`, from the project's latest score.",
+    )
+    outcomes = RankingOutcomeInfoSerializer(many=True, help_text="One entry per public outcome, in the inbox order.")
+
+
+def _ranking_payload(
+    status: RankingStatus,
+    *,
+    model: str | None = None,
+    scored_at: datetime | None = None,
+    predictions: list[dict] | None = None,
+) -> dict:
+    return {"status": status.value, "model": model, "scored_at": scored_at, "predictions": predictions or []}
 
 
 class SignalReportPriorityUpdateSerializer(serializers.Serializer):
@@ -1266,8 +1358,11 @@ class ReviewerProposalSerializer(serializers.Serializer):
     )
     reviewer_outcome = serializers.ChoiceField(
         choices=ReviewerSelectionOutcome.choices,
-        default="selected",
-        help_text="A successful selection, a deliberate empty result, or an unavailable lookup.",
+        required=False,
+        help_text=(
+            "A successful selection, a deliberate empty result, or an unavailable lookup. "
+            "Defaults to selected when omitted."
+        ),
     )
     reviewer_retry_reason = serializers.CharField(
         required=False, max_length=500, help_text="Reason the reviewer lookup failed."
@@ -1298,6 +1393,55 @@ class ReviewerControlResponseSerializer(serializers.Serializer):
             "needs_review": snapshot.corrections.needs_review,
             "enabled": instance.enabled or snapshot.state.corrections_id is not None,
         }
+
+
+class ReportPlanStepSerializer(serializers.Serializer):
+    id = serializers.UUIDField(read_only=True, help_text="The step's report id.")
+    title = serializers.CharField(read_only=True, allow_null=True, help_text="The step's report title.")
+    status = serializers.ChoiceField(
+        read_only=True,
+        choices=SignalReport.Status.choices,
+        help_text="The step's report status. Monitoring reads as resolved when its rollout is disabled.",
+    )
+    depends_on = serializers.ListField(
+        child=serializers.UUIDField(),
+        read_only=True,
+        help_text="Ids of the other steps in this plan that this step builds on. Empty when it builds on none.",
+    )
+    implementation_pr_url = serializers.CharField(
+        read_only=True, allow_null=True, help_text="The step's implementation pull request, if one is attached."
+    )
+    implementation_pr_state = serializers.ChoiceField(
+        read_only=True,
+        choices=SignalReportAssignment.PrState.choices,
+        allow_null=True,
+        help_text="Latest known state of that pull request: unknown, draft, open, closed, or merged.",
+    )
+    suppression_source = serializers.SerializerMethodField(
+        help_text="Who or what suppressed the step, with the same values as the report's `suppression_source`. Null unless the step is suppressed.",
+    )
+
+    @extend_schema_field(serializers.ChoiceField(choices=SignalReportSuppressionSource.choices, allow_null=True))
+    def get_suppression_source(self, step: "ReportPlanStep") -> str | None:
+        return self.context.get("step_suppression_sources", {}).get(step.id)
+
+
+class ReportPlanSerializer(serializers.Serializer):
+    id = serializers.UUIDField(
+        read_only=True,
+        help_text="The plan's report id. Equals the report's own id when the report is the plan.",
+    )
+    title = serializers.CharField(read_only=True, allow_null=True, help_text="The plan's report title.")
+    status = serializers.ChoiceField(
+        read_only=True,
+        choices=SignalReport.Status.choices,
+        help_text="The plan's report status. Monitoring reads as resolved when its rollout is disabled.",
+    )
+    steps = ReportPlanStepSerializer(
+        many=True,
+        read_only=True,
+        help_text="The reports linked to the plan with `part_of`, in the order they were linked. Deleted steps are left out.",
+    )
 
 
 class SignalReportSerializerExtension(OpenApiSerializerExtension):
@@ -1360,6 +1504,14 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "above the `Ask AI` box; clicking one fills the box with it."
         ),
     )
+    tags = serializers.ListField(
+        child=serializers.CharField(),
+        read_only=True,
+        help_text=(
+            "Free-form lowercase kebab-case slug tags for grouping and filtering reports, at most 10. "
+            "Empty when the report has no tags."
+        ),
+    )
     refund_ineligibility_reason = serializers.SerializerMethodField(
         help_text=(
             "Why refunding this report's PR would be rejected right now, or null when a refund "
@@ -1411,6 +1563,12 @@ class SignalReportSerializer(serializers.ModelSerializer):
         help_text=(
             "`organization/repository` the report's work targets, from the latest repo-selection "
             "artefact (when present). Lets list cards show repository context without a per-card fetch."
+        ),
+    )
+    is_self_improvement_report = serializers.SerializerMethodField(
+        help_text=(
+            "Whether this is a scout self-improvement report. Most update a team-owned skill in the skills "
+            "store, but reports with a selected repository can still produce a pull request."
         ),
     )
     is_suggested_reviewer = serializers.BooleanField(read_only=True, default=False)
@@ -1473,8 +1631,8 @@ class SignalReportSerializer(serializers.ModelSerializer):
     )
     ranking = serializers.SerializerMethodField(
         help_text=(
-            "The served model's score from the latest ranking score artefact. Null for users who are neither "
-            "staff nor in the inbox model sort rollout, and null when the report has no score."
+            "The served ranking model's predictions from the latest ranking score artefact. Its status says "
+            "whether the report is scored, stale or unscored, or that the user cannot see the ranking model."
         ),
     )
     source_suggestion = serializers.SerializerMethodField(
@@ -1489,6 +1647,13 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "How many scout notes this report received beyond the few its work log keeps as entries. "
             "0 when nothing was dropped. These say the finding still holds, so the count is shown in "
             "place of the entries."
+        ),
+    )
+    plan = serializers.SerializerMethodField(
+        help_text=(
+            "The plan this report leads or is a step of, with every step in it. A report that other reports "
+            "link to with `part_of` is a plan. Null when the report is in no plan, and always null in list "
+            "responses, because finding a plan's steps costs several queries per report."
         ),
     )
 
@@ -1512,6 +1677,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "charts",
             "metrics",
             "suggested_prompts",
+            "tags",
             "source_suggestion",
             "priority",
             "actionability",
@@ -1521,6 +1687,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "suppression_source",
             "suppression_explanation",
             "repo_slug",
+            "is_self_improvement_report",
             "is_suggested_reviewer",
             "source_products",
             "scout_name",
@@ -1538,6 +1705,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "billing_exempt_reason",
             "channel_id",
             "ranking",
+            "plan",
         ]
         read_only_fields = fields
         extra_kwargs = {
@@ -1562,11 +1730,52 @@ class SignalReportSerializer(serializers.ModelSerializer):
             representation.pop("monitoring_started_at", None)
         return representation
 
+    def _display_status(self, obj: SignalReport, status: str) -> str:
+        if status == SignalReport.Status.MONITORING and not self._monitoring_enabled(obj):
+            return SignalReport.Status.RESOLVED
+        return status
+
     @extend_schema_field(serializers.ChoiceField(choices=SignalReport.Status.choices))
     def get_status(self, obj: SignalReport) -> str:
-        if obj.status == SignalReport.Status.MONITORING and not self._monitoring_enabled(obj):
-            return SignalReport.Status.RESOLVED
-        return obj.status
+        return self._display_status(obj, obj.status)
+
+    @extend_schema_field(ReportPlanSerializer(allow_null=True))
+    def get_plan(self, obj: SignalReport) -> dict | None:
+        plans_map: dict[str, ReportPlan | None] = self.context.get("report_plans_map", {})
+        plan = plans_map.get(str(obj.id))
+        if plan is None:
+            return None
+        plan = dataclasses.replace(
+            plan,
+            status=self._display_status(obj, plan.status),
+            steps=tuple(
+                dataclasses.replace(step, status=self._display_status(obj, step.status)) for step in plan.steps
+            ),
+        )
+        suppressed_step_ids = [step.id for step in plan.steps if step.status == SignalReport.Status.SUPPRESSED]
+        step_suppression_sources = {
+            str(step_report.id): suppression[0].value
+            for step_report in SignalReport.objects.filter(
+                team_id=obj.team_id, id__in=suppressed_step_ids
+            ).prefetch_related(*self._suppression_prefetches())
+            if (suppression := self._suppression(step_report)) is not None
+        }
+        return dict(ReportPlanSerializer(plan, context={"step_suppression_sources": step_suppression_sources}).data)
+
+    @staticmethod
+    def _suppression_prefetches() -> list[Prefetch]:
+        return [
+            Prefetch(
+                "artefacts",
+                queryset=SignalReportArtefact.objects.filter(type=artefact_type).order_by("-created_at"),
+                to_attr=to_attr,
+            )
+            for artefact_type, to_attr in (
+                (SignalReportArtefact.ArtefactType.DISMISSAL, "prefetched_dismissal_artefacts"),
+                (SignalReportArtefact.ArtefactType.SAFETY_JUDGMENT, "prefetched_safety_artefacts"),
+                (SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT, "prefetched_actionability_artefacts"),
+            )
+        ]
 
     def _get_actionability_artefact_data(self, obj: SignalReport) -> dict | None:
         prefetched = getattr(obj, "prefetched_actionability_artefacts", None)
@@ -1588,6 +1797,9 @@ class SignalReportSerializer(serializers.ModelSerializer):
 
     def get_summary_lead(self, obj: SignalReport) -> str:
         return summary_lead(obj.summary, SUMMARY_LEAD_LIMIT)
+
+    def get_is_self_improvement_report(self, obj: SignalReport) -> bool:
+        return is_self_improvement_title(obj.title)
 
     def get_priority(self, obj: SignalReport) -> str | None:
         prefetched = getattr(obj, "prefetched_priority_artefacts", None)
@@ -1723,14 +1935,12 @@ class SignalReportSerializer(serializers.ModelSerializer):
         value = data.get("repository")
         return value if isinstance(value, str) and value else None
 
-    @extend_schema_field(ReportRankingSerializer(allow_null=True))
-    def get_ranking(self, obj: SignalReport) -> dict | None:
+    @extend_schema_field(ReportRankingSerializer)
+    def get_ranking(self, obj: SignalReport) -> dict:
         request = self.context.get("request")
-        if request is None:
-            return None
         can_view = self.context.get("can_view_inbox_ranking")
-        if not (can_view() if can_view is not None else request.user.is_staff):
-            return None
+        if request is None or not (can_view() if can_view is not None else request.user.is_staff):
+            return _ranking_payload(RankingStatus.NOT_AVAILABLE)
 
         from products.signals.backend.ranking.model_contract import (  # noqa: PLC0415 — keeps numpy and pandas off the API import path
             head_lifts,
@@ -1747,7 +1957,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
                 .first()
             )
         if art is None:
-            return None
+            return _ranking_payload(RankingStatus.UNSCORED)
         prefetched_edits = getattr(obj, "prefetched_latest_edit_artefacts", None)
         if prefetched_edits is not None:
             latest_edit_at = prefetched_edits[0].created_at if prefetched_edits else None
@@ -1761,27 +1971,43 @@ class SignalReportSerializer(serializers.ModelSerializer):
         try:
             score = RankingScore.model_validate_json(art.content)
             served = score.results[score.served_key]
-            heads = readable_head_names(served.metadata)
-            if not all(isinstance(head, str) and head for head in heads):
-                raise ValueError("readable head names must be non-empty strings")
-            readable_heads = sorted(heads)
+        except (ValueError, KeyError):
+            logger.warning("signals.ranking_score.invalid_content", report_id=str(obj.id), artefact_id=str(art.id))
+            return _ranking_payload(RankingStatus.UNSCORED)
+        # The ranking filters read the score alone, so bad readability or threshold metadata must not hide it here.
+        try:
+            readable_heads = readable_head_names(served.metadata)
+        except (KeyError, TypeError, AttributeError):
+            readable_heads = frozenset()
+        try:
             # A score written before lifts were stored carries the metadata to compute them.
             lifts = served.lifts or head_lifts(served.scores, served.metadata)
         except (ValueError, KeyError, TypeError, AttributeError):
-            logger.warning("signals.ranking_score.invalid_content", report_id=str(obj.id), artefact_id=str(art.id))
-            return None
-        is_staff = request.user.is_staff
-        return {
-            "served_key": score.served_key if is_staff else "",
-            "model_name": served.model_name if is_staff else "",
-            "model_version": served.model_version if is_staff else "",
-            "manifest_version": score.manifest_version if is_staff else "",
-            "scored_at": score.scored_at,
-            "scores": served.scores if is_staff else {},
-            "lifts": lifts,
-            "readable_heads": readable_heads,
-            "stale": is_stale_score(score, latest_edit_at),
-        }
+            lifts = {}
+        # Agents get rounded values because extra digits suggest precision the model does not have.
+        for_agent = is_mcp_request(request)
+        predictions = []
+        for entry in PUBLIC_OUTCOMES:
+            probability = served.scores.get(entry.model_head)
+            if probability is None:
+                continue
+            lift = lifts.get(entry.model_head)
+            predictions.append(
+                {
+                    "outcome": entry.outcome,
+                    "probability": round(probability, 2) if for_agent else probability,
+                    "lift": round(lift, 1) if for_agent and lift is not None else lift,
+                    "readable": entry.model_head in readable_heads,
+                }
+            )
+        if not predictions:
+            return _ranking_payload(RankingStatus.UNSCORED)
+        return _ranking_payload(
+            RankingStatus.STALE if is_stale_score(score, latest_edit_at) else RankingStatus.SCORED,
+            model=score.served_key,
+            scored_at=score.scored_at,
+            predictions=predictions,
+        )
 
     def get_source_products(self, obj: SignalReport) -> list[str]:
         source_products_map: dict[str, list[str]] | None = self.context.get("source_products_map")
@@ -1955,7 +2181,7 @@ class SignalReportListSerializer(SignalReportSerializer):
     inbox_merge_key = serializers.SerializerMethodField(
         help_text=(
             "Coarse sort key from the ranker named by the list response's ranker field, for sort=recommended "
-            "only. Lower keys rank first. It is the score decile of the ranker's head (open, action or fixed), "
+            "only. Lower keys rank first. It is the score decile of the ranker's outcome (open, action or fix), "
             "then the priority as a tiebreak. The priority ranker uses the priority only. "
             "Reports without a usable score sort after scored ones. Null for every other sort."
         ),
@@ -3189,19 +3415,37 @@ class SignalReportTaskActionListResponseSerializer(serializers.Serializer):
 class SignalReportTaskActionRunRequestSerializer(serializers.Serializer):
     action = serializers.ChoiceField(
         choices=ReportTaskActionKind.choices,
-        help_text="The action to run. Use a value from the actions list.",
+        help_text="The action to run. Use a value from the actions list, or `ask` to send your own `message`.",
     )
     suggested_prompt_index = serializers.IntegerField(
         required=False,
         min_value=0,
         help_text="Required for `suggested_prompt`: the `suggested_prompt_index` from the actions list.",
     )
+    message = serializers.CharField(
+        required=False,
+        max_length=2000,
+        help_text=(
+            "Your own request for the run. Required for `ask`, where it is the question or the work you want "
+            "done on the report. Optional for `get_it_merged` and `make_it_green`, where it replaces the "
+            "action's fixed request and keeps its instructions and gates: pass it when you know something "
+            "the report does not, such as a merge order, a failure that is already on the base branch, or "
+            "an expected conflict. Not accepted for `suggested_prompt`."
+        ),
+    )
 
     def validate(self, attrs: dict) -> dict:
-        if attrs["action"] == ReportTaskActionKind.SUGGESTED_PROMPT and attrs.get("suggested_prompt_index") is None:
+        action = attrs["action"]
+        if action == ReportTaskActionKind.SUGGESTED_PROMPT and attrs.get("suggested_prompt_index") is None:
             raise serializers.ValidationError(
                 {"suggested_prompt_index": "Give the index of the suggested prompt to send."}
             )
+        if action == ReportTaskActionKind.SUGGESTED_PROMPT and attrs.get("message"):
+            raise serializers.ValidationError(
+                {"message": "A suggested prompt sends its own text. Use `ask` to send your own message."}
+            )
+        if action == ReportTaskActionKind.ASK and not attrs.get("message"):
+            raise serializers.ValidationError({"message": "Give the message to send with `ask`."})
         return attrs
 
 

@@ -17,10 +17,12 @@ StatsMethod = Literal["bayesian", "frequentist"]
 
 _INTERVAL_KEYS = ("credible_interval", "confidence_interval")
 
-_BASELINE_FIELDS = frozenset(ExperimentStatsBaseValidated.model_fields)
+# A funnel's stored stats carry sample sessions per step, which can be large, and no reader of a stored row needs them.
+_UNREAD_FIELDS = frozenset({"step_sessions"})
+_BASELINE_FIELDS = frozenset(ExperimentStatsBaseValidated.model_fields) - _UNREAD_FIELDS
 _VARIANT_FIELDS_BY_METHOD = {
-    "bayesian": frozenset(ExperimentVariantResultBayesian.model_fields),
-    "frequentist": frozenset(ExperimentVariantResultFrequentist.model_fields),
+    "bayesian": frozenset(ExperimentVariantResultBayesian.model_fields) - _UNREAD_FIELDS,
+    "frequentist": frozenset(ExperimentVariantResultFrequentist.model_fields) - _UNREAD_FIELDS,
 }
 
 
@@ -60,10 +62,37 @@ def _without_non_finite_intervals(variant: object) -> object:
     }
 
 
+def parse_stored_response(raw: object) -> ExperimentQueryResponse | None:
+    """The baseline and variant results of a stored result row, or None when the row does not parse."""
+    if not isinstance(raw, Mapping):
+        return None
+    # A stored row is a full response dump in the schema of its write time. It can carry keys that the
+    # current schema forbids: the cache fields of a cached response at the top level, and fields that a
+    # later schema renamed or removed inside the baseline and the variants. The models reject unknown
+    # keys, so keep only the keys that they declare. Schema drift then does not discard the row.
+    baseline = _declared_fields_only(raw.get("baseline"), _BASELINE_FIELDS)
+    variant_results = raw.get("variant_results")
+    if isinstance(variant_results, list):
+        # sanitize_non_finite stores an overflowed interval bound as null, which the schema rejects.
+        # Drop such an interval so that the counts and means of the day still render.
+        variant_results = [
+            _without_non_finite_intervals(_declared_variant_fields_only(variant)) for variant in variant_results
+        ]
+    try:
+        return ExperimentQueryResponse.model_validate({"baseline": baseline, "variant_results": variant_results})
+    except ValidationError:
+        return None
+
+
 @frozen
 class Interval:
     low: float
     high: float
+
+    @property
+    def midpoint(self) -> float:
+        # The results page shows this as the variant's difference (`getDelta` in MetricsView/shared/utils.ts).
+        return (self.low + self.high) / 2
 
 
 @frozen
@@ -132,27 +161,8 @@ class MetricResultStats:
     @classmethod
     def from_stored(cls, raw: object) -> Self | None:
         """Return None instead of raising when the row does not parse or has no baseline."""
-        if not isinstance(raw, Mapping):
-            return None
-        # A stored row is a full response dump in the schema of its write time. It can carry keys that the
-        # current schema forbids: the cache fields of a cached response at the top level, and fields that a
-        # later schema renamed or removed inside the baseline and the variants. The models reject unknown
-        # keys, so keep only the keys that they declare. Schema drift then does not discard the row.
-        baseline = _declared_fields_only(raw.get("baseline"), _BASELINE_FIELDS)
-        variant_results = raw.get("variant_results")
-        if isinstance(variant_results, list):
-            # sanitize_non_finite stores an overflowed interval bound as null, which the schema rejects.
-            # Drop such an interval so that the counts and means of the day still render.
-            variant_results = [
-                _without_non_finite_intervals(_declared_variant_fields_only(variant)) for variant in variant_results
-            ]
-        try:
-            response = ExperimentQueryResponse.model_validate(
-                {"baseline": baseline, "variant_results": variant_results}
-            )
-        except ValidationError:
-            return None
-        return cls.from_response(response)
+        response = parse_stored_response(raw)
+        return cls.from_response(response) if response is not None else None
 
     def variant(self, key: str) -> VariantStats | None:
         return next((variant for variant in self.variants if variant.key == key), None)

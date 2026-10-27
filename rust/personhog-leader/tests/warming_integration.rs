@@ -1064,7 +1064,8 @@ async fn a_restart_warms_the_old_generations_congruent_tail_for_its_keys() {
     use personhog_coordination::changelog::KeyFilter;
     use personhog_leader::cache::Stream;
 
-    let (new_topic, producer) = common::create_test_kafka_with_partitions(4).await;
+    let new_topic = common::create_test_kafka_with_partitions(4).await;
+    let producer = common::create_local_kafka_producer().await;
     let old_topic = common::owned_broker_topic(2).await;
     let bootstrap = new_topic.bootstrap_servers();
 
@@ -1185,7 +1186,8 @@ async fn an_applied_old_record_never_shadows_a_newer_applied_live_one() {
     use personhog_common::partitioning::partition_for_person;
     use personhog_coordination::changelog::KeyFilter;
 
-    let (new_topic, producer) = common::create_test_kafka_with_partitions(2).await;
+    let new_topic = common::create_test_kafka_with_partitions(2).await;
+    let producer = common::create_local_kafka_producer().await;
     let old_topic = common::owned_broker_topic(2).await;
     let bootstrap = new_topic.bootstrap_servers();
 

@@ -84,7 +84,7 @@ from products.signals.backend.typed_report_links import (
     outgoing_links,
 )
 from products.tasks.backend.facade import api as tasks_facade
-from products.tasks.backend.facade.agents import CustomPromptSandboxContext
+from products.tasks.backend.facade.agents import CustomPromptSandboxContext, SandboxRunFailed
 
 logger = structlog.get_logger(__name__)
 
@@ -782,6 +782,7 @@ async def _persist_agentic_report_artefacts(
     repo_selection_as_of: datetime | None = None,
     priority_judgment_id: UUID | None = None,
     reviewer_proposal: ReviewerProposal | None = None,
+    reviewer_selection_enabled: bool = False,
 ) -> None:
     reviewer_resolution = None
     reviewers_content: list[ReviewerContent] = []
@@ -804,7 +805,9 @@ async def _persist_agentic_report_artefacts(
                 research_outcome = "research_selected"
             else:
                 research_outcome = "research_candidates_rejected"
-    if decision is None or research_outcome == "research_candidates_rejected":
+    elif reviewer_selection_enabled:
+        research_outcome = "research_decision_missing"
+    if not reviewer_selection_enabled and (decision is None or research_outcome == "research_candidates_rejected"):
         try:
             reviewer_resolution = await database_sync_to_async(_build_reviewers_content, thread_sensitive=False)(
                 team_id=team_id,
@@ -823,6 +826,19 @@ async def _persist_agentic_report_artefacts(
                 diagnostics.outcome in {"no_github_integration", "github_rate_limited"} or diagnostics.lookups_missing
             ):
                 research_outcome = "research_lookup_failed"
+
+    failure_reason = {
+        "research_decision_missing": "Research did not return a valid reviewer decision",
+        "research_candidates_rejected": "No selected reviewer is an eligible project member",
+        "research_lookup_failed": "Reviewer lookup unavailable",
+    }.get(research_outcome or "")
+    if failure_reason:
+        logger.warning(
+            "signals.assignment.research_selection_failed",
+            team_id=team_id,
+            report_id=report_id,
+            outcome=research_outcome,
+        )
 
     # Persist only what's new this run; values the agent confirmed unchanged keep their latest
     # persisted row. An explicit reviewer decision can change even when the findings do not.
@@ -898,7 +914,7 @@ async def _persist_agentic_report_artefacts(
     )(team_id):
         outcome = (
             "lookup_failed"
-            if research_outcome == "research_lookup_failed"
+            if failure_reason and not reviewers_content
             else "selected"
             if reviewers_content
             else "no_suitable_owner"
@@ -906,7 +922,7 @@ async def _persist_agentic_report_artefacts(
         reviewer_proposal = reviewer_proposal.model_copy(
             update={
                 "outcome": outcome,
-                "retry_reason": "Reviewer lookup unavailable" if outcome == "lookup_failed" else None,
+                "retry_reason": failure_reason if outcome == "lookup_failed" else None,
             }
         )
         if not any(isinstance(draft.content, SuggestedReviewers) for draft in artefacts):
@@ -1081,6 +1097,9 @@ def _capture_research_steering_attached(*, team_id: int, report_id: str, steerin
         logger.exception("Failed to capture signals_research_steering_attached", report_id=report_id)
 
 
+RESEARCH_SANDBOX_UNAVAILABLE_ERROR_TYPE = "ResearchSandboxUnavailable"
+
+
 @temporalio.activity.defn
 @scoped_temporal()
 @close_db_connections
@@ -1213,6 +1232,7 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
                 repo_selection_as_of=input.repo_selection_as_of,
                 priority_judgment_id=priority_judgment_id,
                 reviewer_proposal=reviewer_proposal,
+                reviewer_selection_enabled=reviewer_selection_enabled,
             )
         actionability = result.effective_actionability()
         priority = result.effective_priority()
@@ -1254,6 +1274,19 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
             research_task_id=result.research_task_id,
             charts_enabled=True,
         )
+    except SandboxRunFailed as error:
+        logger.exception(
+            "signals agentic report failed",
+            report_id=input.report_id,
+            team_id=input.team_id,
+            error=str(error),
+            sandbox_error_type=error.error_type,
+        )
+        if error.transient:
+            raise temporalio.exceptions.ApplicationError(
+                str(error), type=RESEARCH_SANDBOX_UNAVAILABLE_ERROR_TYPE
+            ) from error
+        raise
     except Exception as error:
         logger.exception(
             "signals agentic report failed",

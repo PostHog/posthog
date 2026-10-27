@@ -266,8 +266,8 @@ export function SearchPerformanceTab({
                                 {breakdown === 'search_term' &&
                                     'Paid rows combine the search terms from Search and Performance Max campaigns. Google Ads can omit low-volume search terms. '}
                                 Reported conversions use the ad platform's attribution. Google Search Console does not
-                                report spend or conversions, and can omit low-volume queries. Organic positions are
-                                weighted by impressions. Hover over a change to see its comparison value.
+                                report spend or conversions, and can omit queries. Organic positions are weighted by
+                                impressions. Hover over a change to see its comparison value.
                             </p>
                         </>
                     )}

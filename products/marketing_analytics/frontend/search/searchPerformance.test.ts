@@ -63,11 +63,7 @@ describe('search performance sources', () => {
         [
             'GoogleSearchConsole',
             [schema('search_analytics_by_query', false), schema('search_analytics_by_query_page')],
-            {
-                sourceType: 'GoogleSearchConsole',
-                statsTable: 'example.search_analytics_by_query_page',
-                queryPageTable: true,
-            },
+            null,
         ],
         ['GoogleSearchConsole', [schema('search_analytics_by_query_page', true, false)], null],
     ])('requires synced keyword tables for %s', (source_type, schemas, expected) => {
@@ -99,6 +95,8 @@ describe('search performance sources', () => {
             'example.search_analytics_by_query_page',
         ],
         ['GoogleSearchConsole', ['search_analytics_by_query'], 'keyword', true, undefined],
+        ['GoogleSearchConsole', ['search_analytics_by_query_page'], 'keyword', false, undefined],
+        ['GoogleSearchConsole', ['search_analytics_by_query_page'], 'page', false, undefined],
     ] as const)('uses the right table for %s %s %s details=%s', (source_type, schemas, breakdown, detail, expected) => {
         expect(
             searchPerformanceSource(
@@ -252,29 +250,30 @@ describe('search performance sources', () => {
         expect(notice?.message ?? null).toEqual(message)
     })
 
-    it.each(['keyword', 'page'] as const)('uses fresh query-page data instead of a stale %s aggregate', (breakdown) => {
-        const source = {
-            source_type: 'GoogleSearchConsole',
-            schemas: [
-                { ...schema('search_analytics_by_query'), last_synced_at: dayjs('2025-02-10T12:00:00Z') },
-                { ...schema('search_analytics_by_page'), last_synced_at: dayjs('2025-02-10T12:00:00Z') },
-                schema('search_analytics_by_query_page'),
-            ],
-        } as ExternalDataSource
-        expect(searchPerformanceSource(source, breakdown)).toEqual({
-            sourceType: 'GoogleSearchConsole',
-            statsTable: 'example.search_analytics_by_query_page',
-            queryPageTable: true,
-        })
-        expect(searchPerformanceSourceNotice(source, breakdown)?.message).toContain(
-            'Showing query-and-page data instead'
-        )
-        expect(searchPerformanceSourceNotice(source, breakdown)?.message).toContain('Totals may differ')
-        source.schemas[2].last_synced_at = dayjs('2025-02-10T12:00:00Z')
-        expect(searchPerformanceSource(source, breakdown)).toBeNull()
-        expect(searchPerformanceSource(source, breakdown, true)).toBeNull()
-        expect(searchPerformanceSourceNotice(source, breakdown, true)?.message).toContain('out of date')
-    })
+    it.each(['keyword', 'page'] as const)(
+        'keeps %s metrics unavailable when its dedicated table is stale',
+        (breakdown) => {
+            const source = {
+                source_type: 'GoogleSearchConsole',
+                schemas: [
+                    { ...schema('search_analytics_by_query'), last_synced_at: dayjs('2025-02-10T12:00:00Z') },
+                    { ...schema('search_analytics_by_page'), last_synced_at: dayjs('2025-02-10T12:00:00Z') },
+                    schema('search_analytics_by_query_page'),
+                ],
+            } as ExternalDataSource
+            expect(searchPerformanceSource(source, breakdown)).toBeNull()
+            expect(searchPerformanceSourceNotice(source, breakdown)?.message).toContain('out of date')
+            expect(searchPerformanceSource(source, breakdown, true)).toEqual({
+                sourceType: 'GoogleSearchConsole',
+                statsTable: 'example.search_analytics_by_query_page',
+                queryPageTable: true,
+            })
+            source.schemas[2].last_synced_at = dayjs('2025-02-10T12:00:00Z')
+            expect(searchPerformanceSource(source, breakdown)).toBeNull()
+            expect(searchPerformanceSource(source, breakdown, true)).toBeNull()
+            expect(searchPerformanceSourceNotice(source, breakdown, true)?.message).toContain('out of date')
+        }
+    )
 
     it.each([
         ['24hour', '2025-02-13T12:00:00Z', true],

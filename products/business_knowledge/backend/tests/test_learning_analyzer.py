@@ -577,6 +577,50 @@ class TestLearningAnalyzer:
         client.with_options.assert_called_once_with(timeout=_MODEL_TIMEOUT_SECONDS, max_retries=0)
         assert entered.messages.create.call_args.kwargs["extra_headers"] == {"X-PostHog-Privacy-Mode": "true"}
 
+    @pytest.mark.parametrize(
+        "content",
+        [
+            pytest.param([], id="no_tool_block"),
+            pytest.param(
+                [
+                    ToolUseBlock(
+                        id="toolu_test",
+                        name="ExtractedKnowledge",
+                        input={"canonical_topic": "Refund policy"},
+                        type="tool_use",
+                    )
+                ],
+                id="partial_tool_block",
+            ),
+        ],
+    )
+    def test_truncated_extraction_completes_without_knowledge_instead_of_failing(
+        self, team: Team, content: list[ToolUseBlock]
+    ) -> None:
+        run, input = _setup_sync(team)
+        provider = _Provider(EvidenceBundle(replies=("Refunds are available within 30 days.",)))
+        client, entered = _gateway_client()
+        truncated = MagicMock()
+        truncated.stop_reason = "max_tokens"
+        truncated.content = content
+        entered.messages.create.return_value = truncated
+
+        with (
+            patch(f"{_MODULE}.get_learning_provider", return_value=provider),
+            patch(f"{_MODULE}.build_ai_gateway_anthropic_client", return_value=client),
+            patch(f"{_MODULE}.logic.create_generated_knowledge_document") as publish,
+        ):
+            result = analyze_learning_evidence(input)
+
+        run.refresh_from_db()
+        assert result.result == "no_knowledge"
+        assert result.rejection_code == "output_truncated"
+        assert run.result == LearningRunResult.NO_KNOWLEDGE
+        assert run.status == "completed"
+        assert run.error == ""
+        assert entered.messages.create.call_count == 1
+        publish.assert_not_called()
+
     def test_missing_gateway_config_fails_before_the_model(self, team: Team) -> None:
         run, input = _setup_sync(team)
         provider = _Provider(EvidenceBundle(replies=("Refunds are available within 30 days.",)))
