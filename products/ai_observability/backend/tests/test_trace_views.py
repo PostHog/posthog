@@ -166,7 +166,8 @@ class TestTraceViewSet(ClickhouseTestMixin, APIBaseTest):
         _create_trace(self.team, "trace-1")
         headers = {}
         if with_api_key:
-            headers["authorization"] = f"Bearer {self.create_personal_api_key_with_scopes(['llm_analytics:read'])}"
+            key = self.create_personal_api_key_with_scopes(["llm_analytics:read", "ai_observability_clusters:read"])
+            headers["authorization"] = f"Bearer {key}"
             self.client.logout()
 
         def use(limiter: RateLimit, *args: object, **kwargs: object) -> ConcurrencySlot | None:
@@ -362,6 +363,16 @@ class TestTraceClustersView(ClickhouseTestMixin, APIBaseTest):
     )
     def test_rejects_a_malformed_request(self, _name: str, segment: str, query: dict[str, str]) -> None:
         assert self.client.get(self._url(segment), query).status_code == 400
+
+    def test_an_api_key_needs_the_clusters_scope(self) -> None:
+        key = self.create_personal_api_key_with_scopes(["llm_analytics:read"])
+        self.client.logout()
+
+        response = self.client.get(
+            self._url(_encode("trace-1")), {"created_at": T0.isoformat()}, headers={"authorization": f"Bearer {key}"}
+        )
+
+        assert response.status_code == 403
 
     def test_masks_clusters_the_viewer_may_not_read(self) -> None:
         self.organization.available_product_features = [

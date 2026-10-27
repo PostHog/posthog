@@ -38,6 +38,7 @@ class TestLoadClusterRuns(ClickhouseTestMixin, BaseTest):
             ("quotes", 'id "quoted"', [LISTING, OTHER]),
             ("dots", "trace.with.dots", [LISTING, OTHER]),
             ("LIKE wildcards", "50%_off", [LISTING, OTHER]),
+            ("a trailing newline", "trace-1\n", [LISTING, OTHER]),
         ]
     )
     def test_finds_runs_that_list_the_trace(self, _name: str, trace_id: str, read: list[str]) -> None:

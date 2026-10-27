@@ -149,7 +149,12 @@ class TraceViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         },
         operation_id="ai_observability_traces_clusters_retrieve",
     )
-    @action(detail=True, methods=["GET"], url_path="clusters")
+    @action(
+        detail=True,
+        methods=["GET"],
+        url_path="clusters",
+        required_scopes=["llm_analytics:read", "ai_observability_clusters:read"],
+    )
     def clusters(self, request: ValidatedRequest, pk: str, **kwargs: Any) -> Response:
         """The clusters that list this trace, from the newest run of each clustering job that lists it."""
         try:

@@ -22,7 +22,7 @@ CLUSTER_RUNS_LIMIT = 100
 # and the run is emitted within an hour of its end. The reach covers that sum with most of a day to spare.
 CLUSTER_RUN_REACH = timedelta(days=DEFAULT_LOOKBACK_DAYS + 2)
 # Every JSON serializer on the write and read paths writes these characters verbatim, so the raw text contains the id.
-_VERBATIM_SAFE_ID = re.compile(r"^[A-Za-z0-9_:-]+$")
+_VERBATIM_SAFE_ID = re.compile(r"[A-Za-z0-9_:-]+")
 
 
 @frozen
@@ -64,7 +64,7 @@ def _runs_query(trace_id: str, window: ClusterRunWindow) -> ast.SelectQuery:
             op=ast.CompareOperationOp.Lt, left=ast.Field(chain=["timestamp"]), right=ast.Constant(value=window.end)
         ),
     ]
-    if _VERBATIM_SAFE_ID.match(trace_id):
+    if _VERBATIM_SAFE_ID.fullmatch(trace_id):
         # A substring check skips parsing runs that cannot list the trace; membership is decided after parsing.
         conditions.append(
             ast.CompareOperation(
