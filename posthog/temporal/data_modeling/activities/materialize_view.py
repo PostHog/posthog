@@ -1,12 +1,15 @@
+import time
 import uuid
 import random
 import typing
 import asyncio
 import datetime as dt
+import contextlib
 import dataclasses
 
 from django.conf import settings
 from django.db import transaction
+from django.utils import timezone
 
 import pyarrow as pa
 import deltalake
@@ -16,6 +19,8 @@ from structlog.contextvars import bind_contextvars
 from structlog.types import FilteringBoundLogger
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
+
+from posthog.schema import HogQLQueryModifiers
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
@@ -40,6 +45,7 @@ from posthog.settings.base_variables import TEST
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.clickhouse import (
     ClickHouseError,
+    ClickHouseQueryTimeoutError,
     ClickHouseTooManySimultaneousQueriesError,
     get_client as get_clickhouse_client,
 )
@@ -50,6 +56,7 @@ from posthog.temporal.common.logger import get_logger
 from posthog.temporal.data_modeling.activities.incremental_write import (
     IncrementalWriteError,
     SchemaDriftError,
+    UniqueKeyCapError,
     UniqueKeyTracker,
     assert_schema_matches,
     max_of,
@@ -60,13 +67,28 @@ from posthog.temporal.data_modeling.activities.incremental_write import (
 from posthog.temporal.data_modeling.activities.utils import bind_data_modeling_log_context
 
 from products.data_modeling.backend.facade.api import (
+    FAST_WINDOW,
+    IncrementalConfig,
     IncrementalFilterError,
+    WindowSpan,
     WritePlan,
     clear_incremental_state,
+    finish_first_build,
+    fits_in_one_window,
+    get_incremental_state,
+    initial_span,
     inject_incremental_filter,
+    integer_span,
+    key_filter_reaches_source,
     record_incremental_history,
     resolve_write_plan,
+    search_lower_bound,
     set_incremental_state,
+    skip_empty_ranges,
+    start_first_build,
+    temporal_span_for,
+    ungrouped_key_rows,
+    windowed_materialization_enabled,
 )
 from products.data_modeling.backend.facade.modeling import bounded_resolver_factory_for_view
 from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery, Node, NodeType
@@ -221,6 +243,10 @@ MAX_CONCURRENT_CLICKHOUSE_QUERIES = 10
 _clickhouse_query_semaphore = asyncio.Semaphore(MAX_CONCURRENT_CLICKHOUSE_QUERIES)
 
 
+class WindowCannotShrinkError(Exception):
+    pass
+
+
 class EmptyHogQLResponseColumnsError(Exception):
     def __init__(self):
         super().__init__("After running a HogQL query, no columns were returned")
@@ -316,6 +342,11 @@ class _CDPRowSink:
         except Exception as e:
             capture_exception(e)
             await self._logger.awarning(f"Failed to clear staged CDP rows: {e}")
+
+    async def restart(self) -> None:
+        if self.enabled:
+            await self._producer.clear()
+        self._chunk = 0
 
 
 class InvalidNodeTypeException(Exception):
@@ -599,12 +630,24 @@ async def _write_empty_parquet_for_zero_rows(table_uri: str, schema: pa.Schema, 
     return file_uri
 
 
+def _materialization_database(team: Team, modifiers: HogQLQueryModifiers) -> Database:
+    # Userless materialization context; bypass warehouse HogQL access control so the model query
+    # can resolve its source tables/views.
+    return Database.create_for(
+        team=team,
+        modifiers=modifiers,
+        bypass_warehouse_access_control=True,
+        allowed_system_tables=DATA_MODELING_ALLOWED_SYSTEM_TABLES,
+    )
+
+
 async def hogql_table(
-    query: str,
+    query: str | ast.SelectQuery | ast.SelectSetQuery,
     team: Team,
     logger: FilteringBoundLogger,
     view_name: str | None = None,
     window: "IncrementalWindow | None" = None,
+    on_query_start: typing.Callable[[], None] | None = None,
 ):
     """Execute a HogQL query and yield batches of results.
 
@@ -612,8 +655,16 @@ async def hogql_table(
     else happens — in particular before the arrow type-conversion wrapper below re-wraps the node,
     so the guard's column reference still resolves against the user's own output.
     """
-    if window is not None:
-        query_node = inject_incremental_filter(query, incremental_key=window.incremental_key, since=window.since)
+    if not isinstance(query, str):
+        query_node = query
+    elif window is not None:
+        query_node = inject_incremental_filter(
+            query,
+            incremental_key=window.incremental_key,
+            since=window.since,
+            until=window.until,
+            include_null_keys=window.include_null_keys,
+        )
     else:
         query_node = parse_select(query)
     if query_node is None:
@@ -629,14 +680,7 @@ async def hogql_table(
         limit_top_select=False,
         modifiers=modifiers,
     )
-    # Userless materialization context; bypass warehouse HogQL access control so the model query
-    # can resolve its source tables/views.
-    context.database = await database_sync_to_async_pool(Database.create_for)(
-        team=team,
-        modifiers=context.modifiers,
-        bypass_warehouse_access_control=True,
-        allowed_system_tables=DATA_MODELING_ALLOWED_SYSTEM_TABLES,
-    )
+    context.database = await database_sync_to_async_pool(_materialization_database)(team, context.modifiers)
 
     if PromptJevFinder.contains(query_node):
         # A factory of its own: the deadline is wall clock, and the jev calls between the two
@@ -782,6 +826,8 @@ async def hogql_table(
         _clickhouse_query_semaphore,
         get_clickhouse_client(max_block_size=CLICKHOUSE_MAX_BLOCK_SIZE_ROWS) as client,
     ):
+        if on_query_start is not None:
+            on_query_start()
         batches = []
         batches_size = 0
         yielded_results = False
@@ -835,6 +881,8 @@ async def hogql_table(
 class IncrementalWindow:
     incremental_key: str
     since: typing.Any
+    until: typing.Any = None
+    include_null_keys: bool = False
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
@@ -981,18 +1029,18 @@ def _reason_to_record(job: DataModelingJob, plan: WritePlan) -> str | None:
     return plan.reason
 
 
-async def _materialize_fully(
-    objects: MatviewInputObjects,
-    plan: WritePlan,
-    hogql_query: str,
-    table_uri: str,
-    storage_options: dict[str, str],
-    logger: FilteringBoundLogger,
-    cdp_sink: "_CDPRowSink",
-    person_property_sink: PersonPropertyRowSink | None = None,
-) -> tuple[int, list[str]]:
-    """Rebuild the whole table from the query. The only path that creates a Delta table, and the
-    fallback for every case the incremental path cannot serve."""
+@dataclasses.dataclass(frozen=False, slots=True)
+class _RunProgress:
+    row_count: int = 0
+    batch_index: int = 0
+    watermark: typing.Any = None
+    # cache the schema of the first batch so we can synthesize an empty parquet for
+    # zero-row results without going through delta-rs (whose Schema is arro3, not
+    # pyarrow).
+    schema: pa.Schema | None = None
+
+
+async def _delete_table(table_uri: str, logger: FilteringBoundLogger) -> None:
     # delete existing table first to avoid schema conflicts
     s3 = get_s3_client()
     try:
@@ -1002,16 +1050,29 @@ async def _materialize_fully(
     except FileNotFoundError:
         await logger.adebug(f"Skipping deletion because table not found: uri={table_uri}")
 
-    row_count = 0
+
+async def _record_rows(objects: MatviewInputObjects, progress: _RunProgress, batch: pa.RecordBatch) -> None:
+    progress.row_count = progress.row_count + batch.num_rows
+    objects.job.rows_materialized = progress.row_count
+    await database_sync_to_async_pool(objects.job.save)()
+
+
+async def _write_rows_from_scratch(
+    objects: MatviewInputObjects,
+    config: IncrementalConfig | None,
+    batches: typing.AsyncIterator[tuple[pa.RecordBatch, list[tuple[str, str]]]],
+    table_uri: str,
+    storage_options: dict[str, str],
+    cdp_sink: "_CDPRowSink",
+    person_property_sink: PersonPropertyRowSink | None,
+    progress: _RunProgress,
+    *,
+    fatal_staging: bool,
+) -> None:
     delta_table: deltalake.DeltaTable | None = None
-    # cache the schema of the first batch so we can synthesize an empty parquet for
-    # zero-row results without going through delta-rs (whose Schema is arro3, not
-    # pyarrow).
-    pa_schema: pa.Schema | None = None
-    watermark: typing.Any = None
     # The declared unique key is enforced while seeding too: a table born with null or duplicate
     # keys would break every later upsert's contract, silently.
-    tracker = UniqueKeyTracker(plan.config.unique_key) if plan.config is not None else None
+    tracker = UniqueKeyTracker(config.unique_key) if config is not None else None
 
     # write each batch as its own delta commit, imitating the data_imports pipeline
     # (DeltaWriter.write): the first batch overwrites — creating the
@@ -1020,18 +1081,18 @@ async def _materialize_fully(
     # batch (hogql_table yields ~100MB combined batches) and, because each write is a
     # brief to_thread released between batches, never pins a worker thread for the whole
     # read — which is what starved the shared executor that heartbeats/db/logging use.
-    batch_index = 0
-    async for batch, ch_types in hogql_table(hogql_query, objects.team, logger):
+    async for batch, ch_types in batches:
         batch = _transform_unsupported_decimals(batch)
         batch = _transform_date_and_datetimes(batch, ch_types)
         batch = _transform_unsigned_integers(batch)
         batch = _force_nullable(batch)
         if tracker is not None:
             await asyncio.to_thread(tracker.check, batch)
-        await _stage_person_property_batch(person_property_sink, batch_index, batch, fatal=False)
-        batch_index += 1
+        await _stage_person_property_batch(person_property_sink, progress.batch_index, batch, fatal=fatal_staging)
+        progress.batch_index += 1
         if delta_table is None:
-            pa_schema = batch.schema
+            if progress.schema is None:
+                progress.schema = batch.schema
             await asyncio.to_thread(
                 deltalake.write_deltalake,
                 table_or_uri=table_uri,
@@ -1053,33 +1114,134 @@ async def _materialize_fully(
         # Staged only once the batch is committed: a run that announces rows it then fails to write
         # cannot take the announcement back.
         await cdp_sink.stage(batch)
-        if plan.config is not None and plan.config.incremental_key in batch.schema.names:
-            watermark = max_of(batch, plan.config.incremental_key, watermark)
-        row_count = row_count + batch.num_rows
-        objects.job.rows_materialized = row_count
-        await database_sync_to_async_pool(objects.job.save)()
+        if config is not None and config.incremental_key in batch.schema.names:
+            progress.watermark = max_of(batch, config.incremental_key, progress.watermark)
+        await _record_rows(objects, progress, batch)
 
-    await logger.ainfo(f"Finished writing to delta table. row_count={row_count}")
-    file_uris: list[str] = []
-    if delta_table is not None:
-        await logger.ainfo("Compacting delta table")
+
+async def _upsert_rows(
+    objects: MatviewInputObjects,
+    config: IncrementalConfig,
+    batches: typing.AsyncIterator[tuple[pa.RecordBatch, list[tuple[str, str]]]],
+    target_schema: pa.Schema,
+    table_uri: str,
+    logger: FilteringBoundLogger,
+    storage_options: dict[str, str],
+    cdp_sink: "_CDPRowSink",
+    person_property_sink: PersonPropertyRowSink | None,
+    progress: _RunProgress,
+) -> None:
+    tracker = UniqueKeyTracker(config.unique_key)
+    async for batch, ch_types in batches:
+        batch = _transform_unsupported_decimals(batch)
+        batch = _transform_date_and_datetimes(batch, ch_types)
+        batch = _transform_unsigned_integers(batch)
+        batch = _force_nullable(batch)
+
+        if batch.num_rows == 0:
+            # A quiet window is normal. Nothing to upsert, and no watermark to advance.
+            continue
+
+        assert_schema_matches(batch, target_schema)
+        # Checked before the upsert so a duplicate split across batches fails the run instead
+        # of the later batch silently replacing the earlier one.
+        await asyncio.to_thread(tracker.check, batch)
+        await _stage_person_property_batch(person_property_sink, progress.batch_index, batch, fatal=True)
+        progress.batch_index += 1
+
+        stats = await asyncio.to_thread(
+            upsert_batch,
+            table_uri,
+            storage_options,
+            batch,
+            config.unique_key,
+            commit_metadata={"posthog_job_id": str(objects.job.id)},
+        )
+        await logger.ainfo("Upserted batch into delta table", **upsert_stats_fields(stats))
+        await cdp_sink.stage(batch)
+
+        progress.watermark = max_of(batch, config.incremental_key, progress.watermark)
+        await _record_rows(objects, progress, batch)
+
+
+def _target_schema(table_uri: str, storage_options: dict[str, str]) -> pa.Schema:
+    delta_table = deltalake.DeltaTable(table_uri, storage_options=storage_options)
+    # Wrapped in pa.schema() because delta-rs hands back an arro3 schema, whose DataType does not
+    # compare equal to pyarrow's. arro3 exposes the Arrow PyCapsule interface, which pa.schema()
+    # consumes at runtime even though its stubs don't advertise it.
+    return pa.schema(typing.cast(typing.Any, delta_table.schema().to_arrow()))
+
+
+async def _maintain_and_list_files(
+    table_uri: str,
+    storage_options: dict[str, str],
+    logger: FilteringBoundLogger,
+    progress: _RunProgress,
+    *,
+    compact_always: bool,
+) -> list[str]:
+    # Reopened because deltalite commits through its own handle, leaving this one pinned to the
+    # snapshot from before the upserts. Maintaining or listing files off the stale handle would
+    # publish the pre-run file set and lose everything this run wrote.
+    delta_table = deltalake.DeltaTable(table_uri, storage_options=storage_options)
+
+    file_uris = delta_table.file_uris()
+    if compact_always or len(file_uris) > INCREMENTAL_COMPACT_FILE_THRESHOLD:
+        await logger.ainfo(f"Compacting delta table ({len(file_uris)} files)")
         await asyncio.to_thread(delta_table.optimize.compact)
-        await _vacuum(delta_table, logger)
-        file_uris = delta_table.file_uris()
-        if not file_uris and row_count == 0 and pa_schema is not None:
-            # delta-rs writes no parquet for an empty batch. emit one so the
-            # queryable folder has a file with a schema attached that's queryable
-            empty_parquet_uri = await _write_empty_parquet_for_zero_rows(table_uri, pa_schema, logger)
-            file_uris = [empty_parquet_uri]
+    await _vacuum(delta_table, logger)
+
+    # Re-listed after maintenance: compaction rewrites files, so the pre-compaction list would
+    # name parquet the publish can no longer copy.
+    file_uris = delta_table.file_uris()
+    if not file_uris and progress.row_count == 0 and progress.schema is not None:
+        # delta-rs writes no parquet for an empty batch. emit one so the
+        # queryable folder has a file with a schema attached that's queryable
+        empty_parquet_uri = await _write_empty_parquet_for_zero_rows(table_uri, progress.schema, logger)
+        file_uris = [empty_parquet_uri]
+    return file_uris
+
+
+async def _materialize_fully(
+    objects: MatviewInputObjects,
+    plan: WritePlan,
+    hogql_query: str,
+    table_uri: str,
+    storage_options: dict[str, str],
+    logger: FilteringBoundLogger,
+    cdp_sink: "_CDPRowSink",
+    person_property_sink: PersonPropertyRowSink | None = None,
+) -> tuple[int, list[str]]:
+    """Rebuild the whole table from the query. The only path that creates a Delta table, and the
+    fallback for every case the incremental path cannot serve."""
+    await _delete_table(table_uri, logger)
+
+    progress = _RunProgress()
+    await _write_rows_from_scratch(
+        objects,
+        plan.config,
+        hogql_table(hogql_query, objects.team, logger),
+        table_uri,
+        storage_options,
+        cdp_sink,
+        person_property_sink,
+        progress,
+        fatal_staging=False,
+    )
+
+    await logger.ainfo(f"Finished writing to delta table. row_count={progress.row_count}")
+    file_uris: list[str] = []
+    if progress.schema is not None:
+        file_uris = await _maintain_and_list_files(table_uri, storage_options, logger, progress, compact_always=True)
 
     # Recording the watermark here is what lets the *next* run go incremental. A rebuild that
     # can't produce one (no config, or the key missing from the output) simply leaves the query
     # on the full-refresh path.
-    if plan.config is not None and plan.fingerprint is not None and watermark is not None:
+    if plan.config is not None and plan.fingerprint is not None and progress.watermark is not None:
         await database_sync_to_async_pool(set_incremental_state)(
-            objects.saved_query, watermark=watermark, fingerprint=plan.fingerprint, mode="full_refresh"
+            objects.saved_query, watermark=progress.watermark, fingerprint=plan.fingerprint, mode="full_refresh"
         )
-    return row_count, file_uris
+    return progress.row_count, file_uris
 
 
 async def _materialize_incrementally(
@@ -1102,81 +1264,387 @@ async def _materialize_incrementally(
     config = plan.config
     assert config is not None  # resolve_write_plan only sets incremental with a config
 
-    delta_table = deltalake.DeltaTable(table_uri, storage_options=storage_options)
-    # Wrapped in pa.schema() because delta-rs hands back an arro3 schema, whose DataType does not
-    # compare equal to pyarrow's. arro3 exposes the Arrow PyCapsule interface, which pa.schema()
-    # consumes at runtime even though its stubs don't advertise it.
-    target_schema = pa.schema(typing.cast(typing.Any, delta_table.schema().to_arrow()))
+    target_schema = _target_schema(table_uri, storage_options)
     window = IncrementalWindow(incremental_key=config.incremental_key, since=plan.since)
 
-    row_count = 0
-    watermark: typing.Any = None
-    tracker = UniqueKeyTracker(config.unique_key)
     # Staged per attempt, never cleared: a retry resumes past the watermark the failed attempt
     # already saved, so its staged rows are that window's only record (see PersonPropertyRowSink).
-    batch_index = 0
+    progress = _RunProgress()
 
     try:
-        async for batch, ch_types in hogql_table(hogql_query, objects.team, logger, window=window):
-            batch = _transform_unsupported_decimals(batch)
-            batch = _transform_date_and_datetimes(batch, ch_types)
-            batch = _transform_unsigned_integers(batch)
-            batch = _force_nullable(batch)
-
-            if batch.num_rows == 0:
-                # A quiet window is normal. Nothing to upsert, and no watermark to advance.
-                continue
-
-            assert_schema_matches(batch, target_schema)
-            # Checked before the upsert so a duplicate split across batches fails the run instead
-            # of the later batch silently replacing the earlier one.
-            await asyncio.to_thread(tracker.check, batch)
-            await _stage_person_property_batch(person_property_sink, batch_index, batch, fatal=True)
-            batch_index += 1
-
-            stats = await asyncio.to_thread(
-                upsert_batch,
-                table_uri,
-                storage_options,
-                batch,
-                config.unique_key,
-                commit_metadata={"posthog_job_id": str(objects.job.id)},
-            )
-            await logger.ainfo("Upserted batch into delta table", **upsert_stats_fields(stats))
-            await cdp_sink.stage(batch)
-
-            watermark = max_of(batch, config.incremental_key, watermark)
-            row_count = row_count + batch.num_rows
-            objects.job.rows_materialized = row_count
-            await database_sync_to_async_pool(objects.job.save)()
+        await _upsert_rows(
+            objects,
+            config,
+            hogql_table(hogql_query, objects.team, logger, window=window),
+            target_schema,
+            table_uri,
+            logger,
+            storage_options,
+            cdp_sink,
+            person_property_sink,
+            progress,
+        )
     except (IncrementalWriteError, IncrementalFilterError) as err:
-        # Every one of these means the table and the query have diverged in a way an upsert can't
-        # reconcile. Dropping the watermark makes the retry rebuild instead of writing rows that
-        # would be wrong, so the failure costs a full refresh rather than silent corruption.
-        await _drop_watermark_and_say_why(objects.saved_query, objects.job, _failed_update_reason(err))
-        if isinstance(err, SchemaDriftError):
-            await logger.awarning(f"Rebuilding after schema drift: {err}")
+        await _drop_watermark_after(err, objects, logger)
         raise
 
-    if watermark is not None:
+    if progress.watermark is not None:
         await database_sync_to_async_pool(set_incremental_state)(
-            objects.saved_query, watermark=watermark, fingerprint=plan.fingerprint, mode="incremental"
+            objects.saved_query, watermark=progress.watermark, fingerprint=plan.fingerprint, mode="incremental"
         )
 
-    # Reopened because deltalite commits through its own handle, leaving this one pinned to the
-    # snapshot from before the upserts. Maintaining or listing files off the stale handle would
-    # publish the pre-run file set and lose everything this run wrote.
-    delta_table = deltalake.DeltaTable(table_uri, storage_options=storage_options)
+    file_uris = await _maintain_and_list_files(table_uri, storage_options, logger, progress, compact_always=False)
+    return progress.row_count, file_uris
 
-    file_uris = delta_table.file_uris()
-    if len(file_uris) > INCREMENTAL_COMPACT_FILE_THRESHOLD:
-        await logger.ainfo(f"Compacting delta table ({len(file_uris)} files)")
-        await asyncio.to_thread(delta_table.optimize.compact)
-    await _vacuum(delta_table, logger)
 
-    # Re-listed after maintenance: compaction rewrites files, so the pre-compaction list would
-    # name parquet the publish can no longer copy.
-    return row_count, delta_table.file_uris()
+async def _drop_watermark_after(
+    err: IncrementalWriteError | IncrementalFilterError, objects: MatviewInputObjects, logger: FilteringBoundLogger
+) -> None:
+    # Every one of these means the table and the query have diverged in a way an upsert can't
+    # reconcile. Dropping the watermark makes the retry rebuild instead of writing rows that
+    # would be wrong, so the failure costs a full refresh rather than silent corruption.
+    await _drop_watermark_and_say_why(objects.saved_query, objects.job, _failed_update_reason(err))
+    if isinstance(err, SchemaDriftError):
+        await logger.awarning(f"Rebuilding after schema drift: {err}")
+
+
+KEY_RANGE_ALIAS = "__ph_key_range"
+HAS_ROWS_ALIAS = "__ph_has_rows"
+WINDOW_DEADLINE_MARGIN = dt.timedelta(minutes=5)
+FIRST_BUILD_RESUMED_REASON = "first build resumed"
+UNIX_EPOCH = dt.datetime(1970, 1, 1, tzinfo=dt.UTC)
+
+
+@frozen
+class _WindowPlan:
+    start: typing.Any
+    end: typing.Any
+    span: WindowSpan[typing.Any]
+    first_build: bool
+    resumed_first_build: bool
+
+
+def _window_deadline_seconds() -> float:
+    return HOGQL_INCREASED_MAX_EXECUTION_TIME + WINDOW_DEADLINE_MARGIN.total_seconds()
+
+
+class _ReadDeadline:
+    """Bounds a query's reads from the moment it holds a ClickHouse slot, and never its writes."""
+
+    def __init__(self) -> None:
+        self._when: float | None = None
+        self._scope: asyncio.Timeout | None = None
+
+    def start(self) -> None:
+        self._when = asyncio.get_running_loop().time() + _window_deadline_seconds()
+        if self._scope is not None:
+            self._scope.reschedule(self._when)
+
+    async def read(
+        self, batches: typing.AsyncGenerator[tuple[pa.RecordBatch, list[tuple[str, str]]]]
+    ) -> typing.AsyncGenerator[tuple[pa.RecordBatch, list[tuple[str, str]]]]:
+        async with contextlib.aclosing(batches):
+            while True:
+                async with asyncio.timeout_at(self._when) as scope:
+                    self._scope = scope
+                    try:
+                        batch = await anext(batches)
+                    except StopAsyncIteration:
+                        return
+                    finally:
+                        self._scope = None
+                yield batch
+
+
+async def _first_batch(
+    query: ast.SelectQuery | ast.SelectSetQuery, team: Team, logger: FilteringBoundLogger
+) -> pa.RecordBatch | None:
+    deadline = _ReadDeadline()
+    async with contextlib.aclosing(
+        deadline.read(hogql_table(query, team, logger, on_query_start=deadline.start))
+    ) as stream:
+        async for batch, ch_types in stream:
+            if batch.num_rows:
+                return _transform_date_and_datetimes(batch, ch_types)
+    return None
+
+
+async def _probe_key_range(
+    hogql_query: str, team: Team, logger: FilteringBoundLogger, incremental_key: str
+) -> tuple[typing.Any, typing.Any]:
+    key = ast.Field(chain=[KEY_RANGE_ALIAS, incremental_key])
+    probe = ast.SelectQuery(
+        select=[
+            ast.Alias(alias="key_min", expr=ast.Call(name="min", args=[key])),
+            ast.Alias(alias="key_max", expr=ast.Call(name="max", args=[key])),
+        ],
+        select_from=ast.JoinExpr(
+            table=ungrouped_key_rows(hogql_query, incremental_key=incremental_key), alias=KEY_RANGE_ALIAS
+        ),
+    )
+    batch = await _first_batch(probe, team, logger)
+    if batch is None:
+        return None, None
+    return batch.column("key_min")[0].as_py(), batch.column("key_max")[0].as_py()
+
+
+async def _sample_key(hogql_query: str, team: Team, logger: FilteringBoundLogger, incremental_key: str) -> typing.Any:
+    key = ast.Field(chain=[KEY_RANGE_ALIAS, incremental_key])
+    sample = ast.SelectQuery(
+        select=[ast.Alias(alias="key_sample", expr=key)],
+        select_from=ast.JoinExpr(
+            table=ungrouped_key_rows(hogql_query, incremental_key=incremental_key), alias=KEY_RANGE_ALIAS
+        ),
+        where=ast.Call(name="isNotNull", args=[key]),
+        limit=ast.Constant(value=1),
+    )
+    batch = await _first_batch(sample, team, logger)
+    return None if batch is None else batch.column("key_sample")[0].as_py()
+
+
+async def _has_rows(
+    hogql_query: str,
+    team: Team,
+    logger: FilteringBoundLogger,
+    incremental_key: str,
+    *,
+    since: typing.Any = None,
+    until: typing.Any = None,
+) -> bool:
+    bounded = ungrouped_key_rows(hogql_query, incremental_key=incremental_key, since=since, until=until)
+    existence = ast.SelectQuery(
+        select=[ast.Alias(alias="hit", expr=ast.Constant(value=1))],
+        select_from=ast.JoinExpr(table=bounded, alias=HAS_ROWS_ALIAS),
+        limit=ast.Constant(value=1),
+    )
+    return await _first_batch(existence, team, logger) is not None
+
+
+def _now_like(key: typing.Any) -> typing.Any:
+    return _shaped_like(key, timezone.now())
+
+
+def _shaped_like(key: typing.Any, instant: dt.datetime) -> typing.Any:
+    if isinstance(key, dt.datetime):
+        return instant if key.tzinfo is not None else instant.replace(tzinfo=None)
+    return instant.date()
+
+
+def _key_filter_reaches_source(team: Team, view_name: str, hogql_query: str, incremental_key: str) -> bool:
+    try:
+        return key_filter_reaches_source(
+            hogql_query,
+            incremental_key,
+            database=_materialization_database(team, create_default_modifiers_for_team(team)),
+            resolver_factory=bounded_resolver_factory_for_view(view_name),
+        )
+    except Exception as error:
+        capture_exception(error)
+        return False
+
+
+async def _plan_windows(
+    objects: MatviewInputObjects, plan: WritePlan, hogql_query: str, logger: FilteringBoundLogger
+) -> _WindowPlan | None:
+    config = plan.config
+    if config is None:
+        return None
+    if not await database_sync_to_async_pool(windowed_materialization_enabled)(objects.team.pk):
+        return None
+    if not await database_sync_to_async_pool(_key_filter_reaches_source)(
+        objects.team, objects.saved_query.name, hogql_query, config.incremental_key
+    ):
+        await logger.ainfo("Building in one query: the incremental key filter cannot reach the source table")
+        return None
+
+    state = get_incremental_state(objects.saved_query)
+    if plan.incremental:
+        return _catch_up_windows(plan.since, state)
+    return await _first_build_windows(objects, hogql_query, config, logger)
+
+
+def _catch_up_windows(since: typing.Any, state: typing.Any) -> _WindowPlan | None:
+    span: WindowSpan[typing.Any] | None
+    if state.backfill_until is not None and state.backfill_span is not None:
+        span, end = integer_span(state.backfill_span), state.backfill_until
+    else:
+        span, end = temporal_span_for(since), _now_like(since)
+    if span is None:
+        return None
+    if fits_in_one_window(since, end, span) and not state.first_build_in_progress:
+        return None
+    return _WindowPlan(
+        start=since,
+        end=end,
+        span=span,
+        first_build=False,
+        resumed_first_build=state.first_build_in_progress,
+    )
+
+
+async def _first_build_windows(
+    objects: MatviewInputObjects, hogql_query: str, config: IncrementalConfig, logger: FilteringBoundLogger
+) -> _WindowPlan | None:
+    key = config.incremental_key
+    sample = await _sample_key(hogql_query, objects.team, logger, key)
+    if sample is None:
+        return None
+    temporal = temporal_span_for(sample)
+    if temporal is not None:
+        return await _first_temporal_build_windows(objects, hogql_query, key, sample, temporal, logger)
+    if isinstance(sample, bool) or not isinstance(sample, int):
+        return None
+    return await _first_integer_build_windows(objects, hogql_query, key, logger)
+
+
+async def _first_temporal_build_windows(
+    objects: MatviewInputObjects,
+    hogql_query: str,
+    key: str,
+    sample: typing.Any,
+    span: WindowSpan[typing.Any],
+    logger: FilteringBoundLogger,
+) -> _WindowPlan | None:
+    async def has_rows_below(bound: typing.Any) -> bool:
+        return await _has_rows(hogql_query, objects.team, logger, key, until=bound)
+
+    end = _now_like(sample)
+    start = await search_lower_bound(has_rows_below, end)
+    if start is None:
+        start, _ = await _probe_key_range(hogql_query, objects.team, logger, key)
+    if start is None or start < _shaped_like(start, UNIX_EPOCH) or fits_in_one_window(start, end, span):
+        return None
+    await database_sync_to_async_pool(start_first_build)(objects.saved_query)
+    return _WindowPlan(start=start, end=end, span=span, first_build=True, resumed_first_build=False)
+
+
+async def _first_integer_build_windows(
+    objects: MatviewInputObjects, hogql_query: str, key: str, logger: FilteringBoundLogger
+) -> _WindowPlan | None:
+    key_min, key_max = await _probe_key_range(hogql_query, objects.team, logger, key)
+    if key_min is None:
+        return None
+    end = key_max + 1
+    span = initial_span(key_min, end)
+    if span is None or not isinstance(span.size, int) or fits_in_one_window(key_min, end, span):
+        return None
+    await database_sync_to_async_pool(start_first_build)(
+        objects.saved_query, backfill_until=end, backfill_span=span.size
+    )
+    return _WindowPlan(start=key_min, end=end, span=span, first_build=True, resumed_first_build=False)
+
+
+async def _materialize_in_windows(
+    objects: MatviewInputObjects,
+    plan: WritePlan,
+    windows: _WindowPlan,
+    hogql_query: str,
+    table_uri: str,
+    storage_options: dict[str, str],
+    logger: FilteringBoundLogger,
+    cdp_sink: "_CDPRowSink",
+    person_property_sink: PersonPropertyRowSink | None = None,
+) -> tuple[int, list[str]]:
+    config = plan.config
+    assert config is not None  # _plan_windows only plans windows with a config
+
+    checkpoints = not cdp_sink.enabled and person_property_sink is None
+    mode = "full_refresh" if windows.first_build else "incremental"
+    progress = _RunProgress()
+    span = windows.span
+    start = windows.start
+    first = windows.first_build
+    target_schema = None if first else _target_schema(table_uri, storage_options)
+
+    async def has_rows_between(since: typing.Any, until: typing.Any) -> bool:
+        return await _has_rows(hogql_query, objects.team, logger, config.incremental_key, since=since, until=until)
+
+    if first:
+        await _delete_table(table_uri, logger)
+
+    try:
+        while True:
+            until = None if fits_in_one_window(start, windows.end, span) else start + span.size
+            window = IncrementalWindow(
+                incremental_key=config.incremental_key, since=start, until=until, include_null_keys=first
+            )
+            await logger.ainfo(f"Materializing window from {start} to {until if until is not None else 'now'}")
+            started_at = time.monotonic()
+            rows_before_window, watermark_before_window = progress.row_count, progress.watermark
+            deadline = _ReadDeadline()
+            reads = hogql_table(hogql_query, objects.team, logger, window=window, on_query_start=deadline.start)
+            try:
+                async with contextlib.aclosing(deadline.read(reads)) as batches:
+                    if target_schema is None:
+                        await _write_rows_from_scratch(
+                            objects,
+                            config,
+                            batches,
+                            table_uri,
+                            storage_options,
+                            cdp_sink,
+                            person_property_sink,
+                            progress,
+                            fatal_staging=checkpoints,
+                        )
+                    else:
+                        await _upsert_rows(
+                            objects,
+                            config,
+                            batches,
+                            target_schema,
+                            table_uri,
+                            logger,
+                            storage_options,
+                            cdp_sink,
+                            person_property_sink,
+                            progress,
+                        )
+            except (ClickHouseQueryTimeoutError, UniqueKeyCapError, TimeoutError) as error:
+                smaller = span.halved()
+                if smaller is None:
+                    raise WindowCannotShrinkError(
+                        f"A window of {span.size} starting at {start} is still too large: {error}"
+                    ) from error
+                await logger.awarning(f"Retrying the window from {start} with a span of {smaller.size}: {error}")
+                span = smaller
+                progress.row_count, progress.watermark = rows_before_window, watermark_before_window
+                if not checkpoints:
+                    await cdp_sink.restart()
+                    start, first = windows.start, windows.first_build
+                    target_schema = None if first else target_schema
+                    progress.row_count, progress.watermark = 0, None
+                continue
+
+            if checkpoints and progress.watermark is not None:
+                await database_sync_to_async_pool(set_incremental_state)(
+                    objects.saved_query, watermark=progress.watermark, fingerprint=plan.fingerprint, mode=mode
+                )
+            if target_schema is None:
+                target_schema = _target_schema(table_uri, storage_options)
+            first = False
+            if until is None:
+                break
+            window_seconds = time.monotonic() - started_at
+            start = until
+            if progress.row_count == rows_before_window:
+                start = await skip_empty_ranges(has_rows_between, until, span.size, windows.end)
+            if window_seconds < FAST_WINDOW.total_seconds():
+                span = span.grown()
+    except (IncrementalWriteError, IncrementalFilterError) as err:
+        await _drop_watermark_after(err, objects, logger)
+        raise
+
+    file_uris = await _maintain_and_list_files(
+        table_uri, storage_options, logger, progress, compact_always=windows.first_build
+    )
+    if not checkpoints and progress.watermark is not None:
+        await database_sync_to_async_pool(set_incremental_state)(
+            objects.saved_query, watermark=progress.watermark, fingerprint=plan.fingerprint, mode=mode
+        )
+    if windows.first_build or windows.resumed_first_build:
+        await database_sync_to_async_pool(finish_first_build)(objects.saved_query)
+    return progress.row_count, file_uris
 
 
 async def _vacuum(delta_table: deltalake.DeltaTable, logger: FilteringBoundLogger) -> None:
@@ -1300,7 +1768,25 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
             hogql_query = typing.cast(dict, objects.saved_query.query)["query"]
 
             try:
-                if plan.incremental:
+                windows = await _plan_windows(objects, plan, hogql_query, logger)
+                if windows is not None and windows.resumed_first_build:
+                    objects.job.run_mode = DataModelingJob.RunMode.FULL_REFRESH
+                    objects.job.full_refresh_reason = FIRST_BUILD_RESUMED_REASON
+                    await database_sync_to_async_pool(objects.job.save)()
+
+                if windows is not None:
+                    row_count, file_uris = await _materialize_in_windows(
+                        objects,
+                        plan,
+                        windows,
+                        hogql_query,
+                        table_uri,
+                        storage_options,
+                        logger,
+                        cdp_sink,
+                        person_property_sink,
+                    )
+                elif plan.incremental:
                     row_count, file_uris = await _materialize_incrementally(
                         objects,
                         plan,

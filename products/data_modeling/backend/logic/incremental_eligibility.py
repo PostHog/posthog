@@ -40,7 +40,7 @@ from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.functions.clickhouse.datetime import DATE_GENERATOR_FUNCTIONS
 from posthog.hogql.parser import parse_select
 from posthog.hogql.property import has_aggregation
-from posthog.hogql.resolver import resolve_types
+from posthog.hogql.resolver import ResolverFactory, resolve_types
 from posthog.hogql.visitor import TraversingVisitor, clear_locations, clone_expr
 
 if TYPE_CHECKING:
@@ -237,6 +237,15 @@ def check_incremental_eligibility(
     )
 
 
+def key_filter_reaches_source(
+    query: str, incremental_key: str, *, database: Database, resolver_factory: Optional[ResolverFactory] = None
+) -> bool:
+    selects = _resolved_selects(parse_select(query), database, resolver_factory)
+    if selects is None:
+        return False
+    return not any(_key_behind_aggregate_subquery(select, incremental_key) for select in selects)
+
+
 def propose_incremental_config(
     query: str, column_types: Mapping[str, str], *, database: Optional[Database] = None
 ) -> Optional[IncrementalConfig]:
@@ -384,7 +393,9 @@ def _unique(messages: list[str]) -> list[str]:
 
 
 def _resolved_selects(
-    node: ast.SelectQuery | ast.SelectSetQuery, database: Optional[Database]
+    node: ast.SelectQuery | ast.SelectSetQuery,
+    database: Optional[Database],
+    resolver_factory: Optional[ResolverFactory] = None,
 ) -> Optional[list[ast.SelectQuery]]:
     """The query's leaf selects with types resolved, which expands ``*`` to the table's columns.
 
@@ -402,7 +413,7 @@ def _resolved_selects(
     try:
         # Resolve a private copy: a failure partway through could leave types on shared subtrees,
         # and the fallback path needs `node` pristine.
-        resolved = resolve_types(clone_expr(node), context, dialect="hogql")
+        resolved = resolve_types(clone_expr(node), context, dialect="hogql", resolver_factory=resolver_factory)
     except Exception:
         return None
     return _leaf_selects(resolved)
@@ -801,13 +812,19 @@ def _key_behind_aggregate_subquery(select: ast.SelectQuery, incremental_key: str
     is not cheaper, and saying so beats letting the user conclude the feature is broken.
     """
     key_expr = find_key_expression(select, incremental_key)
-    if key_expr is None or not isinstance(key_expr, ast.Field):
+    while isinstance(key_expr, ast.Alias):
+        key_expr = key_expr.expr
+    if not isinstance(key_expr, ast.Field):
         return False
 
+    forwarded_name = str(key_expr.chain[-1])
     for source in _source_selects(select):
+        if forwarded_name not in _output_names(source):
+            continue
         if source.group_by or any(has_aggregation(item) for item in source.select):
-            if incremental_key in _output_names(source):
-                return True
+            return True
+        if _key_behind_aggregate_subquery(source, forwarded_name):
+            return True
     return False
 
 

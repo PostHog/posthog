@@ -45,6 +45,10 @@ class SchemaDriftError(IncrementalWriteError):
     """
 
 
+class UniqueKeyCapError(IncrementalWriteError):
+    pass
+
+
 class TableUnreadableError(IncrementalWriteError):
     """deltalite found no usable log for a table that opened earlier in the same run.
 
@@ -134,7 +138,7 @@ class UniqueKeyTracker:
 
         seen = grouped.select(self._columns)
         if seen.nbytes > self._max_bytes:
-            raise IncrementalWriteError(
+            raise UniqueKeyCapError(
                 f"This query returns too many unique keys to verify ({seen.num_rows} so far). "
                 f"Reduce the rows the query returns, or turn off incremental materialization for "
                 f"this view to fall back to a full refresh."

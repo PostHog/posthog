@@ -6,7 +6,7 @@ would assert our idea of deltalite rather than deltalite.
 """
 
 import asyncio
-from collections.abc import Collection
+from collections.abc import Callable, Collection
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
@@ -18,12 +18,25 @@ from django.test import override_settings
 
 import pyarrow as pa
 import deltalake
+import structlog
 
 from posthog.sync import database_sync_to_async
-from posthog.temporal.data_modeling.activities import MaterializeViewInputs, materialize_view_activity
-from posthog.temporal.data_modeling.activities.incremental_write import IncrementalWriteError, TableUnreadableError
+from posthog.temporal.common.clickhouse import ClickHouseQueryTimeoutError
+from posthog.temporal.data_modeling.activities import (
+    MaterializeViewInputs,
+    materialize_view as materialize_view_module,
+    materialize_view_activity,
+)
+from posthog.temporal.data_modeling.activities.incremental_write import (
+    IncrementalWriteError,
+    TableUnreadableError,
+    UniqueKeyCapError,
+)
 from posthog.temporal.data_modeling.activities.materialize_view import (
     FAILED_UPDATE_REASON_PREFIX,
+    FIRST_BUILD_RESUMED_REASON,
+    IncrementalWindow,
+    WindowCannotShrinkError,
     get_aws_storage_options,
 )
 
@@ -31,6 +44,8 @@ from products.data_modeling.backend.facade.api import get_incremental_state
 from products.data_warehouse.backend.facade.api import get_s3_client
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
+
+LOGGER = structlog.get_logger(__name__)
 
 CONFIG = {"enabled": True, "incremental_key": "day", "unique_key": ["day"]}
 
@@ -132,6 +147,127 @@ async def _run(
 async def _configure(asaved_query, config: dict | None = None) -> None:
     asaved_query.incremental_config = config if config is not None else CONFIG
     await database_sync_to_async(asaved_query.save)(update_fields=["incremental_config"])
+
+
+MATERIALIZE_VIEW = "posthog.temporal.data_modeling.activities.materialize_view"
+TODAY = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+RECENT_0, RECENT_1, RECENT_2 = (TODAY - timedelta(days=days) for days in (6, 4, 2))
+TIMESTAMP_TYPES = [("day", "DateTime64(6, 'UTC')"), ("c", "Int64")]
+INTEGER_TYPES = [("day", "Int64"), ("c", "Int64")]
+
+HANG = RuntimeError("this window never returns")
+WindowFailure = Callable[[IncrementalWindow], BaseException | None]
+
+
+def _windowing_enabled():
+    return unittest.mock.patch(f"{MATERIALIZE_VIEW}.windowed_materialization_enabled", return_value=True)
+
+
+def _in_window(key: Any, window: IncrementalWindow | None) -> bool:
+    if window is None:
+        return True
+    if key is None:
+        return window.include_null_keys
+    return key >= window.since and (window.until is None or key < window.until)
+
+
+class _WindowedSource:
+    def __init__(
+        self,
+        rows: list[tuple[Any, int]],
+        *,
+        windows: list[Any],
+        integer_keys: bool = False,
+        fail: WindowFailure | None = None,
+        partial_on_failure: bool = False,
+        first_slot_wait: float = 0,
+    ) -> None:
+        self.rows = rows
+        self._windows = windows
+        self._fail = fail
+        self._partial_on_failure = partial_on_failure
+        self._first_slot_wait = first_slot_wait
+        self._key_type = pa.int64() if integer_keys else pa.timestamp("us", tz="UTC")
+        self._types = INTEGER_TYPES if integer_keys else TIMESTAMP_TYPES
+
+    def _batch(self, selected: list[tuple[Any, int]]) -> pa.RecordBatch:
+        arrays = cast(
+            Collection[pa.Array],
+            [
+                pa.array([key for key, _ in selected], type=self._key_type),
+                pa.array([value for _, value in selected], type=pa.int64()),
+            ],
+        )
+        return pa.RecordBatch.from_arrays(arrays, names=["day", "c"])
+
+    def __call__(self, *args, window: IncrementalWindow | None = None, on_query_start=None, **kwargs):
+        self._windows.append(window)
+        slot_wait = self._first_slot_wait if len(self._windows) == 1 else 0
+
+        async def generator():
+            await asyncio.sleep(slot_wait)
+            if on_query_start is not None:
+                on_query_start()
+            selected = [row for row in self.rows if _in_window(row[0], window)]
+            error = self._fail(window) if self._fail is not None and window is not None else None
+            if error is HANG:
+                await asyncio.Event().wait()
+            if error is not None:
+                if self._partial_on_failure and selected:
+                    yield self._batch([max(selected, key=lambda row: row[0])]), self._types
+                raise error
+            yield self._batch(selected), self._types
+
+        return generator()
+
+    async def has_rows(self, *args, since: Any = None, until: Any = None) -> bool:
+        return any(
+            key is not None and (since is None or key >= since) and (until is None or key < until)
+            for key, _ in self.rows
+        )
+
+    async def sample_key(self, *args) -> Any:
+        return next((key for key, _ in self.rows if key is not None), None)
+
+
+def _windowed_source(rows: list[tuple[Any, int]], **options: Any) -> _WindowedSource:
+    return _WindowedSource(rows, **options)
+
+
+def _short_window_deadline(margin: timedelta = timedelta(seconds=2)):
+    return unittest.mock.patch.multiple(
+        MATERIALIZE_VIEW, HOGQL_INCREASED_MAX_EXECUTION_TIME=0, WINDOW_DEADLINE_MARGIN=margin
+    )
+
+
+def _fails_when_window_holds(key: Any, error: BaseException, *, wider_than: Any = None, times: int | None = None):
+    failures: list[IncrementalWindow] = []
+
+    def fail(window: IncrementalWindow) -> BaseException | None:
+        if not _in_window(key, window) or (times is not None and len(failures) >= times):
+            return None
+        if wider_than is not None and (window.until is None or window.until - window.since <= wider_than):
+            return None
+        failures.append(window)
+        return error
+
+    return fail
+
+
+async def _run_windowed(
+    activity_environment, ateam, anode, ajob, adag, source: _WindowedSource, key_range: tuple[Any, Any]
+):
+    with (
+        _windowing_enabled(),
+        unittest.mock.patch(f"{MATERIALIZE_VIEW}.hogql_table", source),
+        unittest.mock.patch(f"{MATERIALIZE_VIEW}._probe_key_range", return_value=key_range),
+        unittest.mock.patch(f"{MATERIALIZE_VIEW}._has_rows", source.has_rows),
+        unittest.mock.patch(f"{MATERIALIZE_VIEW}._sample_key", source.sample_key),
+    ):
+        return await activity_environment.run(
+            materialize_view_activity,
+            MaterializeViewInputs(team_id=ateam.pk, dag_id=str(adag.id), node_id=str(anode.id), job_id=str(ajob.id)),
+        )
 
 
 @pytest.mark.usefixtures("minio_client")
@@ -444,11 +580,13 @@ class TestIncrementalMaterialization:
     async def test_no_config_rebuilds_every_run(
         self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag
     ):
-        with _settings(bucket_name):
-            first = await _run(activity_environment, ateam, anode, ajob, adag, _batch([DAY1], [10]))
-            await _run(activity_environment, ateam, anode, ajob, adag, _batch([DAY2], [20]))
+        windows: list[Any] = []
+        with _settings(bucket_name), _windowing_enabled():
+            first = await _run(activity_environment, ateam, anode, ajob, adag, _batch([DAY1], [10]), windows=windows)
+            await _run(activity_environment, ateam, anode, ajob, adag, _batch([DAY2], [20]), windows=windows)
 
         assert _rows(first.table_uri) == [(DAY2, 20)]
+        assert windows == [None, None]
 
     async def test_multiple_batches_in_one_run_all_land(
         self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag
@@ -546,8 +684,10 @@ class TestIncrementalMaterialization:
             await _run(activity_environment, ateam, anode, ajob, adag, _batch([DAY3], [30]), windows=windows)
 
         assert windows[0] is None, "the first run is a full refresh with no window"
+        assert len(windows) == 2
         assert windows[1] is not None
         assert windows[1].since == DAY2 - timedelta(seconds=3600)
+        assert windows[1].until is None
 
 
 class _RecordingProducer:
@@ -713,3 +853,381 @@ class TestCDPRowStaging:
                 await _run(activity_environment, ateam, anode, ajob, adag, _batch([DAY1, DAY1], [10, 11]))
 
         assert producer.staged == []
+
+
+async def _state(asaved_query):
+    await database_sync_to_async(asaved_query.refresh_from_db)()
+    return get_incremental_state(asaved_query)
+
+
+@pytest.mark.usefixtures("minio_client")
+class TestWindowedMaterialization:
+    async def test_a_first_build_in_windows_lands_every_row_once(
+        self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag
+    ):
+        await _configure(asaved_query, {**CONFIG, "unique_key": ["c"]})
+        windows: list[Any] = []
+        source = _windowed_source([(RECENT_0, 1), (None, 5), (RECENT_2, 1)], windows=windows)
+
+        with _settings(bucket_name):
+            result = await _run_windowed(activity_environment, ateam, anode, ajob, adag, source, (RECENT_0, RECENT_2))
+
+        assert _rows(result.table_uri) == [(RECENT_2, 1), (None, 5)]
+        assert len(windows) > 1
+        assert windows[0].since <= RECENT_0 and windows[0].include_null_keys
+        assert not any(window.include_null_keys for window in windows[1:])
+        assert windows[-1].until is None
+        state = await _state(asaved_query)
+        assert state.watermark == RECENT_2.isoformat()
+        assert state.first_build_in_progress is False
+        await database_sync_to_async(ajob.refresh_from_db)()
+        assert ajob.run_mode == "full_refresh"
+
+    @pytest.mark.parametrize(
+        "rows,key_range,failing_key,integer_keys",
+        [
+            pytest.param(
+                [(RECENT_0, 10), (RECENT_1, 20), (RECENT_2, 30)],
+                (RECENT_0, RECENT_2),
+                RECENT_1,
+                False,
+                id="datetime_key",
+            ),
+            pytest.param([(0, 10), (20, 20), (40, 30)], (0, 40), 20, True, id="integer_key"),
+        ],
+    )
+    async def test_a_retry_after_a_failed_window_resumes_from_the_saved_window(
+        self,
+        activity_environment,
+        ateam,
+        anode,
+        asaved_query,
+        ajob,
+        bucket_name,
+        adag,
+        rows,
+        key_range,
+        failing_key,
+        integer_keys,
+    ):
+        await _configure(asaved_query)
+        first_attempt: list[Any] = []
+        retry: list[Any] = []
+        failing = _windowed_source(
+            rows,
+            windows=first_attempt,
+            integer_keys=integer_keys,
+            fail=_fails_when_window_holds(failing_key, RuntimeError("worker restarted")),
+        )
+
+        with _settings(bucket_name):
+            with pytest.raises(RuntimeError, match="worker restarted"):
+                await _run_windowed(activity_environment, ateam, anode, ajob, adag, failing, key_range)
+            interrupted = await _state(asaved_query)
+
+            result = await _run_windowed(
+                activity_environment,
+                ateam,
+                anode,
+                ajob,
+                adag,
+                _windowed_source(rows, windows=retry, integer_keys=integer_keys),
+                key_range,
+            )
+
+        assert interrupted.first_build_in_progress is True
+        assert interrupted.watermark == (rows[0][0] if integer_keys else rows[0][0].isoformat())
+        assert retry[0].since == rows[0][0]
+        assert _rows(result.table_uri) == rows
+        finished = await _state(asaved_query)
+        assert finished.first_build_in_progress is False
+        assert finished.backfill_until is None
+        await database_sync_to_async(ajob.refresh_from_db)()
+        assert ajob.run_mode == "full_refresh"
+        assert ajob.full_refresh_reason == FIRST_BUILD_RESUMED_REASON
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            pytest.param(ClickHouseQueryTimeoutError("Code: 159. Timeout exceeded"), id="timeout"),
+            pytest.param(UniqueKeyCapError("too many unique keys"), id="unique_key_cap"),
+            pytest.param(HANG, id="stream_never_returns"),
+        ],
+    )
+    async def test_an_oversized_window_is_halved_and_the_build_finishes(
+        self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag, error
+    ):
+        await _configure(asaved_query)
+        windows: list[Any] = []
+        rows = [(RECENT_0, 10), (RECENT_1, 20), (RECENT_2, 30)]
+        source = _windowed_source(
+            rows,
+            windows=windows,
+            fail=_fails_when_window_holds(RECENT_1, error, wider_than=timedelta(days=1)),
+            partial_on_failure=True,
+        )
+
+        with _settings(bucket_name), _short_window_deadline():
+            result = await _run_windowed(activity_environment, ateam, anode, ajob, adag, source, (RECENT_0, RECENT_2))
+
+        assert _rows(result.table_uri) == rows
+        assert result.row_count == len(rows)
+        holding = [window for window in windows if window.until is not None and _in_window(RECENT_1, window)]
+        assert holding[-1].until - holding[-1].since <= timedelta(days=1)
+
+    async def test_a_crash_after_a_halved_window_resumes_without_skipping_rows(
+        self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag
+    ):
+        await _configure(asaved_query)
+        unwritten = RECENT_0 + timedelta(days=2, hours=5)
+        streamed_before_timeout = RECENT_0 + timedelta(days=2, hours=12)
+        rows = [(RECENT_0, 10), (unwritten, 20), (streamed_before_timeout, 30), (RECENT_2, 40)]
+        failures: list[IncrementalWindow] = []
+
+        def fail(window: IncrementalWindow) -> BaseException | None:
+            if not _in_window(unwritten, window) or window.until is None:
+                return None
+            failures.append(window)
+            if len(failures) == 1:
+                return ClickHouseQueryTimeoutError("Code: 159. Timeout exceeded")
+            return RuntimeError("worker restarted")
+
+        with _settings(bucket_name):
+            with pytest.raises(RuntimeError, match="worker restarted"):
+                await _run_windowed(
+                    activity_environment,
+                    ateam,
+                    anode,
+                    ajob,
+                    adag,
+                    _windowed_source(rows, windows=[], fail=fail, partial_on_failure=True),
+                    (RECENT_0, RECENT_2),
+                )
+            result = await _run_windowed(
+                activity_environment, ateam, anode, ajob, adag, _windowed_source(rows, windows=[]), (RECENT_0, RECENT_2)
+            )
+
+        assert _rows(result.table_uri) == rows
+
+    async def test_a_stray_ancient_key_does_not_make_the_build_crawl_through_the_gap(
+        self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag
+    ):
+        await _configure(asaved_query)
+        rows = [(datetime(2001, 1, 1, tzinfo=UTC), 1), (RECENT_0, 10), (RECENT_2, 30)]
+        windows: list[Any] = []
+
+        with _settings(bucket_name):
+            result = await _run_windowed(
+                activity_environment,
+                ateam,
+                anode,
+                ajob,
+                adag,
+                _windowed_source(rows, windows=windows),
+                (rows[0][0], RECENT_2),
+            )
+
+        assert _rows(result.table_uri) == rows
+        assert len(windows) < 40
+
+    async def test_an_existence_check_closes_its_stream_as_soon_as_it_returns(self, ateam):
+        closed: list[bool] = []
+
+        def stream(*args, **kwargs):
+            async def generator():
+                try:
+                    yield _batch([RECENT_0], [1]), TIMESTAMP_TYPES
+                    yield _batch([RECENT_1], [2]), TIMESTAMP_TYPES
+                finally:
+                    closed.append(True)
+
+            return generator()
+
+        with unittest.mock.patch(f"{MATERIALIZE_VIEW}.hogql_table", stream):
+            found = await materialize_view_module._has_rows(
+                "SELECT toStartOfDay(timestamp) AS day FROM events", ateam, LOGGER, "day", until=TODAY
+            )
+
+        assert found is True
+        assert closed == [True]
+
+    async def test_a_window_at_the_minimum_span_fails_without_losing_progress(
+        self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag
+    ):
+        await _configure(asaved_query)
+        source = _windowed_source(
+            [(RECENT_0, 10), (RECENT_1, 20)],
+            windows=[],
+            fail=_fails_when_window_holds(RECENT_1, ClickHouseQueryTimeoutError("Code: 159. Timeout exceeded")),
+        )
+
+        with _settings(bucket_name):
+            with pytest.raises(WindowCannotShrinkError):
+                await _run_windowed(activity_environment, ateam, anode, ajob, adag, source, (RECENT_0, RECENT_1))
+
+        state = await _state(asaved_query)
+        assert state.watermark == RECENT_0.isoformat()
+
+    async def test_waiting_for_a_query_slot_does_not_shrink_the_window(
+        self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag
+    ):
+        await _configure(asaved_query)
+        windows: list[Any] = []
+        rows = [(RECENT_0, 10), (RECENT_1, 20)]
+        source = _windowed_source(rows, windows=windows, first_slot_wait=1.0)
+
+        with _settings(bucket_name), _short_window_deadline(timedelta(milliseconds=500)):
+            result = await _run_windowed(activity_environment, ateam, anode, ajob, adag, source, (RECENT_0, RECENT_1))
+
+        assert _rows(result.table_uri) == rows
+        assert len({window.since for window in windows}) == len(windows)
+
+    async def test_adjacent_integer_keys_build_in_separate_windows(
+        self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag
+    ):
+        await _configure(asaved_query)
+        windows: list[Any] = []
+        rows = [(15, 10), (16, 20)]
+
+        with _settings(bucket_name):
+            result = await _run_windowed(
+                activity_environment,
+                ateam,
+                anode,
+                ajob,
+                adag,
+                _windowed_source(rows, windows=windows, integer_keys=True),
+                (15, 16),
+            )
+
+        assert _rows(result.table_uri) == rows
+        assert windows[0].until == 16
+
+    async def test_a_sampled_datetime_key_reads_as_a_datetime(self, ateam):
+        def stream(*args, **kwargs):
+            async def generator():
+                seconds = pa.array([int(RECENT_0.timestamp())], type=pa.uint32())
+                yield pa.RecordBatch.from_arrays([seconds], names=["key_sample"]), [("key_sample", "DateTime('UTC')")]
+
+            return generator()
+
+        with unittest.mock.patch(f"{MATERIALIZE_VIEW}.hogql_table", stream):
+            sample = await materialize_view_module._sample_key(
+                "SELECT toStartOfDay(timestamp) AS day, count() AS c FROM events GROUP BY day", ateam, LOGGER, "day"
+            )
+
+        assert sample == RECENT_0
+
+    async def test_a_cdp_build_saves_no_watermark_until_maintenance_succeeds(
+        self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag
+    ):
+        await _configure(asaved_query)
+        rows = [(RECENT_0, 10), (RECENT_2, 30)]
+
+        with (
+            _settings(bucket_name),
+            _patch_producer(_RecordingProducer()),
+            unittest.mock.patch(
+                f"{MATERIALIZE_VIEW}._maintain_and_list_files", side_effect=RuntimeError("vacuum failed")
+            ),
+            pytest.raises(RuntimeError, match="vacuum failed"),
+        ):
+            await _run_windowed(
+                activity_environment, ateam, anode, ajob, adag, _windowed_source(rows, windows=[]), (RECENT_0, RECENT_2)
+            )
+
+        state = await _state(asaved_query)
+        assert state.watermark is None
+        assert state.first_build_in_progress is True
+
+    async def test_a_key_the_filter_cannot_push_down_builds_in_one_query(
+        self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag
+    ):
+        asaved_query.query = {
+            "kind": "HogQLQuery",
+            "query": "WITH daily AS (SELECT toStartOfDay(timestamp) AS day, count() AS c FROM events GROUP BY day) "
+            "SELECT day, c FROM daily",
+        }
+        await database_sync_to_async(asaved_query.save)(update_fields=["query"])
+        await _configure(asaved_query)
+        windows: list[Any] = []
+
+        with _settings(bucket_name):
+            await _run_windowed(
+                activity_environment,
+                ateam,
+                anode,
+                ajob,
+                adag,
+                _windowed_source([(RECENT_0, 10), (RECENT_2, 30)], windows=windows),
+                (RECENT_0, RECENT_2),
+            )
+
+        assert windows == [None]
+
+    async def test_a_run_that_fits_one_window_issues_one_unbounded_query(
+        self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag
+    ):
+        await _configure(asaved_query)
+        recent = datetime.now(UTC) - timedelta(hours=6)
+        windows: list[Any] = []
+
+        with _settings(bucket_name):
+            await _run(activity_environment, ateam, anode, ajob, adag, _batch([recent], [10]))
+            await _run_windowed(
+                activity_environment,
+                ateam,
+                anode,
+                ajob,
+                adag,
+                _windowed_source([(recent, 10)], windows=windows),
+                (recent, recent),
+            )
+
+        assert len(windows) == 1
+        assert windows[0].until is None
+
+    async def test_a_cdp_view_checkpoints_only_at_the_end_and_stages_each_row_once(
+        self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag
+    ):
+        await _configure(asaved_query)
+        rows = [(RECENT_0, 10), (RECENT_1, 20), (RECENT_2, 30)]
+
+        with _settings(bucket_name):
+            with _patch_producer(_RecordingProducer()), pytest.raises(RuntimeError, match="worker restarted"):
+                await _run_windowed(
+                    activity_environment,
+                    ateam,
+                    anode,
+                    ajob,
+                    adag,
+                    _windowed_source(
+                        rows, windows=[], fail=_fails_when_window_holds(RECENT_2, RuntimeError("worker restarted"))
+                    ),
+                    (RECENT_0, RECENT_2),
+                )
+            interrupted = await _state(asaved_query)
+
+            producer = _RecordingProducer()
+            with _patch_producer(producer):
+                await _run_windowed(
+                    activity_environment,
+                    ateam,
+                    anode,
+                    ajob,
+                    adag,
+                    _windowed_source(
+                        rows,
+                        windows=[],
+                        fail=_fails_when_window_holds(
+                            RECENT_1,
+                            ClickHouseQueryTimeoutError("Code: 159. Timeout exceeded"),
+                            wider_than=timedelta(days=1),
+                            times=1,
+                        ),
+                    ),
+                    (RECENT_0, RECENT_2),
+                )
+
+        assert interrupted.watermark is None
+        assert producer.staged_rows() == rows
