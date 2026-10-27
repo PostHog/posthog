@@ -20,11 +20,13 @@ from ..marketplace.packaging import frontmatter_document, render_skill_md
 from ..models.skills import LLMSkill
 from .skill_analytics import publish_analytics_props, record_skill_event
 from .skill_error_responses import skill_write_error_response, version_conflict_response
+from .skill_manifest import build_skill_manifests
 from .skill_serializers import (
     DEFAULT_BODY_PAGE_LENGTH,
     PUBLISH_CONTENT_FIELDS,
     LLMSkillBodyFetchQuerySerializer,
     LLMSkillFetchQuerySerializer,
+    LLMSkillManifestSerializer,
     LLMSkillMarkdownSerializer,
     LLMSkillPublishSerializer,
     LLMSkillResolveQuerySerializer,
@@ -189,7 +191,7 @@ class SkillVersionActionsMixin(SkillAccessMixin):
                 return self._skill_not_found_response(skill_name)
             if base_version is not None and base_version != current_latest.version:
                 return version_conflict_response(current_latest.version)
-            set_skill_owners(self.team, skill_name, owner_users)
+            set_skill_owners(self.team, skill_name, owner_users, acting_user=cast(User, self.request.user))
         # Reread outside the transaction, so an archive landing in between can leave nothing to
         # serialize. Answer that the same way every other `name/<slug>` action answers it.
         refreshed = get_skill_by_name_from_db(self.team, skill_name=skill_name)
@@ -231,7 +233,7 @@ class SkillVersionActionsMixin(SkillAccessMixin):
                 # Owners are keyed on the logical skill, so this runs only when the caller passed
                 # `owners` — a plain body edit never touches ownership.
                 if owner_users is not None:
-                    set_skill_owners(self.team, skill_name, owner_users)
+                    set_skill_owners(self.team, skill_name, owner_users, acting_user=cast(User, self.request.user))
         except IntegrityError as err:
             if "unique_skill_file_path" in str(err):
                 raise serializers.ValidationError({"files": "Duplicate file paths are not allowed."}, code="unique")
@@ -319,3 +321,29 @@ class SkillVersionActionsMixin(SkillAccessMixin):
             }
         )
         return Response(payload.data)
+
+    @extend_schema(
+        parameters=[LLMSkillFetchQuerySerializer],
+        responses={200: LLMSkillManifestSerializer},
+    )
+    @action(
+        methods=["GET"],
+        detail=False,
+        url_path=r"name/(?P<skill_name>[^/]+)/manifest",
+        required_scopes=["llm_skill:read"],
+    )
+    @llma_track_latency("llma_skills_manifest")
+    @monitor(feature=None, endpoint="llma_skills_manifest", method="GET")
+    def manifest(self, request: Request, skill_name: str = "", **kwargs) -> Response:
+        """Every file of one skill with the digest and size of the bytes the store serves for it.
+
+        Answers an unservable skill with 200 too, so a caller can log why it skips the skill.
+        """
+        version_params = self._validated_query(LLMSkillFetchQuerySerializer, request)
+        version = cast(int | None, version_params.get("version"))
+        skill = self._load_skill_with_object_access(request, skill_name, version, defer_body=True)
+        if skill is None:
+            return self._skill_not_found_response(skill_name, version)
+
+        (manifest,) = build_skill_manifests([skill])
+        return Response(LLMSkillManifestSerializer(instance=manifest).data)

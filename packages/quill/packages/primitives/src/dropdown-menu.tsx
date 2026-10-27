@@ -8,6 +8,7 @@ import { Button } from './button'
 import { Checkbox } from './checkbox'
 import { Kbd } from './kbd'
 import { cn } from './lib/utils'
+import { MenuItemBody } from './menu-item-body'
 import { MenuLabel } from './menu-label'
 import { RadioIndicator } from './radio-group'
 import { hasTooltipContent, withTooltip } from './with-tooltip'
@@ -33,14 +34,6 @@ function withItemTooltip(
     return withTooltip(item, content, { target: 'block', side: 'inline-end' })
 }
 
-function MenuItemBody({ children, description }: { children: React.ReactNode; description: React.ReactNode }): React.ReactElement {
-    return (
-        <span className="quill-menu-item__body">
-            <span className="quill-menu-item__title">{children}</span>
-            <span className="quill-menu-item__description">{description}</span>
-        </span>
-    )
-}
 
 
 function DropdownMenu({ ...props }: MenuPrimitive.Root.Props): React.ReactElement {

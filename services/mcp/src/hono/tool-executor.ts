@@ -32,6 +32,7 @@ import {
     buildNoDataInstallNotice,
     githubConnectUrl,
     MCP_NO_DATA_INSTALL_NOTICE_FLAG,
+    NoDataInstallNoticeError,
     type NoDataNoticeMode,
     prependNoDataNotice,
     resolveNoDataNoticeMode,
@@ -97,6 +98,7 @@ interface ExecMetricState {
     /** Which kind of skill lookup missed, when the dispatcher rewrote a 404. */
     skillLookupMissKind: SkillLookupMissKind | undefined
     resultEmpty: boolean
+    noDataNotice: { mode: NoDataNoticeMode; text: string } | undefined
 }
 
 /**
@@ -146,6 +148,8 @@ function stateForToolCall(state: ResolvedState, intent: string | undefined): Res
 
 // Hooks run after SDK preparation to share its conversation handle and preserve per-call privacy suppression.
 export interface ToolCallHooks {
+    carriedContextHandle?: boolean
+    resolveConversation?(conversationId: string): Promise<ResolvedState>
     beforeExecute(state: ResolvedState): Promise<Record<string, unknown> | undefined>
     afterExecute(state: ResolvedState, result: unknown): Promise<void>
 }
@@ -236,6 +240,9 @@ export class ToolExecutor {
             rawRequestMeta && typeof rawRequestMeta === 'object' && !Array.isArray(rawRequestMeta)
                 ? (rawRequestMeta as Record<string, unknown>)
                 : undefined
+        const carriedContextHandle =
+            hooks?.carriedContextHandle ??
+            Boolean(state.requestContext.mcpSessionId || state.requestContext.mcpConversationId)
         const { analyticsMeta, args, preparedCall } = this.extractAnalyticsMetadata(
             toolName,
             rawArgs,
@@ -243,15 +250,41 @@ export class ToolExecutor {
             requestMeta,
             state.requestContext
         )
-        // In place, not copied: `RequestStateResolver` gives this one object to both the state
-        // and `RequestContext`, so events emitted through `RequestContext.trackEvent` resolve the
-        // same session. A batch never reaches here holding a handle, because the dispatcher
-        // refuses a batch containing a modern message and a legacy client carries a session.
+        // RequestContext shares this object so analytics follows the SDK's conversation handle.
         if (preparedCall?.conversationId) {
+            const previousConversationId = state.requestContext.mcpConversationId
             state.requestContext.mcpConversationId = preparedCall.conversationId
+            if (
+                !state.requestContext.mcpSessionId &&
+                preparedCall.conversationId !== previousConversationId &&
+                hooks?.resolveConversation
+            ) {
+                // Bind the new handle before execution so this call and its retry share defaults.
+                state = await hooks.resolveConversation(preparedCall.conversationId)
+            }
         }
         const callState = stateForToolCall(state, analyticsMeta.intent)
         const callParams = { ...params, arguments: args }
+
+        const targetToolName =
+            toolName === 'exec' && typeof args.command === 'string'
+                ? parseExecCallInnerToolName(args.command)
+                : toolName
+        const isContextSwitch = targetToolName === 'switch-project' || targetToolName === 'switch-organization'
+        if (isContextSwitch && !carriedContextHandle) {
+            return this.deliverConversationHandle(
+                {
+                    isError: true,
+                    content: [
+                        {
+                            type: 'text',
+                            text: 'Switch not applied. Retry with the returned `conversation_id` and include it on subsequent calls. If your client cannot retain it, pin the project or organization in the connection URL.',
+                        },
+                    ],
+                },
+                preparedCall
+            )
+        }
 
         const invitation = await hooks?.beforeExecute(callState)
         if (invitation) {
@@ -310,12 +343,32 @@ export class ToolExecutor {
             return { content: [{ type: 'text', text: `Tool ${toolName} not found` }], isError: true }
         }
 
+        const tool = preBuilt.build()
+        const rawToolArgs = (callParams.arguments ?? {}) as Record<string, unknown>
+        const firstPass = tool.schema.safeParse(rawToolArgs, { reportInput: true })
+        const rewrapped = firstPass.success
+            ? undefined
+            : repairArgumentNesting(firstPass.error, rawToolArgs, tool.schema)
+        const validation = rewrapped ? tool.schema.safeParse(rewrapped, { reportInput: true }) : firstPass
+        if (!validation.success) {
+            return this.callTool(
+                {
+                    name: toolName,
+                    schema: tool.schema,
+                    handler: (ctx, args) => tool.handler(ctx, args),
+                    _meta: tool._meta,
+                },
+                callParams,
+                state,
+                analyticsMeta
+            )
+        }
+
         const noDataNotice = await this.noDataInstallNotice(toolName, state)
         if (noDataNotice?.mode === 'block') {
             return this.returnNoDataNotice(toolName, noDataNotice.text, state, {}, analyticsMeta)
         }
 
-        const tool = preBuilt.build()
         const result = await this.callTool(
             {
                 name: toolName,
@@ -356,12 +409,12 @@ export class ToolExecutor {
         preparedCall: PreparedToolCall | undefined
     } {
         try {
+            const carriesContext = Boolean(requestContext.mcpSessionId || requestContext.mcpConversationId)
             const prepared = getPostHogClient().prepareToolCall(toolName, rawArgs, {
                 originalTool,
                 requestMeta,
-                // The SDK mints a handle only when nothing was carried, so a client that already
-                // has a session keeps it and never sees the prompt-back.
-                sessionId: resolveSessionKey(requestContext),
+                // Wrapper-only analytics hints cannot restore selections, so they must not suppress minting.
+                sessionId: carriesContext ? resolveSessionKey(requestContext) : undefined,
             })
             return {
                 analyticsMeta: {
@@ -594,25 +647,7 @@ export class ToolExecutor {
         state: ResolvedState,
         analyticsMeta?: ToolCallAnalyticsMeta
     ): Promise<unknown> {
-        const toolArgs = (params?.arguments ?? {}) as Record<string, unknown>
-        const innerToolName =
-            typeof toolArgs.command === 'string' ? parseExecCallInnerToolName(toolArgs.command) : undefined
-        const noDataNotice = innerToolName ? await this.noDataInstallNotice(innerToolName, state) : undefined
-        if (!innerToolName || !noDataNotice) {
-            return this.runExecTool(params, state, analyticsMeta)
-        }
-        if (noDataNotice.mode === 'block') {
-            const execShape = execCommandAnalyticsProperties(toolArgs, state)
-            return this.returnNoDataNotice(
-                innerToolName,
-                noDataNotice.text,
-                state,
-                { ...execShape, ...execInputShapeAnalyticsProperties(toolArgs, execShape, state) },
-                analyticsMeta
-            )
-        }
-        const result = await this.runExecTool(params, { ...state, noDataAction: 'warned' }, analyticsMeta)
-        return prependNoDataNotice(result, noDataNotice.text)
+        return this.runExecTool(params, state, analyticsMeta)
     }
 
     private async runExecTool(
@@ -626,6 +661,7 @@ export class ToolExecutor {
             innerFailure: undefined,
             skillLookupMissKind: undefined,
             resultEmpty: false,
+            noDataNotice: undefined,
         }
         const resolved = this.resolveExecTool(state, execMetrics, analyticsMeta)
 
@@ -714,7 +750,7 @@ export class ToolExecutor {
                 execToolName(),
                 duration,
                 failureShape !== undefined,
-                state,
+                execMetrics.noDataNotice ? { ...state, noDataAction: 'warned' } : state,
                 {
                     ...execShape,
                     ...execInputShape,
@@ -732,9 +768,18 @@ export class ToolExecutor {
                 this.servedToolDescription(execToolName())
             )
 
-            return response
+            return execMetrics.noDataNotice ? prependNoDataNotice(response, execMetrics.noDataNotice.text) : response
         } catch (error: unknown) {
             const metricTool = execToolName()
+            if (error instanceof NoDataInstallNoticeError) {
+                return this.returnNoDataNotice(
+                    error.toolName,
+                    error.text,
+                    state,
+                    { ...execShape, ...execInputShape },
+                    analyticsMeta
+                )
+            }
             const classification = classifyToolError(error, metricTool)
             if (!execMetrics.innerToolName) {
                 // Match the inner-tool path, which labels rejected input `validation_error`.
@@ -955,6 +1000,7 @@ export class ToolExecutor {
                 flagGatedTools: state.flagGatedTools,
                 ...(state.heldTools ? { heldTools: state.heldTools } : {}),
                 builtInSkillHint: this.builtInSkillHint(state),
+                oauthClientId: state.oauthClientId,
                 ...(state.gatewayToolsEnabled
                     ? {
                           gatewayToolsProvider: () => this.gatewayToolsFor(state),
@@ -965,6 +1011,13 @@ export class ToolExecutor {
                 // and counts. Merge so the richer report wins without losing the verb.
                 trackCommand: (meta) => {
                     execMetrics.commandMeta = { ...execMetrics.commandMeta, ...meta }
+                },
+                beforeValidatedCall: async (toolName) => {
+                    const noDataNotice = await this.noDataInstallNotice(toolName, state)
+                    if (noDataNotice?.mode === 'block') {
+                        throw new NoDataInstallNoticeError(toolName, noDataNotice.text)
+                    }
+                    execMetrics.noDataNotice = noDataNotice
                 },
             }
         )

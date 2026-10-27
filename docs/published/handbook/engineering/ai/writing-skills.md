@@ -404,21 +404,23 @@ and packaged into `dist/skills.zip` with deterministic timestamps for reproducib
 ## Distribution
 
 Distribution is automatic – once a skill lands on `master`,
-CI builds the `dist/skills.zip` artifact and publishes it to two downstream repositories:
+`ci-agent-skills.yml` builds `dist/skills.zip` and publishes it as the `agent-skills-latest` GitHub release.
+Two downstream repositories pull that release, together with context-mill's, in a daily sync at 12:00 UTC:
 
-- [`PostHog/skills`](https://github.com/PostHog/skills) –
-  the canonical distribution repo.
-  Each built skill is pushed as a standalone directory so it can be synced directly into
-  any agent that follows Anthropic's skills layout (Claude Code, Claude Desktop, etc.).
 - [`PostHog/ai-plugin`](https://github.com/PostHog/ai-plugin) –
-  the plugin distribution used by coding agents that consume PostHog capabilities
-  (PostHog Desktop, PostHog AI). The plugin bundles the skills alongside the MCP tool definitions
-  so agents get the "how" and the "what" together.
+  the PostHog plugin for AI clients.
+  It bundles the skills with the MCP server, so agents get the "how" and the "what" together.
+  Its README has the install steps for each supported client:
+  Claude Code, Claude Cowork, Cursor, Codex, Antigravity, Gemini CLI and Grok.
+  Point users there rather than copying install steps into other docs.
+- [`PostHog/skills`](https://github.com/PostHog/skills) –
+  a mirror with each built skill as a standalone directory,
+  for agents that load skills without a plugin.
+  It also hosts a Claude Code plugin marketplace for skills authored there.
 
-PostHog Desktop already consumes skills automatically, and PostHog AI consumes the same set.
-Because both repositories are updated from the same `dist/skills.zip` on every merge to `master`,
-you don't need to handle distribution yourself –
-merge your skill and it shows up in both places on the next CI run.
+PostHog Desktop and the Tasks sandbox pull `agent-skills-latest` themselves (see the table below).
+You don't need to handle distribution yourself:
+a merged skill reaches the plugin and the mirror after the next daily sync, and users get it when their client updates the plugin.
 
 ### Context-mill skills override this repo's
 
@@ -442,7 +444,6 @@ so a skill from this repo is absent there rather than overwritten.
 | PostHog Desktop runtime, every 30 min | `products/desktop/packages/workspace-server/src/services/posthog-plugin/update-skills-saga.ts`                              |
 | Desktop harness bundle                | `packages/agent/packages/harness/tsup.config.ts` – context-mill only, this repo's skills are absent rather than overwritten |
 | Tasks sandbox base image              | `.github/workflows/cd-sandbox-base-image.yml`                                                                               |
-| Tasks golden snapshot                 | `.github/workflows/cd-tasks-golden-snapshot.yml`                                                                            |
 | `PostHog/skills` mirror               | that repo's `.github/workflows/sync-omnibus.yml`                                                                            |
 | `PostHog/ai-plugin` plugin            | that repo's `.github/workflows/sync-skills.yml`                                                                             |
 

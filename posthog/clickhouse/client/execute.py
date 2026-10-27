@@ -455,7 +455,7 @@ def sync_execute(
             workload = Workload.OFFLINE if is_api_key_auth else Workload.ONLINE
         ch_user = ClickHouseUser.API if is_api_key_auth else ClickHouseUser.APP
 
-    if tags.workload == Workload.ENDPOINTS and workload not in (Workload.LOGS, Workload.NEW_EVENTS_CLUSTER):
+    if tags.workload == Workload.ENDPOINTS and workload != Workload.LOGS:
         workload = Workload.ENDPOINTS
 
     if workload == Workload.DEFAULT:
@@ -488,7 +488,8 @@ def sync_execute(
         elif tags.kind == "request" and "api/" in tags_id and "capture" not in tags_id:
             # process requests made to API from the PH app
             ch_user = ClickHouseUser.APP
-        elif tags.feature == Feature.CACHE_WARMUP:
+        # A ch_user tag wins, so warming work such as experiment recalculation can run as its own user.
+        elif tags.feature == Feature.CACHE_WARMUP and not tags.ch_user:
             ch_user = ClickHouseUser.CACHE_WARMUP
 
     # update tags if inside temporal (should not). Only meaningful inside a Temporal activity,

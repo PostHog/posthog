@@ -1,4 +1,7 @@
-from typing import TYPE_CHECKING, Any, Final
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
+from typing import TYPE_CHECKING, Any, Final, Optional
 
 from django.db import models, transaction
 from django.db.models.signals import post_delete, post_save
@@ -7,6 +10,7 @@ from django.utils.functional import Promise
 
 import structlog
 
+from posthog.exceptions_capture import capture_exception
 from posthog.helpers.encrypted_fields import EncryptedJSONStringField
 from posthog.models.tagged_items_relation import Taggable
 from posthog.models.team.team import Team
@@ -128,22 +132,49 @@ def literal_static_cohort_id(inputs: Any) -> int | None:
     return cohort_id
 
 
-def static_cohort_ids(actions: Any) -> set[int]:
-    """The cohorts that the "Add to static cohort" steps in these actions add people to.
+def _function_step_inputs(actions: Any, template_id: str) -> Iterator[Any]:
+    """The inputs of each function action that runs the template.
 
-    Only function actions count, because the serializer checks cohort access for those alone.
+    Only function actions count, because the serializer validates template inputs for those alone.
     """
-    cohort_ids: set[int] = set()
     for action in actions if isinstance(actions, list) else []:
         if not isinstance(action, dict) or action.get("type") != "function":
             continue
         config = action.get("config")
-        if not isinstance(config, dict) or config.get("template_id") != ADD_TO_STATIC_COHORT_TEMPLATE_ID:
-            continue
-        cohort_id = literal_static_cohort_id(config.get("inputs"))
-        if cohort_id is not None:
-            cohort_ids.add(cohort_id)
-    return cohort_ids
+        if isinstance(config, dict) and config.get("template_id") == template_id:
+            yield config.get("inputs")
+
+
+def static_cohort_ids(actions: Any) -> set[int]:
+    """The cohorts that the "Add to static cohort" steps in these actions add people to."""
+    cohort_ids = (
+        literal_static_cohort_id(inputs) for inputs in _function_step_inputs(actions, ADD_TO_STATIC_COHORT_TEMPLATE_ID)
+    )
+    return {cohort_id for cohort_id in cohort_ids if cohort_id is not None}
+
+
+# The "Opt out of messages" step. Its template lives in the plugin server.
+OPT_OUT_OF_MESSAGES_TEMPLATE_ID: Final[str] = "template-posthog-opt-out-of-messages"
+# The step's category value for all marketing messages. Matches the messaging product's reserved preference key.
+ALL_MARKETING_CATEGORY_ID: Final[str] = "$all"
+
+
+def literal_opt_out_category_id(inputs: Any) -> str | None:
+    """The message category id an "Opt out of messages" step names as a plain value, or None."""
+    category_input = inputs.get("category_id") if isinstance(inputs, dict) else None
+    category_id = category_input.get("value") if isinstance(category_input, dict) else None
+    if not isinstance(category_id, str) or not category_id.strip():
+        return None
+    return category_id.strip()
+
+
+def opt_out_category_ids(actions: Any) -> set[str]:
+    """The message categories that the "Opt out of messages" steps in these actions opt people out of."""
+    category_ids = (
+        literal_opt_out_category_id(inputs)
+        for inputs in _function_step_inputs(actions, OPT_OUT_OF_MESSAGES_TEMPLATE_ID)
+    )
+    return {category_id for category_id in category_ids if category_id is not None}
 
 
 # Trigger types the executor re-checks before each step: an event trigger against its filters, and a
@@ -181,6 +212,11 @@ class HogFlow(Taggable, UUIDTModel):
         indexes = [
             models.Index(fields=["status", "team"]),
             models.Index(fields=["version", "team"]),
+            models.Index(
+                fields=["team", "source_record"],
+                name="hogflow_team_source_record_idx",
+                condition=models.Q(source_record__isnull=False),
+            ),
         ]
 
         constraints = [
@@ -201,6 +237,9 @@ class HogFlow(Taggable, UUIDTModel):
     origin_product = models.CharField(
         max_length=40, choices=hog_flow_origin_product_choices, null=True, blank=True, db_index=False
     )
+    # The record another product's "message these people" entry point started this flow from, as
+    # "<kind>:<id>". A later broadcast from the same record warns that this one already went out.
+    source_record = models.CharField(max_length=255, null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
@@ -271,10 +310,50 @@ class HogFlow(Taggable, UUIDTModel):
         return f"HogFlow {self.id}/{self.version}: {self.name}"
 
 
+# Every reload makes each worker drop the team's whole workflow list, so a bulk write sends a few large ones.
+RELOAD_BATCH_SIZE = 500
+_deferred_reloads: ContextVar[Optional[dict[int, set[str]]]] = ContextVar("hog_flow_deferred_reloads", default=None)
+
+
+@contextmanager
+def defer_hog_flow_reloads() -> Iterator[None]:
+    """Collect the worker reloads of the saves inside the block and send them together when it ends."""
+    if _deferred_reloads.get() is not None:
+        yield
+        return
+    pending: dict[int, set[str]] = {}
+    token = _deferred_reloads.set(pending)
+    try:
+        yield
+    finally:
+        _deferred_reloads.reset(token)
+        for team_id, hog_flow_ids in pending.items():
+            ordered = sorted(hog_flow_ids)
+            for start in range(0, len(ordered), RELOAD_BATCH_SIZE):
+                _reload_batch_on_workers(team_id, ordered[start : start + RELOAD_BATCH_SIZE])
+
+
+def _reload_batch_on_workers(team_id: int, hog_flow_ids: list[str]) -> None:
+    # The saves have already committed, so a failed publish must not fail the request that made them.
+    # Workers also expire their cached workflows on a timer, so a lost reload only delays the change.
+    for attempt in range(2):
+        try:
+            reload_hog_flows_on_workers(team_id=team_id, hog_flow_ids=hog_flow_ids)
+            return
+        except Exception as e:
+            if attempt == 1:
+                logger.exception("hog_flow_deferred_reload_failed", team_id=team_id, hog_flow_count=len(hog_flow_ids))
+                capture_exception(e)
+
+
 @receiver(post_save, sender=HogFlow)
 def hog_flow_saved(sender, instance: HogFlow, created, update_fields=None, **kwargs):
     # Draft columns don't affect live execution, so workers don't need a config reload for them.
     if update_fields and set(update_fields) <= {"draft", "draft_updated_at"}:
+        return
+    pending = _deferred_reloads.get()
+    if pending is not None:
+        pending.setdefault(instance.team_id, set()).add(str(instance.id))
         return
     reload_hog_flows_on_workers(team_id=instance.team_id, hog_flow_ids=[str(instance.id)])
 

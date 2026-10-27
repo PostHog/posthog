@@ -5,6 +5,7 @@ from typing import Literal, get_args
 
 from posthog.dataclasses import frozen
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.csv_types import CsvColumnType
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.errors import (
     INVALID_CONFIG_ERROR,
     ObjectStorageError,
@@ -220,6 +221,12 @@ class CsvOptions:
     # Mirrors ClickHouse's `format_csv_allow_double_quotes`: off means a double quote is an ordinary
     # character and never encloses a field.
     allow_double_quotes: bool = True
+    # Columns cast from text to a typed column. Every other column stays a string.
+    column_types: tuple[CsvColumnType, ...] = ()
+    # Read an unquoted `\N` as null, as ClickHouse does. Only tables moved from a self-managed table set it.
+    null_marker: bool = False
+    # The field delimiter for every file. None picks it from the file name: tabs for `.tsv`, else commas.
+    delimiter: str | None = None
 
 
 @frozen

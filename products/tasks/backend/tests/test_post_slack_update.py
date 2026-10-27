@@ -57,6 +57,18 @@ class TestPostSlackUpdate(TestCase):
             setattr(mock_run, k, v)
         return mock_run
 
+    @patch.object(SlackThreadHandler, "proactive_notifications_muted", return_value=True)
+    @patch.object(SlackThreadHandler, "delete_progress")
+    @patch.object(SlackThreadHandler, "post_completion")
+    @patch("products.tasks.backend.models.TaskRun")
+    def test_mobile_takeover_silences_private_lifecycle_notifications(
+        self, runs: MagicMock, completion: MagicMock, delete_progress: MagicMock, _muted: MagicMock
+    ) -> None:
+        runs.objects.select_related.return_value.get.return_value = self._make_mock_run(runs.Status.COMPLETED)
+        post_slack_update(PostSlackUpdateInput(run_id="run-1", slack_thread_context=self.slack_thread_context))
+        completion.assert_not_called()
+        delete_progress.assert_called_once()
+
     @patch.object(SlackThreadHandler, "post_pr_opened")
     @patch.object(SlackThreadHandler, "update_reaction")
     @patch("products.tasks.backend.models.TaskRun")

@@ -21,6 +21,7 @@ from unittest.mock import patch
 from django.test import override_settings
 
 from parameterized import parameterized
+from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     ActorsQuery,
@@ -29,12 +30,14 @@ from posthog.schema import (
     ExperimentEventExposureConfig,
     ExperimentFunnelMetric,
     ExperimentQuery,
+    HogQLPropertyFilter,
 )
 
 from posthog.hogql.context import HogQLContext
 
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 
+from products.ai_observability.backend.facade.contracts import EVALUATION_PASSED_MARKER
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.util import print_cohort_hogql_query
 from products.experiments.backend.hogql_queries.exposure_query_logic import EXPERIMENT_EXPOSURE_EVENT_CUTOFF
@@ -194,6 +197,36 @@ class TestExperimentActorsQuery(ExperimentQueryRunnerBaseTest, ClickhouseTestMix
         distinct_ids = {row[1]["distinct_ids"][0] for row in response.results}
         for distinct_id in distinct_ids:
             assert distinct_id.startswith(f"user_{variant}_")
+
+    @parameterized.expand([("metric",), ("saved_exposure_criteria",), ("request_exposure_override",)])
+    def test_experiment_funnel_actors_refuses_evaluation_pass_markers(self, placement: str) -> None:
+        _feature_flag, experiment, experiment_query = self._create_experiment_with_funnel()
+        marker_exposure = ExperimentEventExposureConfig(
+            event="$ai_evaluation", properties=[HogQLPropertyFilter(key=EVALUATION_PASSED_MARKER)]
+        )
+        if placement == "metric":
+            experiment_query.metric = ExperimentFunnelMetric(
+                series=[
+                    EventsNode(event="$ai_evaluation", properties=[HogQLPropertyFilter(key=EVALUATION_PASSED_MARKER)])
+                ]
+            )
+        elif placement == "saved_exposure_criteria":
+            experiment.exposure_criteria = {"exposure_config": marker_exposure.model_dump(mode="json")}
+            experiment.save()
+
+        actors_query = ActorsQuery(
+            source=ExperimentActorsQuery(
+                kind="ExperimentActorsQuery",
+                source=experiment_query,
+                funnelStep=1,
+                funnelStepBreakdown="control",
+                exposureConfig=marker_exposure if placement == "request_exposure_override" else None,
+            ),
+            select=["id", "person"],
+        )
+
+        with self.assertRaisesMessage(ValidationError, "Persons are not available for evaluation pass rate metrics."):
+            ActorsQueryRunner(query=actors_query, team=self.team).calculate()
 
     @time_machine.travel(EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=4), tick=False)
     def test_experiment_funnel_actors_resolves_explicit_default_exposure_event(self) -> None:

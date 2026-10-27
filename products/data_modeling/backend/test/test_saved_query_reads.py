@@ -85,12 +85,13 @@ class TestSavedQueryReads(BaseTest):
             name="orders",
             query={"kind": "HogQLQuery", "query": "SELECT 1"},
             is_materialized=False,
+            incremental_config={"enabled": True, "incremental_key": "day", "unique_key": ["day"]},
         )
         Node.objects.create(team=self.team, dag=dag, saved_query=live, type=NodeType.MAT_VIEW)
         plain = DataWarehouseSavedQuery.objects.create(
             team=self.team,
             name="plain",
-            query={"kind": "HogQLQuery", "query": "SELECT 2"},
+            query={"kind": "HogQLQuery", "query": "SELECT jev(event, 'Is this a purchase?') FROM events"},
             is_materialized=True,
         )
         Node.objects.create(team=self.team, dag=dag, saved_query=plain, type=NodeType.VIEW)
@@ -108,16 +109,18 @@ class TestSavedQueryReads(BaseTest):
                 is_managed=False,
                 origin=None,
                 created_at=live.created_at,
+                refreshes_incrementally=True,
             ),
             SavedQueryDefinition(
                 id=plain.id,
                 name="plain",
-                hogql="SELECT 2",
+                hogql="SELECT jev(event, 'Is this a purchase?') FROM events",
                 materializes=False,
                 is_test=False,
                 is_managed=False,
                 origin=None,
                 created_at=plain.created_at,
+                calls_decision_functions=True,
             ),
         ]
 

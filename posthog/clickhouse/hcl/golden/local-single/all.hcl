@@ -5532,6 +5532,10 @@ SQL
     column "pattern_version" {
       type = "UInt8"
     }
+    column "internal_source" {
+      type    = "LowCardinality(String)"
+      default = "''"
+    }
     index "idx_severity_text_set" {
       expr        = "severity_text"
       type        = "set(10)"
@@ -5760,6 +5764,10 @@ SQL
     column "pattern_version" {
       type = "UInt8"
     }
+    column "internal_source" {
+      type    = "LowCardinality(String)"
+      default = "''"
+    }
     engine "distributed" {
       cluster_name    = "posthog_single_shard"
       remote_database = "posthog"
@@ -5830,7 +5838,7 @@ SQL
 
   table "logs_pattern_buckets" {
     primary_key  = ["team_id", "time_bucket", "service_name", "namespace", "environment", "severity_text", "pattern_version"]
-    order_by     = ["team_id", "time_bucket", "service_name", "namespace", "environment", "severity_text", "pattern_version", "pattern"]
+    order_by     = ["team_id", "time_bucket", "service_name", "namespace", "environment", "severity_text", "pattern_version", "pattern", "internal_source"]
     partition_by = "toDate(time_bucket)"
     ttl          = "time_bucket + toIntervalDay(greatest(42, retention_days))"
     settings = {
@@ -5861,6 +5869,9 @@ SQL
     }
     column "pattern" {
       type = "String"
+    }
+    column "internal_source" {
+      type = "LowCardinality(String)"
     }
     column "retention_days" {
       type = "SimpleAggregateFunction(max, UInt16)"
@@ -5900,6 +5911,9 @@ SQL
     column "pattern" {
       type = "String"
     }
+    column "internal_source" {
+      type = "LowCardinality(String)"
+    }
     column "retention_days" {
       type = "SimpleAggregateFunction(max, UInt16)"
     }
@@ -5914,7 +5928,8 @@ SQL
   }
 
   table "logs_volume_buckets" {
-    order_by     = ["team_id", "time_bucket", "service_name", "namespace", "environment", "severity_text"]
+    primary_key  = ["team_id", "time_bucket", "service_name", "namespace", "environment", "severity_text"]
+    order_by     = ["team_id", "time_bucket", "service_name", "namespace", "environment", "severity_text", "internal_source"]
     partition_by = "toDate(time_bucket)"
     ttl          = "time_bucket + toIntervalDay(greatest(42, retention_days))"
     settings = {
@@ -5938,6 +5953,9 @@ SQL
       type = "LowCardinality(String)"
     }
     column "severity_text" {
+      type = "LowCardinality(String)"
+    }
+    column "internal_source" {
       type = "LowCardinality(String)"
     }
     column "retention_days" {
@@ -5970,6 +5988,9 @@ SQL
       type = "LowCardinality(String)"
     }
     column "severity_text" {
+      type = "LowCardinality(String)"
+    }
+    column "internal_source" {
       type = "LowCardinality(String)"
     }
     column "retention_days" {
@@ -7584,8 +7605,9 @@ SQL
     partition_by = "original_expiry_date"
     ttl          = "original_expiry_date"
     settings = {
-      index_granularity   = "128"
-      ttl_only_drop_parts = "1"
+      deduplicate_merge_projection_mode = "rebuild"
+      index_granularity                 = "128"
+      ttl_only_drop_parts               = "1"
     }
     column "team_id" {
       type = "Int32"
@@ -7694,6 +7716,14 @@ SQL
       expr        = "timestamp_max"
       type        = "minmax"
       granularity = 1
+    }
+    projection "service_freshness_by_hour" {
+      query = <<SQL
+SELECT team_id, time_bucket, service_name, max(arrayMax(timestamp_arr))
+GROUP BY
+  team_id, time_bucket, service_name
+SQL
+
     }
     engine "replicated_aggregating_merge_tree" {
       zoo_path     = "/clickhouse/tables/noshard/posthog.metrics4_samples"
@@ -8522,6 +8552,9 @@ SQL
       type = "String"
     }
     column "source_config_snapshot" {
+      type = "String"
+    }
+    column "source_detail" {
       type = "String"
     }
     column "query_duration_ms" {
@@ -12447,6 +12480,9 @@ SQL
       type = "String"
     }
     column "source_config_snapshot" {
+      type = "String"
+    }
+    column "source_detail" {
       type = "String"
     }
     column "query_duration_ms" {
@@ -17774,6 +17810,10 @@ SQL
     column "pattern_version" {
       type = "UInt8"
     }
+    column "internal_source" {
+      type    = "LowCardinality(String)"
+      default = "''"
+    }
     engine "distributed" {
       cluster_name    = "posthog_single_shard"
       remote_database = "posthog"
@@ -21476,7 +21516,8 @@ SELECT
   toInt64OrNull(_headers.value[indexOf(_headers.name, 'bytes_uncompressed')]) / _record_count AS _bytes_uncompressed,
   toInt64OrNull(_headers.value[indexOf(_headers.name, 'bytes_compressed')]) / _record_count AS _bytes_compressed,
   ifNull(pattern, '') AS pattern,
-  toUInt8(ifNull(pattern_version, 0)) AS pattern_version
+  toUInt8(ifNull(pattern_version, 0)) AS pattern_version,
+  _headers.value[indexOf(_headers.name, 'internal-source')] AS internal_source
 FROM posthog.kafka_logs_avro
 SQL
 
@@ -21551,6 +21592,9 @@ SQL
     }
     column "pattern_version" {
       type = "UInt8"
+    }
+    column "internal_source" {
+      type = "LowCardinality(String)"
     }
   }
 
@@ -22229,6 +22273,7 @@ SELECT
   severity_text,
   pattern_version,
   pattern,
+  internal_source,
   maxSimpleState(retention_days) AS retention_days,
   sumSimpleState(1) AS log_count
 FROM
@@ -22254,6 +22299,7 @@ FROM
       lower(severity_text) AS severity_text,
       pattern_version,
       pattern,
+      internal_source,
       toUInt16(
         least(
           intDiv(
@@ -22268,7 +22314,7 @@ FROM
     WHERE pattern_version != 0
   )
 GROUP BY
-  team_id, time_bucket, service_name, namespace, environment, severity_text, pattern_version, pattern
+  team_id, time_bucket, service_name, namespace, environment, severity_text, pattern_version, pattern, internal_source
 SQL
 
     column "team_id" {
@@ -22294,6 +22340,9 @@ SQL
     }
     column "pattern" {
       type = "String"
+    }
+    column "internal_source" {
+      type = "LowCardinality(String)"
     }
     column "retention_days" {
       type = "SimpleAggregateFunction(max, UInt16)"
@@ -22379,6 +22428,7 @@ SELECT
   namespace,
   environment,
   severity_text,
+  internal_source,
   maxSimpleState(retention_days) AS retention_days,
   sumSimpleState(1) AS log_count
 FROM
@@ -22402,6 +22452,7 @@ FROM
         )
       ) AS environment,
       lower(severity_text) AS severity_text,
+      internal_source,
       toUInt16(
         least(
           intDiv(
@@ -22415,7 +22466,7 @@ FROM
     FROM posthog.logs34
   )
 GROUP BY
-  team_id, time_bucket, service_name, namespace, environment, severity_text
+  team_id, time_bucket, service_name, namespace, environment, severity_text, internal_source
 SQL
 
     column "team_id" {
@@ -22434,6 +22485,9 @@ SQL
       type = "LowCardinality(String)"
     }
     column "severity_text" {
+      type = "LowCardinality(String)"
+    }
+    column "internal_source" {
       type = "LowCardinality(String)"
     }
     column "retention_days" {

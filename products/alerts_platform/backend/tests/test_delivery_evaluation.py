@@ -10,13 +10,11 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from products.alerts_platform.backend.delivery import delivery_paths, legacy_webhook, transition_events
+from posthog.utils import absolute_uri
+
+from products.alerts_platform.backend.delivery import delivery_paths, describers, legacy_webhook
 from products.alerts_platform.backend.delivery.destinations import list_alert_destination_groups
-from products.alerts_platform.backend.delivery.evaluation import (
-    LIVE_DELIVERY_FLAG,
-    deliver_evaluation,
-    emit_transition_events,
-)
+from products.alerts_platform.backend.delivery.evaluation import LIVE_DELIVERY_FLAG, deliver_evaluation
 from products.alerts_platform.backend.delivery.legacy_webhook import LEGACY_WEBHOOK_BODY_FLAG
 from products.alerts_platform.backend.delivery.message import AlertMessage
 from products.alerts_platform.backend.delivery.thread_store import ThreadBusy
@@ -32,15 +30,18 @@ from products.alerts_platform.backend.facade.contracts import (
     EvaluationAnnouncement,
     IncidentAction,
     LegacyEventEmission,
+    MessageLink,
     SourceKind,
-    TransitionEvent,
 )
-from products.alerts_platform.backend.models import PlatformAlertConfiguration
+from products.alerts_platform.backend.facade.enums import HoldRelease
+from products.alerts_platform.backend.models import PlatformAlertConfiguration, PlatformAlertDeliveryHold
+from products.alerts_platform.backend.tests.recorded_metrics import recorded_metrics
 
 _MODULE = "products.alerts_platform.backend.delivery.evaluation"
 _LEGACY_MODULE = "products.alerts_platform.backend.delivery.legacy_webhook"
 _WEBHOOK_URL_MODULE = "products.alerts_platform.backend.delivery.webhook_url"
 FIRING = datetime(2026, 9, 30, 9, tzinfo=UTC)
+CONFIGURATION_ID = "01900000-0000-0000-0000-0000000000c1"
 
 FIRING_EVENT = "$logs_alert_firing"
 RESOLVED_EVENT = "$logs_alert_resolved"
@@ -107,11 +108,12 @@ class HeldTransport(RecordingTransport):
 def _request(
     team_id: int,
     *,
-    configuration_id: str = "cfg-1",
+    configuration_id: str = CONFIGURATION_ID,
     sends_messages: bool = True,
     incident_actions: dict[str, IncidentAction] | None = None,
     owned_by_platform: bool = False,
     overflowed: int = 0,
+    overflow_is_lower_bound: bool = False,
     parts: int = 1,
     part: int = 0,
 ) -> AlertDeliveryRequest:
@@ -127,6 +129,7 @@ def _request(
         event_ids_by_incident_action={"trigger": OPENED_EVENT, "resolve": CLOSED_EVENT},
         owned_by_platform=owned_by_platform,
         overflowed=overflowed,
+        overflow_is_lower_bound=overflow_is_lower_bound,
         parts=parts,
         part=part,
     )
@@ -151,7 +154,7 @@ def _transition(
 def _announcement(*transitions: AnnouncedTransition) -> EvaluationAnnouncement:
     return EvaluationAnnouncement(
         source=SourceKind.LOGS,
-        configuration_id="cfg-1",
+        configuration_id=CONFIGURATION_ID,
         alert_name="API errors",
         consecutive_failures=0,
         transitions=transitions,
@@ -179,6 +182,7 @@ class TestDeliverEvaluation(APIBaseTest):
         incident_actions: dict[str, IncidentAction] | None = None,
         owned_by_platform: bool = False,
         overflowed: int = 0,
+        overflow_is_lower_bound: bool = False,
         parts: int = 1,
         part: int = 0,
         kinds: dict[str, AlertEventKind] | None = None,
@@ -213,6 +217,7 @@ class TestDeliverEvaluation(APIBaseTest):
                     incident_actions=incident_actions,
                     owned_by_platform=owned_by_platform,
                     overflowed=overflowed,
+                    overflow_is_lower_bound=overflow_is_lower_bound,
                     parts=parts,
                     part=part,
                 )
@@ -256,22 +261,38 @@ class TestDeliverEvaluation(APIBaseTest):
             [str(firing_function), str(resolved_function)]
         )
 
-    def test_a_destination_subscribed_to_both_hears_about_both(self) -> None:
+    @parameterized.expand(
+        [
+            ("exact", False, "3 more groups not tracked because this alert is at its group limit"),
+            ("lower_bound", True, "At least 3 more groups not tracked because this alert is at its group limit"),
+        ]
+    )
+    def test_a_destination_subscribed_to_both_hears_about_both(
+        self, _name: str, overflow_is_lower_bound: bool, notice: str
+    ) -> None:
         announced = _announcement(
             _transition(AlertEventKind.FIRING, "checkout"),
             _transition(AlertEventKind.RESOLVED, "search"),
         )
 
-        self._run(announced, {FIRING_EVENT: [_group(SLACK)], RESOLVED_EVENT: [_group(SLACK)]}, overflowed=3)
+        self._run(
+            announced,
+            {FIRING_EVENT: [_group(SLACK)], RESOLVED_EVENT: [_group(SLACK)]},
+            overflowed=3,
+            overflow_is_lower_bound=overflow_is_lower_bound,
+        )
 
         assert sorted(m.headline for _, m in RecordingTransport.sends) == [
             "Log alert 'API errors' is firing",
             "Log alert 'API errors' is resolved",
         ]
         overflow_notices = [
-            detail for _, m in RecordingTransport.sends for detail in m.details if detail.label == "Untracked groups"
+            detail.value
+            for _, m in RecordingTransport.sends
+            for detail in m.details
+            if detail.label == "Untracked groups"
         ]
-        assert len(overflow_notices) == 1
+        assert overflow_notices == [notice]
 
     def test_each_destination_hears_the_overflow_once_across_the_parts_of_a_split_delivery(self) -> None:
         # Sorted by key, the firing lands in part 0 and the resolve in part 1, so a destination
@@ -350,6 +371,19 @@ class TestDeliverEvaluation(APIBaseTest):
         assert [m.headline for channel, m in RecordingTransport.sends if channel == "C-1"] == chat_headlines
         assert [m.incident_action for channel, m in RecordingTransport.sends if channel == "R-1"] == [action]
 
+    @parameterized.expand([("owned_by_the_platform", True, "posthog-alert-legacy-1"), ("live_delivery", False, None)])
+    def test_only_an_alert_the_platform_owns_resolves_under_its_source_incident_key(
+        self, _name: str, owned_by_platform: bool, expected: str | None
+    ) -> None:
+        self._run(
+            _announcement(_transition(AlertEventKind.RESOLVED)),
+            {CLOSED_EVENT: [_group(PAGERDUTY)]},
+            incident_actions={"": IncidentAction.RESOLVE},
+            owned_by_platform=owned_by_platform,
+        )
+
+        assert [m.source_incident_key for channel, m in RecordingTransport.sends if channel == "R-1"] == [expected]
+
     def test_a_destination_with_no_transport_is_skipped_rather_than_failing_the_send(self) -> None:
         outcome = self._run(
             _announcement(_transition(AlertEventKind.FIRING)),
@@ -386,7 +420,7 @@ class TestDeliverEvaluation(APIBaseTest):
         assert RecordingTransport.sends == []
         assert outcome.sent == 0
 
-    def test_every_message_links_to_the_alert_page_the_request_names(self) -> None:
+    def test_every_message_links_to_the_alert_page_the_request_names_and_to_its_project(self) -> None:
         url = "https://app.example.com/project/7/logs/alerts/legacy-1"
 
         with (
@@ -401,13 +435,46 @@ class TestDeliverEvaluation(APIBaseTest):
         ):
             deliver_evaluation(replace(_request(self.team.id), source_alert_url=url))
 
-        assert [m.alert_url for _, m in RecordingTransport.sends] == [url]
+        assert [(m.alert_url, m.project) for _, m in RecordingTransport.sends] == [
+            (url, MessageLink(label=self.team.name, url=absolute_uri(f"/project/{self.team.id}")))
+        ]
 
     def test_an_evaluation_that_announced_nothing_sends_nothing(self) -> None:
         outcome = self._run(None, {FIRING_EVENT: [_group(SLACK)]})
 
         assert RecordingTransport.sends == []
         assert outcome.sent == 0
+
+    @parameterized.expand(
+        [("unreleased", None, 0), ("suppressed", HoldRelease.SUPPRESS, 0), ("sent", HoldRelease.SEND, 1)]
+    )
+    def test_a_held_evaluation_sends_only_once_released_with_a_send(
+        self, _name: str, release: HoldRelease | None, sent: int
+    ) -> None:
+        configuration = PlatformAlertConfiguration.objects.for_team(self.team.id).create(
+            id=CONFIGURATION_ID,
+            team=self.team,
+            name="API errors",
+            source_kind=PlatformAlertConfiguration.SourceKind.LOGS,
+            check_interval_minutes=10,
+        )
+        PlatformAlertDeliveryHold.objects.for_team(self.team.id).create(
+            team=self.team,
+            configuration=configuration,
+            evaluation_key="eval-1",
+            reason="investigation",
+            request={},
+            held_at=FIRING,
+            release_after=FIRING,
+            released_at=FIRING if release else None,
+            release_action=release,
+        )
+
+        outcome = self._run(
+            _announcement(_transition(AlertEventKind.FIRING)), {FIRING_EVENT: [_group(SLACK)]}, owned_by_platform=True
+        )
+
+        assert outcome.sent == sent
 
     def test_a_team_without_the_flag_is_not_contacted(self) -> None:
         outcome = self._run(
@@ -516,110 +583,18 @@ class TestDeliverEvaluation(APIBaseTest):
         # which would send grandfathered teams the Alertmanager body without any error.
         assert legacy_webhook.body_for(SourceKind.LOGS) is not None
         assert delivery_paths.emitter_for(SourceKind.LOGS) is not None
-        assert SourceKind.LOGS in transition_events._source_facts
 
     def test_the_destination_owner_registers_its_lookup_at_startup(self) -> None:
         # Every other case here patches the lookup, so none of them notices a missing registration.
         assert delivery_paths._chooser is not None
-        assert transition_events._producer is not None
+        # Without it an insight alert on the HogFunction path sends nothing at all.
+        assert delivery_paths.emitter_for(SourceKind.INSIGHT) is not None
+        # Without it a native insight message carries only the platform's "Value" line.
+        assert SourceKind.INSIGHT in describers._describers
         assert (
             list_alert_destination_groups(team_id=self.team.id, alert_id="unknown", allowed_event_ids=[FIRING_EVENT])
             == []
         )
-
-
-class TestTransitionEvents(APIBaseTest):
-    def _emit(
-        self,
-        announced: EvaluationAnnouncement | None,
-        *,
-        transition_flag: bool = True,
-        live: bool = False,
-        owned_by_platform: bool = True,
-        sends_messages: bool = True,
-        facts: Any = None,
-    ) -> list[TransitionEvent]:
-        produced: list[TransitionEvent] = []
-
-        def produce(*, team_id: int, configuration_id: str, events: list[TransitionEvent]) -> None:
-            produced.extend(events)
-
-        def flag_enabled(flag: str, *args: Any, **kwargs: Any) -> bool:
-            return transition_flag if flag == transition_events.TRANSITION_EVENT_FLAG else live
-
-        with (
-            patch(
-                "products.alerts_platform.backend.delivery.team_flags.posthoganalytics.feature_enabled",
-                side_effect=flag_enabled,
-            ),
-            patch(f"{_MODULE}.announcement", return_value=announced),
-            patch.object(transition_events, "_producer", produce),
-            patch.dict(transition_events._source_facts, {SourceKind.LOGS: facts} if facts else {}, clear=True),
-        ):
-            emitted = emit_transition_events(
-                _request(self.team.id, owned_by_platform=owned_by_platform, sends_messages=sends_messages)
-            )
-        assert emitted == len(produced)
-        return produced
-
-    @parameterized.expand(
-        [
-            ("platform_owned", {}, 1),
-            ("flag_off", {"transition_flag": False}, 0),
-            ("source_still_delivers", {"owned_by_platform": False}, 0),
-            ("source_owned_on_live_delivery", {"owned_by_platform": False, "live": True}, 1),
-            ("incident_only_delivery", {"sends_messages": False}, 0),
-        ]
-    )
-    def test_an_alert_emits_only_where_the_platform_contacts_its_team(
-        self, _name: str, gates: dict[str, bool], expected: int
-    ) -> None:
-        assert len(self._emit(_announcement(_transition(AlertEventKind.FIRING)), **gates)) == expected
-
-    def test_each_transition_carries_the_platform_fields_and_the_source_facts(self) -> None:
-        firing = replace(_transition(AlertEventKind.FIRING), value=12.0, labels={"service": "api"})
-        errored = replace(_transition(AlertEventKind.ERRORED, episode_started_at=None), error_message="timeout")
-        announced = replace(_announcement(firing, errored), consecutive_failures=2)
-
-        def facts(*, transition: AnnouncedTransition, **_kwargs: Any) -> dict[str, Any]:
-            return {"alert_id": "legacy-1", "result_count": transition.value}
-
-        events = self._emit(announced, facts=facts)
-
-        assert [event.properties for event in events] == [
-            {
-                "alert_configuration_id": "cfg-1",
-                "alert_name": "API errors",
-                "source_kind": "logs",
-                "transition": "firing",
-                "occurred_at": FIRING.isoformat(),
-                "episode_started_at": FIRING.isoformat(),
-                "value": 12.0,
-                "labels": {"service": "api"},
-                "grouping_key": "",
-                "error_message": None,
-                "consecutive_failures": None,
-                "url": "",
-                "source": {"alert_id": "legacy-1", "result_count": 12.0},
-            },
-            {
-                "alert_configuration_id": "cfg-1",
-                "alert_name": "API errors",
-                "source_kind": "logs",
-                "transition": "errored",
-                "occurred_at": FIRING.isoformat(),
-                "episode_started_at": None,
-                "value": None,
-                "labels": {},
-                "grouping_key": "",
-                "error_message": "timeout",
-                "consecutive_failures": 2,
-                "url": "",
-                "source": {"alert_id": "legacy-1", "result_count": None},
-            },
-        ]
-        assert [event.uuid for event in events] == [event.uuid for event in self._emit(announced, facts=facts)]
-        assert events[0].uuid != events[1].uuid
 
 
 class TestDeliveryPath(APIBaseTest):
@@ -744,17 +719,23 @@ class TestDeliveryPath(APIBaseTest):
             )
 
     def test_a_rerun_after_a_refused_subscriber_send_emits_once(self) -> None:
-        for _ in range(2):
-            with pytest.raises(DeliveryError):
-                self._run(
-                    _announcement(_transition(AlertEventKind.FIRING)),
-                    self._chooses(DeliveryPath.HOG_FUNCTION),
-                    groups=[HOG_FUNCTION_SLACK, SUBSCRIBER],
-                    transport=RefusingTransport,
-                    real_thread_store=True,
-                )
+        with recorded_metrics() as metrics:
+            for _ in range(2):
+                with pytest.raises(DeliveryError):
+                    self._run(
+                        _announcement(_transition(AlertEventKind.FIRING)),
+                        self._chooses(DeliveryPath.HOG_FUNCTION),
+                        groups=[HOG_FUNCTION_SLACK, SUBSCRIBER],
+                        transport=RefusingTransport,
+                        real_thread_store=True,
+                    )
 
         assert len(self.emitted) == 1
+        assert [
+            (m.attributes["outcome"], m.value)
+            for m in metrics
+            if m.name == "alerts_platform_deliveries_total" and m.attributes["path"] == "hog_function"
+        ] == [("sent", 1), ("already_delivered", 1)]
 
     def test_a_held_subscriber_thread_holds_the_emission_for_the_rerun(self) -> None:
         with pytest.raises(ThreadBusy):
