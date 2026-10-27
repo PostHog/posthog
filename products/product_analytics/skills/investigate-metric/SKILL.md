@@ -132,8 +132,8 @@ Show the findings as a walkthrough when the session can display one, and as a wr
 
 ### The walkthrough
 
-Use it for a `TrendsQuery` over time, not a box plot, when the `posthog:render-ui` tool is
-available and its `tool_name` list includes `explain-chart`. It draws the chart with each moment highlighted and lets the
+Use it for a `TrendsQuery` over time, not a box plot, 2D heatmap or scatter plot, when the
+`posthog:render-ui` tool is available and its `tool_name` list includes `explain-chart`. It draws the chart with each moment highlighted and lets the
 user step through them. Map the investigation onto it:
 
 - **Anomaly** → one chapter per moment, with `start` and `end` copied exactly from the
