@@ -5,6 +5,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import api, { ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { dashboardTemplatesLogic } from 'scenes/dashboard/dashboards/templates/dashboardTemplatesLogic'
 import { urls } from 'scenes/urls'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
@@ -12,7 +13,6 @@ import { initKeaTests } from '~/test/init'
 import type { DashboardTemplateType } from '~/types'
 
 import { dashboardTemplateCopyLogic } from './dashboardTemplateCopyLogic'
-import { dashboardTemplatesLogic } from './dashboardTemplatesLogic'
 
 jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
     lemonToast: { success: jest.fn(), error: jest.fn() },

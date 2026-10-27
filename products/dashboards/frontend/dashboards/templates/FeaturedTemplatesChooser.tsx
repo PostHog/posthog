@@ -5,16 +5,21 @@ import { IconPlus } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { cn } from 'lib/utils/css-classes'
+import {
+    runBlankDashboardFlow,
+    runDashboardTemplateClickFlow,
+} from 'scenes/dashboard/dashboards/templates/dashboardTemplateCreationFlows'
+import { TemplateItem } from 'scenes/dashboard/dashboards/templates/DashboardTemplateItem'
+import { DashboardTemplateItemSkeleton } from 'scenes/dashboard/dashboards/templates/DashboardTemplateItemSkeleton'
+import {
+    DashboardTemplateProps,
+    dashboardTemplatesLogic,
+} from 'scenes/dashboard/dashboards/templates/dashboardTemplatesLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 
 import { DashboardTemplateType, TemplateAvailabilityContext } from '~/types'
 
 import BlankDashboardHog from 'public/blank-dashboard-hog.png'
-
-import { runBlankDashboardFlow, runDashboardTemplateClickFlow } from './dashboardTemplateCreationFlows'
-import { TemplateItem } from './DashboardTemplateItem'
-import { DashboardTemplateItemSkeleton } from './DashboardTemplateItemSkeleton'
-import { DashboardTemplateProps, dashboardTemplatesLogic } from './dashboardTemplatesLogic'
 
 export type FeaturedTemplatesChooserProps = Pick<
     DashboardTemplateProps,
