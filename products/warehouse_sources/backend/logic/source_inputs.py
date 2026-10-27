@@ -10,13 +10,16 @@ from collections.abc import Iterable, Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
+from django.db import transaction
+
 from posthog.sync import database_sync_to_async_pool
 
 from products.warehouse_sources.backend.facade.contracts import UnreadableSourceInputsError
 from products.warehouse_sources.backend.logic.source_credentials_rollout import (
     mirror_connection_fields,
-    shadow_compare,
-    shadow_compare_many,
+    preload_connection_fields,
+    read_connection_fields,
+    read_connection_fields_many,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -34,11 +37,11 @@ class SourceInputsStore:
     def load(source: ExternalDataSource) -> dict[str, Any]:
         """All inputs of the source: connection fields, sync settings and runtime state.
 
-        The result is a new dict, so a change to it has no effect until a write method saves it.
+        The result is a new dict, so a change to it has no effect until a write method saves it. With the
+        read flag on, the connection fields come from the credentials row of the source, so the model field
+        can hold other values.
         """
-        inputs = _decode(source.job_inputs)
-        shadow_compare(source, inputs)
-        return inputs
+        return read_connection_fields(source, _decode(source.job_inputs))
 
     @staticmethod
     def load_many(sources: Iterable[ExternalDataSource]) -> dict[UUID, dict[str, Any]]:
@@ -55,8 +58,13 @@ class SourceInputsStore:
                 loaded[source.id] = _decode(source.job_inputs)
             except UnreadableSourceInputsError:
                 continue
-        shadow_compare_many(sources, loaded)
-        return loaded
+        return read_connection_fields_many(sources, loaded)
+
+    @staticmethod
+    def preload(sources: Iterable[ExternalDataSource]) -> None:
+        """Fetch what `load` needs for these sources in one batch, so that later `load` calls on the same
+        instances add no query. Use it before a loop that calls `load` once per table of a source."""
+        preload_connection_fields(sources)
 
     @staticmethod
     def load_settings(source: ExternalDataSource) -> dict[str, Any]:
@@ -102,8 +110,9 @@ class SourceInputsStore:
         extra_update_fields: Sequence[str] = DEFAULT_EXTRA_UPDATE_FIELDS,
     ) -> None:
         """Replace all inputs of the source and save them."""
-        SourceInputsStore.assign(source, inputs)
-        source.save(update_fields=["job_inputs", *extra_update_fields])
+        with transaction.atomic():
+            SourceInputsStore.assign(source, inputs)
+            source.save(update_fields=["job_inputs", *extra_update_fields])
 
     @staticmethod
     def create(*, inputs: Mapping[str, Any], **fields: Any) -> ExternalDataSource:

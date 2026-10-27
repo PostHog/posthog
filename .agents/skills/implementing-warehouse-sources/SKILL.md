@@ -426,6 +426,9 @@ PostHog stores the connection fields of one source in one `Integration` row of t
 - The integrations API refuses to delete an `Integration` that a source still points to with a `*_integration_id` field.
 - When the team has the `warehouse-source-credentials-dual-write` flag, `save`, `asave`, `assign` and `create` copy the connection fields to this row before they write `job_inputs`. `update_runtime` never writes the row. `job_inputs` stays the source of truth while this flag controls the copy.
 - In async code, use `asave`. A call to `assign` or `save` in an event loop thread skips the copy.
+- When the team also has the `warehouse-source-credentials-read` flag, `load`, `aload` and `load_many` return the connection fields from this row and the settings and runtime keys from `job_inputs`. The two copies can then hold different values. Always read the inputs with `SourceInputsStore`. Never read `source.job_inputs` directly.
+- In async code, use `aload`. A call to `load` in an event loop thread cannot read the row and returns `job_inputs`.
+- A loop that calls `load` once per table of a source adds one row query per call. Call `SourceInputsStore.preload(sources)` first: it fetches the rows in one query, and later `load` calls on the same instances reuse them until a write through the store.
 
 ## Implementing `source_for_pipeline`
 

@@ -20,7 +20,7 @@ def list_sources_using_integration(team_id: int, integration_pk: int) -> list[So
         ExternalDataSource.objects.select_related(None)
         .filter(team_id=team_id)
         .exclude(deleted=True)
-        .only("id", "source_type", "prefix", "job_inputs")
+        .only("id", "team_id", "source_type", "prefix", "job_inputs")
     )
     inputs_by_source = SourceInputsStore.load_many(sources)
     wanted = str(integration_pk)

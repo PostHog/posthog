@@ -56,6 +56,8 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldSwitchGroupConfig,
 )
 from products.warehouse_sources.backend.facade.types import IncrementalFieldType
+from products.warehouse_sources.backend.logic.source_credentials import WarehouseSourceCredentialsStore
+from products.warehouse_sources.backend.logic.source_credentials_rollout import DUAL_WRITE_FLAG, READ_FLAG, reset_caches
 from products.warehouse_sources.backend.models.custom_oauth2_integration import CustomOAuth2Integration
 from products.warehouse_sources.backend.models.external_data_destination import (
     ExternalDataDestination,
@@ -70,6 +72,7 @@ from products.warehouse_sources.backend.presentation.views.external_data_source.
     get_credential_account_field_names,
     get_declared_field_names,
     get_direct_connection_metadata,
+    get_error_redaction_values,
     get_nonsensitive_and_sensitive_field_names,
     get_oauth_integration_kinds,
     has_preserved_credentials,
@@ -15359,3 +15362,78 @@ class TestExternalDataSourceAPIKeyScopes(APIBaseTest):
             assert response.status_code != status.HTTP_403_FORBIDDEN, response.content
         else:
             assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+
+
+class TestExternalDataSourceReadsCredentialsFromIntegration(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        reset_caches()
+        self.addCleanup(reset_caches)
+        flags = patch(
+            "products.warehouse_sources.backend.temporal.data_imports.schema_flags.posthoganalytics.feature_enabled",
+            side_effect=lambda flag, *args, **kwargs: flag in (DUAL_WRITE_FLAG, READ_FLAG),
+        )
+        flags.start()
+        self.addCleanup(flags.stop)
+        self.source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            prefix="read_switch",
+            job_inputs={
+                "host": "db.example.com",
+                "port": "5432",
+                "database": "mydb",
+                "user": "dbuser",
+                "password": "fake-stale-password",
+                "schema": "public",
+            },
+        )
+        # The row has a newer password than job_inputs, so each assertion shows which storage the API read.
+        WarehouseSourceCredentialsStore.upsert(
+            self.source,
+            {
+                "host": "db.example.com",
+                "port": "5432",
+                "database": "mydb",
+                "user": "dbuser",
+                "password": "fake-integration-password",
+            },
+        )
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_without_password_keeps_the_integration_password(self, _mock_validate_credentials) -> None:
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{self.source.pk}/",
+            data={"job_inputs": {"schema": "analytics", "password": None}},
+        )
+
+        assert response.status_code == 200, response.content
+        assert "fake-integration-password" not in response.content.decode()
+        self.source.refresh_from_db()
+        assert self.source.job_inputs["password"] == "fake-integration-password"
+        assert self.source.job_inputs["schema"] == "analytics"
+        row = WarehouseSourceCredentialsStore.get(self.source)
+        assert row is not None
+        assert row["password"] == "fake-integration-password"
+
+    def test_errors_redact_the_integration_password(self) -> None:
+        ExternalDataSchema.objects.create(
+            team_id=self.team.pk,
+            source=self.source,
+            name="users",
+            latest_error="connection failed for password fake-integration-password",
+        )
+
+        assert "fake-integration-password" in get_error_redaction_values(self.source)
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{self.source.pk}/")
+
+        assert response.status_code == 200, response.content
+        assert "fake-integration-password" not in response.content.decode()
+        assert response.json()["job_inputs"].get("password") is None

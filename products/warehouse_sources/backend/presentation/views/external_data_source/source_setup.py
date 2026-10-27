@@ -112,7 +112,7 @@ class ExternalDataSourceListSerializer(serializers.ListSerializer):
         self, data: models.manager.BaseManager[ExternalDataSource] | Iterable[ExternalDataSource]
     ) -> list[dict[str, Any]]:
         sources = list(data.all() if isinstance(data, models.manager.BaseManager) else data)
-        self.child.preloaded_source_inputs = SourceInputsStore.load_many(sources)
+        cast(ExternalDataSourceSerializers, self.child).preloaded_source_inputs = SourceInputsStore.load_many(sources)
         return super().to_representation(sources)
 
 
@@ -704,9 +704,10 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         if namespaced_adapter is not None and job_inputs_were_submitted:
             old_namespaced_resources = namespaced_adapter.resources_for_job_inputs(existing_job_inputs)
 
-        if "job_inputs" in validated_data:
-            SourceInputsStore.assign(instance, validated_data.pop("job_inputs"))
-        updated_source: ExternalDataSource = super().update(instance, validated_data)
+        with transaction.atomic():
+            if "job_inputs" in validated_data:
+                SourceInputsStore.assign(instance, validated_data.pop("job_inputs"))
+            updated_source: ExternalDataSource = super().update(instance, validated_data)
         cast(Any, updated_source)._connection_warning = connection_warning
 
         if namespaced_adapter is not None and job_inputs_were_submitted:

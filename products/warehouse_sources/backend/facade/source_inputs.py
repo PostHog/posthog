@@ -11,6 +11,7 @@ from products.warehouse_sources.backend.logic import source_inputs as _store
 class SourceInputsStore:
     load = staticmethod(_store.SourceInputsStore.load)
     load_many = staticmethod(_store.SourceInputsStore.load_many)
+    preload = staticmethod(_store.SourceInputsStore.preload)
     load_settings = staticmethod(_store.SourceInputsStore.load_settings)
     stored_as_string = staticmethod(_store.SourceInputsStore.stored_as_string)
     assign = staticmethod(_store.SourceInputsStore.assign)
