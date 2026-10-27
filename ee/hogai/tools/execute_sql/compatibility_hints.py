@@ -67,6 +67,7 @@ _ILLEGAL_ARGUMENT_TYPE_RES = (
 # A comparison or IN between a string property and a number fails before any function is named.
 _NO_COMMON_TYPE_RE = re.compile(r"There is no supertype for types (.{1,120}?) because")
 _DISPLAY_LIMIT = 80
+_UNSAFE_DISPLAY_CHARS_RE = re.compile(r"[\x00-\x1f\x7f<>]")
 _TYPE_WRAPPER_RE = re.compile(r"(?:Nullable|LowCardinality)\(([^()]*)\)")
 # A column ClickHouse names back to us is HogQL only when it is a plain field chain. Printed
 # expressions and resolved names such as `events__person.properties___email` are not.
@@ -74,7 +75,8 @@ _HOGQL_FIELD_CHAIN_RE = re.compile(r"^[A-Za-z_$][\w.$]*$")
 
 
 def _display(expression: str) -> str:
-    return expression if len(expression) <= _DISPLAY_LIMIT else f"{expression[: _DISPLAY_LIMIT - 3]}..."
+    safe = _UNSAFE_DISPLAY_CHARS_RE.sub(" ", expression)
+    return safe if len(safe) <= _DISPLAY_LIMIT else f"{safe[: _DISPLAY_LIMIT - 3]}..."
 
 
 def _nested_call(name: str, arity: int) -> str:
