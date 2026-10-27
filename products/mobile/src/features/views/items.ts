@@ -203,7 +203,7 @@ export function insightItem(context: ItemContext, target: InsightTarget): Refres
                     readAt: Date.now(),
                     serverNow: serverNow(),
                     tileOverrides: target.tileOverrides,
-                    usesOwnRange: target.usesOwnRange,
+                    usesOwnRange: target.usesOwnRange ?? (target.dashboardRef ? previous?.usesOwnRange : undefined),
                 })
                 setSnapshot(context.client, queryKey, snapshot)
                 recordResponseStatus(key, response)

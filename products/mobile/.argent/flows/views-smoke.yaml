@@ -32,7 +32,7 @@ steps:
     - await: { idle: true }
     - assert: { text: { in: { id: view-range }, contains: Last 14 days } }
 
-    - echo: On the dashboard. Pick 7 days. Expect Last 7 days and Not saved
+    - echo: On the dashboard. Pick 7 days. Expect Last 7 days without a save-status indicator or period buttons
     - tap: { id: view-range }
     - await: { visible: { id: range-sheet } }
     - tap: { id: range-chip-7d }
@@ -40,14 +40,11 @@ steps:
     - tap: { id: sheet-done }
     - await: { hidden: { id: range-sheet } }
     - assert: { text: { in: { id: view-range }, contains: Last 7 days } }
-    - await: { visible: { id: view-range-not-saved } }
+    - await: { hidden: { id: view-range-not-saved } }
+    - await: { hidden: { id: range-step-prev } }
+    - await: { hidden: { id: range-step-next } }
 
-    - echo: Step back one period. Expect the dates of the 8 days before
-    - tap: { id: range-step-prev }
-    - await: { idle: true }
-    - assert: { text: { in: { id: view-range }, contains: – } }
-
-    - echo: Reset to the saved range. Expect Last 14 days and no Not saved
+    - echo: Reset to the saved range. Expect Last 14 days
     - tap: { id: view-range }
     - await: { visible: { id: range-sheet } }
     - tool: gesture-swipe

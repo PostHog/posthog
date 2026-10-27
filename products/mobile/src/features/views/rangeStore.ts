@@ -66,7 +66,7 @@ export interface ViewRange {
     savedLabel: string | null
     /** The preset the range on screen matches, chosen or saved, so the sheet can mark its chip or row. */
     preset: RangePresetKey | null
-    /** False shows "Not saved" and "Reset to saved range". */
+    /** False makes "Reset to saved range" available in the range sheet. */
     isSaved: boolean
     /** The `filters_override` for dashboards and insights. Null reads the saved range. */
     override: FiltersOverride | null

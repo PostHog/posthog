@@ -238,7 +238,7 @@ export interface InsightSnapshot extends Freshness {
     valueAt: string | null
     previous: number | null
     delta: NumberDelta | null
-    /** The first current series, for the sparkline and the compact chart. */
+    /** The first current series, for the number pin's sparkline. */
     series: MetricSeries | null
     allSeries: InsightSeriesView[]
     /** Line or bar for a trends display over time, with any number of series and breakdowns. */
