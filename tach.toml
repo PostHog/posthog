@@ -1779,6 +1779,7 @@ depends_on = [
     "products.access_control",
     "products.data_catalog",
     "products.data_modeling",
+    "products.notifications",
     "products.warehouse_sources",
 ]
 layer = "modules"
