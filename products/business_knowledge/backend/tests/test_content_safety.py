@@ -153,6 +153,22 @@ class TestSafetyFilteringAndClassification(BaseTest):
         pending_ids = {d.document_id for d in logic.list_documents_pending_classification()}
         assert doc.id not in pending_ids
 
+    def test_pending_classification_stops_at_content_budget(self) -> None:
+        docs = [self._ready_unknown_source(f"Doc {i}", "a" * 100)[1] for i in range(3)]
+        mine = {doc.id for doc in docs}
+        with patch.object(logic, "COORDINATOR_PASS_CONTENT_BYTES", 250):
+            pending = [d.document_id for d in logic.list_documents_pending_classification() if d.document_id in mine]
+        assert len(pending) == 2
+        assert set(pending) <= mine
+
+    def test_pending_embedding_stops_at_content_budget(self) -> None:
+        docs = [self._ready_text_source(f"Doc {i}", "a" * 100)[1] for i in range(3)]
+        mine = {doc.id for doc in docs}
+        with patch.object(logic, "COORDINATOR_PASS_CONTENT_BYTES", 250):
+            pending = [d.document_id for d in logic.list_documents_pending_embedding() if d.document_id in mine]
+        assert len(pending) == 2
+        assert set(pending) <= mine
+
     def test_definitive_verdict_resets_attempts(self) -> None:
         _source, doc = self._ready_unknown_source("A", "alpha content here")
         with team_scope(self.team.id, canonical=True):
@@ -354,7 +370,7 @@ class TestSafetyClassifier(BaseTest):
 
     @override_settings(GEMINI_API_KEY="test-key")
     def test_classify_oversized_document_fails_closed_without_calling_model(self) -> None:
-        content = "a" * (safety.CLASSIFY_MAX_TOTAL_CHARS + 1)
+        content = "a" * 11
         doc = logic.PendingDocument(
             team_id=self.team.id,
             document_id=UUID("00000000-0000-0000-0000-000000000004"),
@@ -364,7 +380,7 @@ class TestSafetyClassifier(BaseTest):
             content_hash="h4",
         )
         generate = AsyncMock(side_effect=AssertionError("model must not be called for oversized docs"))
-        with patch.object(safety.genai, "AsyncClient") as mk:
+        with patch.object(safety, "CLASSIFY_MAX_TOTAL_CHARS", 10), patch.object(safety.genai, "AsyncClient") as mk:
             mk.return_value.models.generate_content = generate
             results = asyncio.run(safety.classify_documents([doc]))
 
