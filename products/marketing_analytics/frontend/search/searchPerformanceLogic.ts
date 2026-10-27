@@ -37,7 +37,7 @@ import {
     searchPerformanceSource,
     searchPerformanceSourceNotice,
     searchSourceName,
-    searchTermTables,
+    searchTermTablesToEnable,
 } from './searchPerformance'
 
 export interface SearchSourceNotice {
@@ -48,6 +48,7 @@ export interface SearchSourceNotice {
     kind: SearchNoticeKind
     /** Disabled tables the notice offers to enable. Enabling one starts a billed sync of its full history. */
     enableSchemaIds: string[]
+    enableButtonLabel: string
 }
 
 export interface searchPerformanceLogicValues extends Pick<
@@ -258,12 +259,10 @@ export const searchPerformanceLogic = kea<searchPerformanceLogicType>([
                     if (!notice) {
                         return []
                     }
-                    const enableSchemaIds =
+                    const { schemaIds: enableSchemaIds, buttonLabel: enableButtonLabel } =
                         breakdown === 'search_term' && channelTypes
-                            ? searchTermTables(source, channelTypes).flatMap(({ state, schemaId }) =>
-                                  state === 'disabled' && schemaId ? [schemaId] : []
-                              )
-                            : []
+                            ? searchTermTablesToEnable(source, channelTypes)
+                            : { schemaIds: [], buttonLabel: '' }
                     return [
                         {
                             sourceId: source.id,
@@ -271,6 +270,7 @@ export const searchPerformanceLogic = kea<searchPerformanceLogicType>([
                             name: searchSourceName(source),
                             ...notice,
                             enableSchemaIds,
+                            enableButtonLabel,
                         },
                     ]
                 }),
@@ -380,6 +380,7 @@ export const searchPerformanceLogic = kea<searchPerformanceLogicType>([
                                   name: searchSourceName(source),
                                   ...notice,
                                   enableSchemaIds: [],
+                                  enableButtonLabel: '',
                               },
                           ]
                         : []

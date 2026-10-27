@@ -186,21 +186,22 @@ class MarketingAnalyticsSearchQueryRunner(AnalyticsQueryRunner[MarketingAnalytic
         ]
         if not term_queries:
             raise ValueError("Google Ads search terms require a synced search term table")
-        # Search term tables do not carry the account currency, so it comes from the campaign table.
+        # Search term tables do not carry the currency. It is set per account, so join on customer_id only:
+        # a term whose campaign row is missing then still gets its account currency and stays in one row.
         return parse_select(
             """
             SELECT {period} AS period, nullIf(lower(trim(t.term)), '') AS keyword, NULL AS page,
-                'GoogleAds' AS platform, NULL AS matchType, nullIf(upper(c.currency), '') AS currency,
+                'GoogleAds' AS platform, NULL AS matchType, nullIf(c.currency, '') AS currency,
                 sum(t.clicks) AS click_count, sum(t.impressions) AS impression_count,
                 sum(t.cost_micros) / 1000000 AS total_cost, sum(t.conversions) AS conversion_count,
                 0 AS position_total, NULL AS top_impressions, 0 AS top_eligible_impressions,
                 NULL AS absolute_top_impressions, 0 AS absolute_top_eligible_impressions
             FROM {terms} AS t
             LEFT JOIN (
-                SELECT customer_id, campaign_id, any(customer_currency_code) AS currency
+                SELECT customer_id, anyIf(upper(customer_currency_code), customer_currency_code != '') AS currency
                 FROM {campaigns}
-                GROUP BY customer_id, campaign_id
-            ) AS c ON t.customer_id = c.customer_id AND t.campaign_id = c.campaign_id
+                GROUP BY customer_id
+            ) AS c ON t.customer_id = c.customer_id
             GROUP BY keyword, currency
             """,
             placeholders={

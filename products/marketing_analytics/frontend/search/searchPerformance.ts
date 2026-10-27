@@ -19,8 +19,13 @@ export const SEARCH_PERFORMANCE_QUERY_KEY = 'marketing-search-performance'
 export type CampaignChannelTypes = Record<ExternalDataSource['id'], string[]>
 
 const SEARCH_TERM_TABLES = [
-    { channelType: 'SEARCH', table: 'search_term_stats', campaigns: 'Search' },
-    { channelType: 'PERFORMANCE_MAX', table: 'performance_max_search_term_stats', campaigns: 'Performance Max' },
+    { channelType: 'SEARCH', table: 'search_term_stats', campaigns: 'Search', label: 'search terms table' },
+    {
+        channelType: 'PERFORMANCE_MAX',
+        table: 'performance_max_search_term_stats',
+        campaigns: 'Performance Max',
+        label: 'Performance Max search terms table',
+    },
 ] as const
 
 export const SEARCH_PLATFORM_LABELS: Record<SearchPlatform, string> = {
@@ -126,6 +131,7 @@ export type SearchTermTableState = 'missing' | Exclude<SearchTableStatus, 'pendi
 export interface SearchTermTable {
     table: string
     campaigns: string
+    label: string
     state: SearchTermTableState
     schemaId?: string
 }
@@ -140,19 +146,37 @@ export function campaignChannelTypesQuery(source: ExternalDataSource): HogQLQuer
 }
 
 /** The search term tables this Google Ads account needs, given the campaign types it runs. */
-export function searchTermTables(source: ExternalDataSource, channelTypes: string[]): SearchTermTable[] {
+function searchTermTables(source: ExternalDataSource, channelTypes: string[]): SearchTermTable[] {
     return SEARCH_TERM_TABLES.filter(({ channelType }) => channelTypes.includes(channelType)).map(
-        ({ table, campaigns }) => {
+        ({ table, campaigns, label }) => {
             const schema = source.schemas.find((schema) => schema.name === table)
             const status = searchTableStatus(schema)
             return {
                 table,
                 campaigns,
+                label,
                 state: !schema ? 'missing' : status === 'pending' ? 'syncing' : status,
                 schemaId: schema?.id,
             }
         }
     )
+}
+
+export interface SearchTermTablesToEnable {
+    schemaIds: string[]
+    buttonLabel: string
+}
+
+/** The disabled search term tables this account needs, with a button label that names them. */
+export function searchTermTablesToEnable(source: ExternalDataSource, channelTypes: string[]): SearchTermTablesToEnable {
+    const tables = searchTermTables(source, channelTypes).filter(
+        ({ state, schemaId }) => state === 'disabled' && !!schemaId
+    )
+    return {
+        schemaIds: tables.map(({ schemaId }) => schemaId!),
+        buttonLabel:
+            tables.length === 0 ? '' : tables.length === 1 ? `Enable ${tables[0].label}` : 'Enable search terms tables',
+    }
 }
 
 function searchTermsNotice(source: ExternalDataSource, channelTypes: string[] | undefined): SearchNotice | null {
@@ -166,15 +190,15 @@ function searchTermsNotice(source: ExternalDataSource, channelTypes: string[] | 
             kind: 'info',
         }
     }
-    const issues = tables.flatMap(({ table, campaigns, state }) => {
+    const issues = tables.flatMap(({ label, campaigns, state }) => {
         const message = {
-            missing: `Pull new schemas in the source settings to add ${table} for ${campaigns} campaigns.`,
-            disabled: `Enable ${table} to see search terms from ${campaigns} campaigns. Enabling it syncs the table's full history.`,
-            syncing: `${table} is syncing. Search terms from ${campaigns} campaigns will appear when the first sync finishes.`,
-            failed: `The sync of ${table} failed. Retry it in the source settings.`,
-            billing: `A billing limit is blocking the sync of ${table}. Check the source settings.`,
-            paused: `Syncing has stopped for ${table}. Resume it in the source settings.`,
-            stale: `Data in ${table} is out of date. Sync it again in the source settings.`,
+            missing: `The ${label} for ${campaigns} campaigns isn't in this source yet. Click "Pull new schemas" in the source settings to add it.`,
+            disabled: `Enable the ${label} to see search terms from ${campaigns} campaigns. Enabling it syncs the table's full history.`,
+            syncing: `The ${label} is syncing. Search terms from ${campaigns} campaigns will appear when the first sync finishes.`,
+            failed: `The ${label} failed to sync. Retry it in the source settings.`,
+            billing: `A billing limit is blocking the ${label} sync. Check the source settings.`,
+            paused: `The ${label} sync has stopped. Resume it in the source settings.`,
+            stale: `The ${label} is out of date. Sync it again in the source settings.`,
             ready: '',
             empty: '',
         }[state]
@@ -182,7 +206,7 @@ function searchTermsNotice(source: ExternalDataSource, channelTypes: string[] | 
     })
     return issues.length > 0
         ? {
-              message: issues.map(({ message }) => message).join(' '),
+              message: issues.map(({ message }) => message).join('\n'),
               kind: noticeKind(issues.map(({ state }) => state)),
           }
         : null

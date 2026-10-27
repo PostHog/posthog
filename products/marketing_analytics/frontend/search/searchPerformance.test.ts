@@ -5,7 +5,7 @@ import { ExternalDataSchemaStatus, ExternalDataSource, ExternalDataSourceSchema 
 import {
     searchPerformanceSource,
     searchPerformanceSourceNotice,
-    searchTermTables,
+    searchTermTablesToEnable,
     selectedSearchSources,
 } from './searchPerformance'
 
@@ -199,24 +199,26 @@ describe('search performance sources', () => {
     })
 
     it.each([
-        ['missing', undefined, expect.stringContaining('Pull new schemas'), []],
+        ['missing', undefined, expect.stringContaining('Pull new schemas'), [], ''],
         [
             'disabled',
             { should_sync: false },
-            expect.stringContaining('Enable performance_max_search_term_stats'),
+            expect.stringContaining('Enable the Performance Max search terms table'),
             ['pmax-id'],
+            'Enable Performance Max search terms table',
         ],
         [
             'syncing',
             { last_synced_at: undefined },
-            expect.stringContaining('performance_max_search_term_stats is syncing'),
+            expect.stringContaining('The Performance Max search terms table is syncing'),
             [],
+            '',
         ],
-        ['ready', {}, null, []],
-        ['synced with no rows', { table: undefined, status: ExternalDataSchemaStatus.Completed }, null, []],
+        ['ready', {}, null, [], ''],
+        ['synced with no rows', { table: undefined, status: ExternalDataSchemaStatus.Completed }, null, [], ''],
     ])(
         'asks only for the tables an account needs when the Performance Max table is %s',
-        (_, overrides, message, enableSchemaIds) => {
+        (_, overrides, message, enableSchemaIds, buttonLabel) => {
             const schemas = [schema('campaign'), schema('search_term_stats', false)]
             if (overrides) {
                 schemas.push({ ...schema('performance_max_search_term_stats'), id: 'pmax-id', ...overrides })
@@ -224,12 +226,11 @@ describe('search performance sources', () => {
             const source = { source_type: 'GoogleAds', schemas } as ExternalDataSource
             const notice = searchPerformanceSourceNotice(source, 'search_term', false, ['PERFORMANCE_MAX', 'DISPLAY'])
             expect(notice?.message ?? null).toEqual(message)
-            expect(notice?.message ?? '').not.toMatch(/\bsearch_term_stats\b/)
-            expect(
-                searchTermTables(source, ['PERFORMANCE_MAX', 'DISPLAY']).flatMap(({ state, schemaId }) =>
-                    state === 'disabled' && schemaId ? [schemaId] : []
-                )
-            ).toEqual(enableSchemaIds)
+            expect(notice?.message ?? '').not.toMatch(/search_term_stats/)
+            expect(searchTermTablesToEnable(source, ['PERFORMANCE_MAX', 'DISPLAY'])).toEqual({
+                schemaIds: enableSchemaIds,
+                buttonLabel,
+            })
         }
     )
 
@@ -238,7 +239,8 @@ describe('search performance sources', () => {
         [
             'Search and Performance Max campaigns',
             ['SEARCH', 'PERFORMANCE_MAX'],
-            expect.stringContaining('Enable search_term_stats'),
+            "Enable the search terms table to see search terms from Search campaigns. Enabling it syncs the table's full history.\n" +
+                'The Performance Max search terms table for Performance Max campaigns isn\'t in this source yet. Click "Pull new schemas" in the source settings to add it.',
         ],
         ['no Search or Performance Max campaigns', ['DISPLAY'], expect.stringContaining('This account has none.')],
     ])('explains search terms for %s', (_, channelTypes, message) => {

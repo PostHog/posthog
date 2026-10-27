@@ -112,9 +112,28 @@ export function SearchPerformanceTab({
                         <SourceSetupPanel
                             state="waiting"
                             compact
+                            title={
+                                breakdown === 'search_term'
+                                    ? "Some search term tables aren't ready"
+                                    : "Some search tables aren't ready"
+                            }
+                            description={
+                                sourceIssues.some(({ kind }) => kind === 'attention')
+                                    ? 'Check the sources below to see all your search data.'
+                                    : 'More search data will appear when the first sync finishes.'
+                            }
+                            showIllustration={false}
                             expansionKey="search-performance"
                             connections={sourceIssues.map(
-                                ({ sourceId, sourceType, name, message, kind, enableSchemaIds }) => ({
+                                ({
+                                    sourceId,
+                                    sourceType,
+                                    name,
+                                    message,
+                                    kind,
+                                    enableSchemaIds,
+                                    enableButtonLabel,
+                                }) => ({
                                     id: sourceId,
                                     name,
                                     sourceType,
@@ -130,13 +149,15 @@ export function SearchPerformanceTab({
                                                     loading={enablingSourceIds.includes(sourceId)}
                                                     data-attr="marketing-search-enable-search-term-tables"
                                                 >
-                                                    {enableSchemaIds.length > 1 ? 'Enable tables' : 'Enable table'}
+                                                    {enableButtonLabel}
                                                 </LemonButton>
                                             )}
                                             <LemonButton
                                                 type="secondary"
                                                 size="small"
-                                                to={urls.dataWarehouseSource(sourceId)}
+                                                to={urls.dataWarehouseSource(`managed-${sourceId}`)}
+                                                targetBlank
+                                                data-attr="marketing-search-manage-source"
                                             >
                                                 Manage source
                                             </LemonButton>
@@ -150,7 +171,12 @@ export function SearchPerformanceTab({
                         <LemonBanner
                             key={sourceId}
                             type="info"
-                            action={{ children: 'Manage source', to: urls.dataWarehouseSource(sourceId) }}
+                            action={{
+                                children: 'Manage source',
+                                to: urls.dataWarehouseSource(`managed-${sourceId}`),
+                                targetBlank: true,
+                                'data-attr': 'marketing-search-manage-source',
+                            }}
                         >
                             {`${name}: ${message}`}
                         </LemonBanner>
@@ -169,7 +195,7 @@ export function SearchPerformanceTab({
                                         breakdown === 'page'
                                             ? 'Filter pages'
                                             : breakdown === 'search_term'
-                                              ? 'Filter search terms and queries'
+                                              ? 'Filter terms'
                                               : 'Filter keywords and queries'
                                     }
                                     value={search}

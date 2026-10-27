@@ -551,8 +551,10 @@ export const SearchTermsEnablePerformanceMax: Story = {
     play: async (context) => {
         await openSearchTerms(context)
         const canvas = within(context.canvasElement)
-        await expect(await canvas.findByText(/Enable performance_max_search_term_stats/)).toBeVisible()
-        await expect(await canvas.findByRole('button', { name: 'Enable table' })).toBeVisible()
+        await expect(await canvas.findByText(/Enable the Performance Max search terms table/)).toBeVisible()
+        await expect(
+            await canvas.findByRole('button', { name: 'Enable Performance Max search terms table' })
+        ).toBeVisible()
         await expect(await canvas.findByText('open source product analytics')).toBeVisible()
     },
 }
@@ -567,7 +569,7 @@ export const SearchTermsSyncing: Story = {
     play: async (context) => {
         await openSearchTerms(context)
         await expect(
-            await within(context.canvasElement).findByText(/performance_max_search_term_stats is syncing/)
+            await within(context.canvasElement).findByText(/The Performance Max search terms table is syncing/)
         ).toBeVisible()
     },
 }
@@ -584,7 +586,7 @@ export const SearchTermsMissingTable: Story = {
         await openSearchTerms(context)
         const canvas = within(context.canvasElement)
         await expect(await canvas.findByText(/Pull new schemas/)).toBeVisible()
-        await expect(await canvas.findByRole('button', { name: 'Enable table' })).toBeVisible()
+        await expect(await canvas.findByRole('button', { name: 'Enable search terms table' })).toBeVisible()
     },
 }
 export const SearchTermsNarrow: Story = {

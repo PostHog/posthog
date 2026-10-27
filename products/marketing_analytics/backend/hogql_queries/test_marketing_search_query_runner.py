@@ -281,7 +281,7 @@ class TestMarketingAnalyticsSearchQueryRunner(ClickhouseTestMixin, BaseTest):
         assert not any(row.keyword == "previous only" for row in year_compared)
 
     @parameterized.expand([("search",), ("performance_max",), ("both",)])
-    def test_search_terms_union_campaign_types_and_take_currency_from_campaigns(self, campaign_types: str) -> None:
+    def test_search_terms_union_campaign_types_and_take_currency_from_account(self, campaign_types: str) -> None:
         metrics = {
             "customer_id": "Int64",
             "campaign_id": "Int64",
@@ -300,6 +300,7 @@ class TestMarketingAnalyticsSearchQueryRunner(ClickhouseTestMixin, BaseTest):
                 "1,10,100,Hedgehog socks,4,40,8000000,1,2023-01-10\n"
                 "1,10,101, hedgehog socks ,1,10,2000000,0,2023-01-11\n"
                 "2,20,200,hedgehog socks,2,20,3000000,0,2023-01-10\n"
+                "1,99,102,hedgehog socks,1,10,1000000,0,2023-01-12\n"
                 "1,10,100,hedgehog socks,50,500,90000000,5,2022-01-10\n",
             )
         performance_max_terms = None
@@ -309,7 +310,8 @@ class TestMarketingAnalyticsSearchQueryRunner(ClickhouseTestMixin, BaseTest):
                 {**metrics, "campaign_search_term_view_search_term": "String"},
                 "customer_id,campaign_id,campaign_search_term_view_search_term,metrics_clicks,metrics_impressions,metrics_cost_micros,metrics_conversions,segments_date\n"
                 "1,30,HEDGEHOG SOCKS,3,30,6000000,2,2023-01-12\n"
-                "1,30,warm slippers,6,60,12000000,1,2023-01-12\n",
+                "1,30,warm slippers,6,60,12000000,1,2023-01-12\n"
+                "1,31,warm slippers,1,10,1000000,0,2023-01-13\n",
             )
         campaigns = self._table(
             "search_term_campaigns",
@@ -332,12 +334,12 @@ class TestMarketingAnalyticsSearchQueryRunner(ClickhouseTestMixin, BaseTest):
         totals = {(row.keyword, row.currency): (row.clicks, row.impressions, row.cost, row.conversions) for row in rows}
         expected: dict[tuple[str, str], tuple[float, float, float, float]] = {}
         if search_terms:
-            expected[("hedgehog socks", "USD")] = (5, 50, 10, 1)
+            expected[("hedgehog socks", "USD")] = (6, 60, 11, 1)
             expected[("hedgehog socks", "EUR")] = (2, 20, 3, 0)
         if performance_max_terms:
             current = expected.get(("hedgehog socks", "USD"), (0, 0, 0, 0))
             expected[("hedgehog socks", "USD")] = (current[0] + 3, current[1] + 30, current[2] + 6, current[3] + 2)
-            expected[("warm slippers", "USD")] = (6, 60, 12, 1)
+            expected[("warm slippers", "USD")] = (7, 70, 13, 1)
         assert totals == expected
         assert all(row.platform == "GoogleAds" and row.matchType is None and row.page is None for row in rows)
 

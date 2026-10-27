@@ -33,6 +33,9 @@ export interface SourceSetupPanelProps {
     manageSourceDataAttr?: string
     expansionKey?: string
     compact?: boolean
+    title?: string
+    description?: string
+    showIllustration?: boolean
     footer?: ReactNode
     headerAction?: ReactNode
     onRetry?: () => void
@@ -51,6 +54,9 @@ export function SourceSetupPanel({
     footer,
     headerAction,
     compact = false,
+    title: titleOverride,
+    description: descriptionOverride,
+    showIllustration = true,
     onRetry,
     rescanLoading = false,
     rescanDisabledReason,
@@ -62,7 +68,8 @@ export function SourceSetupPanel({
     const { setExpandedSourceTypes } = useActions(sourceConnectionGroupsLogic({ expansionKey }))
     const busy = state === 'checking' || state === 'scanning'
     const title =
-        state === 'checking'
+        titleOverride ??
+        (state === 'checking'
             ? 'Checking your connections'
             : state === 'scanning'
               ? 'Finding your ad platforms'
@@ -76,9 +83,10 @@ export function SourceSetupPanel({
                       ? connections.some((connection) => connection.status === 'Needs attention')
                           ? 'Some connections need attention'
                           : 'Your connections are getting ready'
-                      : 'Connect your ad platforms'
+                      : 'Connect your ad platforms')
     const description =
-        state === 'checking'
+        descriptionOverride ??
+        (state === 'checking'
             ? 'Looking for connected ad platforms.'
             : state === 'scanning'
               ? 'Checking campaign tracking in events from the last 7 days.'
@@ -92,7 +100,7 @@ export function SourceSetupPanel({
                       ? connections.some((connection) => connection.status === 'Needs attention')
                           ? 'Check the connections below to finish setting up your spend data.'
                           : 'Spend and ad performance will appear after the first sync finishes. You can connect other platforms while you wait.'
-                      : `We found campaign tracking from ${suggestions.length} ${suggestions.length === 1 ? 'platform' : 'platforms'} in your latest event scan.`
+                      : `We found campaign tracking from ${suggestions.length} ${suggestions.length === 1 ? 'platform' : 'platforms'} in your latest event scan.`)
 
     const rescanButton =
         !busy && onRetry ? (
@@ -124,7 +132,9 @@ export function SourceSetupPanel({
                         <h3 className={compact ? 'text-base mb-1' : 'mb-2'}>{title}</h3>
                         <p className="text-secondary mb-0 max-w-xl">{description}</p>
                     </div>
-                    {!busy && <HedgehogMoney className={compact ? 'w-12 shrink-0' : 'w-20 shrink-0'} />}
+                    {!busy && showIllustration && (
+                        <HedgehogMoney className={compact ? 'w-12 shrink-0' : 'w-20 shrink-0'} />
+                    )}
                     {headerAction}
                 </div>
                 {state === 'empty' && (

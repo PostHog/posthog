@@ -3,7 +3,7 @@ import './SearchPerformanceTable.scss'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonButton, LemonSkeleton, LemonTable, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonSkeleton, LemonTable, Link, Spinner } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
@@ -172,24 +172,16 @@ export function SearchPerformanceTable({
                         render: (_, row) => (
                             <div className="min-w-0">
                                 {onSelect && (row.page || row.keyword) ? (
-                                    <LemonButton
-                                        type="tertiary"
-                                        size="xsmall"
-                                        noPadding
-                                        fullWidth
-                                        truncate={!wrapText}
+                                    <Link
                                         onClick={() => onSelect(row)}
+                                        className={clsx(
+                                            'block max-w-full hover:underline',
+                                            wrapText ? 'whitespace-normal [overflow-wrap:anywhere]' : 'truncate'
+                                        )}
+                                        title={row.page ?? row.keyword ?? ''}
                                     >
-                                        <span
-                                            className={clsx(
-                                                'block text-link',
-                                                wrapText ? 'whitespace-normal [overflow-wrap:anywhere]' : 'truncate'
-                                            )}
-                                            title={row.page ?? row.keyword ?? ''}
-                                        >
-                                            {row.page ?? row.keyword}
-                                        </span>
-                                    </LemonButton>
+                                        {row.page ?? row.keyword}
+                                    </Link>
                                 ) : (
                                     <span
                                         className={clsx(
