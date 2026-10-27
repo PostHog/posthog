@@ -40,7 +40,11 @@ export function ChangeRequestsList(): JSX.Element {
         {
             title: 'Resource',
             render: function RenderResource(_, changeRequest) {
-                const resourceUrl = getApprovalResourceUrl(changeRequest.resource_type, changeRequest.resource_id)
+                const resourceUrl = getApprovalResourceUrl(
+                    changeRequest.resource_type,
+                    changeRequest.resource_id,
+                    changeRequest.intent
+                )
                 const name = getApprovalResourceName(changeRequest.resource_type, changeRequest.intent)
                 return resourceUrl && name ? <LemonTableLink to={resourceUrl} title={name} /> : name
             },

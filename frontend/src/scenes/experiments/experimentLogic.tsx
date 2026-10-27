@@ -1742,7 +1742,15 @@ export const experimentLogic = kea<experimentLogicType>([
                 refreshTreeItem('experiment', String(values.experimentId))
                 lemonToast.success('Exposure frozen — enrolled users keep their variant and metrics keep updating')
             } catch (error: any) {
-                lemonToast.error(error.detail || 'Failed to freeze exposure')
+                if (isApprovalRequiredError(error)) {
+                    showApprovalRequiredToast(
+                        error.data.change_request_id,
+                        "freeze this experiment's exposure",
+                        error.data.code
+                    )
+                } else {
+                    lemonToast.error(error.detail || 'Failed to freeze exposure')
+                }
             } finally {
                 actions.setFreezeExposureLoading(false)
             }
@@ -1761,7 +1769,15 @@ export const experimentLogic = kea<experimentLogicType>([
                 refreshTreeItem('experiment', String(values.experimentId))
                 lemonToast.success('Exposure unfrozen — new users can enroll again')
             } catch (error: any) {
-                lemonToast.error(error.detail || 'Failed to unfreeze exposure')
+                if (isApprovalRequiredError(error)) {
+                    showApprovalRequiredToast(
+                        error.data.change_request_id,
+                        "unfreeze this experiment's exposure",
+                        error.data.code
+                    )
+                } else {
+                    lemonToast.error(error.detail || 'Failed to unfreeze exposure')
+                }
             } finally {
                 actions.setUnfreezeExposureLoading(false)
             }
@@ -1953,7 +1969,11 @@ export const experimentLogic = kea<experimentLogicType>([
                 actions.setExperiment(response)
                 refreshTreeItem('experiment', String(values.experimentId))
             } catch (error: any) {
-                lemonToast.error(error.detail || 'Failed to reset experiment')
+                if (isApprovalRequiredError(error)) {
+                    showApprovalRequiredToast(error.data.change_request_id, 'reset this experiment', error.data.code)
+                } else {
+                    lemonToast.error(error.detail || 'Failed to reset experiment')
+                }
             }
         },
         updateExperimentSuccess: async ({ experimentUpdate, payload }) => {

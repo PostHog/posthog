@@ -111,7 +111,8 @@ function ApprovalDetail({ id }: ApprovalLogicProps): JSX.Element {
                                 {(() => {
                                     const resourceUrl = getApprovalResourceUrl(
                                         changeRequest.resource_type,
-                                        changeRequest.resource_id
+                                        changeRequest.resource_id,
+                                        changeRequest.intent
                                     )
                                     const name = getApprovalResourceName(
                                         changeRequest.resource_type,
