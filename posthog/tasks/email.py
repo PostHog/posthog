@@ -1269,7 +1269,7 @@ def send_external_data_failure_digest(team_id: int, schemas: list[dict[str, Any]
     return delivered
 
 
-def _filter_members_by_external_data_source_access(
+def filter_members_by_external_data_source_access(
     memberships: list[OrganizationMembership], team: Team
 ) -> list[OrganizationMembership]:
     """Drop members who cannot view destinations, which `ExternalDataDestinationViewSet` gates on `external_data_source`.
@@ -1312,7 +1312,7 @@ def send_warehouse_destination_paused(
     memberships_to_email = get_members_to_notify_for_pipeline_error(
         team, failure_rate=1.0, pipeline_id=f"warehouse_destination:{destination_id}"
     )
-    memberships_to_email = _filter_members_by_external_data_source_access(memberships_to_email, team)
+    memberships_to_email = filter_members_by_external_data_source_access(memberships_to_email, team)
     if not memberships_to_email:
         return
 
