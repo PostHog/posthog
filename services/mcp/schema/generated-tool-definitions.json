@@ -2226,7 +2226,7 @@
             "openWorldHint": true,
             "readOnlyHint": true
         },
-        "feature_flag": "business-knowledge-github-repos"
+        "feature_flag": "product-business-knowledge"
     },
     "business-knowledge-repositories-search": {
         "description": "Search file paths and README text in the GitHub repositories selected for business knowledge. Call this when business knowledge document search returns nothing. Pass file names or identifiers, not a full sentence. Each repository in the response includes its GitHub description. When a description says the repository holds a handbook or docs, search that repository for those words and read the file. Does not search inside file contents and does not call GitHub code search. Pass library_id to search repositories in that library, using the same id as document search and file read. Omit library_id to search every selected repository.",
@@ -2242,7 +2242,7 @@
             "openWorldHint": true,
             "readOnlyHint": true
         },
-        "feature_flag": "business-knowledge-github-repos"
+        "feature_flag": "product-business-knowledge"
     },
     "business-knowledge-sources-list": {
         "description": "List all business knowledge sources in the project, with document/chunk counts, processing status, and refresh metadata.",
