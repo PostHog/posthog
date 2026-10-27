@@ -22,7 +22,11 @@ describe('transactionalEmailWizardLogic', () => {
             get: {
                 '/api/environments/:team_id/integrations/': {
                     results: [
-                        { id: 7, kind: 'email', config: { email: 'no-reply@example.com', domain: 'example.com' } },
+                        {
+                            id: 7,
+                            kind: 'email',
+                            config: { email: 'no-reply@example.com', domain: 'example.com', verified: true },
+                        },
                     ],
                 },
             },
@@ -45,7 +49,7 @@ describe('transactionalEmailWizardLogic', () => {
         ['an email missing its sender is not created', {}, 0, 'sender', '/transactional/new'],
         [
             'a complete email is created, made transactional, and opened in its section',
-            { from: { integrationId: 7 } },
+            { from: { integrationId: 7 }, subject: 'Reset your password' },
             1,
             'name',
             '/transactional/library/templates/created-id',

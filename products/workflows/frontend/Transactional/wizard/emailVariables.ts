@@ -1,12 +1,19 @@
 import type { EmailTemplate } from 'scenes/hog-functions/email-templater/types'
 
-// Matches the name in a Liquid placeholder such as `{{ variables.reset_link }}` or `{{ variables.name | default: "there" }}`.
-const VARIABLE_PATTERN = /\{\{-?\s*variables\.([A-Za-z_][A-Za-z0-9_]*)/g
+// Any Liquid output `{{ … }}` or tag `{% … %}`. Variables can sit anywhere inside one, such as
+// `{% if variables.show_receipt %}` or `{{ variables.name | default: variables.fallback_name }}`.
+const LIQUID_EXPRESSION = /\{\{[\s\S]*?\}\}|\{%[\s\S]*?%\}/g
+const VARIABLE_REFERENCE = /\bvariables\.([A-Za-z_][A-Za-z0-9_]*)/g
 
 /** The `message_data` keys an email reads, in the order they first appear in the subject, preheader and body. */
 export function variablesInEmail(email: Pick<EmailTemplate, 'subject' | 'html' | 'text' | 'preheader'>): string[] {
     const source = [email.subject, email.preheader, email.html, email.text].filter(Boolean).join('\n')
-    return [...new Set([...source.matchAll(VARIABLE_PATTERN)].map((match) => match[1]))]
+    const expressions = source.match(LIQUID_EXPRESSION) ?? []
+    return [
+        ...new Set(
+            expressions.flatMap((expression) => [...expression.matchAll(VARIABLE_REFERENCE)].map((match) => match[1]))
+        ),
+    ]
 }
 
 export function variablePlaceholder(name: string): string {

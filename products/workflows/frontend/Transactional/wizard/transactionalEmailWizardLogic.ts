@@ -35,7 +35,8 @@ const EMPTY_DRAFT: TransactionalEmailDraft = {
     name: '',
     description: '',
     sensitive: false,
-    email: NEW_TEMPLATE.content.email,
+    // The editor's starter design, with no subject, so nothing sends as "Hello from PostHog" by accident.
+    email: { ...NEW_TEMPLATE.content.email, subject: '' },
 }
 
 /** What still blocks each step, so Next and the stepper can say why. */
@@ -184,7 +185,10 @@ export const transactionalEmailWizardLogic = kea<transactionalEmailWizardLogicTy
         senders: [
             (s) => [s.integrations],
             (integrations: IntegrationType[] | null): IntegrationType[] =>
-                (integrations ?? []).filter((integration) => integration.kind === 'email'),
+                // make_transactional only accepts a verified sender.
+                (integrations ?? []).filter(
+                    (integration) => integration.kind === 'email' && integration.config?.verified === true
+                ),
         ],
         stepErrors: [
             (s) => [s.draft, s.senders],

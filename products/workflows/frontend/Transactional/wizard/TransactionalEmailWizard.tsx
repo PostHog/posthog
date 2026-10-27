@@ -55,7 +55,11 @@ export function TransactionalEmailWizard(): JSX.Element {
                 className="flex-wrap"
                 aria-label="Transactional email wizard progress"
             />
-            <StepContent />
+            {/* The editor stays mounted, so an edit still saving when you leave Content isn't lost. */}
+            <div hidden={currentStep !== 'content'}>
+                <ContentStep />
+            </div>
+            {currentStep !== 'content' ? <StepContent /> : null}
             <div className="flex justify-between gap-2 border-t pt-3">
                 {isFirstStep ? (
                     <span />

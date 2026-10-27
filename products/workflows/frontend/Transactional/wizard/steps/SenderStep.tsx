@@ -14,9 +14,10 @@ import { transactionalEmailWizardLogic } from '../transactionalEmailWizardLogic'
 export function SenderStep(): JSX.Element {
     const { draft, senders } = useValues(transactionalEmailWizardLogic)
     const { updateEmail } = useActions(transactionalEmailWizardLogic)
-    const { integrationsLoading } = useValues(integrationsLogic)
+    const { integrations, integrationsLoading } = useValues(integrationsLogic)
+    const { loadIntegrations } = useActions(integrationsLogic)
 
-    if (integrationsLoading && senders.length === 0) {
+    if (integrations === null) {
         return <Spinner className="text-lg" />
     }
 
@@ -25,12 +26,23 @@ export function SenderStep(): JSX.Element {
             <ProductIntroduction
                 titleOverride="Set up a sending domain first"
                 thingName="email sender"
-                description="Transactional emails send from your own domain. Verify a sending domain first, then come back to finish this email."
+                description="Transactional emails send from a verified domain. Verify one in a new tab, then check again here to finish this email."
                 isEmpty
                 actionElementOverride={
-                    <LemonButton type="primary" to={urls.transactional('channels')} targetBlank>
-                        Set up a sending domain
-                    </LemonButton>
+                    <div className="flex gap-2 flex-wrap">
+                        <LemonButton type="primary" to={urls.transactional('channels')} targetBlank>
+                            Set up a sending domain
+                        </LemonButton>
+                        {/* Domain setup opens in a new tab, so this picks up the sender without losing the email. */}
+                        <LemonButton
+                            type="secondary"
+                            onClick={loadIntegrations}
+                            loading={integrationsLoading}
+                            data-attr="transactional-email-wizard-check-senders"
+                        >
+                            Check again
+                        </LemonButton>
+                    </div>
                 }
             />
         )

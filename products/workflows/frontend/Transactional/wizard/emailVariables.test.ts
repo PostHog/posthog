@@ -14,6 +14,17 @@ describe('variablesInEmail', () => {
         ],
         ['reads past a Liquid filter', { subject: '{{ variables.name | default: "there" }}', html: '' }, ['name']],
         ['ignores person properties', { subject: '{{ person.properties.email }}', html: '' }, []],
+        [
+            'finds a variable in a control tag',
+            { subject: '', html: '{% if variables.show_receipt %}Hi{% endif %}' },
+            ['show_receipt'],
+        ],
+        [
+            'finds a variable used as a filter argument',
+            { subject: '{{ variables.name | default: variables.fallback_name }}', html: '' },
+            ['name', 'fallback_name'],
+        ],
+        ['ignores the word outside Liquid', { subject: 'See variables.example in the docs', html: '' }, []],
     ])('%s', (_, email, expected) => {
         expect(variablesInEmail({ text: '', ...email })).toEqual(expected)
     })
