@@ -1,4 +1,5 @@
 import { dayjs } from 'lib/dayjs'
+import { percentage } from 'lib/utils/numbers'
 
 import type {
     AEOPromptDailyEngineStatsApi,
@@ -15,6 +16,19 @@ export interface PromptRateKpi {
     latestDate: string | null
     /** `latest - average`, in rate units (0.12 is 12 percentage points). */
     delta: number | null
+}
+
+/** The change shown next to a KPI value, already worded for the card. */
+export interface KpiDelta {
+    label: string
+    direction: 'up' | 'down' | 'flat'
+    tooltip: string
+}
+
+export interface KpiCardContent {
+    value: string
+    note: string
+    delta: KpiDelta | null
 }
 
 export interface PromptReportKpis {
@@ -91,6 +105,34 @@ const rateKpi = (
         delta: average !== null && latest !== null ? latest - average : null,
     }
 }
+
+/** `delta` is in rate units (0.12 is 12 percentage points), shown as whole points. */
+export const pointsDelta = (delta: number, tooltip: string): KpiDelta => {
+    const points = Math.round(delta * 100)
+    return {
+        label: points === 0 ? 'No change' : `${points > 0 ? '+' : ''}${points} pts`,
+        direction: points === 0 ? 'flat' : points > 0 ? 'up' : 'down',
+        tooltip,
+    }
+}
+
+export const countDelta = (change: number, tooltip: string): KpiDelta => ({
+    label: change === 0 ? 'No change' : `${change > 0 ? '+' : ''}${change}`,
+    direction: change === 0 ? 'flat' : change > 0 ? 'up' : 'down',
+    tooltip,
+})
+
+export const rateKpiCard = (kpi: PromptRateKpi): KpiCardContent => ({
+    value: kpi.average === null ? 'No answers' : percentage(kpi.average, 0),
+    note:
+        kpi.latest === null || !kpi.latestDate
+            ? 'Average over the last 30 days'
+            : `Average over the last 30 days. On ${dayjs(kpi.latestDate).format('MMM D')}: ${percentage(kpi.latest, 0)}`,
+    delta:
+        kpi.delta === null
+            ? null
+            : pointsDelta(kpi.delta, 'The latest day against the 30-day average, in percentage points'),
+})
 
 /** Window-wide visibility and citation rates, with the latest day and how far it sits from the average. */
 export const promptReportKpis = (stats: AEOPromptStatsApi): PromptReportKpis => {

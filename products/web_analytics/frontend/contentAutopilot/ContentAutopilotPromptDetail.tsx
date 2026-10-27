@@ -15,6 +15,7 @@ import { ContentAutopilotPromptKpiCard } from './ContentAutopilotPromptKpiCard'
 import { ContentAutopilotPromptQueryTile } from './ContentAutopilotPromptQueryTile'
 import { ContentAutopilotPromptSentiment } from './ContentAutopilotPromptSentiment'
 import { ContentAutopilotPromptVersions } from './ContentAutopilotPromptVersions'
+import { rateKpiCard } from './promptReport'
 import { promptCitationsContext, promptSearchesContext, promptSourcesContext } from './promptReportColumns'
 
 const Section = ({
@@ -155,13 +156,13 @@ export const ContentAutopilotPromptDetail = (): JSX.Element | null => {
                                     <ContentAutopilotPromptKpiCard
                                         label="Mentioned in answers"
                                         description="Share of answers that name you. An answer that cites your site always counts."
-                                        kpi={reportKpis.visibility}
+                                        {...rateKpiCard(reportKpis.visibility)}
                                         data-attr="content-autopilot-prompt-kpi-mentioned"
                                     />
                                     <ContentAutopilotPromptKpiCard
                                         label="Cited as a source"
                                         description="Share of answers that link to a page on your site."
-                                        kpi={reportKpis.citation}
+                                        {...rateKpiCard(reportKpis.citation)}
                                         data-attr="content-autopilot-prompt-kpi-cited"
                                     />
                                 </div>

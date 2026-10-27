@@ -13,24 +13,37 @@ export interface PromptReportWindow {
     brandNames: string[]
 }
 
+export interface PromptSetWindow {
+    /** First day of the window, YYYY-MM-DD in the project's timezone. */
+    from: string
+}
+
 export const PROMPT_REPORT_TOP_SOURCES = 50
 export const PROMPT_REPORT_TOP_CITATIONS = 20
 export const PROMPT_REPORT_TOP_SEARCHES = 30
+export const PROMPT_SET_TOP_SOURCES = 20
 
 export const PROMPT_SOURCE_COLUMNS = ['domain', 'answers', 'share_of_answers', 'is_target'] as const
 export const PROMPT_CITATION_COLUMNS = ['url', 'answers', 'share_of_answers', 'is_target'] as const
 export const PROMPT_SEARCH_COLUMNS = ['query', 'searches', 'engines'] as const
 
-// Every query is one prompt's answered checks inside the window. The prompt id and the window start travel
-// as placeholder values, so the HogQL text never embeds user data.
-const WHERE = 'prompt_id = {prompt_id} AND created_at >= toDateTime({window_start}) AND NOT check_failed'
+// Every query is answered checks inside the window, for one prompt or for the whole set. The prompt id and the
+// window start travel as placeholder values, so the HogQL text never embeds user data.
+const SET_WHERE = 'created_at >= toDateTime({window_start}) AND NOT check_failed'
+const WHERE = `prompt_id = {prompt_id} AND ${SET_WHERE}`
 
-const ANSWERED = `(SELECT count() FROM system.aeo_citation_checks WHERE ${WHERE})`
+const answered = (where: string): string => `(SELECT count() FROM system.aeo_citation_checks WHERE ${where})`
 
 const hogql = (query: string, window: PromptReportWindow, values: Record<string, string> = {}): HogQLQuery => ({
     kind: NodeKind.HogQLQuery,
     query,
     values: { prompt_id: window.promptId, window_start: `${window.from} 00:00:00`, ...values },
+})
+
+const setHogql = (query: string, window: PromptSetWindow): HogQLQuery => ({
+    kind: NodeKind.HogQLQuery,
+    query,
+    values: { window_start: `${window.from} 00:00:00` },
 })
 
 /** RE2 pattern for `match()`: any brand name as a whole word, case folded by the caller. */
@@ -40,38 +53,50 @@ export const brandMentionPattern = (brandNames: string[]): string =>
 const mentionedExpr = (brandNames: string[]): string =>
     brandNames.length ? "cited OR match(lower(coalesce(answer_text, '')), {brand_pattern})" : 'cited'
 
+const dailyRateSql = (where: string, counted: string): string =>
+    `SELECT toDate(created_at) AS day, engine, round(countIf(${counted}) / count(), 3) AS rate
+FROM system.aeo_citation_checks
+WHERE ${where}
+GROUP BY day, engine
+ORDER BY day, engine`
+
+const dailyRateChart = (source: HogQLQuery): DataVisualizationNode => ({
+    kind: NodeKind.DataVisualizationNode,
+    source,
+    display: ChartDisplayType.ActionsLineGraph,
+    chartSettings: {
+        xAxis: { column: 'day' },
+        yAxis: [{ column: 'rate', settings: { formatting: { style: 'percent', decimalPlaces: 0 } } }],
+        seriesBreakdownColumn: 'engine',
+        showLegend: true,
+    },
+})
+
 /** Daily citation (or brand mention) rate per engine. Days an engine did not run are gaps, not zeros. */
 export const promptVisibilityQuery = (
     window: PromptReportWindow,
     metric: PromptVisibilityMetric
 ): DataVisualizationNode => {
     const counted = metric === 'mentioned' ? mentionedExpr(window.brandNames) : 'cited'
-    return {
-        kind: NodeKind.DataVisualizationNode,
-        source: hogql(
-            `SELECT toDate(created_at) AS day, engine, round(countIf(${counted}) / count(), 3) AS rate
-FROM system.aeo_citation_checks
-WHERE ${WHERE}
-GROUP BY day, engine
-ORDER BY day, engine`,
+    return dailyRateChart(
+        hogql(
+            dailyRateSql(WHERE, counted),
             window,
             metric === 'mentioned' && window.brandNames.length
                 ? { brand_pattern: brandMentionPattern(window.brandNames) }
                 : {}
-        ),
-        display: ChartDisplayType.ActionsLineGraph,
-        chartSettings: {
-            xAxis: { column: 'day' },
-            yAxis: [{ column: 'rate', settings: { formatting: { style: 'percent', decimalPlaces: 0 } } }],
-            seriesBreakdownColumn: 'engine',
-            showLegend: true,
-        },
-    }
+        )
+    )
 }
 
-const citedUrls = `SELECT id, engine, arrayJoin(JSONExtract(cited_urls, 'Array(String)')) AS url, target_urls
+/** Daily citation rate per engine across every prompt in the set. */
+export const promptSetCitationQuery = (window: PromptSetWindow): DataVisualizationNode =>
+    dailyRateChart(setHogql(dailyRateSql(SET_WHERE, 'cited'), window))
+
+const citedUrls = (where: string): string =>
+    `SELECT id, engine, arrayJoin(JSONExtract(cited_urls, 'Array(String)')) AS url, target_urls
 FROM system.aeo_citation_checks
-WHERE ${WHERE}`
+WHERE ${where}`
 
 const table = (source: HogQLQuery, columns: readonly string[]): DataTableNode => ({
     kind: NodeKind.DataTableNode,
@@ -83,23 +108,24 @@ const table = (source: HogQLQuery, columns: readonly string[]): DataTableNode =>
     showOpenEditorButton: false,
 })
 
-/** Cited domains ranked by how many answers cited them, with the share of all answers that did. */
-export const promptSourcesQuery = (window: PromptReportWindow): DataTableNode =>
-    table(
-        hogql(
-            `SELECT domain(url) AS domain,
+const sourcesSql = (where: string, limit: number): string =>
+    `SELECT domain(url) AS domain,
     uniq(id) AS answers,
-    round(uniq(id) / ${ANSWERED}, 3) AS share_of_answers,
+    round(uniq(id) / ${answered(where)}, 3) AS share_of_answers,
     max(has(JSONExtract(target_urls, 'Array(String)'), url)) AS is_target
-FROM (${citedUrls})
+FROM (${citedUrls(where)})
 WHERE domain != ''
 GROUP BY domain
 ORDER BY answers DESC, domain
-LIMIT ${PROMPT_REPORT_TOP_SOURCES}`,
-            window
-        ),
-        PROMPT_SOURCE_COLUMNS
-    )
+LIMIT ${limit}`
+
+/** Cited domains ranked by how many answers cited them, with the share of all answers that did. */
+export const promptSourcesQuery = (window: PromptReportWindow): DataTableNode =>
+    table(hogql(sourcesSql(WHERE, PROMPT_REPORT_TOP_SOURCES), window), PROMPT_SOURCE_COLUMNS)
+
+/** The same ranking across every prompt in the set. */
+export const promptSetSourcesQuery = (window: PromptSetWindow): DataTableNode =>
+    table(setHogql(sourcesSql(SET_WHERE, PROMPT_SET_TOP_SOURCES), window), PROMPT_SOURCE_COLUMNS)
 
 /** Cited URLs ranked by how many answers cited them. */
 export const promptCitationsQuery = (window: PromptReportWindow): DataTableNode =>
@@ -107,9 +133,9 @@ export const promptCitationsQuery = (window: PromptReportWindow): DataTableNode 
         hogql(
             `SELECT url,
     uniq(id) AS answers,
-    round(uniq(id) / ${ANSWERED}, 3) AS share_of_answers,
+    round(uniq(id) / ${answered(WHERE)}, 3) AS share_of_answers,
     max(has(JSONExtract(target_urls, 'Array(String)'), url)) AS is_target
-FROM (${citedUrls})
+FROM (${citedUrls(WHERE)})
 GROUP BY url
 ORDER BY answers DESC, url
 LIMIT ${PROMPT_REPORT_TOP_CITATIONS}`,

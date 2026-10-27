@@ -1,6 +1,8 @@
 import type {
     AEOPromptApi,
     AEOPromptCheckApi,
+    AEOPromptSetCountsApi,
+    AEOPromptSetOverviewApi,
     AEOPromptStatsApi,
     AEOPromptTopicApi,
     AEOPromptVersionApi,
@@ -478,5 +480,78 @@ export const EXAMPLE_PROMPT_STATS: AEOPromptStatsApi = {
         { word: 'open', count: 22 },
         { word: 'source', count: 22 },
         { word: 'startups', count: 11 },
+    ],
+}
+
+const setCounts = (
+    counts: Pick<AEOPromptSetCountsApi, 'checks' | 'failed' | 'cited' | 'mentioned' | 'prompts' | 'prompts_cited'>
+): AEOPromptSetCountsApi => {
+    const answered = counts.checks - counts.failed
+    return {
+        ...counts,
+        citation_rate: answered ? counts.cited / answered : null,
+        mention_rate: answered ? counts.mentioned / answered : null,
+    }
+}
+
+export const EXAMPLE_PROMPT_SET_OVERVIEW: AEOPromptSetOverviewApi = {
+    days: 30,
+    window_from: '2026-09-01',
+    window_to: '2026-09-30',
+    prompts_tracked: 42,
+    target_domains: ['example.com'],
+    brand_names: ['example'],
+    current: setCounts({ checks: 2520, failed: 60, cited: 984, mentioned: 1476, prompts: 44, prompts_cited: 31 }),
+    previous: setCounts({ checks: 2400, failed: 40, cited: 826, mentioned: 1416, prompts: 40, prompts_cited: 27 }),
+    engines: [
+        {
+            engine: 'claude-web-search',
+            ...setCounts({ checks: 900, failed: 10, cited: 445, mentioned: 623, prompts: 44, prompts_cited: 30 }),
+        },
+        {
+            engine: 'exa-answer',
+            ...setCounts({ checks: 720, failed: 20, cited: 140, mentioned: 280, prompts: 44, prompts_cited: 18 }),
+        },
+        {
+            engine: 'openai-web-search',
+            ...setCounts({ checks: 900, failed: 30, cited: 399, mentioned: 573, prompts: 44, prompts_cited: 28 }),
+        },
+    ],
+    topics: [
+        {
+            topic: '',
+            active_prompts: 1,
+            ...setCounts({ checks: 60, failed: 0, cited: 6, mentioned: 12, prompts: 1, prompts_cited: 1 }),
+        },
+        {
+            topic: 'Experiments',
+            active_prompts: 6,
+            ...setCounts({ checks: 360, failed: 10, cited: 70, mentioned: 140, prompts: 6, prompts_cited: 3 }),
+        },
+        {
+            topic: 'Feature flags',
+            active_prompts: 8,
+            ...setCounts({ checks: 480, failed: 10, cited: 188, mentioned: 329, prompts: 8, prompts_cited: 7 }),
+        },
+        {
+            topic: 'Product analytics',
+            active_prompts: 15,
+            ...setCounts({ checks: 900, failed: 20, cited: 528, mentioned: 704, prompts: 16, prompts_cited: 14 }),
+        },
+        {
+            topic: 'Session replay',
+            active_prompts: 12,
+            ...setCounts({ checks: 720, failed: 20, cited: 192, mentioned: 291, prompts: 13, prompts_cited: 6 }),
+        },
+        {
+            topic: 'Surveys',
+            active_prompts: 2,
+            ...setCounts({ checks: 0, failed: 0, cited: 0, mentioned: 0, prompts: 0, prompts_cited: 0 }),
+        },
+    ],
+    top_domains: [
+        { domain: 'analytics-review.example.com', answers: 1180, share_of_answers: 0.48, is_target: false },
+        { domain: 'example.com', answers: 984, share_of_answers: 0.4, is_target: true },
+        { domain: 'community.example.org', answers: 590, share_of_answers: 0.24, is_target: false },
     ],
 }
