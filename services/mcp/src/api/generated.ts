@@ -104053,6 +104053,8 @@ export namespace Schemas {
       name: string;
       /** What the automatic suppression rule drops. */
       description: string;
+      /** Short points on what the PostHog rule adds to the Sentry filter, or does differently. */
+      compared_with_sentry: string[];
     }
 
     /**

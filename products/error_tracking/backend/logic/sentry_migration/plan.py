@@ -311,7 +311,7 @@ class SentryMigrationPlanner:
         sentry_value: str,
         built_in_key: str,
         fit: SentryMigrationFit,
-        note: str | None,
+        compared_with_sentry: tuple[str, ...],
     ) -> SentryMigrationItem:
         definition = BUILT_IN_FILTERS_BY_KEY[built_in_key]
         return SentryMigrationItem(
@@ -320,11 +320,14 @@ class SentryMigrationPlanner:
             sentry_setting=sentry_setting,
             sentry_value=sentry_value,
             fit=fit,
-            note=note,
+            note=None,
             suppression_rule_filters=None,
             rate_limit=None,
             built_in_filter=SentryMigrationBuiltInFilter(
-                key=definition.key, name=definition.name, description=definition.description
+                key=definition.key,
+                name=definition.name,
+                description=definition.description,
+                compared_with_sentry=compared_with_sentry,
             ),
             already_in_posthog=built_in_key in self._enabled_built_in_filters,
         )
@@ -353,9 +356,7 @@ class SentryMigrationPlanner:
             sentry_value="On",
             built_in_key="localhost",
             fit=SentryMigrationFit.PARTIAL,
-            note=(
-                "Sentry also checked the user's IP address. PostHog checks the page URL, which only browser SDKs send."
-            ),
+            compared_with_sentry=("Checks the page URL, so it covers errors from browsers but not from servers",),
         )
 
     def _web_crawlers_item(self) -> SentryMigrationItem:
@@ -365,22 +366,20 @@ class SentryMigrationPlanner:
             sentry_value="On",
             built_in_key="web_crawlers",
             fit=SentryMigrationFit.PARTIAL,
-            note="PostHog uses its own list of crawlers and bots, which differs from Sentry's list.",
+            compared_with_sentry=("Uses PostHog's own bot list, which PostHog keeps up to date",),
         )
 
     def _legacy_browsers_item(self, subfilters: tuple[str, ...]) -> SentryMigrationItem:
         known = [label for key, label in _LEGACY_BROWSER_LABELS.items() if key in subfilters]
         unknown = sorted(key for key in subfilters if key not in _LEGACY_BROWSER_LABELS)
+        selection = ", ".join(known + unknown)
         return self._built_in_filter_item(
             item_id="inbound_filter:legacy-browsers",
             sentry_setting="Errors from legacy browsers",
-            sentry_value=", ".join(known + unknown),
+            sentry_value=selection,
             built_in_key="legacy_browsers",
             fit=SentryMigrationFit.PARTIAL,
-            note=(
-                "PostHog has one legacy browser rule with fixed versions, so it can drop more or fewer browsers "
-                "than your Sentry selection."
-            ),
+            compared_with_sentry=(f"Replaces your Sentry selection ({selection}) with these versions",),
         )
 
     def _react_hydration_item(self) -> SentryMigrationItem:
@@ -390,7 +389,7 @@ class SentryMigrationPlanner:
             sentry_value="On",
             built_in_key="react_hydration_errors",
             fit=SentryMigrationFit.GOOD,
-            note=None,
+            compared_with_sentry=(),
         )
 
     def _chunk_load_item(self) -> SentryMigrationItem:
@@ -400,10 +399,7 @@ class SentryMigrationPlanner:
             sentry_value="On",
             built_in_key="chunk_load_errors",
             fit=SentryMigrationFit.PARTIAL,
-            note=(
-                "PostHog's rule also drops failed dynamic imports, which bundlers such as Vite report instead of "
-                "ChunkLoadError."
-            ),
+            compared_with_sentry=("Also drops failed dynamic imports from Vite and other bundlers",),
         )
 
     def _blocked_ips_item(self, blocked_ips: tuple[str, ...]) -> SentryMigrationItem:
