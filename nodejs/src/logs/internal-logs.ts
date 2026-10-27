@@ -36,11 +36,16 @@ export const INTERNAL_SOURCE_POLICIES: Readonly<Record<string, InternalSourcePol
     // hog_function: { billed: false, teamRules: false },
 }
 
-type RejectReason = 'not_configured' | 'team_not_allowed' | 'invalid_signature' | 'stale_signature' | 'unknown_source'
+type NotInternalReason =
+    | 'not_configured'
+    | 'team_not_allowed'
+    | 'invalid_signature'
+    | 'stale_signature'
+    | 'unknown_source'
 
 const logsInternalLogsCounter = new Counter({
     name: 'logs_ingestion_internal_logs_total',
-    help: 'Batches that carried the posthog-internal header, by outcome. A rejected batch is billed as normal.',
+    help: 'Batches that carried the posthog-internal header, by outcome. A not_internal batch is billed as normal.',
     labelNames: ['outcome', 'reason'],
 })
 
@@ -99,24 +104,24 @@ export class InternalLogsVerifier {
             return undefined
         }
         const [, source = '', signedAt = ''] = signature.split('.')
-        const reason = this.rejectReason(signature, source, signedAt, teamId, createdAt)
+        const reason = this.notInternalReason(signature, source, signedAt, teamId, createdAt)
         // Own keys only, because a source like `constructor` resolves to an inherited policy with no `billed`.
         const policy = reason || !Object.hasOwn(this.policies, source) ? undefined : this.policies[source]
         if (!policy) {
-            logsInternalLogsCounter.inc({ outcome: 'rejected', reason: reason ?? 'unknown_source' })
+            logsInternalLogsCounter.inc({ outcome: 'not_internal', reason: reason ?? 'unknown_source' })
             return undefined
         }
-        logsInternalLogsCounter.inc({ outcome: 'accepted', reason: '' })
+        logsInternalLogsCounter.inc({ outcome: 'internal', reason: '' })
         return { source, ...policy }
     }
 
-    private rejectReason(
+    private notInternalReason(
         signature: string,
         source: string,
         signedAt: string,
         teamId: number,
         createdAt: string | undefined
-    ): RejectReason | null {
+    ): NotInternalReason | null {
         if (this.keys.length === 0) {
             return 'not_configured'
         }
