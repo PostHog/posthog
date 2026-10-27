@@ -51,6 +51,20 @@ def extract_text_from_messages(messages: Union[str, list, dict, None]) -> str:
     return "\n".join(rendered for rendered in rendered_messages if rendered is not None)
 
 
+def last_message_text(messages: Union[str, list, dict, None], role: str) -> str:
+    """Text of the last message in a role, or all the text when no message has that role.
+
+    A preview built from the start of the input shows the system prompt, which is the same on every sample.
+    """
+    if isinstance(messages, list):
+        for msg in reversed(messages):
+            if isinstance(msg, dict) and msg.get("role") == role:
+                rendered = extract_text_from_messages([msg])
+                if rendered:
+                    return rendered.removeprefix(f"{role}: ")
+    return extract_text_from_messages(messages)
+
+
 def _render_message(msg: dict) -> str | None:
     """Render a single message dict into a `role: body` line.
 
