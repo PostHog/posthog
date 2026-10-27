@@ -217,7 +217,9 @@ let conversion := {
 if (not empty(inputs.eventId)) {
     conversion.eventId := inputs.eventId
 }
-if (not empty(inputs.eventSourceUrl)) {
+// Microsoft rejects the whole conversion when eventSourceUrl is not a valid URL, so app URLs such as
+// file:// or capacitor:// are left out instead of being sent
+if (match(toString(inputs.eventSourceUrl ?? ''), '^https?://')) {
     conversion.eventSourceUrl := inputs.eventSourceUrl
 }
 
@@ -246,7 +248,10 @@ let res := fetch(f'https://capi.uet.microsoft.com/v1/{inputs.tagId}/events', {
 
 // Validation errors and warnings arrive in error.details. Only the field path and the message are logged,
 // because attemptedValue can echo the identifiers that were sent.
-let details := typeof(res.body) == 'object' ? (res.body.error?.details ?? []) : []
+let details := typeof(res.body) == 'object' ? res.body.error?.details : null
+if (typeof(details) != 'array') {
+    details := []
+}
 if (res.status >= 400) {
     if (empty(details)) {
         throw Error(f'Error from capi.uet.microsoft.com (status {res.status}): {res.body}')

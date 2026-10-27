@@ -94,6 +94,16 @@ describe('microsoft template', () => {
             `"Error from capi.uet.microsoft.com (status 401): {'error': {'code': 'Unauthorized', 'message': 'You are not authorized to access this resource.'}}"`
         )
     })
+    it('leaves out a source URL that is not an http(s) URL', async () => {
+        const response = await tester.invokeMapping(
+            'Conversion',
+            { tagId: '12345678', apiToken: 'api-token', eventName: 'purchase' },
+            createAdDestinationPayload({ event: { properties: { $current_url: 'capacitor://localhost/checkout' } } })
+        )
+        expect(response.error).toBeUndefined()
+        const body = parseJSON((response.invocation.queueParameters as { body: string }).body)
+        expect(body.data[0].eventSourceUrl).toBeUndefined()
+    })
     // Any one identifier is enough for Microsoft to attribute, so none of them may gate the send
     it.each([
         ['click id', { email: null, phone: null, external_id: null }, { msclkid: 'microsoft-id' }],
@@ -110,6 +120,12 @@ describe('microsoft template', () => {
         [
             'external id',
             { msclkid: null, email: null, phone: null },
+            { externalId: 'c775e7b757ede630cd0aa1113bd102661ab38829ca52a6422ab782862f268646' },
+        ],
+        // Person properties keep their JSON type, so a numeric ID must hash like its string form
+        [
+            'numeric external id',
+            { msclkid: null, email: null, phone: null, external_id: 1234567890 },
             { externalId: 'c775e7b757ede630cd0aa1113bd102661ab38829ca52a6422ab782862f268646' },
         ],
     ])('sends the conversion when only %s is available', async (_, personProperties, expectedUserData) => {
