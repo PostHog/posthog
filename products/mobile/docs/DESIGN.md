@@ -221,6 +221,9 @@ Its 16pt input has an explicit 20pt line height, centered vertically without And
   A centered title fades into the navigation row as the large title scrolls out, using the shared page-title pattern.
   Groups run Start page, Project, Notifications, Appearance, Demo (dev builds), App, Account, Environment (internal builds), Legal, then Sign out.
   Start page, Project and Appearance use the same radio rows (`SettingsRadioRow`).
+  The project list puts the current project and its organization first, with the other projects alphabetical
+  within each organization. It initially shows five projects in total. See more expands the full list,
+  and See less collapses it again. Organization labels stay visible for accounts with multiple organizations.
   Appearance is Match system, Light or Dark, saved on the device; screens wait for it to load so they never paint in the wrong scheme.
   Start page picks the tab the app opens on (Inbox, Chats or Views) and is saved on the device (`defaultPageStore`).
   Sign in also lands there, and so do Back on Settings or a view and closing the chat when there is no screen to go back to.

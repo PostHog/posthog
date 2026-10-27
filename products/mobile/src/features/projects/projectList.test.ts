@@ -1,6 +1,6 @@
 import type { AuthProject } from '@/auth/authStore'
 
-import { filterProjects, groupByOrganization } from './projectList'
+import { filterProjects, groupByOrganization, orderSettingsProjects } from './projectList'
 
 const web: AuthProject = { id: 1, name: 'Web app', organizationId: 'org-a', organizationName: 'Example Co' }
 const api: AuthProject = { id: 2, name: 'Public API', organizationId: 'org-a', organizationName: 'Example Co' }
@@ -24,5 +24,15 @@ describe('projectList', () => {
             { id: 'org-a', name: 'Example Co', projects: [web, api] },
             { id: 'org-b', name: 'Sample Labs', projects: [docs] },
         ])
+    })
+
+    test.each<[number | null, AuthProject[]]>([
+        [web.id, [web, api, docs]],
+        [docs.id, [docs, api, web]],
+        [null, [api, web, docs]],
+        [999, [api, web, docs]],
+    ])('settings orders projects for selection %s without changing store order', (projectId, expected) => {
+        expect(orderSettingsProjects(projects, projectId)).toEqual(expected)
+        expect(projects).toEqual([web, api, docs])
     })
 })

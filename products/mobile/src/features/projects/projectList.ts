@@ -19,6 +19,31 @@ export function groupByOrganization(projects: AuthProject[]): OrganizationProjec
     return groups
 }
 
+export function orderSettingsProjects(projects: AuthProject[], projectId: number | null): AuthProject[] {
+    const selectedOrganizationId = projects.find((project) => project.id === projectId)?.organizationId
+    return groupByOrganization(projects)
+        .sort((a, b) => {
+            if (a.id === selectedOrganizationId) {
+                return -1
+            }
+            if (b.id === selectedOrganizationId) {
+                return 1
+            }
+            return a.name.localeCompare(b.name)
+        })
+        .flatMap((group) =>
+            group.projects.sort((a, b) => {
+                if (a.id === projectId) {
+                    return -1
+                }
+                if (b.id === projectId) {
+                    return 1
+                }
+                return a.name.localeCompare(b.name)
+            })
+        )
+}
+
 export function filterProjects(projects: AuthProject[], query: string): AuthProject[] {
     const needle = query.trim().toLowerCase()
     if (!needle) {

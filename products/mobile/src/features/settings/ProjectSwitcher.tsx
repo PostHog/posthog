@@ -1,15 +1,19 @@
-import { type ReactElement, useMemo } from 'react'
+import { type ReactElement, useMemo, useState } from 'react'
 import { ActivityIndicator, Text, View } from 'react-native'
 
 import { useAuthStore } from '@/auth/authStore'
-import { groupByOrganization } from '@/features/projects/projectList'
+import { groupByOrganization, orderSettingsProjects } from '@/features/projects/projectList'
 import { useAsyncAction } from '@/lib/useAsyncAction'
+import { ChevronDownIcon } from '@/ui/icons/ChevronDownIcon'
+import { ChevronUpIcon } from '@/ui/icons/ChevronUpIcon'
 import { Pressable44 } from '@/ui/Pressable44'
 import { createStyles, useColors } from '@/ui/theme'
-import { radii, type } from '@/ui/tokens'
+import { iconSizes, radii, type } from '@/ui/tokens'
 
 import { SettingsGroup } from './SettingsGroup'
 import { SettingsRadioRow } from './SettingsRadioRow'
+
+const COLLAPSED_PROJECT_COUNT = 5
 
 export function ProjectSwitcher(): ReactElement {
     const styles = useStyles()
@@ -20,8 +24,12 @@ export function ProjectSwitcher(): ReactElement {
     const accountError = useAuthStore((state) => state.accountError)
     const selectProject = useAuthStore((state) => state.selectProject)
     const reload = useAsyncAction(() => useAuthStore.getState().reloadAccount())
-    const groups = useMemo(() => groupByOrganization(projects), [projects])
-    const showOrganizations = groups.length > 1
+    const [expanded, setExpanded] = useState(false)
+    const orderedProjects = useMemo(() => orderSettingsProjects(projects, projectId), [projects, projectId])
+    const visibleProjects = expanded ? orderedProjects : orderedProjects.slice(0, COLLAPSED_PROJECT_COUNT)
+    const groups = groupByOrganization(visibleProjects)
+    const showOrganizations = projects.some((project) => project.organizationId !== projects[0]?.organizationId)
+    const canExpand = projects.length > COLLAPSED_PROJECT_COUNT
 
     const retry = (
         <Pressable44
@@ -87,12 +95,40 @@ export function ProjectSwitcher(): ReactElement {
                     />
                 )),
             ])}
+            {canExpand ? (
+                <Pressable44
+                    onPress={() => setExpanded((value) => !value)}
+                    aria-expanded={expanded}
+                    pressedBackground={colors.background}
+                    style={styles.expandRow}
+                    testID="projects-see-more"
+                >
+                    <Text style={styles.expandLabel}>{expanded ? 'See less' : 'See more'}</Text>
+                    {expanded ? (
+                        <ChevronUpIcon size={iconSizes.inline} color={colors.secondary} />
+                    ) : (
+                        <ChevronDownIcon size={iconSizes.inline} color={colors.secondary} />
+                    )}
+                </Pressable44>
+            ) : null}
             {accountError ? <View style={styles.retryRow}>{retry}</View> : null}
         </SettingsGroup>
     )
 }
 
 const useStyles = createStyles(({ colors }) => ({
+    expandRow: {
+        minHeight: 52,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
+        paddingHorizontal: 16,
+    },
+    expandLabel: {
+        ...type.body,
+        color: colors.secondary,
+        flex: 1,
+    },
     organization: {
         color: colors.tertiary,
         paddingHorizontal: 16,
