@@ -426,7 +426,8 @@ CONSTANCE_CONFIG = {
     "CACHE_WARMING_EXPENSIVE_VIEWED_HOURS": (
         get_from_env("CACHE_WARMING_EXPENSIVE_VIEWED_HOURS", default=24, type_cast=int),
         "How recently someone must have viewed an expensive insight, or opened its dashboard, for cache warming "
-        "to keep it warm. Other insights use CACHE_WARMING_LAST_VIEWED_DAYS. Maximum 8760 (365 days).",
+        "to keep it warm. Other insights use CACHE_WARMING_LAST_VIEWED_DAYS. Set to 0 to never warm expensive insights. "
+        "Maximum 8760 (365 days).",
         int,
     ),
     "CACHE_WARMING_MAX_SECONDS": (
