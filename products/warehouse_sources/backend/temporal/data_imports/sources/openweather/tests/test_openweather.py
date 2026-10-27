@@ -23,6 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.openweathe
     OPENWEATHER_BASE_URL,
     Location,
     OpenWeatherRetryableError,
+    TimeWindow,
     _dt_to_iso,
     _fetch,
     _normalize_rows,
@@ -185,26 +186,30 @@ class TestHistoryWindows:
                 HistoryWindow(size=timedelta(days=7), lookback=timedelta(days=7)),
                 10 * _DAY,
                 12 * _DAY,
-                [(10 * _DAY, 12 * _DAY)],
+                [TimeWindow(start=10 * _DAY, end=12 * _DAY)],
             ),
             (
                 HistoryWindow(size=timedelta(days=7), lookback=timedelta(days=7)),
                 None,
                 30 * _DAY,
-                [(23 * _DAY, 30 * _DAY)],
+                [TimeWindow(start=23 * _DAY, end=30 * _DAY)],
             ),
             # Consecutive windows never share a boundary second, so no row is read twice.
             (
                 HistoryWindow(size=timedelta(days=2), earliest_start=datetime.fromtimestamp(0, tz=UTC)),
                 None,
                 5 * _DAY,
-                [(0, 2 * _DAY), (2 * _DAY + 1, 4 * _DAY + 1), (4 * _DAY + 2, 5 * _DAY)],
+                [
+                    TimeWindow(start=0, end=2 * _DAY),
+                    TimeWindow(start=2 * _DAY + 1, end=4 * _DAY + 1),
+                    TimeWindow(start=4 * _DAY + 2, end=5 * _DAY),
+                ],
             ),
             (HistoryWindow(size=timedelta(days=7), lookback=timedelta(days=7)), 12 * _DAY + 1, 12 * _DAY, []),
         ],
     )
     def test_windows(self, window, start_from, end, expected):
-        assert [(r.start, r.end) for r in history_windows(window, start_from, end)] == expected
+        assert list(history_windows(window, start_from, end)) == expected
 
 
 # The undecorated `_fetch` (tenacity exposes the original via `__wrapped__`) so the status
