@@ -164,6 +164,13 @@
       "internal": true,
       "billing_product": "posthog_ai",
       "expected": "posthog_ai"
+    },
+    {
+      "origin_product": "signals_scout",
+      "ai_stage": null,
+      "internal": true,
+      "billing_product": "posthog_ai",
+      "expected": "posthog_ai"
     }
   ],
   "routed": [
@@ -296,6 +303,14 @@
     },
     {
       "origin_product": "signal_report",
+      "ai_stage": null,
+      "internal": true,
+      "billing_product": "posthog_ai",
+      "allowlist": "posthog_ai",
+      "expected": true
+    },
+    {
+      "origin_product": "signals_scout",
       "ai_stage": null,
       "internal": true,
       "billing_product": "posthog_ai",

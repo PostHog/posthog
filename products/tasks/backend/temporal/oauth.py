@@ -80,7 +80,10 @@ def _oauth_application_for_task(task: Task, state: dict[str, Any] | None) -> San
     # A metrics import bills the `posthog_ai` gateway product, which accepts only this application.
     if task.origin_product in (Task.OriginProduct.POSTHOG_AI, Task.OriginProduct.METRICS_IMPORT):
         return "posthog_ai"
-    if task.origin_product == Task.OriginProduct.SIGNAL_REPORT and (state or {}).get("billing_product") == "posthog_ai":
+    if (
+        task.origin_product in (Task.OriginProduct.SIGNAL_REPORT, Task.OriginProduct.SIGNALS_SCOUT)
+        and (state or {}).get("billing_product") == "posthog_ai"
+    ):
         return "posthog_ai"
     if task.origin_product in SIGNALS_ORIGIN_PRODUCTS:
         return "signals"

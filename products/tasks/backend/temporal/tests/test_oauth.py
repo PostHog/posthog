@@ -62,7 +62,11 @@ def test_built_in_agent_origins_use_restricted_oauth_scope(
 
 @pytest.mark.parametrize(
     "origin, state",
-    [(Task.OriginProduct.POSTHOG_AI, {}), (Task.OriginProduct.SIGNAL_REPORT, {"billing_product": "posthog_ai"})],
+    [
+        (Task.OriginProduct.POSTHOG_AI, {}),
+        (Task.OriginProduct.SIGNAL_REPORT, {"billing_product": "posthog_ai"}),
+        (Task.OriginProduct.SIGNALS_SCOUT, {"billing_product": "posthog_ai"}),
+    ],
 )
 @patch("products.tasks.backend.temporal.oauth.is_builtin_agent_enforcement_enabled", return_value=True)
 @patch("products.tasks.backend.temporal.oauth._create_oauth_access_token_for_user", return_value="token")
@@ -81,12 +85,14 @@ def test_posthog_ai_task_keeps_member_token_and_posthog_ai_oauth_application(
 
     assert create_oauth_access_token(task, run_state=state) == "token"
 
+    expected = {"include_mcp_builtin_agent_scope": True} if origin == Task.OriginProduct.SIGNALS_SCOUT else {}
     mock_create.assert_called_once_with(
         task.created_by,
         123,
         scopes="read_only",
         application="posthog_ai",
         sandbox_task_id=task.id,
+        **expected,
     )
 
 

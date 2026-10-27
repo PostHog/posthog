@@ -470,11 +470,13 @@ class TestAiGatewayEnvVars:
             ("workflow", None, "workflows"),
             ("signal_report", {"ai_stage": "inbox", "billing_product": "posthog_ai"}, "posthog_ai"),
             ("signal_report", {"billing_product": "posthog_ai"}, "posthog_ai"),
+            ("signals_scout", {"billing_product": "posthog_ai"}, "posthog_ai"),
         ],
     )
     @pytest.mark.parametrize("over_quota", [False, True])
     def test_user_billed_run_uses_its_credit_bucket(self, mint_settings, origin, state, product, over_quota):
         mint_settings.SANDBOX_AI_GATEWAY_PRODUCTS = product
+        runtime = "pi" if origin == "signals_scout" else None
         with (
             patch(
                 "products.tasks.backend.temporal.process_task.utils.mint_scoped_token", return_value="phe_abc"
@@ -486,10 +488,12 @@ class TestAiGatewayEnvVars:
         ):
             if product == "workflows" and over_quota:
                 with pytest.raises(GatewayTokenUnavailableError):
-                    ai_gateway_env_vars(team_id=123, origin_product=origin, state=state)
+                    ai_gateway_env_vars(team_id=123, origin_product=origin, state=state, runtime=runtime, internal=True)
                 mint.assert_not_called()
             else:
-                env = ai_gateway_env_vars(team_id=123, origin_product=origin, state=state)
+                env = ai_gateway_env_vars(
+                    team_id=123, origin_product=origin, state=state, runtime=runtime, internal=True
+                )
                 if over_quota:
                     assert "AI_GATEWAY_TOKEN" not in env
                     mint.assert_not_called()

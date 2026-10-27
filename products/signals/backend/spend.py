@@ -62,7 +62,7 @@ def report_triggering_signal(
     )
 
     signals = fetch_signals_for_report_sync(report.team, report_id, newest=1, ch_user=ch_user)
-    if not signals:
+    if not signals or finalized_signal_ids(team_id=team_id, signal_ids=[signals[0]["signal_id"]]):
         return None
     with transaction.atomic():
         reports = SignalReport.objects.filter(team_id=team_id, id=report_id)

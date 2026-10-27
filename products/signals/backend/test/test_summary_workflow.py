@@ -186,6 +186,7 @@ class _Recorder:
         checks_snapshot: dict[str, str] | None = None,
         selected_repository: str | None = "owner/repo",
         spend_failures: int = 0,
+        spend_owner_available: bool = True,
     ) -> None:
         self.gate_answers = gate_answers or {}
         self.fetch_results = fetch_results or [[_signal_data()]]
@@ -198,6 +199,7 @@ class _Recorder:
         self.selected_repository = selected_repository
         self.gate_checks: list[str] = []
         self.fetches = 0
+        self.claimed_before_fetch: list[bool] = []
         self.assigned_signal_checks = 0
         self.failure_reasons: list[str | None] = []
         self.marks_in_progress = 0
@@ -206,6 +208,7 @@ class _Recorder:
         self.researches = 0
         self.spend_publications = 0
         self.spend_failures = spend_failures
+        self.spend_owner_available = spend_owner_available
         self.reverts = 0
         self.resets = 0
         self.failures = 0
@@ -255,6 +258,7 @@ async def _run_summary_workflow(recorder: _Recorder) -> None:
     async def fake_fetch(input: FetchSignalsForReportInput) -> FetchSignalsForReportOutput:
         signals = recorder.fetch_results[min(recorder.fetches, len(recorder.fetch_results) - 1)]
         recorder.fetches += 1
+        recorder.claimed_before_fetch.append(recorder.marks_in_progress > 0)
         return FetchSignalsForReportOutput(signals=signals)
 
     @activity.defn(name="report_has_assigned_signals_activity")
@@ -263,7 +267,9 @@ async def _run_summary_workflow(recorder: _Recorder) -> None:
         return recorder.has_assigned_signals
 
     @activity.defn(name="report_spend_owner_activity")
-    async def fake_spend_owner(input: SignalReportSummaryWorkflowInputs) -> str:
+    async def fake_spend_owner(input: SignalReportSummaryWorkflowInputs) -> str | None:
+        if not recorder.spend_owner_available:
+            return None
         return input.report_id
 
     @activity.defn(name="mark_report_in_progress_activity")
@@ -457,10 +463,21 @@ async def test_no_repository_keeps_report_content_and_logs_the_blocker():
 
 
 @pytest.mark.asyncio
+async def test_summary_without_an_open_spend_owner_makes_no_paid_calls():
+    recorder = _Recorder(spend_owner_available=False)
+    await _run_summary_workflow(recorder)
+    assert recorder.fetches == 0
+    assert recorder.safety_checks == 0
+    assert recorder.researches == 0
+    assert recorder.spend_publications == 0
+
+
+@pytest.mark.asyncio
 async def test_empty_first_fetch_is_retried_and_run_proceeds():
     recorder = _Recorder(fetch_results=[[], [], [_signal_data()]])
     await _run_summary_workflow(recorder)
     assert recorder.fetches == 3
+    assert all(recorder.claimed_before_fetch)
     assert recorder.researches == 1
     assert recorder.spend_publications == 1
     assert recorder.failures == 0
@@ -473,8 +490,9 @@ async def test_persistently_empty_fetch_leaves_report_for_repromotion_when_signa
     await _run_summary_workflow(recorder)
     assert recorder.fetches == 1 + EMPTY_FETCH_RETRY_ATTEMPTS
     assert recorder.assigned_signal_checks == 1
-    # Neither researched nor failed: the report stays where it is and grouping re-promotes it.
-    assert recorder.marks_in_progress == 0
+    # Release the claim so grouping can re-promote it once ClickHouse catches up.
+    assert recorder.marks_in_progress == 1
+    assert recorder.reverts == 1
     assert recorder.researches == 0
     assert recorder.failures == 0
 

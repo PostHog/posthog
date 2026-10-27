@@ -918,13 +918,27 @@ class Task(Taggable, DeletedMetaFields, models.Model):
 
             # A manual resume can share an internal Task with an automated run. Freeze billing
             # on this run so historical PR charges and pipeline attribution do not change.
-            if task.origin_product == Task.OriginProduct.SIGNAL_REPORT and state.get("ai_stage") not in {
-                "research",
-                "implementation",
-                "repo_selection",
-                "custom_agent",
-            }:
+            if (
+                task.origin_product == Task.OriginProduct.SIGNAL_REPORT
+                and state.get("ai_stage")
+                not in {
+                    "research",
+                    "implementation",
+                    "repo_selection",
+                    "custom_agent",
+                }
+            ) or (task.origin_product == Task.OriginProduct.SIGNALS_SCOUT and not state.get("ai_stage")):
                 state["billing_product"] = "posthog_ai"
+
+            if (
+                environment == TaskRun.Environment.CLOUD
+                and task.origin_product in (Task.OriginProduct.SIGNAL_REPORT, Task.OriginProduct.SIGNALS_SCOUT)
+                and state.get("billing_product") != "posthog_ai"
+            ):
+                # A new automated run has no usage yet, including when provisioning fails.
+                # Gateway fallback marks coverage incomplete before any agent can start.
+                state.setdefault("unprocessed_request_ids", [])
+                state.setdefault("token_cost", {})
 
             resume_from_run_id = (extra_state or {}).get("resume_from_run_id")
             if resume_from_run_id is not None:

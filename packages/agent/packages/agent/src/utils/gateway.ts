@@ -21,7 +21,10 @@ export function resolveGatewayProduct({
   originProduct?: string | null;
   billingProduct?: string | null;
 } = {}): GatewayProduct {
-  if (originProduct === "signal_report" && billingProduct === "posthog_ai") {
+  if (
+    (originProduct === "signal_report" || originProduct === "signals_scout") &&
+    billingProduct === "posthog_ai"
+  ) {
     return "posthog_ai";
   }
   // Automated signals origins mint their tokens under the Signals OAuth

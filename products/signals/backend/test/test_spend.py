@@ -241,26 +241,28 @@ class TestSignalSpend(BaseTest):
             signal_row = fetch_signals_for_report_sync(self.team, str(uuid4()))[0]
             assert signal_row["total_spend"] == metadata["total_spend"]
 
-    @parameterized.expand([("web", None), ("pipeline", ClickHouseUser.SIGNALS)])
+    @parameterized.expand([("web", None, False), ("pipeline", ClickHouseUser.SIGNALS, False), ("settled", None, True)])
     def test_triggering_signal_lookup_preserves_query_identity(
-        self, _name: str, ch_user: ClickHouseUser | None
+        self, _name: str, ch_user: ClickHouseUser | None, finalized: bool
     ) -> None:
         report = SignalReport.objects.create(team=self.team)
         driver = str(uuid4())
         now = timezone.now()
+        if finalized:
+            record_llm_spend(team_id=self.team.id, signal_id=driver, stage="grouping", token_cost_microusd=100)
+            complete_signal_pipeline(team_id=self.team.id, signal_id=driver)
         with patch(
             "products.signals.backend.signal_metadata.execute_hogql_query",
             return_value=Mock(results=[(driver, "Example finding", "{}", now, now)]),
         ) as query:
-            assert (
-                report_triggering_signal(
-                    team_id=self.team.id, report_id=str(report.id), **({"ch_user": ch_user} if ch_user else {})
-                )
-                == driver
-            )
+            assert report_triggering_signal(
+                team_id=self.team.id, report_id=str(report.id), **({"ch_user": ch_user} if ch_user else {})
+            ) == (None if finalized else driver)
         assert query.call_args.kwargs["ch_user"] == (ch_user or ClickHouseUser.DEFAULT)
         report.refresh_from_db()
-        assert str(report.triggering_signal_id) == driver
+        assert (str(report.triggering_signal_id) if report.triggering_signal_id else None) == (
+            None if finalized else driver
+        )
 
     @parameterized.expand([("priced", 12_345), ("free", 0), ("cancelled", None), ("missing_id", None)])
     async def test_generation_waits_for_spend_without_regenerating(self, outcome: str, cost: int | None) -> None:
@@ -712,14 +714,28 @@ class TestSignalSpend(BaseTest):
         assert signal_spend_totals(team_id=self.team.id, signal_ids=[driver]) == {driver: 10.01}
         assert rows.filter(report=report).count() == 2
 
-    @parameterized.expand([("inbox",), ("",)])
-    def test_manual_report_run_leaves_finalized_signal_spend_unchanged(self, stage: str) -> None:
+    @parameterized.expand(
+        [
+            (Task.OriginProduct.SIGNAL_REPORT, "inbox"),
+            (Task.OriginProduct.SIGNAL_REPORT, ""),
+            (Task.OriginProduct.SIGNALS_SCOUT, ""),
+        ]
+    )
+    def test_manual_report_run_leaves_finalized_signal_spend_unchanged(self, origin: str, stage: str) -> None:
         driver = str(uuid4())
         report = SignalReport.objects.create(
             team=self.team, triggering_signal_id=driver, status=SignalReport.Status.READY
         )
-        run = self._run(report=report, stage="implementation")
-        SignalReportTask.objects.create(team=self.team, report=report, task=run.task, relationship="implementation")
+        if origin == Task.OriginProduct.SIGNALS_SCOUT:
+            task = Task.objects.create(team=self.team, title="Scout", origin_product=origin)
+            run = self._run(task=task, stage="scout")
+            scout = SignalScoutRun.objects.for_team(self.team.id).create(
+                team=self.team, task_run=run, skill_name="example-scout", skill_version=1
+            )
+            record_task_spend(team_id=self.team.id, run_id=str(run.id), scout_run_id=str(scout.id), stage="scout")
+        else:
+            run = self._run(report=report, stage="implementation")
+            SignalReportTask.objects.create(team=self.team, report=report, task=run.task, relationship="implementation")
         self._set_task_cost(run, 100)
         run.status = TaskRun.Status.COMPLETED
         run.save(update_fields=["status"])
@@ -727,11 +743,35 @@ class TestSignalSpend(BaseTest):
         before = SignalSpend.objects.for_team(self.team.id).values().get()
         assert before["finalized_at"] is not None
         resumed = self._run(task=run.task, stage=stage)
+        assert resumed.state["billing_product"] == "posthog_ai"
         self._set_task_cost(resumed, 200)
         resumed.status = TaskRun.Status.COMPLETED
         resumed.save(update_fields=["status"])
         self._complete_task_spend(team_id=self.team.id, run_id=str(resumed.id))
         assert SignalSpend.objects.for_team(self.team.id).values().get() == before
+
+    @parameterized.expand([(Task.OriginProduct.SIGNAL_REPORT, "research"), (Task.OriginProduct.SIGNALS_SCOUT, "scout")])
+    def test_prelaunch_failure_settles_with_zero_tokens(self, origin: str, stage: str) -> None:
+        driver = str(uuid4())
+        report = SignalReport.objects.create(team=self.team, triggering_signal_id=driver)
+        task = Task.objects.create(
+            team=self.team, title="Fails before launch", origin_product=origin, signal_report=report
+        )
+        run = task.create_run(
+            environment=TaskRun.Environment.CLOUD, extra_state={"ai_stage": stage}, spend_signal_id=driver
+        )
+        if origin == Task.OriginProduct.SIGNALS_SCOUT:
+            scout = SignalScoutRun.objects.for_team(self.team.id).create(
+                team=self.team, task_run=run, skill_name="example-scout", skill_version=1
+            )
+            record_task_spend(team_id=self.team.id, run_id=str(run.id), scout_run_id=str(scout.id), stage="scout")
+        run.status = TaskRun.Status.FAILED
+        run.save(update_fields=["status"])
+        self._complete_task_spend(team_id=self.team.id, run_id=str(run.id))
+        spend = SignalSpend.objects.for_team(self.team.id).get(task_run_id=run.id)
+        assert spend.finalized_at is not None
+        assert not spend.accounting_failed
+        assert spend.spend == cost_to_spend(0, task_count=1)
 
     @parameterized.expand([("research",), ("repo_selection",)])
     def test_resumed_task_belongs_to_new_signal_and_preserves_finalized_owner(self, stage: str) -> None:

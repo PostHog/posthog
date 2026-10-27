@@ -32,6 +32,7 @@ from products.signals.backend.temporal.grouping import (
     verify_match_specificity_activity,
 )
 from products.signals.backend.temporal.signal_queries import SourceSignalMatch
+from products.signals.backend.temporal.summary import MarkReportInProgressInput, mark_report_in_progress_activity
 from products.signals.backend.temporal.types import (
     ExistingReportMatch,
     MatchedMetadata,
@@ -1470,11 +1471,14 @@ async def test_signal_crossing_next_bucket_owns_next_research_pass(ateam, source
     original_driver = uuid.uuid4()
     report = await database_sync_to_async(SignalReport.objects.create)(
         team=ateam,
-        status=SignalReport.Status.IN_PROGRESS,
+        status=SignalReport.Status.CANDIDATE,
         signal_count=2,
         total_weight=2,
-        researching_signal_count=2,
         triggering_signal_id=original_driver,
+    )
+    # Claim before fetching: an arrival during the fetch must retain an open spend owner.
+    await mark_report_in_progress_activity(
+        MarkReportInProgressInput(team_id=ateam.id, report_id=str(report.id), signal_id=str(original_driver))
     )
     for _ in range(3):
         signal = _build_input(ateam.id, _existing_match(str(report.id)), source_product=source_product)

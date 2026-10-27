@@ -321,6 +321,9 @@ class SignalReportSummaryWorkflow:
                     start_to_close_timeout=timedelta(minutes=1),
                     retry_policy=RetryPolicy(maximum_attempts=3),
                 )
+                if signal_id is None:
+                    log.info("Report has no open spend owner, waiting for a new triggering signal")
+                    return
                 try:
                     should_loop = await self._run_once(replace(inputs, signal_id=signal_id), log)
                 finally:
@@ -425,52 +428,66 @@ class SignalReportSummaryWorkflow:
         ):
             log.info("Report run paused: org over self-driving credits quota", stage="summary_entry")
             return False
-        # 1. Fetch signals for the report
-        fetch_result = await self._fetch_signals(inputs, log)
-        if not fetch_result.signals:
-            # patched(): same marker as the retry loop, so pre-patch histories replay straight to failure.
-            if workflow.patched("signals-empty-fetch-retry") and await workflow.execute_activity(
-                report_has_assigned_signals_activity,
-                ReportHasAssignedSignalsInput(team_id=inputs.team_id, report_id=inputs.report_id),
-                start_to_close_timeout=timedelta(minutes=1),
-                retry_policy=RetryPolicy(maximum_attempts=3),
-            ):
-                # Signals are assigned in Postgres but not yet readable in ClickHouse. Failing here
-                # would be terminal, so leave the report as it is: grouping re-promotes a candidate
-                # on the next matching signal, and that run sees the rows.
-                log.warning("Report has assigned signals that are not yet visible in ClickHouse, deferring run")
-                metrics.increment_report_run_deferred("signals_not_visible")
-                return False
-            log.error("No signals found for report, marking as failed")
-            await workflow.execute_activity(
-                mark_report_failed_activity,
-                MarkReportFailedInput(
-                    team_id=inputs.team_id,
-                    report_id=inputs.report_id,
-                    error="No signals found",
-                    failure_reason="no_signals_found",
-                ),
-                start_to_close_timeout=timedelta(minutes=1),
-                retry_policy=RetryPolicy(maximum_attempts=3),
-            )
-            # No loop, as no signals to process
-            return False
-        signal_count = len(fetch_result.signals)
-        source_products = sorted({s.source_product for s in fetch_result.signals})
-        # 2. Mark report as in_progress to prevent duplicate runs while this workflow is active
-        await workflow.execute_activity(
-            mark_report_in_progress_activity,
-            MarkReportInProgressInput(
-                team_id=inputs.team_id,
-                report_id=inputs.report_id,
-                signal_id=inputs.signal_id,
-                signal_count=signal_count,
-                source_products=source_products,
-            ),
-            start_to_close_timeout=timedelta(minutes=1),
-            retry_policy=RetryPolicy(maximum_attempts=3),
-        )
+        claim_before_fetch = workflow.patched("signals-spend-explicit-owner")
         try:
+            if claim_before_fetch:
+                # Grouping must reserve arrivals for the next pass before we take the ClickHouse snapshot.
+                await workflow.execute_activity(
+                    mark_report_in_progress_activity,
+                    MarkReportInProgressInput(
+                        team_id=inputs.team_id, report_id=inputs.report_id, signal_id=inputs.signal_id
+                    ),
+                    start_to_close_timeout=timedelta(minutes=1),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
+            # 1. Fetch signals for the report
+            fetch_result = await self._fetch_signals(inputs, log)
+            if not fetch_result.signals:
+                # patched(): same marker as the retry loop, so pre-patch histories replay straight to failure.
+                if workflow.patched("signals-empty-fetch-retry") and await workflow.execute_activity(
+                    report_has_assigned_signals_activity,
+                    ReportHasAssignedSignalsInput(team_id=inputs.team_id, report_id=inputs.report_id),
+                    start_to_close_timeout=timedelta(minutes=1),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                ):
+                    # Signals are assigned in Postgres but not yet readable in ClickHouse. Failing here
+                    # would be terminal, so leave the report as it is: grouping re-promotes a candidate
+                    # on the next matching signal, and that run sees the rows.
+                    log.warning("Report has assigned signals that are not yet visible in ClickHouse, deferring run")
+                    metrics.increment_report_run_deferred("signals_not_visible")
+                    if claim_before_fetch:
+                        await self._revert_report_to_candidate(inputs)
+                    return False
+                log.error("No signals found for report, marking as failed")
+                await workflow.execute_activity(
+                    mark_report_failed_activity,
+                    MarkReportFailedInput(
+                        team_id=inputs.team_id,
+                        report_id=inputs.report_id,
+                        error="No signals found",
+                        failure_reason="no_signals_found",
+                    ),
+                    start_to_close_timeout=timedelta(minutes=1),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
+                # No loop, as no signals to process
+                return False
+            signal_count = len(fetch_result.signals)
+            source_products = sorted({s.source_product for s in fetch_result.signals})
+            if not claim_before_fetch:
+                # 2. Mark report as in_progress to prevent duplicate runs while this workflow is active
+                await workflow.execute_activity(
+                    mark_report_in_progress_activity,
+                    MarkReportInProgressInput(
+                        team_id=inputs.team_id,
+                        report_id=inputs.report_id,
+                        signal_id=inputs.signal_id,
+                        signal_count=signal_count,
+                        source_products=source_products,
+                    ),
+                    start_to_close_timeout=timedelta(minutes=1),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
             # 3. Run safety judge first to avoid passing unsafe report into the agentic research
             safety_result = await workflow.execute_activity(
                 report_safety_judge_activity,
@@ -882,7 +899,7 @@ async def revert_report_to_candidate_activity(input: RevertReportToCandidateInpu
 class MarkReportInProgressInput:
     team_id: int
     report_id: str
-    signal_count: int
+    signal_count: int | None = None
     source_products: list[str] = field(default_factory=list)
     signal_id: str | None = None
 
@@ -911,6 +928,8 @@ async def mark_report_in_progress_activity(input: MarkReportInProgressInput) -> 
                 SignalReport.Status.IN_PROGRESS, signals_at_run_increment=SIGNALS_AT_RUN_INCREMENT
             )
             report.pending_triggering_signal_id = None
+            if input.signal_count is None:
+                input.signal_count = report.signal_count
             report.researching_signal_count = input.signal_count
             report.save(update_fields=[*updated_fields, "pending_triggering_signal_id", "researching_signal_count"])
             return report.run_count, False
@@ -930,6 +949,7 @@ async def mark_report_in_progress_activity(input: MarkReportInProgressInput) -> 
         )
         return
 
+    assert input.signal_count is not None
     team = await Team.objects.select_related("organization").aget(pk=input.team_id)
     _capture_report_event(
         event="signal_report_started",

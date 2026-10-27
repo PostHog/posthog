@@ -133,7 +133,7 @@ def resolve_sandbox_ai_product(
     origin_product: str | None, ai_stage: str | None, *, internal: bool = False, billing_product: str | None = None
 ) -> str:
     """The `ai_product` the agent server will resolve for this run."""
-    if origin_product == "signal_report" and billing_product == "posthog_ai":
+    if origin_product in ("signal_report", "signals_scout") and billing_product == "posthog_ai":
         return "posthog_ai"
     gateway_product = _ORIGIN_TO_GATEWAY_PRODUCT.get(origin_product or "")
     # Stored rows may carry a caller-set review_hog origin predating its
@@ -254,7 +254,9 @@ def mint_refusal(
         refusal = _posthog_code_refusal(team_id, model)
         if refusal:
             return refusal
-    elif runtime == "pi" and not (ai_product == "signals_scout" and origin_product == "signals_scout" and internal):
+    elif runtime == "pi" and not (
+        ai_product in {"signals_scout", "posthog_ai"} and origin_product == "signals_scout" and internal
+    ):
         return "pi_runtime"
     # The gateway denies an off-pin model with no fallback.
     if not model_allowed_by_product_pin(ai_product, model):
