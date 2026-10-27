@@ -29,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_clo
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.aws_auth import (
     AWS_AUTH_NON_RETRYABLE_ERRORS,
+    AWS_FLAT_STORED_SELECTS,
     AwsAuthError,
     aws_auth_field,
     resolve_aws_credentials,
@@ -66,6 +67,8 @@ class AmazonCloudWatchSource(ResumableSource[AmazonCloudWatchSourceConfig, Amazo
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://docs.aws.amazon.com/AmazonCloudWatch/latest/APIReference/Welcome.html"
+
+    flat_stored_selects = AWS_FLAT_STORED_SELECTS
 
     @property
     def source_type(self) -> ExternalDataSourceType:

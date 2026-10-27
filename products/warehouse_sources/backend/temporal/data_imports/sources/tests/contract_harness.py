@@ -224,8 +224,7 @@ def _placeholder_config(config_class: type, text: str | None, fill_optional: boo
         if not required and not (fill_optional and field.default is None and is_optional_str):
             continue
         if isinstance(annotation, type) and is_config(annotation):
-            # A select container's branch fields are optional only because the other branch leaves
-            # them out, so fill them as the source's form would.
+            # Fill every branch's fields: they are optional only because the unselected branch omits them.
             is_select = any(nested.name == "selection" for nested in dataclasses.fields(annotation))
             kwargs[field.name] = _placeholder_config(annotation, text, fill_optional or is_select)
         elif annotation in (int, "int"):

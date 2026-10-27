@@ -6,7 +6,6 @@ from typing import Any, Optional
 from urllib.parse import quote, urlencode
 
 import requests
-from botocore.auth import SigV4Auth
 from botocore.awsrequest import AWSRequest
 from botocore.credentials import Credentials
 from structlog.types import FilteringBoundLogger
@@ -18,6 +17,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_ses.se
     SES_ENDPOINT_TEMPLATE,
     SES_SIGNING_NAME,
     AwsSesEndpointConfig,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.aws_auth import (
+    aws_redact_values,
+    sign_aws_request,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import BoundedRetry
@@ -182,8 +185,7 @@ def error_for_response(response: requests.Response, endpoint: str, path: str) ->
 
 
 def make_session(credentials: Credentials) -> requests.Session:
-    frozen_credentials = credentials.get_frozen_credentials()
-    redact = tuple(value for value in (frozen_credentials.secret_key, frozen_credentials.token) if value)
+    redact = aws_redact_values(credentials)
     return make_tracked_session(retry=TRANSPORT_RETRY, redact_values=redact)
 
 
@@ -203,8 +205,7 @@ def send_request(
         url = f"{url}?{urlencode(sorted(params.items()), quote_via=quote, safe='-_.~')}"
 
     aws_request = AWSRequest(method="GET", url=url)
-    # Role credentials refresh, so sign each request with one consistent snapshot of them.
-    SigV4Auth(credentials.get_frozen_credentials(), SES_SIGNING_NAME, region).add_auth(aws_request)
+    sign_aws_request(aws_request, credentials, SES_SIGNING_NAME, region)
 
     response = session.get(url, headers=dict(aws_request.headers.items()), timeout=REQUEST_TIMEOUT_SECONDS)
     if response.status_code >= 400:
@@ -439,7 +440,6 @@ def validate_credentials(
     aws_region: str,
     schema_name: Optional[str] = None,
 ) -> tuple[bool, Optional[str]]:
-
     try:
         region = validate_region(aws_region)
     except ValueError:

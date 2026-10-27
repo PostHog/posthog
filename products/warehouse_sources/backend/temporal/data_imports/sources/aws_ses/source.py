@@ -21,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_ses.se
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.aws_auth import (
     AWS_AUTH_NON_RETRYABLE_ERRORS,
+    AWS_FLAT_STORED_SELECTS,
     AwsAuthError,
     aws_auth_field,
     resolve_aws_credentials,
@@ -62,6 +63,8 @@ class AwsSesSource(ResumableSource[AwsSesSourceConfig, AwsSesResumeConfig]):
     supported_versions = ("v2",)
     default_version = "v2"
     api_docs_url = "https://docs.aws.amazon.com/ses/latest/APIReference-V2/Welcome.html"
+
+    flat_stored_selects = AWS_FLAT_STORED_SELECTS
 
     @property
     def source_type(self) -> ExternalDataSourceType:

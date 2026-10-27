@@ -12,7 +12,6 @@ from zoneinfo import ZoneInfo
 
 import pyarrow as pa
 import requests
-from botocore.auth import SigV4Auth
 from botocore.awsrequest import AWSRequest
 from botocore.credentials import Credentials
 from botocore.loaders import Loader
@@ -46,7 +45,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_athena
     RESULTS_PAGE_SIZE,
     AwsService,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.aws_auth import resolve_aws_credentials
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.aws_auth import (
+    aws_redact_values,
+    resolve_aws_credentials,
+    sign_aws_request,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import NO_RETRY
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.interruptible_wait import (
@@ -182,8 +185,7 @@ def send_once(
     url = f"https://{model.endpoint_prefix}.{region}.{suffix}{serialized['url_path']}"
 
     aws_request = AWSRequest(method="POST", url=url, data=body, headers=dict(serialized["headers"]))
-    # Role credentials refresh, so sign each request with one consistent snapshot of them.
-    SigV4Auth(credentials.get_frozen_credentials(), model.signing_name, region).add_auth(aws_request)
+    sign_aws_request(aws_request, credentials, model.signing_name, region)
 
     response = session.post(url, data=body, headers=dict(aws_request.headers.items()), timeout=REQUEST_TIMEOUT)
 
@@ -221,8 +223,7 @@ def send_operation(
 
 class AthenaClient:
     def __init__(self, credentials: Credentials, aws_region: str) -> None:
-        frozen_credentials = credentials.get_frozen_credentials()
-        redact = tuple(value for value in (frozen_credentials.secret_key, frozen_credentials.token) if value)
+        redact = aws_redact_values(credentials)
         self._session = make_tracked_session(retry=NO_RETRY, redact_values=redact, allow_redirects=False)
         self._credentials = credentials
         self._region = aws_region.strip()
@@ -646,12 +647,15 @@ NO_RESULT_LOCATION_MESSAGE = (
 WORKGROUP_DISABLED_MESSAGE = "This Athena workgroup is disabled. Enable it, or pick another workgroup."
 WORKGROUP_NOT_FOUND_MESSAGE = "The Athena workgroup does not exist in this region. Check the workgroup name."
 GENERIC_VALIDATION_ERROR = (
-    "AWS didn't accept the request. Check the access key can read Glue and Athena, then try again."
+    "AWS didn't accept the request. Check that the access key or IAM role can read Glue and Athena, then try again."
 )
 
 
 def validate_credentials(config: AwsAthenaSourceConfig, credentials: Credentials) -> tuple[bool, Optional[str]]:
-    """Check the inputs, then the database and the workgroup: the two things every sync needs."""
+    """Check the inputs, then the database and the workgroup: the two things every sync needs.
+
+    The caller resolves the credentials first, so an IAM role is assumed before the inputs are checked.
+    """
     if not config.aws_region or aws_dns_suffix(config.aws_region.strip()) is None:
         return False, "Enter an AWS region code, for example us-east-1."
     if not (config.database or "").strip():

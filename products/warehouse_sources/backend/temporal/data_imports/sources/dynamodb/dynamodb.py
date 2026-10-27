@@ -4,12 +4,15 @@ from collections.abc import Iterator, Mapping
 from typing import Any, Optional
 
 import requests
-from botocore.auth import SigV4Auth
 from botocore.awsrequest import AWSRequest
 from botocore.credentials import Credentials
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.aws_auth import (
+    aws_redact_values,
+    sign_aws_request,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
@@ -154,9 +157,8 @@ class DynamoDBClient:
         self.endpoint = ENDPOINT_TEMPLATE.format(region=self.region)
         self.target_prefix = target_prefix(api_version)
         self._credentials = credentials
-        frozen_credentials = credentials.get_frozen_credentials()
         self._session = make_tracked_session(
-            redact_values=tuple(value for value in (frozen_credentials.secret_key, frozen_credentials.token) if value),
+            redact_values=aws_redact_values(credentials),
             # DynamoDB items carry arbitrary customer fields (PII, secrets under generic attribute
             # names) the name-based scrubber can't catch, so keep responses out of HTTP samples.
             capture=False,
@@ -172,8 +174,7 @@ class DynamoDBClient:
                 "X-Amz-Target": f"{self.target_prefix}.{operation}",
             },
         )
-        # Role credentials refresh, so sign each request with one consistent snapshot of them.
-        SigV4Auth(self._credentials.get_frozen_credentials(), SIGV4_SERVICE_NAME, self.region).add_auth(request)
+        sign_aws_request(request, self._credentials, SIGV4_SERVICE_NAME, self.region)
         return dict(request.headers)
 
     def send(self, operation: str, payload: Mapping[str, Any]) -> dict[str, Any]:

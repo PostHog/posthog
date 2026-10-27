@@ -10,7 +10,6 @@ from typing import Any, Optional
 from urllib.parse import urlencode
 
 import requests
-from botocore.auth import SigV4Auth
 from botocore.awsrequest import AWSRequest
 from botocore.credentials import Credentials
 from botocore.loaders import Loader
@@ -43,6 +42,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_clo
     STS_SERVICE,
     AwsService,
     CloudWatchEndpointConfig,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.aws_auth import (
+    aws_redact_values,
+    sign_aws_request,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import NO_RETRY
@@ -301,8 +304,7 @@ def _operation(service: AwsService, operation: str) -> OperationModel:
 
 
 def make_session(credentials: Credentials) -> requests.Session:
-    frozen_credentials = credentials.get_frozen_credentials()
-    redact = tuple(value for value in (frozen_credentials.secret_key, frozen_credentials.token) if value)
+    redact = aws_redact_values(credentials)
     return make_tracked_session(retry=NO_RETRY, redact_values=redact, allow_redirects=False)
 
 
@@ -367,8 +369,7 @@ def send_operation(
     url = f"https://{model.endpoint_prefix}.{region}.{suffix}{serialized['url_path']}"
 
     aws_request = AWSRequest(method="POST", url=url, data=body, headers=dict(serialized["headers"]))
-    # Role credentials refresh, so sign each request with one consistent snapshot of them.
-    SigV4Auth(credentials.get_frozen_credentials(), model.signing_name, region).add_auth(aws_request)
+    sign_aws_request(aws_request, credentials, model.signing_name, region)
 
     response = session.post(url, data=body, headers=dict(aws_request.headers.items()), timeout=REQUEST_TIMEOUT)
 
@@ -406,9 +407,7 @@ VALIDATION_ERROR_MESSAGES: dict[str, str] = {
 
 TRANSIENT_VALIDATION_ERROR = "Amazon CloudWatch is busy or temporarily unavailable. Wait a moment and try again."
 
-GENERIC_VALIDATION_ERROR = (
-    "AWS didn't accept the CloudWatch request. Check the access key is active and can read CloudWatch, then try again."
-)
+GENERIC_VALIDATION_ERROR = "AWS didn't accept the CloudWatch request. Check that the access key or IAM role can read CloudWatch, then try again."
 
 
 def validate_credentials(

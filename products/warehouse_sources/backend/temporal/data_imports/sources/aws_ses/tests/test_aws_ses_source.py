@@ -70,6 +70,7 @@ class TestAwsSesSource:
                 "account": None
             }
 
+        assert probe.call_args[0][0].access_key == "AKIAEXAMPLE"
         assert probe.call_args[0][1:] == ("us-east-1", ["account"])
 
     def test_source_for_pipeline_forwards_the_watermark_only_on_an_incremental_run(self) -> None:

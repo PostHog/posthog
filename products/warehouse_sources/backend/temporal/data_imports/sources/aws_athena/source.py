@@ -20,6 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_athena
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.aws_auth import (
     AWS_AUTH_NON_RETRYABLE_ERRORS,
+    AWS_FLAT_STORED_SELECTS,
     AwsAuthError,
     aws_auth_field,
     resolve_aws_credentials,
@@ -51,6 +52,8 @@ class AwsAthenaSource(SQLSource[AwsAthenaSourceConfig]):
     @property
     def get_implementation(self) -> AthenaImplementation:
         return _ATHENA_IMPLEMENTATION
+
+    flat_stored_selects = AWS_FLAT_STORED_SELECTS
 
     @property
     def source_type(self) -> ExternalDataSourceType:

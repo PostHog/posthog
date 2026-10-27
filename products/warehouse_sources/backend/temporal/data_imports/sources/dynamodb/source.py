@@ -10,6 +10,7 @@ from products.warehouse_sources.backend.facade.source_config import (
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.aws_auth import (
     AWS_AUTH_NON_RETRYABLE_ERRORS,
+    AWS_FLAT_STORED_SELECTS,
     AwsAuthError,
     aws_auth_field,
     resolve_aws_credentials,
@@ -57,6 +58,8 @@ class DynamoDBSource(ResumableSource[DynamoDBSourceConfig, DynamoDBResumeConfig]
     default_version = DYNAMODB_API_VERSION
     api_docs_url = "https://docs.aws.amazon.com/amazondynamodb/latest/APIReference/Welcome.html"
 
+    flat_stored_selects = AWS_FLAT_STORED_SELECTS
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.DYNAMODB
@@ -82,7 +85,7 @@ class DynamoDBSource(ResumableSource[DynamoDBSourceConfig, DynamoDBResumeConfig]
             name=ExternalDataSourceType.DYNAMODB,
             category=DataWarehouseSourceCategory.DATABASES,
             label="DynamoDB",
-            caption="""Enter an AWS access key with read access to DynamoDB to import your tables into the PostHog Data warehouse.
+            caption="""Connect an IAM role or an access key with read access to DynamoDB to import your tables into the PostHog Data warehouse.
 
 Create an IAM role or user whose policy allows `dynamodb:ListTables`, `dynamodb:DescribeTable` and `dynamodb:Scan`. Connect with the role, or paste the user's access key below. Tables are read with a full table scan, so every sync uses read capacity on the table.""",
             iconPath="/static/services/dynamodb.png",
