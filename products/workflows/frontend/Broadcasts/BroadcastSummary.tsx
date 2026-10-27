@@ -335,12 +335,18 @@ export function BroadcastSummary(): JSX.Element {
     const accessReason = manageDisabledReason(broadcast?.user_access_level)
     const actionItems = [
         canMoveToDraft
-            ? { label: 'Stop and edit', onClick: confirmMoveToDraft, 'data-attr': 'broadcast-move-to-draft' }
+            ? {
+                  label: 'Stop and edit',
+                  onClick: confirmMoveToDraft,
+                  disabledReason: accessReason,
+                  'data-attr': 'broadcast-move-to-draft',
+              }
             : null,
         canEditContent
             ? {
                   label: 'Send again as a new broadcast',
                   onClick: duplicateBroadcast,
+                  disabledReason: accessReason,
                   'data-attr': 'broadcast-send-again',
               }
             : null,
@@ -406,7 +412,11 @@ export function BroadcastSummary(): JSX.Element {
             <BroadcastSceneHeader nameSuffix={<BroadcastStatusTag status={summaryStatus} />} actions={actionsMenu} />
             <div className="mx-auto w-full max-w-6xl space-y-4">
                 {broadcastPath(broadcastId) === 'composer' ? <ComposerDraftFeedback /> : null}
-                {broadcast?.status === 'draft' ? (
+                {broadcast?.status === 'draft' && accessReason ? (
+                    <LemonBanner type="info">
+                        You have view access to Workflows, so this draft opens read-only.
+                    </LemonBanner>
+                ) : broadcast?.status === 'draft' ? (
                     <LemonBanner
                         type="info"
                         action={{
@@ -427,6 +437,7 @@ export function BroadcastSummary(): JSX.Element {
                                 ? {
                                       children: 'Move to draft',
                                       onClick: confirmMoveToDraft,
+                                      disabledReason: accessReason,
                                       'data-attr': 'broadcast-unfinished-launch-to-draft',
                                   }
                                 : undefined

@@ -32,6 +32,7 @@ import {
     ManagedBroadcast,
     confirmArchiveBroadcast,
     confirmDeleteBroadcast,
+    manageDisabledReason,
     restoreBroadcast,
 } from './broadcastLifecycle'
 
@@ -126,6 +127,15 @@ export function canEditInWizard(actions: FlowStep[] | null | undefined, edges: F
         paths.size === 2 &&
         paths.has(`${trigger[0].id}->${message[0].id}`) &&
         paths.has(`${message[0].id}->${exit[0].id}`)
+    )
+}
+
+/** Anything else opens as the read-only summary: a sent broadcast, a graph the wizard can't show, or a viewer's draft. */
+export function opensInWizard(broadcast: HogFlowApi): boolean {
+    return (
+        broadcast.status === 'draft' &&
+        !manageDisabledReason(broadcast.user_access_level) &&
+        canEditInWizard(broadcast.actions as FlowStep[], broadcast.edges as FlowEdge[])
     )
 }
 
