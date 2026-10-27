@@ -701,11 +701,14 @@ export interface AssistantTrendsQuery extends AssistantInsightsQueryBase {
     compareFilter?: CompareFilter
 }
 
-export type AssistantFunnelsMath = FunnelMathType.FirstTimeForUser | FunnelMathType.FirstTimeForUserWithFilters
+export type AssistantFunnelsMath =
+    | FunnelMathType.AnyMatch
+    | FunnelMathType.FirstTimeForUser
+    | FunnelMathType.FirstTimeForUserWithFilters
 
 export interface AssistantFunnelNodeShared {
     /**
-     * Optional math aggregation type for the series. Only specify this math type if the user wants one of these.
+     * Optional math aggregation type for the series. `total` is the default stored on saved funnels and can be preserved when rerunning one.
      * `first_time_for_user` - counts the number of users who have completed the event for the first time ever.
      * `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time.
      */

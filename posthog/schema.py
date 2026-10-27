@@ -10459,11 +10459,12 @@ class AssistantFunnelNodeShared(BaseModel):
     math: AssistantFunnelsMath | None = Field(
         default=None,
         description=(
-            "Optional math aggregation type for the series. Only specify this math type"
-            " if the user wants one of these. `first_time_for_user` - counts the number"
-            " of users who have completed the event for the first time ever."
-            " `first_time_for_user_with_filters` - counts the number of users who have"
-            " completed the event with specified filters for the first time."
+            "Optional math aggregation type for the series. `total` is the default"
+            " stored on saved funnels and can be preserved when rerunning one."
+            " `first_time_for_user` - counts the number of users who have completed the"
+            " event for the first time ever. `first_time_for_user_with_filters` -"
+            " counts the number of users who have completed the event with specified"
+            " filters for the first time."
         ),
     )
     optionalInFunnel: bool | None = Field(
@@ -10510,11 +10511,12 @@ class AssistantFunnelsActionsNode(BaseModel):
     math: AssistantFunnelsMath | None = Field(
         default=None,
         description=(
-            "Optional math aggregation type for the series. Only specify this math type"
-            " if the user wants one of these. `first_time_for_user` - counts the number"
-            " of users who have completed the event for the first time ever."
-            " `first_time_for_user_with_filters` - counts the number of users who have"
-            " completed the event with specified filters for the first time."
+            "Optional math aggregation type for the series. `total` is the default"
+            " stored on saved funnels and can be preserved when rerunning one."
+            " `first_time_for_user` - counts the number of users who have completed the"
+            " event for the first time ever. `first_time_for_user_with_filters` -"
+            " counts the number of users who have completed the event with specified"
+            " filters for the first time."
         ),
     )
     name: str = Field(..., description="Action name from the plan.")
@@ -10567,11 +10569,12 @@ class AssistantFunnelsEventsNode(BaseModel):
     math: AssistantFunnelsMath | None = Field(
         default=None,
         description=(
-            "Optional math aggregation type for the series. Only specify this math type"
-            " if the user wants one of these. `first_time_for_user` - counts the number"
-            " of users who have completed the event for the first time ever."
-            " `first_time_for_user_with_filters` - counts the number of users who have"
-            " completed the event with specified filters for the first time."
+            "Optional math aggregation type for the series. `total` is the default"
+            " stored on saved funnels and can be preserved when rerunning one."
+            " `first_time_for_user` - counts the number of users who have completed the"
+            " event for the first time ever. `first_time_for_user_with_filters` -"
+            " counts the number of users who have completed the event with specified"
+            " filters for the first time."
         ),
     )
     optionalInFunnel: bool | None = Field(
