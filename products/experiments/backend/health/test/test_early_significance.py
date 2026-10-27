@@ -265,7 +265,9 @@ class TestEarlySignificanceFromStoredResults(BaseTest):
             },
         )
 
-        health = get_experiment_health(team_id=self.team.id, experiment_id=experiment.id, reader_access=NO_QUERIES)
+        health = get_experiment_health(
+            team_id=self.team.id, experiment_id=experiment.id, reader_access=NO_QUERIES, user=self.user
+        )
 
         check = next(check for check in health.checks if check.key == ExperimentHealthCheckKey.EARLY_SIGNIFICANCE)
         finding = next(
