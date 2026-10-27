@@ -50,6 +50,17 @@ export function describeNotification(destination: WarehouseAlertCreateDestinatio
             return { title, detail: parts.join(' · ') }
         }
         default:
-            return { title, detail: destination.webhook_url }
+            return { title, detail: webhookHost(destination.webhook_url) }
+    }
+}
+
+function webhookHost(url: string | null | undefined): string | undefined {
+    if (!url) {
+        return undefined
+    }
+    try {
+        return new URL(url).host
+    } catch {
+        return url
     }
 }
