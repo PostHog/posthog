@@ -19,7 +19,7 @@ from posthog.scopes import APIScopeObject
 
 from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
 from products.dashboards.backend.api.dashboard import DashboardTileSerializer
-from products.dashboards.backend.constants import DEFAULT_WIDGET_LIST_LIMIT
+from products.dashboards.backend.constants import DEFAULT_WIDGET_LIST_LIMIT, MAX_GROUPS
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
@@ -581,6 +581,141 @@ class TestDashboardWidgets(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert self.dashboard_api.get_dashboard(dest_id)["tiles"] == before["tiles"]
+
+    def test_copy_group_rejects_same_dashboard_as_source(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        self.dashboard_api.create_text_tile(dashboard_id, extra_data={"group_key": "plans"})
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/copy_group",
+            {"fromDashboardId": dashboard_id, "groupKey": "plans"},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @parameterized.expand(
+        [
+            ("source_dashboard", True, False),
+            ("insight_in_group", False, True),
+        ]
+    )
+    def test_copy_group_denies_without_viewer_access(
+        self, _name: str, deny_source_dashboard: bool, deny_insight: bool
+    ) -> None:
+        source_id, _ = self.dashboard_api.create_dashboard({"name": "source"})
+        dest_id, _ = self.dashboard_api.create_dashboard({"name": "dest"})
+        insight_id, _ = self.dashboard_api.create_insight({"name": "Activation"})
+        self.dashboard_api.add_insight_to_dashboard([source_id], insight_id)
+        source = self.dashboard_api.get_dashboard(source_id)
+        insight_tile_id = next(tile["id"] for tile in source["tiles"] if tile["insight"])
+        self.dashboard_api.update_dashboard(source_id, {"tiles": [{"id": insight_tile_id, "group_key": "plans"}]})
+
+        real_check = UserAccessControl.check_access_level_for_object
+
+        def deny_selectively(
+            user_access_control: UserAccessControl,
+            obj: Dashboard | Insight,
+            required_level: AccessControlLevel,
+            explicit: bool = False,
+        ) -> bool:
+            if deny_source_dashboard and isinstance(obj, Dashboard) and obj.pk == source_id:
+                return False
+            if deny_insight and isinstance(obj, Insight) and obj.pk == insight_id:
+                return False
+            return real_check(user_access_control, obj, required_level, explicit=explicit)
+
+        with patch.object(
+            UserAccessControl, "check_access_level_for_object", autospec=True, side_effect=deny_selectively
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/dashboards/{dest_id}/copy_group",
+                {"fromDashboardId": source_id, "groupKey": "plans"},
+            )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    @parameterized.expand(
+        [
+            ("duplicate_insight_tile", status.HTTP_400_BAD_REQUEST),
+            ("widget_tile_denied_product_access", status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_copy_group_rolls_back_whole_group_on_validation_failure(
+        self, failure_mode: str, expected_status: int
+    ) -> None:
+        source_id, _ = self.dashboard_api.create_dashboard({"name": "source"})
+        dest_id, _ = self.dashboard_api.create_dashboard({"name": "dest"})
+        _, source = self.dashboard_api.create_widget_tile(source_id)
+        widget_tile_id = source["tiles"][0]["id"]
+        _, source = self.dashboard_api.create_text_tile(source_id)
+        text_tile_id = next(tile["id"] for tile in source["tiles"] if tile["text"])
+        insight_id, _ = self.dashboard_api.create_insight({"name": "Activation"})
+        self.dashboard_api.add_insight_to_dashboard([source_id], insight_id)
+        source = self.dashboard_api.get_dashboard(source_id)
+        insight_tile_id = next(tile["id"] for tile in source["tiles"] if tile["insight"])
+        self.dashboard_api.update_dashboard(
+            source_id,
+            {
+                "tiles": [
+                    {"id": widget_tile_id, "group_key": "plans"},
+                    {"id": text_tile_id, "group_key": "plans"},
+                    {"id": insight_tile_id, "group_key": "plans"},
+                ],
+            },
+        )
+
+        if failure_mode == "duplicate_insight_tile":
+            self.client.post(
+                f"/api/projects/{self.team.id}/dashboards/{dest_id}/copy_tile",
+                {"fromDashboardId": source_id, "tileId": insight_tile_id},
+            )
+
+        before = self.dashboard_api.get_dashboard(dest_id)["tiles"]
+
+        real_check = UserAccessControl.check_access_level_for_resource
+
+        def deny_error_tracking_only(
+            user_access_control: UserAccessControl,
+            resource: APIScopeObject,
+            required_level: AccessControlLevel = "viewer",
+        ) -> bool:
+            if failure_mode == "widget_tile_denied_product_access" and resource == "error_tracking":
+                return False
+            return real_check(user_access_control, resource, required_level)
+
+        with patch.object(
+            UserAccessControl, "check_access_level_for_resource", autospec=True, side_effect=deny_error_tracking_only
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/dashboards/{dest_id}/copy_group",
+                {"fromDashboardId": source_id, "groupKey": "plans"},
+            )
+
+        assert response.status_code == expected_status
+        assert self.dashboard_api.get_dashboard(dest_id)["tiles"] == before
+
+    @parameterized.expand(
+        [
+            ("below_limit", MAX_GROUPS - 1, status.HTTP_200_OK),
+            ("at_limit", MAX_GROUPS, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_copy_group_enforces_max_groups_on_destination(
+        self, _name: str, existing_group_count: int, expected_status: int
+    ) -> None:
+        source_id, _ = self.dashboard_api.create_dashboard({"name": "source"})
+        dest_id, _ = self.dashboard_api.create_dashboard({"name": "dest"})
+        self.dashboard_api.create_text_tile(source_id, extra_data={"group_key": "plans"})
+        Dashboard.objects.filter(id=dest_id).update(
+            customization={"groups": {f"group-{i}": {"title": f"group {i}"} for i in range(existing_group_count)}}
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/{dest_id}/copy_group",
+            {"fromDashboardId": source_id, "groupKey": "plans"},
+        )
+
+        assert response.status_code == expected_status
 
     @override_settings(IN_UNIT_TESTING=True)
     def test_move_tile_moves_widget_tile(self) -> None:

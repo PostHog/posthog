@@ -6569,6 +6569,9 @@ describe('dashboardLogic', () => {
             logic = dashboardLogic({ id: 5 })
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
+            const [firstTile, secondTile] = logic.values.tiles
+            logic.actions.setTileProperty(firstTile.id, { group_key: 'plans' })
+            logic.actions.setTileProperty(secondTile.id, { group_key: 'plans' })
 
             await expectLogic(logic, () => {
                 logic.actions.copyGroupToDashboard('plans', 8, 'Target dashboard')
@@ -6584,8 +6587,28 @@ describe('dashboardLogic', () => {
             expect(posthog.capture).toHaveBeenCalledWith('dashboard tile group copied to other dashboard', {
                 from_dashboard_id: 5,
                 to_dashboard_id: 8,
-                tile_count: 0,
+                tile_count: 2,
             })
+        })
+
+        it('resets loading and shows an error toast when the copy fails', async () => {
+            jest.spyOn(dashboardGeneratedApi, 'dashboardsCopyGroupCreate').mockRejectedValueOnce(
+                new Error('network down')
+            )
+            const errorToast = jest.spyOn(lemonToast, 'error')
+
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.copyGroupToDashboard('plans', 8, 'Target dashboard')
+            })
+                .toDispatchActions(['copyGroupToDashboardFinished'])
+                .toFinishAllListeners()
+                .toMatchValues({ copyGroupToDashboardLoading: false })
+
+            expect(errorToast).toHaveBeenCalledWith(expect.stringContaining('Could not copy group to dashboard'))
         })
     })
 })

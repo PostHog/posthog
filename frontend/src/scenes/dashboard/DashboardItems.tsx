@@ -150,6 +150,8 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         moveTileToSection,
     } = useActions(dashboardLogic)
     const { updateWidgetTile } = useAsyncActions(dashboardLogic)
+    // dashboard_tiles is empty because this selector covers a whole group, not one tile; the
+    // backend still rejects a destination that already has one of the group's tiles.
     const { copyToDestinations } = useValues(
         dashboardWidgetMenusLogic({ instanceKey: 'dashboard-groups', dashboardId: dashboard?.id, dashboard_tiles: [] })
     )
@@ -262,6 +264,8 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
 
     const canEnterEditModeFromEdge =
         !!dashboard && canEditDashboard && !layoutEditMode && !isMobileView && isEditablePlacement
+
+    const onCopyGroupToDashboard = canEditDashboard && isEditablePlacement ? copyGroupToDashboard : undefined
 
     const isLayoutZoomToggled = layoutEditMode && layoutZoom !== 1
 
@@ -835,7 +839,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             collapsedTileGroupKeys={collapsedTileGroupKeys}
             onToggleTileGroup={toggleTileGroup}
             copyToDestinations={copyToDestinations}
-            onCopyGroupToDashboard={canEditDashboard && isEditablePlacement ? copyGroupToDashboard : undefined}
+            onCopyGroupToDashboard={onCopyGroupToDashboard}
             copyLoading={copyGroupToDashboardLoading}
         >
             {renderSectionGrid(section, index)}
@@ -857,9 +861,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                         activeSectionKey={tileGroupSections[activeTabIndex].key}
                         onSelect={selectTileGroupTab}
                         copyToDestinations={copyToDestinations}
-                        onCopyGroupToDashboard={
-                            canEditDashboard && isEditablePlacement ? copyGroupToDashboard : undefined
-                        }
+                        onCopyGroupToDashboard={onCopyGroupToDashboard}
                         copyLoading={copyGroupToDashboardLoading}
                     >
                         {renderSectionGrid(tileGroupSections[activeTabIndex], activeTabIndex)}
