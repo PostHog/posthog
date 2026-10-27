@@ -3524,6 +3524,7 @@ jobs:
                   # Unsupported pytest-split flags abort collection, so probe the installed plugin.
                   SPLITTING_ALGORITHM=duration_based_chunks
                   SPLIT_GRANULARITY=()
+                  SPLIT_PLAN=()
                   if python -c "from pytest_split.algorithms import Algorithms; from pytest_split.plugin import PytestSplitFilePlugin; raise SystemExit(0 if 'optimal_chunks' in Algorithms.names() else 1)" 2>/dev/null; then
                       SPLITTING_ALGORITHM=optimal_chunks
                       SPLIT_GRANULARITY=(--split-granularity=file)
@@ -3532,7 +3533,7 @@ jobs:
                       # matches the .core run-set (the events_json rows do not), and a missing
                       # file falls back to the union.
                       if [ -f .test_durations.core ] && [[ "${{ matrix.person-on-events }}" != "true" ]] && [[ "${{ matrix.compat }}" != "true" ]] && [[ "$JSON_TARGETS" != "true" ]] && python -c "from pytest_split.plugin import SUPPORTS_SPLIT_PLAN_PATH" 2>/dev/null; then
-                          SPLIT_GRANULARITY+=(--split-plan-path .test_durations.core)
+                          SPLIT_PLAN=(--split-plan-path .test_durations.core)
                       fi
                   fi
                   if [[ "$JSON_TARGETS" == "true" ]]; then
@@ -3598,12 +3599,11 @@ jobs:
                       else
                           targets="$CORE_FILES"
                       fi
-                      # File mode plans from the full selection before pruning explicit
-                      # file arguments, so each shard imports only the files it needs.
+                      # No SPLIT_PLAN: the plan file is not scoped to the selected targets.
                       SELECTED_SPLIT=()
                       if [[ "${{ matrix.concurrency }}" -gt 1 ]]; then
                           SELECTED_SPLIT=(--splits "${{ matrix.concurrency }}" --group "${{ matrix.group }}"
-                                          --split-granularity=file)
+                                          --splitting-algorithm="$SPLITTING_ALGORITHM" "${SPLIT_GRANULARITY[@]}")
                       fi
                       # shellcheck disable=SC2086
                       pytest -v --tb=short --reuse-db -o junit_duration_report=call $targets -m "not async_migrations" \
@@ -3632,7 +3632,7 @@ jobs:
                         --durations=1000 --durations-min=1.0 --store-durations \
                         --pytest-durations=100 \
                         --splitting-algorithm="$SPLITTING_ALGORITHM" \
-                        "${SPLIT_GRANULARITY[@]}" \
+                        "${SPLIT_GRANULARITY[@]}" "${SPLIT_PLAN[@]}" \
                         "${RETRY_ARGS[@]}" -r fEsxXR \
                         --junitxml=junit-core.xml \
                         $COV_ARGS \
@@ -3707,14 +3707,10 @@ jobs:
                   # The --deselect guards stay on both branches so a selected run can't re-enable them.
                   if [[ "$MODE" == "selected" ]]; then
                       # Selected mode uses the same single-retry budget as the full run.
-                      # A selection wide enough to need more than one shard is split like a
-                      # full run. Item granularity on purpose: the target list is already
-                      # narrow, so pre-import file skipping saves nothing, and the per-segment
-                      # plan file describes a different run-set than the selected subset.
                       SELECTED_SPLIT=()
                       if [[ "${{ matrix.concurrency }}" -gt 1 ]]; then
                           SELECTED_SPLIT=(--splits "${{ matrix.concurrency }}" --group "${{ matrix.group }}"
-                                          --splitting-algorithm="$SPLITTING_ALGORITHM")
+                                          --splitting-algorithm="$SPLITTING_ALGORITHM" "${SPLIT_GRANULARITY[@]}")
                       fi
                       # shellcheck disable=SC2086
                       pytest -v --tb=short --reuse-db -o junit_duration_report=call $TEMPORAL_FILES -m "not async_migrations" \
