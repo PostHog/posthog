@@ -40,6 +40,7 @@ enum AckMode {
 enum StreamEnding {
     OnHalfClose,
     Never,
+    AfterOpen(Duration),
 }
 
 enum ManualAck {
@@ -106,7 +107,21 @@ impl WorkerIngest for MockWorker {
                     }
                 });
             }
-            while let Some(Ok(frame)) = inbound.next().await {
+            let server_end = async {
+                match ending {
+                    StreamEnding::AfterOpen(after) => tokio::time::sleep(after).await,
+                    _ => std::future::pending::<()>().await,
+                }
+            };
+            tokio::pin!(server_end);
+            loop {
+                let frame = tokio::select! {
+                    frame = inbound.next() => match frame {
+                        Some(Ok(frame)) => frame,
+                        _ => break,
+                    },
+                    _ = &mut server_end => return,
+                };
                 match frame.msg {
                     Some(ingest_stream_request::Msg::Hello(hello)) => {
                         hellos.lock().await.push(hello.stream_epoch);
@@ -894,6 +909,114 @@ async fn sends_that_arrive_during_the_idle_drain_open_the_next_stream_at_once() 
         ],
         "work enqueued during the drain rides the new stream in order"
     );
+}
+
+#[tokio::test]
+async fn the_idle_window_starts_at_the_last_ack() {
+    let (ack_tx, ack_rx) = mpsc::unbounded_channel();
+    let mock = start_mock(AckMode::Manual, Some(ack_rx)).await;
+    let mut transport =
+        GrpcTransport::new(GrpcPort::Fixed(mock.addr.port()), Duration::from_secs(30));
+    transport.set_idle_close(Duration::from_millis(100));
+    let url = worker_url(mock.addr);
+
+    let first = transport.begin_send(&url, "batch-1", vec![msg("d1", 1)], false);
+    wait_for_received(&mock, 1).await;
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    ack_tx
+        .send(ManualAck::Ok {
+            seq: 1,
+            accepted: 1,
+        })
+        .unwrap();
+    first.wait().await.expect("first send");
+
+    tokio::time::sleep(Duration::from_millis(30)).await;
+    let second = transport.begin_send(&url, "batch-2", vec![msg("d1", 2)], false);
+    wait_for_received(&mock, 2).await;
+    ack_tx
+        .send(ManualAck::Ok {
+            seq: 2,
+            accepted: 1,
+        })
+        .unwrap();
+    second.wait().await.expect("second send");
+
+    assert_eq!(*mock.hellos.lock().await, vec![1]);
+    let seqs: Vec<_> = mock.received.lock().await.iter().map(|s| s.seq).collect();
+    assert_eq!(seqs, vec![1, 2], "the second send rides the same stream");
+}
+
+#[tokio::test]
+async fn repeated_idle_closes_carry_consecutive_stream_epochs() {
+    let mock = start_mock(AckMode::Immediate, None).await;
+    let mut transport =
+        GrpcTransport::new(GrpcPort::Fixed(mock.addr.port()), Duration::from_secs(30));
+    transport.set_idle_close(Duration::from_millis(50));
+    let url = worker_url(mock.addr);
+
+    for i in 1..=3 {
+        transport
+            .begin_send(&url, &format!("batch-{i}"), vec![msg("d1", i)], false)
+            .wait()
+            .await
+            .expect("send");
+        tokio::time::sleep(Duration::from_millis(150)).await;
+    }
+
+    assert_eq!(*mock.hellos.lock().await, vec![1, 2, 3]);
+    let seqs: Vec<_> = mock.received.lock().await.iter().map(|s| s.seq).collect();
+    assert_eq!(seqs, vec![1, 1, 1]);
+}
+
+#[tokio::test]
+async fn a_zero_idle_window_keeps_an_idle_stream_open() {
+    let mock = start_mock(AckMode::Immediate, None).await;
+    let mut transport =
+        GrpcTransport::new(GrpcPort::Fixed(mock.addr.port()), Duration::from_secs(30));
+    transport.set_idle_close(Duration::ZERO);
+    let url = worker_url(mock.addr);
+
+    transport
+        .begin_send(&url, "batch-1", vec![msg("d1", 1)], false)
+        .wait()
+        .await
+        .expect("first send");
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    transport
+        .begin_send(&url, "batch-2", vec![msg("d1", 2)], false)
+        .wait()
+        .await
+        .expect("second send");
+
+    assert_eq!(*mock.hellos.lock().await, vec![1]);
+    let seqs: Vec<_> = mock.received.lock().await.iter().map(|s| s.seq).collect();
+    assert_eq!(seqs, vec![1, 2]);
+}
+
+#[tokio::test]
+async fn a_worker_ending_the_stream_as_the_idle_timer_fires_does_not_fence() {
+    let idle = Duration::from_millis(50);
+    let mock = start_mock_with(AckMode::Immediate, None, StreamEnding::AfterOpen(idle)).await;
+    let mut transport =
+        GrpcTransport::new(GrpcPort::Fixed(mock.addr.port()), Duration::from_secs(30));
+    transport.set_idle_close(idle);
+    let url = worker_url(mock.addr);
+
+    transport
+        .begin_send(&url, "batch-1", vec![msg("d1", 1)], false)
+        .wait()
+        .await
+        .expect("first send");
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    let outcome = transport
+        .begin_send(&url, "batch-2", vec![msg("d1", 2)], false)
+        .wait()
+        .await
+        .expect("send after both ends closed the stream");
+
+    assert!(matches!(outcome, SendOutcome::Accepted(1)));
+    assert_eq!(*mock.hellos.lock().await, vec![1, 2]);
 }
 
 #[tokio::test]
