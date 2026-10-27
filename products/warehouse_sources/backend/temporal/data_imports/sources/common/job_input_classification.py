@@ -9,6 +9,7 @@ works when the two halves merge again, but a credential stored with the settings
 import io
 import csv
 import functools
+import dataclasses
 from collections.abc import Mapping
 from enum import StrEnum
 from pathlib import Path
@@ -23,6 +24,7 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldSwitchGroupConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import AnySource, FieldType
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.config import META_KEY, MetaConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -78,10 +80,27 @@ def declared_field_kinds(source_type: ExternalDataSourceType) -> Mapping[str, Jo
     return {field.name: field_kind(field) for field in source.get_source_config.fields}
 
 
+@functools.cache
+def stored_field_kinds(source_type: ExternalDataSourceType) -> Mapping[str, JobInputKind]:
+    """`declared_field_kinds` plus the key each aliased field is stored under.
+
+    `serialize_config` stores a parsed config with `dataclasses.asdict`, so a form field whose name is
+    not a Python identifier (BigQuery `temporary-dataset`) lands in `job_inputs` under its attribute
+    name (`temporary_dataset`). Both spellings get the form field's kind.
+    """
+    source = SourceRegistry.get_source(source_type)
+    kinds = dict(declared_field_kinds(source_type))
+    for config_field in dataclasses.fields(source._config_class):
+        meta: MetaConfig | None = config_field.metadata.get(META_KEY)
+        if meta is not None and meta.alias in kinds:
+            kinds.setdefault(config_field.name, kinds[meta.alias])
+    return kinds
+
+
 def classify_job_input_key(source_type: ExternalDataSourceType, key: str) -> JobInputKind:
     if is_runtime_key(SourceRegistry.get_source(source_type), key):
         return JobInputKind.RUNTIME
-    return declared_field_kinds(source_type).get(key, JobInputKind.CONNECTION)
+    return stored_field_kinds(source_type).get(key, JobInputKind.CONNECTION)
 
 
 def split_job_inputs(source_type: ExternalDataSourceType, job_inputs: Mapping[str, Any] | None) -> SplitJobInputs:
