@@ -470,6 +470,24 @@ export function getHomeTabBreakdownOptions(dateRange: DateRange): HomeTabChartOp
     ]
 }
 
+/** A metric tile as an insight. The tile averages daily points in React, so that summary moves into the query. */
+export function getHomeTabStatInsightQuery(stat: HomeTabStatQuery): InsightVizNode<TrendsQuery> {
+    return {
+        kind: NodeKind.InsightVizNode,
+        source:
+            stat.summary === 'daily_average'
+                ? {
+                      ...stat.query,
+                      trendsFilter: {
+                          ...stat.query.trendsFilter,
+                          display: ChartDisplayType.Metric,
+                          metricSummary: 'average',
+                      },
+                  }
+                : stat.query,
+    }
+}
+
 export function getHomeTabExploreUrl(query: HomeTabChartOption['query']): string {
     const insightQuery: HomeTabChartOption['query'] = { ...query, embedded: undefined }
     return urls.insightNew({ query: insightQuery })

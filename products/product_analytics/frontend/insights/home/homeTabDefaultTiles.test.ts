@@ -21,6 +21,7 @@ import {
     getHomeTabDashboardTemplate,
     getHomeTabExploreUrl,
     getHomeTabInterval,
+    getHomeTabStatInsightQuery,
     getHomeTabStatQueries,
     getHomeTabStatValue,
     isHomeTabStatBucketInProgress,
@@ -286,6 +287,18 @@ describe('homeTabDefaultTiles', () => {
         expect(editorQuery.embedded).toBeUndefined()
         expect(editorQuery.source).toEqual(JSON.parse(JSON.stringify(chart!.query.source)))
         expect(editorQuery.source.dateRange).toEqual(dateRange)
+    })
+
+    it.each([
+        ['sessions', { display: ChartDisplayType.BoldNumber }],
+        ['daily_active_users', { display: ChartDisplayType.Metric, metricSummary: 'average' }],
+    ])('opens the %s tile as an insight that shows the same number', (key, trendsFilter) => {
+        const stat = getHomeTabStatQueries(dateRange, true).find((stat) => stat.key === key)!
+
+        expect(getHomeTabStatInsightQuery(stat)).toMatchObject({
+            kind: NodeKind.InsightVizNode,
+            source: { dateRange, compareFilter: { compare: true }, trendsFilter },
+        })
     })
 
     it('copies Home into a dashboard template with saved queries and a non-overlapping layout', () => {

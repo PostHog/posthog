@@ -18,17 +18,13 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { formatItem } from '~/queries/nodes/OverviewGrid/OverviewGrid'
-import {
-    type InsightVizNode,
-    NodeKind,
-    type TrendsQuery,
-    type TrendsQueryResponse,
-} from '~/queries/schema/schema-general'
+import type { TrendsQueryResponse } from '~/queries/schema/schema-general'
 import type { TrendResult } from '~/types'
 
 import { homeTabDefaultLogic } from './homeTabDefaultLogic'
 import {
     getHomeTabExploreUrl,
+    getHomeTabStatInsightQuery,
     getHomeTabStatValue,
     isHomeTabStatBucketInProgress,
     type HomeTabStatQuery,
@@ -104,7 +100,7 @@ export function HomeTabStatTile({ stat, compare, selected, onSelect }: HomeTabSt
             ? ((value - previousValue) / Math.abs(previousValue)) * 100
             : undefined
 
-    const insightQuery: InsightVizNode<TrendsQuery> = { kind: NodeKind.InsightVizNode, source: stat.query }
+    const insightQuery = getHomeTabStatInsightQuery(stat)
     const description = stat.description ?? (stat.key === 'session_duration' ? SESSION_DURATION_DESCRIPTION : null)
     const header = (
         <CardMeta
