@@ -177,9 +177,9 @@ tools:
 
 
             Pass `version` from the flag you read. A flag whose `filters.version` is 2 requires it, so read the flag
-            first and send its current `version`; never guess it. When the call would change the flag, a stale
-            `version` returns 409: read the flag again and decide against its current state. A call that changes
-            nothing succeeds without checking `version`, and the response carries the current `version`.
+            first and send its current `version`; never guess it. When the call would change the flag, a stale `version`
+            returns 409: read the flag again and decide against its current state. A call that changes nothing succeeds
+            without checking `version`, and the response carries the current `version`.
 
 
             A disabled flag stops evaluating everywhere, so every caller falls back to its own default. Tell the user
@@ -237,9 +237,9 @@ tools:
 
 
             Pass `version` from the flag you read. A flag whose `filters.version` is 2 requires it, so read the flag
-            first and send its current `version`; never guess it. When the call would change the flag, a stale
-            `version` returns 409: read the flag again and decide against its current state. A call that changes
-            nothing succeeds without checking `version`, and the response carries the current `version`.
+            first and send its current `version`; never guess it. When the call would change the flag, a stale `version`
+            returns 409: read the flag again and decide against its current state. A call that changes nothing succeeds
+            without checking `version`, and the response carries the current `version`.
 
 
             Returns 400 when the flag is archived (call `feature-flag-unarchive` first), when a flag it depends on is
