@@ -13,7 +13,7 @@ import { seriesColor } from '@/ui/chart/palette'
 import type { ChartPoint, ChartSeries } from '@/ui/chart/types'
 
 import { hasGoodValue } from './freshness'
-import { formatRangeSpan } from './rangePresets'
+import { formatRangeSpan, rangeLabel } from './rangePresets'
 
 /**
  * How a tile or a screen shows an insight: a big number, a line or bar chart, funnel steps, a retention grid, ranked
@@ -175,6 +175,12 @@ export function resolvedRangeText(range: ResolvedRange | null, interval: MetricI
         return formatRangeSpan(range.from, range.to)
     }
     return formatRangeSpan(range.from.slice(0, 10), range.to.slice(0, 10))
+}
+
+export function pinRangeLabel(snapshot: InsightSnapshot): string | null {
+    return snapshot.usesOwnRange
+        ? (resolvedRangeText(snapshot.resolvedRange, snapshot.interval) ?? 'Uses its own range')
+        : rangeLabel(null, snapshot.savedRange)
 }
 
 /** The previous period's window, from the dates of a compare series. */

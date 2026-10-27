@@ -14,10 +14,10 @@ export function tileLimitReason(tile: DashboardTileView, mode: TileMode): string
     if (tile.kind === 'text') {
         return 'Text card'
     }
-    if (tile.hasBreakdown) {
+    if (mode === 'number' && tile.hasBreakdown) {
         return 'Has a breakdown'
     }
-    if (tile.seriesCount > 1) {
+    if (mode === 'number' && tile.seriesCount > 1) {
         return `Has ${tile.seriesCount} series`
     }
     return mode === 'number' ? 'Not a single number' : 'Not a chart over time'

@@ -19,6 +19,7 @@ jest.mock('react-native-reanimated', () => {
         cancelAnimation: jest.fn(),
     }
 })
+jest.mock('react-native-worklets', () => ({ scheduleOnRN: jest.fn() }))
 jest.mock('../useViewsContext', () => ({ useViewsContext: () => ({ scope: null }) }))
 jest.mock('../pinHooks', () => ({ usePinData: jest.fn() }))
 jest.mock('../viewsCache', () => ({ ...jest.requireActual('../viewsCache'), useSnapshot: () => undefined }))
@@ -97,6 +98,84 @@ describe('PinCard', () => {
         expect(screen.getByText('Insight')).toBeTruthy()
         expect(screen.getAllByText('Last 7 days')).toHaveLength(1)
     })
+
+    it.each(['series', 'breakdown', 'sql'] as const)(
+        'keeps every %s in a chart pin without an ambiguous headline',
+        (shape) => {
+            const multi = insightSnapshot(
+                {
+                    ...response,
+                    query:
+                        shape === 'sql'
+                            ? {
+                                  kind: 'DataVisualizationNode',
+                                  display: 'ActionsBar',
+                                  source: { kind: 'HogQLQuery', query: 'select 1' },
+                              }
+                            : {
+                                  kind: 'InsightVizNode',
+                                  source: {
+                                      kind: 'TrendsQuery',
+                                      series:
+                                          shape === 'series'
+                                              ? [
+                                                    { kind: 'EventsNode', event: 'signed_up' },
+                                                    { kind: 'EventsNode', event: 'invited' },
+                                                ]
+                                              : [{ kind: 'EventsNode', event: 'signed_up' }],
+                                      ...(shape === 'breakdown' ? { breakdownFilter: { breakdown: 'source' } } : {}),
+                                      trendsFilter: { display: 'ActionsBar' },
+                                  },
+                              },
+                    ...(shape === 'sql'
+                        ? {
+                              columns: ['day', 'Signups', 'Invites'],
+                              types: [
+                                  ['day', 'Date'],
+                                  ['Signups', 'UInt64'],
+                                  ['Invites', 'UInt64'],
+                              ],
+                          }
+                        : {}),
+                    result:
+                        shape === 'sql'
+                            ? [
+                                  ['2026-10-19', 20, 5],
+                                  ['2026-10-20', 30, 8],
+                              ]
+                            : [
+                                  {
+                                      label: 'Signups',
+                                      action: { order: 0 },
+                                      days: ['2026-10-19', '2026-10-20'],
+                                      data: [20, 30],
+                                      ...(shape === 'breakdown' ? { breakdown_value: 'direct' } : {}),
+                                  },
+                                  {
+                                      label: 'Invites',
+                                      action: { order: shape === 'series' ? 1 : 0 },
+                                      days: ['2026-10-19', '2026-10-20'],
+                                      data: [5, 8],
+                                      ...(shape === 'breakdown' ? { breakdown_value: 'referral' } : {}),
+                                  },
+                              ],
+                },
+                undefined,
+                { readAt: 1, serverNow: Date.now() }
+            )
+            expect(multi.capabilities).toMatchObject({ chart: true, number: false })
+            jest.mocked(usePinData).mockReturnValue({ ...data, snapshot: multi })
+            const shown = { ...pin, display: { ...pin.display, mode: 'chart' as const } }
+            const screen = render(<PinCard pin={shown} index={0} demo={false} {...callbacks} />)
+            expect(screen.queryByTestId('views-pin-value-dashboard-42')).toBeNull()
+            const first = shape === 'breakdown' ? 'Signups · direct' : 'Signups'
+            const second = shape === 'breakdown' ? 'Invites · referral' : 'Invites'
+            expect(screen.getByLabelText(first).props.accessibilityState.checked).toBe(true)
+            expect(screen.getByLabelText(second).props.accessibilityState.checked).toBe(true)
+            fireEvent.press(screen.getByLabelText(second))
+            expect(screen.getByLabelText(second).props.accessibilityState.checked).toBe(false)
+        }
+    )
 
     it('unpins the real shortcut when its metric is no longer accessible', () => {
         const shown = { ...pin, kind: 'insight' as const, ref: 'signups' }

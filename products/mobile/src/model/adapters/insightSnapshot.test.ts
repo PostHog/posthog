@@ -4,6 +4,7 @@ import {
     insightDisplay,
     insightRenderState,
     noDataText,
+    pinRangeLabel,
     snapshotChartSeries,
     snapshotFormatter,
 } from '@/features/views/snapshotChart'
@@ -484,5 +485,17 @@ describe('insightSnapshot', () => {
         ['a trends tile', null, trends(undefined), false],
     ])('detects %s', (_name, overrides, query, expected) => {
         expect(usesOwnRange(overrides, query)).toBe(expected)
+    })
+    test.each([
+        [false, true, 'Last 7 days'],
+        [true, true, 'Oct 11 – 14'],
+        [true, false, 'Uses its own range'],
+    ])('labels a pin with own range %s and resolved dates %s', (own, resolved, label) => {
+        const snapshot = insightSnapshot(
+            insight({ result: [], ...(!resolved ? { resolved_date_range: null } : {}) }),
+            undefined,
+            { ...CONTEXT, usesOwnRange: own }
+        )
+        expect(pinRangeLabel(snapshot)).toBe(label)
     })
 })

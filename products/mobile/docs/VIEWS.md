@@ -91,11 +91,11 @@ Loading, the pin list error and the sign-in state are separate screens. The pin 
 
 A pin shows in one of three modes, chosen on this phone:
 
-| Mode   | Shows                                                                                                     | Height               | Reads data |
-| ------ | --------------------------------------------------------------------------------------------------------- | -------------------- | ---------- |
-| Row    | Icon, name, the view type ("Dashboard", "Built-in view" for web analytics, "Notebook · Opens on the web") | 64 pt                | No         |
-| Number | The value, a neutral change pill, the tile name, a 14-bucket sparkline, saved range and freshness         | Fits visible content | Yes        |
-| Chart  | The value, the change pill, a compact `MetricChart`, saved range and freshness                            | Fits visible content | Yes        |
+| Mode   | Shows                                                                                                                             | Height               | Reads data |
+| ------ | --------------------------------------------------------------------------------------------------------------------------------- | -------------------- | ---------- |
+| Row    | Icon, name, the view type ("Dashboard", "Built-in view" for web analytics, "Notebook · Opens on the web")                         | 64 pt                | No         |
+| Number | The value, a neutral change pill, the tile name, a 14-bucket sparkline, saved range and freshness                                 | Fits visible content | Yes        |
+| Chart  | A compact `MetricChart`, series legend, saved range and freshness; a value and change pill when one number represents the insight | Fits visible content | Yes        |
 
 Row mode has a fixed height. Number and Chart pins size to their visible content, and Chart pins keep a fixed plot height while the canvas replaces its sparkline placeholder.
 Number cards fit their content and only include the comparison and date row when either is present.
@@ -103,14 +103,14 @@ Both modes omit empty footer lines and the footer itself when neither the saved 
 Chart pins pass `canvasSlot` and sit inside `ChartCanvasBudget`, so at most six Skia canvases are mounted; the list feeds both the budget and the refresh rules from one `onViewableItemsChanged`. The list and each dashboard pass `active={useIsFocused()}`, so a screen under a pushed view or behind another tab gives its canvases back, and a stack holds only the focused screen's canvases.
 A tap on a Chart pin's plot pins a tooltip, and a tap on its name or value opens the view.
 A tap on the pinned tooltip opens the Point sheet. `ViewsScreen` wraps the list in `ChartSheetsProvider`, and the sheet follows the pin's own cache entry, which reads the saved range.
-A Chart pin draws the first current series and its previous period (`pinChartSeries`, built on `snapshotChartSeries`), because the pin has no legend.
+A Chart pin draws every current series and its previous period with `snapshotChartSeries`, using the same palette and legend as the full insight. Compact bars keep their series color before selection; selecting a single-series bar highlights it in ink. Multi-series and breakdown charts omit the headline number rather than showing a dash or presenting one series as the whole insight. Pins whose tile uses its own dates show the resolved range, or "Uses its own range" until dates are available.
 Web analytics and pins that open on the web show as rows only (`pinModes`).
 
 A dashboard pin in Number or Chart mode shows one tile.
 The subtitle shows the tile's title.
 Picking Number or Chart on a dashboard pin without a tile opens "Choose tile" at once, with the first tile that can show that mode chosen.
 The sheet lists the dashboard's tiles from the cached dashboard, or one `force_cache` dashboard read when it has none or it is 5 minutes old.
-A pin shows one number or one line over time, so a funnel, a pie, a table, a text card, or a trends insight with several series or a breakdown cannot be its tile (`capabilitiesOf`).
+A Number pin needs one meaningful value. A Chart pin supports line and bar charts with multiple series or breakdowns. Funnels, pies, tables and text cards cannot be a Chart pin's tile (`capabilitiesOf`).
 The sheet sends `mobile_pin_tile_sheet_opened` (`entry`: `show_as`, `menu` or `removed_tile`; `mode`) and, once per opening, `mobile_pin_tile_sheet_closed` (`entry`, `picked`, `tiles_usable`, `tiles_unusable`; the counts are null when it closed before the tiles loaded). `picked` is false for the automatic first choice. `mobile_pin_tile_chosen` still marks each choice.
 The tiles the mode can show come first, in dashboard order. The rest sit under "Can't show as a number" or "Can't show as a chart", disabled, each with its reason ("Has 3 series", "Has a breakdown", "Not a single number", "Not a chart over time", "Text card"; `tileEligibility.ts`). When no tile fits, the header says so.
 A pin whose tile is gone (its insight answers 404, or the cached dashboard no longer has the tile) shows as a row with "The chosen tile was removed. Choose another."
@@ -208,7 +208,7 @@ Number and Chart pins in the list keep the saved range. Ranges last for the sess
 | `web`       | Everything else, and a funnel or retention result that its adapter cannot draw                           | `OpensOnWeb`                                          |
 
 - `FunnelSteps`, `RetentionGrid` and `BarList` live in `src/ui/chart/` and draw React Native rows, not a Skia canvas. Their data comes from `src/model/adapters/funnel.ts`, `retention.ts` and `breakdown.ts` through `InsightSnapshot.funnel`, `.retention` and `.ranking`.
-- Pins keep one series: `pinChartSeries` draws the first current series only. For trends, `capabilities.chart` means one series without a breakdown. A SQL chart over time is chart-capable with any number of y columns, and its pin draws the first one.
+- Chart pins support the same time series and breakdowns as dashboard charts, including every y column in a SQL chart. Number pins still require a single meaningful value.
 - Numbers keep the insight's saved units, prefixes, suffixes, number style and decimal precision across dashboard tiles, pins, insight screens and chart labels. `src/model/adapters/insightFormatting.ts` reads the settings (`insightValueFormat`) and formats every value (`formatInsightValue`). SQL big numbers use the first result column's table formatting, SQL charts and bar lists the first y column's formatting, and trends the aggregation axis settings.
 - A breakdown insight has no big number, because no one value stands for it. A trends insight with a breakdown, or a ranking with several values, has `capabilities.number = false`.
 - A tap on a funnel step, bar row or retention cell selects it (`useItemSelection`), under the same one-selected-chart rule as a line chart tooltip: an outside tap, a scroll away, Android back or new data clears it. A funnel step shows the median time from the previous step, a bar row its share of the total (or its rank when the values do not add up), and a retention cell a callout under the grid.
