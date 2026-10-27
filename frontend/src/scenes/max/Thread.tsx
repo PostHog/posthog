@@ -847,7 +847,8 @@ const Message = React.memo(function Message({
                         if (isVisualizationArtifactContent(message.content)) {
                             return (
                                 // A chart card needs more room from the text around it than the thread's row gap gives.
-                                <div key={key} className={quill ? 'my-2' : undefined}>
+                                // w-full because the parent column is items-start, and a canvas chart has no intrinsic width.
+                                <div key={key} className={cn('w-full', quill && 'my-2')}>
                                     <VisualizationArtifact
                                         message={message}
                                         content={message.content}
