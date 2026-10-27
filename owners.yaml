@@ -96,6 +96,8 @@ rules:
           - '/frontend/src/lib/lemon-ui/'
           - '/frontend/src/lib/ui/'
       owners: platform-ux
+    - match: '/hog/'
+      owners: team-error-tracking
     - match: '/nodejs/tests/'
       owners: team-ingestion
     - match: '/packages/quill/'
@@ -194,4 +196,5 @@ rules:
           - '/services/*'
           - '/packages/*'
           - '/cli/*'
+          - '/hog/*'
       additions: team-devex

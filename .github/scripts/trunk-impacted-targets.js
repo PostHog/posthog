@@ -841,6 +841,8 @@ const STANDALONE_TREES = new Map([
     // the pnpm workspace). ci-cli.yml also builds it from services/mcp sources,
     // so the two trees have to share a lane.
     ['cli', ['cli', 'svc:mcp']],
+    // The TypeScript successor to cli/. Nothing outside it builds or imports it.
+    ['hog', ['hog']],
     // Go service with its own CI. ci-hoglang.yml ignores livestream/** explicitly,
     // so its Hog implementation is not covered by the shared HogLang suite either.
     ['livestream', ['livestream']],
