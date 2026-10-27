@@ -78,6 +78,10 @@ The metrics that matter:
 | `email_link_clicked`             | Clicks. Same denominator as opens                                        |
 | `email_bounced`, `email_blocked` | The counter-metrics. Read them before proposing anything about copy      |
 
+**A metric missing from the response is zero, not unknown.** The stats list a metric only when it has at least one row in the window you read.
+So a step with `email_sent` and no `email_untracked` series had tracking on for every send: its tracked sends are all of `email_sent`, and that count is the denominator and the sample you check against the floor.
+The same goes for the counter-metrics: no `email_bounced` series means no bounces in that window.
+
 **Feedback arrives after the send, so read a version that has had time to answer.** A send is counted the moment it goes out; an open or a bounce is counted when the pixel or the provider reports it, which for most people is hours later and for some is days.
 Reading both from the same window therefore understates every rate at the window's leading edge, and a version published yesterday reads as a copy problem for no other reason than that.
 
