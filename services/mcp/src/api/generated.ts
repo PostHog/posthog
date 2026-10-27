@@ -54119,6 +54119,11 @@ export namespace Schemas {
       latest_error: string | null;
     }
 
+    export interface ExternalDataSourceExists {
+      /** Whether the project has any accessible external data sources. */
+      exists: boolean;
+    }
+
     export interface ExternalDataSourceRevenueAnalyticsConfig {
       enabled?: boolean;
       include_invoiceless_charges?: boolean;
@@ -140979,6 +140984,10 @@ export namespace Schemas {
     } as const;
 
     export type WarehouseTablesListParams = {
+    /**
+     * Include table columns. Disable for lightweight table existence or name lookups.
+     */
+    include_columns?: boolean;
     /**
      * Number of results to return per page.
      */
