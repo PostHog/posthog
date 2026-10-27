@@ -94,7 +94,7 @@ export function LoginStep(): JSX.Element {
     const isPasswordHidden = !!precheckResponse.sso_enforcement || isPasswordLoginUnavailable || isNewAccount
 
     return (
-        <AuthSceneCard footer={<UseDifferentEmailLink />}>
+        <AuthSceneCard footer={<UseDifferentEmailLink />} showPendingConnection>
             <LoginStepTitle />
             <LoginErrorBanner />
             {generalError?.code === 'invalid_credentials' && (

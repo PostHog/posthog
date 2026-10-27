@@ -1,8 +1,8 @@
-import { otherRegionLoginUrl, otherRegionOf } from 'scenes/authentication/shared/OtherRegionHint'
+import { otherRegionLoginUrl, otherRegionOf } from 'scenes/authentication/shared/otherRegion'
 
 import { Region } from '~/types'
 
-describe('OtherRegionHint', () => {
+describe('otherRegion', () => {
     test.each([
         ['US points to EU', Region.US, Region.EU],
         ['EU points to US', Region.EU, Region.US],

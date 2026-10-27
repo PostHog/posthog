@@ -14,7 +14,7 @@ export function PendingInviteStep(): JSX.Element {
     const org = pendingInvite?.organization_name ?? 'your team'
 
     return (
-        <AuthSceneCard footer={<UseDifferentEmailLink />}>
+        <AuthSceneCard footer={<UseDifferentEmailLink />} showPendingConnection>
             <AuthCardTitle
                 title="You've already been invited"
                 sub={

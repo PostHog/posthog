@@ -55,7 +55,7 @@ export function SignupCredentialsStep(): JSX.Element {
     )
 
     return (
-        <AuthSceneCard footer={footer}>
+        <AuthSceneCard footer={footer} showPendingConnection>
             <AuthCardTitle
                 title={
                     pendingConnection ? (

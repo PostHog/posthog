@@ -4,7 +4,7 @@ import { useValues } from 'kea'
 import { Link } from 'lib/lemon-ui/Link'
 import { countryCodeToFlag } from 'lib/utils/country'
 import { AuthBanner } from 'scenes/authentication/shared/authScene/AuthBanner'
-import { otherRegionLoginUrl, otherRegionOf } from 'scenes/authentication/shared/OtherRegionHint'
+import { otherRegionLoginUrl, otherRegionOf } from 'scenes/authentication/shared/otherRegion'
 import { pendingOAuthConnectionLogic } from 'scenes/authentication/shared/pendingOAuthConnectionLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 

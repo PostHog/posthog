@@ -29,7 +29,7 @@ export function LoginCodeStep(): JSX.Element {
     } = useValues(loginLogic)
 
     return (
-        <AuthSceneCard>
+        <AuthSceneCard showPendingConnection>
             <HedgehogMagnifyingGlass className="block w-auto mx-auto mb-3 h-28" />
             <AuthCardTitle
                 className="mb-2"

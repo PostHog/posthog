@@ -17,7 +17,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import type { UserType } from '../../../types'
 
-// Must stay in sync with the `VerifyEmail__Progress` animation duration in VerifyEmail.scss.
+// The success screen's `AuthScene__progress` bar (AuthScene.scss) runs a little longer, so the redirect lands before it fills.
 export const VERIFY_EMAIL_REDIRECT_DELAY_MS = 2000
 
 type PostVerifyResponse = {
