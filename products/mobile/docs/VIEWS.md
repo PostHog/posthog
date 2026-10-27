@@ -68,7 +68,7 @@ The status line shows "Updating…" while a request of the screen runs, "Updated
 
 A range lasts for the session, per view, in memory (`rangeStore.ts`). Range keys and queue groups carry the data scope (`demo`, or the host and project), so a range or a queued refresh from demo mode or another project never applies.
 Overrides always send `date_to`, also as null, because the server merges filters by top-level key.
-A dashboard's saved range comes from `persisted_filters`, which a read with an override also carries, so "Not saved" and "Reset to saved range" stay right after the saved-range read has left the cache.
+A dashboard's saved range comes from `persisted_filters`, which a read with an override also carries, so "Reset to saved range" stays correct after the saved-range read has left the cache.
 SQL tiles without `{filters}` read without the override, because it would only change their cache key.
 Compare on dashboards stays off behind `DASHBOARD_COMPARE_SUPPORTED` until US and EU run a build that accepts `compareFilter` in a dashboard override.
 
@@ -181,8 +181,8 @@ A drawable tile that the cache-only dashboard read found without a cache says "N
 
 The range sits in each view's header, under the title (`src/features/views/range/`).
 
-- **Header row** (`ViewRangeControl`): ‹ (`range-step-prev`), the range button (`view-range`), › (`range-step-next`), and "Not saved" (`view-range-not-saved`) while the range differs from the saved one. The resolved dates show under the row.
-- **Steps:** ‹ and ›, or a swipe on the button (right for the earlier period), step through periods with a selection haptic. Steps start from the window the server resolved (`rangeStep.ts`), so they wait while a new range loads. › stops at the current period, and a step that lands on it returns to the matching relative preset, so the cache is shared with the web again. All time cannot step. Screen readers adjust the button up or down to step, and activate it to open the sheet.
+- **Header row** (`ViewRangeControl`): the range button (`view-range`) opens the date range sheet. The resolved dates show under the button. Changing the range updates its label without a save-status indicator or previous/next period buttons.
+- **Steps:** a swipe on the button (right for the earlier period) steps through periods with a selection haptic. Steps start from the window the server resolved (`rangeStep.ts`), so they wait while a new range loads. Forward steps stop at the current period, and a step that lands on it returns to the matching relative preset, so the cache is shared with the web again. All time cannot step. Screen readers adjust the button up or down to step, and activate it to open the sheet.
 - **Sheet** (`RangeSheet`, `range-sheet`): what the view shows now, six chips (`range-chip-{today|yesterday|24h|7d|30d|90d}`), the web's other presets (`range-preset-{key}`; "This year", no "Last year"), "Custom range" (`range-custom`), "Compare to previous period" (`range-compare`), and "Reset to saved range" (`range-reset`) only while the range differs. Chips and presets apply at once and keep the sheet open; Done (`sheet-done`) closes it.
 - **Custom range** (`RangeCalendar`, `range-calendar`): a month grid in the project timezone. The first tap sets the start, the second the end (taps in reverse order swap), and a third starts over. Future days are disabled. ‹ › (`range-month-prev`, `range-month-next`) or a swipe change the month, and Apply (`range-apply`) sends date-only strings.
 - **Compare:** available on trends insights, and off for All time. SQL, retention and other insight kinds leave out the comparison control. Turning off a saved comparison reads a separate result with `compareFilter.compare: false`, so its number and delta describe the single period. On a trends insight it runs the compare query from the data layer. The query takes `query.source` from any read of the insight, so a range change with compare on sends only the compare query. An insight saved with compare shows its saved range from the retrieve, which already carries both periods. Opened from a tile, the insight shares the dashboard's range but keeps its own compare toggle. On a dashboard the switch stays disabled with "Compare works on single insights. Open a chart to compare." while `DASHBOARD_COMPARE_SUPPORTED` is false. Web analytics has no compare row.
@@ -191,7 +191,7 @@ A range change reads with `blocking`, never `force_*`: the new override is a new
 While the new range loads, the insight and web analytics screens keep the previous values on screen (`rangeLoading`), and dashboard tiles keep their layout.
 Dashboard rows count as visible by tile id, because a range change gives every tile a new item key while the list keeps the same rows.
 Number and Chart pins in the list keep the saved range. Ranges last for the session, per view, in memory.
-`useViewRange` sends `mobile_date_range_changed` (`chip`, `more`, `custom`, `step`, `reset`) and `mobile_date_range_compared`. The sheet sends `mobile_date_range_sheet_opened` (`view_type`; `entry`: `button`, `not_saved` or `accessibility`) when it opens.
+`useViewRange` sends `mobile_date_range_changed` (`chip`, `more`, `custom`, `step`, `reset`) and `mobile_date_range_compared`. The sheet sends `mobile_date_range_sheet_opened` (`view_type`; `entry`: `button` or `accessibility`) when it opens.
 
 ## Charts beyond line and bar
 
@@ -299,7 +299,7 @@ Release bundles ignore that override and use the remote release conditions.
 `.argent/flows/views-smoke.yaml` starts on sign-in with demo mode off and:
 
 1. pins Signups as a number in Edit pins;
-2. opens Product KPIs, picks 7 days, steps back and resets;
+2. opens Product KPIs, picks 7 days, checks that the header has no save-status indicator or period buttons, and resets;
 3. opens the Daily active users tile, turns on compare, opens the Point sheet from the chart tooltip (`chart-tooltip`), and opens the chart full screen with the previous period in the legend;
 4. back on the dashboard, pins a tooltip on the first tile, selects a bar list row and a funnel step, opens the funnel full screen, and selects a retention cell;
 5. opens the Dashboards list from Browse, goes home and exits the demo.

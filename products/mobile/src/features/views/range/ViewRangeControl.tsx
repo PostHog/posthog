@@ -6,9 +6,6 @@ import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-na
 import { serverNow } from '@/api/serverClock'
 import type { ResolvedRange } from '@/model/views'
 import { ChevronDownIcon } from '@/ui/icons/ChevronDownIcon'
-import { ChevronLeftIcon } from '@/ui/icons/ChevronLeftIcon'
-import { ChevronRightIcon } from '@/ui/icons/ChevronRightIcon'
-import { Pressable44 } from '@/ui/Pressable44'
 import { createStyles, useColors } from '@/ui/theme'
 import { radii, type } from '@/ui/tokens'
 import type { RangeSheetEntry } from '../analytics'
@@ -45,10 +42,6 @@ function stepContext(resolved: ResolvedRange | null): StepContext {
     return { resolved, today: projectToday(resolved?.to ?? null, now), now }
 }
 
-/**
- * The date range in a view header: ‹ and › step through periods, a swipe on the button does the same, and a tap opens
- * the range sheet. "Not saved" shows while the range differs from the one the view saved.
- */
 export function ViewRangeControl({
     range,
     resolved,
@@ -126,7 +119,6 @@ export function ViewRangeControl({
 
     return (
         <View style={styles.row}>
-            <StepButton direction={-1} enabled={canPrev} onPress={() => step(-1)} />
             <GestureDetector gesture={Gesture.Race(swipe, tap)}>
                 <Animated.View
                     style={[styles.button, pressed && styles.buttonPressed, buttonStyle]}
@@ -145,19 +137,6 @@ export function ViewRangeControl({
                     <ChevronDownIcon size={14} color={colors.ink} />
                 </Animated.View>
             </GestureDetector>
-            <StepButton direction={1} enabled={canNext} onPress={() => step(1)} />
-            {range.isSaved ? null : (
-                <Pressable44
-                    onPress={() => openSheet('not_saved')}
-                    accessibilityLabel="Not saved"
-                    accessibilityHint="This range is not saved to the view. Opens the date range options."
-                    pressedBackground={colors.pressed}
-                    style={styles.notSaved}
-                    testID="view-range-not-saved"
-                >
-                    <Text style={styles.notSavedText}>Not saved</Text>
-                </Pressable44>
-            )}
             <RangeSheet
                 visible={open}
                 onClose={() => setOpen(false)}
@@ -171,33 +150,6 @@ export function ViewRangeControl({
     )
 }
 
-function StepButton({
-    direction,
-    enabled,
-    onPress,
-}: {
-    direction: StepDirection
-    enabled: boolean
-    onPress: () => void
-}): ReactElement {
-    const colors = useColors()
-    const styles = useStyles()
-    const Icon = direction < 0 ? ChevronLeftIcon : ChevronRightIcon
-    return (
-        <Pressable44
-            onPress={onPress}
-            disabled={!enabled}
-            accessibilityLabel={direction < 0 ? 'Previous period' : 'Next period'}
-            accessibilityState={{ disabled: !enabled }}
-            pressedBackground={colors.pressed}
-            style={[styles.step, !enabled && styles.stepDisabled]}
-            testID={direction < 0 ? 'range-step-prev' : 'range-step-next'}
-        >
-            <Icon size={14} color={enabled ? colors.ink : colors.disabled} />
-        </Pressable44>
-    )
-}
-
 const useStyles = createStyles(({ colors }) => ({
     row: {
         flexDirection: 'row',
@@ -205,19 +157,6 @@ const useStyles = createStyles(({ colors }) => ({
         alignItems: 'center',
         gap: 6,
         marginTop: 14,
-    },
-    step: {
-        width: 40,
-        height: 40,
-        borderRadius: radii.pill,
-        borderWidth: 1,
-        borderColor: colors.border,
-        backgroundColor: colors.surface,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    stepDisabled: {
-        borderColor: colors.hairline,
     },
     button: {
         height: 40,
@@ -240,17 +179,5 @@ const useStyles = createStyles(({ colors }) => ({
         ...type.buttonSmall,
         color: colors.ink,
         flexShrink: 1,
-    },
-    notSaved: {
-        height: 26,
-        justifyContent: 'center',
-        paddingHorizontal: 10,
-        borderRadius: radii.pill,
-        backgroundColor: colors.sunken,
-    },
-    notSavedText: {
-        fontSize: 12,
-        fontWeight: '600',
-        color: colors.secondary,
     },
 }))

@@ -179,7 +179,7 @@ export function rangeLabel(choice: RangeChoice | null, saved: SavedRange): strin
     return saved.dateFrom
 }
 
-/** True when the choice sends the same dates as the saved range, so "Not saved" and "Reset" stay hidden. */
+/** True when the choice sends the same dates as the saved range, so "Reset to saved range" stays hidden. */
 export function isSavedRange(choice: RangeChoice | null, saved: SavedRange): boolean {
     if (!choice) {
         return true
