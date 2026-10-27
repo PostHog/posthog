@@ -52,8 +52,10 @@ jobs:
                   fi
 
             # Fork tokens cannot write, so fork PRs get the step summary and the failing check only.
+            # The comment is a notice, so a failed write must not fail an acknowledged PR.
             - name: Update the pull request comment
               if: github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
               env:
                   PR_NUMBER: ${{ github.event.pull_request.number }}
                   REMOVED: ${{ steps.compare.outputs.removed }}
@@ -74,5 +76,5 @@ jobs:
             - name: Require an acknowledgement
               if: steps.compare.outputs.removed == 'true' && steps.compare.outputs.acknowledged != 'true'
               run: |
-                  echo "::error::This PR removes fields that cached query responses can still hold. Add a 'Cache impact: deprecated', 'accepted' or 'bumped' line to the PR description. See the job summary for the cost of each option."
+                  echo "::error::This PR removes fields that cached query responses can still hold. Add a line that starts with 'Cache impact: deprecated', 'accepted' or 'bumped' to the PR description. See the job summary for the cost of each option."
                   exit 1

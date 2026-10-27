@@ -40,6 +40,34 @@ def schema(**definitions: Any) -> dict[str, Any]:
             id="property-removed-from-inline-object",
         ),
         pytest.param(
+            schema(Modifiers={"properties": {"inner": {"properties": {"kept": {}}}}}),
+            schema(
+                Modifiers={"properties": {"inner": {"$ref": "#/definitions/Inner"}}}, Inner={"properties": {"kept": {}}}
+            ),
+            [],
+            id="inline-object-extracted-to-a-ref-unchanged",
+        ),
+        pytest.param(
+            schema(Modifiers={"properties": {"inner": {"properties": {"kept": {}, "gone": {}}}}}),
+            schema(
+                Modifiers={"properties": {"inner": {"$ref": "#/definitions/Inner"}}}, Inner={"properties": {"kept": {}}}
+            ),
+            ["`Modifiers` at `inner`: property `gone`"],
+            id="inline-object-extracted-to-a-ref-with-a-removal",
+        ),
+        pytest.param(
+            schema(
+                Modifiers={"properties": {"tree": {"$ref": "#/definitions/Old"}}},
+                Old={"properties": {"gone": {}, "child": {"$ref": "#/definitions/Old"}}},
+            ),
+            schema(
+                Modifiers={"properties": {"tree": {"$ref": "#/definitions/New"}}},
+                New={"properties": {"child": {"$ref": "#/definitions/New"}}},
+            ),
+            ["`Modifiers` at `tree`: property `gone`"],
+            id="renamed-recursive-model",
+        ),
+        pytest.param(
             schema(Modifiers={"properties": {"keep": {}}}, Request={"properties": {"gone": {}}}),
             schema(Modifiers={"properties": {"keep": {}}}, Request={"properties": {}}),
             [],
