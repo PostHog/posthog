@@ -75,7 +75,6 @@ rules:
                               |AgentArtifact
                               |AgentIdentityCredential
                               |AgentIdentityLinkState
-                              |AgentPeerMessage
                               |AgentRevision
                               |AgentSandboxInstance
                               |AgentSession
@@ -87,6 +86,7 @@ rules:
                               |AITrainingDeletionRequest
                               |Alert
                               |AlertConfiguration
+                              |InsightAlertInvestigation
                               |Annotation
                               |Announcement
                               |AnnouncementDelivery
@@ -427,6 +427,7 @@ rules:
                               |SubscriptionDelivery
                               |PlatformAlert
                               |PlatformAlertConfiguration
+                              |PlatformAlertDeliveryHold
                               |PlatformAlertDeliveryPath
                               |PlatformAlertThread
                               |AlertDestination
@@ -563,7 +564,6 @@ rules:
                         |AgentArtifact
                         |AgentIdentityCredential
                         |AgentIdentityLinkState
-                        |AgentPeerMessage
                         |AgentRevision
                         |AgentSandboxInstance
                         |AgentSession
@@ -575,6 +575,7 @@ rules:
                         |AITrainingDeletionRequest
                         |Alert
                         |AlertConfiguration
+                        |InsightAlertInvestigation
                         |Annotation
                         |Announcement
                         |AnnouncementDelivery
@@ -905,6 +906,7 @@ rules:
                         |SubscriptionDelivery
                         |PlatformAlert
                         |PlatformAlertConfiguration
+                        |PlatformAlertDeliveryHold
                         |PlatformAlertDeliveryPath
                         |PlatformAlertThread
                         |AlertDestination

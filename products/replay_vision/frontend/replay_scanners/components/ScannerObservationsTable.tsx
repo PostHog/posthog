@@ -118,6 +118,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
         observationDateTo,
         observationBackfillFilter,
         observationVariantFilter,
+        observationWatchGroupFilter,
         experimentContext,
         hasActiveObservationFilters,
         observationDetailLinkParams,
@@ -143,6 +144,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
         setObservationDateRange,
         setObservationBackfillFilter,
         setObservationVariantFilter,
+        setObservationWatchGroupFilter,
         clearObservationFilters,
         copyAllObservations,
     } = useActions(logic)
@@ -424,6 +426,21 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                                     data-attr="vision-observations-backfill-filter"
                                 >
                                     Backfill {shortBackfillId(observationBackfillFilter)}
+                                </LemonButton>
+                            )}
+                            {observationWatchGroupFilter && (
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    tooltip="Sessions the Highlights feed groups as near duplicates"
+                                    sideAction={{
+                                        icon: <IconX />,
+                                        onClick: () => setObservationWatchGroupFilter(null),
+                                        tooltip: 'Clear similar sessions filter',
+                                    }}
+                                    data-attr="vision-observations-watch-group-chip"
+                                >
+                                    Similar sessions
                                 </LemonButton>
                             )}
                             {scannerType === 'experiment' ? (

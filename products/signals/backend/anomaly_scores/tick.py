@@ -111,6 +111,8 @@ class AnomalyScoringTickPlan:
     max_concurrency: int
     limits: ScoringLimits = DEFAULT_LIMITS
     skipped_for_budget: int = 0
+    picked_score: int = 0
+    picked_train: int = 0
 
 
 @frozen
@@ -149,6 +151,9 @@ class AnomalyScoringTickResult:
     # Started picks per kind of the train and score split.
     run_train: int = 0
     run_score: int = 0
+    # Planned picks of the score pass and of the train pass, started or not.
+    picked_score: int = 0
+    picked_train: int = 0
 
 
 def plan_tick(limit: int | None, now: datetime.datetime) -> AnomalyScoringTickPlan:
@@ -157,7 +162,7 @@ def plan_tick(limit: int | None, now: datetime.datetime) -> AnomalyScoringTickPl
     config = read_config(payload)
     if not config.enabled:
         return AnomalyScoringTickPlan(enabled=False, picks=[], candidates=0, max_concurrency=config.max_concurrency)
-    selection = select_insights(config, parse_selection_config(payload), now, limit or config.max_insights_per_tick)
+    selection = select_insights(config, parse_selection_config(payload), now, limit)
     record_candidates(selection.candidates)
     return AnomalyScoringTickPlan(
         enabled=True,
@@ -166,6 +171,8 @@ def plan_tick(limit: int | None, now: datetime.datetime) -> AnomalyScoringTickPl
         max_concurrency=config.max_concurrency,
         limits=config.limits,
         skipped_for_budget=selection.skipped_for_budget,
+        picked_score=selection.picked_score,
+        picked_train=selection.picked_train,
     )
 
 
@@ -320,6 +327,8 @@ def capture_tick(result: AnomalyScoringTickResult) -> None:
         stopped_at_capacity=result.stopped_at_capacity,
         run_train=result.run_train,
         run_score=result.run_score,
+        picked_score=result.picked_score,
+        picked_train=result.picked_train,
     )
     ph_background_capture()(
         distinct_id=ANOMALY_SCORING_FLAG_DISTINCT_ID,
@@ -338,6 +347,8 @@ def capture_tick(result: AnomalyScoringTickResult) -> None:
             "stopped_at_capacity": result.stopped_at_capacity,
             "run_train": result.run_train,
             "run_score": result.run_score,
+            "picked_score": result.picked_score,
+            "picked_train": result.picked_train,
         },
     )
 
@@ -428,6 +439,8 @@ class AnomalyScoringTickWorkflow:
             stopped_at_capacity=statuses[STATUS_AT_CAPACITY] > 0,
             run_train=sum(pick.run == ScoringRun.TRAIN for pick in started_picks),
             run_score=sum(pick.run == ScoringRun.SCORE for pick in started_picks),
+            picked_score=plan.picked_score,
+            picked_train=plan.picked_train,
         )
         await workflow.execute_activity(
             capture_anomaly_scoring_tick_activity,
