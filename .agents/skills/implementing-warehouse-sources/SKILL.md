@@ -424,6 +424,8 @@ PostHog stores the connection fields of one source in one `Integration` row of t
 - The integrations API hides this kind. A user cannot list, create, or delete it.
 - The credentials store deletes the row when the source is soft deleted.
 - The integrations API refuses to delete an `Integration` that a source still points to with a `*_integration_id` field.
+- When the team has the `warehouse-source-credentials-dual-write` flag, `save`, `asave`, `assign` and `create` copy the connection fields to this row before they write `job_inputs`. `update_runtime` never writes the row. `job_inputs` stays the source of truth while this flag controls the copy.
+- In async code, use `asave`. A call to `assign` or `save` in an event loop thread skips the copy.
 
 ## Implementing `source_for_pipeline`
 

@@ -13,6 +13,11 @@ from uuid import UUID
 from posthog.sync import database_sync_to_async_pool
 
 from products.warehouse_sources.backend.facade.contracts import UnreadableSourceInputsError
+from products.warehouse_sources.backend.logic.source_credentials_rollout import (
+    mirror_connection_fields,
+    shadow_compare,
+    shadow_compare_many,
+)
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -31,7 +36,9 @@ class SourceInputsStore:
 
         The result is a new dict, so a change to it has no effect until a write method saves it.
         """
-        return _decode(source.job_inputs)
+        inputs = _decode(source.job_inputs)
+        shadow_compare(source, inputs)
+        return inputs
 
     @staticmethod
     def load_many(sources: Iterable[ExternalDataSource]) -> dict[UUID, dict[str, Any]]:
@@ -41,12 +48,14 @@ class SourceInputsStore:
         A source whose inputs do not decode is left out, so one bad row does not fail a whole list.
         A caller that needs that source calls `load` and handles the error.
         """
+        sources = list(sources)
         loaded: dict[UUID, dict[str, Any]] = {}
         for source in sources:
             try:
                 loaded[source.id] = _decode(source.job_inputs)
             except UnreadableSourceInputsError:
                 continue
+        shadow_compare_many(sources, loaded)
         return loaded
 
     @staticmethod
@@ -79,9 +88,11 @@ class SourceInputsStore:
         """Stage all inputs on the source without a database write. The caller must save the model.
 
         Use it when the caller saves the model for other reasons too, for example a DRF serializer
-        update, so that the source row gets one write.
+        update, so that the source row gets one write. The connection fields go to the credentials row
+        now (behind the dual-write flag), before the caller saves the source.
         """
-        source.job_inputs = dict(inputs)
+        mirror_connection_fields(source, inputs)
+        _stage(source, inputs)
 
     @staticmethod
     def save(
@@ -96,7 +107,11 @@ class SourceInputsStore:
 
     @staticmethod
     def create(*, inputs: Mapping[str, Any], **fields: Any) -> ExternalDataSource:
-        """Create a source with these inputs in one insert. ``fields`` are the other model fields."""
+        """Create a source with these inputs in one insert. ``fields`` are the other model fields.
+
+        The model generates the source id on construction, so the credentials row is written with its
+        final key before the insert. If the insert fails, the row is an orphan that the reconciler deletes.
+        """
         source = ExternalDataSource(**fields)
         SourceInputsStore.assign(source, inputs)
         source.save(force_insert=True)
@@ -123,7 +138,8 @@ class SourceInputsStore:
         inputs.update(updates)
         for key in remove:
             inputs.pop(key, None)
-        SourceInputsStore.save(source, inputs, extra_update_fields=extra_update_fields)
+        _stage(source, inputs)
+        source.save(update_fields=["job_inputs", *extra_update_fields])
         return inputs
 
     @staticmethod
@@ -140,6 +156,10 @@ class SourceInputsStore:
         await database_sync_to_async_pool(SourceInputsStore.save)(
             source, inputs, extra_update_fields=extra_update_fields
         )
+
+
+def _stage(source: ExternalDataSource, inputs: Mapping[str, Any]) -> None:
+    source.job_inputs = dict(inputs)
 
 
 def _decode(raw: Any) -> dict[str, Any]:

@@ -1,4 +1,4 @@
-"""Per-schema rollout flags for the import pipeline.
+"""Rollout flags for the import pipeline, per schema or per team.
 
 A leaf module (no deltalake/pyarrow, no pipeline imports) so an activity can gate on a flag
 without pulling the Delta stack into its import graph.
@@ -6,6 +6,7 @@ without pulling the Delta stack into its import graph.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from django.db import InterfaceError, OperationalError
@@ -32,10 +33,30 @@ def is_schema_flag_enabled(schema: ExternalDataSchema, flag: str) -> bool:
     released to a single table — set a release condition `schema_id = <id>` to dogfood a feature
     on one schema before rolling out by team/org/project.
     """
+    return _is_flag_enabled_for_team(
+        schema.team_id,
+        flag,
+        lambda: {
+            "schema_id": str(schema.id),
+            "team_id": str(schema.team_id),
+            "source_type": schema.source.source_type,
+        },
+    )
+
+
+def is_team_flag_enabled(team_id: int, flag: str) -> bool:
+    """Evaluate a rollout flag for a whole team, released by team, project or organization.
+
+    Never raises: an evaluation failure means the flag is off.
+    """
+    return _is_flag_enabled_for_team(team_id, flag, lambda: {"team_id": str(team_id)})
+
+
+def _is_flag_enabled_for_team(team_id: int, flag: str, person_properties: Callable[[], dict[str, str]]) -> bool:
     from posthog.models import Team  # noqa: PLC0415 — keeps this module importable before app registry setup
 
     try:
-        team = retry_on_db_connection_drop(lambda: Team.objects.only("uuid", "organization_id").get(id=schema.team_id))
+        team = retry_on_db_connection_drop(lambda: Team.objects.only("uuid", "organization_id").get(id=team_id))
     except Team.DoesNotExist:
         return False
     except (OperationalError, InterfaceError) as e:
@@ -51,11 +72,7 @@ def is_schema_flag_enabled(schema: ExternalDataSchema, flag: str) -> bool:
                 flag,
                 str(team.uuid),
                 groups={"organization": str(team.organization_id), "project": str(team.id)},
-                person_properties={
-                    "schema_id": str(schema.id),
-                    "team_id": str(schema.team_id),
-                    "source_type": schema.source.source_type,
-                },
+                person_properties=person_properties(),
                 group_properties={
                     "organization": {"id": str(team.organization_id)},
                     "project": {"id": str(team.id)},

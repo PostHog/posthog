@@ -1,14 +1,22 @@
 import json
+from collections.abc import Callable
 from typing import Any
 
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 
+from posthog.models.integration import Integration
+
+from products.warehouse_sources.backend.logic.source_credentials import WarehouseSourceCredentialsStore
+from products.warehouse_sources.backend.logic.source_credentials_rollout import reset_caches
 from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore, UnreadableSourceInputsError
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.temporal.data_imports import schema_flags
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 POSTGRES_INPUTS: dict[str, Any] = {
@@ -152,3 +160,145 @@ class TestSourceInputsStoreWrites(BaseTest):
         source.refresh_from_db()
         assert not SourceInputsStore.stored_as_string(source)
         assert SourceInputsStore.load(source) == {"host": "h"}
+
+
+POSTGRES_CONNECTION_FIELDS: dict[str, str] = {
+    key: STORED_POSTGRES_INPUTS[key] for key in ("host", "port", "database", "user", "password")
+}
+
+
+def _sample(name: str, labels: dict[str, str]) -> float:
+    return REGISTRY.get_sample_value(name, labels) or 0.0
+
+
+def _compare_count(result: str) -> float:
+    return _sample(
+        "posthog_warehouse_source_credentials_shadow_compare_total",
+        {"result": result, "source_type": ExternalDataSourceType.POSTGRES.value},
+    )
+
+
+class TestSourceInputsStoreCredentialsMirror(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        reset_caches()
+        self.addCleanup(reset_caches)
+
+    def _flag(self, **kwargs: Any) -> Any:
+        return patch.object(schema_flags.posthoganalytics, "feature_enabled", **kwargs)
+
+    def _create(self, inputs: dict[str, Any] | None = None) -> ExternalDataSource:
+        return SourceInputsStore.create(
+            inputs=STORED_POSTGRES_INPUTS if inputs is None else inputs,
+            team_id=self.team.pk,
+            source_id="source",
+            connection_id="connection",
+            status="Running",
+            source_type=ExternalDataSourceType.POSTGRES,
+        )
+
+    def _rows(self) -> Any:
+        return Integration.objects.filter(team_id=self.team.pk, kind="warehouse-source")
+
+    @parameterized.expand(
+        [
+            ("flag_off", {"return_value": False}),
+            ("flag_error", {"side_effect": RuntimeError("flags down")}),
+        ]
+    )
+    def test_writes_nothing_to_the_integration_when_the_flag_is_not_on(
+        self, _name: str, flag_kwargs: dict[str, Any]
+    ) -> None:
+        with self._flag(**flag_kwargs):
+            source = self._create()
+            SourceInputsStore.save(source, {**STORED_POSTGRES_INPUTS, "password": "fake-rotated"})
+
+        assert not self._rows().exists()
+        assert SourceInputsStore.load(ExternalDataSource.objects.get(pk=source.pk))["password"] == "fake-rotated"
+
+    def test_create_and_save_mirror_only_the_connection_fields(self) -> None:
+        with self._flag(return_value=True):
+            source = self._create()
+            row = self._rows().get()
+            assert row.integration_id == str(source.id)
+            assert row.config == {"source_type": "Postgres", "source_id": str(source.id)}
+            assert row.sensitive_config == {"fields": POSTGRES_CONNECTION_FIELDS}
+
+            SourceInputsStore.save(source, {**STORED_POSTGRES_INPUTS, "password": "fake-rotated"})
+
+        row.refresh_from_db()
+        assert row.sensitive_config == {"fields": {**POSTGRES_CONNECTION_FIELDS, "password": "fake-rotated"}}
+        assert SourceInputsStore.load(ExternalDataSource.objects.get(pk=source.pk))["password"] == "fake-rotated"
+
+    def test_upsert_failure_does_not_block_the_job_inputs_save(self) -> None:
+        before = _sample("posthog_warehouse_source_credentials_dual_write_total", {"outcome": "upsert_error"})
+        with (
+            self._flag(return_value=True),
+            patch.object(WarehouseSourceCredentialsStore, "upsert", side_effect=RuntimeError("store down")),
+        ):
+            source = self._create()
+            SourceInputsStore.save(source, {**STORED_POSTGRES_INPUTS, "password": "fake-rotated"})
+
+        assert SourceInputsStore.load(ExternalDataSource.objects.get(pk=source.pk))["password"] == "fake-rotated"
+        after = _sample("posthog_warehouse_source_credentials_dual_write_total", {"outcome": "upsert_error"})
+        assert after - before == 2
+
+    def test_update_runtime_does_not_touch_the_integration(self) -> None:
+        with self._flag(return_value=True):
+            source = self._create()
+            self._rows().delete()
+
+            SourceInputsStore.update_runtime(source, {"cdc_consistent_point": "0/16B3748"})
+
+        assert not self._rows().exists()
+
+    @parameterized.expand(
+        [
+            ("match", lambda rows, source: None, "match"),
+            ("missing_row", lambda rows, source: rows.delete(), "missing_row"),
+            ("unreadable", lambda rows, source: rows.update(sensitive_config={}), "unreadable"),
+            (
+                "field_mismatch",
+                lambda rows, source: WarehouseSourceCredentialsStore.upsert(
+                    source, {**POSTGRES_CONNECTION_FIELDS, "password": "fake-other"}
+                ),
+                "field_mismatch",
+            ),
+        ]
+    )
+    def test_shadow_compare_counts_the_result_and_keeps_the_returned_value(
+        self, _name: str, change_row: Callable[[Any, ExternalDataSource], Any], expected_result: str
+    ) -> None:
+        with self._flag(return_value=True):
+            source = self._create()
+            change_row(self._rows(), source)
+
+            for load in (
+                lambda: SourceInputsStore.load(ExternalDataSource.objects.get(pk=source.pk)),
+                lambda: SourceInputsStore.load_many([ExternalDataSource.objects.get(pk=source.pk)])[source.id],
+            ):
+                reset_caches()
+                before = _compare_count(expected_result)
+                assert load() == STORED_POSTGRES_INPUTS
+                assert _compare_count(expected_result) - before == 1
+
+    def test_shadow_compare_runs_once_per_interval_for_a_source(self) -> None:
+        with self._flag(return_value=True):
+            source = self._create()
+            before = _compare_count("match")
+
+            for _ in range(3):
+                SourceInputsStore.load(ExternalDataSource.objects.get(pk=source.pk))
+
+        assert _compare_count("match") - before == 1
+
+    def test_shadow_compare_never_raises(self) -> None:
+        with (
+            self._flag(return_value=True),
+            patch.object(WarehouseSourceCredentialsStore, "get", side_effect=RuntimeError("store down")),
+            patch.object(WarehouseSourceCredentialsStore, "get_many", side_effect=RuntimeError("store down")),
+        ):
+            source = self._create()
+            assert SourceInputsStore.load(ExternalDataSource.objects.get(pk=source.pk)) == STORED_POSTGRES_INPUTS
+            reset_caches()
+            assert SourceInputsStore.load_many([source]) == {source.id: STORED_POSTGRES_INPUTS}
