@@ -1723,14 +1723,6 @@ class WatchFeedQuerySerializer(serializers.Serializer):
         required=False,
         help_text="Comma-separated user IDs. Restrict the feed to observations from scanners those users created.",
     )
-    search = serializers.CharField(
-        required=False,
-        help_text=(
-            "Case-insensitive text to match against the scan's own words (title, summary, reasoning, and the "
-            "notability sentence) and the scanner's name. Applied before ranking, so it searches the whole "
-            "window rather than the items that would have surfaced without it."
-        ),
-    )
     limit = serializers.IntegerField(
         required=False,
         default=WATCH_FEED_DEFAULT_LIMIT,
@@ -2505,18 +2497,6 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         )
         if params.get("scanner_type"):
             candidates = candidates.filter(scanner_snapshot__scanner_type=params["scanner_type"])
-        if params.get("search"):
-            # Applied before ranking so the box searches the whole window, not the slice that would have
-            # surfaced anyway. Unindexed, but the candidate query is already bounded by team, readable
-            # scanners, succeeded status and the date window. Lookup keys are literals, not caller input.
-            term = params["search"]
-            candidates = candidates.filter(
-                Q(scanner_result__model_output__reasoning__icontains=term)
-                | Q(scanner_result__model_output__summary__icontains=term)
-                | Q(scanner_result__model_output__title__icontains=term)
-                | Q(scanner_result__model_output__notability_reason__icontains=term)
-                | Q(scanner_snapshot__name__icontains=term)
-            )
         viewer_id = cast(User, request.user).id
         # Before ranking, so a row the viewer marked not useful never takes a slot.
         # Views and dismissals after `as_of` wait for the next load, so later pages of this one do not shift.
@@ -2546,7 +2526,6 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                         list(map(str, dismissed_ids)),
                         sorted(readable_experiment_ids(self.user_access_control, self.team_id)),
                         sorted(map(str, allowed_ids)),
-                        params.get("search"),
                         params.get("scanner_type"),
                     ]
                 ).encode()

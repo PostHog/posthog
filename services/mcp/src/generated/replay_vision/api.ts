@@ -2393,13 +2393,6 @@ export const VisionScannersWatchFeedRetrieveQueryParams = () => zod.object({
         .describe(
             'Restrict the feed to observations from scanners of this type.\n\n\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer\n\* `experiment` - Experiment'
         ),
-    search: zod
-        .string()
-        .min(1)
-        .optional()
-        .describe(
-            "Case-insensitive text to match against the scan's own words (title, summary, reasoning, and the notability sentence) and the scanner's name. Applied before ranking, so it searches the whole window rather than the items that would have surfaced without it."
-        ),
     tags: zod
         .string()
         .min(1)

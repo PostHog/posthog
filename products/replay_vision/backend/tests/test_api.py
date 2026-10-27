@@ -5127,42 +5127,6 @@ class TestWatchFeedAPI(_VisionAPITestCase):
         self.assertEqual(allowed.status_code, 200, allowed.json())
         self.assertEqual(allowed.json()["results"][0]["observation"]["session_id"], "scoped-sess")
 
-    def test_search_matches_scan_prose_and_scanner_name_across_the_whole_window(self) -> None:
-        # Search runs before ranking, so a match that the ranking would never have surfaced still comes back.
-        checkout = self._create_scanner(name="Checkout watcher")
-        other = self._create_scanner(name="Inbox watcher")
-        self._succeeded_observation(
-            checkout,
-            "coupon-sess",
-            30,
-            {
-                "model_output": {
-                    "scanner_type": "summarizer",
-                    "title": "Coupon rejected",
-                    "summary": "The coupon field rejected a valid code.",
-                    "confidence": 0.9,
-                },
-                "signals_count": 0,
-            },
-        )
-        for index in range(10):
-            self._ranked_observation(
-                other, f"inbox-{index}", index, "failure" if index == 0 else "routine", 0.9 - index / 100
-            )
-
-        resp = self.client.get(f"{self.feed_url}?search=coupon")
-        self.assertEqual([i["observation"]["session_id"] for i in resp.json()["results"]], ["coupon-sess"])
-
-        # The scanner's own name matches too, so typing an area name works.
-        resp = self.client.get(f"{self.feed_url}?search=inbox")
-        self.assertEqual(
-            [(i["observation"]["session_id"], i["reason"]["kind"]) for i in resp.json()["results"]],
-            [("inbox-0", "embedding_pick"), ("inbox-1", "unviewed_recent"), ("inbox-2", "unviewed_recent")],
-        )
-
-        resp = self.client.get(f"{self.feed_url}?search=nothingmatchesthis")
-        self.assertEqual(resp.json()["results"], [])
-
     def test_tag_filter_follows_current_scanner_tags_not_the_snapshot(self) -> None:
         # Snapshots freeze config at scan time and never carried tags, so a retag has to take effect
         # on existing observations immediately.
