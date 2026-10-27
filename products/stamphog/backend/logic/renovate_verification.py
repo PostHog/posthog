@@ -449,8 +449,9 @@ def _pnpm_reference_problem(
 ) -> str | None:
     """A changed reference must select a locked package, the same package as before, in the same release line.
 
-    ``base_aliases`` holds the (dependency, package) aliases that the base locked. A published
-    package declares its own aliases, so a new pair substitutes a package that no check has seen.
+    ``base_aliases`` holds the (dependency, package) aliases that the base locked for the package
+    that owns the reference. A published package declares its own aliases, so a new pair
+    substitutes a package that no check has seen.
     """
     target = _pnpm_reference_target(name, reference, alias=alias)
     if target is None or f"{target[0]}@{target[1]}" not in packages:
@@ -486,14 +487,21 @@ def _pnpm_specifier_map_problems(
     return problems
 
 
-def _pnpm_snapshot_aliases(snapshots: Mapping[str, Any]) -> frozenset[tuple[str, str]]:
-    return frozenset(
-        (name, target[0])
-        for snapshot in snapshots.values()
-        for field in ("dependencies", "optionalDependencies")
-        for name, reference in ((snapshot or {}).get(field) or {}).items()
-        if (target := _pnpm_reference_target(name, reference, alias=True)) is not None and target[0] != name
-    )
+_PNPM_SNAPSHOT_FIELDS = ("dependencies", "optionalDependencies")
+
+
+def _pnpm_snapshot_aliases(snapshots: Mapping[str, Any]) -> dict[str, frozenset[tuple[str, str]]]:
+    """The (dependency, package) aliases that each package's snapshots declare, by package name."""
+    aliases: dict[str, set[tuple[str, str]]] = {}
+    for key, snapshot in snapshots.items():
+        if (parsed := _split_pnpm_key(key.split("(", 1)[0])) is None:
+            continue
+        for field in _PNPM_SNAPSHOT_FIELDS:
+            for name, reference in ((snapshot or {}).get(field) or {}).items():
+                target = _pnpm_reference_target(name, reference, alias=True)
+                if target is not None and target[0] != name:
+                    aliases.setdefault(parsed[0], set()).add((name, target[0]))
+    return {package: frozenset(pairs) for package, pairs in aliases.items()}
 
 
 def _pnpm_reference_problems(path: str, base: Mapping[str, Any], head: Mapping[str, Any]) -> list[str]:
@@ -524,22 +532,37 @@ def _pnpm_reference_problems(path: str, base: Mapping[str, Any], head: Mapping[s
 
     base_snapshots = base.get("snapshots") or {}
     base_aliases = _pnpm_snapshot_aliases(base_snapshots)
+    # A snapshot key carries the resolved peers, so a peer change renames the snapshot of a version
+    # that the base already locked. That version's dependencies are compared like an unchanged key's.
+    base_by_version: dict[str, Any] = {}
+    for key, snapshot in base_snapshots.items():
+        base_by_version.setdefault(key.split("(", 1)[0], snapshot or {})
     for key, snapshot in (head.get("snapshots") or {}).items():
-        parsed = _split_pnpm_key(key.split("(", 1)[0])
-        previous = base_snapshots.get(key)
-        if previous is None:
-            if parsed is None or f"{parsed[0]}@{parsed[1]}" not in packages:
-                problems.append(f"{path} adds a snapshot that matches no locked package.")
+        unsuffixed = key.split("(", 1)[0]
+        parsed = _split_pnpm_key(unsuffixed)
+        if parsed is None or unsuffixed not in packages:
+            problems.append(f"{path} adds a snapshot that matches no locked package.")
+            continue
+        owner = f"the snapshot of {parsed[0]}"
+        previous = base_snapshots.get(key) or base_by_version.get(unsuffixed)
+        for field in _PNPM_SNAPSHOT_FIELDS:
+            references = (snapshot or {}).get(field) or {}
+            base_references = (previous or {}).get(field) or {}
+            if previous is not None and set(references) != set(base_references):
+                problems.append(f"{path} adds or removes a dependency of {owner} without changing its version.")
                 continue
-            previous = {}
-        owner = f"the snapshot of {parsed[0]}" if parsed is not None else "a snapshot"
-        for field in ("dependencies", "optionalDependencies"):
-            base_references = previous.get(field) or {}
-            for name, reference in ((snapshot or {}).get(field) or {}).items():
+            for name, reference in references.items():
                 base_reference = base_references.get(name)
                 if reference != base_reference and (
                     problem := _pnpm_reference_problem(
-                        path, owner, name, base_reference, reference, packages, base_aliases=base_aliases, alias=True
+                        path,
+                        owner,
+                        name,
+                        base_reference,
+                        reference,
+                        packages,
+                        base_aliases=base_aliases.get(parsed[0], frozenset()),
+                        alias=True,
                     )
                 ):
                     problems.append(problem)
@@ -573,22 +596,36 @@ def _uv_edges(entry: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
     return edges
 
 
-def _uv_edge_version(edge: Mapping[str, Any], versions_by_name: Mapping[str, set[str]]) -> str | None:
-    # uv names the version on an edge only when the lockfile holds more than one version of it.
-    if "version" in edge:
-        return str(edge["version"])
-    versions = versions_by_name.get(str(edge.get("name")), set())
-    return next(iter(versions)) if len(versions) == 1 else None
+def _uv_locked_by_name(entries: Iterable[Mapping[str, Any]]) -> dict[str, set[tuple[str, str]]]:
+    locked: dict[str, set[tuple[str, str]]] = {}
+    for entry in entries:
+        name, version, source = _uv_key(entry)
+        locked.setdefault(name, set()).add((version, source))
+    return locked
+
+
+def _uv_edge_target(edge: Mapping[str, Any], locked: Mapping[str, set[tuple[str, str]]]) -> tuple[str, str] | None:
+    """The (version, source) entry that an edge selects, or None when it selects no single locked entry.
+
+    uv writes the version and the source on an edge only when the lockfile holds more than one of them.
+    """
+    candidates = {
+        (version, source)
+        for version, source in locked.get(str(edge.get("name")), set())
+        if ("version" not in edge or version == str(edge["version"]))
+        and ("source" not in edge or source == json.dumps(edge["source"], sort_keys=True))
+    }
+    return next(iter(candidates)) if len(candidates) == 1 else None
 
 
 def _uv_retained_problems(
     path: str,
     previous: Mapping[str, Any],
     entry: Mapping[str, Any],
-    base_versions: Mapping[str, set[str]],
-    head_versions: Mapping[str, set[str]],
+    base_locked: Mapping[str, set[tuple[str, str]]],
+    head_locked: Mapping[str, set[tuple[str, str]]],
 ) -> list[str]:
-    """A package that keeps its version keeps its files, and each dependency stays in its release line."""
+    """A package that keeps its version keeps its files, and each dependency keeps its index and release line."""
     label = f"{entry.get('name')} {entry.get('version')}"
     if _without(entry, _UV_RETAINED_DERIVED_KEYS) != _without(previous, _UV_RETAINED_DERIVED_KEYS):
         return [f"{path} changes {label} without changing its version."]
@@ -597,14 +634,16 @@ def _uv_retained_problems(
         return [f"{path} changes the dependencies of {label} without changing its version."]
     problems = []
     for key, edge in head_edges.items():
-        old, new = _uv_edge_version(base_edges[key], base_versions), _uv_edge_version(edge, head_versions)
+        old, new = _uv_edge_target(base_edges[key], base_locked), _uv_edge_target(edge, head_locked)
         if old == new:
             continue
         dependency = str(edge.get("name"))
-        if old is None or new is None or new not in head_versions.get(dependency, set()):
-            problems.append(f"{path} points {label} at a {dependency} version that it does not lock.")
-        elif is_major_update(VersionChange(ecosystem="pypi", name=dependency, old_version=old, new_version=new)):
-            problems.append(f"{path} moves {label} from {dependency} {old} to {new}, a major update.")
+        if old is None or new is None:
+            problems.append(f"{path} points {label} at a {dependency} entry that it does not lock.")
+        elif old[1] != new[1]:
+            problems.append(f"{path} points {label} at {dependency} from another index.")
+        elif is_major_update(VersionChange(ecosystem="pypi", name=dependency, old_version=old[0], new_version=new[0])):
+            problems.append(f"{path} moves {label} from {dependency} {old[0]} to {new[0]}, a major update.")
     return problems
 
 
@@ -614,13 +653,9 @@ def uv_lock_versions(path: str, base_text: str, head_text: str) -> tuple[list[_U
         return [], [f"{path} changes lockfile options or manifest settings."]
     base_entries = {_uv_key(p): p for p in base.get("package", [])}
     base_by_name: dict[str, list[Mapping[str, Any]]] = {}
-    base_versions_by_name: dict[str, set[str]] = {}
     for entry in base_entries.values():
         base_by_name.setdefault(str(entry.get("name")), []).append(entry)
-        base_versions_by_name.setdefault(str(entry.get("name")), set()).add(str(entry.get("version")))
-    head_versions_by_name: dict[str, set[str]] = {}
-    for entry in head.get("package", []):
-        head_versions_by_name.setdefault(str(entry.get("name")), set()).add(str(entry.get("version")))
+    base_locked, head_locked = _uv_locked_by_name(base_entries.values()), _uv_locked_by_name(head.get("package", []))
 
     locked: list[_UvLockedVersion] = []
     problems: list[str] = []
@@ -628,7 +663,7 @@ def uv_lock_versions(path: str, base_text: str, head_text: str) -> tuple[list[_U
         name, version = str(entry.get("name") or ""), str(entry.get("version") or "")
         previous = base_entries.get(_uv_key(entry))
         if previous is not None:
-            problems.extend(_uv_retained_problems(path, previous, entry, base_versions_by_name, head_versions_by_name))
+            problems.extend(_uv_retained_problems(path, previous, entry, base_locked, head_locked))
             continue
         if not _PYPI_NAME_RE.match(name) or not _VERSION_RE.match(version):
             problems.append(f"{path} locks an entry that is not a plain package name and version.")
@@ -641,7 +676,7 @@ def uv_lock_versions(path: str, base_text: str, head_text: str) -> tuple[list[_U
             continue
         base_versions = [str(p.get("version")) for p in base_by_name[name]]
         old_version = _replaced_version(
-            base_versions, kept=set(base_versions) & head_versions_by_name[name], new_version=version
+            base_versions, kept={v for v, _ in head_locked[name]} & set(base_versions), new_version=version
         )
         new_files = tuple(
             _LockedFile(url=str(file.get("url") or ""), hash=str(file.get("hash") or "")) for file in _uv_files(entry)

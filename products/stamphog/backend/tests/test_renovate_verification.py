@@ -338,20 +338,57 @@ class TestLockfileVersions(SimpleTestCase):
         assert (problems == []) if expected is None else (expected in problems[0])
 
     @parameterized.expand(
-        [("alias_the_base_locked", "web-vitals@6.2.1", None), ("new_alias", "lodash@4.17.21", "another package")]
+        [
+            ("alias_the_base_locked", "web-vitals@6.2.1", None),
+            ("new_alias", "lodash@4.17.21", "another package"),
+            ("alias_another_package_declared", "right-pad@1.0.0", "another package"),
+        ]
     )
-    def test_pnpm_new_snapshot_keeps_the_base_aliases(self, _name: str, reference: str, expected: str | None) -> None:
+    def test_pnpm_new_snapshot_keeps_its_package_aliases(
+        self, _name: str, reference: str, expected: str | None
+    ) -> None:
         def lock(left_pad: str, vitals: str) -> str:
             return _pnpm_lock(
                 {
                     f"left-pad@{left_pad}": {"resolution": {"integrity": f"sha512-{left_pad}"}},
                     "web-vitals@6.2.1": {"resolution": {"integrity": "sha512-vitals"}},
                     "lodash@4.17.21": {"resolution": {"integrity": "sha512-lodash"}},
+                    "right-pad@1.0.0": {"resolution": {"integrity": "sha512-right"}},
                 },
-                snapshots={f"left-pad@{left_pad}": {"dependencies": {"vitals": vitals}}},
+                snapshots={
+                    f"left-pad@{left_pad}": {"dependencies": {"vitals": vitals}},
+                    "lodash@4.17.21": {"dependencies": {"vitals": "right-pad@1.0.0"}},
+                },
             )
 
         _, problems = pnpm_lock_versions("pnpm-lock.yaml", lock("1.0.0", "web-vitals@6.2.1"), lock("1.1.0", reference))
+
+        assert (problems == []) if expected is None else (expected in problems[0])
+
+    @parameterized.expand(
+        [
+            ("peers_resolve_again", {"left-pad": "1.1.0"}, None),
+            ("peers_resolve_to_a_locked_major", {"left-pad": "2.0.0"}, "a major update"),
+            ("adds_a_dependency", {"left-pad": "1.1.0", "right-pad": "1.0.0"}, "adds or removes a dependency"),
+        ]
+    )
+    def test_pnpm_snapshot_renamed_by_its_peers_keeps_its_dependencies(
+        self, _name: str, head_dependencies: dict[str, str], expected: str | None
+    ) -> None:
+        def lock(left_pad: str, react: str, dependencies: dict[str, str]) -> str:
+            return _pnpm_lock(
+                {
+                    f"left-pad@{left_pad}": {"resolution": {"integrity": f"sha512-{left_pad}"}},
+                    "left-pad@2.0.0": {"resolution": {"integrity": "sha512-2.0.0"}},
+                    "right-pad@1.0.0": {"resolution": {"integrity": "sha512-right"}},
+                    "lodash@4.17.21": {"resolution": {"integrity": "sha512-lodash"}},
+                },
+                snapshots={f"lodash@4.17.21(react@{react})": {"dependencies": dependencies}},
+            )
+
+        _, problems = pnpm_lock_versions(
+            "pnpm-lock.yaml", lock("1.0.0", "18.0.0", {"left-pad": "1.0.0"}), lock("1.1.0", "18.1.0", head_dependencies)
+        )
 
         assert (problems == []) if expected is None else (expected in problems[0])
 
@@ -404,6 +441,21 @@ class TestLockfileVersions(SimpleTestCase):
         )
 
         assert (problems == []) if expected is None else (expected in problems[0])
+
+    def test_uv_retained_package_keeps_each_dependency_on_its_index(self) -> None:
+        pypi, mirror = '{ registry = "https://pypi.org/simple" }', '{ registry = "https://mirror.example.com/simple" }'
+
+        def lock(source: str) -> str:
+            dependencies = f'{{ name = "urllib3", version = "2.0.0", source = {source} }}'
+            return _uv_lock(
+                _uv_package("requests", "2.32.0", "old", dependencies=dependencies),
+                _uv_package("urllib3", "2.0.0", "pypi", source=pypi),
+                _uv_package("urllib3", "2.0.0", "mirror", source=mirror),
+            )
+
+        _, problems = uv_lock_versions("uv.lock", lock(pypi), lock(mirror))
+
+        assert problems == ["uv.lock points requests 2.32.0 at urllib3 from another index."]
 
 
 class TestRegistryProblems(SimpleTestCase):
