@@ -74,7 +74,8 @@ jobs:
                       /.nvmrc
                       /.oxlintrc.json
                       /.oxfmtrc.json
-                      /owners.yaml
+                      **/owners.yaml
+                      **/product.yaml
                       /pnpm-workspace.yaml
                       /uv.lock
                       /tach.toml
