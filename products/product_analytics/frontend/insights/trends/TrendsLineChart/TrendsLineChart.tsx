@@ -233,6 +233,17 @@ export function TrendsLineChart({
         [canHandleClick, canNavigateToInsight, clickDeps, navigateToInsight]
     )
 
+    // Set even when only navigation is possible, so the dashboard menu does not replay the right
+    // click as a left click, which would open the insight.
+    const onPointContextMenu = useCallback(
+        (clickData: PointClickData) => {
+            if (canHandleClick) {
+                handleTrendsChartClick(clickData.series.key, clickData.dataIndex, clickDeps)
+            }
+        },
+        [canHandleClick, clickDeps]
+    )
+
     const onDateRangeZoom = useDateRangeZoom(currentPeriodResult?.days, context?.onDateRangeZoom)
 
     const renderTooltip = useCallback(
@@ -349,11 +360,10 @@ export function TrendsLineChart({
                 valueLabels: showValuesOnSeries && valueLabelFormatter ? { formatter: valueLabelFormatter } : false,
                 curve: chartStyleCurve(trendsFilter?.chartStyle),
                 showCrosshair: true,
-                tooltip: { ...INSIGHT_TOOLTIP_CONFIG, resolveClickToNearestSeries: context?.dashboardResultMenu },
+                tooltip: INSIGHT_TOOLTIP_CONFIG,
                 legend: legendConfig,
             }),
         [
-            context?.dashboardResultMenu,
             indexedResults,
             trendsFilter,
             baseCurrency,
@@ -400,6 +410,9 @@ export function TrendsLineChart({
             config={config}
             tooltip={renderTooltip}
             onPointClick={canHandlePointInteraction ? onPointClick : undefined}
+            onPointContextMenu={
+                context?.dashboardResultMenu && canHandlePointInteraction ? onPointContextMenu : undefined
+            }
             onDateRangeZoom={onDateRangeZoom}
             className="LineGraph"
             dataAttr="trend-line-graph"

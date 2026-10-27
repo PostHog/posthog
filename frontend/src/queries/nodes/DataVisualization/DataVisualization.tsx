@@ -9,6 +9,7 @@ import { LemonBanner, LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { createXAxisTickCallback } from '@posthog/quill-charts'
 
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
+import { getResultMenuPoint, isResultMenuContextMenu, replayAsClick } from 'lib/components/ResultMenu/resultMenuTrigger'
 import { PART_OF_WHOLE_DISPLAY_TYPES } from 'lib/constants'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
@@ -234,12 +235,12 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         query,
         filtersOverride: props.filtersOverride,
         variablesOverride: props.variablesOverride,
-        dashboardMenu: !props.inSharedMode && props.context?.dashboardResultMenu,
     }
     const drilldownLogic = biDrilldownLogic(drilldownProps)
-    const { inspect: inspectResult, setInteraction } = useActions(drilldownLogic)
+    const { inspect: inspectResult, setInteraction, close: closeResultMenu } = useActions(drilldownLogic)
     const resultMenuTriggerRef = useRef<HTMLDivElement>(null)
     const inspectedPoint = useRef(false)
+    const replayingClick = useRef(false)
     const inspect = useCallback(
         (record: Record<string, unknown>): void => {
             inspectedPoint.current = true
@@ -249,6 +250,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
     )
     const isQuerySnapshot = query.kind === NodeKind.BIVisualizationNode && !!query.config.querySnapshot
     const canDrill = query.kind === NodeKind.BIVisualizationNode && !isQuerySnapshot && !props.inSharedMode
+    const resultMenu = canDrill && !!props.context?.dashboardResultMenu
 
     const { seriesBreakdownData, chartData } = useValues(seriesBreakdownLogic({ key: dataVisualizationProps.key }))
     const { goalLines } = useValues(displayLogic)
@@ -641,7 +643,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                 {component}
                 {canDrill ? (
                     <>
-                        {drilldownProps.dashboardMenu && (
+                        {resultMenu && (
                             <BIDrilldownMenu logicProps={drilldownProps} triggerRef={resultMenuTriggerRef} />
                         )}
                         <BIDrilldownModal
@@ -665,32 +667,46 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                     'DataVisualization InsightCard__viz',
                     effectiveVisualizationType === ChartDisplayType.Metric && 'InsightCard__viz--Metric'
                 )}
-                onClick={
-                    canDrill && drilldownProps.dashboardMenu
+                onClickCapture={
+                    resultMenu
                         ? (event) => {
                               if (
-                                  event.currentTarget.contains(event.target as Node) &&
-                                  !!drilldownLogic.values.interaction &&
-                                  !inspectedPoint.current &&
-                                  !(event.target as Element).closest('a, button, input, select, [role="button"]')
+                                  !replayingClick.current &&
+                                  drilldownLogic.values.interaction &&
+                                  event.currentTarget.contains(event.target as Node)
                               ) {
-                                  inspect({})
+                                  closeResultMenu()
                               }
                           }
                         : undefined
                 }
-                onClickCapture={
-                    canDrill && drilldownProps.dashboardMenu
+                onContextMenuCapture={
+                    resultMenu
                         ? (event) => {
-                              if (event.currentTarget.contains(event.target as Node)) {
+                              if (isResultMenuContextMenu(event)) {
                                   inspectedPoint.current = false
-                                  const rect = (event.target as Element).getBoundingClientRect()
-                                  setInteraction({
-                                      x: event.detail ? event.clientX : rect.x + rect.width / 2,
-                                      y: event.detail ? event.clientY : rect.y + rect.height / 2,
-                                      clickCount: event.detail,
-                                      timestamp: event.timeStamp,
-                                  })
+                              }
+                          }
+                        : undefined
+                }
+                onContextMenu={
+                    resultMenu
+                        ? (event) => {
+                              if (!isResultMenuContextMenu(event)) {
+                                  return
+                              }
+                              event.preventDefault()
+                              setInteraction(getResultMenuPoint(event))
+                              if (!inspectedPoint.current) {
+                                  replayingClick.current = true
+                                  try {
+                                      replayAsClick(event)
+                                  } finally {
+                                      replayingClick.current = false
+                                  }
+                              }
+                              if (!inspectedPoint.current) {
+                                  inspect({})
                               }
                           }
                         : undefined
