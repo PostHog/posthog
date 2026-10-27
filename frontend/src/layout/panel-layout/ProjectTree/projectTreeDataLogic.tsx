@@ -1070,21 +1070,21 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     // the loader settle: on timeout it rejects, firing loadShortcutsFailure (which
                     // flips shortcutDataHasLoaded), and kea-loaders' global onFailure handler in
                     // initKea captures the exception so the previously-silent hang is surfaced.
-                    const shortcuts = await withTimeout(
-                        async (signal) => {
-                            // The API returns shortcuts one page at a time, and a star past the first
-                            // page would otherwise look unstarred everywhere it is checked.
-                            let page = await api.fileSystemShortcuts.list({ signal })
-                            const results = [...page.results]
-                            while (page.next) {
-                                page = await api.fileSystemShortcuts.list({ offset: results.length, signal })
-                                results.push(...page.results)
-                            }
-                            return results
-                        },
-                        SHORTCUTS_LOADER_TIMEOUT_MS,
-                        'loadShortcuts timed out'
-                    )
+                    // Each page gets its own timeout, so a long list does not fail as a whole on a slow
+                    // connection. The API returns shortcuts one page at a time, and a star past the first
+                    // page would otherwise look unstarred everywhere it is checked.
+                    const listPage = (offset: number): ReturnType<typeof api.fileSystemShortcuts.list> =>
+                        withTimeout(
+                            (signal) => api.fileSystemShortcuts.list(offset ? { offset, signal } : { signal }),
+                            SHORTCUTS_LOADER_TIMEOUT_MS,
+                            'loadShortcuts timed out'
+                        )
+                    let page = await listPage(0)
+                    const shortcuts = [...page.results]
+                    while (page.next) {
+                        page = await listPage(shortcuts.length)
+                        shortcuts.push(...page.results)
+                    }
                     return shortcuts.map(withProductShortcutHref)
                 },
                 addShortcutItem: async ({ item }) => {

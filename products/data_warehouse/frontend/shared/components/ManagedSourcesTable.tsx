@@ -18,29 +18,19 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { StatusTagSetting } from 'products/data_warehouse/frontend/utils'
 
 import { availableSourcesLogic } from '../../scenes/NewSourceScene/availableSourcesLogic'
-import {
-    sourceLabel,
-    sourceManagementLogic,
-    syncingSchemasByStatus,
-    totalRowsSynced,
-} from '../logics/sourceManagementLogic'
+import { managedSourcesTableLogic, syncingSchemasByStatus, totalRowsSynced } from '../logics/managedSourcesTableLogic'
+import { sourceLabel, sourceManagementLogic } from '../logics/sourceManagementLogic'
 import { FreeHistoricalSyncsBanner } from './FreeHistoricalSyncsBanner'
 import { DATA_WAREHOUSE_APP_SOURCE } from './metrics/DataWarehouseMetrics'
 // eslint-disable-next-line import/no-cycle
 import { SourceIcon } from './SourceIcon'
 
 export function ManagedSourcesTable(): JSX.Element {
-    const {
-        sortedManagedSources,
-        managedSourcesSorting,
-        starredSourceShortcuts,
-        shortcutDataLoading,
-        dataWarehouseSourcesLoading,
-        sourceReloadingById,
-        managedSearchTerm,
-    } = useValues(sourceManagementLogic)
-    const { deleteSource, reloadSource, setManagedSearchTerm, setManagedSourcesSorting, toggleSourceStarred } =
-        useActions(sourceManagementLogic)
+    const { dataWarehouseSourcesLoading, sourceReloadingById, managedSearchTerm } = useValues(sourceManagementLogic)
+    const { deleteSource, reloadSource, setManagedSearchTerm } = useActions(sourceManagementLogic)
+    const { sortedManagedSources, managedSourcesSorting, starredSourceShortcuts, shortcutDataLoading } =
+        useValues(managedSourcesTableLogic)
+    const { setManagedSourcesSorting, toggleSourceStarred } = useActions(managedSourcesTableLogic)
     const { availableSources, availableSourcesLoading } = useValues(availableSourcesLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const showMetrics = !!featureFlags[FEATURE_FLAGS.DWH_SOURCE_METRICS]
