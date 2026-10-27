@@ -6872,6 +6872,22 @@ snapshots:
         hash: v1.k794b7964.4d9cb89cf4df116ff3e473c6484b641d675a0ea9c42f05bf132ae946b8fb5ca8.7gZROaPmb_dBk2rRnqWl_FEMGXi-hHVdsl42uYiZE44
     products-business-intelligence-comparison-summary--table--light:
         hash: v1.k794b7964.2476db083ec4c26dd53dab30351f38104c63d9578cd30eae620b60e8cc22a438.plfjAxTsZmL_nRDwhmqufs8yWeTX0wXrr0u5Is8_RUw
+    products-business-intelligence-dashboard-filter-bar--active--dark:
+        hash: v1.k794b7964.a8bccb052a50d39f8c4cd1cdd8e87897ff64b157d646a8a6c070be7c2128c2d7._GkpVRRmlRIAWSVcrO66Qm0G1n0fPVQ9Z4dNr9IZvPw
+    products-business-intelligence-dashboard-filter-bar--active--light:
+        hash: v1.k794b7964.54c9630140897bb45bb91244a58ba79a074ddeeb73dd322cb6ad2f75d62e6567.sYmPIAyAr_OvZIOxCIvbVh-B6AJcBqaqoz4oYi6Yx9Y
+    products-business-intelligence-dashboard-filter-bar--long-label--dark:
+        hash: v1.k794b7964.469e59c370ef034473769be6eb1d7a6083ade6247043aa20830287b77141ab55.EGCsOPw_l0gw32zmwW2KLxYIMWGAUC-0sXCoDkWa2uc
+    products-business-intelligence-dashboard-filter-bar--long-label--light:
+        hash: v1.k794b7964.57435e9e3b692649099df1f27ed96931489309221ec9e73b52de45a1767be2f3.pMYrKA7hSL4IYtfVwVZLwfeSqQhOIxY3pHtrqzIMul4
+    products-business-intelligence-dashboard-filter-bar--no-related-worksheets--dark:
+        hash: v1.k794b7964.407dc70836c193d91d4382ed70d6b9300cacc7f95a73fb2e88edd6c31c7d625b.m-3J8BLIjvTvyzoVvyD5QDb7OCpQCm7_ZJdhLGn2N6w
+    products-business-intelligence-dashboard-filter-bar--no-related-worksheets--light:
+        hash: v1.k794b7964.4654dcd970ee1a91f0c37713d512512f30786665d0ae82f1a1f47f79c68764e6.Kyn9yPBBBaSysuc4frKiwtwAYr2YB8_EG6dUF7BtJrE
+    products-business-intelligence-dashboard-filter-bar--quill--dark:
+        hash: v1.k794b7964.da9be73f3709a743890cb340c763a4e70549a43bb3c92793f9363cd0def703cc.rTc10Z44__jy2hNKvtiD6EHBQcH0rR_A2CVrRF2z7-8
+    products-business-intelligence-dashboard-filter-bar--quill--light:
+        hash: v1.k794b7964.1e6d225ef76faf45784fafd1869e5fd375f2a6a593ec8ced9f57f2d8c79668c4.VdJwIJyPaWubzKTEuEDp8t1ML6LB4KOtKs0__emSCdk
     products-business-intelligence-pivot-table--multiple-measures-and-hierarchies--dark:
         hash: v1.k794b7964.26ebc58171eb340426f9fe220739132bca02f59b8489cb5a0b8a6411f99bb34d.oNv5X9sNKiPmhC_sE607b5P0yHAJju-hcC7higWxX9g
     products-business-intelligence-pivot-table--multiple-measures-and-hierarchies--light:
