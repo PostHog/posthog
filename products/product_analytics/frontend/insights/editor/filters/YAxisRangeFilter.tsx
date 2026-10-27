@@ -3,9 +3,8 @@ import { useEffect, useState } from 'react'
 
 import { LemonInput, LemonSwitch } from '@posthog/lemon-ui'
 
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-
-import { insightLogic } from '../insightLogic'
 
 export function YAxisRangeFilter(): JSX.Element {
     const { insightProps } = useValues(insightLogic)

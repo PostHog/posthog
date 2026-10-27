@@ -2,9 +2,10 @@ import { useActions, useValues } from 'kea'
 
 import { LemonDisabledArea, LemonLabel, LemonSwitch } from '@posthog/lemon-ui'
 
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+
 import { InsightLogicProps } from '~/types'
 
-import { insightVizDataLogic } from '../insightVizDataLogic'
 import { poeFilterLogic } from './poeFilterLogic'
 
 interface PoeFilterProps {

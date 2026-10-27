@@ -3,13 +3,12 @@ import { useActions, useValues } from 'kea'
 import { LemonCheckbox } from '@posthog/lemon-ui'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { isFunnelsQuery, isRetentionQuery, isTrendsQuery } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
 import { funnelDataLogic } from 'products/product_analytics/frontend/insights/funnels/funnelDataLogic'
-
-import { insightVizDataLogic } from '../insightVizDataLogic'
 
 export function ShowTrendLinesFilter(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
