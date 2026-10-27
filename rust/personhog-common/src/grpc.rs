@@ -13,6 +13,7 @@ use pin_project::{pin_project, pinned_drop};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::task::futures::TaskLocalFuture;
+use tokio_util::sync::CancellationToken;
 use tonic::metadata::MetadataValue;
 use tonic::transport::server::Connected;
 use tower::{Layer, Service};
@@ -311,11 +312,31 @@ impl Connected for TrackedTcpStream {
 pub fn tracked_tcp_incoming(
     listener: TcpListener,
 ) -> impl futures::Stream<Item = Result<TrackedTcpStream, io::Error>> {
-    unfold(listener, |listener| async move {
-        match listener.accept().await {
-            Ok((stream, _addr)) => Some((Ok(TrackedTcpStream::new(stream)), listener)),
-            Err(e) if is_fatal_accept_error(&e) => None,
-            Err(e) => Some((Err(e), listener)),
+    tracked_tcp_incoming_until(listener, CancellationToken::new())
+}
+
+/// [`tracked_tcp_incoming`] that ends when `shutdown` is cancelled.
+///
+/// Ending the stream drops the listener, so the kernel refuses a new
+/// connection while the server drains the accepted ones. A listener that
+/// stays bound during the drain completes the handshake of a late
+/// connection into its backlog and never serves it. The client then waits
+/// out its deadline on every attempt instead of connecting to another pod.
+pub fn tracked_tcp_incoming_until(
+    listener: TcpListener,
+    shutdown: CancellationToken,
+) -> impl futures::Stream<Item = Result<TrackedTcpStream, io::Error>> {
+    unfold((listener, shutdown), |(listener, shutdown)| async move {
+        tokio::select! {
+            biased;
+            _ = shutdown.cancelled() => None,
+            accepted = listener.accept() => match accepted {
+                Ok((stream, _addr)) => {
+                    Some((Ok(TrackedTcpStream::new(stream)), (listener, shutdown)))
+                }
+                Err(e) if is_fatal_accept_error(&e) => None,
+                Err(e) => Some((Err(e), (listener, shutdown))),
+            },
         }
     })
 }
@@ -731,6 +752,24 @@ mod tests {
         fn call(&mut self, _req: Request<()>) -> Self::Future {
             std::future::pending()
         }
+    }
+
+    #[tokio::test]
+    async fn a_cancelled_listener_refuses_new_connections() {
+        use futures::StreamExt;
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let shutdown = CancellationToken::new();
+        let mut incoming = std::pin::pin!(tracked_tcp_incoming_until(listener, shutdown.clone()));
+
+        let accepted = TcpStream::connect(addr).await.unwrap();
+        assert!(incoming.next().await.unwrap().is_ok());
+        drop(accepted);
+
+        shutdown.cancel();
+        assert!(incoming.next().await.is_none());
+        assert!(TcpStream::connect(addr).await.is_err());
     }
 
     #[tokio::test]
