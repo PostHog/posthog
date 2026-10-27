@@ -1620,7 +1620,7 @@ class TestExportCacheKeyFlow(APIBaseTest):
     def test_threshold_snapshot_is_only_used_by_the_export_renderer(
         self, _name: str, is_renderer: bool, mock_calculate: MagicMock
     ) -> None:
-        self.insight.query = {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", "series": []}}
+        self.insight.query = {"kind": "BIVisualizationNode"}
         self.insight.save(update_fields=["query"])
         self.exported_asset.export_context = {"reference_lines": [{"label": "Threshold snapshot", "value": 250}]}
         self.exported_asset.save(update_fields=["export_context"])
@@ -1630,7 +1630,7 @@ class TestExportCacheKeyFlow(APIBaseTest):
         assert response.status_code == 200
         assert (b"Threshold snapshot" in response.content) is is_renderer
         self.insight.refresh_from_db()
-        assert "goalLines" not in self.insight.query["source"].get("trendsFilter", {})
+        assert "chartSettings" not in self.insight.query
 
     @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
     @patch("products.product_analytics.backend.presentation.insight.QueryCache")
