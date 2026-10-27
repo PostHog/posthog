@@ -4,7 +4,6 @@ from collections import defaultdict
 from collections.abc import Callable, Iterable
 
 import pyarrow as pa
-import pyarrow.compute as pc
 
 from posthog.dataclasses import frozen
 
@@ -39,8 +38,9 @@ class HistoryNaming:
     suffix: str
     valid_from: str
     valid_to: str
-    # Open rows sit in `CURRENT_HISTORY_PARTITION`, closed rows in the month their version ended. A close
-    # then rewrites only files of the current partition, which grows with the live table, not with history.
+    # The SCD2 writer files open rows under `CURRENT_HISTORY_PARTITION` and closed rows under the month their
+    # version ended. A close then rewrites only files of the current partition, which grows with the live
+    # table, not with history.
     partition_column: str | None = None
 
     @property
@@ -63,11 +63,6 @@ HISTORY_NAMING = HistoryNaming(
     partition_column=HISTORY_PARTITION_COLUMN,
 )
 CURRENT_HISTORY_PARTITION = "current"
-
-
-def history_partitions(valid_to: pa.Array | pa.ChunkedArray) -> pa.Array | pa.ChunkedArray:
-    """`current` for an open row, else the `YYYY-MM` month its version ended."""
-    return pc.if_else(pc.is_null(valid_to), CURRENT_HISTORY_PARTITION, pc.strftime(valid_to, format="%Y-%m"))
 
 
 def history_naming_of(column_names: Iterable[str]) -> HistoryNaming:
@@ -539,12 +534,9 @@ def build_scd2_table(pa_table: pa.Table, pk_columns: list[str], naming: HistoryN
     )
 
     if pa_table.num_rows == 0:
-        empty = pa_table.append_column(pa.field(naming.valid_from, ts_type), pa.array([], type=ts_type)).append_column(
+        return pa_table.append_column(pa.field(naming.valid_from, ts_type), pa.array([], type=ts_type)).append_column(
             pa.field(naming.valid_to, ts_type), pa.array([], type=ts_type)
         )
-        if naming.partition_column is None:
-            return empty
-        return empty.append_column(pa.field(naming.partition_column, pa.string()), pa.array([], type=pa.string()))
 
     ts_col = pa_table.column(CDC_TIMESTAMP_COLUMN).to_pylist()
 
@@ -567,17 +559,13 @@ def build_scd2_table(pa_table: pa.Table, pk_columns: list[str], naming: HistoryN
                 next_idx = row_indices[j + 1]
                 valid_to[idx] = ts_col[next_idx]
 
-    valid_to_array = pa.array(valid_to, type=ts_type)
-    stamped = pa_table.append_column(
+    return pa_table.append_column(
         pa.field(naming.valid_from, ts_type),
         pa_table.column(CDC_TIMESTAMP_COLUMN),
     ).append_column(
         pa.field(naming.valid_to, ts_type),
-        valid_to_array,
+        pa.array(valid_to, type=ts_type),
     )
-    if naming.partition_column is None:
-        return stamped
-    return stamped.append_column(pa.field(naming.partition_column, pa.string()), history_partitions(valid_to_array))
 
 
 def _events_to_table(events: list[ChangeEvent], position_to_seq: Callable[[str], int] | None = None) -> pa.Table:

@@ -25,40 +25,42 @@ def _make_writer(delta_uri: str) -> Scd2DeltaWriter:
 
 class TestScd2Write:
     @pytest.mark.asyncio
-    async def test_a_partitioned_table_moves_a_closed_row_into_its_month(self, tmp_path: Path) -> None:
-        # The close merge reads only the current partition, so a closed row left there would stay
-        # open to every later merge, and one moved to the wrong month would hide from queries by month.
+    async def test_a_partitioned_table_files_each_row_by_when_its_version_ended(self, tmp_path: Path) -> None:
+        # The close merge reads only the current partition, so a closed row left there would stay open to
+        # every later merge. The batches carry no partition column: the writer files every row itself.
         delta_path = str(tmp_path / "scd2_table")
         writer = Scd2DeltaWriter(
             make_local_table_ref(delta_path),
             valid_from_column="_ph_valid_from",
             valid_to_column="_ph_valid_to",
             partition_column="_ph_history_partition",
-            current_partition="current",
         )
 
-        def _batch(ids: list[int], at: datetime) -> pa.Table:
+        def _batch(rows: list[tuple[int, datetime, datetime | None]]) -> pa.Table:
             return pa.table(
                 {
-                    "id": pa.array(ids),
-                    "_ph_valid_from": pa.array([at] * len(ids), type=_TS_TYPE),
-                    "_ph_valid_to": pa.array([None] * len(ids), type=_TS_TYPE),
-                    "_ph_history_partition": pa.array(["current"] * len(ids)),
+                    "id": pa.array([row[0] for row in rows]),
+                    "_ph_valid_from": pa.array([row[1] for row in rows], type=_TS_TYPE),
+                    "_ph_valid_to": pa.array([row[2] for row in rows], type=_TS_TYPE),
                     # A source column under the merge's own closing-month name must not collide with it.
-                    "_ph_closing_partition": pa.array(["source value"] * len(ids)),
+                    "_ph_closing_partition": pa.array(["source value"] * len(rows)),
                 }
             )
 
-        await writer.write(data=_batch([1, 2], datetime(2026, 1, 1, tzinfo=UTC)), primary_keys=["id"])
-        await writer.write(data=_batch([1], datetime(2026, 3, 15, tzinfo=UTC)), primary_keys=["id"])
+        jan, mar, apr = (datetime(2026, month, day, tzinfo=UTC) for month, day in ((1, 1), (3, 15), (4, 2)))
+        await writer.write(data=_batch([(1, jan, None), (2, jan, None)]), primary_keys=["id"])
+        # Key 1 closes against the table, and key 3 closes inside its own batch.
+        await writer.write(data=_batch([(1, mar, None), (3, mar, apr), (3, apr, None)]), primary_keys=["id"])
 
         table = deltalake.DeltaTable(delta_path)
         rows = table.to_pyarrow_table().sort_by([("id", "ascending"), ("_ph_valid_from", "ascending")]).to_pylist()
         assert table.metadata().partition_columns == ["_ph_history_partition"]
         assert [(r["id"], r["_ph_valid_to"], r["_ph_history_partition"]) for r in rows] == [
-            (1, datetime(2026, 3, 15, tzinfo=UTC), "2026-03"),
+            (1, mar, "2026-03"),
             (1, None, "current"),
             (2, None, "current"),
+            (3, apr, "2026-04"),
+            (3, None, "current"),
         ]
 
     @pytest.mark.asyncio

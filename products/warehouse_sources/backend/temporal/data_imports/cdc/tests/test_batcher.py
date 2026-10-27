@@ -16,7 +16,6 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
     DELETED_AT_COLUMN,
     DELETED_COLUMN,
     HISTORY_NAMING,
-    HISTORY_PARTITION_COLUMN,
     LEGACY_HISTORY_NAMING,
     TOAST_OMITTED_COLUMN,
     ChangeEventBatcher,
@@ -370,22 +369,6 @@ class TestBuildScd2Table:
         result = build_scd2_table(table, pk_columns, HISTORY_NAMING)
         assert result.column(HISTORY_NAMING.valid_to).to_pylist() == expected_valid_to
         assert result.column(HISTORY_NAMING.valid_from).to_pylist() == expected_valid_from
-
-    @parameterized.expand(
-        [("new_table", HISTORY_NAMING, ["2026-02", "current"]), ("legacy_table", LEGACY_HISTORY_NAMING, None)]
-    )
-    def test_partitions_a_closed_row_by_the_month_it_ended(
-        self, _name: str, history: HistoryNaming, expected: list[str] | None
-    ) -> None:
-        events = [
-            _make_event(op="I", columns={"id": 1}, position="0/100", timestamp=datetime(2026, 1, 31, 23, tzinfo=UTC)),
-            _make_event(op="U", columns={"id": 1}, position="0/200", timestamp=datetime(2026, 2, 1, 1, tzinfo=UTC)),
-        ]
-        result = build_scd2_table(self._make_raw_table(events), ["id"], history)
-        if expected is None:
-            assert HISTORY_PARTITION_COLUMN not in result.column_names
-        else:
-            assert result.column(HISTORY_PARTITION_COLUMN).to_pylist() == expected
 
     def test_valid_from_equals_cdc_timestamp(self):
         ts = datetime(2026, 3, 15, 10, 30, 0, tzinfo=UTC)

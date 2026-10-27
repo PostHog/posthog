@@ -979,37 +979,44 @@ class DeltaMaintenance:
         except Exception as e:
             await self._log_maintenance_failure(e, step="compact")
 
-    async def compact_history_current_partition(self, partition_column: str, current_partition: str) -> bool:
-        """Compact the open rows of a partitioned history table once they hold enough small files.
+    async def compact_history_partitions(self, partition_column: str) -> bool:
+        """Compact each partition of a partitioned history table that holds enough small files.
 
-        Every close merge rewrites the files of this partition that hold a closed key. The month
-        partitions keep the table-wide averages of `compact_if_fragmented` low, so its triggers would not
-        see this partition grow. Never raises, like `run_scheduled`.
+        Every append and every close merge adds a file to the current partition, and each close moves the
+        rows it closes into the month that is still filling. A CDC table runs without the small-file
+        triggers of `compact_if_fragmented`, because a CDC load lands on every tick, and its count triggers
+        average over every month partition. Never raises, like `run_scheduled`.
         """
         try:
             table = await self._table.get_delta_table()
             if table is None or partition_column not in (table.metadata().partition_columns or []):
                 return False
-            directory = f"{partition_column}={current_partition}"
-            sizes = [
-                size or 0
-                for path, size in table._table.get_add_file_sizes().items()
-                if path.rpartition("/")[0] == directory
-            ]
-            if removable_file_count(sizes, table_target_file_size(table)) < (
-                DEFAULT_COMPACT_REMOVABLE_FILES_PER_PARTITION_THRESHOLD
-            ):
+            prefix = f"{partition_column}="
+            sizes: defaultdict[str, list[int]] = defaultdict(list)
+            for path, size in table._table.get_add_file_sizes().items():
+                directory = path.rpartition("/")[0]
+                if directory.startswith(prefix):
+                    sizes[directory[len(prefix) :]].append(size or 0)
+
+            def fragmented(target_size: int) -> list[str]:
+                return sorted(
+                    value
+                    for value, file_sizes in sizes.items()
+                    if removable_file_count(file_sizes, target_size)
+                    >= DEFAULT_COMPACT_REMOVABLE_FILES_PER_PARTITION_THRESHOLD
+                )
+
+            if not fragmented(table_target_file_size(table)):
                 return False
             # The memory plan can shrink the bin below the table's target, and a smaller bin can merge
             # fewer files. Without the recheck every sync would plan a compaction that removes nothing.
             plan = await self._plan_compaction(table)
-            if plan.target_size is None or removable_file_count(sizes, plan.target_size) < (
-                DEFAULT_COMPACT_REMOVABLE_FILES_PER_PARTITION_THRESHOLD
-            ):
+            selected = [] if plan.target_size is None else fragmented(plan.target_size)
+            if not selected:
                 return False
-            return await self._compact(table, plan, partitions=[current_partition], partition_column=partition_column)
+            return await self._compact(table, plan, partitions=selected, partition_column=partition_column)
         except Exception as e:
-            await self._log_maintenance_failure(e, step="compact_history_current_partition")
+            await self._log_maintenance_failure(e, step="compact_history_partitions")
             return False
 
     async def _log_maintenance_failure(self, e: Exception, *, step: str) -> None:

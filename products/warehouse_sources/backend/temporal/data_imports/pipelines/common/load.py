@@ -269,11 +269,7 @@ async def _seed_cdc_companion_from_snapshot(
                 primary_keys=None,
             )
         else:
-            batch_table = batch_table.append_column(
-                pa.field(history.partition_column, pa.string()),
-                pa.array([CURRENT_HISTORY_PARTITION] * n, type=pa.string()),
-            )
-            # The SCD2 writer creates the table partitioned. Without keys it closes nothing.
+            # The SCD2 writer creates the table partitioned and files each row. Without keys it closes nothing.
             await Scd2DeltaWriter(
                 companion_ref,
                 valid_from_column=history.valid_from,
@@ -307,10 +303,7 @@ async def _run_delta_maintenance(
     is_cdc_companion: bool,
     logger: FilteringBoundLogger,
 ) -> None:
-    from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
-        CURRENT_HISTORY_PARTITION,
-        HISTORY_PARTITION_COLUMN,
-    )
+    from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import HISTORY_PARTITION_COLUMN
     from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance import (  # noqa: PLC0415 — keeps the heavy deltalake dep off this module's top-level import path
         DeltaMaintenance,
     )
@@ -328,9 +321,7 @@ async def _run_delta_maintenance(
             compact_small_files=not schema.is_cdc,
         )
         if is_cdc_companion:
-            await DeltaMaintenance(delta_table_ref).compact_history_current_partition(
-                HISTORY_PARTITION_COLUMN, CURRENT_HISTORY_PARTITION
-            )
+            await DeltaMaintenance(delta_table_ref).compact_history_partitions(HISTORY_PARTITION_COLUMN)
 
 
 def _stored_sync_type_config(schema_id: Any, team_id: int) -> Any:

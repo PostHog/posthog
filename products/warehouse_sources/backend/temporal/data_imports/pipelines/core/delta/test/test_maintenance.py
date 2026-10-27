@@ -1487,27 +1487,36 @@ class TestVacuumOnARealTable:
             assert deltalake.DeltaTable(root).to_pyarrow_table().num_rows == 1
 
 
-class TestCompactHistoryCurrentPartition:
+class TestCompactHistoryPartitions:
     @parameterized.expand(
         [
-            ("below_the_threshold", 4, _DEFAULT_PLAN, False),
-            ("above_the_threshold", 12, _DEFAULT_PLAN, True),
+            ("below_the_threshold", 4, 4, _DEFAULT_PLAN, 4, 4),
+            # The month that is still filling takes a file from every close, so it fragments too.
+            ("current_and_month_above_the_threshold", 12, 12, _DEFAULT_PLAN, 1, 1),
+            ("only_the_month_above_the_threshold", 4, 12, _DEFAULT_PLAN, 4, 1),
             # Every file is larger than the planned bin, so a compaction would remove none of them.
             (
                 "planned_bin_smaller_than_the_files",
                 12,
+                12,
                 CompactionPlan(target_size=1, max_concurrent_tasks=1, compression_ratio=1.0, slot_budget_mb=1.0),
-                False,
+                12,
+                12,
             ),
         ]
     )
     @pytest.mark.asyncio
-    async def test_compacts_the_current_partition_only(
-        self, _name: str, current_files: int, plan: CompactionPlan, compacted: bool
+    async def test_compacts_each_fragmented_partition(
+        self,
+        _name: str,
+        current_files: int,
+        month_files: int,
+        plan: CompactionPlan,
+        current_after: int,
+        month_after: int,
     ):
-        # The month partitions keep 12 small files each, so a filter that missed them would compact them too.
         with tempfile.TemporaryDirectory() as path:
-            for partition, count in (("current", current_files), ("2026-01", 12)):
+            for partition, count in (("current", current_files), ("2026-01", month_files)):
                 for i in range(count):
                     deltalake.write_deltalake(
                         path,
@@ -1517,9 +1526,9 @@ class TestCompactHistoryCurrentPartition:
                     )
             maintenance = _make_maintenance(deltalake.DeltaTable(path))
             with patch.object(maintenance, "_plan_compaction", AsyncMock(return_value=plan)):
-                ran = await maintenance.compact_history_current_partition("_ph_history_partition", "current")
+                ran = await maintenance.compact_history_partitions("_ph_history_partition")
 
             files = deltalake.DeltaTable(path).file_uris()
-            assert ran is compacted
-            assert sum("_ph_history_partition=current/" in f for f in files) == (1 if compacted else current_files)
-            assert sum("_ph_history_partition=2026-01/" in f for f in files) == 12
+            assert ran is (current_after < current_files or month_after < month_files)
+            assert sum("_ph_history_partition=current/" in f for f in files) == current_after
+            assert sum("_ph_history_partition=2026-01/" in f for f in files) == month_after

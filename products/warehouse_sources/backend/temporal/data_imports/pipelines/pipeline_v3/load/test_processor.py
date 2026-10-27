@@ -20,6 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
     CDC_OP_COLUMN,
     CDC_SEQ_COLUMN,
     HISTORY_NAMING,
+    HISTORY_PARTITION_COLUMN,
     LEGACY_HISTORY_NAMING,
     TOAST_OMITTED_COLUMN,
     HistoryNaming,
@@ -1728,22 +1729,35 @@ class TestEnrichCdcRows:
             assert result.column("name").to_pylist() == ["renamed", "two"]
             assert TOAST_OMITTED_COLUMN not in result.column_names
 
-    @parameterized.expand([("legacy_table", LEGACY_HISTORY_NAMING), ("new_table", HISTORY_NAMING)])
-    def test_scd2_fill_uses_current_row_not_history(self, _name: str, history: HistoryNaming) -> None:
+    @parameterized.expand(
+        [
+            ("legacy_table", LEGACY_HISTORY_NAMING, False),
+            ("new_table", HISTORY_NAMING, False),
+            # The read keeps to the current partition, which must still hold the open row.
+            ("partitioned_new_table", HISTORY_NAMING, True),
+        ]
+    )
+    def test_scd2_fill_uses_current_row_not_history(
+        self, _name: str, history: HistoryNaming, partitioned: bool
+    ) -> None:
         with tempfile.TemporaryDirectory() as path:
             ts = pa.timestamp("us", tz="UTC")
+            existing = pa.table(
+                {
+                    "id": pa.array([1, 1], pa.int64()),
+                    "name": pa.array(["v1", "v2"], pa.string()),
+                    "big": pa.array(["old-toast", "current-toast"], pa.string()),
+                    history.valid_from: pa.array([0, 1_000_000], ts),
+                    history.valid_to: pa.array([1_000_000, None], ts),
+                }
+            )
+            if partitioned:
+                existing = existing.append_column(HISTORY_PARTITION_COLUMN, pa.array(["1970-01", "current"]))
             write_deltalake(
                 path,
-                pa.table(
-                    {
-                        "id": pa.array([1, 1], pa.int64()),
-                        "name": pa.array(["v1", "v2"], pa.string()),
-                        "big": pa.array(["old-toast", "current-toast"], pa.string()),
-                        history.valid_from: pa.array([0, 1_000_000], ts),
-                        history.valid_to: pa.array([1_000_000, None], ts),
-                    }
-                ),
+                existing,
                 mode="overwrite",
+                partition_by=[HISTORY_PARTITION_COLUMN] if partitioned else None,
             )
 
             # The lane stamps the batch with its table's validity columns before the loader sees it.
