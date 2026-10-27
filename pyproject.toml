@@ -350,7 +350,7 @@ infi-clickhouse-orm = { git = "https://github.com/PostHog/infi.clickhouse_orm", 
 # optimal_chunks split. Fork: PostHog/pytest-split (of jerry-git/pytest-split).
 # Base future upstream rebases on the pinned tag so local fixes survive.
 # Cut the next v0.11.0-posthog.N tag and bump this pin.
-pytest-split = { git = "https://github.com/PostHog/pytest-split", tag = "v0.11.0-posthog.12" }
+pytest-split = { git = "https://github.com/PostHog/pytest-split", tag = "v0.11.0-posthog.13" }
 torch = [{ index = "pytorch-cpu", group = "inbox-ranking" }]
 
 # xgboost's Linux wheel declares nvidia-nccl-cu12 (322 MB) for multi-GPU training. We use xgboost on
