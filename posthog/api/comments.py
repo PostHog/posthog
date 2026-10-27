@@ -101,6 +101,16 @@ def _can_view_observation(*, team_id: int, item_id: str | None, user_access_cont
     return can_view_observation(user_access_control, team_id, item_id)
 
 
+def _observation_accepts_notes(*, team_id: int, item_id: str | None) -> bool:
+    if not item_id:
+        return False
+    from products.replay_vision.backend.facade.api import (  # noqa: PLC0415 — keeps the generic comments API decoupled from replay vision, only imported for observation-scoped comments
+        observation_accepts_notes,
+    )
+
+    return observation_accepts_notes(team_id, item_id)
+
+
 # A reservation with no posted root older than this is a crashed send — safe to retry.
 STALE_SLACK_RESERVATION_GRACE = timedelta(minutes=2)
 
@@ -461,14 +471,15 @@ class CommentSerializer(serializers.ModelSerializer):
             scope = root.scope
             item_id = root.item_id
 
-        # A note's replies are read through its thread, which checks only the root. Keeping each observation
-        # note on its first observation keeps a whole thread under one access check.
-        if (
-            instance
-            and (scope, item_id) != (instance.scope, instance.item_id)
-            and (instance.scope in OBSERVATION_COMMENT_SCOPES or scope in OBSERVATION_COMMENT_SCOPES)
-        ):
-            raise exceptions.ValidationError({"item_id": "An observation note cannot move to another item."})
+        # A note's replies are read through its thread, which checks only the root. Fixing where an observation
+        # note sits, and which thread it is in, keeps a whole thread under one access check.
+        if instance and ({instance.scope, scope, getattr(source_comment, "scope", None)} & OBSERVATION_COMMENT_SCOPES):
+            if (scope, item_id) != (instance.scope, instance.item_id):
+                raise exceptions.ValidationError({"item_id": "An observation note cannot move to another item."})
+            if getattr(source_comment, "id", None) != instance.source_comment_id:
+                raise exceptions.ValidationError(
+                    {"source_comment": "An observation note cannot move to another thread."}
+                )
 
         scopes_and_items = {(scope, item_id)}
         if instance:
@@ -482,12 +493,15 @@ class CommentSerializer(serializers.ModelSerializer):
                     item_id=target_item_id,
                     user_access_control=self.context["get_user_access_control"](),
                 )
-            elif target_scope in OBSERVATION_COMMENT_SCOPES and not _can_view_observation(
-                team_id=self.context["get_team"]().id,
-                item_id=target_item_id,
-                user_access_control=self.context["get_user_access_control"](),
-            ):
-                raise exceptions.PermissionDenied("You do not have access to this observation")
+            elif target_scope in OBSERVATION_COMMENT_SCOPES:
+                if not _can_view_observation(
+                    team_id=self.context["get_team"]().id,
+                    item_id=target_item_id,
+                    user_access_control=self.context["get_user_access_control"](),
+                ):
+                    raise exceptions.PermissionDenied("You do not have access to this observation")
+                if not _observation_accepts_notes(team_id=self.context["get_team"]().id, item_id=target_item_id):
+                    raise exceptions.ValidationError({"item_id": "You can add notes after the scan succeeds."})
 
         target_scope = data.get("scope", instance.scope if instance else None)
         target_item_id = data.get("item_id", instance.item_id if instance else None)
@@ -1224,6 +1238,9 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
             raise exceptions.ValidationError("Only a top-level comment (a thread root) can be sent to Slack")
         if comment.scope == "conversations_ticket":
             raise exceptions.ValidationError("Conversations tickets sync to Slack through the support product")
+        if comment.scope in OBSERVATION_COMMENT_SCOPES:
+            # A Slack channel has no observation access check, in either direction.
+            raise exceptions.ValidationError("Replay Vision observation notes cannot be sent to Slack")
 
         params = SendCommentToSlackSerializer(data=request.data)
         params.is_valid(raise_exception=True)

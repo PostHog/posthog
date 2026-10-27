@@ -5,7 +5,7 @@ import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortc
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
-import { QuillObservationNotesButton } from './ObservationNotesButton'
+import { QuillObservationNotesButton } from './QuillObservationNotesButton'
 import { QuillObservationShareButton } from './QuillObservationShareButton'
 
 export function QuillReplayObservationActions({

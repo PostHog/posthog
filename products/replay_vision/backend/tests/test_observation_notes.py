@@ -9,7 +9,7 @@ from rest_framework import status
 from posthog.constants import AvailableFeature
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import ActivityLog
-from posthog.models.comment import Comment
+from posthog.models.comment import Comment, CommentSlackThread
 from posthog.models.comment.utils import OBSERVATION_NOTE_PLACEHOLDER
 from posthog.tasks.email import send_discussions_mentioned
 
@@ -154,43 +154,122 @@ class TestObservationNotesAccess(APIBaseTest):
         assert event.properties["comment_content"] == OBSERVATION_NOTE_PLACEHOLDER
         assert "checkout secret" not in f"{notification} {event.properties}"
 
+    def _observation(self, scanner: ReplayScanner, session_id: str, **fields: object) -> ReplayObservation:
+        values: dict[str, object] = {
+            "status": ObservationStatus.SUCCEEDED,
+            "completed_at": timezone.now(),
+            **fields,
+        }
+        return ReplayObservation.objects.create(
+            scanner=scanner,
+            team=self.team,
+            session_id=session_id,
+            scanner_snapshot=snapshot_for(scanner),
+            triggered_by=ObservationTrigger.SCHEDULE,
+            **values,
+        )
+
     @parameterized.expand(
         [
-            ("note_to_other_observation", SCOPE, {"item_id": "other"}),
-            ("other_comment_into_observation", "Notebook", {"scope": SCOPE, "item_id": "target"}),
+            ("note_to_other_observation", "note", {"item_id": "other"}, "item_id"),
+            ("other_comment_into_observation", "notebook_comment", {"scope": SCOPE, "item_id": "target"}, "item_id"),
+            ("reply_to_other_thread", "reply", {"source_comment": "other_root"}, "source_comment"),
         ]
     )
     def test_comment_cannot_move_across_an_observation_boundary(
-        self, _name: str, root_scope: str, change: dict[str, str]
+        self, _name: str, moved: str, change: dict[str, str], error_attr: str
     ) -> None:
-        # /thread authorizes only the root, so a moved root would carry its replies across the access check.
-        other = ReplayObservation.objects.create(
-            scanner=self.scanner,
-            team=self.team,
-            session_id="s-other",
-            status=ObservationStatus.SUCCEEDED,
-            scanner_snapshot=snapshot_for(self.scanner),
-            triggered_by=ObservationTrigger.SCHEDULE,
-            completed_at=timezone.now(),
+        # /thread authorizes only the root, so a moved comment would carry note text across the access check.
+        other = self._observation(self.scanner, "s-other")
+        other_root = Comment.objects.create(
+            team=self.team, scope=SCOPE, item_id=str(other.id), content="other thread", created_by=self.user
         )
-        item_ids = {"other": str(other.id), "target": str(self.observation.id)}
-        root = Comment.objects.create(
-            team=self.team,
-            scope=root_scope,
-            item_id=str(self.observation.id) if root_scope == SCOPE else "n1",
-            content="root",
-            created_by=self.user,
-        )
+        comment = {
+            "note": self.note,
+            "notebook_comment": Comment.objects.create(
+                team=self.team, scope="Notebook", item_id="n1", content="root", created_by=self.user
+            ),
+            "reply": Comment.objects.create(
+                team=self.team,
+                scope=SCOPE,
+                item_id=str(self.observation.id),
+                content="reply",
+                created_by=self.user,
+                source_comment=self.note,
+            ),
+        }[moved]
+        before = (comment.scope, comment.item_id, comment.source_comment_id)
+        values = {"other": str(other.id), "target": str(self.observation.id), "other_root": str(other_root.id)}
 
         response = self.client.patch(
-            f"/api/projects/{self.team.id}/comments/{root.id}",
-            {"content": "root", **{key: item_ids.get(value, value) for key, value in change.items()}},
+            f"/api/projects/{self.team.id}/comments/{comment.id}",
+            {"content": "moved", **{key: values.get(value, value) for key, value in change.items()}},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == error_attr
+        comment.refresh_from_db()
+        assert (comment.scope, comment.item_id, comment.source_comment_id) == before
+
+    @parameterized.expand(
+        [
+            ("failed", {"status": ObservationStatus.FAILED, "error_reason": "provider_transient:Timed out."}),
+            ("running", {"status": ObservationStatus.RUNNING, "completed_at": None}),
+        ]
+    )
+    def test_notes_need_a_finished_scan(self, _name: str, fields: dict[str, object]) -> None:
+        # A retry deletes an unfinished row and gives the new scan a new id, which would strand its notes.
+        unfinished = self._observation(self.scanner, "s-unfinished", **fields)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/comments",
+            {"content": "too early", "scope": SCOPE, "item_id": str(unfinished.id)},
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == "item_id"
-        root.refresh_from_db()
-        assert (root.scope, root.item_id) == (root_scope, str(self.observation.id) if root_scope == SCOPE else "n1")
+        assert not Comment.objects.filter(item_id=str(unfinished.id)).exists()
+
+    @mock.patch("posthog.api.comments.CommentViewSet._slack_mirror_flag_enabled", return_value=True)
+    def test_note_cannot_be_sent_to_slack(self, _flag: mock.Mock) -> None:
+        # A Slack channel has no observation access check, in either direction.
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/comments/{self.note.id}/send_to_slack/",
+            {"integration_id": 1, "channel_id": "C1"},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == "Replay Vision observation notes cannot be sent to Slack"
+        assert not CommentSlackThread.objects.for_team(self.team.id).filter(source_comment_id=self.note.id).exists()
+
+    def test_scanner_delete_removes_the_notes_on_its_observations(self) -> None:
+        reply = Comment.objects.create(
+            team=self.team,
+            scope=SCOPE,
+            item_id=str(self.observation.id),
+            content="reply",
+            created_by=self.user,
+            source_comment=self.note,
+        )
+        other_scanner = ReplayScanner.objects.create(
+            team=self.team,
+            name="Signup monitor",
+            scanner_type=ScannerType.MONITOR,
+            scanner_config={"prompt": "did the user sign up?"},
+            model=ScannerModel.GEMINI_3_8_FLASH,
+        )
+        kept = Comment.objects.create(
+            team=self.team,
+            scope=SCOPE,
+            item_id=str(self._observation(other_scanner, "s-kept").id),
+            content="kept",
+            created_by=self.user,
+        )
+
+        self.scanner.delete()
+
+        assert not Comment.objects.filter(id__in=[self.note.id, reply.id]).exists()
+        assert Comment.objects.filter(id=kept.id).exists()
 
     @mock.patch("posthog.tasks.email.is_email_available", return_value=True)
     @mock.patch("posthog.tasks.email.EmailMessage")

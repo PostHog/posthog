@@ -311,6 +311,17 @@ def can_view_observation(access: UserAccessControl, team_id: int, observation_id
     return observation is not None and _can_view_loaded_observation(access, team_id, observation)
 
 
+def observation_accepts_notes(team_id: int, observation_id: str) -> bool:
+    """Whether notes can be written on the observation: only a finished scan keeps its id, since a retry
+    deletes a failed or ineligible row and the new scan gets a new one."""
+    return (
+        is_uuid(observation_id)
+        and ReplayObservation.objects.filter(
+            team_id=team_id, id=observation_id, status=ObservationStatus.SUCCEEDED
+        ).exists()
+    )
+
+
 def observation_viewer_user_ids(*, team_id: int, observation_id: str, user_ids: Iterable[int]) -> set[int]:
     """The users among `user_ids` who may read the observation, so a note's mentions reach only them.
 
