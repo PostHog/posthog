@@ -22,14 +22,15 @@ SELECT engine,
        countIf(check_failed = 0) AS answered,
        countIf(cited = 1) AS cited_checks,
        countIf(check_failed = 1) AS failed,
-       round(cited_checks / greatest(answered, 1), 3) AS citation_rate
+       round(cited_checks / nullIf(answered, 0), 3) AS citation_rate
 FROM system.aeo_citation_checks
 WHERE created_at >= now() - INTERVAL 7 DAY
 GROUP BY engine
 ORDER BY citation_rate
 ```
 
-The first row is the engine that cites the project least. Keep `exa-answer` in a separate
+The first row is the engine that cites the project least. A null `citation_rate` means every
+check failed in the window; it sorts last. Keep `exa-answer` in a separate
 sentence from the two web-search engines when you report it: its citations are a retrieval
 proxy, not what an assistant shows a user.
 
@@ -40,7 +41,7 @@ SELECT prompt_topic AS topic,
        uniqExact(prompt_id) AS prompts,
        countIf(check_failed = 0) AS answered,
        countIf(cited = 1) AS cited_checks,
-       round(cited_checks / greatest(answered, 1), 3) AS citation_rate
+       round(cited_checks / nullIf(answered, 0), 3) AS citation_rate
 FROM system.aeo_citation_checks
 WHERE created_at >= now() - INTERVAL 7 DAY
 GROUP BY topic
@@ -58,7 +59,7 @@ SELECT toStartOfDay(created_at) AS day,
        countIf(check_failed = 0) AS answered,
        countIf(cited = 1) AS cited_checks,
        countIf(check_failed = 1) AS failed,
-       round(cited_checks / greatest(answered, 1), 3) AS citation_rate
+       round(cited_checks / nullIf(answered, 0), 3) AS citation_rate
 FROM system.aeo_citation_checks
 WHERE created_at >= now() - INTERVAL 30 DAY
 GROUP BY day, engine
@@ -122,20 +123,23 @@ not in this list; use the next recipe for those.
 
 ```sql
 SELECT prompt_id,
-       any(prompt_text) AS prompt,
+       prompt_text AS prompt,
        engine,
-       argMax(cited = 1, created_at) AS latest_cited,
-       argMax(check_failed = 1, created_at) AS latest_failed,
-       argMax(target_best_position, created_at) AS latest_position,
-       max(created_at) AS last_checked
+       cited = 1 AS latest_cited,
+       check_failed = 1 AS latest_failed,
+       target_best_position AS latest_position,
+       created_at AS last_checked
 FROM system.aeo_citation_checks
 WHERE created_at >= now() - INTERVAL 7 DAY
-GROUP BY prompt_id, engine
-ORDER BY prompt_id, engine
+ORDER BY prompt_id, engine, created_at DESC
+LIMIT 1 BY prompt_id, engine
 ```
 
-Pivot this in your answer to show engines disagreeing on the same prompt. The same data,
-per prompt, comes from `aeo-prompts-list` as `latest_checks`.
+`LIMIT 1 BY` keeps the newest row per prompt and engine, so the text, position and outcome
+all come from the same check. Do not rebuild this with `argMax` per column: `argMax` skips
+null values, so an uncited latest check would show an older cited position next to
+`latest_cited = 0`. Pivot this in your answer to show engines disagreeing on the same
+prompt. The same data, per prompt, comes from `aeo-prompts-list` as `latest_checks`.
 
 ## Which of our pages get cited
 

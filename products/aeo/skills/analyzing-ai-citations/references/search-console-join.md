@@ -12,8 +12,10 @@ to `sessions` like any other.
    from a query.
 2. The HogQL name of each synced table is `googlesearchconsole.<table>`, or
    `googlesearchconsole.<prefix>.<table>` when the source was created with a prefix. Confirm
-   with `posthog:read-data-schema`; the source's schemas also carry each table's
-   `hogql_name`.
+   the names and columns with `posthog:execute-sql`:
+   `SELECT table_name, column_name, data_type FROM system.information_schema.columns WHERE table_name LIKE 'googlesearchconsole%'`.
+   The source's schemas also carry each table's `hogql_name`. `read-data-schema` cannot
+   inspect warehouse tables; it only answers event, entity and action property questions.
 3. Tables restricted to image, video or news results carry a `_image`, `_video` or `_news`
    suffix. The bare name is web search.
 
@@ -59,6 +61,9 @@ Rules the marketing analytics runner follows, and you should too:
   `avg(position)` overweights rare queries.
 - Match queries on `lower(trim(query))`.
 - Normalize pages with `cutQueryStringAndFragment(page)` before joining to anything.
+- Do not alias an aggregate to a source column name (`sum(...) AS impressions`): a later
+  `toFloat(impressions)` in the same SELECT reads the alias, and ClickHouse rejects the
+  aggregate inside an aggregate. The recipes use `gsc_clicks` and `gsc_impressions`.
 
 Sampling: Google's API caps a table at about 50,000 rows per property, day and dimension
 set, sorted by clicks, and drops the tail. `search_analytics_by_query_page` hits the cap
@@ -85,8 +90,8 @@ WITH cited_pages AS (
 ),
 gsc_pages AS (
     SELECT cutQueryStringAndFragment(page) AS page_url,
-           sum(toFloat(clicks)) AS clicks,
-           sum(toFloat(impressions)) AS impressions,
+           sum(toFloat(clicks)) AS gsc_clicks,
+           sum(toFloat(impressions)) AS gsc_impressions,
            sum(toFloat(position) * toFloat(impressions)) / greatest(sum(toFloat(impressions)), 1) AS avg_position
     FROM googlesearchconsole.search_analytics_by_page
     WHERE toDate(date) >= toDate(now() - INTERVAL 30 DAY)
@@ -95,8 +100,8 @@ gsc_pages AS (
 SELECT c.page_url,
        c.citing_prompts,
        c.citing_engines,
-       g.clicks,
-       g.impressions,
+       g.gsc_clicks,
+       g.gsc_impressions,
        round(g.avg_position, 1) AS avg_position
 FROM cited_pages AS c
 LEFT JOIN gsc_pages AS g ON g.page_url = c.page_url
@@ -104,13 +109,15 @@ ORDER BY c.citing_prompts DESC
 LIMIT 50
 ```
 
-Null `clicks` means Search Console has no row for that URL: either it ranks for nothing,
+Null `gsc_clicks` means Search Console has no row for that URL: either it ranks for nothing,
 or the canonical URL differs (trailing slash, `www`, http vs https). Check the variant before
 concluding the page is invisible to Google.
 
 Flip the join to find pages that rank well on Google but are never cited by an engine: start
-from `gsc_pages`, `LEFT JOIN cited_pages`, keep `c.citing_prompts IS NULL`, order by
-impressions. Those are the pages where the content exists and the citation does not.
+from `gsc_pages`, `LEFT JOIN cited_pages`, keep `c.citing_prompts = 0`, order by
+`gsc_impressions`. Test against zero, not null: `uniqExact` is not nullable, so an unmatched
+row carries 0 and `IS NULL` returns nothing. Those are the pages where the content exists and
+the citation does not.
 
 ## Recipe: do engine searches match the queries we rank for?
 
@@ -136,8 +143,8 @@ WITH engine_searches AS (
 ),
 gsc_queries AS (
     SELECT lower(trim(query)) AS search_query,
-           sum(toFloat(clicks)) AS clicks,
-           sum(toFloat(impressions)) AS impressions,
+           sum(toFloat(clicks)) AS gsc_clicks,
+           sum(toFloat(impressions)) AS gsc_impressions,
            sum(toFloat(position) * toFloat(impressions)) / greatest(sum(toFloat(impressions)), 1) AS avg_position
     FROM googlesearchconsole.search_analytics_by_query
     WHERE toDate(date) >= toDate(now() - INTERVAL 30 DAY)
@@ -146,8 +153,8 @@ gsc_queries AS (
 SELECT e.search_query,
        e.prompts,
        e.times,
-       g.clicks,
-       g.impressions,
+       g.gsc_clicks,
+       g.gsc_impressions,
        round(g.avg_position, 1) AS avg_position
 FROM engine_searches AS e
 INNER JOIN gsc_queries AS g ON g.search_query = e.search_query
@@ -162,14 +169,14 @@ result as "Google queries about this topic", not as a match to the engine's sear
 
 ```sql
 SELECT lower(trim(query)) AS search_query,
-       sum(toFloat(clicks)) AS clicks,
-       sum(toFloat(impressions)) AS impressions,
+       sum(toFloat(clicks)) AS gsc_clicks,
+       sum(toFloat(impressions)) AS gsc_impressions,
        round(sum(toFloat(position) * toFloat(impressions)) / greatest(sum(toFloat(impressions)), 1), 1) AS avg_position
 FROM googlesearchconsole.search_analytics_by_query
 WHERE toDate(date) >= toDate(now() - INTERVAL 30 DAY)
   AND multiSearchAnyCaseInsensitive(query, ['session replay', 'session recording'])
 GROUP BY search_query
-ORDER BY impressions DESC
+ORDER BY gsc_impressions DESC
 LIMIT 50
 ```
 

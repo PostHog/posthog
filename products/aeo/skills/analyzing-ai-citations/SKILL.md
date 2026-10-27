@@ -37,7 +37,7 @@ papercuts that make the first query fail.
 | `posthog:aeo-prompts-update`         | Turn a prompt on or off, change its topic or text (write; ask the user first)            |
 | `posthog:aeo-prompts-archive`        | Archive a prompt (write; ask the user first)                                             |
 | `posthog:external-data-sources-list` | Find the Search Console source and its table names                                       |
-| `posthog:read-data-schema`           | Discover warehouse table columns and event properties before joining                     |
+| `posthog:read-data-schema`           | Discover event and action properties before joining to traffic (not warehouse tables)    |
 | `posthog:generate-app-url`           | Links back to the Prompts tab under `/web/content-autopilot`                             |
 
 ## Before you start
@@ -93,7 +93,9 @@ still active, has its text changed, is it archived), call `aeo-prompts-list` or
 A `GoogleSearchConsole` warehouse source syncs daily `clicks`, `impressions`, `ctr` and
 `position` broken down by `query`, `page`, country and device. The HogQL table name is
 `googlesearchconsole.<table>` (or `googlesearchconsole.<prefix>.<table>` when the source
-has a prefix), for example `googlesearchconsole.search_analytics_by_query`. Table list,
+has a prefix), for example `googlesearchconsole.search_analytics_by_query`. Discover its
+columns with `execute-sql` over `system.information_schema.columns`; `read-data-schema`
+only knows event, entity and action properties. Table list,
 column meanings, sampling caveats and join recipes are in
 [search-console-join](./references/search-console-join.md).
 
@@ -138,16 +140,18 @@ posthog:execute-sql
 SELECT engine,
        countIf(check_failed = 0) AS answered,
        countIf(cited = 1) AS cited_checks,
-       round(cited_checks / greatest(answered, 1), 3) AS citation_rate
+       round(cited_checks / nullIf(answered, 0), 3) AS citation_rate
 FROM system.aeo_citation_checks
 WHERE created_at >= now() - INTERVAL 7 DAY
 GROUP BY engine
 ORDER BY citation_rate
 ```
 
-The lowest row answers "which engine cites us least". Group by `prompt_topic` instead for
-the weakest topics, and by `toStartOfDay(created_at)` for a daily trend. Both recipes are in
-[citation-queries](./references/citation-queries.md).
+The lowest row answers "which engine cites us least". A null rate means every check for
+that engine failed in the window; it sorts last and says nothing about citations. Divide by
+`nullIf(answered, 0)`, never `greatest(answered, 1)`, which reports the same case as 0%.
+Group by `prompt_topic` instead for the weakest topics, and by `toStartOfDay(created_at)`
+for a daily trend. Both recipes are in [citation-queries](./references/citation-queries.md).
 
 ## Workflow: which prompts never cite us?
 
