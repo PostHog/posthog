@@ -298,6 +298,11 @@ elif TEST:
     SUFFIX = "_test" + XDIST_SUFFIX
 
 # Clickhouse Settings
+# clickhouse_driver decodes Date32 through a lookup table that covers 1900-2299 and raises KeyError
+# for any other day. ClickHouse returns days outside that range, so make the driver compute them.
+# The driver reads this on import, so it must be set before anything imports clickhouse_driver.
+os.environ.setdefault("CLICKHOUSE_DRIVER_LASY_DATE_LUT", "1900-01-01:2299-12-31")
+
 CLICKHOUSE_TEST_DB: str = "posthog" + SUFFIX
 
 CLICKHOUSE_HOST: str = os.getenv("CLICKHOUSE_HOST", "clickhouse")
