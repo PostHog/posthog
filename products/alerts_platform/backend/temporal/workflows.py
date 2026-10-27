@@ -4,7 +4,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import replace
 
 from temporalio import activity, workflow
-from temporalio.common import RetryPolicy, SearchAttributeKey
+from temporalio.common import RetryPolicy, SearchAttributeKey, WorkflowIDReusePolicy
 from temporalio.exceptions import (
     ActivityError,
     ApplicationError,
@@ -22,6 +22,7 @@ from posthog.temporal.common.logger import get_write_only_logger
 from products.alerts_platform.backend.temporal.metrics import (
     increment_deliveries_previewed,
     increment_discovery_omitted,
+    increment_holds_expired,
     safe_record,
 )
 from products.alerts_platform.backend.temporal.outcomes import alerts_platform_record_outcomes_activity
@@ -42,6 +43,7 @@ with workflow.unsafe.imports_passed_through():
         AlertDeliveryRequest,
         AlertDemand,
         DemandDiscoveryInputs,
+        HeldDeliveryAddress,
         OrchestrateInputs,
         OrchestrateResult,
         SourceDispatchInputs,
@@ -49,7 +51,11 @@ with workflow.unsafe.imports_passed_through():
         SourceEvaluationInputs,
         TickPage,
     )
+    from products.alerts_platform.backend.facade.payload import MAX_BATCH_PAYLOAD_BYTES
+    from products.alerts_platform.backend.logic import delivery_holds
     from products.alerts_platform.backend.logic.demand import discover_demand
+    from products.alerts_platform.backend.logic.inventory import count_inventory
+    from products.alerts_platform.backend.temporal.inventory_metrics import push_inventory
     from products.alerts_platform.backend.temporal.postgres import check_postgres_connection
     from products.alerts_platform.backend.temporal.sources import SOURCE_BINDINGS, discovery_limits
 
@@ -80,6 +86,13 @@ DELIVERY_SCHEDULE_TO_CLOSE = dt.timedelta(seconds=30)
 # DELIVERY_SCHEDULE_TO_CLOSE, which is shorter than PENDING_CLAIM_TTL. A claim that a dead
 # attempt left looks fresh to every one of those retries.
 BUSY_RETRY_DELAY = dt.timedelta(seconds=20)
+# A delivery run that recorded TRANSITION_EVENTS_PATCH and not NO_TRANSITION_EVENTS_PATCH still
+# schedules the emit activity, so its replay matches its history. Once no such run can be open
+# (under five minutes per part after the deploy that added NO_TRANSITION_EVENTS_PATCH), delete
+# that branch, TRANSITION_EVENTS_PATCH and the activity. Replace the check with
+# `workflow.deprecate_patch(NO_TRANSITION_EVENTS_PATCH)`: every newer run carries that marker.
+TRANSITION_EVENTS_PATCH = "alerts-platform-transition-events"
+NO_TRANSITION_EVENTS_PATCH = "alerts-platform-no-transition-events"
 # From the first busy result to the start of a later attempt. An attempt that starts this late
 # finds every claim the first one saw already stale, so a thread still held is a newer send's.
 BUSY_WAIT_LIMIT = PENDING_CLAIM_TTL + BUSY_RETRY_DELAY
@@ -102,6 +115,19 @@ async def alerts_platform_discover_demand_activity(inputs: DemandDiscoveryInputs
 
 
 @activity.defn
+async def alerts_platform_record_inventory_activity() -> None:
+    """A failed count is logged rather than raised, so a slow count never reads as a failed workflow."""
+    now = dt.datetime.now(dt.UTC)
+    try:
+        inventories = await database_sync_to_async_pool(count_inventory)(now)
+    except Exception as error:
+        await LOGGER.awarning("alerts_platform_inventory_failed", error=str(error))
+        return
+    # A failed push is logged and captured inside `push_registry`, never raised.
+    await asyncio.to_thread(push_inventory, inventories)
+
+
+@activity.defn
 async def alerts_platform_probe_postgres_activity() -> None:
     try:
         await sync_to_async(check_postgres_connection, thread_sensitive=False)()
@@ -112,6 +138,12 @@ async def alerts_platform_probe_postgres_activity() -> None:
 @activity.defn
 async def alerts_platform_deliver_activity() -> None:
     pass
+
+
+@activity.defn
+async def alerts_platform_emit_transitions_activity(request: AlertDeliveryRequest) -> None:
+    """Emits nothing. Only a run that recorded TRANSITION_EVENTS_PATCH schedules it, and the flag that
+    enabled the event was never on, so the run gets the result it always got."""
 
 
 @activity.defn
@@ -154,6 +186,8 @@ async def alerts_platform_deliver_preview_activity(request: AlertDeliveryRequest
         evaluation_key=request.evaluation_key,
         sent=outcome.sent,
         skipped_without_transport=outcome.skipped_without_transport,
+        emitted_transitions=outcome.emitted_transitions,
+        emitted_events=outcome.emitted_events,
     )
 
 
@@ -166,21 +200,36 @@ class AlertsPlatformDeliverPreviewWorkflow(PostHogWorkflow):
         """Delivers each part in turn, so a split evaluation's sends to one destination never overlap.
 
         A part that fails does not stop the parts after it. The first failure fails the run once
-        every part has had its attempts.
+        every part has had its attempts, a failed send before a failed emission.
         """
-        if inputs.parts <= 1:
-            await self._deliver(inputs)
-            return
-        failures: list[ActivityError] = []
-        for part in range(inputs.parts):
+        parts = [inputs] if inputs.parts <= 1 else [replace(inputs, part=part) for part in range(inputs.parts)]
+        emission_failures: list[ActivityError] = []
+        if not workflow.patched(NO_TRANSITION_EVENTS_PATCH) and workflow.patched(TRANSITION_EVENTS_PATCH):
+            for request in parts:
+                try:
+                    await self._emit(request)
+                except ActivityError as error:
+                    emission_failures.append(error)
+        send_failures: list[ActivityError] = []
+        for request in parts:
             try:
-                await self._deliver(replace(inputs, part=part))
+                await self._send(request)
             except ActivityError as error:
-                failures.append(error)
+                send_failures.append(error)
+        failures = [*send_failures, *emission_failures]
         if failures:
             raise failures[0]
 
-    async def _deliver(self, request: AlertDeliveryRequest) -> None:
+    async def _emit(self, request: AlertDeliveryRequest) -> None:
+        await workflow.execute_activity(
+            alerts_platform_emit_transitions_activity,
+            request,
+            start_to_close_timeout=DELIVERY_START_TO_CLOSE,
+            schedule_to_close_timeout=DELIVERY_SCHEDULE_TO_CLOSE,
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+
+    async def _send(self, request: AlertDeliveryRequest) -> None:
         busy_deadline: dt.datetime | None = None
         while True:
             started_at = workflow.now()
@@ -204,7 +253,21 @@ class AlertsPlatformDeliverPreviewWorkflow(PostHogWorkflow):
             await workflow.sleep(BUSY_RETRY_DELAY)
 
 
-async def start_deliveries(deliveries: Sequence[AlertDeliveryRequest]) -> int:
+def delivery_workflow_id(delivery: AlertDeliveryRequest) -> str:
+    """The id of an evaluation's delivery. A re-run of the same occasion reuses it, so one delivery
+    runs whichever caller starts it."""
+    return f"alerts-deliver-preview-{delivery.configuration_id}:{delivery.evaluation_key}"
+
+
+def delivery_execution_timeout(delivery: AlertDeliveryRequest) -> dt.timedelta:
+    return DELIVERY_EXECUTION_TIMEOUT * max(1, delivery.parts)
+
+
+async def start_deliveries(
+    deliveries: Sequence[AlertDeliveryRequest],
+    *,
+    id_reuse_policy: WorkflowIDReusePolicy = WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+) -> int:
     """Starts one delivery workflow per request, from inside a source's evaluation workflow.
 
     Returns how many started. The id names the configuration and the evaluation key, because the
@@ -220,10 +283,11 @@ async def start_deliveries(deliveries: Sequence[AlertDeliveryRequest]) -> int:
             workflow.start_child_workflow(
                 AlertsPlatformDeliverPreviewWorkflow.run,
                 delivery,
-                id=f"alerts-deliver-preview-{delivery.configuration_id}:{delivery.evaluation_key}",
+                id=delivery_workflow_id(delivery),
                 task_queue=settings.ALERTS_PLATFORM_DELIVERY_TASK_QUEUE,
                 parent_close_policy=workflow.ParentClosePolicy.ABANDON,
-                execution_timeout=DELIVERY_EXECUTION_TIMEOUT * max(1, delivery.parts),
+                execution_timeout=delivery_execution_timeout(delivery),
+                id_reuse_policy=id_reuse_policy,
             )
             for delivery in deliveries
         ),
@@ -237,6 +301,93 @@ async def start_deliveries(deliveries: Sequence[AlertDeliveryRequest]) -> int:
             raise result
         started += 1
     return started
+
+
+# Holds one sweep releases. A sweep that finds more leaves the rest to the next minute's run.
+MAX_HOLDS_PER_SWEEP = 200
+
+
+@activity.defn
+async def alerts_platform_find_expired_holds_activity() -> delivery_holds.HoldSweep:
+    now = dt.datetime.now(dt.UTC)
+    # A failed prune is logged, so cleanup never keeps a due hold from being sent.
+    try:
+        pruned = await database_sync_to_async_pool(delivery_holds.prune_holds)(now, limit=MAX_HOLDS_PER_SWEEP)
+    except Exception as error:
+        await LOGGER.awarning("alerts_platform_holds_prune_failed", error=str(error))
+    else:
+        if pruned:
+            await LOGGER.ainfo("alerts_platform_holds_pruned", count=pruned)
+    return await database_sync_to_async_pool(delivery_holds.holds_to_send)(now, limit=MAX_HOLDS_PER_SWEEP)
+
+
+@activity.defn
+async def alerts_platform_release_expired_holds_activity(sweep: delivery_holds.HoldSweep) -> list[AlertDeliveryRequest]:
+    """Separate from the find, so a retry after a committed release gets the same requests back."""
+    swept = await database_sync_to_async_pool(delivery_holds.send_swept)(
+        sweep, dt.datetime.now(dt.UTC), max_bytes=MAX_BATCH_PAYLOAD_BYTES
+    )
+    # Only the holds this attempt released at their deadline, so a recovered send or a retry is not
+    # counted as a source that stalled.
+    for request in swept.expired:
+        await LOGGER.awarning(
+            "alerts_platform_hold_expired",
+            source=request.source.value,
+            configuration_id=request.configuration_id,
+            evaluation_key=request.evaluation_key,
+        )
+        safe_record(increment_holds_expired, request.source.value)
+    return list(swept.requests)
+
+
+@activity.defn
+async def alerts_platform_record_hold_deliveries_started_activity(requests: list[AlertDeliveryRequest]) -> None:
+    addresses = [
+        HeldDeliveryAddress(
+            team_id=request.team_id, configuration_id=request.configuration_id, evaluation_key=request.evaluation_key
+        )
+        for request in requests
+    ]
+    await database_sync_to_async_pool(delivery_holds.record_delivery_started)(addresses, dt.datetime.now(dt.UTC))
+
+
+@workflow.defn(name="alerts-platform-release-expired-holds")
+class AlertsPlatformReleaseExpiredHoldsWorkflow(PostHogWorkflow):
+    """The safety net for held deliveries: sends each one whose deadline passed with no release.
+
+    One release of a hold wins, so a source that releases it at the same moment cannot also send it.
+    A send is marked started only once its delivery started, so a run that fails between the two
+    leaves it for a later run. The delivery keeps its usual id, so starting it twice starts nothing new.
+    """
+
+    inputs_cls = AlertsPlatformInputs
+    inputs_optional = True
+
+    @workflow.run
+    async def run(self, inputs: AlertsPlatformInputs) -> int:
+        sweep = await workflow.execute_activity(
+            alerts_platform_find_expired_holds_activity,
+            start_to_close_timeout=dt.timedelta(seconds=30),
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+        if not sweep.expired and not sweep.unstarted:
+            return 0
+        requests = await workflow.execute_activity(
+            alerts_platform_release_expired_holds_activity,
+            sweep,
+            start_to_close_timeout=dt.timedelta(seconds=60),
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+        # A recovered send may have delivered already and lost only its start mark. A completed
+        # delivery is not run again; a failed one is.
+        started = await start_deliveries(requests, id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY)
+        await workflow.execute_activity(
+            alerts_platform_record_hold_deliveries_started_activity,
+            requests,
+            start_to_close_timeout=dt.timedelta(seconds=30),
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+        return started
 
 
 @workflow.defn(name="alerts-platform-deliver")
@@ -350,6 +501,20 @@ class AlertsPlatformSourceDispatchWorkflow(PostHogWorkflow):
             remaining_keys=remaining,
             evaluation_workflow_ids=started_ids,
             already_running=already_running,
+        )
+
+
+@workflow.defn(name="alerts-platform-record-inventory")
+class AlertsPlatformRecordInventoryWorkflow(PostHogWorkflow):
+    inputs_cls = AlertsPlatformInputs
+    inputs_optional = True
+
+    @workflow.run
+    async def run(self, inputs: AlertsPlatformInputs) -> None:
+        await workflow.execute_activity(
+            alerts_platform_record_inventory_activity,
+            start_to_close_timeout=dt.timedelta(seconds=20),
+            retry_policy=RetryPolicy(maximum_attempts=1),
         )
 
 
@@ -485,15 +650,27 @@ class AlertsPlatformOrchestrateWorkflow(PostHogWorkflow):
 SHARED_ORCHESTRATION_WORKFLOWS: list[type[PostHogWorkflow]] = [
     AlertsPlatformOrchestrateWorkflow,
     AlertsPlatformSourceDispatchWorkflow,
+    AlertsPlatformRecordInventoryWorkflow,
 ]
-SHARED_ORCHESTRATION_ACTIVITIES: list[Callable[..., object]] = [alerts_platform_discover_demand_activity]
+SHARED_ORCHESTRATION_ACTIVITIES: list[Callable[..., object]] = [
+    alerts_platform_discover_demand_activity,
+    alerts_platform_record_inventory_activity,
+]
 EVALUATION_WORKFLOWS: list[type[PostHogWorkflow]] = [AlertsPlatformEvaluateWorkflow]
 EVALUATION_ACTIVITIES: list[Callable[..., object]] = [
     alerts_platform_probe_postgres_activity,
     alerts_platform_record_outcomes_activity,
 ]
-DELIVERY_WORKFLOWS: list[type[PostHogWorkflow]] = [AlertsPlatformDeliverWorkflow, AlertsPlatformDeliverPreviewWorkflow]
+DELIVERY_WORKFLOWS: list[type[PostHogWorkflow]] = [
+    AlertsPlatformDeliverWorkflow,
+    AlertsPlatformDeliverPreviewWorkflow,
+    AlertsPlatformReleaseExpiredHoldsWorkflow,
+]
 DELIVERY_ACTIVITIES: list[Callable[..., object]] = [
     alerts_platform_deliver_activity,
     alerts_platform_deliver_preview_activity,
+    alerts_platform_emit_transitions_activity,
+    alerts_platform_find_expired_holds_activity,
+    alerts_platform_release_expired_holds_activity,
+    alerts_platform_record_hold_deliveries_started_activity,
 ]

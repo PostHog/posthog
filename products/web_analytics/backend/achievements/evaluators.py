@@ -1,8 +1,9 @@
 import json
 import hashlib
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, time, timedelta
+from time import monotonic
 
 from django.utils import timezone
 
@@ -20,7 +21,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.actions.backend.models.action import Action
-from products.web_analytics.backend.achievements.definitions import STREAK_ARM_WEEKLY
+from products.web_analytics.backend.achievements.definitions import STREAK_ARM_WEEKLY, TRACKS, TrackKey
 from products.web_analytics.backend.achievements.query_concurrency import achievement_query_scope
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import test_account_filter_expr
 from products.web_analytics.backend.models import WebAnalyticsInteraction, WebAnalyticsVisit
@@ -164,41 +165,147 @@ def _ingestion_window_expr(
     return ast.And(exprs=exprs)
 
 
+ACHIEVEMENT_SCAN_LIMITS = (
+    CHQueryErrorTooManyBytes,
+    ClickHouseQueryTimeOut,
+    ClickHouseEstimatedQueryExecutionTimeTooLong,
+)
+ACHIEVEMENT_SCAN_SETTINGS = HogQLGlobalSettings(timeout_overflow_mode="throw", read_overflow_mode="throw")
+ACHIEVEMENT_MAX_EMPTY_CHUNKS = 20
+TRAFFIC_TARGET_PAGEVIEWS = TRACKS[TrackKey.TRAFFIC].stages[-1].threshold
+TRAFFIC_BOOTSTRAP_CHUNK_HOURS = 24
+TRAFFIC_BOOTSTRAP_TARGET_ROWS = 50_000_000
+TRAFFIC_BOOTSTRAP_MAX_CHUNK_HOURS = 24 * 365 * 60
+TRAFFIC_BOOTSTRAP_TIME_BUDGET_SECONDS = 30
+TRAFFIC_MIN_TIMESTAMP = datetime(1970, 1, 1, tzinfo=UTC)
+
+
+@frozen
+class TrafficBootstrap:
+    created_until: datetime
+    counted: int = 0
+    before: datetime | None = None
+    chunk_hours: int = TRAFFIC_BOOTSTRAP_CHUNK_HOURS
+
+    @property
+    def done(self) -> bool:
+        return self.counted >= TRAFFIC_TARGET_PAGEVIEWS or self.before == TRAFFIC_MIN_TIMESTAMP
+
+    @classmethod
+    def from_checkpoint(cls, checkpoint: dict[str, object]) -> "TrafficBootstrap | None":
+        bootstrap = checkpoint.get("bootstrap")
+        if not isinstance(bootstrap, dict):
+            return None
+        created_until = parse_zoned_datetime_string(bootstrap.get("created_until"))
+        before = parse_zoned_datetime_string(bootstrap.get("before"))
+        counted = bootstrap.get("counted")
+        chunk_hours = bootstrap.get("chunk_hours")
+        if (
+            created_until is None
+            or (bootstrap.get("before") is not None and before is None)
+            or not isinstance(counted, int)
+            or counted < 0
+            or not isinstance(chunk_hours, int)
+            or not 1 <= chunk_hours <= TRAFFIC_BOOTSTRAP_MAX_CHUNK_HOURS
+        ):
+            return None
+        return cls(created_until=created_until, counted=counted, before=before, chunk_hours=chunk_hours)
+
+    def to_checkpoint(self) -> dict[str, object]:
+        if self.done:
+            return {"counted_through": self.created_until.isoformat()}
+        return {
+            "bootstrap": {
+                "created_until": self.created_until.isoformat(),
+                "counted": self.counted,
+                "before": self.before.isoformat() if self.before is not None else None,
+                "chunk_hours": self.chunk_hours,
+            }
+        }
+
+
+def _count_pageviews(
+    teams: list[Team],
+    since: datetime | None,
+    until: datetime,
+    earliest_timestamp: datetime | None,
+    latest_timestamp: datetime | None = None,
+) -> int:
+    total = 0
+    for team in teams:
+        query = parse_select(
+            "SELECT count() FROM events WHERE and(event IN ('$pageview', '$screen'), {window}, {test})",
+            placeholders={
+                "window": _ingestion_window_expr(since, until, earliest_timestamp, latest_timestamp),
+                "test": _test_account_filter_expr(team),
+            },
+        )
+        response = execute_hogql_query(
+            query=query,
+            team=team,
+            query_type="web_achievements_pageviews",
+            # The team-scoped sweep has no acting user, and only an aggregate count leaves the query.
+            bypass_warehouse_access_control=True,
+            settings=ACHIEVEMENT_SCAN_SETTINGS,
+        )
+        if response.results:
+            total += int(response.results[0][0] or 0)
+    return total
+
+
+def _next_traffic_chunk_hours(chunk_hours: int, rows: int) -> int:
+    if rows == 0:
+        return min(chunk_hours * 2, TRAFFIC_BOOTSTRAP_MAX_CHUNK_HOURS)
+    return max(1, min(chunk_hours * TRAFFIC_BOOTSTRAP_TARGET_ROWS // rows, TRAFFIC_BOOTSTRAP_MAX_CHUNK_HOURS))
+
+
+def _advance_traffic_bootstrap(teams: list[Team], bootstrap: TrafficBootstrap) -> TrafficBootstrap:
+    deadline = monotonic() + TRAFFIC_BOOTSTRAP_TIME_BUDGET_SECONDS
+    for _ in range(ACHIEVEMENT_MAX_EMPTY_CHUNKS):
+        upper = bootstrap.before or bootstrap.created_until
+        lower = max(TRAFFIC_MIN_TIMESTAMP, upper - timedelta(hours=bootstrap.chunk_hours))
+        try:
+            rows = _count_pageviews(
+                teams,
+                since=None,
+                until=bootstrap.created_until,
+                earliest_timestamp=None if lower == TRAFFIC_MIN_TIMESTAMP else lower,
+                latest_timestamp=bootstrap.before,
+            )
+        except ACHIEVEMENT_SCAN_LIMITS:
+            if bootstrap.chunk_hours <= 1:
+                raise
+            return replace(bootstrap, chunk_hours=max(1, bootstrap.chunk_hours // 2))
+        bootstrap = replace(
+            bootstrap,
+            counted=bootstrap.counted + rows,
+            before=lower,
+            chunk_hours=_next_traffic_chunk_hours(bootstrap.chunk_hours, rows),
+        )
+        if bootstrap.done or rows or monotonic() >= deadline:
+            break
+    return bootstrap
+
+
 def evaluate_cumulative_pageviews(ctx: EvalContext, prior: PriorProgress) -> TrackEvaluation:
     until = timezone.now() - INGESTION_LAG
+    bootstrap = TrafficBootstrap.from_checkpoint(prior.checkpoint)
     since = parse_zoned_datetime_string(prior.checkpoint.get("counted_through")) or prior.last_computed_at
-    earliest_timestamp = since - LATE_ARRIVAL_LOOKBACK if since is not None else None
-    total = prior.value if since is not None else 0
+    teams = _project_environment_teams(ctx.team)
+    if bootstrap is None and since is not None:
+        with achievement_query_scope(ctx.team.id):
+            added = _count_pageviews(teams, since, until, since - LATE_ARRIVAL_LOOKBACK)
+        return TrackEvaluation(value=prior.value + added, checkpoint={"counted_through": until.isoformat()})
+
     with achievement_query_scope(ctx.team.id):
-        for team in _project_environment_teams(ctx.team):
-            query = parse_select(
-                "SELECT count() FROM events WHERE and(event IN ('$pageview', '$screen'), {window}, {test})",
-                placeholders={
-                    "window": _ingestion_window_expr(since, until, earliest_timestamp),
-                    "test": _test_account_filter_expr(team),
-                },
-            )
-            response = execute_hogql_query(
-                query=query,
-                team=team,
-                query_type="web_achievements_pageviews",
-                # The team-scoped sweep has no acting user, and only an aggregate count leaves the query.
-                bypass_warehouse_access_control=True,
-            )
-            if response.results:
-                total += int(response.results[0][0] or 0)
-    return TrackEvaluation(value=total, checkpoint={"counted_through": until.isoformat()})
+        bootstrap = _advance_traffic_bootstrap(teams, bootstrap or TrafficBootstrap(created_until=until))
+    return TrackEvaluation(value=bootstrap.counted, checkpoint=bootstrap.to_checkpoint(), complete=bootstrap.done)
 
 
 CONVERSIONS_LOOKBACK_DAYS = 90
 CONVERSIONS_BOOTSTRAP_CHUNK_DAYS = 7
 CONVERSIONS_MAX_TIMESTAMP = datetime(2299, 12, 31, 23, 59, 59, 999999, tzinfo=UTC)
 CONVERSIONS_FUTURE_CHUNK_MAX_HOURS = 24 * 365 * 50
-CONVERSIONS_SCAN_LIMITS = (
-    CHQueryErrorTooManyBytes,
-    ClickHouseQueryTimeOut,
-    ClickHouseEstimatedQueryExecutionTimeTooLong,
-)
 
 
 @frozen
@@ -318,7 +425,7 @@ def _add_conversion_counts(
             query_type="web_achievements_conversions",
             # The team-scoped sweep has no acting user, and only per-day counts leave the query.
             bypass_warehouse_access_control=True,
-            settings=HogQLGlobalSettings(timeout_overflow_mode="throw", read_overflow_mode="throw"),
+            settings=ACHIEVEMENT_SCAN_SETTINGS,
         )
         for row in response.results or []:
             day_counts = chunk_daily.setdefault(row[0].isoformat(), [0] * len(actions))
@@ -343,7 +450,7 @@ def _advance_conversion_future(
     chunk_hours = bootstrap.chunk_hours
     # Empty timestamp ranges are cheap to skip with the event timestamp index. Grow those
     # ranges so a scan with no future-dated events does not take hundreds of daily sweeps.
-    for _ in range(20):
+    for _ in range(ACHIEVEMENT_MAX_EMPTY_CHUNKS):
         chunk_end = min(next_start + timedelta(hours=chunk_hours), CONVERSIONS_MAX_TIMESTAMP)
         try:
             has_rows = _add_conversion_counts(
@@ -356,7 +463,7 @@ def _advance_conversion_future(
                 chunk_end,
                 latest_inclusive=chunk_end == CONVERSIONS_MAX_TIMESTAMP,
             )
-        except CONVERSIONS_SCAN_LIMITS:
+        except ACHIEVEMENT_SCAN_LIMITS:
             if chunk_hours <= 1:
                 raise
             return ConversionBootstrap(
@@ -402,7 +509,7 @@ def _advance_conversion_bootstrap(
     if bootstrap.phase == "tail":
         try:
             _add_conversion_counts(ctx, actions, daily, bootstrap.created_since, until, window_start)
-        except CONVERSIONS_SCAN_LIMITS:
+        except ACHIEVEMENT_SCAN_LIMITS:
             return ConversionBootstrap(
                 next_start=window_start,
                 end=bootstrap.end,
@@ -446,7 +553,7 @@ def _advance_conversion_bootstrap(
             next_start,
             chunk_end,
         )
-    except CONVERSIONS_SCAN_LIMITS:
+    except ACHIEVEMENT_SCAN_LIMITS:
         if chunk_hours <= 1:
             raise
         return ConversionBootstrap(
@@ -527,7 +634,7 @@ def evaluate_conversions(ctx: EvalContext, prior: PriorProgress) -> TrackEvaluat
             earliest_timestamp = max(window_start, since - LATE_ARRIVAL_LOOKBACK) if since is not None else window_start
             try:
                 _add_conversion_counts(ctx, actions, daily, since, until, earliest_timestamp)
-            except CONVERSIONS_SCAN_LIMITS:
+            except ACHIEVEMENT_SCAN_LIMITS:
                 if since is not None:
                     raise
                 daily = {}

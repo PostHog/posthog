@@ -4,16 +4,14 @@
 
 Reads the runner's `CanaryRunResult` JSON, or rebuilds the batch from the Tasks API and a pinned
 dataset revision, fetches every scored run's complete ACP session log, and grades each case with
-the same scorers the offline evals use. Emits one JSON verdict row per case, and optionally
-`$ai_evaluation` events tagged with the batch id.
+the same scorers the offline evals use. Prints one JSON verdict row per case and a batch summary.
 
 Usage:
     python semantic_layer_canary_score.py --results run.json
-    python semantic_layer_canary_score.py --batch 2026-09-10T16:54:23Z 2026-09-10T17:17:23Z --revision 42 --emit
+    python semantic_layer_canary_score.py --batch 2026-09-10T16:54:23Z 2026-09-10T17:17:23Z --revision 42
 
 Environment:
     POSTHOG_API_KEY        personal API key with task:read, plus dataset:read for --batch
-    POSTHOG_CAPTURE_TOKEN  project API token, required only with --emit
 """
 
 from __future__ import annotations
@@ -54,8 +52,6 @@ TASK_LIST_PAGE_SIZE = 50
 TASK_RUN_PAGE_SIZE = 100
 REQUEST_TIMEOUT_SECONDS = 120.0
 MAX_READ_TIMEOUT_RETRIES = 2
-EVALUATION_METRIC_NAME = "semantic_layer_canary_routing"
-EXPERIMENT_NAME = "semantic-layer-canary"
 BATCH_ID_PREFIX = "tasks"
 CANARY_ORIGIN_PRODUCT = "posthog_ai"
 PERMISSION_REQUEST_METHOD = "session/request_permission"
@@ -485,51 +481,6 @@ def score_results(
     return rows
 
 
-def evaluation_event(*, run_id: str, dataset_revision: int | None, row: dict[str, Any]) -> dict[str, Any]:
-    scored = row["verdict"] != UNSCORED_VERDICT
-    properties: dict[str, Any] = {
-        "$ai_experiment_id": run_id,
-        "$ai_experiment_name": EXPERIMENT_NAME,
-        "$ai_experiment_item_id": f"{run_id}:{row['case_id']}",
-        "$ai_experiment_item_name": row["case_id"],
-        "$ai_metric_name": EVALUATION_METRIC_NAME,
-        "$ai_metric_version": "1",
-        "$ai_status": "completed",
-        "$ai_result_type": "boolean",
-        "$ai_expected": row["expected_routing"],
-        "$ai_evaluation_applicable": scored,
-        "$ai_reasoning": (
-            json.dumps({"failed": row["failed_checks"], "advisory": row["advisory_checks"]})
-            if scored
-            else row["reason"]
-        ),
-        "batch_id": run_id,
-        "case_status": row["status"],
-        "category": row["category"],
-        "dataset_revision": dataset_revision,
-        "task_id": row["task_id"],
-        "task_run_id": row["task_run_id"],
-        "task_url": row["task_url"],
-    }
-    if scored:
-        properties |= {"$ai_score": 1 if row["verdict"] == "pass" else 0, "$ai_score_min": 0, "$ai_score_max": 1}
-    return {
-        "event": "$ai_evaluation",
-        "distinct_id": f"{EXPERIMENT_NAME}:{run_id}",
-        "properties": properties,
-        "timestamp": datetime.now(UTC).isoformat(),
-    }
-
-
-def emit_evaluation_event(*, host: str, capture_token: str, event: dict[str, Any]) -> None:
-    response = httpx.post(
-        f"{host.replace('us.posthog.com', 'us.i.posthog.com').rstrip('/')}/i/v0/e/",
-        json=event | {"api_key": capture_token},
-        timeout=REQUEST_TIMEOUT_SECONDS,
-    )
-    response.raise_for_status()
-
-
 def summarize(run_id: str, rows: Sequence[dict[str, Any]]) -> dict[str, Any]:
     scored = [row for row in rows if row["verdict"] != UNSCORED_VERDICT]
     passed = sum(row["verdict"] == "pass" for row in scored)
@@ -566,7 +517,6 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help=f"Overrides the result file's project_id; defaults to {DEFAULT_PROJECT_ID}",
     )
     parser.add_argument("--case-id", action="append", dest="case_ids", default=[])
-    parser.add_argument("--emit", action="store_true", help="Publish an $ai_evaluation event per case")
     args = parser.parse_args(argv)
     args.window = None
     if args.batch:
@@ -599,11 +549,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     if not api_key:
         print("POSTHOG_API_KEY is required", file=sys.stderr)
         return 2
-    capture_token = os.environ.get("POSTHOG_CAPTURE_TOKEN")
-    if args.emit and not capture_token:
-        print("POSTHOG_CAPTURE_TOKEN is required with --emit", file=sys.stderr)
-        return 2
-
     results = read_results_file(args)
     with CanaryApiClient(host=args.host, project_id=resolve_project_id(args, results), api_key=api_key) as client:
         if results is None:
@@ -619,9 +564,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     run_id = results["run_id"]
     for row in rows:
         print(json.dumps(row))
-        if args.emit and capture_token:
-            event = evaluation_event(run_id=run_id, dataset_revision=results.get("dataset_revision"), row=row)
-            emit_evaluation_event(host=args.host, capture_token=capture_token, event=event)
     print(json.dumps(summarize(run_id, rows)), file=sys.stderr)
     return 0
 

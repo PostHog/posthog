@@ -770,7 +770,8 @@ const BreakdownSeries = ({
 
     const theme = getTheme(undefined)
     const themeTokens = theme ? (Object.keys(theme) as DataColorToken[]) : []
-    const selectedToken = chartSettings.resultCustomizations?.[series.breakdownValue]?.color ?? null
+    const customization = chartSettings.resultCustomizations?.[series.breakdownValue]
+    const selectedToken = customization?.customColor ? null : (customization?.color ?? null)
     const seriesColor = series.settings?.display?.color ?? getSeriesColor(index)
 
     return (
@@ -779,13 +780,29 @@ const BreakdownSeries = ({
                 colorTokens={themeTokens}
                 selectedColorToken={selectedToken}
                 customButton={<LemonColorButton type="tertiary" color={seriesColor} className="mr-2" />}
+                showCustomColor
+                customColorValue={chartSettings.resultCustomizations?.[series.breakdownValue]?.customColor}
+                onSelectCustomColor={(customColor) =>
+                    updateChartSettings({
+                        resultCustomizations: {
+                            ...chartSettings.resultCustomizations,
+                            [series.breakdownValue]: {
+                                ...chartSettings.resultCustomizations?.[series.breakdownValue],
+                                assignmentBy: ResultCustomizationBy.Value,
+                                customColor,
+                            },
+                        },
+                    })
+                }
                 onSelectColorToken={(token) => {
                     updateChartSettings({
                         resultCustomizations: {
                             ...chartSettings.resultCustomizations,
                             [series.breakdownValue]: {
+                                ...chartSettings.resultCustomizations?.[series.breakdownValue],
                                 assignmentBy: ResultCustomizationBy.Value,
                                 color: token,
+                                customColor: undefined,
                             },
                         },
                     })

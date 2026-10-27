@@ -54,7 +54,7 @@ class BambooHRSource(ResumableSource[BambooHRSourceConfig, BambooHRResumeConfig]
             name=ExternalDataSourceType.BAMBOOHR,
             category=DataWarehouseSourceCategory.HR___RECRUITING,
             label="BambooHR",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your BambooHR company subdomain and API key to pull your HR data into the PostHog Data warehouse.
 
 You can generate an API key from your BambooHR account under **Account Settings → API Keys** (requires admin permissions).

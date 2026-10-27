@@ -16,6 +16,7 @@ export interface experimentScannerPickerLogicValues {
     experimentOptions: ExperimentBasicApi[]
     experimentOptionsLoading: boolean
     hasLoadedOptions: boolean
+    loadFailed: boolean
     search: string
 }
 
@@ -72,6 +73,10 @@ export const experimentScannerPickerLogic = kea<experimentScannerPickerLogicType
     reducers({
         search: ['', { setSearch: (_: string, { search }: { search: string }) => search }],
         hasLoadedOptions: [false, { loadOptionsSuccess: () => true }],
+        loadFailed: [
+            false,
+            { loadOptions: () => false, loadOptionsSuccess: () => false, loadOptionsFailure: () => true },
+        ],
     }),
 
     loaders(({ values }) => ({
@@ -106,7 +111,7 @@ export const experimentScannerPickerLogic = kea<experimentScannerPickerLogicType
             actions.loadOptions({ debounce: true })
         },
         ensureOptionsLoaded: () => {
-            if (!values.hasLoadedOptions && !values.experimentOptionsLoading) {
+            if ((!values.hasLoadedOptions || values.loadFailed) && !values.experimentOptionsLoading) {
                 actions.loadOptions({ debounce: false })
             }
         },

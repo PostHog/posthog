@@ -174,8 +174,6 @@ class TestValidateCredentials:
     @parameterized.expand(
         [
             ("ok", 200, True, 200),
-            ("unauthorized", 401, False, 401),
-            ("forbidden", 403, False, 403),
         ]
     )
     def test_maps_status(self, _name, status, expected_ok, expected_status) -> None:

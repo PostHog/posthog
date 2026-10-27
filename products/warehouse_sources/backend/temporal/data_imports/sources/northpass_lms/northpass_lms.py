@@ -204,16 +204,18 @@ def _make_quiz_attempt_flattener(seen: set[str]) -> Callable[[dict[str, Any]], d
     return _flatten
 
 
-def _make_quiz_answer_flattener(parent_name: str, parent_id_field: str) -> Callable[[dict[str, Any]], dict[str, Any]]:
-    """Child flattener for quiz answers: standard child flattening plus a promoted ``question_id``.
+def _make_child_relationship_flattener(
+    parent_name: str, parent_id_field: str, relationship_id_fields: dict[str, str]
+) -> Callable[[dict[str, Any]], dict[str, Any]]:
+    """Child flattener that also promotes related-resource ids to root columns.
 
-    An answer references its question only inside JSON:API ``relationships``; promoting the id to a
-    root column keeps answers joinable to their question.
+    Quiz answers reference their question, and group memberships their person, only inside JSON:API
+    ``relationships``; promoting those ids keeps the child rows joinable.
     """
     flatten_child = _make_child_flattener(parent_name, parent_id_field)
 
     def _flatten(item: dict[str, Any]) -> dict[str, Any]:
-        return _promote_relationship_ids(flatten_child(item), {"question": "question_id"})
+        return _promote_relationship_ids(flatten_child(item), relationship_id_fields)
 
     return _flatten
 
@@ -232,10 +234,10 @@ def _collection_data_map(
 
 
 def _child_data_map(
-    endpoint: str, parent_name: str, parent_id_field: str
+    config: NorthpassEndpointConfig, parent_name: str, parent_id_field: str
 ) -> Callable[[dict[str, Any]], dict[str, Any]]:
-    if endpoint == "quiz_attempt_answers":
-        return _make_quiz_answer_flattener(parent_name, parent_id_field)
+    if config.relationship_id_fields:
+        return _make_child_relationship_flattener(parent_name, parent_id_field, config.relationship_id_fields)
     return _make_child_flattener(parent_name, parent_id_field)
 
 
@@ -358,7 +360,7 @@ def _fan_out_source(
                     # as a valid empty page and move on to the next parent rather than failing the sync.
                     "response_actions": [{"status_code": 404, "action": "ignore"}],
                 },
-                "data_map": _child_data_map(endpoint, parent_name, config.parent_id_field),
+                "data_map": _child_data_map(config, parent_name, config.parent_id_field),
             },
         ],
     }

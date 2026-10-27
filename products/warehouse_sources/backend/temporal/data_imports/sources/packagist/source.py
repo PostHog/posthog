@@ -50,7 +50,7 @@ class PackagistSource(ResumableSource[PackagistSourceConfig, PackagistResumeConf
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Packagist",
             keywords=["composer", "php"],
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Pull metadata, download statistics, and security advisories for PHP packages from [Packagist](https://packagist.org) (the Composer package registry) into the PostHog Data warehouse.
 
 Packagist's read APIs are public, so no credentials are required. Enter the packages you want to track, one per line (or comma-separated), as `vendor/package` names. A bare vendor name syncs every package published by that vendor. For example:

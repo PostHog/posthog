@@ -30,9 +30,19 @@ export const BLANK_START_ID = 'blank'
 /** The `template_id` the finished event reports when a data suggestion created the workflow. */
 export const DATA_SUGGESTION_START_ID = 'data_suggestion'
 
+// pinned: URL value and analytics property value of the wizard events - renaming breaks dashboards
+export const WIZARD_ENTRIES = [
+    'path_choice',
+    'messaging_setup_guide',
+    'automation_empty_state',
+    'automation_banner',
+    'broadcasts_empty_state',
+] as const
+export type WizardEntry = (typeof WIZARD_ENTRIES)[number]
+
 export function onboardingWizardUrl(
     path: WorkflowsOnboardingPath,
-    params: { step?: WizardStepKey; template?: string } = {}
+    params: { step?: WizardStepKey; template?: string; entry?: WizardEntry } = {}
 ): string {
     return combineUrl(urls.workflows(ONBOARDING_WIZARD_TAB), { path, ...params }).url
 }

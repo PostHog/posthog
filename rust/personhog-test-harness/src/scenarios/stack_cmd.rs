@@ -16,7 +16,7 @@ use crate::cli::StackArgs;
 use crate::publish;
 use crate::scenarios::gate::default_bin_dir;
 use crate::seed;
-use crate::stack::{PublishConfig, Stack, StackConfig};
+use crate::stack::{MonitorConfig, PublishConfig, Stack, StackConfig};
 
 /// Prefix of the one stdout line a parent process can wait for. The logs
 /// share stdout, so the marker is what makes the JSON findable.
@@ -34,6 +34,23 @@ pub async fn run(args: StackArgs) -> Result<()> {
     if args.publish && args.publish_rows_per_pass <= 0 {
         bail!("--publish-rows-per-pass must be positive");
     }
+    let monitor = match (
+        args.monitor,
+        &args.monitor_node_distinct_ids_topic,
+        &args.monitor_node_merge_events_topic,
+    ) {
+        (false, _, _) => None,
+        (true, _, _) if !args.publish => {
+            bail!("--monitor needs --publish: the monitor compares the publish topics")
+        }
+        (true, Some(distinct_ids), Some(merge_events)) => Some(MonitorConfig {
+            node_distinct_ids_topic: distinct_ids.clone(),
+            node_merge_events_topic: merge_events.clone(),
+        }),
+        (true, _, _) => bail!(
+            "--monitor needs --monitor-node-distinct-ids-topic and --monitor-node-merge-events-topic"
+        ),
+    };
     if let Some(path) = &args.ready_file {
         refuse_stale_ready_file(path)?;
     }
@@ -73,6 +90,7 @@ pub async fn run(args: StackArgs) -> Result<()> {
         pg_target_table: args.pg_target_table.clone(),
         cache_memory_capacity: 16_777_216,
         extra_leader_env: Vec::new(),
+        extra_router_env: Vec::new(),
         recovery_pool_size: 16,
         leader_lease_ttl: 30,
         spawn_identity: true,
@@ -80,6 +98,7 @@ pub async fn run(args: StackArgs) -> Result<()> {
             publishers: args.publishers,
             rows_per_pass: args.publish_rows_per_pass,
         }),
+        monitor,
     })
     .await?;
 
@@ -94,6 +113,7 @@ pub async fn run(args: StackArgs) -> Result<()> {
         "changelog_topic": stack.changelog_topic(),
         "distinct_ids_topic": topics.map(|t| t.distinct_ids.clone()),
         "merge_events_topic": topics.map(|t| t.merge_events.clone()),
+        "monitor_addr": stack.monitor_url.as_deref().map(strip_scheme),
         "log_dir": stack.log_dir.display().to_string(),
     });
     println!("{READY_MARKER}{ready}");

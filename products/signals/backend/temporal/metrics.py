@@ -36,6 +36,14 @@ SCOUT_COORDINATOR_DISPATCHED = Counter(
     ["outcome"],
 )
 
+SCOUT_REPORT_SAFETY_REFUSALS_METRIC = "signals_scout_report_safety_refusals_total"
+
+SCOUT_REPORT_SAFETY_REFUSALS = Counter(
+    SCOUT_REPORT_SAFETY_REFUSALS_METRIC,
+    "Scout report safety judge calls the model refused, by report path",
+    ["path"],
+)
+
 FUNNEL_STAGE_EMITTED = "emitted"
 FUNNEL_STAGE_GROUPED = "grouped"
 FUNNEL_STAGE_PROMOTED = "promoted"
@@ -202,13 +210,13 @@ def increment_scout_run(status: str) -> None:
     ).add(1)
 
 
-def _push_coordinator_metric(name: str, value: float, attributes: dict[str, str]) -> None:
-    """Push one coordinator counter into the PostHog Metrics product.
+def _push_posthog_metric(name: str, value: float, attributes: dict[str, str]) -> None:
+    """Push one counter into the PostHog Metrics product.
 
     The SDK client is the only sink that carries a counter out of a Temporal worker into the
     Metrics product: the worker exports no `prometheus_client` series there, and it has no OTLP
-    push configured. Failures are swallowed, because this runs in the planning activity and a
-    telemetry error that failed the tick would cause the dispatch stall these counters watch for.
+    push configured. Failures are swallowed, because callers run on paths that a telemetry error
+    must not fail, such as the coordinator planning activity and the scout report safety judge.
     """
     try:
         posthoganalytics.setup().metrics.count(name, value, attributes=attributes)
@@ -224,10 +232,10 @@ def increment_coordinator_tick(planned_count: int) -> None:
     tells them apart.
     """
     SCOUT_COORDINATOR_TICKS.inc()
-    _push_coordinator_metric(SCOUT_COORDINATOR_TICKS_METRIC, 1, {})
+    _push_posthog_metric(SCOUT_COORDINATOR_TICKS_METRIC, 1, {})
     # Zero is the reading that matters, so the series is kept alive rather than guarded away.
     SCOUT_COORDINATOR_PLANNED.inc(planned_count)
-    _push_coordinator_metric(SCOUT_COORDINATOR_PLANNED_METRIC, planned_count, {})
+    _push_posthog_metric(SCOUT_COORDINATOR_PLANNED_METRIC, planned_count, {})
     # A labeled counter has no child series until code calls .labels(), and the dispatch counter is
     # only touched after a dispatch. So warm both outcomes to zero every tick. A stall is a run of
     # zero-plan ticks that never dispatch, which is exactly when the dispatch series would otherwise
@@ -239,4 +247,14 @@ def increment_coordinator_tick(planned_count: int) -> None:
 def increment_coordinator_dispatch(outcome: str, count: int) -> None:
     """Count scout child workflows the coordinator dispatched, by outcome."""
     SCOUT_COORDINATOR_DISPATCHED.labels(outcome=outcome).inc(count)
-    _push_coordinator_metric(SCOUT_COORDINATOR_DISPATCHED_METRIC, count, {"outcome": outcome})
+    _push_posthog_metric(SCOUT_COORDINATOR_DISPATCHED_METRIC, count, {"outcome": outcome})
+
+
+def increment_scout_report_safety_refusal(path: str) -> None:
+    """Count a scout report safety judge call that the model refused, by report path (emit or edit).
+
+    The judge fails closed on a refusal, so no exception records it. This counter is the only signal.
+    It works outside Temporal because the scout report API calls the judge from a web request.
+    """
+    SCOUT_REPORT_SAFETY_REFUSALS.labels(path=path).inc()
+    _push_posthog_metric(SCOUT_REPORT_SAFETY_REFUSALS_METRIC, 1, {"path": path})

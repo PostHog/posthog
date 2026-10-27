@@ -878,8 +878,9 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
         self, entity: RetentionEntity, query_kind: Literal["start", "return"], timestamp_field: ast.Expr
     ) -> list[ast.Expr]:
         """The warehouse counterpart of _arm_where_filters. Every aggregate that a warehouse arm computes already
-        conditions on its entity and the query window. These filters therefore drop only rows that no aggregate reads."""
-        filters: list[ast.Expr] = []
+        conditions on its entity and the query window. Apart from the global property filters, these filters therefore
+        drop only rows that no aggregate reads."""
+        filters = list(self.runner.global_property_filters)
         # A first-time start arm finds the first start row of each actor across all time.
         # It reads rows outside the window.
         if query_kind == "return" or not (self.is_first_occurrence_matching_filters or self.is_first_ever_occurrence):

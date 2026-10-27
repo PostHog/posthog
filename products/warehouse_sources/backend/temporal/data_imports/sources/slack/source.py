@@ -8,6 +8,8 @@ if TYPE_CHECKING:
 
     from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
 
+from temporalio import activity
+
 from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.facade.source_config import (
@@ -46,6 +48,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.slack.slac
     validate_credentials as validate_slack_credentials,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+# Joining is one rate-limited call per channel, so a large workspace can't finish in one pass. The setup
+# wizard and a manual refresh discover schemas inside a web request, which the gateway ends at 120
+# seconds. The discovery activity times out at 10 minutes and runs again every few hours.
+_REQUEST_JOIN_BUDGET_SECONDS = 30.0
+_ACTIVITY_JOIN_BUDGET_SECONDS = 300.0
 
 
 @frozen
@@ -351,6 +359,7 @@ Prefer a manifest? Paste this when creating the app — it wires the request URL
             "account_inactive": "Your Slack account is inactive. Please reconnect the source.",
             "token_revoked": "Your Slack token has been revoked. Please reconnect the source.",
             "missing_scope": "Your Slack app is missing scopes PostHog needs. Add the bot scopes from the setup manifest, reinstall the app to your workspace, then try again.",
+            "not_allowed_token_type": "This Slack token type isn't supported. Please paste the Bot User OAuth Token (starts with xoxb-) from your Slack app's Install App page.",
             "not_in_channel": "The Slack bot is not a member of this channel. Please invite the bot to the channel and try again.",
             "channel_not_found": "This Slack channel was not found. It may have been deleted or the bot lacks permission to access it.",
             "Integration not found": "Your Slack integration was not found. Please reconnect the source.",
@@ -381,7 +390,16 @@ Prefer a manifest? Paste this when creating the app — it wires the request URL
         # Joining is idempotent and only touches public channels the bot isn't in, so running it on
         # each discovery/refresh also picks up channels created since the last pass.
         if config.slack_access_token and config.join_public_channels and config.join_public_channels.enabled:
-            join_public_channels(access.access_token, access.cache_id, access.authed_user_id)
+            # The discovery activity runs as soon as a source is created, with the larger budget, so it
+            # joins what a request pass leaves.
+            join_public_channels(
+                access.access_token,
+                access.cache_id,
+                access.authed_user_id,
+                time_budget_seconds=_ACTIVITY_JOIN_BUDGET_SECONDS
+                if activity.in_activity()
+                else _REQUEST_JOIN_BUDGET_SECONDS,
+            )
         channels = get_channels(
             access.cache_id, access.access_token, access.authed_user_id, force_refresh=force_refresh
         )

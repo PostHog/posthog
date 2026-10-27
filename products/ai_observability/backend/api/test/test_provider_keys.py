@@ -114,6 +114,32 @@ class TestProviderKeySerializer(SimpleTestCase):
         serializer = LLMProviderKeySerializer(key, data={"base_url": base_url}, partial=True)
         self.assertEqual(serializer.is_valid(), valid, serializer.errors)
 
+    @parameterized.expand(
+        [
+            ("foundry_key_without_prefix", {"azure_endpoint": "https://contoso.services.ai.azure.com/"}, None),
+            ("api_key_without_prefix", {}, "api_key"),
+            ("non_azure_endpoint", {"azure_endpoint": "https://evil.example.com/"}, "azure_endpoint"),
+        ]
+    )
+    def test_anthropic_key_validation(self, _name: str, extra: dict, error_field: str | None) -> None:
+        serializer = LLMProviderKeySerializer(
+            data={"provider": "anthropic", "name": "Claude", "api_key": "no-prefix-key", **extra}
+        )
+        self.assertEqual(serializer.is_valid(), error_field is None, serializer.errors)
+        if error_field:
+            self.assertIn(error_field, serializer.errors)
+
+    @parameterized.expand([({}, False), ({"api_key": "no-prefix-key"}, True)])
+    def test_foundry_endpoint_change_requires_the_api_key(self, extra: dict, valid: bool) -> None:
+        key = LLMProviderKey(
+            provider="anthropic",
+            encrypted_config={"api_key": "foundry-key", "azure_endpoint": "https://old.services.ai.azure.com/"},
+        )
+        serializer = LLMProviderKeySerializer(
+            key, data={"azure_endpoint": "https://new.services.ai.azure.com/", **extra}, partial=True
+        )
+        self.assertEqual(serializer.is_valid(), valid, serializer.errors)
+
 
 def _setup_team():
     org = Organization.objects.create(name="test")
@@ -741,34 +767,6 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
     @patch("products.ai_observability.backend.api.provider_keys.validate_provider_key")
-    def test_can_create_zeabur_provider_key(self, mock_validate):
-        mock_validate.return_value = (LLMProviderKey.State.OK, None)
-
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/",
-            {"provider": "zeabur", "name": "Zeabur AI Hub Key", "api_key": "sk-zeabur-test-key-12345"},
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-
-        key = LLMProviderKey.objects.first()
-        assert key is not None
-        self.assertEqual(key.provider, "zeabur")
-        self.assertEqual(key.state, LLMProviderKey.State.OK)
-        mock_validate.assert_called_once_with("zeabur", "sk-zeabur-test-key-12345", team_id=self.team.id)
-
-    @patch("products.ai_observability.backend.api.provider_keys.validate_provider_key")
-    def test_zeabur_key_rejects_invalid_format(self, mock_validate):
-        mock_validate.return_value = (LLMProviderKey.State.OK, None)
-
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/",
-            {"provider": "zeabur", "name": "Zeabur AI Hub Key", "api_key": "no-prefix-key"},
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("sk-", str(response.data))
-        mock_validate.assert_not_called()
-
-    @patch("products.ai_observability.backend.api.provider_keys.validate_provider_key")
     def test_can_create_azure_openai_provider_key(self, mock_validate):
         mock_validate.return_value = (LLMProviderKey.State.OK, None)
 
@@ -796,6 +794,31 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
             team_id=self.team.id,
             azure_endpoint="https://contoso.openai.azure.com/",
             api_version="2024-10-21",
+        )
+
+    @patch("products.ai_observability.backend.api.provider_keys.validate_provider_key")
+    def test_can_create_anthropic_key_on_microsoft_foundry(self, mock_validate):
+        mock_validate.return_value = (LLMProviderKey.State.OK, None)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/",
+            {
+                "provider": "anthropic",
+                "name": "Foundry Claude",
+                "api_key": "foundry-hex-123",
+                "azure_endpoint": "https://contoso.services.ai.azure.com/",
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["azure_endpoint_display"], "https://contoso.services.ai.azure.com/")
+
+        key = LLMProviderKey.objects.get(id=response.json()["id"])
+        self.assertEqual(key.provider_extra_kwargs(), {"azure_endpoint": "https://contoso.services.ai.azure.com/"})
+        mock_validate.assert_called_once_with(
+            "anthropic",
+            "foundry-hex-123",
+            team_id=self.team.id,
+            azure_endpoint="https://contoso.services.ai.azure.com/",
         )
 
     def test_create_azure_openai_without_endpoint_fails(self):
@@ -1390,18 +1413,6 @@ class TestLLMProviderKeyValidationViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["state"], "ok")
         mock_validate.assert_called_once_with("minimax", "minimax-test-key", team_id=self.team.id)
-
-    @patch("products.ai_observability.backend.api.provider_keys.validate_provider_key")
-    def test_can_pre_validate_zeabur_key(self, mock_validate):
-        mock_validate.return_value = (LLMProviderKey.State.OK, None)
-
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/llm_analytics/provider_key_validations/",
-            {"api_key": "sk-zeabur-test-key", "provider": "zeabur"},
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data["state"], "ok")
-        mock_validate.assert_called_once_with("zeabur", "sk-zeabur-test-key", team_id=self.team.id)
 
     @patch("products.ai_observability.backend.api.provider_keys.validate_provider_key")
     def test_can_pre_validate_openai_compatible_key(self, mock_validate):

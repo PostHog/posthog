@@ -1,6 +1,8 @@
 from datetime import UTC, datetime
+from typing import Any
 from uuid import UUID, uuid4
 
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -11,12 +13,16 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
-from posthog.models import OrganizationMembership, User
+from posthog.models import ActivityLog, OrganizationMembership, User
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.scoping import team_scope
 from posthog.models.team import Team
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration
+from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration, PlatformAlertThread
+
+CONDITION = {"threshold_count": 10, "threshold_operator": "above", "window_minutes": 5}
 
 
 class TestPlatformAlertAPI(APIBaseTest):
@@ -26,15 +32,17 @@ class TestPlatformAlertAPI(APIBaseTest):
         name: str,
         legacy_configuration_id: UUID | None = None,
         source_kind: str = PlatformAlertConfiguration.SourceKind.LOGS,
+        owner: str = PlatformAlertConfiguration.Owner.SOURCE,
     ) -> PlatformAlertConfiguration:
         with team_scope(team.id):
             return PlatformAlertConfiguration.objects.create(
                 team=team,
                 name=name,
                 source_kind=source_kind,
-                source_config={"service": "api"},
+                source_config={"filters": {"serviceNames": ["api"]}, "condition": CONDITION},
                 check_interval_minutes=10,
                 legacy_configuration_id=legacy_configuration_id,
+                owner=owner,
             )
 
     def _set_flag(self, enabled: bool) -> None:
@@ -66,6 +74,10 @@ class TestPlatformAlertAPI(APIBaseTest):
                 state=PlatformAlert.State.FIRING,
                 firing_started_at=firing_started_at,
                 last_notified_at=firing_started_at,
+                labels={"service_name": "checkout"},
+            )
+            PlatformAlertConfiguration.objects.filter(id=configuration.id).update(
+                overflowed_groups=2, overflow_is_lower_bound=True
             )
         list_response = self.client.get(f"/api/projects/{self.team.id}/platform_alerts/")
 
@@ -73,6 +85,7 @@ class TestPlatformAlertAPI(APIBaseTest):
         results = list_response.json()["results"]
         assert [r["id"] for r in results] == [str(configuration.id)]
         assert results[0]["legacy_configuration_id"] == str(legacy_configuration_id)
+        assert (results[0]["overflowed_groups"], results[0]["overflow_is_lower_bound"]) == (2, True)
         assert results[0]["alerts"] == [
             {
                 "id": str(alert.id),
@@ -81,6 +94,7 @@ class TestPlatformAlertAPI(APIBaseTest):
                 "firing_started_at": "2026-09-16T10:00:00Z",
                 "last_notified_at": "2026-09-16T10:00:00Z",
                 "snooze_until": None,
+                "labels": {"service_name": "checkout"},
             }
         ]
 
@@ -95,6 +109,37 @@ class TestPlatformAlertAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json()["id"] == str(configuration.id)
+
+    @parameterized.expand(
+        [
+            ("key_for_the_environment_only", False, status.HTTP_403_FORBIDDEN),
+            ("key_for_the_environment_and_its_project", True, status.HTTP_200_OK),
+        ]
+    )
+    def test_a_project_scoped_key_reaches_a_child_environments_alerts_only_with_the_parent(
+        self, _name: str, scoped_to_parent: bool, expected: int
+    ) -> None:
+        self._set_flag(True)
+        configuration = self._create_configuration(self.team, "API errors", owner="platform")
+        child_environment = Team.objects.create(organization=self.organization, parent_team=self.team, name="env")
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Environment key",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["alert:read", "alert:write", "logs:read", "logs:write"],
+            scoped_teams=[child_environment.id, self.team.id] if scoped_to_parent else [child_environment.id],
+        )
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {key_value}")
+        url = f"/api/projects/{child_environment.id}/platform_alerts/{configuration.id}/"
+
+        edit = self.client.patch(url, {"name": "Renamed"}, format="json")
+        read = self.client.get(url)
+
+        assert (edit.status_code, read.status_code) == (expected, expected), (edit.json(), read.json())
+        configuration.refresh_from_db()
+        assert configuration.name == ("Renamed" if expected == status.HTTP_200_OK else "API errors")
 
     def test_another_teams_configuration_is_not_found(self) -> None:
         self._set_flag(True)
@@ -173,10 +218,11 @@ class TestPlatformAlertAPI(APIBaseTest):
         assert [r["id"] for r in list_response.json()["results"]] == []
         assert retrieve_response.status_code == status.HTTP_404_NOT_FOUND, retrieve_response.json()
 
-    def test_a_malformed_id_is_refused_rather_than_raising(self) -> None:
+    @parameterized.expand([("retrieve", "not-a-uuid/"), ("legacy_id_filter", "?legacy_configuration_id=not-a-uuid")])
+    def test_a_malformed_id_is_refused_rather_than_raising(self, _name: str, path: str) -> None:
         self._set_flag(True)
 
-        response = self.client.get(f"/api/projects/{self.team.id}/platform_alerts/not-a-uuid/")
+        response = self.client.get(f"/api/projects/{self.team.id}/platform_alerts/{path}")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
 
@@ -198,6 +244,19 @@ class TestPlatformAlertAPI(APIBaseTest):
         assert set(first_ids).isdisjoint(second_ids)
         assert set(first_ids) | set(second_ids) == created
 
+    def test_the_legacy_id_filter_finds_the_copy_of_one_source_alert(self) -> None:
+        self._set_flag(True)
+        legacy_configuration_id = uuid4()
+        wanted = self._create_configuration(self.team, "Copied", legacy_configuration_id=legacy_configuration_id)
+        self._create_configuration(self.team, "Another copy", legacy_configuration_id=uuid4())
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/platform_alerts/?legacy_configuration_id={legacy_configuration_id}"
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [(row["id"], response.json()["count"]) for row in response.json()["results"]] == [(str(wanted.id), 1)]
+
     def test_a_page_costs_the_same_queries_however_many_rows_it_holds(self) -> None:
         # A filter added to the prefetched relation would bypass the cache and cost a query per
         # configuration, which no assertion on the response body would notice.
@@ -214,3 +273,258 @@ class TestPlatformAlertAPI(APIBaseTest):
         with CaptureQueriesContext(connection) as captured:
             self.client.get(url)
         return len(captured)
+
+    def _edit_url(self, configuration: PlatformAlertConfiguration) -> str:
+        return f"/api/projects/{self.team.id}/platform_alerts/{configuration.id}/"
+
+    def test_changing_the_grouping_keys_drops_the_old_instances_and_their_threads(self) -> None:
+        self._set_flag(True)
+        configuration = self._create_configuration(self.team, "API errors", owner="platform")
+        with team_scope(self.team.id):
+            PlatformAlert.objects.create(team=self.team, configuration=configuration, state=PlatformAlert.State.FIRING)
+            PlatformAlertConfiguration.objects.filter(id=configuration.id).update(
+                overflowed_groups=4, overflow_is_lower_bound=True
+            )
+            PlatformAlertThread.objects.create(
+                team=self.team,
+                configuration=configuration,
+                provider="slack",
+                channel_target="C1",
+                episode_started_at=datetime(2026, 10, 1, tzinfo=UTC),
+            )
+
+        response = self.client.patch(
+            self._edit_url(configuration),
+            {"grouping": {"mode": "by_result_labels", "keys": ["service_name"]}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        body = response.json()
+        assert body["grouping"] == {
+            "mode": "by_result_labels",
+            "keys": ["service_name"],
+            "max_instances": 100,
+            "on_overflow": "degrade_visible",
+        }
+        assert (body["name"], body["alerts"]) == ("API errors", [])
+        assert (body["overflowed_groups"], body["overflow_is_lower_bound"]) == (0, False)
+        with team_scope(self.team.id):
+            assert not PlatformAlertThread.objects.filter(configuration=configuration).exists()
+
+    @parameterized.expand([("edit",), ("delete",)])
+    def test_an_alert_its_source_owns_is_not_written_here(self, write: str) -> None:
+        self._set_flag(True)
+        configuration = self._create_configuration(self.team, "API errors")
+
+        if write == "edit":
+            response = self.client.patch(
+                self._edit_url(configuration), {"name": "Renamed", "evaluation_periods": 0}, format="json"
+            )
+        else:
+            response = self.client.delete(self._edit_url(configuration))
+
+        assert response.status_code == status.HTTP_409_CONFLICT, response.json()
+        configuration.refresh_from_db()
+        assert configuration.name == "API errors"
+
+    @parameterized.expand(
+        [
+            (
+                "grouped_below",
+                {
+                    "grouping": {"mode": "by_result_labels", "keys": ["service_name"]},
+                    "source_config": {
+                        "filters": {"serviceNames": ["api"]},
+                        "condition": {**CONDITION, "threshold_operator": "below"},
+                    },
+                },
+                "grouping",
+            ),
+            (
+                "unknown_window",
+                {
+                    "source_config": {
+                        "filters": {"serviceNames": ["api"]},
+                        "condition": {**CONDITION, "window_minutes": 7},
+                    }
+                },
+                "source_config",
+            ),
+            (
+                "more_datapoints_than_periods",
+                {"evaluation_periods": 2, "datapoints_to_alarm": 3},
+                "datapoints_to_alarm",
+            ),
+            ("source_kind_changed", {"source_kind": "insight"}, "source_kind"),
+            ("cooldown_past_the_column", {"cooldown_minutes": 2_147_483_648}, "cooldown_minutes"),
+            ("grouping_without_mode", {"grouping": {"keys": ["service_name"]}}, "grouping__mode"),
+            ("enabled_without_filters", {"source_config": {"filters": {}, "condition": CONDITION}}, "source_config"),
+            ("grouped_by_an_attribute", {"grouping": {"mode": "by_result_labels", "keys": ["http.route"]}}, "grouping"),
+        ]
+    )
+    def test_an_invalid_edit_names_the_field_and_changes_nothing(self, _name: str, body: dict, field: str) -> None:
+        self._set_flag(True)
+        configuration = self._create_configuration(self.team, "API errors", owner="platform")
+
+        response = self.client.patch(self._edit_url(configuration), body, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == field
+        configuration.refresh_from_db()
+        assert (configuration.source_config["condition"], configuration.grouping["mode"]) == (CONDITION, "single")
+
+    @parameterized.expand(
+        [
+            ("alert_scope_only", ["alert:write"], status.HTTP_404_NOT_FOUND),
+            ("logs_read_only", ["alert:write", "logs:read"], status.HTTP_403_FORBIDDEN),
+            ("alert_and_logs_write", ["alert:write", "logs:write"], status.HTTP_200_OK),
+        ]
+    )
+    def test_an_edit_needs_write_access_to_the_source_product(
+        self, _name: str, key_scopes: list[str], expected: int
+    ) -> None:
+        self._set_flag(True)
+        configuration = self._create_configuration(self.team, "API errors", owner="platform")
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {self.create_personal_api_key_with_scopes(key_scopes)}")
+
+        response = self.client.patch(self._edit_url(configuration), {"name": "Renamed"}, format="json")
+
+        assert response.status_code == expected, response.json()
+
+    def test_settings_an_edit_leaves_alone_are_not_revalidated(self) -> None:
+        self._set_flag(True)
+        configuration = self._create_configuration(self.team, "API errors", owner="platform")
+        PlatformAlertConfiguration.objects.for_team(self.team.id).filter(id=configuration.id).update(
+            source_config={"filters": {"serviceNames": ["api"], "retiredKey": True}, "condition": CONDITION}
+        )
+
+        response = self.client.patch(self._edit_url(configuration), {"name": "Renamed"}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["name"] == "Renamed"
+
+    def test_turning_a_broken_alert_back_on_schedules_a_clean_check(self) -> None:
+        self._set_flag(True)
+        configuration = self._create_configuration(self.team, "API errors", owner="platform")
+        PlatformAlertConfiguration.objects.for_team(self.team.id).filter(id=configuration.id).update(
+            enabled=False, check_status="broken", consecutive_failures=5, next_check_at=None
+        )
+
+        response = self.client.patch(self._edit_url(configuration), {"enabled": True}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        with team_scope(self.team.id):
+            configuration.refresh_from_db()
+        assert (configuration.check_status, configuration.consecutive_failures) == ("ok", 0)
+        assert configuration.next_check_at is not None
+
+    def test_an_edit_logs_the_settings_it_changed_and_runtime_writes_log_nothing(self) -> None:
+        self._set_flag(True)
+        self._create_configuration(self.team, "Seed copy")
+        configuration = self._create_configuration(self.team, "API errors", owner="platform")
+        with team_scope(self.team.id):
+            configuration.next_check_at = datetime(2026, 10, 1, tzinfo=UTC)
+            configuration.consecutive_failures = 3
+            configuration.save(update_fields=["next_check_at", "consecutive_failures"])
+
+        response = self.client.patch(self._edit_url(configuration), {"name": "Renamed"}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        logged = ActivityLog.objects.filter(team_id=self.team.id, scope="PlatformAlertConfiguration")
+        assert [(row.item_id, row.activity) for row in logged.order_by("created_at")] == [
+            (str(configuration.id), "created"),
+            (str(configuration.id), "updated"),
+        ]
+        edit = logged.get(activity="updated")
+        assert edit.user == self.user and edit.detail is not None
+        assert [(change["field"], change["before"], change["after"]) for change in edit.detail["changes"]] == [
+            ("name", "API errors", "Renamed")
+        ]
+
+    def _grouped_configuration(self, owner: str = "platform") -> PlatformAlertConfiguration:
+        configuration = self._create_configuration(self.team, "API errors", owner=owner)
+        with team_scope(self.team.id):
+            PlatformAlertConfiguration.objects.filter(id=configuration.id).update(
+                grouping={"mode": "by_result_labels", "keys": ["service_name"]}
+            )
+            for key in ("checkout", "api"):
+                PlatformAlert.objects.create(
+                    team=self.team, configuration=configuration, grouping_key=key, state=PlatformAlert.State.FIRING
+                )
+        return configuration
+
+    def _snoozes(self, configuration: PlatformAlertConfiguration) -> dict[str, datetime | None]:
+        with team_scope(self.team.id):
+            return dict(
+                PlatformAlert.objects.filter(configuration=configuration).values_list("grouping_key", "snooze_until")
+            )
+
+    def test_snoozing_a_group_mutes_only_that_group_and_clearing_it_unmutes(self) -> None:
+        self._set_flag(True)
+        configuration = self._grouped_configuration()
+        url = f"{self._edit_url(configuration)}snooze_group/"
+        until = datetime(2026, 10, 1, 12, tzinfo=UTC)
+        # A key rather than a session, because a custom action without a declared scope refuses keys.
+        self.client.logout()
+        self.client.credentials(
+            HTTP_AUTHORIZATION=f"Bearer {self.create_personal_api_key_with_scopes(['alert:write', 'logs:write'])}"
+        )
+
+        with time_machine.travel(datetime(2026, 10, 1, 10, tzinfo=UTC), tick=False):
+            snoozed = self.client.post(url, {"grouping_key": "checkout", "snooze_until": until}, format="json")
+
+        assert snoozed.status_code == status.HTTP_200_OK, snoozed.json()
+        assert (snoozed.json()["grouping_key"], snoozed.json()["snooze_until"]) == ("checkout", "2026-10-01T12:00:00Z")
+        assert self._snoozes(configuration) == {"checkout": until, "api": None}
+        with team_scope(self.team.id):
+            assert set(PlatformAlert.objects.filter(configuration=configuration).values_list("state", flat=True)) == {
+                "firing"
+            }
+
+        cleared = self.client.post(url, {"grouping_key": "checkout", "snooze_until": None}, format="json")
+
+        assert cleared.status_code == status.HTTP_200_OK, cleared.json()
+        assert self._snoozes(configuration) == {"checkout": None, "api": None}
+
+    @parameterized.expand(
+        [
+            ("owned_by_its_source", {"owner": "source"}, {}, status.HTTP_409_CONFLICT, None),
+            ("unknown_group", {}, {"grouping_key": "web"}, status.HTTP_404_NOT_FOUND, None),
+            (
+                "time_in_the_past",
+                {},
+                {"snooze_until": "2026-10-01T09:00:00Z"},
+                status.HTTP_400_BAD_REQUEST,
+                "snooze_until",
+            ),
+            (
+                "time_past_the_limit",
+                {},
+                {"snooze_until": "2026-11-15T12:00:00Z"},
+                status.HTTP_400_BAD_REQUEST,
+                "snooze_until",
+            ),
+            ("ungrouped_alert", {"grouped": False}, {}, status.HTTP_400_BAD_REQUEST, "grouping_key"),
+        ]
+    )
+    def test_a_refused_group_snooze_changes_nothing(
+        self, _name: str, setup: dict[str, Any], body: dict[str, Any], expected: int, field: str | None
+    ) -> None:
+        self._set_flag(True)
+        configuration = self._grouped_configuration(owner=setup.get("owner", "platform"))
+        if setup.get("grouped") is False:
+            with team_scope(self.team.id):
+                PlatformAlertConfiguration.objects.filter(id=configuration.id).update(grouping={"mode": "single"})
+        url = f"{self._edit_url(configuration)}snooze_group/"
+
+        with time_machine.travel(datetime(2026, 10, 1, 10, tzinfo=UTC), tick=False):
+            response = self.client.post(
+                url, {"grouping_key": "checkout", "snooze_until": "2026-10-01T12:00:00Z", **body}, format="json"
+            )
+
+        assert response.status_code == expected, response.json()
+        if field is not None:
+            assert response.json()["attr"] == field
+        assert self._snoozes(configuration) == {"checkout": None, "api": None}

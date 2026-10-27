@@ -4,6 +4,7 @@ import uuid
 from typing import Any, Optional, cast
 
 from django.conf import settings
+from django.core.cache import cache
 from django.core.exceptions import ImproperlyConfigured
 from django.db.models import Model
 
@@ -41,6 +42,7 @@ from posthog.scopes import (
     MCP_BUILT_IN_AGENT_SCOPE,
     APIScopeObject,
     APIScopeObjectOrNotSupported,
+    scopes_covered_by_legacy_fallback,
     scopes_not_covered,
 )
 from posthog.session.reauth import sensitive_action_reference, step_up_required
@@ -830,6 +832,32 @@ def get_authenticator_scoped_team_ids(authenticator) -> list[int] | None:
     return None
 
 
+LEGACY_SCOPE_FALLBACK_EVENT_INTERVAL_SECONDS = 60 * 60
+
+
+def _capture_legacy_scope_fallback(request: Request, view: APIView, required_scope: str, legacy_scope: str) -> None:
+    """Record that a legacy scope satisfied a required scope. The events show which credentials and
+    OAuth apps still depend on the legacy scope, so the entry in LEGACY_SCOPE_FALLBACKS can go."""
+    client = get_authenticator_client(request.successful_authenticator)
+    distinct_id = str(getattr(request.user, "distinct_id", None) or client["client_id"])
+    view_name = type(view).__name__
+    # At most one event per caller, client, scope and view each interval, because this runs on every request.
+    throttle_key = f"legacy_scope_fallback:{distinct_id}:{client['client_id']}:{required_scope}:{view_name}"
+    if not cache.add(throttle_key, True, timeout=LEGACY_SCOPE_FALLBACK_EVENT_INTERVAL_SECONDS):
+        return
+    posthoganalytics.capture(
+        distinct_id=distinct_id,
+        event="api scope fallback used",
+        properties={
+            "required_scope": required_scope,
+            "legacy_scope": legacy_scope,
+            "credential_type": client["credential_type"],
+            "client_id": client["client_id"],
+            "view": view_name,
+        },
+    )
+
+
 class APIScopePermission(ScopeBasePermission):
     """
     The request is via an API key or OAuth token and the user has the appropriate scopes.
@@ -893,6 +921,11 @@ class APIScopePermission(ScopeBasePermission):
         else:
             self.check_team_and_org_permissions(request, view)
 
+        if isinstance(authenticator, OAuthAccessTokenAuthentication) and not self._sandbox_tool_policy_allows(
+            request, view, authenticator.access_token, required_scopes
+        ):
+            return False
+
         # `*` is the "Full access to all scopes" consent option; INTERNAL viewsets
         # are programmatic-only and must not be reachable via user-consented tokens.
         # Also fall through when *any* required_scope on this action targets an
@@ -907,11 +940,46 @@ class APIScopePermission(ScopeBasePermission):
             return True
 
         missing_scopes = scopes_not_covered(key_scopes, required_scopes)
+        legacy_covered = scopes_covered_by_legacy_fallback(key_scopes, missing_scopes)
+        missing_scopes = [scope for scope in missing_scopes if scope not in legacy_covered]
         if missing_scopes:
             self.message = f"API key missing required scope '{missing_scopes[0]}'"
             return False
 
+        for required_scope, legacy_scope in legacy_covered.items():
+            _capture_legacy_scope_fallback(request, view, required_scope, legacy_scope)
+
         return True
+
+    def _sandbox_tool_policy_allows(
+        self, request, view, access_token: OAuthAccessToken, required_scopes: list[str]
+    ) -> bool:
+        """A sandbox run narrowed to a tool list may only change state through the tools it holds.
+
+        Scopes alone cannot say this: `ticket:write` covers a private note and a reply to the
+        customer alike. The run is read from the token's server-written task binding.
+        """
+        if access_token.sandbox_task_id is None:
+            return True
+        # Deferred to break a cycle: the policy reads the tasks facade, which imports this module.
+        from products.signals.backend.facade.tool_policy import (  # noqa: PLC0415
+            TOOL_NOT_GRANTED_CODE,
+            scout_tool_denial,
+        )
+
+        denial = scout_tool_denial(
+            sandbox_task_id=access_token.sandbox_task_id,
+            view=view,
+            method=request.method,
+            path=request.path_info,
+            required_scopes=required_scopes,
+            data=request.data,
+        )
+        if denial is None:
+            return True
+        self.message = denial
+        self.code = TOOL_NOT_GRANTED_CODE
+        return False
 
     def _check_project_secret_api_key_team(self, request, view) -> None:
         psak = request.successful_authenticator.project_secret_api_key

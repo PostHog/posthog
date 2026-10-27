@@ -9,6 +9,8 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { Realm } from '~/types'
 
+import { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/types'
+
 import {
     EMAIL_TYPE_SUPPORTED_FIELDS,
     EditorRef,
@@ -202,6 +204,37 @@ describe('emailTemplaterLogic', () => {
 
             logic.actions.setIsModalOpen(false)
             await expectLogic(logic).toMatchValues({ isTemplatePickerOpen: false })
+        })
+
+        it("applying a transactional template keeps the email's own sender and reply-to", async () => {
+            logic = emailTemplaterLogic(
+                makeProps({
+                    value: { ...DEFAULT_EMAIL_TEMPLATE, from: { integrationId: 1 }, replyTo: 'team@example.com' },
+                })
+            )
+            logic.mount()
+
+            logic.actions.applyTemplate({
+                id: 'template-1',
+                name: 'Password reset',
+                content: {
+                    templating: 'liquid',
+                    email: {
+                        ...DEFAULT_EMAIL_TEMPLATE,
+                        subject: 'Reset your password',
+                        from: { integrationId: 2, name: 'PostHog Security' },
+                        replyTo: 'security@example.com',
+                    },
+                },
+            } as MessageTemplate)
+
+            await expectLogic(logic).toMatchValues({
+                emailTemplate: expect.objectContaining({
+                    subject: 'Reset your password',
+                    from: { integrationId: 1 },
+                    replyTo: 'team@example.com',
+                }),
+            })
         })
     })
 

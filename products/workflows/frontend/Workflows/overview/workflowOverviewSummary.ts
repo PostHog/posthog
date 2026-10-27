@@ -24,6 +24,7 @@ const BUILT_IN_TRIGGER_LABELS: Record<BuiltInTriggerType, string> = {
     tracking_pixel: 'when a tracking pixel loads',
     batch: 'when a batch run starts',
     'internal-event': 'when PostHog records',
+    api: 'when your code sends it through the API',
 }
 
 export function triggerLeadIn(trigger: HogFlow['trigger']): string {

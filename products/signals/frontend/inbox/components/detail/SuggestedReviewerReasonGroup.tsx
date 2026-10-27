@@ -5,6 +5,11 @@ import { PersonDisplay } from 'products/persons/frontend/components/PersonDispla
 
 import { EnrichedReviewer } from '../../types'
 import { getReviewerDisplayName } from './reviewerDisplay'
+import {
+    ReviewerClaim,
+    reviewerClaimRemoveDisabledReason,
+    SuggestedReviewerClaimControls,
+} from './SuggestedReviewerClaimControls'
 import { getReviewerSourceLabel, isScoutReviewer } from './SuggestedReviewerPerson'
 import { SuggestedReviewerScoutTag } from './SuggestedReviewerScoutTag'
 
@@ -13,11 +18,13 @@ export function SuggestedReviewerReasonGroup({
     reason,
     disabled,
     onRemove,
+    claim,
 }: {
     reviewers: EnrichedReviewer[]
     reason: string
     disabled: boolean
     onRemove: (reviewer: EnrichedReviewer) => void
+    claim?: ReviewerClaim
 }): JSX.Element {
     const scoutNames = new Set<string>()
     const otherSourceLabels = new Set<string>()
@@ -71,14 +78,20 @@ export function SuggestedReviewerReasonGroup({
                                     />
                                 </span>
                             </Tooltip>
-                            <LemonButton
-                                type="tertiary"
-                                size="xsmall"
-                                icon={<IconX />}
-                                disabledReason={disabled ? 'Updating…' : undefined}
-                                onClick={() => onRemove(reviewer)}
-                                tooltip={`Remove ${displayName}`}
-                            />
+                            <div className="flex items-center gap-2">
+                                <SuggestedReviewerClaimControls reviewer={reviewer} claim={claim} />
+                                <LemonButton
+                                    type="tertiary"
+                                    size="xsmall"
+                                    icon={<IconX />}
+                                    disabledReason={
+                                        reviewerClaimRemoveDisabledReason(reviewer, claim, displayName) ??
+                                        (disabled ? 'Updating…' : undefined)
+                                    }
+                                    onClick={() => onRemove(reviewer)}
+                                    tooltip={`Remove ${displayName}`}
+                                />
+                            </div>
                         </div>
                     )
                 })}

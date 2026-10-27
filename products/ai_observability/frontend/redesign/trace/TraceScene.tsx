@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { aiObservabilityTraceLogic } from '../../aiObservabilityTraceLogic'
+import { SaveToDatasetButton } from '../../datasets/SaveToDatasetButton'
 import { traceViewAdapterLogic, traceViewAdapterLogicValues } from './adapter/traceViewAdapterLogic'
 import { TraceView, TraceViewProps, TraceViewReadyProps } from './components/TraceView'
 import { NodeDetailTab, TraceMode } from './types'
@@ -14,6 +15,7 @@ type ReadyValues = Pick<
     | 'selectedNodeId'
     | 'detailData'
     | 'detailTab'
+    | 'datasetItemSource'
     | 'canViewInThread'
     | 'thread'
     | 'timeline'
@@ -25,6 +27,7 @@ interface ReadyActions {
     selectAndShowSpans: (id: string) => void
     setDetailTab: (tab: NodeDetailTab) => void
     viewInThread: () => void
+    prefetchNode: (id: string) => void
 }
 
 function toReadyProps(values: ReadyValues, actions: ReadyActions): TraceViewReadyProps | null {
@@ -39,6 +42,7 @@ function toReadyProps(values: ReadyValues, actions: ReadyActions): TraceViewRead
         tree: values.tree,
         selectedNodeId: values.selectedNodeId,
         onSelectNode: actions.selectNode,
+        onPrefetchNode: actions.prefetchNode,
         onSelectFromView: actions.selectAndShowSpans,
         detail: values.detailData
             ? {
@@ -46,6 +50,7 @@ function toReadyProps(values: ReadyValues, actions: ReadyActions): TraceViewRead
                   tab: values.detailTab,
                   onTabChange: actions.setDetailTab,
                   onViewInThread: values.canViewInThread ? actions.viewInThread : null,
+                  actions: values.datasetItemSource ? <SaveToDatasetButton {...values.datasetItemSource} /> : null,
               }
             : null,
         thread: values.thread,
@@ -54,8 +59,8 @@ function toReadyProps(values: ReadyValues, actions: ReadyActions): TraceViewRead
 }
 
 export function TraceScene(): JSX.Element {
-    const { traceId, query, dateRange } = useValues(aiObservabilityTraceLogic)
-    const logic = traceViewAdapterLogic({ traceId, query, timestampHint: dateRange?.dateFrom ?? null })
+    const { traceId, dateRange } = useValues(aiObservabilityTraceLogic)
+    const logic = traceViewAdapterLogic({ traceId, timestampHint: dateRange?.dateFrom ?? null })
     // Every kea value getter is a hook, so read them all on every render, whatever the status.
     const {
         status,
@@ -68,6 +73,7 @@ export function TraceScene(): JSX.Element {
         selectedNodeId,
         detailData,
         detailTab,
+        datasetItemSource,
         canViewInThread,
         thread,
         timeline,
@@ -85,6 +91,7 @@ export function TraceScene(): JSX.Element {
                       selectedNodeId,
                       detailData,
                       detailTab,
+                      datasetItemSource,
                       canViewInThread,
                       thread,
                       timeline,

@@ -4,6 +4,7 @@ import socket
 import asyncio
 import subprocess
 import dataclasses
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
@@ -13,10 +14,13 @@ from django.test import override_settings
 
 from asgiref.sync import async_to_sync
 
+from posthog.temporal.common.posthog_client import is_expected_activity_failure
+
 from products.tasks.backend.constants import SNAPSHOT_KIND_DIRECTORY, SNAPSHOT_KIND_FILESYSTEM
 from products.tasks.backend.exceptions import (
     ComputeBillingLimitError,
     OrganizationExecutionError,
+    RepositoryAccessError,
     RepositoryCloneError,
     SandboxCleanupError,
     SandboxRateLimitedError,
@@ -587,11 +591,12 @@ def test_clone_failure_records_failed_latency_and_captures_command_result(mocker
             ),
         )
 
-    assert "exit code 124" in str(error.value)
+    assert "Could not clone posthog/posthog (git exited with code 124)" in str(error.value)
     assert error.value.context == {
         "repository": "posthog/posthog",
         "sandbox_id": "sandbox-id",
         "exit_code": 124,
+        "has_github_token": True,
         "stderr": "",
         "stdout": "clone output",
         "error": "execution stopped",
@@ -608,6 +613,152 @@ def test_clone_failure_records_failed_latency_and_captures_command_result(mocker
         }
     ]
     assert str(capture_exception.call_args.args[0]) == "clone output"
+
+
+@pytest.mark.parametrize(
+    "stderr, expected_error, attempt, retry_delay",
+    [
+        (
+            "Cloning into 'repo'...\nfatal: could not read Username for 'https://github.com': No such device or address\n",
+            RepositoryAccessError,
+            1,
+            None,
+        ),
+        (
+            "Cloning into 'repo'...\nremote: Repository not found.\nfatal: repository 'https://github.com/acme/repo.git/' not found\n",
+            RepositoryCloneError,
+            1,
+            1,
+        ),
+        (
+            "fatal: Authentication failed for 'https://github.com/example/repo.git/'\n",
+            RepositoryAccessError,
+            3,
+            None,
+        ),
+        (
+            "Cloning into 'repo'...\nfatal: unable to access 'https://github.com/acme/repo.git/': Could not resolve host: github.com\n",
+            RepositoryCloneError,
+            1,
+            1,
+        ),
+        *[
+            (
+                "error: RPC failed; HTTP 404",
+                RepositoryCloneError,
+                attempt,
+                delay,
+            )
+            for attempt, delay in [(1, 1), (2, 2), (3, 16), (4, 32), (5, 64), (6, None)]
+        ],
+    ],
+)
+def test_clone_failure_stops_retries_only_when_github_denies_access(
+    mocker, activity_environment, stderr, expected_error, attempt, retry_delay
+):
+    activity_environment.info = dataclasses.replace(activity_environment.info, attempt=attempt)
+    context = TaskProcessingContext(
+        task_id="task-id",
+        run_id="run-id",
+        team_id=1,
+        team_uuid="team-uuid",
+        organization_id="organization-id",
+        github_integration_id=123,
+        repository="acme/repo",
+        distinct_id="distinct-id",
+        state={},
+    )
+    sandbox = mocker.Mock()
+    sandbox.clone_repository.return_value = ExecutionResult(stdout="", stderr=stderr, exit_code=128, error=None)
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_sandbox_class_for_sandbox_id",
+        return_value=mocker.Mock(get_by_id=mocker.Mock(return_value=sandbox)),
+    )
+    capture_exception = mocker.patch("products.tasks.backend.exceptions.capture_exception")
+
+    with pytest.raises(expected_error) as error:
+        async_to_sync(activity_environment.run)(
+            clone_repository_in_sandbox,
+            CloneRepositoryInSandboxInput(
+                context=context,
+                sandbox_id="sandbox-id",
+                repository="acme/repo",
+                github_token="",
+                shallow_clone=True,
+            ),
+        )
+
+    access_denied = expected_error is RepositoryAccessError
+    assert error.value.non_retryable is access_denied
+    assert is_expected_activity_failure(error.value) is access_denied
+    assert capture_exception.called is not access_denied
+    assert error.value.next_retry_delay == (timedelta(seconds=retry_delay) if retry_delay is not None else None)
+
+
+@pytest.mark.parametrize(
+    "failure, expected_error",
+    [
+        ("fatal: Authentication failed for", RepositoryAccessError),
+        ("remote: Repository not found.", RepositoryCloneError),
+    ],
+)
+def test_clone_failure_diagnostics_redact_credentials_before_truncation(
+    mocker, activity_environment, failure, expected_error
+) -> None:
+    token = "fake-clone-credential-for-test"
+    context = TaskProcessingContext(
+        task_id="task-id",
+        run_id="run-id",
+        team_id=1,
+        team_uuid="team-uuid",
+        organization_id="organization-id",
+        github_integration_id=123,
+        repository="example/repo",
+        distinct_id="distinct-id",
+        state={},
+    )
+    sandbox = mocker.Mock()
+    sandbox.clone_repository.return_value = ExecutionResult(
+        stdout="x" * 490 + token,
+        stderr=f"{failure} https://x-access-token:{token}@github.com/example/repo.git/",
+        exit_code=128,
+        error="https://x-access-token:fake-other-credential@github.com/example/repo.git/ " + "x" * 600,
+    )
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_sandbox_class_for_sandbox_id",
+        return_value=mocker.Mock(get_by_id=mocker.Mock(return_value=sandbox)),
+    )
+    capture_exception = mocker.patch("products.tasks.backend.exceptions.capture_exception")
+    warning = mocker.patch("products.tasks.backend.temporal.process_task.activities.provision_sandbox.logger.warning")
+
+    with pytest.raises(expected_error) as error:
+        async_to_sync(activity_environment.run)(
+            clone_repository_in_sandbox,
+            CloneRepositoryInSandboxInput(
+                context=context,
+                sandbox_id="sandbox-id",
+                repository="example/repo",
+                github_token=token,
+                shallow_clone=True,
+            ),
+        )
+
+    assert warning.call_args.args == ("repository_clone_failed",)
+    diagnostic = warning.call_args.kwargs["extra"]
+    for key in ("stdout", "stderr", "error"):
+        assert diagnostic[key] == error.value.context[key]
+        assert len(error.value.context[key]) <= 500
+    assert diagnostic["run_id"] == "run-id"
+    assert diagnostic["shallow_clone"] is True
+    assert diagnostic["has_github_token"] is True
+    assert error.value.context["stdout"] == "x" * 490 + "<redacted>"
+    assert error.value.context["stderr"] == (
+        f"{failure} https://x-access-token:<redacted>@github.com/example/repo.git/"
+    )
+    assert error.value.context["error"].startswith("https://x-access-token:<redacted>@github.com/example/repo.git/ ")
+    diagnostics = str(error.value.details) + str(capture_exception.call_args_list) + str(diagnostic)
+    assert token not in diagnostics
+    assert "fake-other-credential" not in diagnostics
 
 
 def _prepared_for_create() -> PrepareSandboxForRepositoryOutput:

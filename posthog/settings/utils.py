@@ -1,5 +1,6 @@
 import os
 from collections.abc import Callable
+from datetime import UTC, datetime
 from typing import Any, Optional
 
 from django.core.exceptions import ImproperlyConfigured
@@ -12,6 +13,7 @@ __all__ = [
     "get_from_env",
     "get_list",
     "str_to_bool",
+    "str_to_utc_datetime",
 ]
 
 
@@ -66,6 +68,12 @@ def get_from_env(
     if type_cast is not None:
         return type_cast(value)
     return value
+
+
+def str_to_utc_datetime(value: str) -> datetime:
+    # Read without an offset as UTC, so the value compares with the aware datetimes Django produces.
+    parsed = datetime.fromisoformat(value)
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
 
 
 def get_list(text: str) -> list[str]:

@@ -216,11 +216,14 @@ class ClientConfig(TypedDict, total=False):
     # server-provided delay. Left unset, RESTClient uses its default. Raise it for an endpoint whose
     # rate-limit window is longer than the default ceiling, so the retry budget can outlast the window.
     retry_backoff_max_seconds: float
-    # Longest time one request may spend on retries, and longest server-provided delay
+    # Longest time one request may take with all of its tries and waits, and longest server-provided delay
     # (`Retry-After` or a rate limit reset header) the client waits for. Left unset, the
     # `DATA_WAREHOUSE_SOURCE_*` settings apply. Raise both for a vendor with a longer rate limit window.
     retry_budget_seconds: float
     retry_after_max_seconds: float
+    # When True, a server-provided delay above `retry_after_max_seconds` becomes a wait of that
+    # limit, and the request does not fail at once. Left unset, such a request fails without a wait.
+    cap_retry_after: bool
     # SSRF host-pinning. When set (even to an empty list), every outgoing request URL —
     # including paginator next-page links and seeded resume URLs — must resolve to one of
     # these hosts; the base_url host is always implicitly allowed. Off-host URLs are rejected

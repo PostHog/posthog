@@ -2,12 +2,12 @@
 Business logic for Wizard sessions.
 """
 
-import logging
 from functools import partial
 from typing import Any
 
 from django.db import IntegrityError, transaction
 
+import structlog
 from kombu.exceptions import OperationalError
 
 from products.wizard.backend.facade.contracts import UpsertWizardSessionInput, WizardSessionDTO
@@ -19,7 +19,7 @@ from products.wizard.backend.metrics import report_session_upserted
 from products.wizard.backend.models import WizardSession
 from products.wizard.backend.tasks.tasks import sync_wizard_event_definitions
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 def upsert_session(params: UpsertWizardSessionInput) -> tuple[WizardSessionDTO, bool]:

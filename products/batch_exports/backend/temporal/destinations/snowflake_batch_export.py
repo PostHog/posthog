@@ -30,11 +30,12 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger, get_write_only_logger
 
+from products.batch_exports.backend.facade.enums import IncrementalMode
 from products.batch_exports.backend.service import (
     BatchExportField,
     BatchExportInsertInputs,
-    BatchExportModel,
     SnowflakeBatchExportInputs,
+    migrate_batch_export_model,
 )
 from products.batch_exports.backend.temporal.batch_exports import (
     StartBatchExportRunInputs,
@@ -289,6 +290,7 @@ SnowflakeTypeName = typing.Literal[
     "DOUBLE",
     "DOUBLE PRECISION",
     "BOOLEAN",
+    "DATE",
     "TIMESTAMP",
     "TIMESTAMP_NTZ",
     "TIMESTAMP_LTZ",
@@ -333,6 +335,9 @@ def data_type_to_snowflake_type(data_type: pa.DataType) -> SnowflakeType:
     elif pa.types.is_boolean(data_type):
         snowflake_type_name = "BOOLEAN"
 
+    elif pa.types.is_date(data_type):
+        snowflake_type_name = "DATE"
+
     elif pa.types.is_timestamp(data_type):
         snowflake_type_name = "TIMESTAMP"
 
@@ -359,6 +364,8 @@ def snowflake_type_to_data_type(type: SnowflakeType) -> pa.DataType:
             base_type = pa.bool_()
         case "VARIANT":
             base_type = JsonType()
+        case "DATE":
+            base_type = pa.date32()
         case "TIMESTAMP" | "TIMESTAMP_NTZ" | "TIMESTAMP_LTZ" | "TIMESTAMP_TZ":
             base_type = pa.timestamp("ms", tz="UTC")
         case "FLOAT" | "FLOAT4" | "FLOAT8" | "DOUBLE PRECISION" | "REAL":
@@ -546,6 +553,10 @@ def _is_connect_error_retryable(err: Exception) -> bool:
     however often we try.
     """
     return isinstance(err, OperationalError) and err.errno in (ER_FAILED_TO_CONNECT_TO_DB, ER_RETRYABLE_CODE)
+
+
+def _quote_snowflake_identifier(identifier: str) -> str:
+    return '"' + identifier.replace('"', '""') + '"'
 
 
 class SnowflakeClient:
@@ -953,7 +964,9 @@ class SnowflakeClient:
                 Whether to include an 'IF NOT EXISTS' clause in the query such that it
                 won't fail if the table already exists.
         """
-        field_ddl = ", ".join(f'"{field.name}" {field.snowflake_type_name}' for field in table)
+        field_ddl = ", ".join(
+            f"{_quote_snowflake_identifier(field.name)} {field.snowflake_type_name}" for field in table
+        )
 
         if_not_exists = ""
         if exists_ok:
@@ -1086,13 +1099,13 @@ class SnowflakeClient:
                 perform this operation.
         """
         select_fields = ", ".join(
-            f"PARSE_JSON($1:\"{field.name}\", 'd')"
+            f"PARSE_JSON($1:{_quote_snowflake_identifier(field.name)}, 'd')"
             if field.data_type == JsonType() and field.name.lower() != "elements"
-            else f'$1:"{field.name}"'
+            else f"$1:{_quote_snowflake_identifier(field.name)}"
             for field in table
         )
         query = f"""
-        COPY INTO "{table.name}" ({", ".join(f'"{field.name}"' for field in table)})
+        COPY INTO "{table.name}" ({", ".join(_quote_snowflake_identifier(field.name) for field in table)})
 
         FROM (
             SELECT {select_fields} FROM '@%"{table.name}"/{table.stage_prefix}'
@@ -1201,16 +1214,19 @@ class SnowflakeClient:
             field = final[primary_key_field_name]
             if n > 0:
                 merge_condition += " AND "
-            merge_condition += f'final."{field.name}" = stage."{field.name}"'
+            quoted_field = _quote_snowflake_identifier(field.name)
+            merge_condition += f"final.{quoted_field} = stage.{quoted_field}"
 
-        update_condition = "AND ("
+        update_condition = ""
 
         for index, version_key_field_name in enumerate(final.version_key):
             field = final[version_key_field_name]
             if index > 0:
                 update_condition += " OR "
-            update_condition += f'final."{field.name}" < stage."{field.name}"'
-        update_condition += ")"
+            quoted_field = _quote_snowflake_identifier(field.name)
+            update_condition += f"final.{quoted_field} < stage.{quoted_field}"
+        if update_condition:
+            update_condition = f"AND ({update_condition})"
 
         update_clause = ""
         values = ""
@@ -1221,9 +1237,10 @@ class SnowflakeClient:
                 values += ", "
                 field_names += ", "
 
-            update_clause += f'final."{field.name}" = stage."{field.name}"'
-            field_names += f'"{field.name}"'
-            values += f'stage."{field.name}"'
+            quoted_field = _quote_snowflake_identifier(field.name)
+            update_clause += f"final.{quoted_field} = stage.{quoted_field}"
+            field_names += quoted_field
+            values += f"stage.{quoted_field}"
 
         merge_query = f"""
         MERGE INTO "{final.name}" AS final
@@ -1275,33 +1292,6 @@ def snowflake_default_fields() -> list[BatchExportField]:
     batch_export_fields.append(set_once_field)
 
     return batch_export_fields
-
-
-class MergeSettings(typing.NamedTuple):
-    primary_key: collections.abc.Sequence[str]
-    version_key: collections.abc.Sequence[str]
-
-
-def _get_merge_settings(
-    model: BatchExportModel | None,
-) -> MergeSettings | None:
-    if isinstance(model, BatchExportModel):
-        if model.name == "persons":
-            primary_key: collections.abc.Sequence[str] = ("team_id", "distinct_id")
-            version_key: collections.abc.Sequence[str] = (
-                "person_version",
-                "person_distinct_id_version",
-            )
-
-        elif model.name == "sessions":
-            primary_key = ("team_id", "session_id")
-            version_key = ("end_timestamp",)
-        else:
-            return None
-    else:
-        return None
-
-    return MergeSettings(primary_key, version_key)
 
 
 class SnowflakeConsumer(Consumer):
@@ -1415,7 +1405,7 @@ async def insert_into_snowflake_activity_from_stage(
 
         integration = await _get_snowflake_integration(inputs.integration_id, inputs.team_id)
 
-        model = inputs.batch_export_model
+        model = migrate_batch_export_model(inputs.batch_export_model)
 
         queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_SNOWFLAKE_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
         producer = Producer()
@@ -1458,14 +1448,14 @@ async def insert_into_snowflake_activity_from_stage(
         attempt = activity.info().attempt
         stage_table_name = f"stage_{inputs.table_name}_{data_interval_end_str}_{inputs.team_id}_{attempt}"
 
-        merge_settings = _get_merge_settings(model)
+        requires_merge = model.incremental_mode == IncrementalMode.MERGE
         target_table = SnowflakeTable.from_arrow_schema(
             record_batch_schema,
             name=inputs.table_name,
             table_schema=inputs.schema,
             database=inputs.database,
-            primary_key=merge_settings.primary_key if merge_settings else (),
-            version_key=merge_settings.version_key if merge_settings else (),
+            primary_key=model.primary_key if requires_merge else (),
+            version_key=model.version_key if requires_merge else (),
             stage_prefix=f"{inputs.batch_export_id}/{data_interval_end_str}",
         )
         if "elements" in target_table:
@@ -1510,7 +1500,7 @@ async def insert_into_snowflake_activity_from_stage(
                 consumer = SnowflakeConsumer(
                     snowflake_client=snow_client,
                     snowflake_table=snow_consumer_table,
-                    model=model.name if isinstance(model, BatchExportModel) else "events",
+                    model=model.name,
                 )
 
                 transformer = PipelineTransformer(

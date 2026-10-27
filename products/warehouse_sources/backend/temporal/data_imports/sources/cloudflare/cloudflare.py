@@ -1,7 +1,9 @@
+from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
+import structlog
 from requests import Response
 
 from posthog.dataclasses import frozen
@@ -10,8 +12,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cloudflare
     ACCOUNTS_PARENT,
     CLOUDFLARE_ENDPOINTS,
     CURSOR_PAGINATION,
-    DNS_ANALYTICS_DIMENSIONS,
-    DNS_ANALYTICS_METRICS,
+    DNS_ANALYTICS_WINDOW,
     PAGE_PAGINATION,
     SINGLE_PAGE,
     ZONES_PARENT,
@@ -23,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     rest_api_resource,
     rest_api_resources,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import BearerTokenAuth
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.jsonpath_utils import (
     find_values,
 )
@@ -33,12 +35,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     SinglePagePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
     ClientConfig,
     Endpoint,
     EndpointResource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
+
+logger = structlog.get_logger(__name__)
 
 CLOUDFLARE_BASE_URL = "https://api.cloudflare.com/client/v4"
 # Cloudflare list pages cap at 50 by default; most endpoints allow more.
@@ -91,13 +96,99 @@ def _to_rfc3339(value: Any) -> Optional[str]:
     return str(value)
 
 
-def _flatten_dns_analytics_row(row: dict[str, Any]) -> dict[str, Any]:
-    """The DNS analytics report returns positional `dimensions`/`metrics` arrays that
-    line up with the names we requested, so name them into their own columns."""
-    flattened = {key: value for key, value in row.items() if key not in ("dimensions", "metrics")}
-    flattened.update(zip(DNS_ANALYTICS_DIMENSIONS, row.get("dimensions") or []))
-    flattened.update(zip(DNS_ANALYTICS_METRICS, row.get("metrics") or []))
-    return flattened
+# The GraphQL dataset has no uncached-count metric, so the query also groups on
+# `responseCached` and `_dns_analytics_rows` sums the uncached groups.
+_DNS_ANALYTICS_QUERY = """
+query DnsAnalyticsReport($zoneTag: string, $since: Time, $until: Time) {
+  viewer {
+    zones(filter: {zoneTag: $zoneTag}) {
+      dnsAnalyticsAdaptiveGroups(limit: 10000, filter: {datetime_geq: $since, datetime_lt: $until}) {
+        count
+        dimensions {
+          queryType
+          responseCode
+          responseCached
+        }
+      }
+    }
+  }
+}
+"""
+
+DNS_ANALYTICS_ALL_ZONES_FAILED = "Cloudflare refused the DNS analytics query for every zone"
+
+
+def _dns_analytics_rows(zone_id: str, groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    rows: dict[tuple[Any, Any], dict[str, Any]] = {}
+    for group in groups:
+        dimensions = group.get("dimensions") or {}
+        query_type, response_code = dimensions.get("queryType"), dimensions.get("responseCode")
+        row = rows.setdefault(
+            (query_type, response_code),
+            {
+                "queryType": query_type,
+                "responseCode": response_code,
+                "queryCount": 0,
+                "uncachedCount": 0,
+                "_zone_id": zone_id,
+            },
+        )
+        count = group.get("count") or 0
+        row["queryCount"] += count
+        if not dimensions.get("responseCached"):
+            row["uncachedCount"] += count
+    return list(rows.values())
+
+
+def _graphql_error(body: Any) -> Optional[str]:
+    errors = body.get("errors") if isinstance(body, dict) else None
+    if not errors:
+        return None
+    first = errors[0]
+    return str(first.get("message") or first) if isinstance(first, dict) else str(first)
+
+
+def _dns_analytics_report(api_token: str) -> Iterator[list[dict[str, Any]]]:
+    client = RESTClient(base_url=CLOUDFLARE_BASE_URL, auth=BearerTokenAuth(token=api_token))
+    until = datetime.now(UTC).replace(microsecond=0)
+    window = {"since": _to_rfc3339(until - DNS_ANALYTICS_WINDOW), "until": _to_rfc3339(until)}
+
+    zones_read = 0
+    first_error: Optional[str] = None
+    for zones in client.paginate(
+        _PARENT_PATHS[ZONES_PARENT],
+        params={"per_page": PAGE_SIZE},
+        paginator=CloudflarePaginator(),
+        data_selector="result",
+    ):
+        for zone in zones:
+            zone_id = zone.get("id")
+            if not zone_id:
+                continue
+            [body] = next(
+                client.paginate(
+                    CLOUDFLARE_ENDPOINTS["dns_analytics_report"].path,
+                    method="post",
+                    json={"query": _DNS_ANALYTICS_QUERY, "variables": {**window, "zoneTag": zone_id}},
+                    paginator=SinglePagePaginator(),
+                )
+            )
+            # GraphQL reports a zone the token can't read as an error in a 200 body. Skip that
+            # zone and keep syncing the rest, like the REST fan-out does for a 403.
+            error = _graphql_error(body)
+            if error is not None:
+                logger.info("cloudflare.dns_analytics_zone_skipped", zone_id=zone_id, error=error)
+                first_error = first_error or error
+                continue
+            zones_read += 1
+            zone_results = ((body.get("data") or {}).get("viewer") or {}).get("zones") or []
+            groups = zone_results[0].get("dnsAnalyticsAdaptiveGroups") or [] if zone_results else []
+            rows = _dns_analytics_rows(zone_id, groups)
+            if rows:
+                yield rows
+
+    if first_error is not None and zones_read == 0:
+        raise ValueError(f"{DNS_ANALYTICS_ALL_ZONES_FAILED}: {first_error}")
 
 
 # A logpush job's `destination_conf` is a URI whose query string can carry the
@@ -187,7 +278,6 @@ def _redact_custom_hostname(row: dict[str, Any]) -> dict[str, Any]:
 
 
 _DATA_MAPS = {
-    "dns_analytics_report": _flatten_dns_analytics_row,
     "logpush_jobs": _redact_logpush_destination,
     "access_apps": _redact_access_app,
     "healthchecks": _redact_healthcheck,
@@ -453,6 +543,15 @@ def cloudflare_source(
 ) -> SourceResponse:
     config = CLOUDFLARE_ENDPOINTS[endpoint]
 
+    if endpoint == "dns_analytics_report":
+        return SourceResponse(
+            name=endpoint,
+            items=lambda: _dns_analytics_report(api_token),
+            primary_keys=list(config.primary_keys),
+            partition_count=1,
+            partition_size=1,
+        )
+
     if config.parent is not None:
         resource = _fanout_resource(
             api_token,
@@ -472,5 +571,4 @@ def cloudflare_source(
         primary_keys=list(config.primary_keys),
         partition_count=1,
         partition_size=1,
-        sort_mode="asc",
     )

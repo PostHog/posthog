@@ -43,11 +43,18 @@ export const manifest: ProductManifest = {
             projectBased: true,
             description: 'Send a one-time or scheduled email to a group of people',
         },
+        WorkflowsEmailDomain: {
+            import: () => import('./frontend/Channels/EmailDomain/EmailDomainScene'),
+            name: 'Workflows',
+            iconType: 'workflows',
+            projectBased: true,
+        },
     },
     routes: {
         // URL: [Scene, SceneKey]
         '/workflows': ['Workflows', 'workflows'],
         '/workflows/:tab': ['Workflows', 'workflows'],
+        '/workflows/channels/email/:id': ['WorkflowsEmailDomain', 'workflowsEmailDomain'],
         '/workflows/:id/:tab': ['Workflow', 'workflowTab'],
         '/workflows/library/templates/:id': ['WorkflowsLibraryTemplate', 'workflowsLibraryTemplate'],
         '/workflows/library/templates/new': ['WorkflowsLibraryTemplate', 'workflowsLibraryTemplate'],
@@ -63,6 +70,7 @@ export const manifest: ProductManifest = {
         '/broadcasts/suppression': ['Broadcasts', 'broadcasts'],
         '/broadcasts/reputation': ['Broadcasts', 'broadcasts'],
         '/broadcasts/settings': ['Broadcasts', 'broadcasts'],
+        '/broadcasts/calendar': ['Broadcasts', 'broadcasts'],
         // kea-router matches in declaration order, so the literal 'new' comes before ':id'.
         '/broadcasts/new': ['Broadcast', 'broadcast'],
         '/broadcasts/:id': ['Broadcast', 'broadcast'],
@@ -71,12 +79,13 @@ export const manifest: ProductManifest = {
         workflows: (tab?: WorkflowsSceneTab): string => `/workflows${tab ? `/${tab}` : ''}`,
         workflow: (id: string, tab: string): string => `/workflows/${id}/${tab}`,
         workflowNew: (): string => '/workflows/new/workflow',
+        workflowsEmailDomain: (id: string | number): string => `/workflows/channels/email/${id}`,
         workflowsLibraryMessage: (id: string): string => `/workflows/library/messages/${id}`,
         workflowsLibraryTemplate: (id?: string): string => `/workflows/library/templates/${id}`,
         workflowsLibraryTemplateNew: (): string => '/workflows/library/templates/new',
         workflowsLibraryTemplateFromMessage: (id?: string): string =>
             `/workflows/library/templates/new?messageId=${id}`,
-        broadcasts: (tab?: MessagingNavTabKey): string => `/broadcasts${tab ? `/${tab}` : ''}`,
+        broadcasts: (tab?: MessagingNavTabKey | 'calendar'): string => `/broadcasts${tab ? `/${tab}` : ''}`,
         broadcast: (id: string): string => `/broadcasts/${id}`,
         broadcastNew: (): string => '/broadcasts/new',
     },

@@ -1,10 +1,11 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { HIGHLIGHTS_POLL_MS, todayHighlightsLogic } from './todayHighlightsLogic'
-import { makeHighlightItem, makeHighlights } from './todayTestFixtures'
+import { makeHighlightItem, makeHighlights, makePulseMetric } from './todayTestFixtures'
 
 describe('todayHighlightsLogic', () => {
     let highlightResponses: [number, any][]
@@ -26,6 +27,38 @@ describe('todayHighlightsLogic', () => {
 
     afterEach(() => {
         jest.useRealTimers()
+        jest.restoreAllMocks()
+    })
+
+    it('records which pulse metric was opened, why it was shown and the ranking variant', async () => {
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
+        jest.spyOn(posthog, 'getFeatureFlag').mockReturnValue('frecency')
+        const logic = todayHighlightsLogic()
+        logic.mount()
+
+        logic.actions.pulseMetricOpened(makePulseMetric({ reason: 'dashboard', dashboard_name: 'Growth' }), 2)
+
+        expect(capture).toHaveBeenCalledWith('today pulse metric opened', {
+            kind: 'insight',
+            reason: 'dashboard',
+            position: 2,
+            pulse_ranking: 'frecency',
+        })
+    })
+
+    it('records a pulse preview once per metric', async () => {
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
+        const logic = todayHighlightsLogic()
+        logic.mount()
+
+        logic.actions.pulseMetricPreviewed(makePulseMetric(), 0)
+        logic.actions.pulseMetricPreviewed(makePulseMetric(), 0)
+        logic.actions.pulseMetricPreviewed(makePulseMetric({ key: 'signup_event', reason: 'key_metric' }), 1)
+
+        expect(capture.mock.calls.filter(([event]) => event === 'today pulse metric previewed')).toEqual([
+            ['today pulse metric previewed', expect.objectContaining({ kind: 'insight', position: 0 })],
+            ['today pulse metric previewed', expect.objectContaining({ kind: 'key_metric', position: 1 })],
+        ])
     })
 
     it.each([

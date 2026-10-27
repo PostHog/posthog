@@ -1,4 +1,6 @@
+import time
 import threading
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -7,6 +9,7 @@ from posthog.test.base import APIBaseTest, QueryMatchingTest
 from unittest import mock
 from unittest.mock import ANY, MagicMock, call, patch
 
+from django.conf import settings as django_settings
 from django.core.cache import cache
 from django.db import OperationalError
 from django.http import HttpResponse
@@ -41,8 +44,9 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.product_intent import ProductIntent
 from posthog.models.project import Project
-from posthog.models.project_secret_api_key import ProjectSecretAPIKey
+from posthog.models.project_secret_api_key import ProjectSecretAPIKey, create_project_secret_api_key_for_token
 from posthog.models.team import Team
+from posthog.models.uploaded_media import UploadedMedia
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.api_keys import create_project_secret_api_key
@@ -55,6 +59,7 @@ from products.conversations.backend.playbook import compose_support_playbook
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.team_home_tab_dashboard_config import TeamHomeTabDashboardConfig
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 from products.feature_flags.backend.test import replay_gate_fixtures
 from products.workflows.backend.facade.team_extension import TeamWorkflowsConfig
@@ -311,6 +316,45 @@ def team_api_test_factory():
                                     "after": "Europe/Lisbon",
                                     "before": "UTC",
                                     "field": "timezone",
+                                    "type": "Team",
+                                },
+                            ],
+                            "name": "Default project",
+                            "short_id": None,
+                            "trigger": None,
+                            "type": None,
+                        },
+                        "item_id": str(self.team.pk),
+                        "scope": "Team",
+                        "user": {
+                            "email": "user1@posthog.com",
+                            "first_name": "",
+                        },
+                    },
+                ]
+            )
+
+        @time_machine.travel("2022-02-08", tick=False)
+        def test_update_revenue_analytics_config_logs_only_the_config_change(self):
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"revenue_analytics_config": {"filter_test_accounts": True}},
+                format="json",
+            )
+            assert response.status_code == status.HTTP_200_OK, response.json()
+
+            self._assert_activity_log(
+                [
+                    {
+                        "activity": "updated",
+                        "created_at": "2022-02-08T00:00:00Z",
+                        "detail": {
+                            "changes": [
+                                {
+                                    "action": "changed",
+                                    "after": {"events": [], "filter_test_accounts": True},
+                                    "before": {"events": [], "filter_test_accounts": False},
+                                    "field": "revenue_analytics_config",
                                     "type": "Team",
                                 },
                             ],
@@ -815,10 +859,48 @@ def team_api_test_factory():
             self.assertFalse(ProjectSecretAPIKey.objects.filter(secure_value=hash_key_value(backup)).exists())
             self.assertTrue(ProjectSecretAPIKey.objects.filter(secure_value=hash_key_value(primary)).exists())
 
+            # Only the mirror row authenticates the new primary, so rotation must create it.
+            self.team.refresh_from_db()
+            new_row = ProjectSecretAPIKey.objects.get(secure_value=hash_key_value(self.team.secret_api_token))
+            self.assertEqual(new_row.team_id, self.team.id)
+            self.assertEqual(new_row.scopes, ["feature_flag:read", "support_ticket:read"])
+
             # Deleting the backup (the rotated-out primary) retires its row too.
             response = self.client.patch(f"/api/environments/{self.team.id}/delete_secret_token_backup/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertFalse(ProjectSecretAPIKey.objects.filter(secure_value=hash_key_value(primary)).exists())
+
+        def test_writes_from_a_stale_instance_do_not_orphan_mirror_rows(self):
+            # A write computing from stale token fields would leave another rotation's
+            # mirror row authenticating forever, with no column referencing its token.
+            self.team.secret_api_token = "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C"
+            self.team.secret_api_token_backup = None
+            self.team.save()
+
+            first = Team.objects.get(pk=self.team.pk)
+            stale = Team.objects.get(pk=self.team.pk)
+            first.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
+            stale.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
+
+            updated = Team.objects.get(pk=self.team.pk)
+            current_primary = updated.secret_api_token
+            current_backup = updated.secret_api_token_backup
+            assert current_primary is not None and current_backup is not None
+            mirrored = set(
+                ProjectSecretAPIKey.objects.filter(team_id=self.team.id).values_list("secure_value", flat=True)
+            )
+            self.assertEqual(mirrored, {hash_key_value(current_primary), hash_key_value(current_backup)})
+
+            # Deleting the backup from an instance that missed the second rotation must not
+            # write its stale primary back over the current token.
+            first.delete_secret_token_backup_and_save(user=self.user, is_impersonated_session=False)
+            updated = Team.objects.get(pk=self.team.pk)
+            self.assertEqual(updated.secret_api_token, current_primary)
+            self.assertIsNone(updated.secret_api_token_backup)
+            mirrored = set(
+                ProjectSecretAPIKey.objects.filter(team_id=self.team.id).values_list("secure_value", flat=True)
+            )
+            self.assertEqual(mirrored, {hash_key_value(current_primary)})
 
         def test_retiring_a_token_never_touches_another_teams_row(self):
             # secure_value is globally unique, so when two teams hold the same string the
@@ -966,6 +1048,45 @@ def team_api_test_factory():
             # Make sure it's unchanged
             self.assertEqual(self.team.secret_api_token, "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C")
             self.assertIsNone(self.team.secret_api_token_backup)
+
+        def test_rotate_secret_token_rejects_scoped_tokens(self):
+            # Rotation mints a PSAK mirror row, so the endpoint must stay session-only:
+            # opening it to scoped tokens would let them mint a durable credential.
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+            self.team.secret_api_token = "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C"
+            self.team.secret_api_token_backup = None
+            self.team.save()
+
+            for scopes in (["project:write"], ["project:write", "feature_flag:read", "support_ticket:read"]):
+                token = self.create_personal_api_key_with_scopes(scopes)
+                response = self.client.patch(
+                    f"/api/environments/{self.team.id}/rotate_secret_token/",
+                    HTTP_AUTHORIZATION=f"Bearer {token}",
+                )
+                self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, scopes)
+            self.team.refresh_from_db()
+            self.assertEqual(self.team.secret_api_token, "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C")
+
+        def test_rotate_secret_token_requires_fresh_session(self):
+            # Rotation mints a durable credential, so an aged session must reauthenticate
+            # first, like it must for PSAK creation.
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+            self.team.secret_api_token = "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C"
+            self.team.secret_api_token_backup = None
+            self.team.save()
+
+            session = self.client.session
+            # login() stamps both keys and the freshness window takes their max, so age both.
+            stale = time.time() - django_settings.SESSION_SENSITIVE_ACTIONS_AGE - 1
+            session[django_settings.SESSION_COOKIE_CREATED_AT_KEY] = stale
+            session[django_settings.SESSION_LAST_REAUTH_AT_KEY] = stale
+            session.save()
+
+            response = self.client.patch(f"/api/environments/{self.team.id}/rotate_secret_token/")
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+            self.assertEqual(response.json()["code"], "sensitive_action_required_reauth")
 
         def test_delete_secret_token_backup_insufficient_privileges(self):
             self.organization_membership.level = OrganizationMembership.Level.MEMBER
@@ -1182,19 +1303,137 @@ def team_api_test_factory():
                 "type": "validation_error",
             }
 
-        def test_can_set_and_unset_session_recording_linked_flag(self) -> None:
-            self._patch_linked_flag_config({"id": 1, "key": "provided_value"})
-            self._assert_linked_flag_config({"id": 1, "key": "provided_value"})
+        @parameterized.expand(
+            [
+                ["integer id", int, {}],
+                ["numeric string id", str, {}],
+                ["variant", int, {"variant": "test"}],
+            ]
+        )
+        def test_can_set_and_unset_session_recording_linked_flag(
+            self, _name: str, send_id: Callable[[int], Any], variant: dict[str, str]
+        ) -> None:
+            flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="current-key")
+
+            self._patch_linked_flag_config({"id": send_id(flag.id), "key": "stale-key", **variant})
+            self._assert_linked_flag_config({"id": flag.id, "key": "current-key", **variant})
 
             self._patch_linked_flag_config(None)
             self._assert_linked_flag_config(None)
 
-        def test_can_set_and_unset_session_recording_linked_flag_variant(self) -> None:
-            self._patch_linked_flag_config({"id": 1, "key": "provided_value", "variant": "test"})
-            self._assert_linked_flag_config({"id": 1, "key": "provided_value", "variant": "test"})
+        @parameterized.expand(
+            [
+                ["viewable", "current-key", None],
+                ["access_denied", "stale-key", None],
+                ["unchanged_column", "stale-key", None],
+                ["token_with_flag_read", "current-key", ["project:write", "feature_flag:read"]],
+                ["token_with_all_scopes", "current-key", ["*"]],
+                ["token_without_flag_read", "stale-key", ["project:write"]],
+            ]
+        )
+        def test_moves_a_trigger_group_flag_sent_with_an_id_to_the_flags_current_key(
+            self, case: str, expected_key: str, token_scopes: list[str] | None
+        ) -> None:
+            flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="current-key")
+            if case == "access_denied":
+                self._deny_flag_access(flag)
+            trigger_groups: dict[str, Any] = {
+                "version": 2,
+                "groups": [
+                    {
+                        "id": "group-1",
+                        "sampleRate": 1.0,
+                        "conditions": {"matchType": "any", "flag": {"id": flag.id, "key": "stale-key"}},
+                    }
+                ],
+            }
+            if case == "unchanged_column":
+                Team.objects.filter(pk=self.team.pk).update(session_recording_trigger_groups=trigger_groups)
+                trigger_groups = self.client.get("/api/environments/@current/").json()[
+                    "session_recording_trigger_groups"
+                ]
 
-            self._patch_linked_flag_config(None)
+            headers = (
+                {"authorization": f"Bearer {self.create_personal_api_key_with_scopes(token_scopes)}"}
+                if token_scopes
+                else {}
+            )
+
+            response = self.client.patch(
+                "/api/environments/@current/", {"session_recording_trigger_groups": trigger_groups}, headers=headers
+            )
+            assert response.status_code == status.HTTP_200_OK, response.json()
+
+            response = self.client.get("/api/environments/@current/")
+            assert response.json()["session_recording_trigger_groups"]["groups"][0]["conditions"]["flag"] == {
+                "id": flag.id,
+                "key": expected_key,
+            }
+
+        @parameterized.expand(["missing", "soft_deleted", "other_project", "access_denied"])
+        def test_rejects_a_linked_flag_that_cannot_gate_recording(self, case: str) -> None:
+            flag_team = Team.objects.create(organization=self.organization) if case == "other_project" else self.team
+            flag = FeatureFlag.objects.create(
+                team=flag_team, created_by=self.user, key="gate", deleted=case == "soft_deleted"
+            )
+            flag_id = flag.id
+            if case == "missing":
+                flag.delete()
+            if case == "access_denied":
+                self._deny_flag_access(flag)
+
+            response = self.client.patch(
+                "/api/environments/@current/", {"session_recording_linked_flag": {"id": flag_id, "key": "gate"}}
+            )
+
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+            assert response.json()["detail"] == (
+                f"Feature flag {flag_id} doesn't exist in this project or has been deleted. Choose a different flag."
+            )
             self._assert_linked_flag_config(None)
+
+        @parameterized.expand(
+            [
+                ["unchanged_soft_deleted", "soft_deleted", {}, status.HTTP_200_OK],
+                ["unchanged_access_denied", "access_denied", {}, status.HTTP_200_OK],
+                ["unchanged_string_id_access_denied", "string_id_access_denied", {}, status.HTTP_200_OK],
+                ["unchanged_renamed", "renamed", {}, status.HTTP_200_OK],
+                ["changed_key_access_denied", "access_denied", {"key": "other-key"}, status.HTTP_400_BAD_REQUEST],
+                ["added_variant_access_denied", "access_denied", {"variant": "x"}, status.HTTP_400_BAD_REQUEST],
+            ]
+        )
+        def test_keeps_an_unchanged_link_as_stored(
+            self, _name: str, case: str, sent_changes: dict[str, str], expected_status: int
+        ) -> None:
+            flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="gate")
+            stored_link = {"id": flag.id, "key": "gate"}
+            self._patch_linked_flag_config(stored_link)
+            if case == "soft_deleted":
+                flag.deleted = True
+                flag.save()
+            elif case == "renamed":
+                # update() sends no post_save signal, so no relink moves the team to the new key.
+                FeatureFlag.objects.filter(pk=flag.pk).update(key="renamed")
+            else:
+                self._deny_flag_access(flag)
+            sent_link = stored_link
+            if case == "string_id_access_denied":
+                sent_link = {**stored_link, "id": str(flag.id)}
+                Team.objects.filter(pk=self.team.pk).update(session_recording_linked_flag=sent_link)
+
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {
+                    "session_recording_linked_flag": {**sent_link, **sent_changes},
+                    "session_recording_minimum_duration_milliseconds": 1000,
+                },
+            )
+
+            assert response.status_code == expected_status, response.json()
+            accepted = expected_status == status.HTTP_200_OK
+            team = self.client.get("/api/environments/@current/").json()
+            assert team["session_recording_linked_flag"] == stored_link
+            assert team["session_recording_minimum_duration_milliseconds"] == (1000 if accepted else None)
 
         def test_can_set_and_unset_session_recording_network_payload_capture_config(self) -> None:
             # can set just one
@@ -1331,18 +1570,18 @@ def team_api_test_factory():
                 },
             )
             assert response.status_code == status.HTTP_200_OK, response.json()
-            self.team.refresh_from_db()
-            assert self.team.workflows_config.workflow_task_rate_limit_per_day == 250
-            assert self.team.workflows_config.workflow_task_team_rate_limit_per_day == 1000
+            config = TeamWorkflowsConfig.objects.get(team=self.team)
+            assert config.workflow_task_rate_limit_per_day == 250
+            assert config.workflow_task_team_rate_limit_per_day == 1000
 
             response = self.client.patch(
                 f"/api/environments/{self.team.id}",
                 {"workflows_config": {"workflow_task_rate_limit_per_day": None}},
             )
             assert response.status_code == status.HTTP_200_OK, response.json()
-            self.team.refresh_from_db()
-            assert self.team.workflows_config.workflow_task_rate_limit_per_day is None
-            assert self.team.workflows_config.workflow_task_team_rate_limit_per_day == 1000
+            config = TeamWorkflowsConfig.objects.get(team=self.team)
+            assert config.workflow_task_rate_limit_per_day is None
+            assert config.workflow_task_team_rate_limit_per_day == 1000
 
         def test_support_raised_limit_survives_an_echoed_update(self) -> None:
             TeamWorkflowsConfig.objects.update_or_create(
@@ -1406,38 +1645,26 @@ def team_api_test_factory():
                 {"id": "test", "channel_type": "Direct", "combiner": "AND", "items": []}
             ]
 
-        @parameterized.expand([("useNewEventsSchema",), ("useNewEventsCluster",)])
-        def test_events_routing_modifiers_are_not_client_writable(self, modifier: str) -> None:
+        def test_the_events_schema_modifier_is_not_client_writable(self) -> None:
             response = self.client.patch(
                 f"/api/environments/{self.team.id}",
-                {"modifiers": {modifier: True}},
+                {"modifiers": {"useNewEventsSchema": True}},
             )
             assert response.status_code == status.HTTP_200_OK, response.json()
-            assert modifier not in response.json()["modifiers"]
+            assert "useNewEventsSchema" not in response.json()["modifiers"]
 
-            self.team.modifiers = {modifier: True}
+            self.team.modifiers = {"useNewEventsSchema": True}
             self.team.save()
             response = self.client.patch(
                 f"/api/environments/{self.team.id}",
-                {"modifiers": {modifier: False, "bounceRateDurationSeconds": 30}},
+                {"modifiers": {"useNewEventsSchema": False, "bounceRateDurationSeconds": 30}},
             )
             assert response.status_code == status.HTTP_200_OK, response.json()
-            assert response.json()["modifiers"] == {modifier: True, "bounceRateDurationSeconds": 30}
+            assert response.json()["modifiers"] == {"useNewEventsSchema": True, "bounceRateDurationSeconds": 30}
 
         @parameterized.expand(
             [
-                (
-                    "environments",
-                    {"useNewEventsSchema": True, "bounceRateDurationSeconds": 30},
-                    None,
-                    {"useNewEventsSchema": True},
-                ),
-                (
-                    "projects",
-                    {"useNewEventsSchema": True, "bounceRateDurationSeconds": 30},
-                    None,
-                    {"useNewEventsSchema": True},
-                ),
+                ("environments", {"useNewEventsSchema": True, "bounceRateDurationSeconds": 30}, None, None),
                 ("environments", True, None, None),
                 ("projects", ["useNewEventsSchema"], None, None),
                 ("environments", True, {"bounceRateDurationSeconds": 30}, {"bounceRateDurationSeconds": 30}),
@@ -1919,6 +2146,20 @@ def team_api_test_factory():
             self, config: dict[str, Any] | None, expected_status: int = status.HTTP_200_OK
         ) -> HttpResponse:
             return self._patch_config("session_replay_config", config, expected_status)
+
+        def _deny_flag_access(self, flag: FeatureFlag) -> None:
+            self.organization.available_product_features = [
+                {"name": AvailableFeature.ACCESS_CONTROL, "key": AvailableFeature.ACCESS_CONTROL}
+            ]
+            self.organization.save()
+            self.organization_membership.level = OrganizationMembership.Level.MEMBER
+            self.organization_membership.save()
+            # A flag's creator can always view it, so the flag needs a different creator.
+            flag.created_by = self._create_user("flag-owner@posthog.com")
+            flag.save()
+            AccessControl.objects.create(
+                team=self.team, resource="feature_flag", resource_id=str(flag.id), access_level="none"
+            )
 
         def _assert_linked_flag_config(self, expected_config: dict | None) -> HttpResponse:
             response = self.client.get("/api/environments/@current/")
@@ -3817,6 +4058,97 @@ class TestChangeOrganizationConcurrency(TransactionTestCase):
         assert org_b_departure.detail["changes"][0]["before"] == str(self.org_b.id)
 
 
+class TestRotateSecretTokenConcurrency(TransactionTestCase):
+    """Two rotations of the same team must serialize on the team row lock.
+
+    Without it, both read the same primary before either commits; the second save
+    overwrites the first rotation's token while that token's mirror row keeps
+    authenticating, referenced by no column.
+    """
+
+    LOCK_WAIT_TIMEOUT = 15
+
+    def setUp(self):
+        self.organization = Organization.objects.create(name="Rotation org")
+        # A previous failed run can leave this user behind: the test database survives between runs.
+        User.objects.filter(email="rotator@example.com").delete()
+        self.user = User.objects.create_and_join(
+            organization=self.organization, email="rotator@example.com", password=None
+        )
+        self.project, self.team = Project.objects.create_with_team(
+            name="Concurrent rotation", organization=self.organization, initiating_user=self.user
+        )
+        self.team.secret_api_token = "phs_initial_primary_token_value"
+        self.team.save()
+
+    def _rotate(self, errors: list) -> None:
+        try:
+            Team.objects.get(pk=self.team.pk).rotate_secret_token_and_save(
+                user=self.user, is_impersonated_session=False
+            )
+        except Exception as error:
+            errors.append(error)
+        finally:
+            from django.db import connections
+
+            connections.close_all()
+
+    def test_concurrent_rotations_serialize_on_the_team_lock(self):
+        errors: list[Exception] = []
+        counter_lock = threading.Lock()
+        select_calls = [0]
+        mint_calls = [0]
+        first_rotation_locked = threading.Event()
+        second_rotation_at_lock = threading.Event()
+        release_first_rotation = threading.Event()
+
+        real_select_for_update = Team.objects.select_for_update
+
+        def traced_select_for_update(*args: Any, **kwargs: Any):
+            with counter_lock:
+                select_calls[0] += 1
+                call_number = select_calls[0]
+            if call_number == 2:
+                # The second rotation's get() is about to block on the row lock.
+                second_rotation_at_lock.set()
+            return real_select_for_update(*args, **kwargs)
+
+        def traced_mint(team_id: int, token: str) -> None:
+            create_project_secret_api_key_for_token(team_id, token)
+            with counter_lock:
+                mint_calls[0] += 1
+                call_number = mint_calls[0]
+            if call_number == 1:
+                # Hold the first rotation's transaction open until the second reaches
+                # the lock, so both reads provably overlap.
+                first_rotation_locked.set()
+                if not release_first_rotation.wait(self.LOCK_WAIT_TIMEOUT):
+                    errors.append(AssertionError("Second rotation never reached the team lock"))
+
+        with (
+            patch.object(Team.objects, "select_for_update", traced_select_for_update),
+            patch("posthog.models.team.team.create_project_secret_api_key_for_token", traced_mint),
+        ):
+            first = threading.Thread(target=self._rotate, args=(errors,))
+            first.start()
+            assert first_rotation_locked.wait(self.LOCK_WAIT_TIMEOUT), "First rotation never acquired the team lock"
+
+            second = threading.Thread(target=self._rotate, args=(errors,))
+            second.start()
+            assert second_rotation_at_lock.wait(self.LOCK_WAIT_TIMEOUT), "Second rotation never reached the team lock"
+
+            release_first_rotation.set()
+            first.join(self.LOCK_WAIT_TIMEOUT)
+            second.join(self.LOCK_WAIT_TIMEOUT)
+
+        assert errors == []
+        updated = Team.objects.get(pk=self.team.pk)
+        assert updated.secret_api_token is not None and updated.secret_api_token_backup is not None
+        # Exactly the final primary and backup: no orphaned row keeps authenticating.
+        mirrored = set(ProjectSecretAPIKey.objects.filter(team_id=self.team.id).values_list("secure_value", flat=True))
+        assert mirrored == {hash_key_value(updated.secret_api_token), hash_key_value(updated.secret_api_token_backup)}
+
+
 class TestTeamSerializerHomeViewWins(APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -4096,6 +4428,17 @@ class TestTeamAdminFieldAuthorization(APIBaseTest):
         )
         self.team.refresh_from_db()
         assert getattr(self.team, team_attr) != value
+
+    def test_member_cannot_set_project_logo_via_projects(self) -> None:
+        media = UploadedMedia.objects.create(team=self.team, created_by=self.user, content_type="image/png")
+
+        response = self.client.patch(
+            f"/api/projects/{self.project.id}/", {"logo_media_id": str(media.id)}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        self.project.refresh_from_db()
+        assert self.project.logo_media_id is None
 
     @parameterized.expand(_MEMBER_SAFE_TEAM_CONFIG_FIELDS)
     def test_member_can_still_patch_member_safe_field_via_environments(
@@ -4594,25 +4937,6 @@ class TestTeamSerializerValidationNoDB(SimpleTestCase):
     )
     def test_invalid_session_recording_linked_flag(self, _name: str, value: Any, expected_detail: str) -> None:
         self._assert_field_error("session_recording_linked_flag", value, "invalid", expected_detail)
-
-    # Object-level validate() needs self.context["view"], so a value that passes field validation
-    # can't go through is_valid() here. The static validator is the shared entry point anyway:
-    # ProjectBackwardCompatSerializer.validate_session_recording_linked_flag delegates straight to it.
-    @parameterized.expand(
-        [
-            ["none", None, None],
-            ["integer id", {"id": 123, "key": "flag-key"}, {"id": 123, "key": "flag-key"}],
-            ["numeric string id", {"id": "123", "key": "flag-key"}, {"id": 123, "key": "flag-key"}],
-            [
-                "variant survives normalization",
-                {"id": "123", "key": "flag-key", "variant": "test"},
-                {"id": 123, "key": "flag-key", "variant": "test"},
-            ],
-        ]
-    )
-    def test_valid_session_recording_linked_flag(self, _name: str, value: dict | None, expected: dict | None) -> None:
-        assert TeamSerializer.validate_session_recording_linked_flag(value) == expected
-        assert ProjectBackwardCompatSerializer.validate_session_recording_linked_flag(value) == expected
 
     @staticmethod
     def _trigger_groups_gated_on(flag: Any) -> dict:

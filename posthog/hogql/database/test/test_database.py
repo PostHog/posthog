@@ -456,22 +456,24 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             assert serialized_database.get(table_name) is not None
 
     @parameterized.expand([(True,), (False,)])
-    def test_flag_evaluations_visibility_follows_the_org_flag(self, flag_enabled: bool) -> None:
+    def test_flag_evaluations_visibility_follows_the_table_gate(self, table_enabled: bool) -> None:
         with patch(
             "products.feature_flags.backend.facade.flags.is_flag_evaluations_table_enabled",
-            return_value=flag_enabled,
+            return_value=table_enabled,
         ):
             database = Database.create_for(team=self.team)
             context = HogQLContext(team_id=self.team.pk, database=database)
             serialized = database.serialize(context, include_hidden_posthog_tables=True)
 
-            assert ("posthog.flag_evaluations" in database.get_posthog_table_names(include_hidden=True)) is flag_enabled
-            assert ("posthog.flag_evaluations" in serialized) is flag_enabled
+            assert (
+                "posthog.flag_evaluations" in database.get_posthog_table_names(include_hidden=True)
+            ) is table_enabled
+            assert ("posthog.flag_evaluations" in serialized) is table_enabled
 
             # The person traverser is the part that resolves through a virtual subtable rather than
             # straight to a column, so the query exercises that rather than a bare one.
             query = "SELECT flag_key, person.id, `$group_0` FROM posthog.flag_evaluations"
-            if flag_enabled:
+            if table_enabled:
                 execute_hogql_query(query, team=self.team, pretty=False)
             else:
                 with pytest.raises(QueryError, match="Unknown table"):
@@ -960,6 +962,11 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             f"SELECT whatever.id AS id FROM s3(%(hogql_val_0_sensitive)s, %(hogql_val_3_sensitive)s, %(hogql_val_4_sensitive)s, %(hogql_val_1)s, %(hogql_val_2)s) AS whatever LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0",
         )
 
+    def _load_revenue_analytics_config(self) -> None:
+        # The build reads the revenue analytics config once per Team instance. Load it before counting,
+        # so that the counts cover only the queries that grow with the warehouse rows.
+        _ = self.team.revenue_analytics_config
+
     @snapshot_postgres_queries
     @patch("posthog.hogql.query.sync_execute", return_value=([], []))
     def test_database_with_warehouse_tables_and_saved_queries_n_plus_1(self, patch_execute):
@@ -998,6 +1005,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
                 status=DataWarehouseSavedQuery.Status.COMPLETED,
             )
 
+        self._load_revenue_analytics_config()
         with self.assertNumQueries(max_queries):
             modifiers = create_default_modifiers_for_team(
                 self.team, modifiers=HogQLQueryModifiers(useMaterializedViews=True)
@@ -1307,10 +1315,6 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         config = self.team.revenue_analytics_config
         config.events = [REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT]
         config.save()
-        # Team.revenue_analytics_config memoizes by team pk in a module-level lru_cache, so the
-        # configured object would outlive this test's transaction and leak into later tests
-        # in this class, which share the team pk.
-        self.addCleanup(Team.__dict__["revenue_analytics_config"].fget.cache_clear)
 
     def test_revenue_views_build_only_on_revenue_table_access(self):
         self._configure_revenue_events()
@@ -2337,6 +2341,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         ), query
 
     def test_database_credentials_is_not_n_plus_1(self) -> None:
+        self._load_revenue_analytics_config()
         for i in range(10):
             # we keep adding credentials and tables, number of queries should be stable
             credentials = DataWarehouseCredential.objects.create(
@@ -2363,6 +2368,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         # +2 vs the pre-bulk baseline: one bulk source fetch and one bulk credential fetch replace the
         # per-row source/credential joins (hydrate/decrypt once each, not per table).
         num_queries = FuzzyInt(7, 13)
+        self._load_revenue_analytics_config()
 
         for i in range(10):
             source = ExternalDataSource.objects.create(

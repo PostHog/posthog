@@ -1,5 +1,4 @@
-import logging
-
+import structlog
 import posthoganalytics
 from posthoganalytics.request import APIError, RequestsConnectionError, RequestsTimeout
 
@@ -9,7 +8,7 @@ from products.wizard.backend.logic.registry.config import FALLBACK_REGISTRY, REG
 from products.wizard.backend.logic.registry.parser import parse_registry_payload
 from products.wizard.backend.metrics import report_registry_fallback
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 def get_registry(*, distinct_id: str, organization_id: str) -> tuple[WizardProgram, ...]:
@@ -23,14 +22,14 @@ def get_registry(*, distinct_id: str, organization_id: str) -> tuple[WizardProgr
             send_feature_flag_events=False,
         )
     except (APIError, RequestsConnectionError, RequestsTimeout):
-        logger.warning("wizard_registry_fallback", extra={"reason": "request_failed"}, exc_info=True)
+        logger.warning("wizard_registry_fallback", reason="request_failed", exc_info=True)
         report_registry_fallback("request_failed")
         return FALLBACK_REGISTRY.programs
 
     try:
         registry = parse_registry_payload(payload)
     except ValueError:
-        logger.warning("wizard_registry_fallback", extra={"reason": "invalid_payload"}, exc_info=True)
+        logger.warning("wizard_registry_fallback", reason="invalid_payload", exc_info=True)
         report_registry_fallback("invalid_payload")
         return FALLBACK_REGISTRY.programs
     return registry.programs

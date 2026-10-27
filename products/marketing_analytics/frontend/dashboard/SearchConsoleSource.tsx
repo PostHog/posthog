@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import type { ReactNode } from 'react'
 
 import * as magnifyingGlass from '@posthog/brand/hoggies/png/magnifying-glass'
 import { LemonBanner, LemonButton, LemonCard, LemonTag, Spinner } from '@posthog/lemon-ui'
@@ -15,7 +16,7 @@ import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics
 
 const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlass)
 
-export function SearchConsoleSource(): JSX.Element | null {
+export function SearchConsoleSource({ headerAction }: { headerAction?: ReactNode }): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
     const { dataWarehouseSources } = useValues(marketingAnalyticsLogic)
     const { sourcesLoadError, dataWarehouseSourcesLoading } = useValues(sourcesDataLogic)
@@ -30,7 +31,10 @@ export function SearchConsoleSource(): JSX.Element | null {
     if (!dataWarehouseSources) {
         return (
             <section className="max-w-3xl w-full mx-auto mt-8 mb-6">
-                <h2 className="mb-4">Search performance</h2>
+                <h2 className="mb-4 flex items-center justify-between gap-2">
+                    <span>Search performance</span>
+                    {headerAction}
+                </h2>
                 {sourcesLoadError ? (
                     <LemonBanner
                         type="error"
@@ -74,6 +78,7 @@ export function SearchConsoleSource(): JSX.Element | null {
                         </p>
                     </div>
                     <HedgehogMagnifyingGlass className="w-20 shrink-0" />
+                    {headerAction}
                 </div>
                 <div className="divide-y">
                     {sources.map((source) => (

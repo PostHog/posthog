@@ -3,6 +3,7 @@ import { uuid } from 'lib/utils/dom'
 import { LogsQuery } from '~/queries/schema/schema-general'
 import { PropertyFilterType } from '~/types'
 
+import { MAX_ATTRIBUTE_COLUMN_WIDTH } from 'products/logs/frontend/components/VirtualizedLogsList/layoutUtils'
 import { AttributeColumnConfig, ParsedLogMessage } from 'products/logs/frontend/types'
 
 export type LogsColumnType =
@@ -119,6 +120,25 @@ export function columnsToCustomColumns(columns: LogsColumnConfig[]): LogsQuery['
     // Undefined (not []) when there are no server-computed columns, so the query payload is
     // byte-identical to a pre-custom-columns query and cache keys are unaffected.
     return expressions.length > 0 ? expressions : undefined
+}
+
+/**
+ * Shape columns to what the saved-view serializer accepts. Local column state can hold a
+ * fractional width (from a touch drag, or an unbounded legacy width) and a whitespace-only
+ * name (from the inline editor). The serializer rejects both, and one bad column fails the
+ * whole save, so round and clamp widths and drop blank names.
+ */
+export function columnsForSavedView(columns: LogsColumnConfig[]): LogsColumnConfig[] {
+    return columns.map(({ name, width, ...column }) => {
+        const trimmedName = name?.trim()
+        return {
+            ...column,
+            ...(trimmedName ? { name: trimmedName } : {}),
+            ...(width !== undefined
+                ? { width: Math.min(Math.max(Math.round(width), 1), MAX_ATTRIBUTE_COLUMN_WIDTH) }
+                : {}),
+        }
+    })
 }
 
 function escapeHogQLString(value: string): string {

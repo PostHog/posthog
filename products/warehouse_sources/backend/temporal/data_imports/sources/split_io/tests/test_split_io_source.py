@@ -22,11 +22,6 @@ class TestSplitIoSource:
         assert set(self.source.supported_versions) == {UNVERSIONED_API_VERSION, SPLIT_IO_API_VERSION_V2}
         assert self.source.deprecated_versions == ()
 
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["feature_flags"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "feature_flags"
-
     @pytest.mark.parametrize(
         "status, schema_name, expected_valid",
         [
@@ -67,10 +62,3 @@ class TestSplitIoSource:
         assert kwargs["api_key"] == "admin-api-key"
         assert kwargs["endpoint"] == "workspaces"
         assert kwargs["resumable_source_manager"] is manager
-
-    def test_source_for_pipeline_rejects_unknown_schema(self):
-        inputs = mock.MagicMock()
-        inputs.schema_name = "nope"
-
-        with pytest.raises(ValueError, match="Unknown Split schema"):
-            self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)

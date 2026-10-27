@@ -215,6 +215,7 @@ export const API_SCOPES: APIScope[] = [
     { key: 'heatmap', objectName: 'Heatmap', objectPlural: 'heatmaps' },
     { key: 'hog_flow', objectName: 'Workflow', objectPlural: 'workflows' },
     { key: 'hog_function', objectName: 'Hog function', objectPlural: 'hog functions' },
+    { key: 'inbox', objectName: 'Inbox', objectPlural: 'inbox reports' },
     {
         key: 'ingestion_warning',
         objectName: 'Ingestion warning',
@@ -379,6 +380,7 @@ export const PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION = [
     'billing:read',
     'replay_scanner:write',
     'session_recording:read',
+    'hog_flow:write',
 ] as const
 
 export type ProjectSecretAPIKeyAllowedScope = (typeof PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION)[number]
@@ -608,6 +610,7 @@ export const API_SCOPE_GROUPS: APIScopeGroup[] = [
             'data_catalog_approval',
             'mcp_registry',
             'task',
+            'inbox',
             'today',
             'loop',
             'signal_scout',

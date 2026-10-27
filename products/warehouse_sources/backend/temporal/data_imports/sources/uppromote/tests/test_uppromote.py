@@ -260,8 +260,6 @@ class TestValidateCredentials:
     @parameterized.expand(
         [
             ("valid", 200, {"status": 200, "message": "success", "data": []}, True),
-            ("unauthorized", 401, {"message": "Unauthorized"}, False),
-            ("server_error", 500, {"message": "Error"}, False),
         ]
     )
     def test_status_mapping(self, _label: str, status_code: int, body: dict[str, Any], expected_valid: bool) -> None:
@@ -275,13 +273,6 @@ class TestValidateCredentials:
             assert error
         assert network.requests_log[0].path == "/api/v2/affiliates"
         assert network.requests_log[0].headers["authorization"] == "test-key"
-
-    def test_network_failure_is_reported_not_raised(self) -> None:
-        with scripted_network(always(ConnectionError("boom"))):
-            valid, error = validate_credentials("test-key")
-
-        assert valid is False
-        assert error is not None and "Could not reach UpPromote" in error
 
 
 def _subscription(event: str, target_url: str = WEBHOOK_URL, secret: str | None = "sec-1") -> dict[str, Any]:

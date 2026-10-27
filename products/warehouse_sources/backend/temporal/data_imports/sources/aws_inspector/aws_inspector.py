@@ -23,6 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_inspec
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import BoundedRetry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import probe_status_message
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awsinspector import (
     AwsInspectorSourceConfig,
@@ -60,10 +61,11 @@ class FanOutPosition:
 
 
 class AwsInspectorError(Exception):
-    def __init__(self, code: str, message: str) -> None:
+    def __init__(self, code: str, message: str, status_code: int | None = None) -> None:
         super().__init__(f"AWS Inspector request failed: {code} - {message}")
         self.code = code
         self.message = message
+        self.status_code = status_code
 
 
 def error_for_response(response: requests.Response) -> AwsInspectorError:
@@ -80,7 +82,7 @@ def error_for_response(response: requests.Response) -> AwsInspectorError:
         phrase in message.lower() for phrase in ("not subscribed", "not enabled", "subscription is required")
     ):
         code = "SubscriptionRequiredException"
-    return AwsInspectorError(code, message)
+    return AwsInspectorError(code, message, response.status_code)
 
 
 def error_message(error: AwsInspectorError) -> str | None:
@@ -443,7 +445,7 @@ def validate_credentials(
             if schema_name is None:
                 return True, None
             return False, f"Grant {', '.join(endpoint.iam_actions)} to read this table."
-        message = error_message(error)
+        message = error_message(error) or probe_status_message("AWS Inspector", error.status_code)
         if message:
             return False, message
         raise

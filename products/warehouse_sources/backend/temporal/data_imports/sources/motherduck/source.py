@@ -72,7 +72,7 @@ class MotherduckSource(SQLSource[MotherduckSourceConfig]):
             ),
             iconPath="/static/services/motherduck.png",
             docsUrl="https://posthog.com/docs/cdp/sources/motherduck",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [
@@ -114,6 +114,20 @@ class MotherduckSource(SQLSource[MotherduckSourceConfig]):
             MOTHERDUCK_ERROR_CLASSES["Invalid Input Error"]: _CONNECTION_DETAILS_MESSAGE,
             "Invalid MotherDuck token": None,
             "UNAUTHENTICATED": "Your MotherDuck token is invalid or expired. Generate a new access token and reconnect.",
+            # Raised uncaught from `get_rows`/discovery queries (they run outside `connect()`'s
+            # translation), so the raw DuckDB class prefix reaches here. DuckDB's own local 2GB
+            # `memory_limit` (`DUCKDB_LOCAL_CONFIG`) can raise the identical "Out of Memory Error"
+            # class for a failure entirely on our side, so match the remote duckling's own capacity
+            # guidance rather than the bare class name: that phrase only appears when MotherDuck's
+            # compute instance, not our worker, ran out of memory — a ceiling on the customer's
+            # account, same as the Postgres/MySQL/ClickHouse source-side OOM entries. Retrying
+            # re-runs the same query against the same duckling.
+            "duckling size": (
+                "MotherDuck ran out of memory running this sync's query. This usually means the "
+                "duckling (MotherDuck's compute instance) is too small for the amount of data being "
+                "read. Use a larger duckling size, or narrow the sync (switch to incremental, or "
+                "sync fewer tables/columns), then resync."
+            ),
         }
 
     def get_retryable_errors(self) -> set[str]:

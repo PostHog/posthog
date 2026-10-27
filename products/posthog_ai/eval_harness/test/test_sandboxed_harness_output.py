@@ -7,13 +7,13 @@ import json
 import asyncio
 import logging
 import warnings
+import importlib
 import subprocess
 from collections.abc import Iterator
-from contextlib import contextmanager
 from functools import partial
 from pathlib import Path
 from threading import Event, Thread, get_ident
-from typing import Any, Literal
+from typing import Literal
 from uuid import UUID
 
 import pytest
@@ -30,7 +30,6 @@ from psycopg.errors import AdminShutdown, InvalidPassword
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 
 from products.posthog_ai.eval_harness import base, log_sink
-from products.posthog_ai.eval_harness.acp_log import GenerationDescriptor, ParsedLog
 from products.posthog_ai.eval_harness.config import AgentArtifacts, SandboxedEvalCase
 from products.posthog_ai.eval_harness.engines.types import (
     AggregateScore,
@@ -41,15 +40,16 @@ from products.posthog_ai.eval_harness.engines.types import (
 )
 from products.posthog_ai.eval_harness.harness import reporting
 from products.posthog_ai.eval_harness.harness.cli import SkillDelivery
+from products.posthog_ai.eval_harness.harness.discovery import EvalSuite, discover_suites
 from products.posthog_ai.eval_harness.harness.offline_delivery import OfflineEvalDelivery
 from products.posthog_ai.eval_harness.harness.reporting import ProgressReporter, SuiteRunResult
+from products.posthog_ai.eval_harness.harness.requirements import SuiteKind
 from products.posthog_ai.eval_harness.harness.transcript import RunTranscript
 from products.posthog_ai.eval_harness.harness.trial_stats import ScorerTrialStats
 from products.posthog_ai.eval_harness.offline_results import OfflineEvalSuite
 from products.posthog_ai.eval_harness.one_shot import OneShotEval
 from products.posthog_ai.eval_harness.scorers import ExitCodeZero
 from products.posthog_ai.eval_harness.test.offline_api import OfflineServer
-from products.posthog_ai.evals.sql import eval_sql as sql_eval
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext
 
 
@@ -190,7 +190,7 @@ async def test_reporter_output_is_labeled_and_reserves_pass_for_the_run(
     assert "exit_code_zero: 100.0%" in output
     assert "called_target_tool: 0.0%" in output
     assert "PostHog: https://us.posthog.com/" in output
-    assert "Braintrust: https://experiments.example/e" in output
+    assert "Braintrust:" not in output
     assert f"Agent logs: {tmp_path}" in output
     assert output.count("PASS") == 1
 
@@ -231,7 +231,7 @@ async def test_reporter_output_is_labeled_and_reserves_pass_for_the_run(
                 pass_any=None,
                 flaky_cases=0,
             ),
-            "    s: 72.0% (95% CI 61.0-83.0%)\n  Braintrust",
+            "    s: 72.0% (95% CI 61.0-83.0%)\n",
             id="single_trial",
         ),
         pytest.param(
@@ -267,89 +267,6 @@ async def test_reporter_shows_the_engine_score_with_trial_stats(
     assert expected in capsys.readouterr().out
 
 
-def test_tool_call_spans_carry_the_resolved_tool_and_its_arguments() -> None:
-    trends_query = {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]}
-    parsed = ParsedLog(
-        generations=[
-            GenerationDescriptor(
-                output_content=[
-                    {
-                        "type": "tool_use",
-                        "id": "1",
-                        "name": "mcp__posthog__exec",
-                        "input": {"command": f"call query-trends {json.dumps(trends_query)}"},
-                    }
-                ],
-            )
-        ]
-    )
-
-    spans = _collect_spans(parsed)
-
-    assert spans == [("tool_call: query-trends", [{"tool": "query-trends", "input": trends_query}])]
-
-
-def test_exec_commands_wrapping_no_inner_tool_stay_under_the_raw_name() -> None:
-    parsed = ParsedLog(
-        generations=[
-            GenerationDescriptor(
-                output_content=[
-                    {
-                        "type": "tool_use",
-                        "id": "1",
-                        "name": "mcp__posthog__exec",
-                        "input": {"command": "schema query-trends series"},
-                    }
-                ],
-            )
-        ]
-    )
-
-    spans = _collect_spans(parsed)
-
-    assert spans == [("tool_call: exec", [{"tool": "exec", "input": {"command": "schema query-trends series"}}])]
-
-
-def test_tool_call_spans_are_split_when_one_agent_message_has_multiple_calls() -> None:
-    parsed = ParsedLog(
-        generations=[
-            GenerationDescriptor(
-                output_content=[
-                    {"type": "tool_use", "id": "1", "name": "query-retention", "input": {}},
-                    {"type": "tool_use", "id": "2", "name": "execute-sql", "input": {}},
-                ],
-            )
-        ]
-    )
-
-    spans = _collect_spans(parsed)
-
-    assert spans == [
-        ("tool_call: query-retention", [{"tool": "query-retention", "input": {}}]),
-        ("tool_call: execute-sql", [{"tool": "execute-sql", "input": {}}]),
-    ]
-
-
-def _collect_spans(parsed: ParsedLog) -> list[tuple[str, Any]]:
-    collected: list[tuple[str, Any]] = []
-
-    class _Span:
-        def __init__(self, name: str) -> None:
-            self.name = name
-
-        def log(self, *, input: Any = None, output: Any = None, metadata: Any = None) -> None:
-            if input is not None:
-                collected.append((self.name, input))
-
-    class _Hooks(NullCaseHooks):
-        @contextmanager
-        def start_span(self, name: str, kind: Any) -> Iterator[_Span]:
-            yield _Span(name)
-
-    base._log_conversation_spans(_Hooks(), parsed)
-    return collected
-
-
 def test_sandboxed_eval_run_adds_exit_code_scorer(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setattr(base, "build_case_dir", MagicMock(return_value=tmp_path))
     ctx = MagicMock(posthog_client=None, case_filter=None)
@@ -360,8 +277,6 @@ def test_sandboxed_eval_run_adds_exit_code_scorer(monkeypatch: pytest.MonkeyPatc
         cases=[],
         scorers=[custom_scorer],
         ctx=ctx,
-        is_public=False,
-        no_send_logs=True,
     )
 
     assert isinstance(run.active_scorers[0], ExitCodeZero)
@@ -373,23 +288,22 @@ def test_sandboxed_eval_run_adds_exit_code_scorer(monkeypatch: pytest.MonkeyPatc
             cases=[],
             scorers=[ExitCodeZero()],
             ctx=ctx,
-            is_public=False,
-            no_send_logs=True,
         )
 
 
 @pytest.mark.parametrize(
-    "suite_kind,enrolled,no_send_logs,configuration,http_status,delivery_state",
+    "suite_kind,enrolled,send_to_posthog,configuration,http_status,delivery_state",
     [
-        ("sandboxed", True, False, "valid", 200, "ready"),
-        ("sandboxed", True, False, "valid", 403, "ready"),
-        ("sandboxed", True, False, "invalid", 200, "ready"),
-        ("sandboxed", True, False, "absent", 200, "ready"),
         ("sandboxed", True, True, "valid", 200, "ready"),
-        ("sandboxed", False, False, "valid", 200, "ready"),
+        ("sandboxed", True, True, "valid", 403, "ready"),
+        ("sandboxed", True, True, "invalid", 200, "ready"),
+        ("sandboxed", True, True, "absent", 200, "ready"),
+        ("sandboxed", True, False, "valid", 200, "ready"),
+        ("sandboxed", False, True, "valid", 200, "ready"),
+        ("one-shot", True, True, "valid", 200, "ready"),
         ("one-shot", True, False, "valid", 200, "ready"),
-        ("sandboxed", True, False, "valid", 200, "unavailable"),
-        ("sandboxed", True, False, "valid", 200, "closed"),
+        ("sandboxed", True, True, "valid", 200, "unavailable"),
+        ("sandboxed", True, True, "valid", 200, "closed"),
     ],
 )
 @pytest.mark.asyncio
@@ -399,12 +313,12 @@ async def test_sandboxed_eval_publishes_existing_results_without_disrupting_repo
     capsys: pytest.CaptureFixture[str],
     suite_kind: Literal["sandboxed", "one-shot"],
     enrolled: bool,
-    no_send_logs: bool,
+    send_to_posthog: bool,
     configuration: Literal["valid", "invalid", "absent"],
     http_status: int,
     delivery_state: Literal["ready", "unavailable", "closed"],
 ) -> None:
-    for key in ("API_KEY", "HOST"):
+    for key in ("API_KEY", "HOST", "LOCAL_CONFIG"):
         monkeypatch.delenv(f"POSTHOG_OFFLINE_EVAL_{key}", raising=False)
     monkeypatch.setenv("EXPORT_EVAL_RESULTS", "1")
     monkeypatch.chdir(tmp_path)
@@ -471,8 +385,7 @@ async def test_sandboxed_eval_publishes_existing_results_without_disrupting_repo
             cases=[SandboxedEvalCase(name="example-case", prompt="Run the task")],
             scorers=[],
             ctx=ctx,
-            is_public=not no_send_logs,
-            no_send_logs=no_send_logs,
+            send_to_posthog=send_to_posthog,
             offline_suite=OfflineEvalSuite(
                 key="example/suite",
                 project_id=123,
@@ -493,15 +406,14 @@ async def test_sandboxed_eval_publishes_existing_results_without_disrupting_repo
     await delivery.drain()
     engine.run_experiment.assert_awaited_once()
     engine_spec = engine.run_experiment.call_args.args[0]
-    assert engine_spec.no_send_logs is no_send_logs
-    assert engine_spec.record_scorer_results is (enrolled and not no_send_logs and configuration == "valid")
+    assert engine_spec.record_scorer_results is (enrolled and send_to_posthog and configuration == "valid")
     assert reporter.mean_score() == 1.0
     reporter.print_final_summary([], exit_code=0, fail_under=None, duration_seconds=0)
     output = capsys.readouterr().out
-    assert "Braintrust: https://braintrust.example.com/experiment/test" in output
+    assert "Braintrust:" not in output
     assert "exit_code_zero: 100.0%" in output
     assert not (tmp_path / "offline-pilot" / "latest" / "posthog-offline-upload.json").exists()
-    if enrolled and not no_send_logs and configuration == "valid" and delivery_state == "ready":
+    if enrolled and send_to_posthog and configuration == "valid" and delivery_state == "ready":
         declaration = json.loads(requests[0].content)
         assert declaration["name"] == "offline-pilot"
         assert declaration["expected_item_count"] == 1
@@ -530,34 +442,67 @@ async def test_sandboxed_eval_publishes_existing_results_without_disrupting_repo
             )
             assert reason in output
             assert "Results were not saved for retry." in output
-        elif enrolled and not no_send_logs:
+        elif enrolled and send_to_posthog:
             assert "PostHog offline: disabled:" in output
             assert "POSTHOG_OFFLINE_EVAL_" in output
         else:
             assert "POSTHOG OFFLINE" not in output
 
 
+@pytest.mark.parametrize(
+    "discovered",
+    [
+        suite
+        for suite in discover_suites()
+        if suite.fn.__module__.startswith(("products.posthog_ai.evals.", "products.slack_app.evals."))
+        and hasattr(importlib.import_module(suite.fn.__module__), "offline_suite")
+    ],
+    ids=lambda suite: suite.id,
+)
 @pytest.mark.asyncio
-async def test_sql_suite_enrolls_every_scorer_in_offline_publishing(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_suite_enrolls_every_scorer_in_offline_publishing(
+    monkeypatch: pytest.MonkeyPatch, discovered: EvalSuite
+) -> None:
+    domain, module_name, suite_kind = discovered.domain, discovered.module_name, discovered.kind
+    module = importlib.import_module(discovered.fn.__module__)
+    if domain == "taxonomic_filter":
+        monkeypatch.setattr(module, "system_one_configured", lambda: True)
+        if module_name == "eval_event_match":
+            monkeypatch.setattr(module, "EVENT_MATCH_MODEL", MagicMock())
+        else:
+            monkeypatch.setattr(module, "fetch_search_intent_prompt", MagicMock())
     run = AsyncMock()
-    monkeypatch.setattr(sql_eval, "SandboxedPublicEval", run)
+    runner_kind = "OneShot" if suite_kind == SuiteKind.ONE_SHOT else "Sandboxed"
+    monkeypatch.setattr(module, f"{runner_kind}Eval", run)
 
-    await sql_eval.eval_sql(MagicMock())
+    await discovered.fn(MagicMock(skill_delivery="bundled"))
 
     run.assert_awaited_once()
     suite = run.call_args.kwargs["offline_suite"]
-    assert suite.key == "sql/eval_sql::eval_sql"
-    assert suite.scorer_kinds == {
-        "exit_code_zero": "boolean",
-        "no_persistent_insight_save": "boolean",
-        "execute_sql_called": "boolean",
-        "answer_tool_not_typed_query": "boolean",
-        "querying_posthog_data_skill_loaded": "boolean",
-        "sql_schema_alignment": "numeric",
-        "sql_result_message_alignment": "numeric",
-    }
+    assert suite.key == discovered.id
+    component = (
+        f"slack-app/{module_name.removeprefix('eval_').replace('_', '-')}"
+        if domain == "slack_app"
+        else f"posthog-ai/{domain.replace('_', '-')}"
+    )
+    assert suite.tags == ("team:surfaces", f"component:{component}")
+    if domain == "experiments":
+        assert run.call_args.kwargs["send_to_posthog"] is True
+        assert set(suite.scorer_kinds.values()) == {"boolean"}
+    elif domain == "sql":
+        assert suite.scorer_kinds == {
+            "exit_code_zero": "boolean",
+            "no_persistent_insight_save": "boolean",
+            "execute_sql_called": "boolean",
+            "answer_tool_not_typed_query": "boolean",
+            "querying_posthog_data_skill_loaded": "boolean",
+            "sql_schema_alignment": "numeric",
+            "sql_result_message_alignment": "numeric",
+        }
     configured_names = {scorer._name() for scorer in run.call_args.kwargs["scorers"]}
-    assert set(suite.scorer_kinds) == {"exit_code_zero", *configured_names}
+    if suite_kind == SuiteKind.SANDBOXED:
+        configured_names.add("exit_code_zero")
+    assert set(suite.scorer_kinds) == set(suite.scorer_versions) == configured_names
 
 
 @pytest.mark.parametrize(
@@ -596,14 +541,14 @@ async def test_sandboxed_eval_skill_delivery_sets_the_agent_origin(
     ctx.demo_data.make_context.return_value = sandbox_context
     ctx.provider_strategy.keeps_sandboxes.return_value = False
     setup = MagicMock(return_value={"seeded": True})
-    case = SandboxedEvalCase(name="ordinary-case", prompt="Run the task", interaction_origin=origin, setup=setup)
+    case = SandboxedEvalCase(
+        name="ordinary-case", prompt="Run the task", interaction_origin=origin, setup=setup, inherit_demo_data=False
+    )
     run = base._SandboxedEvalRun(
         experiment_name="skill-delivery-test",
         cases=[case] if has_original else [],
         scorers=[],
         ctx=ctx,
-        is_public=False,
-        no_send_logs=True,
     )
     launch = AsyncMock(return_value=base.EvalCaseResult(artifacts=AgentArtifacts(exit_code=0)))
     monkeypatch.setattr(base, "run_eval_case", launch)
@@ -613,7 +558,11 @@ async def test_sandboxed_eval_skill_delivery_sets_the_agent_origin(
 
     launched_context = launch.call_args.args[1]
     assert launched_context.interaction_origin == expected_origin
+    assert launched_context.system_prompt == (
+        dict(base.PromptService.build()) if expected_origin == "posthog_ai" else None
+    )
     assert ctx.demo_data.make_context.call_args.kwargs["disable_bundled_skills"] == (delivery == "exec")
+    assert ctx.demo_data.make_context.call_args.kwargs["inherit_demo_data"] == (not has_original)
     if has_original:
         assert setup.call_args.args[0].interaction_origin == expected_origin
         assert seed == {"seeded": True}
@@ -780,8 +729,6 @@ async def test_case_setup_retries_use_fresh_data_and_report_one_outcome(
         cases=[case],
         scorers=[],
         ctx=ctx,
-        is_public=False,
-        no_send_logs=True,
     )
     launch = AsyncMock(
         side_effect=failure if stage == "agent" else None,
@@ -824,15 +771,21 @@ async def test_case_setup_retries_use_fresh_data_and_report_one_outcome(
 @pytest.mark.asyncio
 @pytest.mark.parametrize("agent_error", [None, RuntimeError("agent failed"), asyncio.CancelledError()])
 @pytest.mark.parametrize("reporting_phase", ["agent", "cleanup"])
+@pytest.mark.parametrize("custom_runner", [False, True])
 async def test_kernel_cleanup_preserves_case_outcome_when_progress_fails(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, agent_error: BaseException | None, reporting_phase: str
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    agent_error: BaseException | None,
+    reporting_phase: str,
+    custom_runner: bool,
 ) -> None:
     monkeypatch.setattr(base, "build_case_dir", MagicMock(return_value=tmp_path))
     ctx = MagicMock(posthog_client=None, case_filter=None, sandbox_slots=asyncio.Semaphore(1))
     ctx.per_case_timeout_seconds = 30
     ctx.provider_strategy.keeps_sandboxes.return_value = False
     case = SandboxedEvalCase(name="case", prompt="Run the task")
-    run = base._SandboxedEvalRun("cleanup", [case], [], ctx, is_public=False, no_send_logs=True)
+    launch = AsyncMock()
+    run = base._SandboxedEvalRun("cleanup", [case], [], ctx, case_runner=launch if custom_runner else None)
     context = CustomPromptSandboxContext(team_id=1, user_id=2)
     monkeypatch.setattr(
         run, "_prepare_case", AsyncMock(return_value=base._SandboxedCaseSetup(context=context, seed={}))
@@ -846,7 +799,11 @@ async def test_kernel_cleanup_preserves_case_outcome_when_progress_fails(
     hooks = NullCaseHooks()
     hooks.metadata["trial_id"] = "trial"
     result = base.EvalCaseResult(artifacts=AgentArtifacts(exit_code=0))
-    monkeypatch.setattr(base, "run_eval_case", AsyncMock(return_value=result, side_effect=agent_error))
+    launch.return_value = result
+    launch.side_effect = agent_error
+    monkeypatch.setattr(
+        base, "run_eval_case", AsyncMock(side_effect=AssertionError("Default runner used")) if custom_runner else launch
+    )
     cleanup = AsyncMock()
     monkeypatch.setattr(base, "reclaim_kernels", cleanup)
 
@@ -866,11 +823,14 @@ async def test_kernel_cleanup_preserves_case_outcome_when_progress_fails(
 async def test_sandboxed_trials_keep_separate_logs_and_trace_roots(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    class ProductArtifacts(AgentArtifacts):
+        report_id: str
+
     monkeypatch.delenv("EXPORT_EVAL_RESULTS", raising=False)
     monkeypatch.setattr(base, "build_case_dir", lambda *_: tmp_path)
     ctx = MagicMock(posthog_client=None, reporter=ProgressReporter(total_suites=1))
     ctx.trials = 3
-    run = base._SandboxedEvalRun("trials", [], [], ctx, is_public=False, no_send_logs=True)
+    run = base._SandboxedEvalRun("trials", [], [], ctx)
     run.posthog_client = MagicMock()
     results = []
     for index in range(3):
@@ -893,9 +853,14 @@ async def test_sandboxed_trials_keep_separate_logs_and_trace_roots(
         output = await run._post_process(
             SandboxedEvalCase(name="same-case", prompt="Run the task"),
             hooks,
-            base.EvalCaseResult(artifacts=AgentArtifacts(exit_code=0), raw_log=raw_log, trace_id=f"trace-{index}"),
+            base.EvalCaseResult(
+                artifacts=ProductArtifacts(exit_code=0, report_id=f"report-{index}"),
+                raw_log=raw_log,
+                trace_id=f"trace-{index}",
+            ),
             {},
         )
+        assert output["report_id"] == f"report-{index}"
         results.append(
             CaseResult(input={"name": "same-case"}, output=output, scores={"score": index / 2}, metadata=hooks.metadata)
         )
@@ -906,6 +871,8 @@ async def test_sandboxed_trials_keep_separate_logs_and_trace_roots(
         )
     )
     for index in range(3):
+        artifacts = json.loads((tmp_path / f"same-case.trial-trial-{index}.artifacts.json").read_text())
+        assert artifacts["report_id"] == f"report-{index}"
         summary = (tmp_path / f"same-case.trial-trial-{index}.summary.txt").read_text()
         assert f"trace_id: trace-{index}" in summary
         assert json.loads(summary.split("=== scores ===\n")[1]) == {"score": index / 2}

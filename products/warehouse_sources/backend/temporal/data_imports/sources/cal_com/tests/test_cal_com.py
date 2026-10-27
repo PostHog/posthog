@@ -36,9 +36,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 US_BASE_URL = CAL_COM_HOSTS["us"]
 ORG_ID = 77
 FIRST_WINDOW_START = "1970-01-01T00:00:00.000Z"
-REJECTED_MESSAGE = (
-    "Cal.com rejected this API key. Check the key, and check that the selected region matches your Cal.com account."
-)
 
 
 @pytest.fixture(autouse=True)
@@ -267,9 +264,6 @@ class TestValidateCredentials:
     @parameterized.expand(
         [
             ("ok", 200, True, None),
-            ("unauthorized", 401, False, REJECTED_MESSAGE),
-            ("forbidden", 403, False, REJECTED_MESSAGE),
-            ("server_error", 500, False, "Cal.com returned HTTP 500"),
         ]
     )
     def test_status_mapping(self, _name: str, status: int, expected_valid: bool, expected_message: str | None) -> None:

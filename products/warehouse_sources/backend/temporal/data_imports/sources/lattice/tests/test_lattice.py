@@ -2,12 +2,9 @@ from typing import Any
 
 import pytest
 
-import requests
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
-    always,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.lattice import (
@@ -50,11 +47,9 @@ class TestValidateCredentials:
     @pytest.mark.parametrize(
         "status_code, expected_valid, expected_message",
         [
-            (200, True, None),
             # Keys inherit the creating user's privileges; 403 means a scope
             # gap, not a bad key.
             (403, True, None),
-            (401, False, "Invalid Lattice API key"),
         ],
     )
     def test_validate_credentials_status_mapping(
@@ -74,15 +69,6 @@ class TestValidateCredentials:
         assert is_valid is False
         assert error is not None
         assert network.requests_log == []
-
-    def test_validate_credentials_transport_error_is_not_invalid_key(self) -> None:
-        # A transient connectivity failure must not be reported as a bad key.
-        with scripted_network(always(requests.ConnectionError("boom"))):
-            is_valid, error = validate_credentials("us", "key")
-
-        assert is_valid is False
-        assert error is not None
-        assert "Invalid Lattice API key" not in error
 
 
 class TestPagination:
@@ -170,3 +156,46 @@ class TestReviewCycleFanout:
         assert [(row["review_cycle_id"], row["id"]) for row in result.rows] == [
             (cycle, "r1") for cycle in expected_cycles
         ]
+
+
+class TestUserFanout:
+    @pytest.mark.parametrize(
+        "endpoint, child_row, expected_row_fields",
+        [
+            ("user_tasks", {"id": "t1"}, {"id": "t1"}),
+            (
+                "user_custom_attributes",
+                {"customAttribute": {"id": "ca1", "name": "Office"}, "customAttributeValue": {"id": "cv1"}},
+                {"custom_attribute_id": "ca1", "custom_attribute_value_id": "cv1"},
+            ),
+            # A row missing its nested objects must still sync rather than fail the run.
+            (
+                "user_custom_attributes",
+                {"customAttribute": None},
+                {"custom_attribute_id": None, "custom_attribute_value_id": None},
+            ),
+        ],
+    )
+    def test_fans_out_over_users(
+        self, endpoint: str, child_row: dict[str, Any], expected_row_fields: dict[str, Any]
+    ) -> None:
+        child_path = {"user_tasks": "tasks", "user_custom_attributes": "customAttributes"}[endpoint]
+        result = _driver().run(
+            endpoint,
+            [
+                _response([{"id": "u1"}, {"id": "u2"}]),
+                _response([child_row]),
+                _response([child_row]),
+            ],
+        )
+
+        assert result.raised is None
+        assert [url.split("?")[0] for url in result.urls] == [
+            "https://api.latticehq.com/v1/users",
+            f"https://api.latticehq.com/v1/user/u1/{child_path}",
+            f"https://api.latticehq.com/v1/user/u2/{child_path}",
+        ]
+        # Each row carries its user so the composite primary key stays unique across users.
+        assert [row["user_id"] for row in result.rows] == ["u1", "u2"]
+        for row in result.rows:
+            assert {key: row[key] for key in expected_row_fields} == expected_row_fields

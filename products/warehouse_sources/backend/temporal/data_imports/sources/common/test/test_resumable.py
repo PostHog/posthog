@@ -4,6 +4,7 @@ import threading
 import pytest
 from unittest.mock import MagicMock, patch
 
+import fakeredis
 import redis.exceptions as redis_exceptions
 
 from posthog.dataclasses import frozen
@@ -26,8 +27,14 @@ class _SweepPosition:
     cursor: str | None = None
 
 
-def _manager() -> ResumableSourceManager[_SweepPosition]:
-    return ResumableSourceManager[_SweepPosition](MagicMock(team_id=1, job_id="job-1"), _SweepPosition)
+def _manager(job_id: str = "job-1") -> ResumableSourceManager[_SweepPosition]:
+    return ResumableSourceManager[_SweepPosition](MagicMock(team_id=1, job_id=job_id), _SweepPosition)
+
+
+def _commit(manager: ResumableSourceManager[_SweepPosition], cursor: str) -> None:
+    manager.save_state(_SweepPosition(cursor=cursor))
+    manager.confirm()
+    manager.commit()
 
 
 class TestResolveResumeManager:
@@ -193,6 +200,51 @@ class TestResumableSourceManager:
 
         redis.connection_pool.disconnect.assert_called_once()
         assert redis.delete.call_count == 2
+
+
+class TestContinueFromJob:
+    @pytest.fixture(autouse=True)
+    def _fake_redis(self):
+        client = fakeredis.FakeRedis()
+        with patch.object(ResumableSourceManager, "_get_redis") as get_redis:
+            get_redis.return_value.__enter__.return_value = client
+            yield
+
+    def test_the_next_job_resumes_from_every_cursor_the_interrupted_job_committed(self):
+        interrupted = _manager("job-1")
+        _commit(interrupted, "ch_100")
+        _commit(interrupted.with_namespace("refunds"), "re_7")
+
+        next_job = _manager("job-2")
+        assert next_job.continue_from_job("job-1") is True
+
+        assert next_job.load_state() == _SweepPosition(cursor="ch_100")
+        assert next_job.with_namespace("refunds").load_state() == _SweepPosition(cursor="re_7")
+
+    def test_a_cursor_the_job_committed_itself_is_not_replaced(self):
+        _commit(_manager("job-1"), "ch_100")
+        next_job = _manager("job-2")
+        next_job.continue_from_job("job-1")
+        _commit(next_job, "ch_50")
+
+        assert next_job.continue_from_job("job-1") is False
+
+        assert next_job.load_state() == _SweepPosition(cursor="ch_50")
+
+    def test_a_later_execution_does_not_bring_back_a_namespace_the_job_cleared(self):
+        interrupted = _manager("job-1")
+        _commit(interrupted, "ch_100")
+        _commit(interrupted.with_namespace("refunds"), "re_7")
+        next_job = _manager("job-2")
+        next_job.continue_from_job("job-1")
+        next_job.with_namespace("refunds").clear_state()
+        next_job.clear_state()
+        _commit(next_job.with_namespace("disputes"), "dp_3")
+
+        assert next_job.continue_from_job("job-1") is False
+
+        assert next_job.with_namespace("refunds").load_state() is None
+        assert next_job.load_state() is None
 
 
 class TestResumeCoversRun:

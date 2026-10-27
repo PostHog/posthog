@@ -9,9 +9,12 @@ import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 
 import { BroadcastPayload, isBroadcastPayload } from './navPanelAdShared'
 import { NavPanelBroadcastAd } from './NavPanelBroadcastAd'
+import { NavPanelMcpAd } from './NavPanelMcpAd'
 import { NavPanelProductPushAd } from './NavPanelProductPushAd'
 import { navPanelProductPushLogic } from './navPanelProductPushLogic'
 
+// Growth owns this sidebar promotion slot and every card in it. Other teams must not add cards to the slot
+// or change which card wins it. Ask #team-growth to run a promotion for your product instead.
 export function NavPanelAdvertisement(): JSX.Element | null {
     const { activeCampaign } = useValues(navPanelProductPushLogic)
     const { isLayoutNavCollapsed } = useValues(panelLayoutLogic)
@@ -34,6 +37,11 @@ export function NavPanelAdvertisement(): JSX.Element | null {
     // user's "no product suggestions" setting.
     if (isCloudOrDev && activeCampaign && user?.allow_sidebar_suggestions !== false) {
         return <NavPanelProductPushAd campaign={activeCampaign} />
+    }
+
+    // Fills the gaps between campaigns. The MCP server only serves cloud and dev instances.
+    if (isCloudOrDev && user) {
+        return <NavPanelMcpAd />
     }
 
     return null

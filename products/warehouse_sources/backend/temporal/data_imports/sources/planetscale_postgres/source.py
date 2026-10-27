@@ -124,7 +124,7 @@ class PlanetScalePostgresSource(PostgresSource):
             iconPath="/static/services/planetscale.svg",
             docsUrl="https://posthog.com/docs/cdp/sources/planetscale",
             fields=fields,
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
         )
 
     def validate_credentials(

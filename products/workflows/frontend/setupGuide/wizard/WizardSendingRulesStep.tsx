@@ -60,7 +60,7 @@ export function WizardSendingRulesStep(): JSX.Element {
         <div className="flex flex-col gap-6">
             <SendingRule
                 title="Frequency cap"
-                description="The most marketing emails one person gets across all workflows and broadcasts. Transactional email is never capped."
+                description="The most marketing emails one person gets across all workflows and broadcasts. Transactional email is never capped. When you schedule a broadcast, its calendar suggests a day within this cap. With no cap, it keeps sends to the same people 2 days apart."
             >
                 <LemonRadio
                     value={shownFrequencyCapChoice}

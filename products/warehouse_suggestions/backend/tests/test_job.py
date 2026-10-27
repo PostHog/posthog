@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import UTC, date, datetime, time, timedelta
 from uuid import uuid4
 
@@ -11,10 +12,11 @@ from products.warehouse_suggestions.backend.facade.enums import (
     WarehouseSuggestionKind,
     WarehouseSuggestionStatus,
 )
-from products.warehouse_suggestions.backend.logic.job import TeamRunStatus, run_team
+from products.warehouse_suggestions.backend.logic.job import TeamRunStatus, build_context, run_team
 from products.warehouse_suggestions.backend.logic.reads import RollupDays
 from products.warehouse_suggestions.backend.logic.rules import RULES
 from products.warehouse_suggestions.backend.models import WarehouseSuggestion, WarehouseSuggestionTeamConfig
+from products.warehouse_suggestions.backend.tests.factories import team_reads
 from products.warehouse_suggestions.backend.tests.rollup import RollupRead, seed_reads
 from products.warehouse_suggestions.backend.tests.test_suggestions import ingest_one, make_draft
 
@@ -22,6 +24,11 @@ TODAY = date.today()
 NOW = datetime.combine(TODAY, time(hour=9), tzinfo=UTC)
 BEFORE_THE_WINDOW = NOW - timedelta(days=2 * RULES.window_days)
 SCENES = ("SQLEditor", "Dashboard")
+DAILY_COUNTS = "SELECT toStartOfDay(timestamp) AS day, count() AS c FROM events GROUP BY day"
+DAILY_COUNT_COLUMNS = {
+    "day": {"hogql": "DateTimeDatabaseField", "clickhouse": "DateTime64(6, 'UTC')"},
+    "c": {"hogql": "IntegerDatabaseField", "clickhouse": "UInt64"},
+}
 FULL_ROLLUP = RollupDays(days_with_data=RULES.window_days, recent_days_with_data=RULES.lifecycle.expire_after_days)
 
 
@@ -47,6 +54,9 @@ class TestRunTeam(ClickhouseTestMixin, BaseTest):
     def test_proposes_each_kind_from_a_month_of_reads_and_surfaces_them(self) -> None:
         dag = DAG.objects.create(team=self.team, name="Default")
         busy, busy_node = self._view("busy_orders", dag)
+        DataWarehouseSavedQuery.objects.filter(id=busy.id).update(
+            query={"kind": "HogQLQuery", "query": DAILY_COUNTS}, columns=DAILY_COUNT_COLUMNS
+        )
         for name, properties in [("events", {"origin": "posthog"}), ("legacy_orders", {})]:
             table = Node.objects.create(team=self.team, dag=dag, name=name, type=NodeType.TABLE, properties=properties)
             Edge.objects.create(team=self.team, dag=dag, source=table, target=busy_node)
@@ -93,6 +103,11 @@ class TestRunTeam(ClickhouseTestMixin, BaseTest):
         materialize = WarehouseSuggestion.objects.for_team(self.team.pk).get(kind=WarehouseSuggestionKind.MATERIALIZE)
         assert (materialize.payload["refresh_interval_seconds"], materialize.run_id) == (24 * 60 * 60, "run-1")
         assert [source["name"] for source in materialize.payload["live_sources"]] == ["events"]
+        assert (
+            materialize.payload["refresh_mode"],
+            materialize.payload["incremental_key"],
+            materialize.payload["unique_key"],
+        ) == ("incremental", "day", ["day"])
 
     @parameterized.expand(
         [
@@ -136,3 +151,23 @@ class TestRunTeam(ClickhouseTestMixin, BaseTest):
             about_a_deleted_view.status,
             about_a_deleted_view.asset_outcome,
         ) == (TeamRunStatus.NOT_ELIGIBLE, False, True, expected_status, expected_asset_outcome)
+
+
+class TestFlipCooldown(BaseTest):
+    def test_only_accepts_inside_the_cooldown_hold_off_the_opposite_kind(self) -> None:
+        recent, old = uuid4(), uuid4()
+        for subject_id, days_ago in [(recent, 10), (old, 40)]:
+            row = ingest_one(
+                self.team.pk,
+                replace(
+                    make_draft(fingerprint=f"materialize:{subject_id}", subject_id=subject_id),
+                    kind=WarehouseSuggestionKind.MATERIALIZE,
+                ),
+            )
+            WarehouseSuggestion.objects.for_team(self.team.pk).filter(id=row.id).update(
+                status=WarehouseSuggestionStatus.ACCEPTED, reviewed_at=NOW - timedelta(days=days_ago)
+            )
+
+        candidate_context = build_context(self.team, team_reads({}), run_id="run-1", rules=RULES, now=NOW)
+
+        assert candidate_context.recent_accepts == {WarehouseSuggestionKind.MATERIALIZE: frozenset({recent})}

@@ -19,7 +19,7 @@ from django.test import SimpleTestCase, override_settings
 
 from nanoid import generate
 from parameterized import parameterized
-from rest_framework import status
+from rest_framework import serializers, status
 
 from posthog.hogql.constants import DEFAULT_RETURNED_ROWS
 
@@ -42,6 +42,8 @@ from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.api.survey import (
     SURVEY_APPEARANCE_HTML_FIELDS,
     SurveyAppearanceSchemaSerializer,
+    SurveyOpenQuestionSchemaSerializer,
+    SurveySerializerCreateUpdateOnly,
     get_survey_api_translations,
     get_surveys_response,
     nh3_clean_with_allow_list,
@@ -5130,6 +5132,22 @@ class TestGetSurveyConditionsActionSanitization(SimpleTestCase):
         assert value["name"] == "person subscribed"
 
 
+class TestSurveyQuestionSchema(SimpleTestCase):
+    @parameterized.expand([("validation", True), ("translations", False)])
+    def test_nullability_matches_runtime_validation(self, field: str, allows_null: bool) -> None:
+        question = {"type": "open", "question": "How was your experience?", field: None}
+        runtime_serializer = SurveySerializerCreateUpdateOnly()
+        schema_serializer = SurveyOpenQuestionSchemaSerializer(data=question)
+
+        if allows_null:
+            assert runtime_serializer.validate_questions([question]) == [question]
+        else:
+            with pytest.raises(serializers.ValidationError, match="translations must be an object"):
+                runtime_serializer.validate_questions([question])
+
+        assert schema_serializer.is_valid() == allows_null, schema_serializer.errors
+
+
 class TestSurveyAppearanceSchema(SimpleTestCase):
     def test_documented_schema_keeps_every_supported_appearance_key(self) -> None:
         appearance = {
@@ -6440,6 +6458,48 @@ class TestSurveyStats(ClickhouseTestMixin, APIBaseTest):
         error_data = response.json()
         self.assertIn("Feature flag variant 'invalid_option' does not exist", error_data["detail"])
         self.assertIn("Available variants: option_1, option_2", error_data["detail"])
+
+    @parameterized.expand(
+        [
+            ("stale_variant_without_flag", False, {}, None),
+            ("explicit_unlink", True, {"linked_flag_id": None}, None),
+            ("partial_update_keeps_linked_flag", True, {}, "alpha"),
+        ]
+    )
+    def test_update_survey_with_linked_flag_variant_and_no_flag_in_payload(
+        self, _name: str, instance_has_flag: bool, extra_payload: dict, expected_variant: str | None
+    ) -> None:
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="stale-variant-flag",
+            created_by=self.user,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {
+                    "variants": [{"key": "alpha", "rollout_percentage": 50}, {"key": "beta", "rollout_percentage": 50}]
+                },
+            },
+        )
+        survey = Survey.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Stale Variant Survey",
+            type="popover",
+            questions=[{"type": "open", "question": "Initial question"}],
+            linked_flag=flag if instance_has_flag else None,
+            conditions={"linkedFlagVariant": "alpha", "url": "https://example.com"},
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={"conditions": {"linkedFlagVariant": "alpha", "url": "https://example.com"}, **extra_payload},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        conditions = response.json()["conditions"]
+        self.assertEqual(conditions.get("linkedFlagVariant"), expected_variant)
+        self.assertEqual(conditions["url"], "https://example.com")
 
 
 class TestSurveyQuestionLabels(APIBaseTest):

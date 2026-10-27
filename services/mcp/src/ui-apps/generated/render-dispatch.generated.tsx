@@ -50,10 +50,14 @@ import { TraceSpanListView, TraceSpanView, type TraceSpanData, type TraceSpanLis
 import {
     EmailTemplateView,
     WorkflowListView,
+    WorkflowSendingRulesView,
+    WorkflowSetupStatusView,
     WorkflowView,
     type EmailTemplateData,
     type WorkflowData,
     type WorkflowListData,
+    type WorkflowSendingRulesData,
+    type WorkflowSetupStatusData,
 } from 'products/workflows/mcp/apps'
 
 import type { UiAppKey } from '../../resources/ui-apps.generated'
@@ -446,4 +450,8 @@ export const RENDER_DISPATCH: Partial<Record<UiAppKey, (props: RenderDispatchPro
     ),
     workflow: ({ data }) => <WorkflowView workflow={data as WorkflowData} />,
     'workflow-list': ({ data, app }) => <WorkflowListContent data={data as WorkflowListData} app={app} />,
+    'workflow-sending-rules': ({ data }) => <WorkflowSendingRulesView data={data as WorkflowSendingRulesData} />,
+    'workflow-setup-status': ({ data, openLink }) => (
+        <WorkflowSetupStatusView data={data as WorkflowSetupStatusData} openLink={openLink} />
+    ),
 }

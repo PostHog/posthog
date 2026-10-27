@@ -13,6 +13,7 @@ from django.utils.text import slugify
 import structlog
 import posthoganalytics
 
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.models import Team, User
@@ -23,7 +24,14 @@ from posthog.user_permissions import UserPermissions
 
 from products.signals.backend.agent_runtime import STEP_IMPLEMENTATION, resolve_agent_runtime
 from products.signals.backend.artefact_attribution import ArtefactAttribution
-from products.signals.backend.artefact_schemas import AutostartSkip, ImplementationDispatch, ImplementationReplacement
+from products.signals.backend.artefact_schemas import (
+    AutostartSkip,
+    ImplementationDispatch,
+    ImplementationReplacement,
+    ReviewerState,
+    SuggestedReviewerEntry,
+)
+from products.signals.backend.assignment_flags import assignment_side_effects_allowed, assignment_writer_enabled
 from products.signals.backend.billing import (
     BillingExemptionError,
     mark_report_billing_exempt,
@@ -60,6 +68,7 @@ from products.signals.backend.report_generation.resolve_reviewers import (
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.report_steering import NO_STEERING, ReportSteering, load_report_steering
 from products.signals.backend.report_urls import ReportLinkSource, build_report_url
+from products.signals.backend.reviewer_rules import ReviewerRules, contains_reviewer
 from products.signals.backend.scout_authorship import report_is_from_background_scout, resolve_touching_scout_skills
 from products.signals.backend.scout_harness.skill_loader import resolve_skill_owner_user_uuids
 from products.signals.backend.signal_metadata import (
@@ -428,11 +437,16 @@ def _build_autostart_task_description(
     )
 
 
-def _fetch_source_references(team_id: int, report_id: str) -> list[SignalSourceReference]:
+def _fetch_source_references(
+    team_id: int,
+    report_id: str,
+    *,
+    ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
+) -> list[SignalSourceReference]:
     """PR traceability is best-effort: a ClickHouse hiccup here must not block auto-start."""
     try:
         team = Team.objects.get(pk=team_id)
-        return fetch_source_references_for_report(team, report_id)
+        return fetch_source_references_for_report(team, report_id, ch_user=ch_user)
     except Exception:
         logger.exception("signals auto-start source reference fetch failed", report_id=report_id, team_id=team_id)
         return []
@@ -458,11 +472,18 @@ def _stamp_billing_exemption(report: SignalReport, declared_reason: str | None) 
     return report.billing_exempt_reason
 
 
-def _capture_billing_exempted(*, team: Team, report_id: str, reason: str, task_id: str) -> None:
+def _capture_billing_exempted(
+    *,
+    team: Team,
+    report_id: str,
+    reason: str,
+    task_id: str,
+    ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
+) -> None:
     """`signals_pr_billing_exempted` — exempt volume is a cost signal for the weekly refund review."""
     try:
         source_products: list[str] = []
-        meta = fetch_source_products_for_reports(team, [report_id]).get(report_id)
+        meta = fetch_source_products_for_reports(team, [report_id], ch_user=ch_user).get(report_id)
         if meta is not None:
             source_products = meta.source_products
         posthoganalytics.capture(
@@ -742,6 +763,8 @@ def _create_implementation_task_if_absent(
     dispatch: ImplementationDispatch | None = None,
     requested_after_run_count: int | None = None,
     runner_source: str = "requested",
+    expected_reviewers: ReviewerState | None = None,
+    ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
 ) -> bool | AutostartSkip:
     """Create the implementation task and record it (gate row + work-log artefact), serialized per report.
 
@@ -776,6 +799,13 @@ def _create_implementation_task_if_absent(
         report = SignalReport.objects.select_for_update().filter(id=report_id, team_id=team_id).first()
         if report is None:
             return False
+        if not assignment_side_effects_allowed(team_id=team_id, report_id=report_id):
+            return False
+        if (
+            expected_reviewers is not None
+            and ReviewerRules.read_for_report(team_id=team_id, report_id=report_id).state != expected_reviewers
+        ):
+            raise ReportChangedDuringAutostart("Reviewers changed before task creation")
         if ImplementationReportContent.from_report(report) != expected_content:
             raise ReportChangedDuringAutostart("Report changed before its implementation task could start")
         if requested_after_run_count is not None and (
@@ -928,7 +958,9 @@ def _create_implementation_task_if_absent(
     if exempt_reason and task_id:
         # After commit: the exempt report's implementation task exists — count it (includes a
         # best-effort ClickHouse lookup, so it must not run under the lock).
-        _capture_billing_exempted(team=team, report_id=report_id, reason=exempt_reason, task_id=task_id)
+        _capture_billing_exempted(
+            team=team, report_id=report_id, reason=exempt_reason, task_id=task_id, ch_user=ch_user
+        )
     if task_id:
         _capture_steering_attached(
             team=team, report_id=report_id, task_id=task_id, steering=steering, runner_source=runner_source
@@ -936,7 +968,11 @@ def _create_implementation_task_if_absent(
     return True
 
 
-def start_requested_implementation(request: RequestedImplementation) -> str:
+def start_requested_implementation(
+    request: RequestedImplementation,
+    *,
+    ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
+) -> str:
     team = Team.objects.select_related("organization").get(id=request.team_id)
     user = User.objects.filter(id=request.user_id, is_active=True, organization__id=team.organization_id).first()
     if user is None or UserPermissions(user=user, team=team).current_team.effective_membership_level is None:
@@ -1031,7 +1067,7 @@ def start_requested_implementation(request: RequestedImplementation) -> str:
                 summary=report.summary,
                 repository=repo_selection.repository,
                 priority=priority,
-                source_references=_fetch_source_references(request.team_id, request.report_id),
+                source_references=_fetch_source_references(request.team_id, request.report_id, ch_user=ch_user),
                 steering=steering,
             ),
             expected_content=expected_content,
@@ -1041,6 +1077,7 @@ def start_requested_implementation(request: RequestedImplementation) -> str:
             steering=steering,
             free_trial_enabled=self_driving_free_trial_enabled(team),
             requested_after_run_count=request.after_run_count,
+            ch_user=ch_user,
         )
         if not created:
             raise RequestedImplementationUnavailable("Another implementation started before this request")
@@ -1326,6 +1363,7 @@ async def maybe_autostart_implementation_task(
     implementation_decision: ImplementationDecision | None = None,
     remaining_retries: int = 2,
     dispatch: ImplementationDispatch | None = None,
+    ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
 ) -> AutostartOutcome:
     """Start an implementation Task for a SignalReport if autonomy + priority allow it.
 
@@ -1374,6 +1412,9 @@ async def maybe_autostart_implementation_task(
     their report and artefacts. Callers should wrap this in try/except so an
     autostart failure does not fail the report itself.
     """
+    if not await database_sync_to_async(assignment_side_effects_allowed)(team_id=team_id, report_id=report_id):
+        return AutostartOutcome(status="cancelled", reason="Assignment side effects are disabled")
+
     # Cheap pre-check to skip the expensive assignee resolution when a task already exists;
     # the authoritative, race-free check happens under the lock below.
     task_exists = bool(
@@ -1385,11 +1426,42 @@ async def maybe_autostart_implementation_task(
     if report is None:
         logger.info("self-driving auto-start skipped", report_id=report_id, team_id=team_id, reason="report gone")
         return AutostartOutcome(status="cancelled", reason="Report no longer exists")
+    assignment = await database_sync_to_async(ReviewerRules.read_for_report)(team_id=team_id, report_id=report_id)
+    if (
+        assignment.state.corrections_id is None
+        and assignment.corrections.needs_review
+        and await database_sync_to_async(assignment_writer_enabled)(team_id)
+    ):
+        return AutostartOutcome(
+            status="blocked", reason="Older reviewer edits need recovery before automatic execution"
+        )
+    if assignment.state.corrections_id is not None:
+        reviewers_content, triggering_user_id = await _latest_reviewers_content(report_id)
+        if triggering_user_id is None and (
+            assignment.corrections.pinned or assignment.corrections.excluded or assignment.corrections.needs_review
+        ):
+            # A pin records routing intent, not permission to run with that member's credentials.
+            reviewers_content = [
+                entry
+                for entry in reviewers_content
+                if not contains_reviewer(
+                    assignment.corrections.pinned,
+                    SuggestedReviewerEntry(user_uuid=entry.get("user_uuid"), github_login=entry.get("github_login")),
+                )
+            ]
+            if assignment.corrections.needs_review or not reviewers_content:
+                return AutostartOutcome(
+                    status="blocked", reason="No automatic reviewer remains after human corrections"
+                )
     expected_content = ImplementationReportContent.from_report(report)
     if title != expected_content.title or summary != expected_content.summary:
         if remaining_retries:
             return await maybe_autostart_from_report_artefacts(
-                team_id=team_id, report_id=report_id, remaining_retries=remaining_retries - 1, dispatch=dispatch
+                team_id=team_id,
+                report_id=report_id,
+                remaining_retries=remaining_retries - 1,
+                dispatch=dispatch,
+                ch_user=ch_user,
             )
         raise ReportChangedDuringAutostart("Report kept changing during autostart")
     supersede = await database_sync_to_async(_resolve_supersede, thread_sensitive=False)(
@@ -1559,7 +1631,7 @@ async def maybe_autostart_implementation_task(
         base_branch = stack_base_branch
 
     source_references = await database_sync_to_async(_fetch_source_references, thread_sensitive=False)(
-        team_id, report_id
+        team_id, report_id, ch_user=ch_user
     )
     steering = await database_sync_to_async(load_report_steering, thread_sensitive=False)(
         team_id, report_id, memory_writable=grants_scratchpad_write(IMPLEMENTATION_MCP_SCOPES)
@@ -1571,6 +1643,7 @@ async def maybe_autostart_implementation_task(
             report_id=report_id,
             title=title,
             expected_content=expected_content,
+            expected_reviewers=assignment.state,
             description=_build_autostart_task_description(
                 report_id=report_id,
                 team_id=team_id,
@@ -1594,11 +1667,16 @@ async def maybe_autostart_implementation_task(
             supersede=supersede,
             dispatch=dispatch,
             runner_source=runner_source,
+            ch_user=ch_user,
         )
     except ReportChangedDuringAutostart:
         if remaining_retries:
             return await maybe_autostart_from_report_artefacts(
-                team_id=team_id, report_id=report_id, remaining_retries=remaining_retries - 1, dispatch=dispatch
+                team_id=team_id,
+                report_id=report_id,
+                remaining_retries=remaining_retries - 1,
+                dispatch=dispatch,
+                ch_user=ch_user,
             )
         raise ReportChangedDuringAutostart("Report kept changing during autostart")
     if isinstance(created, AutostartSkip):
@@ -1623,7 +1701,7 @@ async def _latest_reviewers_content(report_id: str) -> tuple[list[ReviewerConten
         await SignalReportArtefact.objects.filter(
             report_id=report_id, type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS
         )
-        .order_by("-created_at")
+        .order_by("-created_at", "-id")
         .afirst()
     )
     if artefact is None:
@@ -1657,7 +1735,12 @@ async def _latest_reviewers_content(report_id: str) -> tuple[list[ReviewerConten
 
 
 async def maybe_autostart_from_report_artefacts(
-    *, team_id: int, report_id: str, remaining_retries: int = 2, dispatch: ImplementationDispatch | None = None
+    *,
+    team_id: int,
+    report_id: str,
+    remaining_retries: int = 2,
+    dispatch: ImplementationDispatch | None = None,
+    ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
 ) -> AutostartOutcome:
     """Re-evaluate auto-start from a report's *current* artefacts.
 
@@ -1760,4 +1843,5 @@ async def maybe_autostart_from_report_artefacts(
         implementation_decision=implementation_decision,
         remaining_retries=remaining_retries,
         dispatch=dispatch,
+        ch_user=ch_user,
     )

@@ -7,7 +7,7 @@ use rdkafka::error::{KafkaError, KafkaResult};
 use rdkafka::types::RDKafkaErrorCode;
 
 use super::manifest::OffsetManifest;
-use crate::partitions::{InputGroups, InputTopic, ResumeOffset};
+use crate::partitions::{InputGroups, InputTopic, PartitionOwnership, ResumeOffset};
 
 /// Watermarks of the enabled inputs.
 pub trait ReplayWindow {
@@ -63,28 +63,27 @@ impl ResetReason {
     }
 }
 
-/// One [`SliceRestore`] per partition of the topic, built only by [`Self::check`].
+/// One [`SliceRestore`] per owned partition, built only by [`Self::check`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RestorePlan(BTreeMap<u16, SliceRestore>);
 
 impl RestorePlan {
-    /// Check every partition's checkpoint positions against the broker. A slice resumes only when
-    /// every enabled input it records can still be replayed from its position: within
-    /// `[low, high]`. An enabled input the manifest lacks, because its gate turned on after the
-    /// capture, gets no position and resumes from its group's commit. A manifest input that is no
-    /// longer enabled is ignored.
+    /// Checks only the owned partitions, because boot recovery deletes the rest. A slice resumes
+    /// when every enabled input it records is within the broker's `[low, high]`. An enabled input
+    /// the manifest lacks resumes from its group's commit; a disabled one is ignored.
     pub fn check(
         manifest: &OffsetManifest,
         window: &impl ReplayWindow,
-        partition_count: u16,
+        ownership: &PartitionOwnership,
     ) -> KafkaResult<Self> {
         let checked: Vec<&InputTopic> = window.inputs().intersection(manifest.inputs()).collect();
+        let partition_count = ownership.partition_count();
         let bounds = checked
             .iter()
             .map(|&topic| Ok((topic, window.watermarks(topic, partition_count)?)))
             .collect::<KafkaResult<BTreeMap<_, _>>>()?;
         let mut slices = BTreeMap::new();
-        for partition in 0..partition_count {
+        for partition in ownership.partitions() {
             let Some(recorded) = manifest.slice(partition) else {
                 slices.insert(partition, SliceRestore::Reset(ResetReason::NotInCheckpoint));
                 continue;
@@ -143,7 +142,7 @@ impl RestorePlan {
         })
     }
 
-    /// Where `topic` resumes on every slice the plan keeps.
+    /// Where `topic` resumes on each kept slice.
     pub fn positions(&self, topic: &InputTopic) -> BTreeMap<u16, ResumeOffset> {
         self.0
             .iter()
@@ -158,7 +157,9 @@ impl RestorePlan {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::partitions::InputPositions;
+    use std::num::NonZeroU16;
+
+    use crate::partitions::{InputPositions, OwnedPositions};
     use crate::store::durability::lineage::PodOrdinal;
 
     const EVENTS: &str = "cohort_stream_events";
@@ -220,7 +221,11 @@ mod tests {
                 )
             })
             .collect();
-        OffsetManifest::capture(PodOrdinal::STANDALONE, &owned, positions).unwrap()
+        OffsetManifest::capture(
+            &owned,
+            OwnedPositions::for_test(PartitionOwnership::single(8), positions),
+        )
+        .unwrap()
     }
 
     type Bounds = ((&'static str, u16), (i64, i64));
@@ -251,7 +256,7 @@ mod tests {
             ],
         );
 
-        let plan = RestorePlan::check(&recorded, &window, 5).unwrap();
+        let plan = RestorePlan::check(&recorded, &window, &PartitionOwnership::single(5)).unwrap();
 
         assert_eq!(
             plan.0,
@@ -296,6 +301,19 @@ mod tests {
             plan.positions(&InputTopic::new(EVENTS)),
             BTreeMap::from([(0, offset(10)), (4, offset(10))]),
         );
+        let pod_of_eight = |ordinal| {
+            PartitionOwnership::new(NonZeroU16::new(8).unwrap(), PodOrdinal::from(ordinal), 8)
+                .unwrap()
+        };
+        for ordinal in 0..5 {
+            assert_eq!(
+                RestorePlan::check(&recorded, &window, &pod_of_eight(ordinal))
+                    .unwrap()
+                    .0,
+                BTreeMap::from([(ordinal, plan.0[&ordinal].clone())]),
+                "pod {ordinal} of 8",
+            );
+        }
     }
 
     #[test]
@@ -304,7 +322,7 @@ mod tests {
         // The merge input was disabled after the capture, and the seed input enabled after it.
         let window = window(&[EVENTS, SEEDS], &[((MERGES, 0), (900, 1_000))]);
 
-        let plan = RestorePlan::check(&recorded, &window, 1).unwrap();
+        let plan = RestorePlan::check(&recorded, &window, &PartitionOwnership::single(1)).unwrap();
 
         assert_eq!(
             plan.0,
@@ -321,7 +339,7 @@ mod tests {
         let recorded = manifest(&[(0, &[(EVENTS, 10)])]);
         let window = window(&[EVENTS], &[((EVENTS, 0), (11, 20))]);
 
-        let plan = RestorePlan::check(&recorded, &window, 2).unwrap();
+        let plan = RestorePlan::check(&recorded, &window, &PartitionOwnership::single(2)).unwrap();
 
         assert!(!plan.resumes_any());
         assert_eq!(

@@ -48,11 +48,12 @@ ENTITY_PAGE_SIZE = 1000
 # a transient blip without letting a genuinely broken endpoint retry for long.
 MAX_RETRY_ATTEMPTS = 8
 # The usage/cost/analytics report endpoints share one organization-level rate limit on Anthropic's
-# Admin API, which answers 429 with no `Retry-After`. The `anthropic-ratelimit-requests-reset`
-# instant is often already stale when we read it, so the client falls back to exponential backoff.
-# A per-minute limit needs a budget that outlasts the window, so give the report endpoints more
-# attempts and a higher backoff ceiling than the entity lists — each wait still stays capped, so a
-# sync never stalls indefinitely.
+# Admin API. Some of them, such as the Claude Code usage report, answer 429 with a `Retry-After` of
+# up to an hour, which is the time until the budget is full again. The budget refills continuously,
+# so the report clients cap each server delay at the shared limit and wait it out, instead of
+# failing the request at once. A 429 without a usable delay falls back to exponential backoff.
+# Give the report endpoints more attempts and a higher backoff ceiling than the entity lists. Each
+# wait stays capped, so a sync never stalls indefinitely.
 REPORT_MAX_RETRY_ATTEMPTS = 12
 REPORT_RETRY_BACKOFF_MAX_SECONDS = 300.0
 # The waits of the report attempts above add up to about 1,100 seconds, which is more than the
@@ -253,17 +254,36 @@ def _format_rfc3339(value: Any) -> str:
     return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def validate_credentials(api_key: str) -> bool:
+INVALID_ADMIN_KEY_MESSAGE = (
+    "Your Anthropic Admin API key is invalid or has been revoked. Create a new Admin API key in the "
+    "Anthropic Console, then reconnect."
+)
+STANDARD_KEY_MESSAGE = (
+    "This is a standard Anthropic API key. Create an Admin API key (prefixed sk-ant-admin) in the "
+    "Anthropic Console, then reconnect."
+)
+VALIDATION_UNREACHABLE_MESSAGE = (
+    "PostHog couldn't reach Anthropic to check your Admin API key. Wait a few minutes, then try again."
+)
+
+
+def validate_credentials(api_key: str) -> tuple[bool, Optional[str]]:
     # A single cheap probe against the smallest list endpoint confirms the admin key is genuine.
     # 200 => valid. 403 => valid key without a scope we probed here; still a real key, so accept it
     # at create time (sync-time 403s are caught by get_non_retryable_errors). 401 => bad key.
-    ok, _status = validate_via_probe(
+    ok, status = validate_via_probe(
         lambda: make_tracked_session(redact_values=(api_key,)),
         f"{ANTHROPIC_BASE_URL}/v1/organizations/users?limit=1",
         headers={"x-api-key": api_key, **_version_headers()},
         ok_statuses=(200, 403),
     )
-    return ok
+    if ok:
+        return True, None
+    if status is None or status == 429 or status >= 500:
+        return False, VALIDATION_UNREACHABLE_MESSAGE
+    if api_key.strip().startswith("sk-ant-api"):
+        return False, STANDARD_KEY_MESSAGE
+    return False, INVALID_ADMIN_KEY_MESSAGE
 
 
 def _check_path_access(api_key: str, path: str, missing_reason: str) -> Optional[str]:
@@ -833,6 +853,7 @@ def anthropic_source(
     if is_report_endpoint:
         client_config["retry_backoff_max_seconds"] = REPORT_RETRY_BACKOFF_MAX_SECONDS
         client_config["retry_budget_seconds"] = REPORT_RETRY_BUDGET_SECONDS
+        client_config["cap_retry_after"] = True
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
 

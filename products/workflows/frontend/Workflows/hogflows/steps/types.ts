@@ -173,6 +173,10 @@ export const HogFlowTriggerSchema = z.discriminatedUnion('type', [
     z.object({
         type: z.literal('schedule'),
     }),
+    // A transactional email: its message template's send endpoint runs the workflow once per call.
+    z.object({
+        type: z.literal('api'),
+    }),
     z.object({
         type: z.literal('cohort'),
         // Null until a cohort is picked. The backend requires one before the workflow runs.
@@ -386,6 +390,10 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
                     utm_content: z.string().optional(),
                 })
                 .optional(),
+            // utm_params keys that follow the team default. Only the Django API reads it, so Node does not declare it.
+            utm_params_from_default: z
+                .array(z.enum(['utm_source', 'utm_medium', 'utm_campaign', 'utm_content']))
+                .optional(),
             template_uuid: z.string().optional(), // May be used later to specify a specific template version
             template_id: z.literal('template-email'),
             inputs: z.record(z.string(), CyclotronInputSchema),
@@ -463,6 +471,7 @@ export const isScheduleTrigger = (action: HogFlowAction): boolean => {
 }
 
 export interface HogflowTestResult {
+    emailSendResult?: { status: 'accepted' | 'skipped' | 'failed'; reason?: string }
     status: 'success' | 'error' | 'skipped'
     logs?: LogEntry[]
     nextActionId: string | null

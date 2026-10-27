@@ -118,6 +118,13 @@ def _flattened_filters() -> dict[str, Any]:
     return {"groups": [{"properties": [], "rollout_percentage": ROLLOUT_TO_PERCENTAGE}]}
 
 
+def _with_condition_ids() -> dict[str, Any]:
+    filters = _merged_filters()
+    for index, group in enumerate(filters["groups"]):
+        group["condition_id"] = f"condition-{index}"
+    return filters
+
+
 def _without(key: str) -> dict[str, Any]:
     filters = _merged_filters()
     filters.pop(key)
@@ -436,6 +443,9 @@ def test_created_flag_with_tags_grades_the_asked_for_key(_name: str, created_key
         # An agent that rewrites the definition may reorder keys and conditions without
         # changing who the flag serves. Failing that would fail every correct run.
         ("rewrote_the_definition_in_a_different_order", _reordered_filters(), 1.0),
+        # The MCP read tools add a condition_id to each condition. update-feature-flag asks
+        # the agent to send it back.
+        ("echoed_the_condition_ids", _with_condition_ids(), 1.0),
         ("dropped_the_variants", _without("multivariate"), 0.0),
         ("dropped_the_payloads", _without("payloads"), 0.0),
         (

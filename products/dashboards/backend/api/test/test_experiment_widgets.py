@@ -475,21 +475,9 @@ class TestExperimentWidgetsViaRunWidgetsEndpoint(APIBaseTest):
             _InlineExecutor,
         )
         self.executor_patcher.start()
-        self.widgets_flag_patcher = patch(
-            "products.dashboards.backend.api.dashboard.dashboard_widgets_enabled",
-            return_value=True,
-        )
-        self.widget_create_flag_patcher = patch(
-            "products.dashboards.backend.widget_create.dashboard_widgets_enabled",
-            return_value=True,
-        )
-        self.widgets_flag_patcher.start()
-        self.widget_create_flag_patcher.start()
 
     def tearDown(self) -> None:
         self.executor_patcher.stop()
-        self.widget_create_flag_patcher.stop()
-        self.widgets_flag_patcher.stop()
         super().tearDown()
 
     def _run(self, dashboard_id: int, tile_ids: list[int]) -> dict[str, Any]:

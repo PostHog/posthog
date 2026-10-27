@@ -384,6 +384,20 @@ const labelledClause = (expr: PromExpr): { alias: string; expr: PromExpr } | nul
     return null
 }
 
+/** `histogram_quantiles("clause", 0.5, 0.9, buckets)`, the form builderToPromql gives quantiles of the same buckets. */
+const sharedHistogramQuantiles = (expr: PromExpr): PromExpr[] | null => {
+    expr = unwrapParens(expr)
+    if (expr.type !== 'call' || expr.func !== 'histogram_quantiles' || expr.args.length < 3) {
+        return null
+    }
+    const [label, ...rest] = expr.args.map(unwrapParens)
+    const buckets = rest.pop()!
+    if (label.type !== 'string' || label.value !== CLAUSE_LABEL || rest.some((arg) => arg.type !== 'number')) {
+        return null
+    }
+    return rest.map((quantile) => ({ type: 'call', func: 'histogram_quantile', args: [quantile, buckets] }))
+}
+
 const orOperands = (expr: PromExpr): PromExpr[] => {
     const unwrapped = unwrapParens(expr)
     return unwrapped.type === 'binary' && unwrapped.op === 'or' && !unwrapped.matching
@@ -404,6 +418,12 @@ export function promqlToBuilder(text: string): ConversionResult<BuilderQuery> {
     }
     const issues: string[] = []
     const builder = new FormulaBuilder(issues)
+
+    const quantiles = sharedHistogramQuantiles(parsed)
+    if (quantiles) {
+        quantiles.forEach((quantile, index) => builder.addClause(quantile, clauseAlias(index)))
+        return builder.clauses.length ? { value: { clauses: builder.clauses }, issues } : { value: null, issues }
+    }
 
     const operands = orOperands(parsed)
     if (operands.length > 1) {

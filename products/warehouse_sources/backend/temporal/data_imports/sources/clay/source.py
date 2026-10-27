@@ -9,7 +9,10 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldInputConfigType,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.clay.clay import (
+    CREDIT_BALANCES_INCREMENTAL_FIELDS,
+    CREDIT_BALANCES_SCHEMA,
     ClayResumeConfig,
+    clay_credit_balances_source,
     clay_source,
     parse_table_ids,
     validate_credentials as validate_clay_credentials,
@@ -37,6 +40,11 @@ class ClaySource(ResumableSource[ClaySourceConfig, ClayResumeConfig]):
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
+            # Listed before the generic 403 below, which names tables: the first matching key wins.
+            "403 Client Error: Forbidden for url: https://api.clay.com/public/v0/credits/balance": (
+                "Clay denied access to the workspace's credit balances. Check that the API key's user has "
+                "access to the workspace in Clay, or turn off the credit_balances table."
+            ),
             "401 Client Error: Unauthorized for url: https://api.clay.com": (
                 "Clay rejected the API key. Create a new key under Settings > Account > API keys in Clay "
                 "and update the source."
@@ -60,12 +68,22 @@ class ClaySource(ResumableSource[ClaySourceConfig, ClayResumeConfig]):
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        table_ids = parse_table_ids(config.table_ids)
-        if names is not None:
-            table_ids = [table_id for table_id in table_ids if table_id in names]
-        return [
-            SourceSchema(name=table_id, supports_incremental=False, supports_append=False) for table_id in table_ids
+        schemas = [
+            SourceSchema(name=table_id, supports_incremental=False, supports_append=False)
+            for table_id in parse_table_ids(config.table_ids)
         ]
+        schemas.append(
+            SourceSchema(
+                name=CREDIT_BALANCES_SCHEMA,
+                supports_incremental=False,
+                supports_append=True,
+                incremental_fields=CREDIT_BALANCES_INCREMENTAL_FIELDS,
+                description="Remaining data credits and actions in the workspace. Use the append sync method to keep a history.",
+            )
+        )
+        if names is not None:
+            schemas = [schema for schema in schemas if schema.name in names]
+        return schemas
 
     def validate_credentials(
         self,
@@ -74,7 +92,11 @@ class ClaySource(ResumableSource[ClaySourceConfig, ClayResumeConfig]):
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        table_ids = [schema_name] if schema_name else parse_table_ids(config.table_ids)
+        table_ids = (
+            [schema_name]
+            if schema_name and schema_name != CREDIT_BALANCES_SCHEMA
+            else parse_table_ids(config.table_ids)
+        )
         return validate_clay_credentials(config.api_key, table_ids)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[ClayResumeConfig]:
@@ -86,6 +108,8 @@ class ClaySource(ResumableSource[ClaySourceConfig, ClayResumeConfig]):
         resumable_source_manager: ResumableSourceManager[ClayResumeConfig],
         inputs: SourceInputs,
     ) -> SourceResponse:
+        if inputs.schema_name == CREDIT_BALANCES_SCHEMA:
+            return clay_credit_balances_source(api_key=config.api_key, team_id=inputs.team_id, job_id=inputs.job_id)
         return clay_source(
             api_key=config.api_key,
             table_id=inputs.schema_name,
@@ -110,7 +134,7 @@ class ClaySource(ResumableSource[ClaySourceConfig, ClayResumeConfig]):
             docsUrl="https://posthog.com/docs/cdp/sources/clay",
             iconPath="/static/services/clay.png",
             keywords=["enrichment", "clay.com"],
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

@@ -55,7 +55,7 @@ class ConfluentCloudSource(ResumableSource[ConfluentCloudSourceConfig, Confluent
             name=ExternalDataSourceType.CONFLUENTCLOUD,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Confluent Cloud",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["kafka", "flink", "ksqldb", "metrics"],
             caption="""Warehouse your Confluent Cloud operational metrics (throughput, consumer lag, connector and Flink utilization) beyond the Metrics API's ~7 day retention window.
 

@@ -11,15 +11,24 @@ export interface TraceTreeRowProps {
     depth: number
     selectedNodeId: string | null
     onSelectNode: (id: string) => void
+    onPrefetchNode: (id: string) => void
 }
 
-export function TraceTreeRow({ node, depth, selectedNodeId, onSelectNode }: TraceTreeRowProps): JSX.Element {
+export function TraceTreeRow({
+    node,
+    depth,
+    selectedNodeId,
+    onSelectNode,
+    onPrefetchNode,
+}: TraceTreeRowProps): JSX.Element {
     const isSelected = node.id === selectedNodeId
     return (
         <li>
             <button
                 type="button"
                 onClick={() => onSelectNode(node.id)}
+                onMouseEnter={() => onPrefetchNode(node.id)}
+                onFocus={() => onPrefetchNode(node.id)}
                 aria-current={isSelected ? 'true' : undefined}
                 data-attr="trace-view-tree-node"
                 className={cn(
@@ -53,6 +62,7 @@ export function TraceTreeRow({ node, depth, selectedNodeId, onSelectNode }: Trac
                             depth={depth + 1}
                             selectedNodeId={selectedNodeId}
                             onSelectNode={onSelectNode}
+                            onPrefetchNode={onPrefetchNode}
                         />
                     ))}
                 </ul>

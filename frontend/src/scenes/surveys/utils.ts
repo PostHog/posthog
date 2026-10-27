@@ -1050,6 +1050,27 @@ export function buildSurveyResponsesQuery(
     return `SELECT ${columns.join(',\n')} FROM (${merged}) ORDER BY submitted_at DESC`
 }
 
+/**
+ * The people behind the responses the current filters show. No outcome filter is needed:
+ * `buildSurveyResponseEventFilter` already drops dismissals that carry no answer, and a dismissal
+ * after an answer still shows in the results.
+ */
+export function buildSurveyRespondentsQuery(
+    survey: Survey,
+    filters: SurveyQueryFilters,
+    select: 'count' | 'people'
+): string {
+    if (select === 'people') {
+        const merged = buildMergedSubmissionsSubquery(survey, filters, getAnswerableQuestions(survey))
+        return `SELECT DISTINCT person_id FROM (${merged})`
+    }
+    // Read only the email so the merge does not carry each submission's whole person properties blob through argMax.
+    const merged = buildMergedSubmissionsSubquery(survey, filters, getAnswerableQuestions(survey), {
+        propertyReads: [{ alias: 'respondent_email', expression: 'person.properties.email' }],
+    })
+    return `SELECT count(), countIf(notEmpty(coalesce(respondent_email, ''))) FROM (${merged})`
+}
+
 export function buildSurveyResponsesExportQuery(
     survey: Survey,
     filters: SurveyQueryFilters,

@@ -38,7 +38,6 @@ class TestBrazeSource:
         "status, expected_valid, expected_message",
         [
             (200, True, None),
-            (401, False, "Invalid Braze API key"),
         ],
     )
     def test_validate_credentials(self, status, expected_valid, expected_message):

@@ -209,7 +209,7 @@ class OfflineExperimentService(_OfflineEvaluationService):
             raise OfflineEvaluationValidationError.from_errors(errors)
         return fields
 
-    def create(self, submission: ExperimentSubmission) -> ExperimentReceipt:
+    def create(self, submission: ExperimentSubmission, *, created_by_id: int | None = None) -> ExperimentReceipt:
         fingerprint = submission_fingerprint(submission)
         try:
             with transaction.atomic():
@@ -222,7 +222,12 @@ class OfflineExperimentService(_OfflineEvaluationService):
                 fields.pop("id")
                 experiment, created = experiments.get_or_create(
                     id=submission.id,
-                    defaults={**fields, "team_id": self.team_id, "submission_fingerprint": fingerprint},
+                    defaults={
+                        **fields,
+                        "team_id": self.team_id,
+                        "submission_fingerprint": fingerprint,
+                        "created_by_id": created_by_id,
+                    },
                 )
                 _check_fingerprint(experiment.submission_fingerprint, fingerprint, field="id")
                 receipt = ExperimentReceipt(

@@ -161,6 +161,19 @@ export const MODELS: readonly CatalogModel[] = [
     retired: true,
   },
   {
+    id: "zai-org/glm-5.2",
+    runtimeAdapter: "claude",
+    reasoningEfforts: ["high", "max"],
+    label: "GLM-5.2",
+    cost: {
+      inputPerMtok: 1.4,
+      outputPerMtok: 4.4,
+    },
+    costMultiplier: "≈0.57×",
+    costSummary: "Input $1.40 · Output $4.40 per 1M tokens",
+    retired: true,
+  },
+  {
     id: "zai-org/glm-5.3",
     runtimeAdapter: "claude",
     reasoningEfforts: ["high", "max"],
@@ -207,6 +220,18 @@ export const MODELS: readonly CatalogModel[] = [
     },
     costMultiplier: "≈0.05×",
     costSummary: "Input $0.13 · Output $0.26 per 1M tokens",
+  },
+  {
+    id: "deepseek-ai/deepseek-v4.1-flash-1017-fast",
+    runtimeAdapter: "claude",
+    reasoningEfforts: [],
+    label: "DeepSeek V4.1 Flash Fast",
+    cost: {
+      inputPerMtok: 0.6,
+      outputPerMtok: 2.4,
+    },
+    costMultiplier: "≈0.27×",
+    costSummary: "Input $0.60 · Output $2.40 per 1M tokens",
   },
   {
     id: "claude-opus-4-5",

@@ -74,7 +74,7 @@ class PaystackSource(ResumableSource[PaystackSourceConfig, PaystackResumeConfig]
 You can find your secret key (it starts with `sk_live_` or `sk_test_`) under **Settings → API Keys & Webhooks** in your [Paystack dashboard](https://dashboard.paystack.com/#/settings/developers). The key has read access to your integration's data.""",
             iconPath="/static/services/paystack.png",
             docsUrl="https://posthog.com/docs/cdp/sources/paystack",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

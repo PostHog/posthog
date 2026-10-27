@@ -1,6 +1,8 @@
 import clsx from 'clsx'
 import { ReactNode } from 'react'
 
+import { useComponentPanelState } from 'lib/components/MarkdownNotebook/componentPanelContext'
+
 import type { NotebookNodeSQLV2Result } from '../NotebookNodeSQLV2'
 import { NotebookDataframeResult } from '../pythonExecution'
 import { NotebookJupyterDataframe, NotebookJupyterDataframeProps } from './NotebookJupyterDataframe'
@@ -24,7 +26,7 @@ function OutputRow({
     className,
     children,
 }: {
-    prompt?: string
+    prompt?: ReactNode
     className?: string
     children: ReactNode
 }): JSX.Element {
@@ -53,7 +55,9 @@ export function NotebookJupyterCellOutput({
     valueOverride,
     footerExtra,
 }: NotebookJupyterCellOutputProps): JSX.Element | null {
-    const outPrompt = `Out[${executionCount ?? ' '}]:`
+    const interactivePrompt = useComponentPanelState()?.jupyterOutputPrompt
+    const outPrompt = interactivePrompt?.(false) ?? <span>{`Out[${executionCount ?? ' '}]:`}</span>
+    const errPrompt = interactivePrompt?.(true) ?? <span>{`Err[${executionCount ?? ' '}]:`}</span>
     const media = result?.media ?? []
     const firstPageLength = result?.first_page?.length ?? 0
     // The kernel's row_count is the page size for a paged frame, so it only counts as the total
@@ -61,31 +65,48 @@ export function NotebookJupyterCellOutput({
     const totalRowCount = result && !result.has_more && result.row_count >= firstPageLength ? result.row_count : null
     const resultText = !dataframeResult && !runError ? result?.result_text : undefined
     const hasValue = !!dataframeResult || media.length > 0 || !!resultText
+    const hasValueRow = !!resultText || (!!dataframeResult && !runError)
+    const leadingPrompt = interactivePrompt && !hasValueRow ? { prompt: outPrompt } : {}
 
     if (!status && !result?.stdout && !result?.stderr && !runError && !hasValue) {
-        return null
+        return interactivePrompt ? <OutputRow prompt={outPrompt}>{null}</OutputRow> : null
     }
 
     return (
         <div className="py-0.5" onClick={(event) => event.stopPropagation()}>
-            {status ? <OutputRow className="MarkdownNotebook__jupyter-output-area--muted">{status}</OutputRow> : null}
+            {status ? (
+                <OutputRow {...leadingPrompt} className="MarkdownNotebook__jupyter-output-area--muted">
+                    {status}
+                </OutputRow>
+            ) : null}
             {result?.stdout ? (
-                <OutputRow>
+                <OutputRow {...(!status ? leadingPrompt : {})}>
                     <pre>{result.stdout}</pre>
                 </OutputRow>
             ) : null}
             {result?.stderr ? (
-                <OutputRow className="MarkdownNotebook__jupyter-output-area--stderr">
+                <OutputRow
+                    {...(!status && !result?.stdout && !hasValueRow ? { prompt: errPrompt } : {})}
+                    className="MarkdownNotebook__jupyter-output-area--stderr"
+                >
                     <pre>{result.stderr}</pre>
                 </OutputRow>
             ) : null}
             {runError ? (
-                <OutputRow className="MarkdownNotebook__jupyter-output-area--error">
+                <OutputRow
+                    {...(!status && !result?.stdout && !result?.stderr && !hasValueRow ? { prompt: errPrompt } : {})}
+                    className="MarkdownNotebook__jupyter-output-area--error"
+                >
                     <pre>{runError}</pre>
                 </OutputRow>
             ) : null}
             {media.map((item, index) => (
-                <OutputRow key={index}>
+                <OutputRow
+                    key={index}
+                    {...(index === 0 && !status && !result?.stdout && !result?.stderr && !runError
+                        ? leadingPrompt
+                        : {})}
+                >
                     <img src={`data:${item.mime_type};base64,${item.data}`} alt="Cell output" />
                 </OutputRow>
             ))}
@@ -106,12 +127,12 @@ export function NotebookJupyterCellOutput({
                 </OutputRow>
             ) : null}
             {dataframeResult && isEditable ? (
-                <OutputRow className="MarkdownNotebook__jupyter-output-area--muted flex items-center gap-3">
-                    <label className="flex items-center gap-1.5 text-xs">
+                <OutputRow className="MarkdownNotebook__jupyter-output-area--muted flex flex-wrap items-center gap-3">
+                    <label className="flex items-center gap-1.5 text-xxs">
                         <span>Saved as</span>
                         <input
                             type="text"
-                            className="w-48 px-1 font-mono bg-transparent rounded border border-transparent hover:border-primary focus:border-primary focus:outline-none text-primary"
+                            className="w-44 px-1 text-xxs font-mono bg-transparent rounded border border-transparent hover:border-primary focus:border-primary focus:outline-none text-secondary"
                             value={returnVariable}
                             onChange={(event) => onReturnVariableChange(event.target.value)}
                             placeholder="Output dataframe name"

@@ -79,6 +79,19 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "downloads": "Number of downloads on that day.",
         },
     },
+    "version_downloads": {
+        "description": "Daily download counts for each of the most recent versions of each configured crate, "
+        "over the trailing ~90-day window the crates.io API exposes.",
+        "docs_url": _API_DOCS,
+        "columns": {
+            "crate": "Canonical crate name (injected by the connector; not returned by the endpoint).",
+            "version_num": "Version number the downloads are for (injected by the connector; not returned by "
+            "the endpoint).",
+            "version": "Registry-wide numeric id of the version the downloads are for.",
+            "date": "Day the downloads were counted (UTC); used as the partition key.",
+            "downloads": "Number of downloads of this version on that day.",
+        },
+    },
     "dependencies": {
         "description": "Dependencies declared by the most recent versions of each configured crate, one row "
         "per dependency edge.",

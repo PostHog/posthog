@@ -1,4 +1,4 @@
-import { evidenceDisagrees, formatValue, readUnit } from './suggestionEvidence'
+import { describeWindow, evidenceDisagrees, formatValue, readUnit } from './suggestionEvidence'
 
 describe('suggestionEvidence', () => {
     it.each([
@@ -10,6 +10,14 @@ describe('suggestionEvidence', () => {
         ['no unit', 0.0865, null, '0.0865'],
     ])('formats %s', (_name, value, unit, expected) => {
         expect(formatValue(value, unit)).toBe(expected)
+    })
+
+    it.each([
+        ['a relative window', '-7d', 'the last 7 days'],
+        ['an interval', '2026-10-07T22:00:00Z/2026-10-14T22:00:00Z', 'Oct 7, 22:00 to Oct 14, 22:00 UTC'],
+        ['an interval that is not dates', 'last/week', 'last/week'],
+    ])('describes %s', (_name, window, expected) => {
+        expect(describeWindow(window)).toBe(expected)
     })
 
     it('has nothing to show for a value that is not a number', () => {

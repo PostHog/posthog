@@ -8,7 +8,7 @@ from django.utils import timezone
 from posthog.models import OAuthAccessToken, Organization, Team
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
-from posthog.temporal.oauth import PosthogMcpScopes, resolve_scopes
+from posthog.temporal.oauth import RESEARCH_WITHHELD_SCOPES, PosthogMcpScopes, resolve_scopes
 
 from products.tasks.backend.exceptions import TaskInvalidStateError
 from products.tasks.backend.models import (
@@ -566,7 +566,7 @@ def test_workflow_run_scopes_never_exceed_request_or_snapshot(
             Task.OriginProduct.SIGNAL_REPORT,
             {"pending_dispatch": {"posthog_mcp_scopes": "signals_research"}},
             None,
-            [*resolve_scopes("signals_research"), "task:write"],
+            [*resolve_scopes("signals_research"), *RESEARCH_WITHHELD_SCOPES],
         ),
         (
             Task.OriginProduct.SIGNAL_REPORT,

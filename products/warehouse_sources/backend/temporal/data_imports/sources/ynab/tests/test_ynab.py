@@ -106,6 +106,18 @@ def _accounts_script() -> Any:
             {"scheduled_transactions": [{"id": "record-1", "frequency": "monthly"}]},
             {"id": "record-1", "frequency": "monthly"},
         ),
+        (
+            "money_movements",
+            "money_movements",
+            {"money_movements": [{"id": "record-1", "amount": 5000, "to_category_id": "category-1"}]},
+            {"id": "record-1", "amount": 5000, "to_category_id": "category-1"},
+        ),
+        (
+            "money_movement_groups",
+            "money_movement_groups",
+            {"money_movement_groups": [{"id": "record-1", "group_created_at": "2024-01-02T03:04:05Z"}]},
+            {"id": "record-1", "group_created_at": "2024-01-02T03:04:05Z"},
+        ),
     ],
 )
 def test_full_refresh_across_plans(
@@ -148,6 +160,90 @@ def test_plans_list_and_empty_account(driver: SourceDriver) -> None:
     assert len(plans.requests) + len(accounts.requests) == 2
     assert plans.saved_states == []
     assert accounts.saved_states == []
+
+
+def _month_detail(categories: list[dict[str, Any]]) -> ScriptedResponse:
+    return ScriptedResponse(json={"data": {"month": {"categories": categories}}})
+
+
+@pytest.mark.parametrize(
+    "plan,resume_state,expected_rows",
+    [
+        (
+            {"id": "plan-1", "first_month": "2023-11-01", "last_month": "2024-01-01"},
+            None,
+            [("plan-1", "2023-11-01"), ("plan-1", "2023-12-01"), ("plan-1", "2024-01-01")],
+        ),
+        (
+            {"id": "plan-1", "first_month": "2023-11-01", "last_month": "2024-01-01"},
+            YnabResumeConfig(completed=["plans/plan-1/months/2023-11-01"]),
+            [("plan-1", "2023-12-01"), ("plan-1", "2024-01-01")],
+        ),
+        ({"id": "plan-1", "first_month": "2024-01-01", "last_month": "2024-01-01"}, None, [("plan-1", "2024-01-01")]),
+        ({"id": "plan-1", "first_month": None, "last_month": None}, None, []),
+        ({"id": "plan-1"}, None, []),
+    ],
+)
+def test_month_categories_cover_each_plan_month(
+    plan: dict[str, Any],
+    resume_state: YnabResumeConfig | None,
+    expected_rows: list[tuple[str, str]],
+    driver: SourceDriver,
+) -> None:
+    category = {"id": "category-1", "budgeted": 1000, "activity": -500, "balance": 500}
+    result = driver.run(
+        "month_categories",
+        route(
+            {
+                "/v1/plans": [ScriptedResponse(json={"data": {"plans": [plan, {"id": "plan-2"}]}})],
+                **{
+                    f"/v1/plans/plan-1/months/{month}": [_month_detail([category])]
+                    for month in ["2023-11-01", "2023-12-01", "2024-01-01"]
+                },
+            }
+        ),
+        resume_state=resume_state,
+    )
+
+    rows = [row for batch in result.items for row in batch]
+    assert [(row["plan_id"], row["month"]) for row in rows] == expected_rows
+    assert all(row["id"] == "category-1" and row["balance"] == 500 for row in rows)
+    assert result.response is not None and result.response.primary_keys is not None
+    assert len({tuple(row[key] for key in result.response.primary_keys) for row in rows}) == len(rows)
+    assert result.paths == ["/v1/plans", *[f"/v1/plans/plan-1/months/{month}" for _, month in expected_rows]]
+    assert all(dict(request.query) == {} for request in result.requests)
+    if expected_rows:
+        assert result.saved_states[-1].completed[-1] == f"plans/plan-1/months/{expected_rows[-1][1]}"
+
+
+def test_month_categories_skip_missing_month(driver: SourceDriver) -> None:
+    result = driver.run(
+        "month_categories",
+        route(
+            {
+                "/v1/plans": [
+                    ScriptedResponse(
+                        json={
+                            "data": {
+                                "plans": [{"id": "plan-1", "first_month": "2024-01-01", "last_month": "2024-02-01"}]
+                            }
+                        }
+                    )
+                ],
+                "/v1/plans/plan-1/months/2024-01-01": [
+                    ScriptedResponse(status=404, json={"error": {"id": "404.2", "name": "resource_not_found"}})
+                ],
+                "/v1/plans/plan-1/months/2024-02-01": [_month_detail([{"id": "category-1"}])],
+            }
+        ),
+    )
+
+    assert result.raised is None
+    assert result.items == [[{"id": "category-1", "plan_id": "plan-1", "month": "2024-02-01"}]]
+    assert result.saved_states[-1].completed == [
+        "plans/plan-1/months/2024-01-01",
+        "plans/plan-1/months/2024-02-01",
+    ]
 
 
 @pytest.mark.parametrize("groups", [[], [{"id": "group-1", "categories": []}]])

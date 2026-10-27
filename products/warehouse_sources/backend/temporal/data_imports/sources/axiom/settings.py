@@ -18,6 +18,8 @@ ENDPOINTS: dict[str, Endpoint] = {
         "params": {"who": "all"},
         "paginator": {"type": "offset", "limit": PAGE_SIZE, "total_path": None},
     },
+    "users": {"path": "users", "paginator": "single_page"},
+    "groups": {"path": "rbac/groups", "paginator": "single_page"},
 }
 
 AUTH_ERRORS = {

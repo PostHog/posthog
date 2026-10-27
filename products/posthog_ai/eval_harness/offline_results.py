@@ -4,11 +4,13 @@ import os
 import re
 import json
 import asyncio
+import logging
 from collections import Counter
 from collections.abc import Mapping
 from contextlib import suppress
 from dataclasses import field
 from datetime import datetime
+from pathlib import Path
 from typing import cast
 from urllib.parse import urlsplit
 from uuid import UUID, uuid5
@@ -30,6 +32,16 @@ from posthog.dataclasses import frozen
 
 from .engines.types import CaseResult, ExperimentResult, ScorerResult
 
+logger = logging.getLogger(__name__)
+TAG_TIMEOUT_SECONDS = 5.0
+LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+
+
+@frozen
+class OfflineScorer:
+    kind: ScorerKind
+    version: UUID
+
 
 @frozen
 class OfflineEvalSuite:
@@ -37,7 +49,20 @@ class OfflineEvalSuite:
     project_id: int
     scorer_kinds: Mapping[str, ScorerKind]
     scorer_versions: Mapping[str, UUID]
+    tags: tuple[str, ...] = ()
     experiment_options: ExperimentOptions = field(default_factory=lambda: ExperimentOptions())
+
+    @classmethod
+    def from_scorers(
+        cls, *, key: str, project_id: int, scorers: Mapping[str, OfflineScorer], tags: tuple[str, ...]
+    ) -> OfflineEvalSuite:
+        return cls(
+            key=key,
+            project_id=project_id,
+            scorer_kinds={metric: scorer.kind for metric, scorer in scorers.items()},
+            scorer_versions={metric: scorer.version for metric, scorer in scorers.items()},
+            tags=tags,
+        )
 
 
 class OfflineUploadError(Exception):
@@ -86,6 +111,30 @@ class OfflineUploadError(Exception):
         super().__init__(message)
 
 
+class LocalOfflineEvalConfig(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid", hide_input_in_errors=True)
+
+    project_id: int = Field(gt=0)
+    scorer_versions: dict[UUID, UUID]
+
+    @classmethod
+    def load(cls, path: str) -> LocalOfflineEvalConfig:
+        try:
+            return cls.model_validate_json(Path(path).read_text())
+        except (OSError, UnicodeError, ValidationError):
+            raise OfflineUploadError(
+                "POSTHOG_OFFLINE_EVAL_LOCAL_CONFIG must point to a valid local destination JSON"
+            ) from None
+
+    def remap_scorers(self, suite: OfflineEvalSuite) -> dict[str, UUID]:
+        try:
+            return {metric: self.scorer_versions[suite.scorer_versions[metric]] for metric in suite.scorer_kinds}
+        except KeyError:
+            raise OfflineUploadError(
+                f"Local offline evaluation config must map every enrolled scorer version for {suite.key}"
+            ) from None
+
+
 class OfflineEvalSettings(BaseModel):
     model_config = ConfigDict(frozen=True, hide_input_in_errors=True)
 
@@ -107,13 +156,14 @@ class OfflineEvalSettings(BaseModel):
     @field_validator("host")
     @classmethod
     def normalize_host(cls, host: str) -> str:
+        error = "POSTHOG_OFFLINE_EVAL_HOST must be an HTTPS origin or HTTP loopback origin"
         try:
             parsed = urlsplit(host.strip().rstrip("/"))
             port = parsed.port
         except ValueError:
-            raise OfflineUploadError("POSTHOG_OFFLINE_EVAL_HOST must be an HTTPS origin") from None
+            raise OfflineUploadError(error) from None
         if (
-            parsed.scheme != "https"
+            not (parsed.scheme == "https" or (parsed.scheme == "http" and parsed.hostname in LOOPBACK_HOSTS))
             or not parsed.hostname
             or parsed.username is not None
             or parsed.password is not None
@@ -121,15 +171,15 @@ class OfflineEvalSettings(BaseModel):
             or parsed.fragment
             or parsed.path
         ):
-            raise OfflineUploadError("POSTHOG_OFFLINE_EVAL_HOST must be an HTTPS origin")
+            raise OfflineUploadError(error)
         origin = parsed.netloc.lower()
-        if port in (None, 443):
+        if parsed.scheme == "https" and port in (None, 443):
             origin = {
                 "app.posthog.com": "us.posthog.com",
                 "us.i.posthog.com": "us.posthog.com",
                 "eu.i.posthog.com": "eu.posthog.com",
             }.get(parsed.hostname, origin.removesuffix(":443"))
-        return f"https://{origin}"
+        return f"{parsed.scheme}://{origin}"
 
     @classmethod
     def from_env(cls, suite: OfflineEvalSuite) -> OfflineEvalSettings | None:
@@ -137,12 +187,20 @@ class OfflineEvalSettings(BaseModel):
         api_key = os.getenv(prefix + "API_KEY")
         if not api_key:
             return None
+        host = cls.normalize_host(os.getenv(prefix + "HOST", "https://us.posthog.com"))
+        local_config = None
+        if local_config_path := os.getenv(prefix + "LOCAL_CONFIG"):
+            if urlsplit(host).hostname not in LOOPBACK_HOSTS:
+                raise OfflineUploadError("POSTHOG_OFFLINE_EVAL_LOCAL_CONFIG requires a loopback upload host")
+            local_config = LocalOfflineEvalConfig.load(local_config_path)
         try:
             settings = cls(
-                host=os.getenv(prefix + "HOST", "https://us.posthog.com"),
-                project_id=suite.project_id,
+                host=host,
+                project_id=local_config.project_id if local_config is not None else suite.project_id,
                 api_key=SecretStr(api_key),
-                scorer_versions=dict(suite.scorer_versions),
+                scorer_versions=local_config.remap_scorers(suite)
+                if local_config is not None
+                else dict(suite.scorer_versions),
             )
         except ValidationError:
             raise OfflineUploadError(
@@ -163,6 +221,7 @@ class OfflineEvalUpload:
     experiment_name: str
     experiment: ExperimentOptions
     results: tuple[EvaluationResult, ...]
+    tags: tuple[str, ...] = ()
 
 
 class OfflineEvalPublisher:
@@ -176,6 +235,7 @@ class OfflineEvalPublisher:
         self.settings = settings
         self.suite = suite
         self.application_trace_ids_enabled = application_trace_ids_enabled
+        self._attempted_tag_updates: set[str] = set()
 
     def _item_payload(
         self,
@@ -377,19 +437,54 @@ class OfflineEvalPublisher:
             experiment_name=experiment_name,
             experiment=experiment,
             results=tuple(scores),
+            tags=self.suite.tags,
         )
+
+    def _client(self) -> AsyncOfflineEvaluations:
+        return AsyncOfflineEvaluations(
+            host=self.settings.host,
+            project_id=self.settings.project_id,
+            secret_key=self.settings.api_key.get_secret_value(),
+            timeout=self.settings.request_timeout,
+            max_retries=self.settings.max_retries,
+        )
+
+    async def tag(self, upload: OfflineEvalUpload) -> None:
+        if upload.host != self.settings.host or upload.project_id != self.settings.project_id:
+            raise OfflineUploadError("Upload destination differs from the configured host/project")
+        experiment_id = str(upload.experiment["id"])
+        if not upload.tags or experiment_id in self._attempted_tag_updates:
+            return
+        self._attempted_tag_updates.add(experiment_id)
+        try:
+            async with asyncio.timeout(TAG_TIMEOUT_SECONDS), self._client() as client:
+                await client.resume_experiment(experiment_id).set_tags(upload.tags)
+        except EvaluationAPIError as error:
+            logger.warning(
+                "PostHog offline results uploaded, but tagging failed for experiment %s (status=%s, code=%s). "
+                "Tagging requires a personal key with evaluation:write. Tag updates are not retried.",
+                experiment_id,
+                error.status,
+                OfflineUploadError._safe_token(error.code, path=False),
+            )
+        except TimeoutError:
+            logger.warning(
+                "PostHog offline results uploaded, but tagging timed out for experiment %s. "
+                "Tag updates are not retried.",
+                experiment_id,
+            )
+        except asyncio.CancelledError:
+            logger.warning(
+                "PostHog offline tag update interrupted for experiment %s; inspect its tags before retrying.",
+                experiment_id,
+            )
+            raise
 
     async def publish(self, upload: OfflineEvalUpload) -> str:
         if upload.host != self.settings.host or upload.project_id != self.settings.project_id:
             raise OfflineUploadError("Upload destination differs from the configured host/project")
         try:
-            async with AsyncOfflineEvaluations(
-                host=self.settings.host,
-                project_id=self.settings.project_id,
-                secret_key=self.settings.api_key.get_secret_value(),
-                timeout=self.settings.request_timeout,
-                max_retries=self.settings.max_retries,
-            ) as client:
+            async with self._client() as client:
                 experiment = await client.create_experiment(name=upload.experiment_name, **upload.experiment)
                 try:
                     await experiment.upload_results(upload.results)

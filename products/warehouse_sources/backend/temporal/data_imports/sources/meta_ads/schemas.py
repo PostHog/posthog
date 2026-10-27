@@ -133,6 +133,8 @@ _BREAKDOWN_METRIC_FIELDS = [
     "action_values",
     "purchase_roas",
     "website_purchase_roas",
+    "video_play_actions",
+    "video_thruplay_watched_actions",
     # The attribution window Meta actually applied to these rows, so imported numbers can be
     # reconciled against Ads Manager (see the source's attribution-window config).
     "attribution_setting",
@@ -158,12 +160,20 @@ _UNIQUE_METRIC_FIELDS = {
 }
 
 
-def _without_unique_metrics(field_names: list[str]) -> list[str]:
-    return [f for f in field_names if f not in _UNIQUE_METRIC_FIELDS]
+# Hourly and creative-asset breakdowns do not support these video metrics.
+_VIDEO_METRIC_FIELDS = {"video_play_actions", "video_thruplay_watched_actions"}
 
 
-HOURLY_BREAKDOWN_STATS_FIELDS = _without_unique_metrics(CAMPAIGN_BREAKDOWN_STATS_FIELDS)
-AD_ASSET_BREAKDOWN_STATS_FIELDS = _without_unique_metrics(AD_BREAKDOWN_STATS_FIELDS)
+def _without_metrics(field_names: list[str], excluded_fields: set[str]) -> list[str]:
+    return [f for f in field_names if f not in excluded_fields]
+
+
+HOURLY_BREAKDOWN_STATS_FIELDS = _without_metrics(
+    CAMPAIGN_BREAKDOWN_STATS_FIELDS, _UNIQUE_METRIC_FIELDS | _VIDEO_METRIC_FIELDS
+)
+AD_ASSET_BREAKDOWN_STATS_FIELDS = _without_metrics(
+    AD_BREAKDOWN_STATS_FIELDS, _UNIQUE_METRIC_FIELDS | _VIDEO_METRIC_FIELDS
+)
 
 
 @frozen
@@ -251,6 +261,9 @@ RESOURCE_SCHEMAS: dict[MetaAdsResource, dict[str, Any]] = {
         # The Ad node returns its creative as a nested object. Without a scalar id there is no join
         # from an ad to `ad_creatives`, where the destination URL and the URL tags live.
         "hoisted_columns": (HoistedColumn(source_field="creative", key="id", column="creative_id"),),
+        # These fields come from the ad's creative. Meta can refuse them for one ad with an invalid
+        # Advantage+ creative, and that ad then syncs without them instead of failing the table.
+        "refusable_fields": ("creative", "tracking_specs", "conversion_specs"),
     },
     MetaAdsResource.AdStats: {
         "primary_keys": ["ad_id", "account_id", "date_start"],
@@ -291,6 +304,8 @@ RESOURCE_SCHEMAS: dict[MetaAdsResource, dict[str, Any]] = {
             "website_purchase_roas",
             "attribution_setting",
             "video_30_sec_watched_actions",
+            "video_play_actions",
+            "video_thruplay_watched_actions",
             "video_p25_watched_actions",
             "video_p50_watched_actions",
             "video_p75_watched_actions",
@@ -368,6 +383,8 @@ RESOURCE_SCHEMAS: dict[MetaAdsResource, dict[str, Any]] = {
             "purchase_roas",
             "website_purchase_roas",
             "attribution_setting",
+            "video_play_actions",
+            "video_thruplay_watched_actions",
         ],
         "partition_mode": "datetime",
         "partition_format": "week",
@@ -436,6 +453,8 @@ RESOURCE_SCHEMAS: dict[MetaAdsResource, dict[str, Any]] = {
             "purchase_roas",
             "website_purchase_roas",
             "attribution_setting",
+            "video_play_actions",
+            "video_thruplay_watched_actions",
         ],
         "partition_mode": "datetime",
         "partition_format": "week",
@@ -507,6 +526,27 @@ RESOURCE_SCHEMAS: dict[MetaAdsResource, dict[str, Any]] = {
             "degrees_of_freedom_spec",
             "effective_authorization_category",
         ],
+        # Meta does not say which field triggers a refusal, so every spec-derived field is refusable.
+        "refusable_fields": (
+            "object_type",
+            "object_story_id",
+            "effective_object_story_id",
+            "object_story_spec",
+            "thumbnail_url",
+            "image_url",
+            "image_hash",
+            "video_id",
+            "body",
+            "title",
+            "call_to_action_type",
+            "link_url",
+            "url_tags",
+            "instagram_permalink_url",
+            "actor_id",
+            "asset_feed_spec",
+            "degrees_of_freedom_spec",
+            "effective_authorization_category",
+        ),
     },
     # `hash` rather than `id` as the key: Meta documents it as AdImage's default field, and the
     # `id` it returns is just the account and hash joined.
@@ -600,7 +640,7 @@ RESOURCE_SCHEMAS: dict[MetaAdsResource, dict[str, Any]] = {
     MetaAdsResource.AdsetStatsHourly: _breakdown_stats(
         "adset",
         ["hourly_stats_aggregated_by_advertiser_time_zone"],
-        _without_unique_metrics(ADSET_BREAKDOWN_STATS_FIELDS),
+        _without_metrics(ADSET_BREAKDOWN_STATS_FIELDS, _UNIQUE_METRIC_FIELDS | _VIDEO_METRIC_FIELDS),
     ),
     MetaAdsResource.AdStatsByAgeGender: _breakdown_stats("ad", ["age", "gender"], AD_BREAKDOWN_STATS_FIELDS),
     MetaAdsResource.AdStatsByCountry: _breakdown_stats("ad", ["country"], AD_BREAKDOWN_STATS_FIELDS),
@@ -609,7 +649,9 @@ RESOURCE_SCHEMAS: dict[MetaAdsResource, dict[str, Any]] = {
         "ad", ["publisher_platform", "platform_position", "impression_device"], AD_BREAKDOWN_STATS_FIELDS
     ),
     MetaAdsResource.AdStatsHourly: _breakdown_stats(
-        "ad", ["hourly_stats_aggregated_by_advertiser_time_zone"], _without_unique_metrics(AD_BREAKDOWN_STATS_FIELDS)
+        "ad",
+        ["hourly_stats_aggregated_by_advertiser_time_zone"],
+        _without_metrics(AD_BREAKDOWN_STATS_FIELDS, _UNIQUE_METRIC_FIELDS | _VIDEO_METRIC_FIELDS),
     ),
     # Spend against the landing page an ad sent people to. Meta reports the destination URL only
     # as a creative asset, and `ad_creatives.link_url` alone cannot carry spend, so this is the

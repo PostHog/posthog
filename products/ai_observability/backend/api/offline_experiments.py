@@ -2,6 +2,8 @@ from dataclasses import asdict
 from typing import TYPE_CHECKING, cast
 from uuid import UUID
 
+from django.shortcuts import get_object_or_404
+
 from drf_spectacular.utils import OpenApiParameter
 from prometheus_client import Counter
 from rest_framework import serializers, viewsets
@@ -11,7 +13,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import BaseThrottle
 
-from posthog.api.mixins import TypedRequest, validated_request
+from posthog.api.mixins import TypedRequest, ValidatedRequest, validated_request
 from posthog.api.monitoring import monitor
 from posthog.permissions import is_service_auth
 
@@ -25,11 +27,16 @@ from products.ai_observability.backend.api.offline_experiment_access import (
 )
 from products.ai_observability.backend.api.offline_experiment_errors import OfflineEvaluationErrorSerializer
 from products.ai_observability.backend.api.offline_experiment_parser import OfflineEvaluationJSONParser
-from products.ai_observability.backend.api.offline_experiment_reads import OfflineExperimentReadViewSet
+from products.ai_observability.backend.api.offline_experiment_read_serializers import OfflineExperimentReadSerializer
+from products.ai_observability.backend.api.offline_experiment_reads import (
+    READ_ERROR_RESPONSES,
+    OfflineExperimentReadViewSet,
+)
 from products.ai_observability.backend.api.offline_experiment_serializers import (
     ExperimentSubmissionSerializer,
     UploadSubmissionSerializer,
 )
+from products.ai_observability.backend.api.resource_tags import ResourceTagNamesField
 from products.ai_observability.backend.models.offline_evaluations import OfflineExperiment
 from products.ai_observability.backend.offline_evaluation_service import (
     ExperimentReceipt,
@@ -39,6 +46,7 @@ from products.ai_observability.backend.offline_evaluation_service import (
     OfflineExperimentService,
 )
 from products.ai_observability.backend.offline_evaluation_types import ExperimentSubmission, UploadSubmission
+from products.ai_observability.backend.resource_tags import ResourceTags
 
 if TYPE_CHECKING:
     from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -113,8 +121,12 @@ ERROR_RESPONSES = dict.fromkeys((400, 401, 403, 404, 409, 413, 429), OfflineEval
 EXPERIMENT_ID_PARAMETER = OpenApiParameter("id", UUID, OpenApiParameter.PATH, description="Experiment UUID.")
 
 
+class OfflineExperimentMetadataSerializer(serializers.Serializer):
+    tags = ResourceTagNamesField(required=False)
+
+
 class OfflineExperimentViewSet(OfflineExperimentReadViewSet):
-    scope_object_write_actions = ["create", "upload", "complete", "fail"]
+    scope_object_write_actions = ["create", "upload", "complete", "fail", "partial_update"]
     psak_allowed_actions = ["create", "upload", "complete", "fail"]
     parser_classes = [OfflineEvaluationJSONParser]
     ingestion_throttle_classes = [
@@ -124,15 +136,17 @@ class OfflineExperimentViewSet(OfflineExperimentReadViewSet):
         OfflineEvaluationIngestionTeamSustainedThrottle,
     ]
     serializer_class = ExperimentSubmissionSerializer
-    http_method_names = ["get", "post", "head", "options"]
+    http_method_names = ["get", "post", "patch", "head", "options"]
 
     def dangerously_get_required_scopes(self, request: Request, view: viewsets.ViewSetMixin) -> list[str] | None:
+        if self.action == "partial_update":
+            return ["evaluation:write"]
         if self.action in self.scope_object_write_actions:
             return ["offline_evaluation_ingestion:write"]
         return super().dangerously_get_required_scopes(request, view)
 
     def get_throttles(self) -> list[BaseThrottle]:
-        if self.action in self.scope_object_write_actions:
+        if self.action in self.psak_allowed_actions:
             return [throttle() for throttle in self.ingestion_throttle_classes]
         return super().get_throttles()
 
@@ -141,7 +155,7 @@ class OfflineExperimentViewSet(OfflineExperimentReadViewSet):
 
     def handle_exception(self, exc: Exception) -> Response:
         action_name = getattr(self, "action", None)
-        if action_name in self.scope_object_read_actions or action_name == "metadata":
+        if action_name in self.scope_object_read_actions or action_name in {"metadata", "partial_update"}:
             return super().handle_exception(exc)
         if isinstance(exc, OfflineEvaluationConflict):
             OFFLINE_UPLOAD_ERRORS.labels(outcome="conflict").inc()
@@ -163,6 +177,20 @@ class OfflineExperimentViewSet(OfflineExperimentReadViewSet):
         return response
 
     @validated_request(
+        request_serializer=OfflineExperimentMetadataSerializer,
+        responses={200: OfflineExperimentReadSerializer, **ERROR_RESPONSES, **READ_ERROR_RESPONSES},
+        parameters=[EXPERIMENT_ID_PARAMETER],
+    )
+    def partial_update(self, request: ValidatedRequest, **kwargs: object) -> Response:
+        experiment = get_object_or_404(OfflineExperiment.objects.for_team(self.team_id), pk=self._path_id())
+        self.check_object_permissions(request, experiment)
+        if "tags" in request.validated_data:
+            ResourceTags.set(experiment, request.validated_data["tags"])
+        return self._read_response(
+            lambda: self._read_service().get_experiment(experiment.id), OfflineExperimentReadSerializer
+        )
+
+    @validated_request(
         ExperimentSubmissionSerializer,
         responses={200: ExperimentReceiptSerializer, 201: ExperimentReceiptSerializer, **ERROR_RESPONSES},
     )
@@ -171,7 +199,10 @@ class OfflineExperimentViewSet(OfflineExperimentReadViewSet):
     def create(self, request: TypedRequest[ExperimentSubmission], **kwargs: object) -> Response:
         receipt = OfflineExperimentService(
             team_id=self.team_id, user_access_control=self._reference_access_control()
-        ).create(request.validated_data)
+        ).create(
+            request.validated_data,
+            created_by_id=None if is_service_auth(request) else request.user.pk,
+        )
         return _experiment_response(receipt, status=201 if receipt.created else 200)
 
     def _experiment_id(self) -> UUID:

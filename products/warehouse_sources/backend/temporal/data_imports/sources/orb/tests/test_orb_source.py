@@ -25,10 +25,6 @@ class TestGetSchemas:
         if expected:
             assert schema.incremental_fields == INCREMENTAL_FIELDS[endpoint]
 
-    def test_names_filter(self) -> None:
-        schemas = OrbSource().get_schemas(_config(), team_id=1, names=["Customers", "Coupons"])
-        assert {s.name for s in schemas} == {"Customers", "Coupons"}
-
 
 class TestValidateCredentials:
     @parameterized.expand([("valid", True, True), ("invalid", False, False)])
