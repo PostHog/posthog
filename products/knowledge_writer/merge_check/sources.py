@@ -14,6 +14,7 @@ POSTHOG_MAINLINE = "master"
 GITHUB_API_URL = "https://api.github.com"
 GITHUB_EGRESS_SOURCE = "knowledge_writer"
 SITEMAP_URL = "https://posthog.com/sitemap/sitemap-0.xml"
+DOCS_URL_PREFIX = "https://posthog.com/docs/"
 TRUSTED_AUTHOR_ASSOCIATIONS = frozenset({"MEMBER", "OWNER"})
 SITEMAP_DOCS_URL_PATTERN = re.compile(r"<loc>(https://posthog\.com/docs/[^<]+)</loc>")
 DIFF_FILE_HEADER_PATTERN = re.compile(r"^diff --git a/\S+ b/(\S+)$")
