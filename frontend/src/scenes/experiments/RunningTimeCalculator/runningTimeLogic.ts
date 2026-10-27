@@ -4,7 +4,6 @@ import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
-import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { objectsEqual } from 'lib/utils/objects'
 
@@ -33,6 +32,7 @@ import {
     calculateCurrentExposures,
     buildRunningTimeOutlook,
     calculateDaysElapsed,
+    daysFromToday,
     rescaleSampleSize,
     RunningTimeOutlook,
 } from './calculations'
@@ -57,8 +57,6 @@ export interface ManualPreview {
 // The metric the automatic estimate is sized from.
 export interface EstimateMetric {
     name: string
-    // A conversion or retention rate, rather than an average per user.
-    measuresRate: boolean
     // The experiment has more than one primary metric, and the estimate reads the first.
     isFirstOfSeveral: boolean
     hasOtherMetrics: boolean
@@ -92,6 +90,7 @@ export interface runningTimeLogicValues {
     currentExposures: number | null
     dailyExposureRate: number | null
     editedMde: number | null
+    enteredMde: number | null
     estimateMetric: EstimateMetric | null
     initialConfig: RunningTimeConfig
     isCalculating: boolean
@@ -109,6 +108,7 @@ export interface runningTimeLogicValues {
     numberOfVariants: number
     outlook: RunningTimeOutlook | null
     remainingDays: number | null
+    selectedCheckpointKey: string | null
     targetEffect: number
     targetSampleSize: number | null
 }
@@ -175,6 +175,13 @@ export interface runningTimeLogicActions {
     save: () => {
         value: true
     }
+    selectCheckpoint: (
+        key: string,
+        effect: number
+    ) => {
+        effect: number
+        key: string
+    }
     setConfig: (config: Partial<RunningTimeConfig>) => {
         config: Partial<RunningTimeConfig>
     }
@@ -238,13 +245,16 @@ export interface runningTimeLogicMeta {
             currentExposures: number | null,
             dailyExposureRate: number | null,
             experiment: Experiment,
-            isManualEstimate: boolean
+            isManualEstimate: boolean,
+            outlook: RunningTimeOutlook | null
         ) => number | null
         outlook: (
             isManualEstimate: boolean,
             automaticTarget: RunningTimeTargetApi | null,
-            targetSampleSize: number | null,
-            targetEffect: number
+            targetEffect: number,
+            defaultMinimumDetectableEffect: number,
+            enteredMde: number | null,
+            selectedCheckpointKey: string | null
         ) => RunningTimeOutlook | null
         canIncludeMoreUsers: (experiment: Experiment) => boolean
         estimateMetric: (experiment: Experiment, metricsWithResults: MetricWithResult[]) => EstimateMetric | null
@@ -293,6 +303,7 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
 
     actions({
         setConfig: (config: Partial<RunningTimeConfig>) => ({ config }),
+        selectCheckpoint: (key: string, effect: number) => ({ key, effect }),
         resetConfig: true,
         save: true,
         cancel: true,
@@ -305,6 +316,23 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
             null as Partial<RunningTimeConfig> | null,
             {
                 setConfig: (state, { config }) => ({ ...state, ...config }),
+                selectCheckpoint: (state, { effect }) => ({ ...state, mde: effect }),
+                resetConfig: () => null,
+            },
+        ],
+        enteredMde: [
+            null as number | null,
+            {
+                setConfig: (state, { config }) => (config.mde === undefined ? state : config.mde),
+                resetConfig: () => null,
+            },
+        ],
+        // The row chosen with "Use". The slider and the input make the custom row the target again.
+        selectedCheckpointKey: [
+            null as string | null,
+            {
+                selectCheckpoint: (_, { key }) => key,
+                setConfig: (state, { config }) => (config.mde === undefined ? state : null),
                 resetConfig: () => null,
             },
         ],
@@ -550,13 +578,21 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
 
         // Days until we reach target sample size
         remainingDays: [
-            (s) => [s.targetSampleSize, s.currentExposures, s.dailyExposureRate, s.experiment, s.isManualEstimate],
+            (s) => [
+                s.targetSampleSize,
+                s.currentExposures,
+                s.dailyExposureRate,
+                s.experiment,
+                s.isManualEstimate,
+                s.outlook,
+            ],
             (
                 target: number | null,
                 current: number | null,
                 rate: number | null,
                 experiment: Experiment,
-                isManualEstimate: boolean
+                isManualEstimate: boolean,
+                outlook: RunningTimeOutlook | null
             ): number | null => {
                 if (!target || target <= 0 || !rate || rate <= 0) {
                     return null
@@ -569,11 +605,10 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
                     if (!experiment?.start_date) {
                         return Math.ceil(target / rate)
                     }
-                    // The projection reaches the target `target / rate` days after launch. Calendar days to that date
-                    // keep the header, the table's date and its "in N days" in step, also when the results end before
-                    // today.
-                    const reachedAt = dayjs(experiment.start_date).add((target / rate) * 24, 'hour')
-                    return Math.max(1, reachedAt.startOf('day').diff(dayjs().startOf('day'), 'day'))
+                    // The projection reaches the target `target / rate` days after launch, or at the checkpoint whose
+                    // effect the target took. Calendar days to that date keep the header, the table's date and its
+                    // "in N days" in step, also when the results end before today.
+                    return daysFromToday(experiment.start_date, outlook?.daysToTarget ?? target / rate)
                 }
 
                 // The manual estimate counts down from the exposures so far once there are a day and 100 of them.
@@ -596,18 +631,32 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
         ],
         // What the experiment can detect over time, for the automatic estimate.
         outlook: [
-            (s) => [s.isManualEstimate, s.automaticTarget, s.targetSampleSize, s.targetEffect],
+            (s) => [
+                s.isManualEstimate,
+                s.automaticTarget,
+                s.targetEffect,
+                s.defaultMinimumDetectableEffect,
+                s.enteredMde,
+                s.selectedCheckpointKey,
+            ],
             (
                 isManualEstimate: boolean,
                 automaticTarget: RunningTimeTargetApi | null,
-                targetSampleSize: number | null,
-                targetEffect: number
+                targetEffect: number,
+                defaultMinimumDetectableEffect: number,
+                enteredMde: number | null,
+                selectedCheckpointKey: string | null
             ): RunningTimeOutlook | null =>
                 isManualEstimate
                     ? null
                     : buildRunningTimeOutlook({
                           projection: automaticTarget?.outlook ?? null,
-                          targetSampleSize,
+                          currentSampleSize: automaticTarget?.current_sample_size ?? null,
+                          savedEffect: automaticTarget?.minimum_detectable_effect ?? null,
+                          savedSampleSize: automaticTarget?.recommended_sample_size ?? null,
+                          defaultEffect: defaultMinimumDetectableEffect,
+                          enteredEffect: enteredMde,
+                          selectedKey: selectedCheckpointKey,
                           minimumDetectableEffect: targetEffect,
                       }),
         ],
@@ -634,7 +683,6 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
                     (experiment?.saved_metrics ?? []).filter((saved) => saved.metadata?.type === 'secondary').length
                 return {
                     name: metric.name || getDefaultMetricTitle(metric),
-                    measuresRate: metric.metric_type === 'funnel' || metric.metric_type === 'retention',
                     isFirstOfSeveral: metricsWithResults.length > 1,
                     hasOtherMetrics: metricsWithResults.length > 1 || secondaryCount > 0,
                 }

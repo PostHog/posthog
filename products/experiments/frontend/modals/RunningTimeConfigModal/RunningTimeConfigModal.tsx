@@ -12,6 +12,7 @@ import { isLaunched } from 'products/experiments/frontend/experimentStatus'
 
 import { DetectableEffectTable } from './DetectableEffectTable'
 import { MinimumDetectableEffectField } from './MinimumDetectableEffectField'
+import { MinimumDetectableEffectHelp } from './MinimumDetectableEffectHelp'
 
 export interface RunningTimeConfigModalProps {
     experiment: Experiment
@@ -56,25 +57,16 @@ export function RunningTimeConfigModal({ experiment: experimentProp }: RunningTi
         isCalculating,
         automaticTargetFailed,
         automaticTargetRequest,
-        estimateMetric,
     } = useValues(runningTimeLogic({ experiment: experimentProp }))
     const { setConfig, save, cancel, loadAutomaticTarget } = useActions(
         runningTimeLogic({ experiment: experimentProp })
     )
 
     const isPreLaunch = !isLaunched(experiment)
-    const effectField = (
-        <MinimumDetectableEffectField
-            value={config.mde}
-            onChange={(mde) => setConfig({ mde })}
-            measuresRate={
-                config.mode === 'manual' ? config.metricType === 'funnel' : (estimateMetric?.measuresRate ?? true)
-            }
-        />
-    )
+    const effectField = <MinimumDetectableEffectField value={config.mde} onChange={(mde) => setConfig({ mde })} />
 
     return (
-        <LemonModal isOpen={isRunningTimeConfigModalOpen} onClose={cancel} width={520} simple>
+        <LemonModal isOpen={isRunningTimeConfigModalOpen} onClose={cancel} width={560} simple>
             <LemonModal.Header>
                 <h3>{isPreLaunch ? 'Estimate running time' : 'Running time'}</h3>
             </LemonModal.Header>
@@ -97,23 +89,11 @@ export function RunningTimeConfigModal({ experiment: experimentProp }: RunningTi
                             value={config.mode}
                             onChange={(value) => setConfig({ mode: value as 'automatic' | 'manual' })}
                         />
-                        <div className="text-xs text-muted mt-1">
-                            {config.mode === 'manual' ? (
-                                'Enter your own values to calculate sample size and running time.'
-                            ) : estimateMetric ? (
-                                <>
-                                    <span>Estimated only from </span>
-                                    <span className="font-semibold text-secondary">{estimateMetric.name}</span>
-                                    <span>
-                                        {`, the ${estimateMetric.isFirstOfSeveral ? 'first ' : ''}primary metric.${
-                                            estimateMetric.hasOtherMetrics ? ' Other metrics can need more time.' : ''
-                                        }`}
-                                    </span>
-                                </>
-                            ) : (
-                                'Estimated only from the primary metric.'
-                            )}
-                        </div>
+                        {config.mode === 'manual' && (
+                            <div className="text-xs text-muted mt-1">
+                                Enter your own values to calculate sample size and running time.
+                            </div>
+                        )}
                     </div>
 
                     {config.mode === 'manual' ? (
@@ -167,7 +147,10 @@ export function RunningTimeConfigModal({ experiment: experimentProp }: RunningTi
                                 <div className="text-xs text-muted mt-1">{getBaselineHelp(config.metricType)}</div>
                             </div>
 
-                            {effectField}
+                            <div>
+                                {effectField}
+                                <MinimumDetectableEffectHelp className="text-muted mt-1" />
+                            </div>
 
                             <div>
                                 <Label intent="menu">Expected exposures per day</Label>
@@ -187,33 +170,36 @@ export function RunningTimeConfigModal({ experiment: experimentProp }: RunningTi
                     ) : (
                         <>
                             {effectField}
-                            {!outlook && isCalculating ? (
-                                <div className="flex items-center gap-2 text-secondary">
-                                    <Spinner />
-                                    <span>Calculating the running time…</span>
-                                </div>
-                            ) : automaticTargetFailed ? (
-                                <LemonBanner
-                                    type="error"
-                                    action={
-                                        automaticTargetRequest
-                                            ? {
-                                                  children: 'Try again',
-                                                  onClick: () => loadAutomaticTarget(automaticTargetRequest),
-                                              }
-                                            : undefined
-                                    }
-                                >
-                                    Couldn't calculate the running time.
-                                </LemonBanner>
-                            ) : !outlook ? (
-                                <LemonBanner type="info">
-                                    Not enough data to estimate the running time yet. It needs exposures, and some
-                                    activity on the primary metric, in each variant.
-                                </LemonBanner>
-                            ) : (
-                                <DetectableEffectTable experiment={experimentProp} />
-                            )}
+                            <div className="space-y-2">
+                                {!outlook && isCalculating ? (
+                                    <div className="flex items-center gap-2 text-secondary">
+                                        <Spinner />
+                                        <span>Calculating the running time…</span>
+                                    </div>
+                                ) : automaticTargetFailed ? (
+                                    <LemonBanner
+                                        type="error"
+                                        action={
+                                            automaticTargetRequest
+                                                ? {
+                                                      children: 'Try again',
+                                                      onClick: () => loadAutomaticTarget(automaticTargetRequest),
+                                                  }
+                                                : undefined
+                                        }
+                                    >
+                                        Couldn't calculate the running time.
+                                    </LemonBanner>
+                                ) : !outlook ? (
+                                    <LemonBanner type="info">
+                                        Not enough data to estimate the running time yet. It needs exposures, and some
+                                        activity on the primary metric, in each variant.
+                                    </LemonBanner>
+                                ) : (
+                                    <DetectableEffectTable experiment={experimentProp} />
+                                )}
+                                <MinimumDetectableEffectHelp className="text-secondary" />
+                            </div>
                         </>
                     )}
                 </div>

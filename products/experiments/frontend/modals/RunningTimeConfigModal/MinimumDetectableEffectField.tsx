@@ -12,18 +12,12 @@ import {
 export interface MinimumDetectableEffectFieldProps {
     value: number
     onChange: (value: number) => void
-    // A conversion or retention rate, rather than an average per user, which picks the example in the help text.
-    measuresRate: boolean
 }
 
 const isInRange = (value: number | undefined): value is number =>
     value !== undefined && value >= MINIMUM_DETECTABLE_EFFECT_MIN && value <= MINIMUM_DETECTABLE_EFFECT_MAX
 
-export function MinimumDetectableEffectField({
-    value,
-    onChange,
-    measuresRate,
-}: MinimumDetectableEffectFieldProps): JSX.Element {
+export function MinimumDetectableEffectField({ value, onChange }: MinimumDetectableEffectFieldProps): JSX.Element {
     // The input keeps what the user types, so that an empty field or a partial number stays editable. Only a value in
     // range reaches the estimate.
     const [draft, setDraft] = useState<number | undefined>(value)
@@ -81,11 +75,6 @@ export function MinimumDetectableEffectField({
                     {`Enter a value from ${MINIMUM_DETECTABLE_EFFECT_MIN} to ${MINIMUM_DETECTABLE_EFFECT_MAX}.`}
                 </div>
             )}
-            <div className="text-xs text-muted mt-1">
-                {`The smallest change you want to detect, relative to the control. For example, 10% turns ${
-                    measuresRate ? 'a 5% conversion rate into 5.5%' : 'an average of 20 into 22'
-                }. It doesn't change the results.`}
-            </div>
         </div>
     )
 }

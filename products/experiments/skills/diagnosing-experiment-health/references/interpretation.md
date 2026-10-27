@@ -341,6 +341,7 @@ real anomaly worth investigating with the experiment URL.
 It reads "~N days left" while the exposures are below the target, and "Target reached" once they are at or above it.
 When the target is more than four weeks away, it reads "Can detect X%+ changes within 4 weeks" with a warning icon instead.
 X is the smallest change that the experiment can detect within four weeks at its current traffic, not the minimum detectable effect.
+Above 100% it reads "Can detect only changes over 100% within 4 weeks".
 Older versions read "Complete".
 On an ended experiment "Complete" is the status tag: every ended experiment carries it, and the duration display is hidden.
 Read `status` first when the user says "complete".
@@ -354,7 +355,8 @@ Read `status` first when the user says "complete".
 - In manual mode the target comes from the baseline the user typed, not from the results.
 - "Target reached" says that an effect of that size would probably have shown.
   It says nothing about significance, and it does not end the experiment.
-- The running time settings list the change that the experiment can detect today, at the next week marks, and on the date it reaches the target.
+- The running time settings list the exposures and the change that the experiment can detect today, at the next week marks, and on the date it reaches the target.
+  A change over 100% shows as ">100%".
 
 <!-- Source for maintainers (may rot): ExperimentRemainingTime.tsx in
 products/experiments/frontend/components/ExperimentMetaBar; runningTimeLogic.ts in

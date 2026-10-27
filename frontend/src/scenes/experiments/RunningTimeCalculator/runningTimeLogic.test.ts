@@ -12,6 +12,7 @@ import { Experiment } from '~/types'
 import { experimentLogic } from '../experimentLogic'
 import { experimentMetricsLogic } from '../experimentMetricsLogic'
 import { modalsLogic } from '../modalsLogic'
+import { roundUpDetectableEffect } from './calculations'
 import { runningTimeLogic } from './runningTimeLogic'
 
 jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
@@ -255,6 +256,46 @@ describe('runningTimeLogic', () => {
             await expectLogic(logic).toDispatchActions(['loadAutomaticTargetSuccess']).toFinishAllListeners()
 
             expect(logic.values.remainingDays).toEqual(8)
+        })
+
+        it('keeps the same rows while the user takes a row with "Use" and moves the slider', async () => {
+            // At 120 exposures a day, the 1,996 that 30% needs arrive after week 2, which can detect 32.7%.
+            runningTimeTargetMock.mockResolvedValue({
+                recommended_sample_size: 1996,
+                minimum_detectable_effect: 30,
+                current_sample_size: 1200,
+                outlook: PROJECTION,
+            })
+            api.update.mockResolvedValue({ ...experiment, version: 4 })
+            logic = runningTimeLogic({ experiment })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadAutomaticTargetSuccess']).toFinishAllListeners()
+            const rows = (): [number, boolean][] | undefined =>
+                logic.values.outlook?.checkpoints.map(({ detectableEffect, isTarget }) => [detectableEffect, isTarget])
+
+            expect(rows()).toEqual([
+                [38.7, false],
+                [32.7, false],
+                [30, true],
+            ])
+
+            logic.actions.selectCheckpoint('week-2', roundUpDetectableEffect(32.7))
+
+            expect(rows()).toEqual([
+                [38.7, false],
+                [32.7, true],
+                [30, false],
+            ])
+            expect(logic.values.remainingDays).toEqual(4)
+            expect(logic.values.config.mde).toEqual(32.7)
+
+            logic.actions.setConfig({ mde: 36 })
+
+            expect(rows()).toEqual([
+                [38.7, false],
+                [36, true],
+                [32.7, false],
+            ])
         })
 
         it('asks again when the metric sums change without new exposures', async () => {
