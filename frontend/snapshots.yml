@@ -3968,6 +3968,10 @@ snapshots:
         hash: v1.k794b7964.77db5fd39abf5b41db372ff16af2044f3c03b303aabe0d592f6c25de1898339a.3VJBqA15CtN76iDMdubH40FmnriyLRFCW_mGRXdYrsM
     insights-funnellinechart--with-legend--light:
         hash: v1.k794b7964.d3d505f78dc4785055c98a602b0edd9c39549001dab1a3f1c3bf753f1cff60be.Lu6z04Zq2foZ5axwQK8Hg4ys33BYX2OIMjQkpYBycKM
+    insights-funnelstepsbarchart--alert-thresholds--dark:
+        hash: v1.k794b7964.f07a01625198eb67f2bf3709a2b562abf1e5c9fb6e0ad50d32bc3c0455810e4c.kcHPaKTNWm1MsjfK7ZXC-YOSHARImNlxhU63hmrI9zk
+    insights-funnelstepsbarchart--alert-thresholds--light:
+        hash: v1.k794b7964.1615420c253f38e627b2d08757e17d1bd748369b520353077fb7cb69b60ce73d.fckv-4nelywj6ArxmnSQa8Xt5h6ZySRMvXTpCuoTF-A
     insights-funnelstepsbarchart--bar-labels--dark:
         hash: v1.k794b7964.5de2ee4fdd7ba021e1af1363b1e7977b10a245ce3ae6486008b83552cc41296d.tMGnyCUxbncHrGz42VrPrOAdXqsv6oqpZP2N6hjMW48
     insights-funnelstepsbarchart--bar-labels--light:
