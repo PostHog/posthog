@@ -1,10 +1,15 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { projectLogic } from 'scenes/projectLogic'
+
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import type { FeatureFlagTestEvaluationResponseApi } from 'products/feature_flags/frontend/generated/api.schemas'
+import type {
+    FeatureFlagHistoricalBatchRequestApi,
+    FeatureFlagTestEvaluationResponseApi,
+} from 'products/feature_flags/frontend/generated/api.schemas'
 
 import { featureFlagTestingLogic } from './featureFlagTestingLogic'
 
@@ -488,13 +493,30 @@ describe('featureFlagTestingLogic', () => {
             expect(logic.values.testError).toBe(expectedError)
         })
 
-        it('runs the batch evaluation for a person with merged distinct IDs', async () => {
+        it.each(['', '2026-01-01T00:00:00.000Z'])('evaluates merged IDs with timestamp %s', async (timestamp) => {
+            const requests: unknown[] = []
+            useMocks({
+                post: {
+                    '/api/projects/:team/feature_flags/1/test_evaluation_batch': async ({ request }) => {
+                        requests.push(await request.json())
+                        return [
+                            200,
+                            {
+                                results: [
+                                    { distinct_id: 'user-123', result: null, error: 'Evaluation unavailable' },
+                                    { distinct_id: 'user-456', result: { result: true }, error: null },
+                                ],
+                            },
+                        ]
+                    },
+                },
+            })
             logic.actions.setSelectedPerson({
                 name: 'Jane Doe',
                 uuid: 'uuid-abc',
                 distinct_ids: ['user-123', 'user-456'],
             })
-            logic.actions.setTestFormData({ distinct_id: 'user-123', timestamp: '', groups: '' })
+            logic.actions.setTestFormData({ distinct_id: 'user-123', timestamp, groups: '' })
 
             await expectLogic(logic, () => {
                 logic.actions.submitTestEvaluation()
@@ -503,18 +525,106 @@ describe('featureFlagTestingLogic', () => {
                     logic.actionCreators.testAllDistinctIds({
                         flagId: 1,
                         distinctIds: ['user-123', 'user-456'],
-                        formData: { distinct_id: 'user-123', timestamp: '', groups: '' },
+                        formData: { distinct_id: 'user-123', timestamp, groups: '' },
                     }),
                     'testAllDistinctIdsSuccess',
                 ])
                 .toNotHaveDispatchedActions(['testFlagEvaluation'])
+            expect(requests).toHaveLength(timestamp ? 1 : 0)
+            if (timestamp) {
+                expect(requests[0]).toEqual({ distinct_ids: ['user-123', 'user-456'], timestamp, groups: {} })
+                expect(logic.values.allEvaluations).toEqual([
+                    { distinctId: 'user-123', result: null, error: 'Evaluation unavailable' },
+                    { distinctId: 'user-456', result: { result: true }, error: null },
+                ])
+            }
         })
     })
+
+    it.each([false, true])(
+        'sequentially batches oversized historical identity lists (failure: %s)',
+        async (failSecondBatch) => {
+            const ids = Array.from({ length: 2001 }, (_, i) => `user-${i}`)
+            const requests: string[][] = []
+            const projectIds: string[] = []
+            const initialProjectId = String(logic.values.currentProjectId)
+            let active = 0
+            let peakActive = 0
+            useMocks({
+                post: {
+                    '/api/projects/:team/feature_flags/1/test_evaluation_batch': async ({ request }) => {
+                        const body = (await request.json()) as FeatureFlagHistoricalBatchRequestApi
+                        active++
+                        peakActive = Math.max(peakActive, active)
+                        requests.push(body.distinct_ids)
+                        projectIds.push(new URL(request.url).pathname.split('/')[3])
+                        projectLogic.actions.loadCurrentProjectSuccess({
+                            ...projectLogic.values.currentProject!,
+                            id: 999,
+                        })
+                        await new Promise((resolve) => setTimeout(resolve, 1))
+                        active--
+                        if (failSecondBatch && requests.length === 2) {
+                            return [500, { error: 'Failed to build person properties at specified timestamp.' }]
+                        }
+                        return [
+                            200,
+                            {
+                                results: body.distinct_ids.map((id: string) => ({
+                                    distinct_id: id,
+                                    result: { result: id },
+                                    error: null,
+                                })),
+                            },
+                        ]
+                    },
+                },
+            })
+            await expectLogic(logic, () => {
+                logic.actions.testAllDistinctIds({
+                    flagId: 1,
+                    distinctIds: [...ids, ids[0]],
+                    formData: { distinct_id: ids[0], timestamp: '2026-01-01T00:00:00.000Z', groups: '' },
+                })
+            }).toDispatchActions(['testAllDistinctIdsSuccess'])
+            expect(requests.map((ids) => ids.length)).toEqual(failSecondBatch ? [1000, 1000] : [1000, 1000, 1])
+            expect(peakActive).toBe(1)
+            expect(projectIds).toEqual(requests.map(() => initialProjectId))
+            expect(logic.values.allEvaluations?.map((row) => row.distinctId)).toEqual(ids)
+            expect(logic.values.allEvaluations?.[0].result?.result).toBe(ids[0])
+            expect(logic.values.allEvaluations?.[2000].error).toBe(
+                failSecondBatch
+                    ? 'Unable to build person properties at the selected timestamp. This person may not have had any recorded activity at that time, or the timestamp may be too far in the past.'
+                    : null
+            )
+        }
+    )
 
     describe('API error messages', () => {
         // The failing responses fail the evaluation loader on purpose; kea-loaders would log each
         beforeEach(silenceKeaLoadersErrors)
         afterEach(resumeKeaLoadersErrors)
+
+        it('surfaces one shared historical failure without falling back to individual requests', async () => {
+            const batch = jest.fn(() => [500, { error: 'Failed to build person properties at specified timestamp.' }])
+            const single = jest.fn(() => [200, {}])
+            useMocks({
+                post: {
+                    '/api/projects/:team/feature_flags/1/test_evaluation_batch': batch,
+                    '/api/projects/:team/feature_flags/1/test_evaluation': single,
+                },
+            })
+            await expectLogic(logic, () => {
+                logic.actions.testAllDistinctIds({
+                    flagId: 1,
+                    distinctIds: ['user-123', 'user-456'],
+                    formData: { distinct_id: 'user-123', timestamp: '2026-01-01T00:00:00.000Z', groups: '' },
+                })
+            }).toDispatchActions(['testAllDistinctIdsFailure'])
+            expect(batch).toHaveBeenCalledTimes(1)
+            expect(single).not.toHaveBeenCalled()
+            expect(logic.values.testError).toContain('Unable to build person properties')
+        })
 
         it.each([
             {
