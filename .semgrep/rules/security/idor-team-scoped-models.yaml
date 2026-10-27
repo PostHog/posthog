@@ -86,6 +86,7 @@ rules:
                               |AITrainingDeletionRequest
                               |Alert
                               |AlertConfiguration
+                              |InsightAlertInvestigation
                               |Annotation
                               |Announcement
                               |AnnouncementDelivery
@@ -574,6 +575,7 @@ rules:
                         |AITrainingDeletionRequest
                         |Alert
                         |AlertConfiguration
+                        |InsightAlertInvestigation
                         |Annotation
                         |Announcement
                         |AnnouncementDelivery
