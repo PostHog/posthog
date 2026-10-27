@@ -1,0 +1,124 @@
+from __future__ import annotations
+
+import pytest
+
+from products.posthog_ai.eval_harness.test.test_eval_scorers import _raw_tool_log
+from products.posthog_ai.evals.product_analytics.sql_insight_scorers import (
+    SavedSqlInsight,
+    SqlFollowsDateFilter,
+    SqlTimeAxisAscending,
+)
+
+DEFAULT_RANGE = {"dateRange": {"date_from": "-14d"}}
+
+
+def _save(sql: str, filters: dict | None = DEFAULT_RANGE, dashboards: list[int] | None = None) -> tuple:
+    source: dict = {"kind": "HogQLQuery", "query": sql}
+    if filters is not None:
+        source["filters"] = filters
+    payload: dict = {"name": "Uploads", "query": {"kind": "DataVisualizationNode", "source": source}}
+    if dashboards is not None:
+        payload["dashboards"] = dashboards
+    return ("mcp__posthog__insight-create", payload, '{"id": 1}')
+
+
+def _output(*calls: tuple) -> dict:
+    return {"raw_log": _raw_tool_log(list(calls)), "prompt": "Save a SQL insight"}
+
+
+@pytest.mark.parametrize(
+    "sql,filters,expected_score",
+    [
+        ("SELECT count() FROM events WHERE {filters}", DEFAULT_RANGE, 1.0),
+        (
+            "WITH firsts AS (SELECT person_id, min(timestamp) AS t FROM events WHERE {filters} GROUP BY person_id) "
+            "SELECT count() FROM firsts",
+            DEFAULT_RANGE,
+            1.0,
+        ),
+        (
+            "SELECT count() FROM events WHERE timestamp >= {filters.dateRange.from} "
+            "AND timestamp < {filters.dateRange.to}",
+            DEFAULT_RANGE,
+            1.0,
+        ),
+        ("SELECT count() FROM events WHERE timestamp >= now() - INTERVAL 14 DAY", DEFAULT_RANGE, 0.0),
+        ("SELECT count() FROM events WHERE {filters} AND timestamp >= now() - INTERVAL 14 DAY", DEFAULT_RANGE, 0.0),
+        ("SELECT count() FROM events WHERE timestamp BETWEEN '2026-01-01' AND '2026-01-15'", DEFAULT_RANGE, 0.0),
+        ("SELECT count() FROM events WHERE {filters}", None, 0.0),
+    ],
+    ids=[
+        "filters_placeholder",
+        "filters_inside_cte",
+        "date_range_placeholders",
+        "hard_coded_window",
+        "placeholder_plus_hard_coded_window",
+        "date_literal_window",
+        "no_default_date_range",
+    ],
+)
+def test_sql_follows_date_filter(sql: str, filters: dict | None, expected_score: float) -> None:
+    score = SqlFollowsDateFilter()._run_eval_sync(
+        _output(_save(sql, filters)), expected={"sql_follows_date_filter": {}}
+    )
+
+    assert score.score == expected_score, score.metadata
+
+
+@pytest.mark.parametrize(
+    "order_by,expected_score",
+    [
+        ("ORDER BY day", 1.0),
+        ("ORDER BY day ASC", 1.0),
+        ("ORDER BY 1", 1.0),
+        ("ORDER BY file_type, toStartOfDay(timestamp)", 1.0),
+        ("ORDER BY day DESC", 0.0),
+        ("ORDER BY uploads DESC", 0.0),
+        ("", 0.0),
+    ],
+    ids=["alias", "alias_asc", "position", "expression_after_breakdown", "desc", "no_time_key", "no_order_by"],
+)
+def test_sql_time_axis_ascending(order_by: str, expected_score: float) -> None:
+    sql = (
+        "SELECT toStartOfDay(timestamp) AS day, properties.file_type AS file_type, count() AS uploads "
+        f"FROM events WHERE {{filters}} GROUP BY day, file_type {order_by}"
+    )
+
+    score = SqlTimeAxisAscending()._run_eval_sync(_output(_save(sql)), expected={"sql_time_axis_ascending": {}})
+
+    assert score.score == expected_score, score.metadata
+
+
+@pytest.mark.parametrize(
+    "calls,expected_score",
+    [
+        ([_save("SELECT 1", dashboards=[7])], 1.0),
+        (
+            [
+                _save("SELECT 1"),
+                ("mcp__posthog__insight-update", {"id": 1, "dashboards": [7]}, '{"id": 1}'),
+            ],
+            1.0,
+        ),
+        ([_save("SELECT 1")], 0.0),
+        (
+            [
+                (
+                    "mcp__posthog__insight-create",
+                    {
+                        "name": "Uploads",
+                        "dashboards": [7],
+                        "query": {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", "series": []}},
+                    },
+                    '{"id": 1}',
+                )
+            ],
+            0.0,
+        ),
+    ],
+    ids=["created_on_dashboard", "added_by_update", "not_on_dashboard", "typed_insight_only"],
+)
+def test_saved_sql_insight_on_dashboard(calls: list[tuple], expected_score: float) -> None:
+    score = SavedSqlInsight()._run_eval_sync(_output(*calls), expected={"saved_sql_insight": {"on_dashboard": True}})
+
+    assert score.score == expected_score, score.metadata
