@@ -19,6 +19,7 @@ import psycopg.errors
 from psycopg import sql
 
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import ChangeEvent
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.tls import TLSOptions
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.decoder import PgOutputDecoder
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import (
     _connect_to_postgres,
@@ -66,6 +67,7 @@ class PgCDCConnectionParams:
     user: str
     password: str = field(repr=False)
     require_ssl: bool = False
+    tls: TLSOptions | None = None
     slot_name: str = ""
     publication_name: str = ""
 
@@ -128,6 +130,7 @@ class PgCDCStreamReader:
                 user=self._params.user,
                 password=self._params.password,
                 require_ssl=self._params.require_ssl,
+                tls=self._params.tls,
                 team_id=self._source.team_id if self._source is not None else None,
                 # statement_timeout (30m) is a server-side ceiling so a stalled WAL decode can't
                 # hang the streaming connection indefinitely; it bounds a single peek, the caller's
@@ -293,6 +296,7 @@ class PgCDCStreamReader:
                 user=self._params.user,
                 password=self._params.password,
                 require_ssl=self._params.require_ssl,
+                tls=self._params.tls,
                 team_id=self._source.team_id if self._source is not None else None,
             ),
             logger,

@@ -32,7 +32,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.errors import CH_TRANSIENT_ERRORS, QueryErrorCategory, classify_query_error
 from posthog.schema_enums import AlertCalculationInterval
 from posthog.tasks.alerts.schedule_restriction import is_utc_datetime_blocked
-from posthog.tasks.alerts.utils import RenderedInsightChart, render_alert_insight_chart, skip_because_of_weekend
+from posthog.tasks.alerts.utils import AlertEvaluationResult, render_alert_insight_chart, skip_because_of_weekend
 from posthog.temporal.alerts.admission import admit_evaluation_slots, release_evaluation_slot
 
 from products.alerts.backend.evaluation import check_alert_for_insight
@@ -40,6 +40,7 @@ from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.dispatcher import PerSeriesEvaluation, check_alert_per_series
 from products.alerts.backend.insight_alert_state_machine import INSIGHT_ALERT_POLICY, insight_snapshot
 from products.alerts.backend.judge.contract import (
+    LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
     LLM_DETECTOR_UNAVAILABLE_MESSAGE,
     LLMDetectorMisconfiguredError,
     LLMDetectorUnavailableError,
@@ -48,6 +49,7 @@ from products.alerts.backend.llm_detector_limits import is_llm_detector_config
 from products.alerts.backend.logic.alert_email import INSIGHT_ALERT_ERRORED_EVENT_ID
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.alerts.backend.platform_alert_wording import insight_alert_url
+from products.alerts.backend.platform_chart_detail import CHART_PENDING_KEY, RenderedChart
 from products.alerts_platform.backend.facade.api import due_check_ids, due_checks, refresh_settings, slot_of
 from products.alerts_platform.backend.facade.contracts import (
     SOURCE_CONDITION_KEY,
@@ -100,6 +102,12 @@ from products.cdp.backend.internal_events import LEGACY_INSIGHT_ALERT_EVENT
 logger = structlog.get_logger(__name__)
 
 INFLIGHT_KEY = "alerts:platform:insight:evaluations:inflight"
+CHART_RENDER_INFLIGHT_KEY = "alerts:platform:insight:chart-renders:inflight"
+
+
+class ChartRenderPoolFull(Exception):
+    """Every chart render slot is taken. The activity retries later, holding no worker slot meanwhile."""
+
 
 # How many threads of the shared AI pool the parallel run may hold, so a stalled platform check
 # never takes more than this from production. A thread counts until it ends, not until Temporal
@@ -114,6 +122,9 @@ QUERY_ID_PREFIX = "alerts-platform-insight:"
 # The history row's error for a check ClickHouse refused for load. Stable, because a comparison
 # matches on it to set those checks aside.
 CAPACITY_REJECTED = "ClickHouse refused the query for capacity"
+
+# The detail key of the code that names a failed check's reason, as production keeps it on its check's error.
+ERROR_CODE_KEY: Final = "error_code"
 
 SLOT_KEY_PREFIX = "slot:"
 
@@ -266,13 +277,7 @@ def readmit_retried_check(
     would run beside it. The retry then moves the slot to its own token, so the pool never counts
     the two attempts as one check that either can release.
     """
-    # Imported here: at module level it changes how many queries the access-control tests count.
-    from posthog.clickhouse.cancel import cancel_query_on_cluster  # noqa: PLC0415
-
-    try:
-        cancel_query_on_cluster(team_id, f"{QUERY_ID_PREFIX}{previous_query_id}")
-    except Exception:
-        logger.exception("Could not stop a timed-out platform insight check", configuration_id=configuration_id)
+    _stop_query(team_id, configuration_id, previous_query_id)
     release_evaluation_slot(configuration_id, held_until=attempt_slot_token(held_until, attempt - 1), key=INFLIGHT_KEY)
     token = attempt_slot_token(held_until, attempt)
     admitted = admit_evaluation_slots(
@@ -282,6 +287,16 @@ def readmit_retried_check(
         key=INFLIGHT_KEY,
     )
     return token if admitted else None
+
+
+def _stop_query(team_id: int, configuration_id: str, query_id: str) -> None:
+    # Imported here: at module level it changes how many queries the access-control tests count.
+    from posthog.clickhouse.cancel import cancel_query_on_cluster  # noqa: PLC0415
+
+    try:
+        cancel_query_on_cluster(team_id, f"{QUERY_ID_PREFIX}{query_id}")
+    except Exception:
+        logger.exception("Could not stop a timed-out platform insight check", configuration_id=configuration_id)
 
 
 def legacy_alerts_of(
@@ -298,7 +313,7 @@ def legacy_alerts_of(
         if check.legacy_configuration_id is not None
     }
     alerts = AlertConfiguration.objects.filter(team_id=team_id, id__in=list(legacy_ids)).only(
-        "id", "calculation_interval", "detector_config"
+        "id", "calculation_interval", "detector_config", "owner"
     )
     return {legacy_ids[alert.id]: alert for alert in alerts}
 
@@ -350,14 +365,63 @@ def evaluate_insight_check(
             raise
         if outcome is None:
             return None
-        if checks[0].legacy_configuration_id is not None:
-            # Production times each check by its own alert's id, so the copy checks at that minute.
-            outcome = replace(outcome, schedule_key=str(checks[0].legacy_configuration_id))
-        delivery = _delivery(checks[0], outcome)
-        return SourceBatchEvaluation(outcomes=(outcome,), deliveries=(delivery,) if delivery is not None else ())
+        return _evaluation(checks[0], outcome)
     finally:
         if not retrying:
             release_evaluation_slot(configuration_id, held_until=held_until, key=INFLIGHT_KEY)
+
+
+def fail_insight_check(
+    team_id: int,
+    slot: str,
+    cutoff: datetime,
+    configuration_id: str,
+    *,
+    error_message: str,
+    error_type: str | None = None,
+) -> SourceBatchEvaluation | None:
+    """The errored outcome of a check whose every attempt ended without one, such as a query that ran
+    past its time budget, as production records an errored check when its retries run out.
+
+    `error_type` names the class of the last attempt's error, as production reads it to word a
+    judge that could not be reached.
+    Returns None when the check is no longer due, or its production alert is gone or switched off.
+    Writes no state.
+    """
+    checks = due_checks(team_id, SourceKind.INSIGHT.value, slot, cutoff, configuration_ids=[configuration_id])
+    if not checks:
+        return None
+    alert = _legacy_alert(checks[0])
+    # As production: switching an alert off mid-check is not a failure of the alert.
+    if alert is None or not alert.enabled:
+        return None
+    if error_type == LLMDetectorUnavailableError.__name__:
+        # As production: the raw transport error is not the owner's configuration, so it gets its own wording.
+        error_message = LLM_DETECTOR_UNAVAILABLE_MESSAGE
+    outcome = _verdict(
+        checks[0],
+        _snapshot(checks[0]),
+        CheckInput(threshold_breached=False, error_message=error_message),
+        now=cutoff,
+        skip=SkipReason.QUERY_FAILED,
+        context=_context(alert),
+    )
+    return _evaluation(checks[0], outcome)
+
+
+def stop_insight_queries(team_id: int, configuration_id: str, query_ids: Sequence[str]) -> None:
+    """Stops the queries a failed check's attempts may still run. A timed-out attempt's thread
+    keeps its query going, and nothing else stops it."""
+    for query_id in query_ids:
+        _stop_query(team_id, configuration_id, query_id)
+
+
+def _evaluation(check: PlatformAlertCheckInput, outcome: PlatformAlertOutcome) -> SourceBatchEvaluation:
+    if check.legacy_configuration_id is not None:
+        # Production times each check by its own alert's id, so the copy checks at that minute.
+        outcome = replace(outcome, schedule_key=str(check.legacy_configuration_id))
+    delivery = _delivery(check, outcome)
+    return SourceBatchEvaluation(outcomes=(outcome,), deliveries=(delivery,) if delivery is not None else ())
 
 
 def _delivery(check: PlatformAlertCheckInput, outcome: PlatformAlertOutcome) -> AlertDeliveryRequest | None:
@@ -513,6 +577,8 @@ def _decide(
             now=now,
             skip=SkipReason.QUERY_FAILED,
             context=_context(alert),
+            # History shows this reason by its code, and an errored check that repeats announces nothing.
+            check_detail={ERROR_CODE_KEY: LLM_DETECTOR_UNAVAILABLE_ERROR_CODE},
         )
     except (AlertExtractionError, LLMDetectorMisconfiguredError) as error:
         return _broken(check, snapshot, alert, now=now, message=str(error))
@@ -530,6 +596,7 @@ def _decide(
         value=result.value,
         query_duration_ms=duration_ms,
         firing=(alert, result.breaches or []),
+        check_detail=detector_detail(result) if alert.detector_config else None,
     )
 
 
@@ -670,8 +737,7 @@ def _decide_grouped(
             key, found = bounded_grouping_key(series.identity), series.result.breaches or []
             if key not in breaches or (found and not breaches[key]):
                 breaches[key] = found
-        # One render serves every value that fires, because they all show the same insight.
-        chart = _chart(check, alert)
+        wants_chart = _wants_chart(check, alert)
         decision = replace(
             decision,
             verdicts=tuple(
@@ -679,7 +745,9 @@ def _decide_grouped(
                     verdict,
                     group=replace(
                         verdict.group,
-                        source_detail=_detail(alert, breaches.get(verdict.group.grouping_key, []), chart),
+                        source_detail=_detail(
+                            alert, breaches.get(verdict.group.grouping_key, []), wants_chart=wants_chart
+                        ),
                     ),
                 )
                 if verdict.outcome.notification == NotificationAction.FIRE
@@ -700,15 +768,38 @@ def _firing_detail(
     check: PlatformAlertCheckInput, alert: AlertConfiguration, breaches: Sequence[str]
 ) -> dict[str, Any]:
     """What production's `$insight_alert_firing` carries beside the verdict, which only the check can know."""
-    return _detail(alert, breaches, _chart(check, alert))
+    return _detail(alert, breaches, wants_chart=_wants_chart(check, alert))
 
 
-def _chart(check: PlatformAlertCheckInput, alert: AlertConfiguration) -> RenderedInsightChart | None:
+def _wants_chart(check: PlatformAlertCheckInput, alert: AlertConfiguration) -> bool:
     # A render takes up to a minute and a half, so only an alert the platform delivers for pays
     # for one. Production renders no chart for a real-time alert either.
-    if check.owned_by_platform and alert.calculation_interval != AlertCalculationInterval.REAL_TIME:
-        return render_alert_insight_chart(alert)
-    return None
+    return check.owned_by_platform and alert.calculation_interval != AlertCalculationInterval.REAL_TIME
+
+
+def render_firing_chart(team_id: int, alert_id: str, *, held_until: float) -> RenderedChart | None:
+    """Render the chart a firing of this alert sends, or None when none applies or the render fails.
+
+    The evaluation workflow calls this after the check, so the render never holds the check's slot.
+    Raises `ChartRenderPoolFull` when the render pool has no room.
+    """
+    if not admit_evaluation_slots(
+        [alert_id],
+        limit=settings.ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_CHART_RENDERS,
+        expires_at=held_until,
+        key=CHART_RENDER_INFLIGHT_KEY,
+    ):
+        raise ChartRenderPoolFull()
+    try:
+        alert = AlertConfiguration.objects.filter(team_id=team_id, id=alert_id).select_related("team").first()
+        if alert is None:
+            return None
+        chart = render_alert_insight_chart(alert)
+        return (
+            RenderedChart(asset_id=chart.asset_id, render_user_id=chart.render_user_id) if chart is not None else None
+        )
+    finally:
+        release_evaluation_slot(alert_id, held_until=held_until, key=CHART_RENDER_INFLIGHT_KEY)
 
 
 def _context(alert: AlertConfiguration) -> dict[str, Any]:
@@ -716,11 +807,11 @@ def _context(alert: AlertConfiguration) -> dict[str, Any]:
     return {"insight_name": alert.insight.name, "insight_short_id": alert.insight.short_id}
 
 
-def _clipped(breach: str) -> str:
-    return breach if len(breach) <= MAX_BREACH_CHARS else breach[: MAX_BREACH_CHARS - 1] + "…"
+def _clipped(text: str, limit: int = MAX_BREACH_CHARS) -> str:
+    return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
-def _detail(alert: AlertConfiguration, breaches: Sequence[str], chart: RenderedInsightChart | None) -> dict[str, Any]:
+def _detail(alert: AlertConfiguration, breaches: Sequence[str], *, wants_chart: bool) -> dict[str, Any]:
     # Bounded, because the outcome crosses into Temporal and a breach names user-written labels.
     detail: dict[str, Any] = {
         "breaches": [_clipped(breach) for breach in breaches[:MAX_DETAIL_BREACHES]],
@@ -728,12 +819,36 @@ def _detail(alert: AlertConfiguration, breaches: Sequence[str], chart: RenderedI
         # The legacy alert's id, which a native message's snooze menu snoozes.
         "alert_id": str(alert.id),
     }
-    if chart is not None:
-        # The ids rather than a URL, because the URL opens the chart without a login and history keeps
-        # this for its whole retention. A delivery mints the URL when it sends.
-        detail["insight_chart_asset_id"] = chart.asset_id
-        detail["insight_chart_render_user_id"] = chart.render_user_id
+    if wants_chart:
+        detail[CHART_PENDING_KEY] = str(alert.id)
     return detail
+
+
+# A scheduled check scores only its latest point, so a detector reports one score and at most one
+# fired point. These bound a detector that reports more, because every check's detail rides in the
+# outcome Temporal carries.
+MAX_DETECTOR_POINTS: Final = 10
+MAX_RATIONALE_CHARS: Final = 1000
+
+
+def detector_detail(result: AlertEvaluationResult) -> dict[str, Any]:
+    """What production keeps on a detector check beside its verdict, under the same names: the
+    score, kind and reason history shows, and the fired points the insight chart marks.
+
+    Kept on every detector check, not only on one that sends, because production shows them on every check.
+    """
+    detail: dict[str, Any] = {
+        "anomaly_scores": (result.anomaly_scores or [])[-MAX_DETECTOR_POINTS:],
+        "triggered_points": (result.triggered_points or [])[-MAX_DETECTOR_POINTS:],
+        "triggered_dates": (result.triggered_dates or [])[-MAX_DETECTOR_POINTS:],
+        "interval": result.interval,
+        "triggered_metadata": dict(result.triggered_metadata or {}),
+    }
+    rationale = detail["triggered_metadata"].get("rationale")
+    if isinstance(rationale, str):
+        detail["triggered_metadata"]["rationale"] = _clipped(rationale, MAX_RATIONALE_CHARS)
+    # Empty values are left out, so a reader finds `triggered_dates` only on a check that fired on a point.
+    return {key: value for key, value in detail.items() if value}
 
 
 def _verdict(
@@ -747,6 +862,7 @@ def _verdict(
     skip: SkipReason | None = None,
     firing: tuple[AlertConfiguration, Sequence[str]] | None = None,
     context: dict[str, Any] | None = None,
+    check_detail: dict[str, Any] | None = None,
 ) -> PlatformAlertOutcome:
     outcome = evaluate_alert_check(snapshot, check_input, now, policy=INSIGHT_ALERT_POLICY)
     source_detail: dict[str, Any] | None
@@ -756,6 +872,9 @@ def _verdict(
         source_detail = context
     else:
         source_detail = None
+    # Kept on every check, including one that announces nothing.
+    if check_detail:
+        source_detail = {**(source_detail or {}), **check_detail}
     return _recorded(
         check,
         snapshot,

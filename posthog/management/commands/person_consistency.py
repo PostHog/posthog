@@ -10,8 +10,16 @@ Usage:
     python manage.py person_consistency scan --dir /tmp/scan-2 --phase postgres
     python manage.py person_consistency finalize --dir /tmp/scan-2
 
-Read-only. A run that stops resumes with --resume. The report (report.jsonl) holds one row per key that
-is not ok, with the raw keys a repair needs; summary.json holds counts and hashed group names, and names no key.
+    # Repair the rows of one verb: a dry run first, then a canary, then the rest.
+    python manage.py person_consistency repair --dir /tmp/scan-2 --verb republish
+    python manage.py person_consistency repair --dir /tmp/scan-2 --verb republish --apply --limit 10
+    python manage.py person_consistency repair --dir /tmp/scan-2 --verb republish --apply --resume <actions file>
+
+Scans are read-only. A scan that stops resumes with --resume. The report (report.jsonl) holds one row per
+key that is not ok, with the raw keys a repair needs; summary.json holds counts and hashed group names, and names no key.
+A repair writes nothing without --apply, and records one action per key in an actions file.
+Rescan after every repair run. The rescan confirms the fix, and finds any ClickHouse write lost when a run was
+killed before it recorded its outcomes.
 """
 
 import time
@@ -34,6 +42,7 @@ from posthog.models.person.divergence.team_scan import (
     run_chunk,
     run_postgres,
 )
+from posthog.models.person.divergence.verbs import VERBS, VerbError, run_verb
 
 
 def _parse_utc(value: str) -> datetime:
@@ -60,7 +69,10 @@ def _id_range(value: str) -> IdRange:
 
 
 class Command(BaseCommand):
-    help = "Read-only. Classify every person and mapping of one team and write a report grouped by repair verb."
+    help = (
+        "Classify every person and mapping of one team into a report grouped by repair verb, and repair them. "
+        "Scans are read-only; repair writes only with --apply."
+    )
 
     def add_arguments(self, parser: CommandParser) -> None:
         actions = parser.add_subparsers(dest="action", required=True, metavar="action")
@@ -100,6 +112,41 @@ class Command(BaseCommand):
             type=float,
             default=0.2,
             help="Pause between pages, to limit load on ClickHouse and personhog (default: %(default)s).",
+        )
+
+        repair = actions.add_parser(
+            "repair",
+            help="DRY RUN unless --apply is passed. Repair the report rows that name one verb.",
+        )
+        self._add_dir(repair)
+        repair.add_argument("--verb", choices=sorted(VERBS), required=True, help="The repair to run.")
+        repair.add_argument("--group", action="append", default=[], help="Only rows of this group. Repeatable.")
+        repair.add_argument("--key", action="append", default=[], help="Only rows with this key. Repeatable.")
+        repair.add_argument(
+            "--pair",
+            action="append",
+            default=[],
+            metavar="OLD_UUID>NEW_UUID",
+            help="fold or merge: repair an ambiguous old person into this survivor. Repeatable.",
+        )
+        repair.add_argument("--limit", type=_positive_int, default=None, help="At most this many rows, for a canary.")
+        repair.add_argument("--apply", action="store_true", help="Write. Without it the repair only reports.")
+        repair.add_argument(
+            "--max-calls-per-second",
+            type=float,
+            default=20.0,
+            help="Personhog write calls per second (default: %(default)s).",
+        )
+        repair.add_argument(
+            "--resume",
+            type=Path,
+            default=None,
+            help="An actions file of an earlier run: append to it and skip the keys it records as done.",
+        )
+        repair.add_argument(
+            "--force",
+            action="store_true",
+            help="bury: tombstone new persons even past the share limit that protects a team needing a restore.",
         )
 
         final = actions.add_parser("finalize", help="Join every run's rows into report.jsonl and summary.json.")
@@ -152,9 +199,11 @@ class Command(BaseCommand):
                     self._plan(options, chunks=options["chunks"])
                 elif options["action"] == "scan":
                     self._scan(options)
+                elif options["action"] == "repair":
+                    self._repair(options)
                 else:
                     self._finalize(options["dir"], partial=options["partial"])
-            except ScanError as exc:
+            except (ScanError, VerbError) as exc:
                 raise CommandError(str(exc)) from exc
 
     def _plan(self, options: dict[str, Any], *, chunks: int) -> None:
@@ -208,3 +257,33 @@ class Command(BaseCommand):
             f"report: {rows} rows, {summary['groups']['count']} groups, complete {summary['complete']}; "
             f"by verb {verbs or 'none'}; see {scan_dir / SUMMARY_FILE}"
         )
+
+    def _repair(self, options: dict[str, Any]) -> None:
+        scan_dir: Path = options["dir"]
+        if not options["max_calls_per_second"] > 0:
+            raise CommandError("--max-calls-per-second must be above 0")
+        mode = "apply" if options["apply"] else "dry-run"
+        actions_path = options["resume"] or scan_dir / (
+            f"actions-{options['verb']}-{mode}-{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}.jsonl"
+        )
+        counts = run_verb(
+            scan_dir,
+            options["verb"],
+            apply=options["apply"],
+            actions_path=actions_path,
+            resume=options["resume"] is not None,
+            groups=options["group"],
+            keys=options["key"],
+            limit=options["limit"],
+            max_calls_per_second=options["max_calls_per_second"],
+            force=options["force"],
+            pairs=options["pair"],
+            log=self._log,
+        )
+        outcomes = ", ".join(f"{outcome}={n}" for outcome, n in sorted(counts.items())) or "nothing to do"
+        label = "APPLY" if options["apply"] else "DRY RUN"
+        self._log(f"{options['verb']} {label}: {outcomes}; actions in {actions_path}")
+        if not options["apply"]:
+            self._log("Dry run: nothing was written. Pass --apply to write.")
+        if counts.get("undelivered"):
+            raise CommandError("Some ClickHouse messages were not delivered; rerun with --resume")

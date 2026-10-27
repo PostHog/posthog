@@ -31,6 +31,7 @@ import { SessionRecordingSidebarTab } from '~/types'
 import { visionObservationsViewedCreate, visionScannersWatchFeedRetrieve } from '../generated/api'
 import type { WatchFeedItemApi } from '../generated/api.schemas'
 import { observationKeyMomentMs, watchStartSeconds } from './components/WatchFeedCard'
+import { recordFeedImpressions } from './watchFeedImpressionCounts'
 import {
     type WatchFeedLoad,
     WatchFeedImpressions,
@@ -355,7 +356,7 @@ export const watchPicksLogic: LogicWrapper<watchPicksLogicType> = kea<watchPicks
     }),
 
     afterMount(({ actions, cache }) => {
-        cache.impressions = new WatchFeedImpressions('list')
+        cache.impressions = new WatchFeedImpressions('list', (load, ids) => recordFeedImpressions(load.feedLoadId, ids))
         // Not paused on hide: hiding is when the batch must go out.
         cache.disposables.add(cache.impressions.flushOnHideAndUnmount, 'impressionsFlush', { pauseOnPageHidden: false })
         actions.loadPicks()

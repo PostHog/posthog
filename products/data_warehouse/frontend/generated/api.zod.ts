@@ -1025,6 +1025,13 @@ export const WarehouseSavedQueriesRunCreateBody = /* @__PURE__ */ zod
             .describe(
                 'Rebuild the whole table instead of updating it incrementally. Has no effect on a view that is not incremental. This is how you reprocess history after changing what the query means without changing its text, or after upstream data was corrected.'
             ),
+        direction: zod
+            .enum(['upstream', 'downstream'])
+            .describe('\* `upstream` - Upstream\n\* `downstream` - Downstream')
+            .optional()
+            .describe(
+                'Run this view with all upstream dependencies or all downstream dependents. Omit this field to run only this view. You cannot use it with full_refresh.\n\n\* `upstream` - Upstream\n\* `downstream` - Downstream'
+            ),
     })
     .describe('Body of the `run` action.')
 

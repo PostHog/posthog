@@ -26,6 +26,7 @@ class ScoreDefinition(Taggable, UUIDModel, CreatedMetaFields, UpdatedMetaFields)
 
     team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name="+")
     name = models.CharField(max_length=255)
+    short_name = models.CharField(max_length=40, blank=True, default="", db_default="")
     description = models.TextField(blank=True, default="")
     kind = models.CharField(max_length=32, choices=Kind)
     archived = models.BooleanField(default=False)

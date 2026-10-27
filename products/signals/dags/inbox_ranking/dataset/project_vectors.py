@@ -96,6 +96,15 @@ def project_vectors(labels: pa.Table, embeddings: pa.Table, as_of: datetime.date
     return pa.Table.from_pylist(rows, schema=PROJECT_VECTORS_SCHEMA)
 
 
+def teams_with_history(table: pa.Table) -> dict[str, int]:
+    """How many teams of a `project_vectors` table have enough history for a real vector, per kind."""
+    counts = table.select(["kind", "n_reports"]).to_pylist()
+    return {
+        kind: sum(1 for row in counts if row["kind"] == kind and row["n_reports"] >= MIN_HISTORY_REPORTS)
+        for kind in VECTOR_KINDS
+    }
+
+
 def _usable_embeddings(embeddings: pa.Table, as_of: datetime.datetime) -> pa.Table:
     """The rows with a full-width, live vector that landed before `as_of`.
 

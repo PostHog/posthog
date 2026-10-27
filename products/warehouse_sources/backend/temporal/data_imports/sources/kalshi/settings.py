@@ -14,11 +14,11 @@ class KalshiEndpointConfig:
     primary_keys: list[str] = field(default_factory=lambda: ["ticker"])
     partition_key: Optional[str] = None  # stable creation-time field for datetime partitioning
     incremental_fields: list[IncrementalField] = field(default_factory=list)
-    # Only the trade endpoints expose a server-side time filter (`min_ts`), and candlesticks take an
-    # explicit time window. Everything else accepts the param and silently ignores it, so those
+    # Only the trade, fill, and settlement endpoints expose a server-side time filter (`min_ts`), and
+    # candlesticks take an explicit time window. Everything else accepts the param and silently ignores it, so those
     # endpoints are full-refresh only.
     supports_incremental: bool = False
-    # Trades come back newest-first; every other endpoint is treated as ascending.
+    # Trades, fills, and settlements come back newest-first; every other endpoint is treated as ascending.
     newest_first: bool = False
     # `/series` returns the whole collection in one response with no `cursor` key.
     paginated: bool = True
@@ -26,6 +26,12 @@ class KalshiEndpointConfig:
     market_fan_out: bool = False
     # The weather index is served one city at a time, with no listing endpoint for the cities.
     city_fan_out: bool = False
+    # Portfolio endpoints read the account's own data and need a signed API key.
+    requires_auth: bool = False
+    # Kalshi reads only subaccount 0 unless asked for another, or the rows do not say which
+    # subaccount they belong to, so these endpoints are read once per subaccount.
+    subaccount_fan_out: bool = False
+    extra_params: dict[str, str] = field(default_factory=dict)
     page_size: int = 200
 
 
@@ -35,6 +41,17 @@ def _created_time_field() -> list[IncrementalField]:
             "label": "created_time",
             "type": IncrementalFieldType.DateTime,
             "field": "created_time",
+            "field_type": IncrementalFieldType.DateTime,
+        }
+    ]
+
+
+def _settled_time_field() -> list[IncrementalField]:
+    return [
+        {
+            "label": "settled_time",
+            "type": IncrementalFieldType.DateTime,
+            "field": "settled_time",
             "field_type": IncrementalFieldType.DateTime,
         }
     ]
@@ -174,6 +191,89 @@ KALSHI_ENDPOINTS: dict[str, KalshiEndpointConfig] = {
         supports_incremental=True,
         paginated=False,
         city_fan_out=True,
+    ),
+    # The account's own executions. `min_ts` filters on the fill time, and fills come back
+    # newest-first like public trades.
+    "fills": KalshiEndpointConfig(
+        name="fills",
+        path="/portfolio/fills",
+        data_key="fills",
+        primary_keys=["fill_id"],
+        partition_key="created_time",
+        incremental_fields=_created_time_field(),
+        supports_incremental=True,
+        newest_first=True,
+        requires_auth=True,
+        page_size=1000,
+    ),
+    # Fills before the historical cutoff, which `/portfolio/fills` no longer returns.
+    "historical_fills": KalshiEndpointConfig(
+        name="historical_fills",
+        path="/historical/fills",
+        data_key="fills",
+        primary_keys=["fill_id"],
+        partition_key="created_time",
+        incremental_fields=_created_time_field(),
+        supports_incremental=True,
+        newest_first=True,
+        requires_auth=True,
+        page_size=1000,
+    ),
+    # Resting orders change status and fill counts in place, and the docs do not say which
+    # timestamp `min_ts` filters on, so orders are a full refresh.
+    "orders": KalshiEndpointConfig(
+        name="orders",
+        path="/portfolio/orders",
+        data_key="orders",
+        primary_keys=["order_id"],
+        requires_auth=True,
+        page_size=1000,
+    ),
+    # Canceled and executed orders archived before the historical cutoff.
+    "historical_orders": KalshiEndpointConfig(
+        name="historical_orders",
+        path="/historical/orders",
+        data_key="orders",
+        primary_keys=["order_id"],
+        requires_auth=True,
+        page_size=1000,
+    ),
+    # One row per market position, settled or not, that is still in the live data set. Exposure and
+    # realized P&L change on every fill, so this is a full refresh.
+    "positions": KalshiEndpointConfig(
+        name="positions",
+        path="/portfolio/positions",
+        data_key="market_positions",
+        primary_keys=["subaccount_number", "ticker"],
+        requires_auth=True,
+        subaccount_fan_out=True,
+        extra_params={"settlement_status": "all"},
+        page_size=1000,
+    ),
+    # Settled positions after their event moves to the archive.
+    "historical_positions": KalshiEndpointConfig(
+        name="historical_positions",
+        path="/historical/positions",
+        data_key="market_positions",
+        primary_keys=["subaccount_number", "ticker"],
+        requires_auth=True,
+        subaccount_fan_out=True,
+        page_size=1000,
+    ),
+    # Payouts per settled market. A settlement carries only `settled_time`, which is what `min_ts`
+    # filters on.
+    "settlements": KalshiEndpointConfig(
+        name="settlements",
+        path="/portfolio/settlements",
+        data_key="settlements",
+        primary_keys=["subaccount_number", "ticker"],
+        partition_key="settled_time",
+        incremental_fields=_settled_time_field(),
+        supports_incremental=True,
+        newest_first=True,
+        requires_auth=True,
+        subaccount_fan_out=True,
+        page_size=1000,
     ),
 }
 

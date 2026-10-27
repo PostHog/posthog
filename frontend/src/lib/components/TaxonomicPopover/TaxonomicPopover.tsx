@@ -10,6 +10,7 @@ import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import {
     DataWarehousePopoverField,
     DefinitionPopoverRenderer,
+    ExcludedOperators,
     ExcludedProperties,
     SelectedProperties,
     TaxonomicFilterGroupType,
@@ -49,6 +50,7 @@ export interface TaxonomicPopoverProps<ValueType extends TaxonomicFilterValue = 
     style?: React.CSSProperties
     closeOnChange?: boolean
     excludedProperties?: ExcludedProperties
+    excludedOperators?: ExcludedOperators
     includeHiddenEvents?: boolean
     selectedProperties?: SelectedProperties
     metadataSource?: AnyDataNode
@@ -95,6 +97,7 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
         allowClear = false,
         closeOnChange = true,
         excludedProperties,
+        excludedOperators,
         includeHiddenEvents,
         selectedProperties,
         metadataSource,
@@ -171,6 +174,7 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
                     schemaColumns={schemaColumns}
                     metadataSource={metadataSource}
                     excludedProperties={excludedProperties}
+                    excludedOperators={excludedOperators}
                     includeHiddenEvents={includeHiddenEvents}
                     selectedProperties={selectedProperties}
                     showNumericalPropsOnly={showNumericalPropsOnly}
@@ -255,6 +259,7 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
                 schemaColumns={schemaColumns}
                 metadataSource={metadataSource}
                 excludedProperties={excludedProperties}
+                excludedOperators={excludedOperators}
                 includeHiddenEvents={includeHiddenEvents}
                 selectedProperties={selectedProperties}
                 showNumericalPropsOnly={showNumericalPropsOnly}

@@ -12,6 +12,7 @@ import type {
     Series,
     TooltipContext,
 } from '../../core/types'
+import { useTooltipCapture } from '../../overlays/Tooltip'
 import { BarChart } from '../BarChart/BarChart'
 import { PieTooltip } from '../PieChart/PieTooltip'
 import { partValue, proportionLegendItems } from './proportion-bar-data'
@@ -147,6 +148,7 @@ function ProportionBarInner<Meta = unknown>({
     // A percent layout hands the tooltip every segment as a 0..1 fraction. Narrow it to the hovered
     // part with its raw value, which is the context a PieChart tooltip receives. Reads the value
     // already computed for `barSeries` instead of rescanning the part's data on every hover.
+    const captureTooltip = useTooltipCapture<Meta>()
     const renderTooltip = useCallback(
         (ctx: TooltipContext<Meta>): React.ReactNode => {
             const entry = ctx.seriesData.find((d) => d.series.key === ctx.hoveredSeriesKey)
@@ -162,9 +164,10 @@ function ProportionBarInner<Meta = unknown>({
                 dataIndex: series.indexOf(original),
                 seriesData: [{ ...entry, series: part, value, fraction: fractionOf(value) }],
             }
+            captureTooltip(partCtx)
             return tooltip ? tooltip(partCtx) : <PieTooltip ctx={partCtx} valueFormatter={valueFormatter} />
         },
-        [tooltip, series, seriesByKey, colorByKey, valueByKey, fractionOf, valueFormatter]
+        [tooltip, series, seriesByKey, colorByKey, valueByKey, fractionOf, valueFormatter, captureTooltip]
     )
 
     const handlePointClick = useCallback(

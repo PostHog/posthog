@@ -9,6 +9,9 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    EmailDomainConnectCheckApi,
+    EmailDomainStatusApi,
+    EmailDomainVerificationApi,
     GitHubAvailableInstallationsResponseApi,
     GitHubBranchesResponseApi,
     GitHubLinkExistingRequestApi,
@@ -23,6 +26,8 @@ import type {
     IntegrationAssigneesResponseApi,
     IntegrationConfigApi,
     IntegrationsChannelsRetrieveParams,
+    IntegrationsDomainConnectCheckRetrieveParams,
+    IntegrationsEmailStatusRetrieveParams,
     IntegrationsGithubAssigneesRetrieveParams,
     IntegrationsGithubBranchesRetrieveParams,
     IntegrationsGithubReposRetrieveParams,
@@ -42,6 +47,8 @@ import type {
     PostHogConnectionForwardApi,
     PostHogConnectionForwardResponseApi,
     PostHogConnectionTargetApi,
+    PushTokenImportRequestApi,
+    PushTokenImportResponseApi,
     RoleExternalReferenceApi,
     RoleExternalReferencesListParams,
     RoleExternalReferencesLookupRetrieveParams,
@@ -397,21 +404,58 @@ export const integrationsEmailPartialUpdate = async (
     })
 }
 
+export const getIntegrationsEmailStatusRetrieveUrl = (
+    projectId: string,
+    id: number,
+    params?: IntegrationsEmailStatusRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/integrations/${id}/email/status/?${stringifiedParams}`
+        : `/api/projects/${projectId}/integrations/${id}/email/status/`
+}
+
+/**
+ * Read the setup progress of an email sender's domain from SES and public DNS without changing either. Poll this until status is verified, then call email/verify once so the sender can send.
+ * @summary Get email sending domain status
+ */
+export const integrationsEmailStatusRetrieve = async (
+    projectId: string,
+    id: number,
+    params?: IntegrationsEmailStatusRetrieveParams,
+    options?: RequestInit
+): Promise<EmailDomainStatusApi> => {
+    return apiMutator<EmailDomainStatusApi>(getIntegrationsEmailStatusRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getIntegrationsEmailVerifyCreateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/integrations/${id}/email/verify/`
 }
 
+/**
+ * Ask SES to check the domain's DNS records again. When SES has verified the domain, mark the domain's senders as verified so they can send. Call it once email/status reports status verified.
+ * @summary Verify an email sending domain
+ */
 export const integrationsEmailVerifyCreate = async (
     projectId: string,
     id: number,
-    integrationConfigApi: NonReadonly<IntegrationConfigApi>,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getIntegrationsEmailVerifyCreateUrl(projectId, id), {
+): Promise<EmailDomainVerificationApi> => {
+    return apiMutator<EmailDomainVerificationApi>(getIntegrationsEmailVerifyCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(integrationConfigApi),
     })
 }
 
@@ -753,6 +797,28 @@ export const integrationsLinkedinAdsConversionRulesRetrieve = async (
     })
 }
 
+export const getIntegrationsPushTokensCreateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/integrations/${id}/push_tokens/`
+}
+
+/**
+ * Register existing device tokens, for example exported from another provider, on this push channel. Each token is stored encrypted on its person, as the mobile SDK stores it.
+ * @summary Import push device tokens
+ */
+export const integrationsPushTokensCreate = async (
+    projectId: string,
+    id: number,
+    pushTokenImportRequestApi: PushTokenImportRequestApi,
+    options?: RequestInit
+): Promise<PushTokenImportResponseApi> => {
+    return apiMutator<PushTokenImportResponseApi>(getIntegrationsPushTokensCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(pushTokenImportRequestApi),
+    })
+}
+
 export const getIntegrationsTwilioPhoneNumbersRetrieveUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/integrations/${id}/twilio_phone_numbers/`
 }
@@ -835,15 +901,31 @@ export const integrationsDomainConnectApplyUrlCreate = async (
     })
 }
 
-export const getIntegrationsDomainConnectCheckRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/integrations/domain-connect/check/`
+export const getIntegrationsDomainConnectCheckRetrieveUrl = (
+    projectId: string,
+    params: IntegrationsDomainConnectCheckRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/integrations/domain-connect/check/?${stringifiedParams}`
+        : `/api/projects/${projectId}/integrations/domain-connect/check/`
 }
 
 export const integrationsDomainConnectCheckRetrieve = async (
     projectId: string,
+    params: IntegrationsDomainConnectCheckRetrieveParams,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getIntegrationsDomainConnectCheckRetrieveUrl(projectId), {
+): Promise<EmailDomainConnectCheckApi> => {
+    return apiMutator<EmailDomainConnectCheckApi>(getIntegrationsDomainConnectCheckRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

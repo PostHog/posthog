@@ -7,6 +7,7 @@ import {
     LemonBanner,
     LemonButton,
     LemonCollapse,
+    LemonDialog,
     LemonDivider,
     LemonInput,
     LemonInputSelect,
@@ -27,7 +28,9 @@ import { CategorySelect } from 'products/workflows/frontend/OptOuts/CategorySele
 import { workflowLogic } from '../../workflowLogic'
 import { HogFlowPropertyFilters } from '../filters/HogFlowFilters'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
+import { utmKeysFromDefaultAfterEdit } from '../steps/components/utmDefaults'
 import { UtmTagFields } from '../steps/components/UtmTagFields'
+import { UtmTeamDefaultControls } from '../steps/components/UtmTeamDefaultControls'
 import { useHogFlowStep } from '../steps/HogFlowSteps'
 import { isEmailAction, isOptOutEligibleAction } from '../steps/types'
 import type { HogFlowAction } from '../types'
@@ -40,7 +43,7 @@ import { OutputTestResultTree } from './OutputTestResultTree'
 
 export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
     const { selectedNode, workflow, categories, categoriesLoading } = useValues(hogFlowEditorLogic)
-    const { setWorkflowAction, setMode } = useActions(hogFlowEditorLogic)
+    const { setWorkflowAction, setMode, markUtmSavedAsTeamDefault } = useActions(hogFlowEditorLogic)
     const { logicProps } = useValues(workflowLogic)
     const { mappings, pendingPath, testLoading, testError, testResultData, shakePickButton, pendingSuggestions } =
         useValues(hogFlowOutputMappingLogic(logicProps))
@@ -90,416 +93,452 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
             <ScrollableShadows
                 direction="vertical"
                 className="flex-1 min-h-0"
-                innerClassName="flex flex-col gap-2 p-3"
-                // The scroll area wraps the step config in its own content element, so the flex
-                // column above stops there. An email step's preview takes the height the panel
-                // gives it, so that wrapper has to grow as well.
-                contentClassName={isEmailAction(action) ? 'flex flex-1 flex-col' : undefined}
+                innerClassName="flex flex-col"
+                // The settings scroll with the step config, so an open section never runs past the
+                // panel. The config takes the height left over, which keeps short steps' settings at
+                // the bottom and lets an email step's preview grow.
+                contentClassName="flex flex-1 shrink-0 flex-col"
                 styledScrollbars
             >
-                <ErrorBoundary exceptionProps={{ feature: 'workflow-step-config' }}>
-                    {Step?.renderConfiguration(selectedNode)}
-                </ErrorBoundary>
-            </ScrollableShadows>
+                <div className="flex flex-1 flex-col gap-2 p-3">
+                    <ErrorBoundary exceptionProps={{ feature: 'workflow-step-config' }}>
+                        {Step?.renderConfiguration(selectedNode)}
+                    </ErrorBoundary>
+                </div>
 
-            {isOptOutEligibleAction(action) && (
-                <>
-                    <LemonDivider className="my-0" />
-                    <div className="flex flex-col px-2 py-1">
-                        <LemonLabel htmlFor="Message category" className="flex gap-2 justify-between items-center">
-                            <span>Message category</span>
-                            <div className="flex gap-2">
-                                {!categoriesLoading && !categories.length && (
-                                    <LemonButton
-                                        to={urls.workflows('opt-outs')}
-                                        targetBlank
-                                        type="secondary"
-                                        icon={<IconExternal />}
-                                    >
-                                        Configure
-                                    </LemonButton>
-                                )}
-                                <CategorySelect
-                                    onChange={(categoryId) => {
+                {isOptOutEligibleAction(action) && (
+                    <>
+                        <LemonDivider className="my-0" />
+                        <div className="flex flex-col px-2 py-1">
+                            <LemonLabel htmlFor="Message category" className="flex gap-2 justify-between items-center">
+                                <span>Message category</span>
+                                <div className="flex gap-2">
+                                    {!categoriesLoading && !categories.length && (
+                                        <LemonButton
+                                            to={urls.workflows('opt-outs')}
+                                            targetBlank
+                                            type="secondary"
+                                            icon={<IconExternal />}
+                                        >
+                                            Configure
+                                        </LemonButton>
+                                    )}
+                                    <CategorySelect
+                                        onChange={(categoryId) => {
+                                            setWorkflowAction(action.id, {
+                                                ...action,
+                                                config: {
+                                                    ...action.config,
+                                                    message_category_id: categoryId,
+                                                    message_category_type: categoryId
+                                                        ? categories.find((cat) => cat.id === categoryId)?.category_type
+                                                        : undefined,
+                                                },
+                                            } as Extract<HogFlowAction, { type: 'function_email' | 'function_sms' }>)
+                                        }}
+                                        value={action.config.message_category_id}
+                                    />
+                                </div>
+                            </LemonLabel>
+                        </div>
+                    </>
+                )}
+
+                {isEmailAction(action) && (
+                    <>
+                        <LemonDivider className="my-0" />
+                        <div className="flex gap-2 justify-between items-center px-2 py-1">
+                            <LemonLabel info="Turn this off for emails that should never be tracked, such as transactional messages. When off, no tracking pixel is added and links are not rewritten, so opens and clicks won't appear in the workflow's metrics. Delivery, bounce, and unsubscribe events are still recorded. Marketing emails may additionally be sent untracked based on the email tracking consent setting in your environment settings.">
+                                Track opens and link clicks
+                            </LemonLabel>
+                            <LemonSwitch
+                                checked={action.config.tracking_enabled !== false}
+                                onChange={(checked) => {
+                                    setWorkflowAction(action.id, {
+                                        ...action,
+                                        config: { ...action.config, tracking_enabled: checked },
+                                    })
+                                }}
+                            />
+                        </div>
+                        <div className="flex gap-2 justify-between items-center px-2 py-1">
+                            <LemonLabel info="Adds UTM tags to each link, so visits from this email show up as their own campaign in web analytics. Tags already on a link are kept. Links to PostHog, such as the unsubscribe link, are not changed. Add data-ph-no-utm to a link to leave it as is.">
+                                Add UTM tags to links
+                            </LemonLabel>
+                            <LemonSwitch
+                                checked={action.config.utm_tags_enabled === true}
+                                onChange={(checked) => {
+                                    setWorkflowAction(action.id, {
+                                        ...action,
+                                        config: { ...action.config, utm_tags_enabled: checked },
+                                    })
+                                }}
+                                data-attr="workflow-email-utm-tags-toggle"
+                            />
+                        </div>
+                        {action.config.utm_tags_enabled === true && (
+                            <div className="px-2 pb-2 flex flex-col gap-2">
+                                <UtmTagFields
+                                    value={action.config.utm_params ?? {}}
+                                    onChange={(utmParams) => {
                                         setWorkflowAction(action.id, {
                                             ...action,
                                             config: {
                                                 ...action.config,
-                                                message_category_id: categoryId,
-                                                message_category_type: categoryId
-                                                    ? categories.find((cat) => cat.id === categoryId)?.category_type
-                                                    : undefined,
+                                                utm_params: utmParams,
+                                                utm_params_from_default: utmKeysFromDefaultAfterEdit(
+                                                    action.config.utm_params_from_default,
+                                                    action.config.utm_params ?? {},
+                                                    utmParams
+                                                ),
                                             },
-                                        } as Extract<HogFlowAction, { type: 'function_email' | 'function_sms' }>)
+                                        })
                                     }}
-                                    value={action.config.message_category_id}
+                                    campaignDefault={workflow.name || 'Workflow name'}
+                                    contentDefault={action.name}
+                                />
+                                <UtmTeamDefaultControls
+                                    value={action.config.utm_params ?? {}}
+                                    onSavedAsTeamDefault={(saved) => markUtmSavedAsTeamDefault(action.id, saved)}
                                 />
                             </div>
-                        </LemonLabel>
-                    </div>
-                </>
-            )}
+                        )}
+                    </>
+                )}
 
-            {isEmailAction(action) && (
-                <>
-                    <LemonDivider className="my-0" />
-                    <div className="flex gap-2 justify-between items-center px-2 py-1">
-                        <LemonLabel info="Turn this off for emails that should never be tracked, such as transactional messages. When off, no tracking pixel is added and links are not rewritten, so opens and clicks won't appear in the workflow's metrics. Delivery, bounce, and unsubscribe events are still recorded. Marketing emails may additionally be sent untracked based on the email tracking consent setting in your environment settings.">
-                            Track opens and link clicks
-                        </LemonLabel>
-                        <LemonSwitch
-                            checked={action.config.tracking_enabled !== false}
-                            onChange={(checked) => {
-                                setWorkflowAction(action.id, {
-                                    ...action,
-                                    config: { ...action.config, tracking_enabled: checked },
-                                })
-                            }}
-                        />
-                    </div>
-                    <div className="flex gap-2 justify-between items-center px-2 py-1">
-                        <LemonLabel info="Adds UTM tags to each link, so visits from this email show up as their own campaign in web analytics. Tags already on a link are kept. Links to PostHog, such as the unsubscribe link, are not changed. Add data-ph-no-utm to a link to leave it as is.">
-                            Add UTM tags to links
-                        </LemonLabel>
-                        <LemonSwitch
-                            checked={action.config.utm_tags_enabled === true}
-                            onChange={(checked) => {
-                                setWorkflowAction(action.id, {
-                                    ...action,
-                                    config: { ...action.config, utm_tags_enabled: checked },
-                                })
-                            }}
-                            data-attr="workflow-email-utm-tags-toggle"
-                        />
-                    </div>
-                    {action.config.utm_tags_enabled === true && (
-                        <div className="px-2 pb-2">
-                            <UtmTagFields
-                                value={action.config.utm_params ?? {}}
-                                onChange={(utmParams) => {
-                                    setWorkflowAction(action.id, {
-                                        ...action,
-                                        config: { ...action.config, utm_params: utmParams },
-                                    })
-                                }}
-                                campaignDefault={workflow.name || 'Workflow name'}
-                                contentDefault={action.name}
-                            />
-                        </div>
-                    )}
-                </>
-            )}
+                {!['trigger', 'exit'].includes(action.type) && (
+                    <>
+                        <LemonDivider className="my-0" />
 
-            {!['trigger', 'exit'].includes(action.type) && (
-                <>
-                    <LemonDivider className="my-0" />
-
-                    <div className="flex-0">
-                        <LemonCollapse
-                            embedded
-                            panels={[
-                                {
-                                    key: 'outputs',
-                                    header: (
-                                        <>
-                                            <span className="flex-1">Output variables</span>
-                                            <LemonBadge.Number
-                                                count={mappings.filter((m) => m.key).length}
-                                                showZero={false}
-                                            />
-                                        </>
-                                    ),
-                                    content: (
-                                        <div className="flex flex-col items-start gap-2 max-h-96 overflow-y-auto">
-                                            {mappings.map((mapping, index) => (
-                                                <div
-                                                    key={index}
-                                                    className="flex flex-col gap-1 w-full rounded border border-border p-2"
-                                                >
-                                                    <div className="flex items-center gap-1">
-                                                        <LemonField.Pure label="Variable" className="flex-1">
-                                                            <LemonInputSelect
-                                                                mode="single"
-                                                                allowCustomValues
-                                                                placeholder="Select or type a new name"
-                                                                formatCreateLabel={(input) =>
-                                                                    `Create variable "${input}"`
-                                                                }
-                                                                inputTransform={sanitizeVariableKey}
-                                                                options={(workflow.variables || [])
-                                                                    .filter(
-                                                                        ({ key }) =>
-                                                                            key === mapping.key ||
-                                                                            !mappings.some((m) => m.key === key)
-                                                                    )
-                                                                    .map(({ key }) => ({ key, label: key }))}
-                                                                value={mapping.key ? [mapping.key] : []}
-                                                                onChange={([value]) =>
-                                                                    setMappingVariable(index, value || '')
-                                                                }
-                                                                size="small"
-                                                            />
-                                                        </LemonField.Pure>
-                                                        {mapping.key && (
-                                                            <LemonField.Pure label="Type">
-                                                                <LemonSelect
-                                                                    options={WORKFLOW_VARIABLE_TYPE_OPTIONS}
-                                                                    value={
-                                                                        WORKFLOW_VARIABLE_TYPE_OPTIONS.find(
-                                                                            ({ value }) =>
-                                                                                value ===
-                                                                                workflow.variables?.find(
-                                                                                    (v) => v.key === mapping.key
-                                                                                )?.type
-                                                                        )?.value ?? null
+                        <div className="flex-0">
+                            <LemonCollapse
+                                embedded
+                                panels={[
+                                    {
+                                        key: 'outputs',
+                                        header: (
+                                            <>
+                                                <span className="flex-1">Output variables</span>
+                                                <LemonBadge.Number
+                                                    count={mappings.filter((m) => m.key).length}
+                                                    showZero={false}
+                                                />
+                                            </>
+                                        ),
+                                        content: (
+                                            <div className="flex flex-col items-start gap-2 max-h-96 overflow-y-auto">
+                                                {mappings.map((mapping, index) => (
+                                                    <div
+                                                        key={index}
+                                                        className="flex flex-col gap-1 w-full rounded border border-border p-2"
+                                                    >
+                                                        <div className="flex items-center gap-1">
+                                                            <LemonField.Pure label="Variable" className="flex-1">
+                                                                <LemonInputSelect
+                                                                    mode="single"
+                                                                    allowCustomValues
+                                                                    placeholder="Select or type a new name"
+                                                                    formatCreateLabel={(input) =>
+                                                                        `Create variable "${input}"`
                                                                     }
-                                                                    placeholder="Other"
-                                                                    onChange={(type) =>
-                                                                        type && setVariableType(mapping.key, type)
+                                                                    inputTransform={sanitizeVariableKey}
+                                                                    options={(workflow.variables || [])
+                                                                        .filter(
+                                                                            ({ key }) =>
+                                                                                key === mapping.key ||
+                                                                                !mappings.some((m) => m.key === key)
+                                                                        )
+                                                                        .map(({ key }) => ({ key, label: key }))}
+                                                                    value={mapping.key ? [mapping.key] : []}
+                                                                    onChange={([value]) =>
+                                                                        setMappingVariable(index, value || '')
                                                                     }
                                                                     size="small"
                                                                 />
                                                             </LemonField.Pure>
-                                                        )}
-                                                        <LemonButton
-                                                            icon={<IconX />}
-                                                            size="small"
-                                                            tooltip="Remove mapping"
-                                                            onClick={() => removeMapping(index)}
-                                                        />
-                                                    </div>
-                                                    <LemonField.Pure
-                                                        label="Result path"
-                                                        info={
-                                                            isAiTaskAction
-                                                                ? "Specify a path within the step result to store. A path like 'output.verdict' asks the agent to return that field, typed like the variable. Leave blank for the entire result."
-                                                                : "Specify a path within the step result to store, e.g. 'body.results[0].id'. Leave blank for the entire result."
-                                                        }
-                                                        className="w-full"
-                                                    >
-                                                        <LemonInput
-                                                            disabledReason={
-                                                                !mapping.key ? 'Select a variable first.' : undefined
-                                                            }
-                                                            type="text"
-                                                            prefix={<span>result.</span>}
-                                                            value={mapping.result_path}
-                                                            onChange={(value) => updateMappingResultPath(index, value)}
-                                                            placeholder={
-                                                                isAiTaskAction ? 'output.verdict' : 'body.results[0].id'
-                                                            }
-                                                            size="small"
-                                                        />
-                                                    </LemonField.Pure>
-                                                </div>
-                                            ))}
-                                            {pendingSuggestions.length > 0 && (
-                                                <div className="w-full">
-                                                    <p className="text-xs text-secondary mb-1">Suggested</p>
-                                                    <div className="flex flex-wrap gap-1">
-                                                        {pendingSuggestions.map((suggestion) => (
+                                                            {mapping.key && (
+                                                                <LemonField.Pure label="Type">
+                                                                    <LemonSelect
+                                                                        options={WORKFLOW_VARIABLE_TYPE_OPTIONS}
+                                                                        value={
+                                                                            WORKFLOW_VARIABLE_TYPE_OPTIONS.find(
+                                                                                ({ value }) =>
+                                                                                    value ===
+                                                                                    workflow.variables?.find(
+                                                                                        (v) => v.key === mapping.key
+                                                                                    )?.type
+                                                                            )?.value ?? null
+                                                                        }
+                                                                        placeholder="Other"
+                                                                        onChange={(type) =>
+                                                                            type && setVariableType(mapping.key, type)
+                                                                        }
+                                                                        size="small"
+                                                                    />
+                                                                </LemonField.Pure>
+                                                            )}
                                                             <LemonButton
-                                                                key={suggestion.key}
-                                                                size="xsmall"
-                                                                type="secondary"
-                                                                icon={<IconPlus />}
-                                                                onClick={() => applySuggestion(suggestion)}
-                                                            >
-                                                                {suggestion.label}
-                                                            </LemonButton>
-                                                        ))}
+                                                                icon={<IconX />}
+                                                                size="small"
+                                                                tooltip="Remove mapping"
+                                                                onClick={() => removeMapping(index)}
+                                                            />
+                                                        </div>
+                                                        <LemonField.Pure
+                                                            label="Result path"
+                                                            info={
+                                                                isAiTaskAction
+                                                                    ? "Specify a path within the step result to store. A path like 'output.verdict' asks the agent to return that field, typed like the variable. Leave blank for the entire result."
+                                                                    : "Specify a path within the step result to store, e.g. 'body.results[0].id'. Leave blank for the entire result."
+                                                            }
+                                                            className="w-full"
+                                                        >
+                                                            <LemonInput
+                                                                disabledReason={
+                                                                    !mapping.key
+                                                                        ? 'Select a variable first.'
+                                                                        : undefined
+                                                                }
+                                                                type="text"
+                                                                prefix={<span>result.</span>}
+                                                                value={mapping.result_path}
+                                                                onChange={(value) =>
+                                                                    updateMappingResultPath(index, value)
+                                                                }
+                                                                placeholder={
+                                                                    isAiTaskAction
+                                                                        ? 'output.verdict'
+                                                                        : 'body.results[0].id'
+                                                                }
+                                                                size="small"
+                                                            />
+                                                        </LemonField.Pure>
                                                     </div>
-                                                </div>
-                                            )}
-                                            <div className="flex gap-2 w-full">
-                                                <LemonButton
-                                                    icon={<IconPlus />}
-                                                    size="small"
-                                                    type="secondary"
-                                                    onClick={() => addMapping()}
-                                                >
-                                                    Add mapping
-                                                </LemonButton>
-                                                {!isAiTaskAction && (
-                                                    <LemonButton
-                                                        icon={<IconPlay />}
-                                                        size="small"
-                                                        type="primary"
-                                                        className={shakePickButton ? 'animate-shake' : ''}
-                                                        loading={testLoading}
-                                                        tooltip="Executes a real HTTP request to this step's endpoint and shows the response so you can pick which property to store."
-                                                        onClick={runOutputTest}
-                                                    >
-                                                        Pick from response
-                                                    </LemonButton>
+                                                ))}
+                                                {pendingSuggestions.length > 0 && (
+                                                    <div className="w-full">
+                                                        <p className="text-xs text-secondary mb-1">Suggested</p>
+                                                        <div className="flex flex-wrap gap-1">
+                                                            {pendingSuggestions.map((suggestion) => (
+                                                                <LemonButton
+                                                                    key={suggestion.key}
+                                                                    size="xsmall"
+                                                                    type="secondary"
+                                                                    icon={<IconPlus />}
+                                                                    onClick={() => applySuggestion(suggestion)}
+                                                                >
+                                                                    {suggestion.label}
+                                                                </LemonButton>
+                                                            ))}
+                                                        </div>
+                                                    </div>
                                                 )}
-                                            </div>
-                                            {testError && (
-                                                <LemonBanner type="error" className="w-full">
-                                                    {testError}
-                                                </LemonBanner>
-                                            )}
-                                            {testResultData !== null && (
-                                                <div
-                                                    className="w-full"
-                                                    ref={(el) =>
-                                                        el?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
-                                                    }
-                                                >
-                                                    <p className="text-xs text-secondary mb-1">
-                                                        Click a key to use as result path
-                                                    </p>
-                                                    <div className="max-h-64 overflow-auto border rounded p-1">
-                                                        <OutputTestResultTree
-                                                            data={testResultData}
-                                                            selectedPath={pendingPath || ''}
-                                                            onPathSelect={(path) => selectPath(path)}
-                                                        />
-                                                    </div>
-                                                    {pendingPath && mappings.length >= 2 && (
-                                                        <div
-                                                            ref={(el) =>
-                                                                el?.scrollIntoView({
-                                                                    behavior: 'smooth',
-                                                                    block: 'nearest',
+                                                <div className="flex gap-2 w-full">
+                                                    <LemonButton
+                                                        icon={<IconPlus />}
+                                                        size="small"
+                                                        type="secondary"
+                                                        onClick={() => addMapping()}
+                                                    >
+                                                        Add mapping
+                                                    </LemonButton>
+                                                    {!isAiTaskAction && (
+                                                        <LemonButton
+                                                            icon={<IconPlay />}
+                                                            size="small"
+                                                            type="primary"
+                                                            className={shakePickButton ? 'animate-shake' : ''}
+                                                            loading={testLoading}
+                                                            tooltip="Executes a real HTTP request to this step's endpoint and shows the response so you can pick which property to store."
+                                                            onClick={() =>
+                                                                LemonDialog.open({
+                                                                    title: 'Run this step for real?',
+                                                                    description: `"${action.name}" runs with test event data to get a response. Any message, email or request it sends goes out now.`,
+                                                                    primaryButton: {
+                                                                        children: 'Run step',
+                                                                        'data-attr':
+                                                                            'workflow-pick-from-response-confirm',
+                                                                        onClick: runOutputTest,
+                                                                    },
+                                                                    secondaryButton: { children: 'Cancel' },
                                                                 })
                                                             }
-                                                            className="mt-2 p-2 rounded border border-primary bg-primary-highlight"
                                                         >
-                                                            <p className="text-xs font-semibold mb-1">
-                                                                Assign{' '}
-                                                                <code className="text-xs">result.{pendingPath}</code>{' '}
-                                                                to:
-                                                            </p>
-                                                            <div className="flex flex-wrap gap-1">
-                                                                {mappings.map((mapping, index) =>
-                                                                    mapping.key ? (
-                                                                        <LemonButton
-                                                                            key={index}
-                                                                            size="xsmall"
-                                                                            type="secondary"
-                                                                            onClick={() =>
-                                                                                assignPendingPathToMapping(
-                                                                                    index,
-                                                                                    pendingPath!
-                                                                                )
-                                                                            }
-                                                                        >
-                                                                            {mapping.key}
-                                                                        </LemonButton>
-                                                                    ) : null
-                                                                )}
-                                                                <LemonButton
-                                                                    size="xsmall"
-                                                                    type="tertiary"
-                                                                    onClick={() => cancelPendingPath()}
-                                                                >
-                                                                    Cancel
-                                                                </LemonButton>
-                                                            </div>
-                                                        </div>
+                                                            Pick from response
+                                                        </LemonButton>
                                                     )}
                                                 </div>
-                                            )}
-                                            <LemonDivider className="my-1" />
-                                            <LemonButton
-                                                sideIcon={<IconExternal />}
-                                                size="small"
-                                                type="secondary"
-                                                onClick={() => setMode('variables')}
-                                            >
-                                                View all workflow variables
-                                            </LemonButton>
-                                        </div>
-                                    ),
-                                },
-                                ...(hideFiltersPanel
-                                    ? []
-                                    : [
-                                          {
-                                              key: 'filters',
-                                              header: (
-                                                  <>
-                                                      <span className="flex-1">
-                                                          {hasLegacyBranchingFilters
-                                                              ? 'Legacy skip conditions'
-                                                              : 'Conditions'}
-                                                      </span>
-                                                      <LemonBadge.Number
-                                                          count={numberOfActionFilters}
-                                                          showZero={false}
-                                                      />
-                                                  </>
-                                              ),
-                                              content: (
-                                                  <div>
-                                                      {hasLegacyBranchingFilters ? (
-                                                          <p>
-                                                              These skip conditions were set on this branching step
-                                                              before we removed the option. They still apply at runtime:
-                                                              if they aren't met, the user skips the entire branching
-                                                              step and continues to the next step. Clear them to hide
-                                                              this panel.
-                                                          </p>
-                                                      ) : (
-                                                          <p>
-                                                              Add conditions to the step. If these conditions aren't
-                                                              met, the user will skip this step and continue to the next
-                                                              one.
-                                                          </p>
-                                                      )}
-                                                      <HogFlowPropertyFilters
-                                                          filtersKey={`action-skip-conditions-${action.id}`}
-                                                          filters={action.filters ?? {}}
-                                                          setFilters={(filters) =>
-                                                              setWorkflowAction(action.id, { ...action, filters })
-                                                          }
-                                                          buttonCopy="Add filter conditions"
-                                                      />
-                                                  </div>
-                                              ),
-                                          },
-                                      ]),
-                                {
-                                    key: 'on_error',
-                                    header: (
-                                        <>
-                                            <span className="flex-1">Error handling</span>
-                                            <LemonTag
-                                                size="small"
-                                                type={action.on_error === 'continue' ? 'success' : 'danger'}
-                                            >
-                                                {action.on_error === 'continue' ? 'Continue on error' : 'Exit on error'}
-                                            </LemonTag>
-                                        </>
-                                    ),
-                                    content: (
-                                        <div>
-                                            <p>
-                                                What to do if this step fails (e.g. message could not be sent). By
-                                                default, the user will continue to the next step.
-                                            </p>
-                                            <LemonSelect
-                                                options={[
-                                                    { value: 'continue', label: 'Continue to next step' },
-                                                    { value: 'abort', label: 'Exit the workflow' },
-                                                ]}
-                                                value={action.on_error || 'continue'}
-                                                onChange={(value) =>
-                                                    setWorkflowAction(action.id, {
-                                                        ...action,
-                                                        on_error: value,
-                                                    })
-                                                }
-                                            />
-                                        </div>
-                                    ),
-                                },
-                            ]}
-                        />
-                    </div>
-                </>
-            )}
+                                                {testError && (
+                                                    <LemonBanner type="error" className="w-full">
+                                                        {testError}
+                                                    </LemonBanner>
+                                                )}
+                                                {testResultData !== null && (
+                                                    <div
+                                                        className="w-full"
+                                                        ref={(el) =>
+                                                            el?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+                                                        }
+                                                    >
+                                                        <p className="text-xs text-secondary mb-1">
+                                                            Click a key to use as result path
+                                                        </p>
+                                                        <div className="max-h-64 overflow-auto border rounded p-1">
+                                                            <OutputTestResultTree
+                                                                data={testResultData}
+                                                                selectedPath={pendingPath || ''}
+                                                                onPathSelect={(path) => selectPath(path)}
+                                                            />
+                                                        </div>
+                                                        {pendingPath && mappings.length >= 2 && (
+                                                            <div
+                                                                ref={(el) =>
+                                                                    el?.scrollIntoView({
+                                                                        behavior: 'smooth',
+                                                                        block: 'nearest',
+                                                                    })
+                                                                }
+                                                                className="mt-2 p-2 rounded border border-primary bg-primary-highlight"
+                                                            >
+                                                                <p className="text-xs font-semibold mb-1">
+                                                                    Assign{' '}
+                                                                    <code className="text-xs">
+                                                                        result.{pendingPath}
+                                                                    </code>{' '}
+                                                                    to:
+                                                                </p>
+                                                                <div className="flex flex-wrap gap-1">
+                                                                    {mappings.map((mapping, index) =>
+                                                                        mapping.key ? (
+                                                                            <LemonButton
+                                                                                key={index}
+                                                                                size="xsmall"
+                                                                                type="secondary"
+                                                                                onClick={() =>
+                                                                                    assignPendingPathToMapping(
+                                                                                        index,
+                                                                                        pendingPath!
+                                                                                    )
+                                                                                }
+                                                                            >
+                                                                                {mapping.key}
+                                                                            </LemonButton>
+                                                                        ) : null
+                                                                    )}
+                                                                    <LemonButton
+                                                                        size="xsmall"
+                                                                        type="tertiary"
+                                                                        onClick={() => cancelPendingPath()}
+                                                                    >
+                                                                        Cancel
+                                                                    </LemonButton>
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
+                                                <LemonDivider className="my-1" />
+                                                <LemonButton
+                                                    sideIcon={<IconExternal />}
+                                                    size="small"
+                                                    type="secondary"
+                                                    onClick={() => setMode('variables')}
+                                                >
+                                                    View all workflow variables
+                                                </LemonButton>
+                                            </div>
+                                        ),
+                                    },
+                                    ...(hideFiltersPanel
+                                        ? []
+                                        : [
+                                              {
+                                                  key: 'filters',
+                                                  header: (
+                                                      <>
+                                                          <span className="flex-1">
+                                                              {hasLegacyBranchingFilters
+                                                                  ? 'Legacy skip conditions'
+                                                                  : 'Conditions'}
+                                                          </span>
+                                                          <LemonBadge.Number
+                                                              count={numberOfActionFilters}
+                                                              showZero={false}
+                                                          />
+                                                      </>
+                                                  ),
+                                                  content: (
+                                                      <div>
+                                                          {hasLegacyBranchingFilters ? (
+                                                              <p>
+                                                                  These skip conditions were set on this branching step
+                                                                  before we removed the option. They still apply at
+                                                                  runtime: if they aren't met, the user skips the entire
+                                                                  branching step and continues to the next step. Clear
+                                                                  them to hide this panel.
+                                                              </p>
+                                                          ) : (
+                                                              <p>
+                                                                  Add conditions to the step. If these conditions aren't
+                                                                  met, the user will skip this step and continue to the
+                                                                  next one.
+                                                              </p>
+                                                          )}
+                                                          <HogFlowPropertyFilters
+                                                              filtersKey={`action-skip-conditions-${action.id}`}
+                                                              filters={action.filters ?? {}}
+                                                              setFilters={(filters) =>
+                                                                  setWorkflowAction(action.id, { ...action, filters })
+                                                              }
+                                                              buttonCopy="Add filter conditions"
+                                                          />
+                                                      </div>
+                                                  ),
+                                              },
+                                          ]),
+                                    {
+                                        key: 'on_error',
+                                        header: (
+                                            <>
+                                                <span className="flex-1">Error handling</span>
+                                                <LemonTag
+                                                    size="small"
+                                                    type={action.on_error === 'continue' ? 'success' : 'danger'}
+                                                >
+                                                    {action.on_error === 'continue'
+                                                        ? 'Continue on error'
+                                                        : 'Exit on error'}
+                                                </LemonTag>
+                                            </>
+                                        ),
+                                        content: (
+                                            <div>
+                                                <p>
+                                                    What to do if this step fails (e.g. message could not be sent). By
+                                                    default, the user will continue to the next step.
+                                                </p>
+                                                <LemonSelect
+                                                    options={[
+                                                        { value: 'continue', label: 'Continue to next step' },
+                                                        { value: 'abort', label: 'Exit the workflow' },
+                                                    ]}
+                                                    value={action.on_error || 'continue'}
+                                                    onChange={(value) =>
+                                                        setWorkflowAction(action.id, {
+                                                            ...action,
+                                                            on_error: value,
+                                                        })
+                                                    }
+                                                />
+                                            </div>
+                                        ),
+                                    },
+                                ]}
+                            />
+                        </div>
+                    </>
+                )}
+            </ScrollableShadows>
         </div>
     )
 }

@@ -80,6 +80,8 @@ class ExportedAsset(models.Model):
         GIF = "image/gif", "image/gif"
         JSON = "application/json", "application/json"
         JSONL = "application/x-ndjson", "application/x-ndjson"
+        # Not in SUPPORTED_FORMATS: only system writers store it, for posters too small to justify a PNG.
+        WEBP = "image/webp", "image/webp"
 
     SUPPORTED_FORMATS = [
         ExportFormat.PNG,

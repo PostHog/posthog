@@ -26,7 +26,8 @@ import structlog
 
 from posthog.cache_utils import cache_for
 from posthog.credentials_service.callers import CredentialsCaller
-from posthog.credentials_service.settings_fallback import get_many_or_settings
+from posthog.credentials_service.errors import CredentialsServiceFailure
+from posthog.credentials_service.settings_fallback import get_many_or_settings, get_or_settings
 from posthog.dataclasses import frozen
 from posthog.egress.github.limiter import remember_observed_core_limit
 from posthog.egress.github.transport import GitHubRateLimitError, github_request, raise_if_github_rate_limited
@@ -42,6 +43,14 @@ _SOURCE = "stamphog"
 # Hidden marker that identifies Stamphog's single sticky status comment on a PR, so a re-review updates
 # the same comment in place instead of stacking a new one every run. Invisible in the rendered comment.
 STICKY_COMMENT_MARKER = "<!-- stamphog:review-status -->"
+
+
+def _app_private_key_configured() -> bool:
+    """Whether App credentials exist, only to decide on a warning. A service failure counts as configured."""
+    try:
+        return bool(get_or_settings("STAMPHOG_GITHUB_APP_PRIVATE_KEY", CredentialsCaller.STAMPHOG))
+    except CredentialsServiceFailure:
+        return True
 
 
 def expected_app_bot_login() -> str | None:
@@ -891,7 +900,7 @@ class StamphogGitHubClient:
             # while every GitHub-side sweep and adopt silently no-ops — quietly disabling the
             # orphan-catching half of the stale-approval invariant. The misconfiguration would
             # otherwise be invisible until an orphan approval stands over unreviewed commits.
-            if settings.STAMPHOG_GITHUB_APP_PRIVATE_KEY:
+            if _app_private_key_configured():
                 logger.warning(
                     "stamphog github: STAMPHOG_GITHUB_APP_SLUG unset with App credentials configured — "
                     "own-approval sweeps and adopt-before-post are disabled",

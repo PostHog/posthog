@@ -261,6 +261,16 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
             "Migration in progress",
         }
 
+    def get_retry_exhausted_errors(self) -> dict[str, str]:
+        # HubSpot's own wording says "portal", which is its internal name for the account the customer
+        # connected, and does not say that the sync recovers by itself once the move finishes.
+        return {
+            "Migration in progress": (
+                "HubSpot is moving your account to another data center, so PostHog can't reach it right now. "
+                "This usually clears on its own and the next sync runs on schedule."
+            ),
+        }
+
     # TODO: clean up hubspot job inputs to not have two auth config options
     def parse_config(self, job_inputs: dict) -> HubspotSourceConfig | HubspotSourceOldConfig:
         if "hubspot_integration_id" in job_inputs.keys():

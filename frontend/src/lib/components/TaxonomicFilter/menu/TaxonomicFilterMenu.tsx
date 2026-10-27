@@ -133,6 +133,11 @@ export interface TaxonomicFilterMenuProps {
      * filter icon arrives on the dropdown menu.
      */
     defaultOpenState?: 'menu' | 'combobox'
+    /**
+     * Consumer rows appended to the dropdown menu, under a separator. Each row
+     * is a `DropdownMenu*` item, so a click closes the menu like a built-in row.
+     */
+    menuItems?: import('react').ReactNode
 }
 
 export interface TriggerState {
@@ -255,6 +260,7 @@ export function TaxonomicFilterMenu({
     triggerAccessory,
     triggerVariant = 'button',
     defaultOpenState,
+    menuItems,
 }: TaxonomicFilterMenuProps): JSX.Element {
     const {
         groups,
@@ -820,6 +826,12 @@ export function TaxonomicFilterMenu({
                         HogQL expression
                         <IconChevronRight className="ml-auto size-3.5 text-tertiary" />
                     </DropdownMenuItem>
+                )}
+                {menuItems && (
+                    <>
+                        <DropdownMenuSeparator />
+                        {menuItems}
+                    </>
                 )}
             </DropdownMenuContent>
         </DropdownMenu>

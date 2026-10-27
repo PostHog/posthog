@@ -37,6 +37,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.preaggregation.sql import DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE
 from posthog.clickhouse.query_tagging import tags_context
 from posthog.dataclasses import frozen
+from posthog.models.event.new_events_schema import use_new_events_schema
 from posthog.models.team import Team
 from posthog.settings import DEBUG, HOGQL_INCREASED_MAX_EXECUTION_TIME, TEST
 from posthog.utils import relative_date_parse_with_delta_mapping
@@ -619,6 +620,9 @@ class LazyComputationQuery:
     timezone: str = "UTC"
     breakdown_fields: list[str] = field(default_factory=list)
     cache_key_context: dict[str, str] | None = None
+    # The modifiers of the query that made the job, so an inline build prints against the events table the
+    # identity names rather than the one the building request's own switches would pick.
+    modifiers: HogQLQueryModifiers | None = None
 
 
 @dataclass(frozen=True)
@@ -655,6 +659,19 @@ def _oldest_computed_at(jobs: list[PreaggregationJob]) -> datetime | None:
     """Oldest `computed_at` among served jobs — the stalest window bounds how old the data can be."""
     stamps = [j.computed_at for j in jobs if j.computed_at is not None]
     return min(stamps) if stamps else None
+
+
+def events_table_cache_key_context(
+    team: Team, modifiers: HogQLQueryModifiers | None, cache_key_context: dict[str, str] | None
+) -> dict[str, str] | None:
+    """The job identity context with the events table the build reads, when it is not the legacy one.
+
+    The hashed AST names the `events` table whichever ClickHouse table it prints to, so without this a build from
+    events_json would be served to readers of the legacy table and the other way round.
+    """
+    if not use_new_events_schema(team.pk, modifiers):
+        return cache_key_context
+    return {**(cache_key_context or {}), "events_table": "events_json"}
 
 
 def compute_query_hash(query_info: LazyComputationQuery) -> str:
@@ -938,6 +955,7 @@ def build_lazy_computation_insert_sql(
     time_range_start: datetime,
     time_range_end: datetime,
     expires_at: datetime,
+    modifiers: HogQLQueryModifiers | None = None,
 ) -> tuple[str, dict]:
     """
     Build the INSERT ... SELECT SQL for populating lazy-computed results.
@@ -994,7 +1012,13 @@ def build_lazy_computation_insert_sql(
         query.where = date_range_filter
 
     # Print the SELECT query to ClickHouse SQL
-    context = HogQLContext(team_id=team.id, team=team, enable_select_queries=True, limit_top_select=False)
+    context = HogQLContext(
+        team_id=team.id,
+        team=team,
+        enable_select_queries=True,
+        limit_top_select=False,
+        modifiers=modifiers if modifiers is not None else HogQLQueryModifiers(),
+    )
     select_sql, _ = prepare_and_print_ast(
         query,
         context=context,
@@ -1043,6 +1067,7 @@ def run_lazy_computation_insert(
         time_range_start=job.time_range_start,
         time_range_end=job.time_range_end,
         expires_at=ch_expires_at,
+        modifiers=query_info.modifiers,
     )
 
     set_ch_query_started(job.id)
@@ -1809,6 +1834,11 @@ def ensure_precomputed(
         **caller_sentinels,
     }
     parsed_for_hash = _resolve_insert_query(insert_query, hash_placeholders)
+
+    # The INSERT's printer asks the same switches for its table, so naming the table here keeps the job identity
+    # and the rows under it in step, whichever switch (a modifier, the person's cookie, the project or the
+    # instance) picked it.
+    cache_key_context = events_table_cache_key_context(team, modifiers, cache_key_context)
 
     query_info = LazyComputationQuery(
         query=parsed_for_hash,

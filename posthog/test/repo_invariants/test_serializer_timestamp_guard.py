@@ -80,13 +80,10 @@ REQUEST_BODY_SOURCE = "@extend_schema(request=...)"
 # every other entry records a value a client is supposed to set. Nothing is inferred,
 # so a field missing from here fails the build until a person classifies it.
 REVIEWED_WRITABLE: dict[str, str] = {
+    "posthog.api.personal_api_key.PersonalAPIKeySerializer.expires_at": "Client picks when the key stops working, or null for never; a past date is rejected",
     "products.cdp.backend.api.hog_function.HogFunctionSerializer.base_updated_at": "Optimistic-concurrency guard: the client echoes the timestamp it loaded, and the view pops it before save",
     "products.managed_migrations.backend.api.batch_imports.BatchImportDateRangeSourceCreateSerializer.start_date": "Client picks the import window; write-only input, never stored on the model",
     "products.managed_migrations.backend.api.batch_imports.BatchImportDateRangeSourceCreateSerializer.end_date": "Client picks the import window; write-only input, never stored on the model",
-    "products.subscriptions.backend.presentation.views.SubscriptionSerializer.start_date": "Client sets when delivery starts",
-    "products.subscriptions.backend.presentation.views.SubscriptionSerializer.until_date": "Client sets when delivery stops, or null for indefinite",
-    "products.subscriptions.backend.presentation.views.SubscriptionWriteSerializer.start_date": "Client sets when delivery starts",
-    "products.subscriptions.backend.presentation.views.SubscriptionWriteSerializer.until_date": "Client sets when delivery stops, or null for indefinite",
     "posthog.api.advanced_activity_logs.viewset.ActivityLogFlatExportSerializer.created_at": "TODO: server-owned audit timestamp, make read-only",
     "posthog.api.advanced_activity_logs.viewset.ActivityLogSerializer.created_at": "TODO: server-owned audit timestamp, make read-only",
     "posthog.api.event_definition.EventDefinitionSerializer.created_at": "TODO: server-owned, set when ingestion first sees the event",

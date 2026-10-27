@@ -643,6 +643,8 @@ def make_fake_sandbox_class(engine_output: str, write_sink: list[tuple[str, byte
         executed_commands: list[str] = []
         # A test can set this to make the reviewer command fail (sandbox-phase failure coverage).
         reviewer_exit_code: int = 0
+        # A test can set this to make the head fetch exit as if the pull ref named a newer commit.
+        head_fetch_exit_code: int = 0
 
         # Every created sandbox by id, so get_by_id hands a later activity the same instance.
         instances: dict[str, _FakeSandbox] = {}
@@ -672,6 +674,10 @@ def make_fake_sandbox_class(engine_output: str, write_sink: list[tuple[str, byte
 
         def execute(self, command: str, timeout_seconds: int | None = None) -> FakeExecResult:
             type(self).executed_commands.append(command)
+            if "FETCH_HEAD" in command:
+                return FakeExecResult(
+                    stdout="", stderr="the PR head is now sha-newer", exit_code=self.head_fetch_exit_code
+                )
             if "review_local.py" not in command:
                 return FakeExecResult(stdout="", stderr="", exit_code=0)
             return FakeExecResult(stdout=engine_output, stderr="", exit_code=self.reviewer_exit_code)

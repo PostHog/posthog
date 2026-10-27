@@ -37,6 +37,8 @@ import {
     SEARCH_PARAM_FILTERS_KEY,
     SEARCH_PARAM_QUERY_VARIABLES_KEY,
     shouldSharedDashboardAutoForceForStaleTime,
+    TaskQueue,
+    TileLoads,
 } from './dashboardUtils'
 
 describe('searchParamsWithUrlFilters', () => {
@@ -173,7 +175,7 @@ describe('dashboardToSaveableTemplate', () => {
         })
     })
 
-    it('preserves display attributes for every tile type', () => {
+    it('preserves display attributes and tile groups for every tile type', () => {
         const dashboard = {
             name: 'My dashboard',
             description: '',
@@ -190,6 +192,7 @@ describe('dashboardToSaveableTemplate', () => {
                     layouts: {},
                     color: null,
                     transparent_background: true,
+                    group_key: 'plans',
                 },
                 {
                     id: 2,
@@ -211,21 +214,26 @@ describe('dashboardToSaveableTemplate', () => {
                     layouts: {},
                     color: null,
                     transparent_background: false,
+                    group_key: 'plans',
                 },
             ],
+            customization: { tile_spacing: 'tight', groups: { plans: { title: 'Plans', color: 'green' } } },
         } as unknown as DashboardType
 
-        expect(dashboardToSaveableTemplate(dashboard)?.tiles).toMatchObject([
+        const template = dashboardToSaveableTemplate(dashboard)
+        expect(template?.tiles).toMatchObject([
             {
                 type: 'TEXT',
                 body: 'Text',
                 agent_context: 'Use paid plan events for this metric.',
                 transparent_background: true,
+                group_key: 'plans',
             },
             { type: 'INSIGHT', transparent_background: false },
             { type: 'BUTTON', transparent_background: true },
-            { type: 'WIDGET', transparent_background: false },
+            { type: 'WIDGET', transparent_background: false, group_key: 'plans' },
         ])
+        expect(template?.customization).toEqual(dashboard.customization)
         expect(dashboardTemplateForExport(dashboardToSaveableTemplate(dashboard))?.tiles[0]).not.toHaveProperty(
             'agent_context'
         )
@@ -612,6 +620,34 @@ describe('getInsightWithRetry', () => {
     })
 })
 
+describe('TaskQueue', () => {
+    it.each([
+        { name: 'before it joins the queue', abortBeforeRun: true },
+        { name: 'while it waits', abortBeforeRun: false },
+    ])('drops a task whose signal aborts $name and starts the next one', async ({ abortBeforeRun }) => {
+        const queue = new TaskQueue(1)
+        const started: string[] = []
+        let finishFirst: () => void = () => {}
+        const first = queue.run(() => {
+            started.push('first')
+            return new Promise<void>((resolve) => (finishFirst = resolve))
+        })
+        const controller = new AbortController()
+        if (abortBeforeRun) {
+            controller.abort()
+        }
+        const dropped = queue.run(async () => void started.push('dropped'), controller.signal)
+        const last = queue.run(async () => void started.push('last'))
+        controller.abort()
+
+        await expect(dropped).rejects.toMatchObject({ name: 'AbortError' })
+        expect(started).toEqual(['first'])
+        finishFirst()
+        await Promise.all([first, last])
+        expect(started).toEqual(['first', 'last'])
+    })
+})
+
 describe('shouldSharedDashboardAutoForceForStaleTime', () => {
     it.each<[string, dayjs.Dayjs | null, boolean]>([
         ['last refresh is null', null, false],
@@ -677,5 +713,31 @@ describe('getInsightQueryError', () => {
 
     it('returns null when the query did not error', () => {
         expect(getInsightQueryError({} as InsightModel)).toBeNull()
+    })
+})
+
+describe('TileLoads', () => {
+    it('cancels every tile that shares a load, and settles once that load finishes', async () => {
+        const tileLoads = new TileLoads<string>()
+        const refresh = new AbortController()
+        const removeListener = jest.spyOn(refresh.signal, 'removeEventListener')
+        const batch = tileLoads.start([1, 2], refresh.signal, 'batch')
+        const single = tileLoads.start([3], refresh.signal, 'single')
+
+        const cancelled = tileLoads.cancel([1])
+        let settled = false
+        void cancelled.settled.then(() => (settled = true))
+        await Promise.resolve()
+
+        expect(cancelled.tiles).toEqual([
+            { tileId: 1, refresh: 'batch' },
+            { tileId: 2, refresh: 'batch' },
+        ])
+        expect([batch.signal.aborted, single.signal.aborted, settled]).toEqual([true, false, false])
+
+        batch.finish()
+        await cancelled.settled
+        expect(removeListener).toHaveBeenCalledTimes(1)
+        expect(tileLoads.cancel([2]).tiles).toEqual([])
     })
 })

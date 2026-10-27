@@ -66,6 +66,20 @@ def _extract_oauth_error_message(res: requests.Response) -> str | None:
     return snippet[:300] if snippet else None
 
 
+_INVALID_GRANT_MESSAGE = (
+    "This authorization is no longer valid. Start the connection again and approve access without waiting in between."
+)
+
+
+def _oauth_error_code(res: requests.Response) -> str | None:
+    try:
+        body = res.json()
+    except Exception:
+        return None
+    code = body.get("error") if isinstance(body, dict) else None
+    return code if isinstance(code, str) else None
+
+
 def _raise_oauth_validation_error(kind: str, res: requests.Response) -> NoReturn:
     """Raise a ValidationError describing a failed OAuth token exchange.
 
@@ -73,6 +87,10 @@ def _raise_oauth_validation_error(kind: str, res: requests.Response) -> NoReturn
     a useful message instead of the generic "Something went wrong" fallback that follows from a
     bare Exception (which surfaces as a 500 with no detail).
     """
+    if _oauth_error_code(res) == "invalid_grant":
+        # The code expired, was already exchanged, or was issued for another account or mode. The
+        # provider's description can echo the code itself, so it stays in the logs.
+        raise ValidationError(_INVALID_GRANT_MESSAGE)
     provider_error = _extract_oauth_error_message(res)
     if provider_error:
         raise ValidationError(f"{kind} OAuth failed: {provider_error}")

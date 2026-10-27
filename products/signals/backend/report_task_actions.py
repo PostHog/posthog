@@ -13,6 +13,7 @@ agent to leave a work-log note instead of a question.
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from datetime import timedelta
 from enum import StrEnum
 
@@ -188,6 +189,8 @@ class ReportTaskAction:
     instructions: tuple[str, ...] = ()
     intent: ReportDiscussionIntent | None = None
     suggested_prompt_index: int | None = None
+    # The caller wrote `question` instead of taking the action's own text.
+    custom_message: bool = False
 
     @property
     def available(self) -> bool:
@@ -228,7 +231,7 @@ def action_report_url(report: SignalReport) -> str:
 
 
 def get_it_merged_action(
-    context: ReportTaskActionContext, report: SignalReport, state: ReportActionState
+    context: ReportTaskActionContext, report: SignalReport, state: ReportActionState, message: str | None = None
 ) -> ReportTaskAction:
     disabled_reason = context.ai_consent_disabled_reason
     if disabled_reason is None and not state.has_approved_open_pull_request:
@@ -242,14 +245,15 @@ def get_it_merged_action(
     return ReportTaskAction(
         kind=ReportTaskActionKind.GET_IT_MERGED,
         disabled_reason=disabled_reason,
-        question=MERGE_PR_REQUEST,
+        question=message or MERGE_PR_REQUEST,
         instructions=(merge_pr_intro(url), MERGE_PR_WORK_INSTRUCTIONS, NO_CHECKOUT_INSTRUCTIONS),
         intent=ReportDiscussionIntent.MERGE_PR,
+        custom_message=bool(message),
     )
 
 
 def make_it_green_action(
-    context: ReportTaskActionContext, report: SignalReport, state: ReportActionState
+    context: ReportTaskActionContext, report: SignalReport, state: ReportActionState, message: str | None = None
 ) -> ReportTaskAction:
     disabled_reason = context.ai_consent_disabled_reason
     if disabled_reason is None and not state.has_open_pull_request:
@@ -264,25 +268,30 @@ def make_it_green_action(
     return ReportTaskAction(
         kind=ReportTaskActionKind.MAKE_IT_GREEN,
         disabled_reason=disabled_reason,
-        question=FIX_CI_REQUEST,
+        question=message or FIX_CI_REQUEST,
         instructions=(fix_ci_intro(action_report_url(report)), FIX_CI_WORK_INSTRUCTIONS, NO_CHECKOUT_INSTRUCTIONS),
         intent=ReportDiscussionIntent.FIX_CI,
+        custom_message=bool(message),
     )
 
 
-def suggested_prompt_actions(
-    context: ReportTaskActionContext, report: SignalReport, state: ReportActionState
-) -> list[ReportTaskAction]:
+def discussion_instructions(report: SignalReport, state: ReportActionState) -> tuple[str, ...]:
+    """The framing of a discussion without an intent, as `discussReportInstructions` picks it."""
     url = action_report_url(report)
     if state.is_action_capable:
-        instructions: tuple[str, ...] = (
+        return (
             action_capable_intro(url),
             REPORT_DISCUSSION_STATE_INSTRUCTIONS,
             NO_CHECKOUT_INSTRUCTIONS,
             REPORT_DISCUSSION_FEEDBACK_INSTRUCTIONS,
         )
-    else:
-        instructions = (answer_only_intro(url), NO_CHECKOUT_INSTRUCTIONS, REPORT_DISCUSSION_FEEDBACK_INSTRUCTIONS)
+    return (answer_only_intro(url), NO_CHECKOUT_INSTRUCTIONS, REPORT_DISCUSSION_FEEDBACK_INSTRUCTIONS)
+
+
+def suggested_prompt_actions(
+    context: ReportTaskActionContext, report: SignalReport, state: ReportActionState
+) -> list[ReportTaskAction]:
+    instructions = discussion_instructions(report, state)
     return [
         ReportTaskAction(
             kind=ReportTaskActionKind.SUGGESTED_PROMPT,
@@ -293,6 +302,19 @@ def suggested_prompt_actions(
         )
         for index, prompt in enumerate(state.suggested_prompts)
     ]
+
+
+def ask_action(
+    context: ReportTaskActionContext, report: SignalReport, state: ReportActionState, message: str
+) -> ReportTaskAction:
+    """A free-text Ask AI: the caller's message with the framing a suggested prompt gets."""
+    return ReportTaskAction(
+        kind=ReportTaskActionKind.ASK,
+        disabled_reason=context.ai_consent_disabled_reason,
+        question=message,
+        instructions=discussion_instructions(report, state),
+        custom_message=True,
+    )
 
 
 def list_report_task_actions(context: ReportTaskActionContext, report: SignalReport) -> list[ReportTaskAction]:
@@ -310,13 +332,19 @@ def resolve_report_task_action(
     kind: ReportTaskActionKind,
     suggested_prompt_index: int | None = None,
     state: ReportActionState | None = None,
+    message: str | None = None,
 ) -> ReportTaskAction | None:
-    """The action as the report's current state resolves it, or None when the report has no such entry."""
+    """The action as the report's current state resolves it, or None when the report has no such entry.
+
+    `message` replaces the fixed request of a pull request action and is the request of `ask`.
+    """
     state = state or ReportActionState.read(report)
     if kind == ReportTaskActionKind.GET_IT_MERGED:
-        return get_it_merged_action(context, report, state)
+        return get_it_merged_action(context, report, state, message)
     if kind == ReportTaskActionKind.MAKE_IT_GREEN:
-        return make_it_green_action(context, report, state)
+        return make_it_green_action(context, report, state, message)
+    if kind == ReportTaskActionKind.ASK:
+        return ask_action(context, report, state, message) if message else None
     if suggested_prompt_index is None:
         return None
     prompts = suggested_prompt_actions(context, report, state)
@@ -324,8 +352,8 @@ def resolve_report_task_action(
 
 
 def escape_report_message(text: str) -> str:
-    """Mirrors `discussReportMessage`. A suggested prompt is report content, so a leading context tag
-    in it must not extend the trusted block in front of it."""
+    """Mirrors `discussReportMessage`. A suggested prompt is report content and a custom message is
+    the caller's, so a leading context tag in either must not extend the trusted block in front of it."""
     return _MESSAGE_CONTEXT_TAG.sub(r"<\\\1\2", text.strip())
 
 
@@ -349,9 +377,21 @@ class ActiveReportRun:
     run_id: str | None
 
 
-# Requests of the runs that push to the report's pull request. Two of them at once would push to the
-# same branch.
-PULL_REQUEST_RUN_REQUESTS = (MERGE_PR_REQUEST, FIX_CI_REQUEST)
+_TRUSTED_BLOCK_OPEN = "<posthog_trusted_context>"
+_TRUSTED_BLOCK_CLOSE = "</posthog_trusted_context>"
+
+
+def _intro_line_pattern(intro: Callable[[str], str]) -> str:
+    """The intro's trusted-block line with any report URL, because the inbox builds its URL differently."""
+    prefix, suffix = intro("{report_url}").split("{report_url}")
+    return re.escape(f"- {prefix}") + r"\S+" + re.escape(suffix)
+
+
+# The intros of the runs that push to the report's pull request. Two of them at once would push to the
+# same branch. The request after the block can be the caller's own text, so only the intro is fixed.
+_PULL_REQUEST_RUN_INTRO_LINE = re.compile(
+    "|".join(f"^{_intro_line_pattern(intro)}$" for intro in (merge_pr_intro, fix_ci_intro)), re.MULTILINE
+)
 
 PULL_REQUEST_RUN_START_GRACE = timedelta(minutes=2)
 
@@ -359,15 +399,23 @@ PULL_REQUEST_RUN_ACTIVE_DETAIL = "A run is already working on this report's pull
 
 
 def is_pull_request_run_request(description: str | None) -> bool:
-    """Whether a task's description ends with a request that pushes to the report's pull request."""
-    return (description or "").rstrip().endswith(PULL_REQUEST_RUN_REQUESTS)
+    """Whether a task's leading trusted block frames a run that pushes to the report's pull request.
+
+    Only the leading block counts: the message after it is escaped, so it cannot open a block, but it
+    can still quote an intro line.
+    """
+    description = description or ""
+    if not description.startswith(_TRUSTED_BLOCK_OPEN):
+        return False
+    end = description.find(_TRUSTED_BLOCK_CLOSE)
+    return end != -1 and _PULL_REQUEST_RUN_INTRO_LINE.search(description, 0, end) is not None
 
 
 def active_pull_request_run(*, team_id: int, report_id: str) -> ActiveReportRun | None:
     """The report's run that pushes to its pull request and is still working, if any.
 
-    Such a run is a discussion whose request is one of `PULL_REQUEST_RUN_REQUESTS`. The inbox sends
-    the same requests, so this finds runs started from either surface.
+    Such a run is a discussion framed by `merge_pr_intro` or `fix_ci_intro`. The inbox sends the same
+    intros, so this finds runs started from either surface, whatever their request says.
     """
     discussion_task_ids = [
         run.task_id
@@ -483,7 +531,8 @@ def inbox_report_action_properties(
         "surface": "api",
         "is_bulk": False,
         "bulk_size": 1,
-        "question_source": "suggested",
+        # The message text is never sent: it can name a customer's own entities.
+        "question_source": "custom" if action.custom_message else "suggested",
         "suggestion_count": 1
         if action.kind in (ReportTaskActionKind.GET_IT_MERGED, ReportTaskActionKind.MAKE_IT_GREEN)
         else len(state.suggested_prompts if state is not None else report.suggested_prompts or []),

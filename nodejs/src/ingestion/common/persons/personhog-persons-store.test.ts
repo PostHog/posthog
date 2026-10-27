@@ -2667,7 +2667,8 @@ describe('PersonhogPersonsStore', () => {
                     () => 'acked' as const,
                     (error: Error) => error.message
                 )
-                await jest.advanceTimersByTimeAsync(10_000)
+                // One round past the budget, which rounds up to a whole round.
+                await jest.advanceTimersByTimeAsync((store as any).flushWaitBudgetMs + 1_000)
                 expect(await settled).toMatch(/flush cannot complete/)
                 expect((store as any).entries.get('1:7').segments).toHaveLength(1)
             } finally {

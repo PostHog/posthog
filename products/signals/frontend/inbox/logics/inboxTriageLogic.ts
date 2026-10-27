@@ -8,7 +8,7 @@ import { openResolveReportDialog } from '../components/shell/ResolveReportDialog
 import { captureInboxReportAction } from '../inboxAnalytics'
 import { inboxSceneLogic } from '../inboxSceneLogic'
 import { inboxTaskKickoffLogic } from '../inboxTaskKickoffLogic'
-import { INBOX_PRIMARY_REPORT_SECTION_KEY, InboxReportSectionKey, SignalReport } from '../types'
+import { INBOX_PRIMARY_REPORT_SECTION_KEY, InboxReportSectionKey, SignalReport, SignalReportStatus } from '../types'
 import { canCreateImplementationPr, canUnassignMe, hasOpenImplementationPr } from '../utils/reportActions'
 import { displayConventionalCommitTitle } from '../utils/reportPresentation'
 import { INBOX_REPORT_SECTION_LIST_PARAMS, reportListLogic } from './reportListLogic'
@@ -450,6 +450,7 @@ export const inboxTriageLogic = kea<inboxTriageLogicType>([
                 }
                 openResolveReportDialog({
                     reportTitle: displayConventionalCommitTitle(report.title, 'Untitled report'),
+                    isMonitoring: report.status === SignalReportStatus.MONITORING,
                     hasOpenPr: hasOpenImplementationPr(report),
                     hotkeys: true,
                     onConfirm: ({ reason, note }) => {

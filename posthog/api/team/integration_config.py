@@ -276,7 +276,7 @@ def handle_experiments_config(request: request.Request, team: Team) -> response.
             allow_empty=False,
             max_length=MAX_RECALCULATION_TIMES,
             help_text=(
-                "Times of day (UTC) when experiment metrics are recalculated, as 'HH:00:00' strings "
+                "Times of day (UTC) when experiment time series are recalculated, as 'HH:00:00' strings "
                 f"on the hour. At most {MAX_RECALCULATION_TIMES} entries, at least "
                 f"{MIN_RECALCULATION_GAP_HOURS} hours apart. Null means the default time (02:00 UTC)."
             ),

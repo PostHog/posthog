@@ -25,6 +25,7 @@ from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.models.integration import DatabricksIntegration, Integration
+from posthog.models.integration.databricks import NOT_A_DATABRICKS_HOST_MESSAGE, is_databricks_workspace_host
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger, get_write_only_logger
@@ -319,7 +320,13 @@ class DatabricksClient:
         that case in ``connect_timeout_seconds`` and, unlike wrapping ``sql.connect`` in a timeout,
         leaves no stranded thread — the socket terminates on its own timeout and the SDK call is never
         started.
+
+        We also refuse a host outside the Databricks workspace DNS zones, because the SDK and connector
+        send requests to URLs the server returns. Checking here as well as at creation also covers
+        integrations that are already stored.
         """
+        if not is_databricks_workspace_host(self.server_hostname):
+            raise DatabricksConnectionError(NOT_A_DATABRICKS_HOST_MESSAGE, retryable=False)
 
         def probe() -> None:
             with socket.create_connection((self.server_hostname, 443), timeout=self.connect_timeout_seconds):

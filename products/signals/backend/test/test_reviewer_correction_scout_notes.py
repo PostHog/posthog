@@ -18,14 +18,15 @@ from products.signals.backend.models import (
     SignalScratchpad,
 )
 from products.signals.backend.reviewer_correction_notes import (
-    MAX_CORRECTION_LOGINS,
+    MAX_CORRECTION_REVIEWERS,
     ReviewerCorrection,
-    _actor_name,
     _build_note_content,
-    _logins_already_told,
     _renderable,
+    _reviewers_already_told,
     forward_reviewer_correction_note,
 )
+from products.signals.backend.scout_harness.tools.notes import list_notes
+from products.signals.backend.scout_note_actor import render_actor
 from products.skills.backend.models.skills import LLMSkill
 
 SCOUT_SKILL = "signals-scout-error-tracking"
@@ -36,6 +37,9 @@ class TestReviewerCorrectionNoteContent(SimpleTestCase):
     @parameterized.expand(
         [
             ("plain", ["Octocat"], ["octocat"]),
+            ("member_uuid", ["0198e7f0-0000-7000-8000-000000000002"], ["0198e7f0-0000-7000-8000-000000000002"]),
+            ("activity_uuid", ["user:0198e7f0-0000-7000-8000-000000000002"], ["0198e7f0-0000-7000-8000-000000000002"]),
+            ("invalid_activity_uuid", ["user:octocat"], []),
             ("backtick_closes_the_span", ["oct`ocat"], []),
             ("newline_fakes_a_section", ["octocat\n\nRemoved: `someone-else`"], []),
             ("over_githubs_length_limit", ["a" * 40], []),
@@ -50,13 +54,13 @@ class TestReviewerCorrectionNoteContent(SimpleTestCase):
     def test_an_oversized_prior_list_is_capped(self) -> None:
         # `prior_logins` comes off the stored artefact, which the generic artefacts API writes with
         # no length limit, and every login drives both a memory search term and a line of the note.
-        assert len(_renderable([f"reviewer{index}" for index in range(500)])) == MAX_CORRECTION_LOGINS
+        assert len(_renderable([f"reviewer{index}" for index in range(500)])) == MAX_CORRECTION_REVIEWERS
 
     @parameterized.expand(
         [
-            ("self_only", (), ("editor-login",), "the login's owner took themselves off"),
-            ("teammate", ("someone-else",), (), "a teammate removed the login"),
-            ("both", ("someone-else",), ("editor-login",), "a teammate removed the login"),
+            ("self_only", (), ("editor-login",), "the reviewer took themselves off"),
+            ("teammate", ("someone-else",), (), "a teammate removed the reviewer"),
+            ("both", ("someone-else",), ("editor-login",), "a teammate removed the reviewer"),
         ]
     )
     def test_the_note_records_the_removal_it_reports(
@@ -65,7 +69,7 @@ class TestReviewerCorrectionNoteContent(SimpleTestCase):
         content = _build_note_content(
             report=SignalReport(id="0198e7f0-0000-7000-8000-000000000001", title="Checkout errors"),
             editor="Ada Lovelace",
-            added_logins=(),
+            added_reviewers=(),
             self_removed=self_removed,
             teammate_removed=teammate_removed,
         )
@@ -74,28 +78,51 @@ class TestReviewerCorrectionNoteContent(SimpleTestCase):
         # off must never be recorded as a teammate's verdict on who owns the surface.
         assert expected in content
         if not teammate_removed:
-            assert "a teammate removed the login" not in content
+            assert "a teammate removed the reviewer" not in content
 
     @parameterized.expand(
         [
-            ("both_names", "Ada", "Lovelace", "Ada Lovelace"),
-            ("first_name_only", "Ada", "", "Ada"),
-            ("no_name_falls_back", "", "", "someone"),
-            ("whitespace_is_normalized", " Ada\n\nRemoved: ", "x ", "Ada Removed: x"),
-            ("backticks_are_stripped", "`Ada`", "", "Ada"),
-            ("capped", "A" * 80, "", "A" * 60),
+            (
+                "full_identity",
+                "Ada",
+                "Lovelace",
+                "ada@example.com",
+                "ada-l",
+                "Ada Lovelace (ada@example.com, GitHub @ada-l)",
+            ),
+            ("no_github_login", "Ada", "Lovelace", "ada@example.com", None, "Ada Lovelace (ada@example.com)"),
+            ("first_name_only", "Ada", "", "ada@example.com", None, "Ada (ada@example.com)"),
+            ("no_name_uses_the_email", "", "", "ada@example.com", None, "ada@example.com"),
+            ("no_name_with_login", "", "", "ada@example.com", "ada-l", "ada@example.com (GitHub @ada-l)"),
+            ("nothing_identifies_them", "", "", "", None, "someone"),
+            ("whitespace_is_normalized", " Ada\n\nRemoved: ", "x ", "", None, "Ada Removed: x"),
+            (
+                "backticks_are_stripped",
+                "`Ada`",
+                "",
+                "a`da@example.com",
+                "ada`-l",
+                "Ada (ada@example.com, GitHub @ada-l)",
+            ),
+            ("name_capped", "A" * 80, "", "", None, "A" * 60),
         ]
     )
-    def test_the_editors_name_is_sanitized(self, _name: str, first: str, last: str, expected: str) -> None:
-        # The name reaches a prompt every scout reads, so it stays one line and bounded. Backticks go
-        # because `_logins_already_told` reads backtick spans back as suppression state.
-        assert _actor_name(User(first_name=first, last_name=last)) == expected
+    def test_the_actor_is_rendered_on_one_bounded_line(
+        self, _name: str, first: str, last: str, email: str, login: str | None, expected: str
+    ) -> None:
+        # The actor reaches a prompt every scout reads, so it stays one line and bounded. Backticks go
+        # because `_reviewers_already_told` reads backtick spans back as suppression state.
+        user = User(first_name=first, last_name=last, email=email)
+        assert render_actor(user, github_login=login) == expected
+
+    def test_no_user_is_named_as_someone(self) -> None:
+        assert render_actor(None) == "someone"
 
     def test_the_note_names_the_editor(self) -> None:
         content = _build_note_content(
             report=SignalReport(id="0198e7f0-0000-7000-8000-000000000001", title="Checkout errors"),
             editor="Ada Lovelace",
-            added_logins=("octocat",),
+            added_reviewers=("octocat",),
             self_removed=(),
             teammate_removed=(),
         )
@@ -148,8 +175,8 @@ class TestReviewerCorrectionScoutNotes(APIBaseTest):
             team=self.team,
             correction=ReviewerCorrection(
                 report_id=str(report.id),
-                added_logins=added,
-                removed_logins=removed,
+                added_reviewers=added,
+                removed_reviewers=removed,
                 actor_user_id=self.user.id,
                 scoped_team_ids=None,
             ),
@@ -163,24 +190,28 @@ class TestReviewerCorrectionScoutNotes(APIBaseTest):
 
         self._forward(report, added=("alice",))
         self._forward(report, removed=("alice",))
+        self._forward(report, added=("alice",))
 
         notes = self._correction_notes()
-        assert len(notes) == 2
+        assert len(notes) == 3
         assert "Added: `alice`" in notes[0].content
         assert "Removed: `alice`" in notes[1].content
+        assert "Added: `alice`" in notes[2].content
 
-    def test_same_direction_repeat_is_coalesced(self) -> None:
-        # The deliberate coalescing still holds: one person trimming the same login off two reports in
-        # the window tells each scout once, since both edits are the same direction to the same target.
-        report_a = self._create_report(title="report A")
-        report_b = self._create_report(title="report B")
+    @parameterized.expand([("same_report", True, 1), ("other_report", False, 2)])
+    def test_only_repeats_on_the_same_report_are_coalesced(
+        self, _name: str, same_report: bool, expected_notes: int
+    ) -> None:
+        report_a = self._create_report(title="Checkout errors")
+        report_b = report_a if same_report else self._create_report(title="Email delivery errors")
 
         self._forward(report_a, removed=("alice",))
         self._forward(report_b, removed=("alice",))
 
         notes = self._correction_notes()
-        assert len(notes) == 1
+        assert len(notes) == expected_notes
         assert "Removed: `alice`" in notes[0].content
+        assert str(report_b.id) in notes[-1].content
 
     def test_a_backticked_title_token_does_not_suppress_a_real_correction(self) -> None:
         # A report title is untrusted prose that reaches the note, so reading every backtick span back
@@ -189,7 +220,7 @@ class TestReviewerCorrectionScoutNotes(APIBaseTest):
 
         self._forward(report, removed=("bob",))
 
-        already_told = _logins_already_told(self.team.id, "")
+        already_told = _reviewers_already_told(self.team.id, "", str(report.id))
         assert already_told.added == set()
         assert already_told.removed == {"bob"}
 
@@ -198,7 +229,7 @@ class TestReviewerCorrectionScoutNotes(APIBaseTest):
         # far more logins than a real correction. Holder resolution stays one query whatever the list
         # size, so an oversized stored list can't amplify a later edit on the request path.
         report = self._create_report()
-        removed = tuple(f"user{index}" for index in range(MAX_CORRECTION_LOGINS * 4))
+        removed = tuple(f"user{index}" for index in range(MAX_CORRECTION_REVIEWERS * 4))
 
         with patch(
             "products.signals.backend.reviewer_correction_notes.search_scratchpad_naming", return_value=[]
@@ -206,20 +237,21 @@ class TestReviewerCorrectionScoutNotes(APIBaseTest):
             self._forward(report, removed=removed)
 
         assert mock_search.call_count == 1
-        assert len(mock_search.call_args.kwargs["terms"]) == MAX_CORRECTION_LOGINS
+        assert len(mock_search.call_args.kwargs["terms"]) == MAX_CORRECTION_REVIEWERS
 
-    def test_a_removal_reaches_the_scout_holding_the_stale_routing_memory(self) -> None:
+    @parameterized.expand([("github", "octocat"), ("member_uuid", "0198e7f0-0000-7000-8000-000000000002")])
+    def test_a_removal_reaches_the_scout_holding_the_stale_routing_memory(self, _name: str, identity: str) -> None:
         self._create_skill()
         self._create_skill(OTHER_SCOUT_SKILL)
         report = self._create_report()
         self._create_run(emitted_report_ids=[str(report.id)])
         self._remember(
             key="reviewer:products/logs",
-            content="octocat owns the logs ingestion path",
+            content=f"{identity} owns the logs ingestion path",
             skill_name=OTHER_SCOUT_SKILL,
         )
 
-        self._forward(report, removed=("octocat",))
+        self._forward(report, removed=(identity,))
 
         # The authoring scout hears about its own report; the holder hears because it is still
         # routing on the login somebody just took off.
@@ -238,6 +270,11 @@ class TestReviewerCorrectionScoutNotes(APIBaseTest):
         # An edit is how a scout puts reviewers on a report it did not file, so the editor did the
         # routing this human corrected — for an addition too, which no memory search would find.
         assert [note.skill_name for note in self._correction_notes()] == [SCOUT_SKILL, OTHER_SCOUT_SKILL]
+
+        shared = list_notes(team_id=self.team.id, text="Checkout")
+        assert [note.skill_name for note in shared] == [OTHER_SCOUT_SKILL, SCOUT_SKILL]
+        assert all(str(report.id) in note.content for note in shared)
+        assert list_notes(team_id=self.team.id, text="Unrelated billing error") == []
 
     def test_a_deleted_editing_scout_is_not_told(self) -> None:
         self._create_skill()
@@ -314,14 +351,14 @@ class TestReviewerCorrectionScoutNotes(APIBaseTest):
         report = self._create_report()
 
         with patch(
-            "products.signals.backend.reviewer_correction_notes.get_org_member_github_logins_by_user_uuid",
+            "products.signals.backend.scout_note_actor.get_org_member_github_logins_by_user_uuid",
             return_value={str(self.user.uuid): "octocat"},
         ):
             self._forward(report, removed=("octocat", "someone-else"))
 
         content = self._correction_notes()[0].content
         assert "Removed: `someone-else`." in content
-        assert "Removed: `octocat`. That is the editor's own login" in content
+        assert "Removed: `octocat`. That is the editor's own identity" in content
 
     def test_the_forwarded_note_names_the_editor(self) -> None:
         report = self._create_report()
@@ -331,7 +368,9 @@ class TestReviewerCorrectionScoutNotes(APIBaseTest):
 
         self._forward(report, added=("octocat",))
 
-        assert self._correction_notes()[0].content.startswith("Inbox routing correction: Ada Lovelace changed")
+        assert self._correction_notes()[0].content.startswith(
+            f"Inbox routing correction: Ada Lovelace ({self.user.email}) changed"
+        )
 
     def test_a_child_environment_correction_stays_off_the_notes_channel(self) -> None:
         self._create_skill()

@@ -3,6 +3,7 @@ import type { OfflineHistoryPointApi, ScoreDefinitionApi, ScoreDefinitionVersion
 export const OFFLINE_STORY_DEFINITION: ScoreDefinitionApi = {
     tags: [],
     id: '10000000-0000-4000-8000-000000000001',
+    short_name: '',
     name: 'Answer relevance',
     description: 'Relevance to the question, scored from 0 to 5.',
     kind: 'numeric',
@@ -62,6 +63,7 @@ export function makeOfflineHistoryPoint(index: number, mean: number | null = 4.2
                 version: 2,
                 kind: 'numeric',
                 name: OFFLINE_STORY_DEFINITION.name,
+                short_name: OFFLINE_STORY_DEFINITION.short_name,
                 description: OFFLINE_STORY_DEFINITION.description,
                 archived: false,
                 config: OFFLINE_STORY_DEFINITION.config,

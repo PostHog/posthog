@@ -60,6 +60,20 @@ describe('buildRankedResults', () => {
             expected: ['Results: Session replay, Recordings funnel'],
         },
         {
+            name: 'a product leads a tab of another product with the same name, and they do not collapse',
+            query: 'playground',
+            results: [],
+            products: [
+                {
+                    ...product('Business knowledge Playground'),
+                    displayName: 'Playground',
+                    parentName: 'Business knowledge',
+                },
+                product('Playground'),
+            ],
+            expected: ['Results: Playground, Business knowledge Playground'],
+        },
+        {
             name: 'a product that matches fewer words than the saved objects stays out',
             query: 'flags billing',
             results: [result('1', 'Feature flags billing', 'insight', [-2, 0, 0, 0, -2, 0, 3, 0, -1])],
@@ -140,7 +154,26 @@ describe('buildRankedResults', () => {
             products: [],
             expected: ['notice: (partial: xyzzy -> report)', 'Results: Weekly report'],
         },
-    ])('$name', ({ query, results, products, expected }) => {
+        {
+            name: 'a group of persons gets no see-all row, because persons are not a file system type',
+            query: 'ada',
+            results: [1, 2, 3, 4].map((n) =>
+                result(`insight-${n}`, `Ada insight ${n}`, 'insight', exactWordRank(n), { typeCount: 9 })
+            ),
+            products: [],
+            persons: ['a', 'b', 'c', 'd', 'e'].map((suffix) => ({
+                id: `person-${suffix}`,
+                name: `ada@${suffix}.example.com`,
+                category: 'persons',
+                record: { type: 'person', ref: suffix },
+            })),
+            expected: [
+                'Best matches: Ada insight 4, ada@a.example.com',
+                'Insights: Ada insight 3, Ada insight 2, Ada insight 1, (See all 9 insights)',
+                'Persons: ada@b.example.com, ada@c.example.com, ada@d.example.com',
+            ],
+        },
+    ])('$name', ({ query, results, products, persons = [], expected }) => {
         expect(
             summary(
                 buildRankedResults({
@@ -148,6 +181,7 @@ describe('buildRankedResults', () => {
                     highlightWords: query.split(' '),
                     results,
                     products,
+                    persons,
                     state: 'ready',
                     scoped: false,
                 })

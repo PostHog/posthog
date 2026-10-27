@@ -351,6 +351,10 @@ start:
             - kafka
             - clickhouse
             - temporal
+        prechecks:
+            - type: worktree_disk
+              min_free_gib: 20
+              max_worktrees: 3
     up:
         extends: start
         description: Alias for `hogli start`; use `-d` for optional detached mode
@@ -796,6 +800,9 @@ tests:
     test:
         click: hogli_commands.test_runner:test_command
         description: Auto-detect test type (Python, Jest, Playwright, Rust, Go) and run it
+    verify:
+        click: hogli_commands.verify_layers:verify
+        description: Run the cheapest checks that cover your diff (lint, typecheck, nearest tests), then name the next potential layer
     test:python:
         cmd: pytest
         description: Run Python test suite
@@ -912,6 +919,12 @@ auth:
     metabase:cookie:
         click: hogli_commands.metabase:metabase_cookie
         description: Print the cached Metabase cookie header
+    gateway:token:
+        click: hogli_commands.gateway:gateway_token
+        description: Get a short-lived AI gateway token for PostHog staff, approved in your browser
+    gateway:status:
+        click: hogli_commands.gateway:gateway_status
+        description: Show how much budget a developer mode token has left (reads the token from stdin or env)
 tools:
     metabase:databases:
         click: hogli_commands.metabase:metabase_databases
@@ -1144,7 +1157,7 @@ utilities:
         prompt: true
     worktrees:clean:
         click: hogli_commands.worktrees:worktrees_clean
-        description: Clear out unused Claude Code / Codex / PostHog Desktop worktrees by age
+        description: Clear out unused Claude Code / Codex / PostHog Desktop / phw worktrees by age
     pr:upload-image:
         click: hogli_commands.upload_image:upload_image
         description: Upload screenshot(s) to the public PostHog/pr-assets repo and print embeddable PR markdown

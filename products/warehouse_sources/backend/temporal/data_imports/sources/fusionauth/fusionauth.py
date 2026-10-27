@@ -1,7 +1,7 @@
 import threading
 import dataclasses
-from collections.abc import Iterator
-from typing import Any, Optional
+from collections.abc import Callable, Iterable, Iterator
+from typing import Any, Optional, cast
 from urllib.parse import urlparse
 
 import requests
@@ -13,13 +13,20 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTAPIConfig,
     rest_api_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    build_dependent_resource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.fusionauth.settings import (
     FUSIONAUTH_ENDPOINTS,
     FusionAuthEndpointConfig,
 )
+
+USERS_ENDPOINT = "Users"
 
 HOST_NOT_ALLOWED_ERROR = "FusionAuth base URL is not allowed"
 HTTP_NOT_ALLOWED_ERROR = "FusionAuth base URL must use HTTPS"
@@ -235,8 +242,8 @@ class FusionAuthOffsetPaginator(BasePaginator):
 
 def _build_search_body(config: FusionAuthEndpointConfig, search_extra: dict[str, Any]) -> dict[str, Any]:
     search: dict[str, Any] = {}
-    if config.name == "Users":
-        # `queryString: "*"` matches every user; sortFields keeps ordering stable across pages.
+    if config.query_string_search:
+        # `queryString: "*"` matches every row; sortFields keeps ordering stable across pages.
         search["queryString"] = "*"
         search["sortFields"] = [{"name": "insertInstant", "order": "asc"}]
     elif config.sort_mode == "asc":
@@ -258,6 +265,29 @@ def _drop_fields(row: Any, paths: tuple[str, ...]) -> Any:
         if isinstance(target, dict):
             target.pop(leaf, None)
     return row
+
+
+def _explode_rows(row: Any, field: str, exclude_fields: tuple[str, ...]) -> list[dict[str, Any]]:
+    # Exploded rows come from the user search, so each child row carries its user's id.
+    children = row.get(field) if isinstance(row, dict) else None
+    if not isinstance(children, list):
+        return []
+    return [
+        _drop_fields({**child, "userId": row.get("id")}, exclude_fields)
+        for child in children
+        if isinstance(child, dict)
+    ]
+
+
+def _check_host(normalized_url: str, team_id: int) -> None:
+    # Re-check at run time (not just at source-create) in case the base URL was edited to
+    # now resolve to an internal address (SSRF / DNS rebinding). Only enforced on cloud. Refuse
+    # plaintext HTTP before the key is used. Both raise before any request leaves the process.
+    host_ok, host_err = _is_host_safe(_hostname(normalized_url), team_id)
+    if not host_ok:
+        raise FusionAuthHostNotAllowedError(host_err or HOST_NOT_ALLOWED_ERROR)
+    if not _is_https(normalized_url):
+        raise FusionAuthHostNotAllowedError(HTTP_NOT_ALLOWED_ERROR)
 
 
 def _get_headers() -> dict[str, str]:
@@ -336,22 +366,42 @@ def fusionauth_source(
     config = FUSIONAUTH_ENDPOINTS[endpoint]
     normalized_url = normalize_base_url(base_url)
 
+    def make_client_config(maximum_offset: Optional[int]) -> ClientConfig:
+        return {
+            "base_url": normalized_url,
+            "headers": _get_headers(),
+            # Auth rides on the framework auth config so it's redacted from logs/errors;
+            # FusionAuth expects the raw key value, no "Bearer"/scheme prefix.
+            "auth": {"type": "api_key", "api_key": api_key, "name": "Authorization", "location": "header"},
+            "paginator": FusionAuthOffsetPaginator(limit=config.page_size, maximum_offset=maximum_offset),
+            # A validated host could still 3xx to an internal address; refuse to follow
+            # redirects so the Authorization header never replays to an unexpected host (SSRF).
+            "allow_redirects": False,
+            # Bound the customer-controlled host: pin a connect/read timeout and read every body
+            # under a decoded-byte cap and wall-clock deadline so it can't hang a worker or OOM it.
+            "session": _make_bounded_session(api_key),
+        }
+
+    def make_get_config(params: dict[str, Any]) -> RESTAPIConfig:
+        return {
+            "client": make_client_config(None),
+            "resources": [
+                {
+                    "name": endpoint,
+                    "endpoint": {
+                        "method": "GET",
+                        "path": config.path,
+                        "params": params,
+                        "data_selector": config.data_selector,
+                        "paginator": "single_page",
+                    },
+                }
+            ],
+        }
+
     def make_rest_config(search_extra: dict[str, Any], maximum_offset: Optional[int]) -> RESTAPIConfig:
         return {
-            "client": {
-                "base_url": normalized_url,
-                "headers": _get_headers(),
-                # Auth rides on the framework auth config so it's redacted from logs/errors;
-                # FusionAuth expects the raw key value, no "Bearer"/scheme prefix.
-                "auth": {"type": "api_key", "api_key": api_key, "name": "Authorization", "location": "header"},
-                "paginator": FusionAuthOffsetPaginator(limit=config.page_size, maximum_offset=maximum_offset),
-                # A validated host could still 3xx to an internal address; refuse to follow
-                # redirects so the Authorization header never replays to an unexpected host (SSRF).
-                "allow_redirects": False,
-                # Bound the customer-controlled host: pin a connect/read timeout and read every body
-                # under a decoded-byte cap and wall-clock deadline so it can't hang a worker or OOM it.
-                "session": _make_bounded_session(api_key),
-            },
+            "client": make_client_config(maximum_offset),
             "resources": [
                 {
                     "name": endpoint,
@@ -371,15 +421,70 @@ def fusionauth_source(
         if state and state.get("offset") is not None:
             resumable_source_manager.save_state(FusionAuthResumeConfig(offset=int(state["offset"])))
 
+    def load_initial_state() -> Optional[dict[str, Any]]:
+        if resumable_source_manager.can_resume():
+            resume = resumable_source_manager.load_state()
+            if resume is not None:
+                return {"offset": resume.offset}
+        return None
+
+    def fanout_resource() -> Resource:
+        # Per-user children have no list API, so they fan out over the user search. The pipeline
+        # iterates this resource directly, so the framework reaches a safe point after each request.
+        _check_host(normalized_url, team_id)
+        assert config.fanout is not None
+        users = FUSIONAUTH_ENDPOINTS[USERS_ENDPOINT]
+        return cast(
+            Resource,
+            build_dependent_resource(
+                endpoint_configs=FUSIONAUTH_ENDPOINTS,
+                child_endpoint=endpoint,
+                fanout=config.fanout,
+                client_config=make_client_config(None),
+                path_format_values={},
+                team_id=team_id,
+                job_id=job_id,
+                db_incremental_field_last_value=None,
+                page_size_param=None,
+                parent_endpoint_extra={
+                    "method": "POST",
+                    "json": _build_search_body(users, {}),
+                    "data_selector": users.data_selector,
+                    "paginator": FusionAuthOffsetPaginator(limit=users.page_size, maximum_offset=users.maximum_offset),
+                },
+                child_endpoint_extra={"data_selector": config.data_selector, "paginator": "single_page"},
+            ),
+        )
+
+    def exploded_resource() -> Resource:
+        _check_host(normalized_url, team_id)
+        assert config.explode_field is not None
+        explode_field = config.explode_field
+        resource = rest_api_resource(
+            make_rest_config({}, config.maximum_offset),
+            team_id,
+            job_id,
+            None,
+            resume_hook=save_checkpoint,
+            initial_paginator_state=load_initial_state(),
+        )
+        return resource.add_map(lambda row: _explode_rows(row, explode_field, config.exclude_fields))
+
     def pages() -> Iterator[list[Any]]:
-        # Re-check at run time (not just at source-create) in case the base URL was edited to
-        # now resolve to an internal address (SSRF / DNS rebinding). Only enforced on cloud. Refuse
-        # plaintext HTTP before the key is used. Both raise before any request leaves the process.
-        host_ok, host_err = _is_host_safe(_hostname(normalized_url), team_id)
-        if not host_ok:
-            raise FusionAuthHostNotAllowedError(host_err or HOST_NOT_ALLOWED_ERROR)
-        if not _is_https(normalized_url):
-            raise FusionAuthHostNotAllowedError(HTTP_NOT_ALLOWED_ERROR)
+        _check_host(normalized_url, team_id)
+
+        if config.method == "GET":
+            seen_ids: set[Any] = set()
+            param_sets: list[dict[str, Any]] = [{}]
+            if config.inactive_param:
+                param_sets.append({config.inactive_param: "true"})
+            for params in param_sets:
+                for page in rest_api_resource(make_get_config(params), team_id, job_id, None):
+                    rows = [row for row in page if row.get("id") not in seen_ids]
+                    seen_ids.update(row.get("id") for row in rows)
+                    if rows:
+                        yield rows
+            return
 
         if config.sort_mode == "desc":
             # LoginRecords has no documented `orderBy`, so we can't assert ascending order.
@@ -393,18 +498,13 @@ def fusionauth_source(
                 or db_incremental_field_last_value is None
                 and db_incremental_field_earliest_value is None
             ):
-                initial_state = None
-                if resumable_source_manager.can_resume():
-                    resume = resumable_source_manager.load_state()
-                    if resume is not None:
-                        initial_state = {"offset": resume.offset}
                 resource = rest_api_resource(
                     make_rest_config({}, config.maximum_offset),
                     team_id,
                     job_id,
                     None,
                     resume_hook=save_checkpoint,
-                    initial_paginator_state=initial_state,
+                    initial_paginator_state=load_initial_state(),
                 )
                 yield from resource
                 return
@@ -428,19 +528,13 @@ def fusionauth_source(
         if should_use_incremental_field and db_incremental_field_last_value is not None and config.incremental_fields:
             search_extra["start"] = db_incremental_field_last_value
 
-        initial_state = None
-        if resumable_source_manager.can_resume():
-            resume = resumable_source_manager.load_state()
-            if resume is not None:
-                initial_state = {"offset": resume.offset}
-
         resource = rest_api_resource(
             make_rest_config(search_extra, config.maximum_offset),
             team_id,
             job_id,
             None,
             resume_hook=save_checkpoint,
-            initial_paginator_state=initial_state,
+            initial_paginator_state=load_initial_state(),
         )
         yield from resource
 
@@ -450,9 +544,15 @@ def fusionauth_source(
                 page = [_drop_fields(row, config.exclude_fields) for row in page]
             yield page
 
+    items_fn: Callable[[], Iterable[Any]] = items
+    if config.fanout is not None:
+        items_fn = fanout_resource
+    elif config.explode_field is not None:
+        items_fn = exploded_resource
+
     return SourceResponse(
         name=endpoint,
-        items=items,
+        items=items_fn,
         primary_keys=config.primary_keys,
         sort_mode=config.sort_mode,
         partition_count=1,

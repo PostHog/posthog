@@ -1,18 +1,25 @@
 import { useActions, useValues } from 'kea'
-import { Fragment, useEffect, useMemo } from 'react'
+import { Fragment, Suspense, lazy, useEffect, useMemo } from 'react'
 
 import { IconArrowRight, IconChevronRight, IconExternal } from '@posthog/icons'
 import { Badge, Item, ItemContent, ItemSeparator, ItemTitle, Skeleton } from '@posthog/quill'
 
 import { newInternalTab } from 'lib/utils/newInternalTab'
+import { retryImport } from 'lib/utils/retryImport'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { baseObjectType } from 'scenes/library/libraryUtils'
 import { todayNumber } from 'scenes/project-homepage/today/todayNumbers'
-import { TodaySparkline } from 'scenes/project-homepage/today/TodaySparkline'
 
 import { TodayHoverCardFact } from './TodayHoverCardFact'
 import { cardMenuParts } from './todayMenuParts'
 import { todayObjectGlanceLogic } from './todayObjectGlanceLogic'
+
+// The charts are most of the code the home page adds, and this card opens only on hover.
+const TodaySparkline = lazy(() =>
+    retryImport(() =>
+        import('scenes/project-homepage/today/TodaySparkline').then((m) => ({ default: m.TodaySparkline }))
+    )
+)
 import { GLANCE_TYPES, TodayObjectGlance } from './todayObjectGlances'
 import { TodayObjectIcon } from './TodayObjectIcon'
 import { TodayObjectPreview } from './todayPreviewCards'
@@ -30,13 +37,15 @@ function Glance({ glance }: { glance: TodayObjectGlance }): JSX.Element {
                     </div>
                     {headline.series.length > 1 && (
                         <div className="h-10">
-                            <TodaySparkline
-                                values={headline.series}
-                                labels={headline.labels}
-                                tone="neutral"
-                                emphasizeLast={1}
-                                formatValue={headline.formatValue ?? todayNumber}
-                            />
+                            <Suspense fallback={null}>
+                                <TodaySparkline
+                                    values={headline.series}
+                                    labels={headline.labels}
+                                    tone="neutral"
+                                    emphasizeLast={1}
+                                    formatValue={headline.formatValue ?? todayNumber}
+                                />
+                            </Suspense>
                         </div>
                     )}
                 </div>

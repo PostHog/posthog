@@ -3,6 +3,8 @@ from datetime import UTC, datetime
 import unittest
 from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, QueryMatchingTest, snapshot_clickhouse_queries
 
+from django.test import override_settings
+
 from parameterized import parameterized
 
 from posthog.schema import BaseMathType, DateRange, EventsNode, HogQLQueryModifiers, TrendsQuery
@@ -827,6 +829,7 @@ GROUP BY date
 
 
 @snapshot_clickhouse_queries
+@override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
 class TestPreaggregatedTableTransformationIntegration(APIBaseTest, ClickhouseTestMixin):
     CLASS_DATA_LEVEL_SETUP = False
     TEST_DATA_DATE = datetime(2024, 11, 24, tzinfo=UTC)

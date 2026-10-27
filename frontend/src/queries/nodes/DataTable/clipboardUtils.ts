@@ -4,9 +4,15 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
-import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
+import { extractExpressionComment, removeExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { DataTableNode } from '~/queries/schema/schema-general'
-import { isEventsQuery, isHogQLQuery, isMarketingAnalyticsTableQuery, isPersonsNode } from '~/queries/utils'
+import {
+    isActorsQuery,
+    isEventsQuery,
+    isHogQLQuery,
+    isMarketingAnalyticsTableQuery,
+    isPersonsNode,
+} from '~/queries/utils'
 
 import { asDisplay } from 'products/persons/frontend/person-utils'
 
@@ -66,7 +72,7 @@ const processRowData = (row: DataTableRow, columns: string[], query: DataTableNo
         return columns.map((col, index) =>
             flattenCell(Array.isArray(data) ? data[index] : (data as Record<string, any>)[index], col)
         )
-    } else if (isEventsQuery(query.source)) {
+    } else if (isEventsQuery(query.source) || isActorsQuery(query.source)) {
         return columns.map((col, colIndex) => {
             if (columnDisallowList.includes(col)) {
                 return {}
@@ -79,6 +85,9 @@ const processRowData = (row: DataTableRow, columns: string[], query: DataTableNo
 
             if (col === 'person') {
                 return { [colName]: asDisplay(value) }
+            }
+            if (removeExpressionComment(col) === 'person_display_name') {
+                return { [colName]: value?.display_name }
             }
             return flattenCell(value, colName)
         })
@@ -185,9 +194,14 @@ export const getJsonTableData = (
     return []
 }
 
-export function copyTableToCsv(dataTableRows: DataTableRow[], columns: string[], query: DataTableNode): void {
+export function copyTableToCsv(
+    dataTableRows: DataTableRow[],
+    columns: string[],
+    query: DataTableNode,
+    includeHeader: boolean = true
+): void {
     try {
-        const tableData = getCsvTableData(dataTableRows, columns, query)
+        const tableData = getCsvTableData(dataTableRows, columns, query).slice(includeHeader ? 0 : 1)
 
         const csv = Papa.unparse(tableData)
 

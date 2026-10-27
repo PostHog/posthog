@@ -95,6 +95,7 @@ class PostgresProducer:
         workflow_run_id: str | None = None,
         destination_ids: list[str] | None = None,
         external_destination_ids: list[str] | None = None,
+        continued_job_ids: list[str] | None = None,
     ) -> None:
         self._team_id = team_id
         self._job_id = job_id
@@ -125,6 +126,7 @@ class PostgresProducer:
         )
 
         self._replace_scope: ReplaceScopeRef | None = None
+        self._continued_job_ids: list[str] = list(continued_job_ids or [])
 
         with _queue_db_errors():
             self._conn = _connect_with_retry(database_url)
@@ -355,6 +357,8 @@ class PostgresProducer:
             metadata[LOADED_PREFIX_CURSOR_KEY] = loaded_prefix_cursor
         if self._replace_scope is not None:
             metadata["replace_scope"] = self._replace_scope.to_dict()
+        if self._continued_job_ids:
+            metadata["continued_job_ids"] = self._continued_job_ids
 
         with _queue_db_errors():
             self._conn.execute(

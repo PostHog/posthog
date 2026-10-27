@@ -10,9 +10,13 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 MOENGAGE_DATA_CENTERS = ("01", "02", "03", "04", "05", "06", "101")
 
 # Documented page maximums: campaign search serves up to 15 campaigns per page, campaign-stats up
-# to 10 campaigns per page.
+# to 10 campaigns per page, flow search up to 100 flows per page.
 SEARCH_PAGE_SIZE = 15
 STATS_PAGE_SIZE = 10
+FLOWS_PAGE_SIZE = 100
+
+# The Flows API is not served from this data center.
+FLOWS_UNSUPPORTED_DATA_CENTERS = ("101",)
 
 # Without this, the underlying rest_source client never times out a stalled connection.
 REQUEST_TIMEOUT_SECONDS = 60
@@ -82,6 +86,22 @@ MOENGAGE_ENDPOINTS: dict[str, MoEngageEndpointConfig] = {
         name="campaign_report",
         path="/core-services/v1/campaign-stats",
         primary_keys=["id"],
+    ),
+    "flows": MoEngageEndpointConfig(
+        name="flows",
+        path="/v5/flows/search",
+        primary_keys=["flow_id"],
+    ),
+    "segments": MoEngageEndpointConfig(
+        name="segments",
+        path="/v3/custom-segments",
+        primary_keys=["id"],
+    ),
+    # The response has no id; `name` is the category identifier that campaigns reference.
+    "subscription_categories": MoEngageEndpointConfig(
+        name="subscription_categories",
+        path="/v5/subscription-categories",
+        primary_keys=["name"],
     ),
     "daily_campaign_report": MoEngageEndpointConfig(
         name="daily_campaign_report",

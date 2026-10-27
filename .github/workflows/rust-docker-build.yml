@@ -122,6 +122,9 @@ jobs:
                     - release: property-vals-rs
                       digest_key: property-vals-rs
                       values_key: image
+                    - release: replay-recorder-v4
+                      digest_key: replay-recorder-v4
+                      values_key: image
                     - release: feature-flags
                       digest_key: feature-flags
                       values_key: image

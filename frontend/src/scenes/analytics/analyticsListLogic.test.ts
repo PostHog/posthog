@@ -185,4 +185,15 @@ describe('analyticsListLogic', () => {
 
         expect(logic.values.filters).toMatchObject(expected)
     })
+
+    it('keeps a typed space once the search reaches the URL', async () => {
+        const logic = analyticsListLogic()
+        logic.mount()
+        router.actions.push(urls.analyticsList())
+        logic.actions.setSearchInput('pageview ')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(router.values.searchParams.search).toBe('pageview ')
+        expect(logic.values.searchInput).toBe('pageview ')
+    })
 })

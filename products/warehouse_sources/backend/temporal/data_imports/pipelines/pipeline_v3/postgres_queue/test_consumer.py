@@ -84,6 +84,7 @@ from products.warehouse_sources_queue.backend.core.metrics import (
     DEPTH_SAMPLE_AGE_SECONDS,
     HEARTBEAT_RECONNECT_FAILURES_TOTAL,
     HEARTBEAT_RECONNECTS_TOTAL,
+    OLDEST_SERIALIZED_BATCH_SECONDS,
     OLDEST_UNCLAIMED_BATCH_SECONDS,
     ORPHANED_BATCHES_DRAINED_TOTAL,
     QUEUE_SAMPLE_GAUGES,
@@ -98,10 +99,15 @@ from products.warehouse_sources_queue.backend.models import SourceBatchStatus
 
 
 def _freshness(
-    oldest_age_seconds: float | None, *, blocked_batches: int = 0, backlogged_groups: int = 0
+    slot_wait_age_seconds: float | None,
+    *,
+    serialized_age_seconds: float | None = None,
+    blocked_batches: int = 0,
+    backlogged_groups: int = 0,
 ) -> QueueFreshness:
     return QueueFreshness(
-        oldest_age_seconds=oldest_age_seconds,
+        slot_wait_age_seconds=slot_wait_age_seconds,
+        serialized_age_seconds=serialized_age_seconds,
         blocked_batches=blocked_batches,
         backlogged_groups=backlogged_groups,
     )
@@ -2666,7 +2672,7 @@ class TestReconcileFailedRuns:
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_queue_freshness",
                 new_callable=AsyncMock,
-                return_value=_freshness(1234.5, blocked_batches=7, backlogged_groups=3),
+                return_value=_freshness(1234.5, serialized_age_seconds=5678.0, blocked_batches=7, backlogged_groups=3),
             ) as mock_probe,
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_queue_depth",
@@ -2682,6 +2688,7 @@ class TestReconcileFailedRuns:
         ):
             await consumer._reconcile_failed_runs()
         assert OLDEST_UNCLAIMED_BATCH_SECONDS._value.get() == 1234.5
+        assert OLDEST_SERIALIZED_BATCH_SECONDS._value.get() == 5678.0
         assert CLAIMABLE_BATCHES._value.get() == 321
         assert BLOCKED_BATCHES._value.get() == 7
         assert BACKLOGGED_GROUPS._value.get() == 3
@@ -2709,6 +2716,7 @@ class TestReconcileFailedRuns:
             ):
                 await consumer._reconcile_failed_runs()
         assert OLDEST_UNCLAIMED_BATCH_SECONDS._value.get() == 0.0
+        assert OLDEST_SERIALIZED_BATCH_SECONDS._value.get() == 0.0
         assert CLAIMABLE_BATCHES._value.get() == 0
         assert CLAIMABLE_GROUPS._value.get() == 0
         assert TOP_GROUPS_CLAIMABLE_SHARE._value.get() == 0.0

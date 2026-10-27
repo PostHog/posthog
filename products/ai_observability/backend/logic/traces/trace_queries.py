@@ -373,7 +373,7 @@ def load_trace(team: Team, user: User | None, trace_id: str, timestamp_hint: dat
     return LoadedTrace(rows=rows, person=person)
 
 
-def _canonical_uuid(value: str) -> str | None:
+def canonical_uuid(value: str) -> str | None:
     try:
         return str(UUID(value))
     except ValueError:
@@ -394,7 +394,7 @@ def _trace_node_row(values: Sequence[Any]) -> TraceNodeRow:
 def load_trace_node(
     team: Team, user: User | None, trace_id: str, node_id: str, timestamp_hint: datetime | None
 ) -> TraceNodeRow | None:
-    event_uuid = _canonical_uuid(node_id)
+    event_uuid = canonical_uuid(node_id)
     if event_uuid is None:
         return None
     results = _read_trace(

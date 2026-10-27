@@ -1,5 +1,5 @@
 // Lazy load liquid library
-import { Liquid, Output, Template } from 'liquidjs'
+import { Context, Emitter, Liquid, Output, Tag, TagToken, Template, TopLevelToken } from 'liquidjs'
 
 const LIQUID_REGEX = /\{\{(.*?)\}\}|{%(.*?)%}/g
 
@@ -105,6 +105,23 @@ const formatCurrency = (value: unknown, first?: unknown, second?: unknown): unkn
     return currencyFormatter(first, second)?.format(amount) ?? value
 }
 
+// Copy of the tag in nodejs/src/cdp/utils/liquid.ts, so the editor accepts what the worker sends.
+// Customer.io templates write the unsubscribe link as a tag, `{% unsubscribe_url %}`, where we expose a
+// variable. The tag renders `{{ unsubscribe_url }}`, so it gets the same escaping as the variable and
+// renders empty when the send has no unsubscribe URL.
+class UnsubscribeUrlTag extends Tag {
+    private readonly templates: Template[]
+
+    constructor(token: TagToken, remainTokens: TopLevelToken[], liquid: Liquid) {
+        super(token, remainTokens, liquid)
+        this.templates = liquid.parse('{{ unsubscribe_url }}')
+    }
+
+    *render(ctx: Context, emitter: Emitter): Generator<unknown, void, unknown> {
+        yield this.liquid.renderer.renderTemplates(this.templates, ctx, emitter)
+    }
+}
+
 // NOTE: This should be moved to common package but currently is a copy of nodejs/src/cdp/utils/liquid.ts
 export class LiquidRenderer {
     private static _liquid: Liquid | null = null
@@ -118,6 +135,7 @@ export class LiquidRenderer {
                 templates: {},
             })
             this._liquid.registerFilter('currency', formatCurrency)
+            this._liquid.registerTag('unsubscribe_url', UnsubscribeUrlTag)
         }
         return this._liquid
     }

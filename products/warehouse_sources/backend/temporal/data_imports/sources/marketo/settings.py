@@ -10,7 +10,13 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 # - ``asset_offset``: /rest/asset/v1 endpoints paginated with ``offset`` + ``maxReturn`` (200 max).
 # - ``bulk``: the async Bulk Extract API (create -> enqueue -> poll -> download CSV). Leads and
 #   activities have no usable synchronous list endpoint, so they can only come this way.
-MarketoTransport = Literal["rest_token", "asset_offset", "bulk"]
+#
+# Two fan-out shapes walk a parent endpoint and page a /rest/v1 child per parent row:
+#
+# - ``list_members``: ``nextPageToken`` paging per static list.
+# - ``program_members``: ``nextPageToken`` paging per program and per ``updatedAt`` window, because
+#   the endpoint needs a filter and only ``updatedAt`` reaches every member.
+MarketoTransport = Literal["rest_token", "asset_offset", "bulk", "list_members", "program_members"]
 
 # Marketo caps a bulk export's date filter at 31 days; stay under it.
 BULK_WINDOW_DAYS = 30
@@ -18,6 +24,10 @@ BULK_WINDOW_DAYS = 30
 ASSET_MAX_RETURN = 200
 # /rest/v1 list endpoints cap batchSize at 300.
 REST_BATCH_SIZE = 300
+# Marketo rejects a program member updatedAt range longer than seven days.
+PROGRAM_MEMBER_WINDOW_DAYS = 7
+# Folder browse defaults to two levels; nested program trees go deeper than that.
+FOLDER_MAX_DEPTH = 20
 
 
 def _datetime_field(name: str) -> IncrementalField:
@@ -34,12 +44,14 @@ class MarketoEndpointConfig:
     name: str
     transport: MarketoTransport
     # For rest_token/asset_offset this is the request path. For bulk it is the export object
-    # segment ("leads" / "activities") used to build /bulk/v1/<object>/export/... .
+    # segment ("leads" / "activities") used to build /bulk/v1/<object>/export/... . Fan-out paths
+    # carry a ``{parent_id}`` placeholder.
     path: str
     primary_key: list[str]
     # Set only where a real server-side timestamp filter exists (bulk exports filter on a
-    # mandatory createdAt range). Asset and /rest/v1 list endpoints stay full refresh: their
-    # updated-since filters are undocumented for some resources and the collections are small.
+    # mandatory createdAt range, program members on updatedAt). Asset and other /rest/v1 list
+    # endpoints stay full refresh: their updated-since filters are undocumented for some resources
+    # and the collections are small.
     incremental_field: Optional[str] = None
     partition_key: Optional[str] = None
     # CSV columns to coerce back to integers — bulk downloads arrive as all-string CSV.
@@ -47,6 +59,10 @@ class MarketoEndpointConfig:
     # Bulk lead exports must name every column they want; activities have a fixed column set.
     needs_field_list: bool = False
     extra_params: dict[str, str] = field(default_factory=dict)
+    # Fan-out only: the endpoint whose rows are the parents, and the column that carries the
+    # parent id on each child row.
+    parent: Optional[str] = None
+    parent_key: Optional[str] = None
 
     @property
     def incremental_fields(self) -> list[IncrementalField]:
@@ -127,6 +143,40 @@ MARKETO_ENDPOINTS: dict[str, MarketoEndpointConfig] = {
         transport="asset_offset",
         path="/rest/asset/v1/smartCampaigns.json",
         primary_key=["id"],
+    ),
+    # Folders and programs number their ids separately, and folderType tells the two apart.
+    "folders": MarketoEndpointConfig(
+        name="folders",
+        transport="asset_offset",
+        path="/rest/asset/v1/folders.json",
+        primary_key=["id", "folderType"],
+        extra_params={"maxDepth": str(FOLDER_MAX_DEPTH)},
+    ),
+    "channels": MarketoEndpointConfig(
+        name="channels",
+        transport="asset_offset",
+        path="/rest/asset/v1/channels.json",
+        primary_key=["id"],
+    ),
+    "program_members": MarketoEndpointConfig(
+        name="program_members",
+        transport="program_members",
+        path="/rest/v1/programs/{parent_id}/members.json",
+        primary_key=["programId", "leadId"],
+        incremental_field="updatedAt",
+        partition_key="membershipDate",
+        parent="programs",
+        parent_key="programId",
+    ),
+    "list_members": MarketoEndpointConfig(
+        name="list_members",
+        transport="list_members",
+        path="/rest/v1/lists/{parent_id}/leads.json",
+        # Each row is a lead record, so `id` is the lead id.
+        primary_key=["listId", "id"],
+        partition_key="createdAt",
+        parent="lists",
+        parent_key="listId",
     ),
 }
 

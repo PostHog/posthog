@@ -15,6 +15,7 @@ import structlog
 
 from posthog.dataclasses import frozen
 from posthog.models import Team
+from posthog.utils import absolute_uri
 
 from products.alerts_platform.backend.delivery import delivery_paths, episode_paths, legacy_webhook
 from products.alerts_platform.backend.delivery.destinations import list_alert_destination_groups
@@ -41,8 +42,11 @@ from products.alerts_platform.backend.facade.contracts import (
     EvaluationAnnouncement,
     IncidentAction,
     LegacyEventEmission,
+    MessageLink,
 )
+from products.alerts_platform.backend.logic import delivery_holds
 from products.alerts_platform.backend.logic.platform_alert_events import announced_kinds, announcement
+from products.alerts_platform.backend.temporal.metrics import DeliveryOutcomeLabel, increment_deliveries, safe_record
 
 logger = structlog.get_logger(__name__)
 
@@ -158,6 +162,13 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
     team = Team.objects.filter(id=request.team_id).first()
     if team is None or not (request.owned_by_platform or destinations_are_live(team)):
         return DeliveryOutcome(live=False, sent=0, skipped_without_transport=0)
+    if delivery_holds.blocks_delivery(request.team_id, request.configuration_id, request.evaluation_key):
+        logger.info(
+            "alerts_platform_delivery_held",
+            configuration_id=request.configuration_id,
+            evaluation_key=request.evaluation_key,
+        )
+        return DeliveryOutcome(live=True, sent=0, skipped_without_transport=0)
 
     announced = announcement(
         request.team_id,
@@ -185,6 +196,7 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
         )
 
     thread_store = DatabaseThreadStore(request.team_id)
+    project = MessageLink(label=team.name, url=absolute_uri(f"/project/{team.id}"))
     sent = 0
     skipped = 0
     busy: list[str] = []
@@ -220,6 +232,14 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
             transport_class = _TRANSPORTS.get(target["type"])
             if transport_class is None:
                 skipped += 1
+                safe_record(
+                    increment_deliveries,
+                    request.source.value,
+                    target["type"],
+                    DeliveryPath.NATIVE.value,
+                    "no_transport",
+                    len(transitions),
+                )
                 continue
             try:
                 transport = webhook_transports.get() if transport_class is WebhookTransport else transport_class()
@@ -234,6 +254,14 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
                         succeeded=False,
                         error=str(error),
                     )
+                safe_record(
+                    increment_deliveries,
+                    request.source.value,
+                    WebhookTransport.provider,
+                    DeliveryPath.NATIVE.value,
+                    "failed",
+                    len(transitions),
+                )
                 failures.append(str(error))
                 first_refusal = first_refusal or error
                 continue
@@ -257,6 +285,7 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
                     source_incident_key=source_incident_key(request.destination_alert_id)
                     if request.owned_by_platform
                     else None,
+                    project=project,
                 )
             except ThreadBusy as error:
                 busy.append(str(error))
@@ -290,6 +319,10 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
         except ThreadBusy as error:
             busy.append(str(error))
             emission = None
+            _count_emissions(request, "busy", len(emissions))
+        else:
+            if emission is None:
+                _count_emissions(request, "already_delivered", len(emissions))
         if emission is not None:
             try:
                 emitter(request=request, announcement=announced, emissions=emissions)
@@ -302,9 +335,11 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
                     exc_info=True,
                 )
                 failures.append(f"legacy events: {type(error).__name__}")
+                _count_emissions(request, "failed", len(emissions))
             else:
                 thread_store.delivered(emission, None)
                 emitted = emissions
+                _count_emissions(request, "sent", len(emissions))
     # A held thread wins over a failure. The workflow waits a held thread out and then runs the
     # whole delivery again, which retries the failed destinations too. A failure raised instead
     # spends the activity's retries inside the claim's TTL, and the held message is lost.
@@ -319,6 +354,18 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
         skipped_without_transport=skipped,
         emitted_transitions=len(emitted),
         emitted_events=sum(emission.event_count for emission in emitted),
+    )
+
+
+def _count_emissions(request: AlertDeliveryRequest, outcome: DeliveryOutcomeLabel, transitions: int) -> None:
+    # The alert's own HogFunctions send these, so the provider is the path itself.
+    safe_record(
+        increment_deliveries,
+        request.source.value,
+        DeliveryPath.HOG_FUNCTION.value,
+        DeliveryPath.HOG_FUNCTION.value,
+        outcome,
+        transitions,
     )
 
 

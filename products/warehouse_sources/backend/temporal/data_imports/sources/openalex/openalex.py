@@ -34,6 +34,11 @@ REQUEST_TIMEOUT_SECONDS = 60
 LARGE_ROW_CHUNK_SIZE = 1000
 LARGE_ROW_CHUNK_SIZE_BYTES = 100 * 1024 * 1024
 
+# OpenAlex does not document how long a copy takes to reach the API after its `ingested_at`, so
+# an incremental `locations` run re-reads the watermark day and the day before it. The merge
+# dedupes the overlap. Two days, because a date-only `ingested_at:>` bound excludes the day it names.
+INGESTED_AT_LOOKBACK = datetime.timedelta(days=2)
+
 
 @dataclasses.dataclass
 class OpenAlexResumeConfig:
@@ -97,6 +102,21 @@ def build_filter(
     return ",".join(clauses) or None
 
 
+def build_ingested_at_filter(base_filter: Optional[str], from_ingested_at: Any = None) -> Optional[str]:
+    """Combine the user's scoping filter with the incremental `ingested_at` bound for locations.
+
+    The first incremental run has no watermark, so it sends no bound and also reads the older
+    copies that have no `ingested_at`.
+    """
+    clauses = []
+    if base_filter and base_filter.strip():
+        clauses.append(base_filter.strip())
+    from_date = _as_date(from_ingested_at)
+    if from_date is not None:
+        clauses.append(f"ingested_at:>{(from_date - INGESTED_AT_LOOKBACK).isoformat()}")
+    return ",".join(clauses) or None
+
+
 def get_resource(
     endpoint_config: OpenAlexEndpointConfig,
     entity_filter: Optional[str],
@@ -110,7 +130,14 @@ def get_resource(
         "sort": endpoint_config.sort,
     }
 
-    if should_use_incremental_field:
+    if should_use_incremental_field and endpoint_config.name == "locations":
+        params["filter"] = {
+            "type": "incremental",
+            "cursor_path": "ingested_at",
+            "initial_value": None,
+            "convert": lambda last_value: build_ingested_at_filter(entity_filter, last_value),
+        }
+    elif should_use_incremental_field:
         # Pinned once per run rather than read per page: the filter has to stay identical for
         # the life of a cursor walk, and a long sync can cross midnight.
         cap = utc_today()

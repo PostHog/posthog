@@ -2767,6 +2767,10 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         ongoing_row = next(v for v in message.properties["views"] if v["name"] == "nightly_revenue_rollup")
         assert ongoing_row["failed_runs"] == 3
         assert ongoing_row["failing_since"] == streak_started_at.strftime("%b %d, %H:%M UTC")
+        # A view with a DAG node opens its node detail; one without falls back to the SQL editor.
+        urls = {v["name"]: v["url"] for v in message.properties["views"]}
+        assert urls[tiered.name].endswith(f"/project/{self.team.id}/models/{tiered_node.id}")
+        assert urls[paused.name].endswith(f"/project/{self.team.id}/sql?open_view={paused.id}")
 
         html = message.html_body
         assert html.count("Not scheduled.") == len(unscheduled_cases)
@@ -2819,13 +2823,27 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                 "Code: 241. DB::Exception: Memory limit (for query) exceeded",
                 None,
                 "Code: 241. DB::Exception: Memory limit (for query) exceeded",
+                False,
             ),
-            ("long_job_error_is_truncated", "B" * 500, None, "B" * 252 + "..."),
-            ("falls_back_to_the_saved_query_error", "", "Query exceeded timeout limit", "Query exceeded timeout limit"),
+            ("long_job_error_is_truncated", "B" * 500, None, "B" * 252 + "...", False),
+            (
+                "falls_back_to_the_saved_query_error",
+                "",
+                "Query exceeded timeout limit",
+                "Query exceeded timeout limit",
+                False,
+            ),
+            ("suspension_says_so_and_how_to_resume", "boom", None, "boom", True),
         ]
     )
     def test_send_matview_failure_immediate_email_includes_the_error(
-        self, MockEmailMessage: MagicMock, _name: str, job_error: str, latest_error: str | None, expected_error: str
+        self,
+        MockEmailMessage: MagicMock,
+        _name: str,
+        job_error: str,
+        latest_error: str | None,
+        expected_error: str,
+        suspended: bool,
     ) -> None:
 
         mocked_email_messages = mock_email_messages(MockEmailMessage)
@@ -2850,11 +2868,16 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             last_run_at=timezone.now(),
         )
 
-        send_matview_failure_immediate_email(self.team.id, str(sq.id), str(job.id))
+        send_matview_failure_immediate_email(self.team.id, str(sq.id), str(job.id), suspended=suspended)
 
         assert len(mocked_email_messages) == 1
-        assert mocked_email_messages[0].properties["error"] == expected_error
-        assert expected_error[:80] in mocked_email_messages[0].html_body
+        message = mocked_email_messages[0]
+        assert message.properties["error"] == expected_error
+        assert expected_error[:80] in message.html_body
+        # A distinct key, or the suspension email dedupes against a failure email for the same job.
+        assert message.campaign_key.startswith("matview_suspended_" if suspended else "matview_failure_immediate_")
+        assert ("was suspended" in message.subject) == suspended
+        assert ("select Resume" in message.html_body) == suspended
 
     def test_send_matview_failure_digest_splits_by_view_access(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)

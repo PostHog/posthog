@@ -37,6 +37,7 @@ from products.signals.backend.models import (
     SignalReportSuggestedReviewer,
 )
 from products.signals.backend.reviewer_correction_notes import ForwardedCorrectionNotes
+from products.signals.backend.scout_harness.tools.notes import list_notes
 
 # Task ORM model needed to build cross-product fixtures; the tasks facade exposes DTOs only.
 from products.tasks.backend.models import Channel, Task
@@ -562,7 +563,7 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
             mock_forward.assert_called_once()
             correction = mock_forward.call_args.kwargs["correction"]
             assert correction is not None
-            assert correction.removed_logins == ("bob",)
+            assert correction.removed_reviewers == ("bob",)
 
     def test_put_reviewers_autostart_delegates_when_report_complete(self):
         # With actionability + repo + priority + reviewers all present, the reconstruction reaches
@@ -788,15 +789,24 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         report = self._create_report()
         artefact = self._create_artefact(report, content=[])
 
-        response = self.client.put(
-            self._detail_url(str(report.id), str(artefact.id)),
-            data=json.dumps({"action": "add", "content": [{"user_uuid": str(member.uuid)}]}),
-            content_type="application/json",
-        )
+        with (
+            patch("products.signals.backend.views.send_reviewer_added_slack_notifications.delay"),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.put(
+                self._detail_url(str(report.id), str(artefact.id)),
+                data=json.dumps({"action": "add", "content": [{"user_uuid": str(member.uuid)}]}),
+                content_type="application/json",
+            )
         assert response.status_code == status.HTTP_200_OK
         stored = self._latest_reviewers(report)
         assert [(e["user_uuid"], e["github_login"]) for e in stored] == [(str(member.uuid), None)]
         assert response.json()["content"][0]["user"]["uuid"] == str(member.uuid)
+        notes = list_notes(team_id=self.team.id, text=report.title)
+        assert len(notes) == 1
+        assert f"Added: `{member.uuid}`" in notes[0].content
+        assert str(report.id) in notes[0].content
+        assert notes[0].created_at is not None
 
     def test_put_non_member_user_uuid_returns_400(self):
         report = self._create_report()
@@ -1234,7 +1244,6 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
             patch("products.signals.backend.models.SignalReportArtefact._schedule_autostart_reevaluation") as autostart,
             patch("products.signals.backend.views.send_reviewer_added_slack_notifications.delay") as notify,
             patch("products.signals.backend.views.schedule_reviewer_pr_assignment") as assign,
-            patch("products.signals.backend.views.forward_reviewer_correction_note") as steer,
             self.captureOnCommitCallbacks(execute=True),
         ):
             if adapter == "leave":
@@ -1266,10 +1275,12 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
             autostart.assert_not_called()
             notify.assert_not_called()
             assign.assert_not_called()
-            if adapter == "leave":
-                steer.assert_not_called()  # This test's departing member has no linked GitHub identity.
-            else:
-                steer.assert_called_once()
+        notes = list_notes(team_id=self.team.id, text=report.title)
+        assert len(notes) == 1
+        assert f"Removed: `{self.user.uuid}`" in notes[0].content
+        assert "editor's own identity" in notes[0].content
+        if adapter != "leave":
+            assert "Added: `added-reviewer`" in notes[0].content
 
     def test_post_reviewer_payload_uses_shared_writer_after_human_edit(self) -> None:
         human_reviewer = self._create_org_member("human-reviewer@example.com", github_login="human-reviewer")

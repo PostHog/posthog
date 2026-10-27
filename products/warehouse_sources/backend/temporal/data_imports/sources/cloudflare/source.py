@@ -9,6 +9,7 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldInputConfigType,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.cloudflare.cloudflare import (
+    CLOUDFLARE_BASE_URL,
     DNS_ANALYTICS_ALL_ZONES_FAILED,
     cloudflare_source,
     validate_credentials as validate_cloudflare_credentials,
@@ -192,6 +193,11 @@ class CloudflareSource(SimpleSource[CloudflareSourceConfig]):
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "401 Client Error: Unauthorized for url: https://api.cloudflare.com": "Cloudflare authentication failed. Please check your API token.",
+            # Every table fans out from one of these two lists, and a 403 on a single zone or account
+            # is skipped, so a 403 on the list itself means the token can't read any of it. Matched
+            # before the generic 403 below, because the first match wins.
+            f"403 Client Error: Forbidden for url: {CLOUDFLARE_BASE_URL}/zones?": "Your Cloudflare API token can't list your zones. Check that the token is still active and has the Zone Read permission, then re-enable the sync.",
+            f"403 Client Error: Forbidden for url: {CLOUDFLARE_BASE_URL}/accounts?": "Your Cloudflare API token can't list your accounts. Check that the token is still active and has the Account Settings Read permission, then re-enable the sync.",
             "403 Client Error: Forbidden for url: https://api.cloudflare.com": "Cloudflare denied access. Please check that your API token has read permissions for this resource.",
             DNS_ANALYTICS_ALL_ZONES_FAILED: "Your Cloudflare API token can't read analytics for any of your zones. Add the Zone Analytics read permission to the token, then re-enable the sync.",
         }

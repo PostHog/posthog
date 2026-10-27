@@ -25,6 +25,7 @@ from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.dataclasses import frozen
 from posthog.hogql_queries.ai.ai_table_resolver import query_ai_events
 from posthog.hogql_queries.ai.session_query_runner import SessionQueryRunner
+from posthog.hogql_queries.ai.utils import with_global_in_subqueries
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai_observability.evaluation_event_io import extract_event_io
@@ -165,7 +166,7 @@ def _sum_session_payload_bytes(
 ) -> int:
     with tags_context(product=Product.LLM_ANALYTICS):
         result = query_ai_events(
-            query=parse_select(_SESSION_PAYLOAD_BYTES_SQL),
+            query=with_global_in_subqueries(parse_select(_SESSION_PAYLOAD_BYTES_SQL)),
             placeholders={
                 "session_id": ast.Constant(value=session_id),
                 "date_from": ast.Constant(value=date_from),
@@ -220,7 +221,7 @@ def _count_session_events(
     """
     with tags_context(product=Product.LLM_ANALYTICS):
         result = query_ai_events(
-            query=parse_select(_SESSION_EVENT_COUNT_SQL),
+            query=with_global_in_subqueries(parse_select(_SESSION_EVENT_COUNT_SQL)),
             placeholders={
                 "session_id": ast.Constant(value=session_id),
                 "date_from": ast.Constant(value=date_from),

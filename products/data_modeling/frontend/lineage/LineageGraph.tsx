@@ -34,6 +34,8 @@ export type { LineageVariant, LineageNodeState, LineageNodeCallbacks } from './L
 
 const EMPTY_NODES: DataModelingNode[] = []
 const EMPTY_EDGES: DataModelingEdge[] = []
+const FOCUSED_NODES_MAX_ZOOM = 2
+const CURRENT_NODE_MAX_ZOOM = 1
 
 export interface LineageGraphProps {
     nodes: DataModelingNode[]
@@ -76,8 +78,11 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
     const nodesMeasured = useNodesMeasured()
     const { isDarkModeOn } = useValues(themeLogic)
     const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
-    const { currentNodeId, nodeState, nodeCallbacks, onNodeClick, nodeOpenUrl, focusNodeIds, searchFocusRequest } =
-        props
+    const { currentNodeId, nodeState, nodeCallbacks, onNodeClick, nodeOpenUrl, searchFocusRequest } = props
+    const focusNodeIds = useMemo(
+        () => props.focusNodeIds ?? (currentNodeId ? new Set([currentNodeId]) : null),
+        [props.focusNodeIds, currentNodeId]
+    )
     const { layout } = useValues(
         lineageGraphLogic({
             nodes: props.loading ? EMPTY_NODES : props.nodes,
@@ -218,7 +223,7 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
             return
         }
         fittedLayout.current = layout
-        if ((focusNodeIds !== null && focusNodeIds !== undefined) || searchFocusRequest) {
+        if (focusNodeIds || searchFocusRequest) {
             return
         }
         void fitView({
@@ -256,14 +261,24 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
             focusNodeIds.size > 0 ? decoratedNodes.filter((node) => focusNodeIds.has(node.id)) : decoratedNodes
         if (nodes.length > 0) {
             fittedFocus.current = { focusNodeIds, layout }
+            const focusedNodesMaxZoom = props.focusNodeIds ? FOCUSED_NODES_MAX_ZOOM : CURRENT_NODE_MAX_ZOOM
             void fitView({
                 nodes,
                 padding: 0.2,
                 duration: 400,
-                maxZoom: focusNodeIds.size > 0 ? 2 : undefined,
+                maxZoom: focusNodeIds.size > 0 ? focusedNodesMaxZoom : undefined,
             })
         }
-    }, [decoratedNodes, fitView, viewportInitialized, nodesMeasured, focusNodeIds, layout, props.loading])
+    }, [
+        decoratedNodes,
+        fitView,
+        viewportInitialized,
+        nodesMeasured,
+        focusNodeIds,
+        layout,
+        props.focusNodeIds,
+        props.loading,
+    ])
 
     useEffect(() => {
         if (!searchFocusRequest) {

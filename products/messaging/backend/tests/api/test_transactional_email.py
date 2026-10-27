@@ -255,18 +255,24 @@ class TestTransactionalEmail(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("quota_limited", 429),
-            ("idempotency_key_in_flight", 409),
-            ("idempotency_key_reused", 422),
+            ("quota_limited", 429, 429, "quota_limited"),
+            ("idempotency_key_in_flight", 409, 409, "idempotency_key_in_flight"),
+            ("idempotency_key_reused", 422, 422, "idempotency_key_reused"),
+            ("sending_suspended", 422, 422, "sending_suspended"),
+            ("sending_paused", 422, 422, "sending_paused"),
+            ("recipient_suppressed", 422, 422, "recipient_suppressed"),
+            ("not_sendable", 400, 400, "transactional_email_paused"),
         ]
     )
-    def test_reports_a_send_the_pipeline_refuses(self, mock_post, _flag, _capture, code, status_code):
-        mock_post.return_value = MagicMock(status_code=status_code, json=lambda: {"error": code})
+    def test_reports_a_send_the_pipeline_refuses(
+        self, mock_post, _flag, _capture, pipeline_code, pipeline_status, expected_status, expected_code
+    ):
+        mock_post.return_value = MagicMock(status_code=pipeline_status, json=lambda: {"error": pipeline_code})
 
         response = self.client.post(self.url, self.body, format="json", headers={"Idempotency-Key": "key-1"})
 
-        assert response.status_code == status_code
-        assert response.json()["code"] == code
+        assert response.status_code == expected_status
+        assert response.json()["code"] == expected_code
 
     @parameterized.expand([("send", "send/"), ("make_transactional", "make_transactional/")])
     def test_is_hidden_while_the_flag_is_off(self, mock_post, flag, _capture, _name, suffix):

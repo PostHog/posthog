@@ -7,6 +7,7 @@ import posthoganalytics
 from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.models import Team
+from posthog.ph_client import ph_background_capture
 
 from products.signals.backend.report_generation.resolve_reviewers import (
     ReviewerResolutionDiagnostics,
@@ -188,3 +189,42 @@ def capture_suggested_reviewers_unresolved(
         )
     except Exception:
         logger.exception("Failed to capture signals_suggested_reviewers_unresolved for report %s", report_id)
+
+
+ReviewerExclusionOutcome = Literal["suppressed", "pin_conflict", "unresolved"]
+
+
+def capture_reviewer_exclusion_applied(
+    *,
+    team_id: int,
+    report_id: str,
+    source: str,
+    events: list[tuple[ReviewerExclusionOutcome, list[str]]],
+) -> None:
+    """Emit one `signals_reviewer_exclusion_applied` per outcome when standing exclusions change a selection.
+
+    `suppressed` fires once per candidate an instruction removed. `pin_conflict` fires when a
+    report-specific pin keeps a person an instruction excludes, so a person must resolve it.
+    `unresolved` fires when the report or the instruction cannot tell whether it applies, so the
+    selection kept its current reviewers.
+
+    Best-effort: never raises, so analytics can't break a reviewer write.
+    """
+    try:
+        team = Team.objects.select_related("organization").get(id=team_id)
+        capture = ph_background_capture()
+        for outcome, exclusion_ids in events:
+            capture(
+                event="signals_reviewer_exclusion_applied",
+                distinct_id=str(team.uuid),
+                properties={
+                    "team_id": team_id,
+                    "report_id": report_id,
+                    "outcome": outcome,
+                    "source": source,
+                    "exclusion_ids": exclusion_ids[:_MAX_LOGINS_PER_EVENT],
+                },
+                groups=groups(team.organization, team),
+            )
+    except Exception:
+        logger.exception("Failed to capture signals_reviewer_exclusion_applied for report %s", report_id)

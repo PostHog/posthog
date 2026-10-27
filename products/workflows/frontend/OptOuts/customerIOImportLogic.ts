@@ -20,6 +20,7 @@ export interface ImportProgress {
     topics_found: number
     categories_created?: number
     globally_unsubscribed_count?: number
+    suppressions_imported?: number
     details?: string
     errors: string[]
 }
@@ -46,6 +47,8 @@ export interface AppImportResult {
     imported_at: string
     categories_created?: number
     globally_unsubscribed_count?: number
+    suppressions_imported?: number
+    errors?: string[]
     error?: string
 }
 

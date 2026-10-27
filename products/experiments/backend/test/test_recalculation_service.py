@@ -163,6 +163,31 @@ class TestRecalculationService(BaseTest):
         assert 170 <= exc_info.value.wait <= 180
         assert ExperimentMetricsRecalculation.objects.filter(experiment=exp).count() == 1
 
+    @parameterized.expand(
+        [
+            ("fresh_latest_is_returned", 1, False),
+            ("stale_latest_starts_new", 13, True),
+        ]
+    )
+    def test_stale_refresh_checks_result_age_with_server_time(
+        self, name: str, query_to_hours_ago: int, expects_new_run: bool
+    ):
+        exp = self._launched_experiment(flag_key=f"stale-{name}")
+        latest = ExperimentMetricsRecalculation.objects.create(
+            team=self.team,
+            experiment=exp,
+            status="completed",
+            trigger="manual",
+            query_to=timezone.now() - timedelta(hours=query_to_hours_ago),
+            completed_at=timezone.now() - timedelta(hours=query_to_hours_ago),
+        )
+
+        result = request_recalculation(exp, self.user, "stale_refresh")
+
+        assert result["is_existing"] is not expects_new_run
+        assert (result["id"] == str(latest.id)) is not expects_new_run
+        assert ExperimentMetricsRecalculation.objects.filter(experiment=exp).count() == (2 if expects_new_run else 1)
+
     @override_settings(DEBUG=True, TEST=False)
     @patch("products.experiments.backend.recalculation.feature_enabled_or_false", return_value=True)
     def test_request_recalculation_skips_the_refresh_window_in_local_development(self, _mock_flag):

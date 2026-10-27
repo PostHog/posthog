@@ -5926,11 +5926,20 @@ function MarkdownNotebookEditor({
         }
         const definition = getMarkdownNotebookComponentDefinition(mergedRegistry, node.tagName)
         const panels = getComponentPanelVisibility(node, DEFAULT_COMPONENT_PANEL_VISIBILITY)
-        updateNode(node.id, (currentNode) =>
-            currentNode.type === 'component'
-                ? withPersistedComponentPanelProps(currentNode, definition, { ...panels, results: !panels.results })
-                : currentNode
-        )
+        if (panels.results && node.props.hideInput === true) {
+            return
+        }
+        updateNode(node.id, (currentNode) => {
+            if (currentNode.type !== 'component') {
+                return currentNode
+            }
+            const props = { ...currentNode.props }
+            delete props.hideInput
+            return withPersistedComponentPanelProps({ ...currentNode, props }, definition, {
+                ...panels,
+                results: !panels.results,
+            })
+        })
     }
 
     const executeJupyterCommand = (command: NotebookJupyterCommand, cellOrNodeId: string | null): void => {

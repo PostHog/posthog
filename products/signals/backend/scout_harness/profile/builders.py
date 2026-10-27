@@ -66,6 +66,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.facade import api as notebooks
+from products.signals.backend.constants import SYSTEM_SCOUT_NAMES
 from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalScoutRun, SignalSourceConfig
 from products.signals.backend.scout_harness.acting_user import resolve_scout_run_acting_user
 from products.signals.backend.scout_harness.config_registry import live_scout_skill_names
@@ -350,7 +351,7 @@ def _scout_fleet(team: Team) -> dict[str, Any]:
     # `SignalScoutConfigViewSet.list`: this payload is readable with `signal_scout:read`, so
     # listing a withheld row (even as not-running) would disclose the name and rollout status of
     # an unreleased scout to the very team it is withheld from.
-    withheld = withheld_skills_for_team(team.id)
+    withheld = withheld_skills_for_team(team.id) | SYSTEM_SCOUT_NAMES
     live_skills = live_scout_skill_names(team.id, withheld_skill_names=withheld)
     # One query for the whole fleet: a skill default pre-check applies only to a canonical skill row.
     canonical_skills = {

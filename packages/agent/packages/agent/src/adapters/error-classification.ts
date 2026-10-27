@@ -40,6 +40,7 @@ const CODEX_PROVIDER_ERROR_STATUS_PATTERN = /unexpected status\s*5\d\d\b/i;
 const UPSTREAM_CAPACITY_UNAVAILABLE_PATTERN = /\bcapacity unavailable\b/i;
 const UPSTREAM_RATE_LIMIT_PATTERN =
   /\brate limit (?:exceeded|reached)\b|\brate_limit_exceeded\b|\bmodel is at capacity\b|\b(?:API Error:|unexpected status)\s*429\b/i;
+const CODEX_SERVER_OVERLOADED_PATTERN = /\bSelected model is at capacity\b/i;
 const SANDBOX_TASK_SPEND_LIMIT_PATTERN =
   /This agent run reached its spend limit/i;
 const TURN_ENDED_WITHOUT_RESPONSE_PATTERN =
@@ -93,6 +94,9 @@ export function classifyAgentError(
   }
   if (
     UPSTREAM_RATE_LIMIT_PATTERN.test(text) ||
+    UPSTREAM_PROVIDER_ERROR_STATUS_PATTERN.test(text) ||
+    CODEX_PROVIDER_ERROR_STATUS_PATTERN.test(text) ||
+    CODEX_SERVER_OVERLOADED_PATTERN.test(text) ||
     UPSTREAM_CAPACITY_UNAVAILABLE_PATTERN.test(text)
   ) {
     return "upstream_rate_limited";

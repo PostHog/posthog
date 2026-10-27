@@ -39,9 +39,14 @@ def test_select_prompts_alternates_topics_and_rotates_to_least_recently_checked(
     assert "replay question 0?" not in selected
 
 
-def test_select_prompts_skips_inactive_prompts(team: Team) -> None:
+@pytest.mark.parametrize(
+    "excluded",
+    [{"active": False}, {"archived_at": dt.datetime(2026, 1, 1, tzinfo=dt.UTC)}],
+    ids=["inactive", "archived"],
+)
+def test_select_prompts_skips_inactive_and_archived_prompts(team: Team, excluded: dict) -> None:
     upsert_prompts(team, [PromptCandidate(text=f"q{i}?", source="imported") for i in range(3)])
-    AEOPrompt.objects.for_team(team.id).filter(prompt="q1?").update(active=False)
+    AEOPrompt.objects.for_team(team.id).filter(prompt="q1?").update(**excluded)
 
     assert sorted(p.prompt for p in select_prompts(team, limit=10)) == ["q0?", "q2?"]
 
@@ -66,6 +71,8 @@ def test_run_records_checks_and_rotates_without_a_team_scope(team: Team, setting
         runner_team, [PromptCandidate(text=f"q{i}?", source="imported", topic=f"t{i % 2}") for i in range(4)]
     )
 
+    AEOPrompt.objects.for_team(team.id).filter(prompt="q0?").update(current_version=3)
+
     first, _ = run_citation_checks(runner_team, engines=[_StubEngine()], limit=2)
     second, _ = run_citation_checks(runner_team, engines=[_StubEngine()], limit=2)
 
@@ -74,3 +81,4 @@ def test_run_records_checks_and_rotates_without_a_team_scope(team: Team, setting
     assert checks.filter(cited=True).count() == 4
     assert {c.prompt_topic for c in checks} == {"t0", "t1"}
     assert len({c.prompt_id for c in checks}) == 4
+    assert sorted((c.prompt_text, c.prompt_version) for c in checks) == [("q0?", 3), ("q1?", 1), ("q2?", 1), ("q3?", 1)]

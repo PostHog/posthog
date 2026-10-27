@@ -354,6 +354,16 @@ export function insertPoint(points: Point[]): Point {
     return best.point
 }
 
+const QUICK_ADD_GAP = 14
+
+/** Where an arrow's + sits: past its label when it has one, else in the middle of its longest straight run. */
+export function quickAddPoint(routed: RoutedEdge, label: string | undefined): Point {
+    if (label && routed.label) {
+        return { x: routed.label.x + edgeLabelWidth(label) / 2 + QUICK_ADD_GAP, y: routed.label.y }
+    }
+    return insertPoint(routed.points)
+}
+
 export function entryX(points: Point[] | undefined, top: number, fallback: number): number {
     const crossing = (points ?? []).slice(1).find((b, index) => {
         const a = (points ?? [])[index]

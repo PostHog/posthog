@@ -49,21 +49,23 @@ describe('Inbox setup defaults', () => {
         expect(draft.implementation_priority).toBe('P1')
     })
 
-    it('uses connected warehouse sources before a signal config exists, without confusing GitHub code access with issue sync', () => {
+    it('uses connected warehouse sources before a signal config exists and points to missing tables', () => {
         const sources = setupSources([], {}, 0, {}, false, [
             { id: 'linear-source', source_type: 'Linear', schemas: [{ name: 'issues' }] },
+            { id: 'github-source', source_type: 'Github', schemas: [{ name: 'issues' }] },
         ])
         expect(newInboxSetupDraft(sources, []).sources).toEqual([
             { source_product: 'linear', source_type: 'issue', enabled: true },
         ])
-        expect(sources.find((source) => source.definition.source === 'github')?.available).toBe(false)
-        expect(sources.some((source) => source.definition.source === 'pganalyze')).toBe(false)
+        for (const excluded of ['pganalyze', 'github', 'engineering_analytics']) {
+            expect(sources.some((source) => source.definition.source === excluded)).toBe(false)
+        }
         const missingTables = setupSources([], {}, 0, {}, false, [
-            { id: 'github-source', source_type: 'Github', schemas: [] },
+            { id: 'linear-source', source_type: 'Linear', schemas: [] },
         ])
-        const github = missingTables.find((source) => source.definition.source === 'github')
-        expect(github?.available).toBe(false)
-        expect(github?.setupUrl).toContain('github-source')
+        const linear = missingTables.find((source) => source.definition.source === 'linear')
+        expect(linear?.available).toBe(false)
+        expect(linear?.setupUrl).toContain('linear-source')
         expect(newInboxSetupDraft(missingTables, []).sources).toEqual([])
     })
 

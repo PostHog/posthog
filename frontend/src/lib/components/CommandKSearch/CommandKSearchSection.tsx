@@ -1,4 +1,4 @@
-import { MenuLabel, cn } from '@posthog/quill'
+import { MenuLabel, Spinner, cn } from '@posthog/quill'
 
 import { CommandKSearchNotice } from './CommandKSearchNotice'
 import { CommandKSearchRow } from './CommandKSearchRow'
@@ -17,6 +17,18 @@ export function CommandKSearchSection({
                 {section.rows.map((row) =>
                     row.kind === 'notice' ? <CommandKSearchNotice key={row.key} row={row} /> : null
                 )}
+            </div>
+        )
+    }
+    if (section.key === 'loading-more') {
+        return (
+            <div
+                role="status"
+                className="flex h-8 items-center gap-2 px-3 text-xs text-muted-foreground opacity-100 delay-150 duration-200 starting:opacity-0 motion-safe:transition-opacity"
+                data-attr="command-k-section-loading-more"
+            >
+                <Spinner aria-hidden className="size-3.5" />
+                <span>Loading more…</span>
             </div>
         )
     }

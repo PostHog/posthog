@@ -947,6 +947,7 @@ describe('biSceneLogic', () => {
             () => editor.actions.addFieldToShelf(eventField, 'filters'),
             () => editor.actions.setFilterValue(0, '$pageview'),
             () => editor.actions.addFieldToShelf(eventField, 'values'),
+            () => editor.actions.setMeasureExpression(0, 'count(DISTINCT distinct_id)', 'custom'),
             () => editor.actions.setTableCalculation(0, { type: 'running_total' }),
             () => editor.actions.updateMeasureSettings(0, { formatting: { prefix: '€' } }),
             () => editor.actions.addResultFilter(),
@@ -1069,16 +1070,30 @@ describe('biSceneLogic', () => {
         expect(logic.values.insight?.name).toBe('Saved worksheet (copy)')
     })
 
-    it('preserves an unfinished calculated measure when chart settings update', () => {
-        logic.actions.restoreWorksheet(worksheet())
+    it('saves and reloads conditional formatting without discarding an unfinished calculated measure', async () => {
+        await expectLogic(logic, () => logic.actions.loadInsight(stored.short_id)).toFinishAllListeners()
         editor.actions.setCalculatedMeasureDraft({
             index: null,
             name: 'Revenue per user',
             expression: 'sum(revenue) /',
         })
         const draft = editor.values.calculatedMeasureDraft
-        logic.actions.setVisualization({ ...logic.values.worksheet, tableSettings: { conditionalFormatting: [] } })
+        const conditionalFormatting = [
+            {
+                id: 'count-threshold',
+                templateId: 'equals',
+                columnName: 'count',
+                input: '10',
+                color: '#FFADAD',
+                bytecode: ['_H', 1, 32, 'input', 1, 1, 32, 'value', 1, 1, 11, 38],
+            },
+        ]
+        logic.actions.setVisualization({ ...logic.values.worksheet, tableSettings: { conditionalFormatting } })
         expect(editor.values.calculatedMeasureDraft).toEqual(draft)
+        await expectLogic(logic, () => logic.actions.saveInsight()).toFinishAllListeners()
+        expect(stored.query.tableSettings?.conditionalFormatting).toEqual(conditionalFormatting)
+        await expectLogic(logic, () => logic.actions.loadInsight(stored.short_id)).toFinishAllListeners()
+        expect(logic.values.worksheet.tableSettings?.conditionalFormatting).toEqual(conditionalFormatting)
     })
 
     it('reruns unchanged SQL for a date change while preserving dashboard properties', async () => {
@@ -1145,7 +1160,7 @@ describe('biSceneLogic', () => {
     })
 
     test.each(['ready', 'failed', 'cancelled', 'missing'] as const)(
-        'handles chart-only edits with %s results',
+        'reuses chart-only edits and reruns pivot edits with %s results',
         async (state) => {
             logic.actions.restoreWorksheet(worksheet())
             const data = dataNodeLogic({
@@ -1170,9 +1185,12 @@ describe('biSceneLogic', () => {
                 editor.actions.setChartType(ChartDisplayType.ActionsStackedBar)
                 await jest.advanceTimersByTimeAsync(500)
                 expect(run).toHaveBeenCalledTimes(state === 'ready' ? 0 : 1)
-                editor.actions.setChartType(ChartDisplayType.ActionsTable)
+                editor.actions.setChartType(ChartDisplayType.ActionsAreaGraph)
                 await jest.advanceTimersByTimeAsync(500)
                 expect(run).toHaveBeenCalledTimes(state === 'ready' ? 0 : 1)
+                editor.actions.setChartType(ChartDisplayType.ActionsTable)
+                await jest.advanceTimersByTimeAsync(500)
+                expect(run).toHaveBeenCalledTimes(state === 'ready' ? 1 : 2)
             } finally {
                 jest.useRealTimers()
                 data.unmount()
@@ -1186,11 +1204,13 @@ describe('biSceneLogic', () => {
         editor.actions.setAutoUpdate(false)
         const run = jest.spyOn(logic.actions, 'runQuery')
         try {
+            editor.actions.setChartType(ChartDisplayType.ActionsAreaGraph)
+            expect(logic.values.lastRunQuery?.display).toBe(ChartDisplayType.ActionsAreaGraph)
             editor.actions.setChartType(ChartDisplayType.ActionsTable)
-            expect(logic.values.lastRunQuery?.display).toBe(ChartDisplayType.ActionsTable)
+            expect(logic.values.lastRunQuery?.display).toBe(ChartDisplayType.ActionsAreaGraph)
             editor.actions.setLimit(10000)
             editor.actions.setChartType(ChartDisplayType.ActionsLineGraph)
-            expect(logic.values.lastRunQuery?.display).toBe(ChartDisplayType.ActionsTable)
+            expect(logic.values.lastRunQuery?.display).toBe(ChartDisplayType.ActionsAreaGraph)
             expect(logic.values.lastRunQuery?.config.limit).toBe(1000)
             expect(run).not.toHaveBeenCalled()
         } finally {

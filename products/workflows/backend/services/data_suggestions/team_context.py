@@ -68,6 +68,14 @@ def channels(team: Team) -> frozenset[Channel]:
     return frozenset(connected)
 
 
+def push_integration_ids(team: Team) -> tuple[int, ...]:
+    return tuple(
+        Integration.objects.filter(team_id=team.id, kind__in=["apns", "firebase"])
+        .order_by("created_at")
+        .values_list("id", flat=True)
+    )
+
+
 def slack_integration_id(team: Team) -> int | None:
     return (
         Integration.objects.filter(team_id=team.id, kind="slack")

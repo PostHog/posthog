@@ -35,11 +35,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.sharepoint
     sharepoint_file_source,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.sharepoint.settings import (
+    ACTIVITY_STATS_INCREMENTAL_LOOKBACK_SECONDS,
     ENDPOINTS,
     FILE_NOT_FOUND_ERROR,
     INCREMENTAL_FIELDS,
     PATTERN_ERROR,
     SHAREPOINT_ENDPOINTS,
+    SharePointEndpoint,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.sharepoint.sharepoint import (
     INVALID_SITE_URL_ERROR,
@@ -122,7 +124,13 @@ class SharePointSource(ResumableSource[SharePointSourceConfig, SharePointResumeC
         schemas = build_endpoint_schemas(
             ENDPOINTS,
             INCREMENTAL_FIELDS,
+            # Each sync reads the latest days again, so append would duplicate them.
+            merge_only=(SharePointEndpoint.SITE_ACTIVITY_STATS,),
             descriptions={name: endpoint.description for name, endpoint in SHAREPOINT_ENDPOINTS.items()},
+            should_sync_default={name: endpoint.should_sync_default for name, endpoint in SHAREPOINT_ENDPOINTS.items()},
+            default_incremental_lookback_seconds={
+                SharePointEndpoint.SITE_ACTIVITY_STATS: ACTIVITY_STATS_INCREMENTAL_LOOKBACK_SECONDS
+            },
         )
         import_files = config.import_files
         if (
@@ -198,6 +206,9 @@ class SharePointSource(ResumableSource[SharePointSourceConfig, SharePointResumeC
             endpoint=inputs.schema_name,
             logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
+            incremental_field_last_value=(
+                inputs.db_incremental_field_last_value if inputs.should_use_incremental_field else None
+            ),
         )
 
     @property

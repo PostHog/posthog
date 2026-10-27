@@ -183,7 +183,7 @@ export function getBroadcastStatus(
 
 // A batch send's email metrics are recorded against the batch job, not the flow, so the row counts
 // come from the latest run rather than the flow-scoped totals endpoint.
-async function loadRunMetricTotals(job: HogFlowBatchJobApi, timezone: string): Promise<Record<string, number>> {
+export async function loadRunMetricTotals(job: HogFlowBatchJobApi, timezone: string): Promise<Record<string, number>> {
     const created = dayjs(job.created_at)
     const response = await loadAppMetricsTotals(
         {

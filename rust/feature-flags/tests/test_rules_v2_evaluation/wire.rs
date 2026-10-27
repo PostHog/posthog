@@ -1,4 +1,4 @@
-//! Validates a `/flags?v=3` response the way the harness does.
+//! Validates a `/flags?v=4` response the way the harness does.
 
 use std::sync::LazyLock;
 
@@ -7,6 +7,7 @@ use serde_json::Value;
 
 use crate::corpus;
 
+// The harness contract still names the v4 record's schemas `flags_response_v3*`.
 const PRODUCER_ID: &str =
     "https://posthog.com/contracts/feature_flag_rules_v2/flags_response_v3.schema.json";
 
@@ -81,7 +82,7 @@ fn first_seed(value: &Value, path: &str) -> Option<String> {
 }
 
 /// `Err((layer, detail))` names the first failing layer.
-pub fn validate_v3(response: &Value) -> Result<(), (&'static str, String)> {
+pub fn validate_v4(response: &Value) -> Result<(), (&'static str, String)> {
     if let Some(error) = first_error(&PRODUCER, response) {
         return Err(("schema", error));
     }

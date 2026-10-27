@@ -86,3 +86,16 @@ def dispatch_error_tracking_alert_deliveries(team_id: int, notifications: list[d
     from products.error_tracking.backend.temporal.alerts.types import AlertDeliveryWorkflowInputs  # noqa: PLC0415
 
     start_alert_delivery_workflows([AlertDeliveryWorkflowInputs(**notification) for notification in notifications])
+
+
+@shared_task(
+    name="products.error_tracking.backend.tasks.generate_error_tracking_issue_summary",
+    ignore_result=True,
+    max_retries=0,
+)
+@with_team_scope()
+def generate_error_tracking_issue_summary(team_id: int, issue_id: str) -> None:
+    # The generator imports the LLM client and HogQL, so keep them off every worker's boot path.
+    from products.error_tracking.backend.logic.issue_summaries import get_or_generate_issue_summary  # noqa: PLC0415
+
+    get_or_generate_issue_summary(team_id, issue_id)

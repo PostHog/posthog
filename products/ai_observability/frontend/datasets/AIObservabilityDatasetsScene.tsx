@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import type { ReactNode } from 'react'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -8,8 +9,6 @@ import { Link } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { SceneExport } from 'scenes/sceneTypes'
 
-import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { LemonInput } from '~/lib/lemon-ui/LemonInput'
 import { LemonSegmentedButton } from '~/lib/lemon-ui/LemonSegmentedButton'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from '~/lib/lemon-ui/LemonTable'
@@ -32,7 +31,7 @@ export const scene: SceneExport = {
     emptyState: datasetsEmptyState,
 }
 
-export function AIObservabilityDatasetsScene(): JSX.Element {
+export function AIObservabilityDatasetsScene({ navigation }: { navigation?: ReactNode }): JSX.Element {
     const { loadDatasets, setFilters, archiveDataset, restoreDataset } = useActions(aiObservabilityDatasetsLogic)
     const { archivingDatasetId, datasets, datasetsLoading, sorting, pagination, filters, datasetCountLabel } =
         useValues(aiObservabilityDatasetsLogic)
@@ -44,13 +43,13 @@ export function AIObservabilityDatasetsScene(): JSX.Element {
             title: 'Name',
             dataIndex: 'name',
             key: 'name',
-            width: '25%',
+            width: '21%',
             render: function renderName(_, dataset) {
                 return (
                     <Link
                         to={datasetUrl(dataset.id)}
                         data-testid="dataset-link"
-                        className="block max-w-64 @max-[50rem]/datasets:max-w-32 truncate font-semibold"
+                        className="block max-w-full @max-[50rem]/datasets:max-w-48 truncate font-semibold"
                     >
                         {dataset.name}
                     </Link>
@@ -61,15 +60,20 @@ export function AIObservabilityDatasetsScene(): JSX.Element {
             title: 'Description',
             dataIndex: 'description',
             key: 'description',
-            width: '20%',
+            width: '16%',
             className: '@max-[50rem]/datasets:hidden',
             render: function renderDescription(description) {
-                return <span className="text-muted">{String(description) || <i>–</i>}</span>
+                return (
+                    <span className="block max-w-full truncate text-muted" title={String(description) || undefined}>
+                        {String(description) || <i>–</i>}
+                    </span>
+                )
             },
         },
         {
             title: 'Created by',
-            className: '@max-[50rem]/datasets:hidden',
+            width: '14%',
+            className: '@max-[50rem]/datasets:hidden [&_.profile-package]:max-w-full [&_.profile-name]:truncate',
             dataIndex: 'created_by',
             render: function renderCreatedBy(_, item) {
                 const { created_by } = item
@@ -94,9 +98,10 @@ export function AIObservabilityDatasetsScene(): JSX.Element {
         {
             title: 'Tags',
             key: 'tags',
-            width: '20%',
+            width: '16%',
             render: (_, dataset) => (
                 <ResourceTags
+                    compact
                     entity="datasets"
                     resourceId={dataset.id}
                     tags={dataset.tags}
@@ -109,14 +114,16 @@ export function AIObservabilityDatasetsScene(): JSX.Element {
         },
         {
             ...(createdAtColumn<Dataset>() as LemonTableColumn<Dataset, keyof Dataset | undefined>),
-            className: '@max-[60rem]/datasets:hidden',
-        },
-        {
-            ...(updatedAtColumn<Dataset>() as LemonTableColumn<Dataset, keyof Dataset | undefined>),
+            width: '11%',
             className: '@max-[50rem]/datasets:hidden',
         },
         {
-            width: 0,
+            ...(updatedAtColumn<Dataset>() as LemonTableColumn<Dataset, keyof Dataset | undefined>),
+            width: '11%',
+            className: '@max-[50rem]/datasets:hidden',
+        },
+        {
+            width: 40,
             render: function renderMore(_, dataset) {
                 return (
                     <More
@@ -163,38 +170,32 @@ export function AIObservabilityDatasetsScene(): JSX.Element {
     ]
 
     return (
-        <SceneContent className="@container/datasets">
-            <SceneTitleSection
-                name="Datasets"
-                description="Create and manage datasets to test changes and evaluate your AI outputs. [Learn more](https://posthog.com/docs/ai-evals/datasets)"
-                markdown
-                resourceType={{ type: 'llm_datasets' }}
-            />
-            <div className="flex gap-x-4 gap-y-2 items-center flex-wrap py-4 -mt-4 mb-4 border-b justify-between">
-                <div className="flex gap-2 items-center flex-wrap">
-                    <LemonSegmentedButton
-                        value={filters.archived ? 'archived' : 'active'}
-                        onChange={(value) => setFilters({ archived: value === 'archived' }, true, false)}
-                        options={[
-                            { value: 'active', label: 'Active' },
-                            { value: 'archived', label: 'Archived' },
-                        ]}
-                        size="small"
-                        data-attr="datasets-status-filter"
-                    />
-                    <ResourceTagFilter filters={filters} onChange={(tags) => setFilters(tags, true, false)} />
-                    <LemonInput
-                        type="search"
-                        placeholder="Search datasets..."
-                        value={filters.search}
-                        data-attr="datasets-search-input"
-                        onChange={(value) => setFilters({ search: value })}
-                        className="max-w-md"
-                        data-testid="search-datasets-input"
-                    />
-                </div>
-                <div className="flex gap-2 items-center flex-wrap">
-                    <div className="text-muted-alt">{datasetCountLabel}</div>
+        <div className="@container/datasets space-y-4">
+            <div className="flex gap-2 items-center flex-wrap" aria-label="Dataset filters">
+                {navigation}
+                <LemonSegmentedButton
+                    value={filters.archived ? 'archived' : 'active'}
+                    onChange={(value) => setFilters({ archived: value === 'archived' }, true, false)}
+                    options={[
+                        { value: 'active', label: 'Active' },
+                        { value: 'archived', label: 'Archived' },
+                    ]}
+                    size="small"
+                    data-attr="datasets-status-filter"
+                />
+                <ResourceTagFilter size="small" filters={filters} onChange={(tags) => setFilters(tags, true, false)} />
+                <LemonInput
+                    size="small"
+                    type="search"
+                    placeholder="Search datasets..."
+                    value={filters.search}
+                    data-attr="datasets-search-input"
+                    onChange={(value) => setFilters({ search: value })}
+                    className="max-w-md"
+                    data-testid="search-datasets-input"
+                />
+                <div className="flex gap-2 items-center flex-wrap ml-auto">
+                    <div className="text-muted-alt text-xs">{datasetCountLabel}</div>
                     <AccessControlAction
                         resourceType={AccessControlResourceType.LlmAnalytics}
                         minAccessLevel={AccessControlLevel.Editor}
@@ -214,7 +215,9 @@ export function AIObservabilityDatasetsScene(): JSX.Element {
 
             <LemonTable
                 id="datasets"
-                className="@max-[50rem]/datasets:[&_colgroup]:hidden"
+                className="@max-[50rem]/datasets:[&_colgroup]:hidden @max-[50rem]/datasets:[&_table]:table-auto"
+                size="small"
+                tableLayout="fixed"
                 loading={datasetsLoading}
                 columns={columns}
                 dataSource={datasets.results}
@@ -232,6 +235,6 @@ export function AIObservabilityDatasetsScene(): JSX.Element {
                 loadingSkeletonRows={DATASETS_PER_PAGE}
                 nouns={['dataset', 'datasets']}
             />
-        </SceneContent>
+        </div>
     )
 }

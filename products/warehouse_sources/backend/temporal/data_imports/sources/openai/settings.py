@@ -15,6 +15,8 @@ class PaginationType(Enum):
     # The usage/costs endpoints page with an opaque `page` token echoed back as `next_page`,
     # alongside has_more. Each page holds time buckets, not rows.
     PAGE = "page"
+    # The models list returns every model in one response, with no cursor or limit param.
+    SINGLE = "single"
 
 
 def _datetime_incremental_field(name: str) -> IncrementalField:
@@ -60,8 +62,15 @@ class OpenAIEndpointConfig:
     # placeholder the parent id fills and the column that carries it on each row.
     fan_out_parent: Optional[str] = None
     fan_out_parent_key: Optional[str] = None
+    # Extra path placeholders bound from fields of the parent row, as {placeholder: parent field}.
+    # A nested resource like eval run output items needs the grandparent id too, which its parent
+    # row carries.
+    fan_out_extra_path_fields: dict[str, str] = field(default_factory=dict)
     # Extra static query params merged into every request (e.g. include_archived on projects).
     extra_params: dict[str, str] = field(default_factory=dict)
+    # Platform resources (models, batches, stored completions, evals) reject Admin API keys, so
+    # they authenticate with the optional project API key instead.
+    requires_project_key: bool = False
     should_sync_default: bool = True
 
 
@@ -244,9 +253,82 @@ OPENAI_ENDPOINTS: dict[str, OpenAIEndpointConfig] = {
         # checkpoint the watermark per batch — "desc" defers the commit to sync completion.
         sort_mode="desc",
     ),
+    # Platform resources are scoped to the project the project API key belongs to. None of them has
+    # a server-side time filter, so they are full refresh only. They are off by default because the
+    # project API key is optional.
+    "models": OpenAIEndpointConfig(
+        name="models",
+        path="/v1/models",
+        pagination=PaginationType.SINGLE,
+        primary_keys=["id"],
+        requires_project_key=True,
+        should_sync_default=False,
+    ),
+    # Lists only completions created with `store: true`.
+    "chat_completions": OpenAIEndpointConfig(
+        name="chat_completions",
+        path="/v1/chat/completions",
+        pagination=PaginationType.CURSOR,
+        primary_keys=["id"],
+        partition_key="created",
+        extra_params={"order": "asc"},
+        requires_project_key=True,
+        should_sync_default=False,
+    ),
+    "batches": OpenAIEndpointConfig(
+        name="batches",
+        path="/v1/batches",
+        pagination=PaginationType.CURSOR,
+        primary_keys=["id"],
+        partition_key="created_at",
+        requires_project_key=True,
+        should_sync_default=False,
+    ),
+    "evals": OpenAIEndpointConfig(
+        name="evals",
+        path="/v1/evals",
+        pagination=PaginationType.CURSOR,
+        primary_keys=["id"],
+        partition_key="created_at",
+        extra_params={"order": "asc", "order_by": "created_at"},
+        requires_project_key=True,
+        should_sync_default=False,
+    ),
+    "eval_runs": OpenAIEndpointConfig(
+        name="eval_runs",
+        path="/v1/evals/{eval_id}/runs",
+        pagination=PaginationType.CURSOR,
+        primary_keys=["eval_id", "id"],
+        partition_key="created_at",
+        fan_out_parent="evals",
+        fan_out_parent_key="eval_id",
+        extra_params={"order": "asc"},
+        requires_project_key=True,
+        should_sync_default=False,
+    ),
+    "eval_run_output_items": OpenAIEndpointConfig(
+        name="eval_run_output_items",
+        path="/v1/evals/{eval_id}/runs/{run_id}/output_items",
+        pagination=PaginationType.CURSOR,
+        primary_keys=["run_id", "id"],
+        partition_key="created_at",
+        fan_out_parent="eval_runs",
+        fan_out_parent_key="run_id",
+        fan_out_extra_path_fields={"eval_id": "eval_id"},
+        extra_params={"order": "asc"},
+        requires_project_key=True,
+        should_sync_default=False,
+    ),
 }
 
 ENDPOINTS = tuple(OPENAI_ENDPOINTS.keys())
+
+# Path prefixes of the endpoints that authenticate with the project API key.
+PROJECT_KEY_PATHS = tuple(
+    sorted(
+        {config.path.split("{")[0].rstrip("/") for config in OPENAI_ENDPOINTS.values() if config.requires_project_key}
+    )
+)
 
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     name: config.incremental_fields for name, config in OPENAI_ENDPOINTS.items()

@@ -1,7 +1,16 @@
 import type { Edge, Node } from '@xyflow/react'
 
-import type { HogFlow } from '../../types'
-import { Box, CanvasLayout, frameChipWidth, frameEntryX, NodeSize, PathFrameSpec, RoutedEdge } from './tileCanvasLayout'
+import type { HogFlow, HogFlowEdge } from '../../types'
+import {
+    Box,
+    CanvasLayout,
+    frameChipWidth,
+    frameEntryX,
+    NodeSize,
+    PathFrameSpec,
+    quickAddPoint,
+    RoutedEdge,
+} from './tileCanvasLayout'
 import type { StepCountOf, TemplateNameOf } from './tileCanvasLogic'
 import {
     CanvasMotion,
@@ -9,6 +18,7 @@ import {
     nodeMotion,
     NodeMotion,
     PathGroup,
+    Point,
     VisibleEdge,
     VisibleGraph,
     VisibleNode,
@@ -174,6 +184,26 @@ export function keepUnchangedNodes(previous: TileCanvasNode[], next: TileCanvasN
         const old = previousById.get(node.id)
         return old && isUnchanged(old, node) ? old : node
     })
+}
+
+export function edgeLabelText(edge: VisibleEdge, routed: RoutedEdge): string | undefined {
+    return edge.label && routed.label ? edge.label : undefined
+}
+
+/** The arrow whose + is closest to the point, if one is within reach. */
+export function nearestInsertEdge(edges: TileEdgeType[], point: Point, reach: number): HogFlowEdge | null {
+    let best: { edge: HogFlowEdge; distance: number } | null = null
+    for (const { data } of edges) {
+        if (!data?.routed || !data.edge.insertEdge) {
+            continue
+        }
+        const at = quickAddPoint(data.routed, edgeLabelText(data.edge, data.routed))
+        const distance = Math.hypot(at.x - point.x, at.y - point.y)
+        if (distance <= reach && (!best || distance < best.distance)) {
+            best = { edge: data.edge.insertEdge, distance }
+        }
+    }
+    return best?.edge ?? null
 }
 
 export function buildCanvasEdges(graph: VisibleGraph, layout: CanvasLayout | null): TileEdgeType[] {

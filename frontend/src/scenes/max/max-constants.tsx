@@ -939,18 +939,6 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return 'Measure impact...'
         },
     },
-    suggest_replay_vision_tags: {
-        name: 'Suggest categories',
-        description: 'Suggest categories for a classifier, grounded in what it has seen',
-        icon: iconForType('session_replay'),
-        modes: [AgentMode.SessionReplay],
-        displayFormatter: (toolCall) => {
-            if (toolCall.status === 'completed') {
-                return 'Suggest categories'
-            }
-            return 'Suggest categories...'
-        },
-    },
     create_survey: {
         name: 'Create surveys',
         description: 'Create surveys in seconds',

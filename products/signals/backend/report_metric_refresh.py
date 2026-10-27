@@ -112,6 +112,7 @@ def _run_metric_query(
     display: ChartDisplayType,
     *,
     deadline: float,
+    require_full_timeout: bool = False,
     ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
     workload: Workload = Workload.DEFAULT,
 ) -> tuple[dict, datetime | None]:
@@ -141,6 +142,8 @@ def _run_metric_query(
         if math.isinf(remaining)
         else min(REPORT_METRIC_REFRESH_QUERY_TIMEOUT_SECONDS, int(remaining / source_count))
     )
+    if require_full_timeout and timeout < REPORT_METRIC_REFRESH_QUERY_TIMEOUT_SECONDS:
+        raise MetricQueryBudgetExhausted("report metric query needs its full timeout allowance")
     tag_queries(trigger="signals_report_metric_refresh")
     response = run_cached_trends_query(
         query=shaped_source,
@@ -170,11 +173,18 @@ def whole_window_value(
     team: Team,
     *,
     deadline: float = math.inf,
+    require_full_timeout: bool = False,
     ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
     workload: Workload = Workload.DEFAULT,
 ) -> tuple[float, datetime]:
     first_series, last_refresh = _run_metric_query(
-        query, team, ChartDisplayType.BOLD_NUMBER, deadline=deadline, ch_user=ch_user, workload=workload
+        query,
+        team,
+        ChartDisplayType.BOLD_NUMBER,
+        deadline=deadline,
+        require_full_timeout=require_full_timeout,
+        ch_user=ch_user,
+        workload=workload,
     )
     value = _finite_number(first_series.get("aggregated_value"), what="aggregate")
     measured_at = last_refresh if isinstance(last_refresh, datetime) else timezone.now()
@@ -208,10 +218,18 @@ def measure_metric(
     *,
     deadline: float,
     include_series: bool,
+    require_full_timeout: bool = False,
     ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
     workload: Workload = Workload.DEFAULT,
 ) -> MetricMeasurement:
-    value, measured_at = whole_window_value(query, team, deadline=deadline, ch_user=ch_user, workload=workload)
+    value, measured_at = whole_window_value(
+        query,
+        team,
+        deadline=deadline,
+        require_full_timeout=require_full_timeout,
+        ch_user=ch_user,
+        workload=workload,
+    )
     series: list[float] | None
     if not include_series or time.monotonic() >= deadline:
         return MetricMeasurement(value=value, measured_at=measured_at, series=None)

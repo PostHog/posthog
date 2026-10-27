@@ -54,6 +54,8 @@ export interface LineChartProps<Meta = unknown> {
     theme: ChartTheme
     tooltip?: (ctx: TooltipContext<Meta>) => React.ReactNode
     onPointClick?: (data: PointClickData<Meta>) => void
+    /** Right-click counterpart of `onPointClick`. See `ChartProps.onPointContextMenu`. */
+    onPointContextMenu?: (data: PointClickData<Meta>) => void
     onDateRangeZoom?: (data: DateRangeZoomData) => void
     className?: string
     /** `data-attr` applied to the chart wrapper. See `ChartProps.dataAttr`. */
@@ -77,6 +79,7 @@ function LineChartInner<Meta = unknown>({
     theme,
     tooltip,
     onPointClick,
+    onPointContextMenu,
     onDateRangeZoom,
     className,
     dataAttr,
@@ -297,6 +300,7 @@ function LineChartInner<Meta = unknown>({
                 drawHover={drawHover}
                 tooltip={tooltip}
                 onPointClick={onPointClick}
+                onPointContextMenu={onPointContextMenu}
                 onDateRangeZoom={onDateRangeZoom}
                 className={className}
                 dataAttr={dataAttr}

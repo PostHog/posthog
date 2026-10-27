@@ -234,10 +234,10 @@ pub struct Config {
     #[envconfig(default = "5000")]
     pub ingestion_warnings_kafka_message_timeout_ms: u32,
 
-    /// Warnings a second per type that one pod sends, shared by every team
+    /// Warnings of one type a minute that one pod sends, shared by every team
     /// on it; the rest are dropped as `type_budget_exhausted`.
     #[envconfig(default = "60")]
-    pub ingestion_warnings_type_budget_per_second: NonZeroU32,
+    pub ingestion_warnings_type_budget_per_minute: NonZeroU32,
 
     /// Throttle keys (team, distinct id, type) a pod remembers for the hour a
     /// key lives, at roughly 135 bytes each.
@@ -518,8 +518,8 @@ impl Config {
         Duration::from_secs(self.lifecycle_op_retention_hours * 3600)
     }
 
-    pub fn ingestion_warnings_settings(&self) -> crate::warnings::WarningsSettings {
-        crate::warnings::WarningsSettings {
+    pub fn ingestion_warnings_settings(&self) -> common_ingestion_warnings::RowWarningsSettings {
+        common_ingestion_warnings::RowWarningsSettings {
             enabled: self.ingestion_warnings_enabled,
             kafka_hosts: self.ingestion_warnings_kafka_hosts.clone(),
             kafka_tls: self.ingestion_warnings_kafka_tls,
@@ -531,7 +531,7 @@ impl Config {
             kafka_linger_ms: self.ingestion_warnings_kafka_linger_ms,
             kafka_queue_messages: self.ingestion_warnings_kafka_queue_messages,
             kafka_message_timeout_ms: self.ingestion_warnings_kafka_message_timeout_ms,
-            type_budget_per_second: self.ingestion_warnings_type_budget_per_second,
+            type_budget_per_minute: self.ingestion_warnings_type_budget_per_minute,
             max_tracked_scopes: self.ingestion_warnings_max_tracked_scopes,
         }
     }

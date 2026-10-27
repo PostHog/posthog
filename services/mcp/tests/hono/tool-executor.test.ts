@@ -264,8 +264,6 @@ describe('ToolExecutor', () => {
         it.each<Row>([
             { mode: 'direct', tool: 'query-trends', ...block, outcome: 'blocked' },
             { mode: 'exec', tool: 'query-trends', ...block, outcome: 'blocked' },
-            { mode: 'direct', tool: 'query-trends', ...warn, outcome: 'warned' },
-            { mode: 'exec', tool: 'query-trends', ...warn, outcome: 'warned' },
             // Direct mode, because exec looks up every roster entry in the static tool registry,
             // and `wizard-install-start` may not be registered there.
             { mode: 'direct', tool: 'query-trends', ...block, withInstallTool: true, outcome: 'blocked' },
@@ -275,11 +273,6 @@ describe('ToolExecutor', () => {
             { mode: 'direct', tool: 'query-trends', projectHasData: undefined, variant: 'block', outcome: 'none' },
             { mode: 'exec', tool: 'docs-search', ...block, outcome: 'none' },
             { mode: 'exec', tool: 'docs-search', ...warn, outcome: 'none' },
-            { mode: 'direct', tool: 'query-logs', ...block, outcome: 'blocked' },
-            { mode: 'direct', tool: 'execute-sql', ...block, hasWarehouseData: false, outcome: 'blocked' },
-            { mode: 'exec', tool: 'execute-sql', ...block, hasWarehouseData: true, outcome: 'none' },
-            { mode: 'exec', tool: 'execute-sql', ...warn, hasWarehouseData: true, outcome: 'none' },
-            { mode: 'exec', tool: 'execute-sql', ...block, hasWarehouseData: undefined, outcome: 'none' },
             { mode: 'exec', tool: 'query-trends', ...block, overrides: { isImpersonated: true }, outcome: 'none' },
             { mode: 'direct', tool: 'query-trends', ...warn, overrides: { isImpersonated: true }, outcome: 'none' },
             {
@@ -318,10 +311,12 @@ describe('ToolExecutor', () => {
                     } as any,
                     ...overrides,
                 })
+                const argumentsForTool =
+                    tool === 'query-trends' ? { series: [{ kind: 'EventsNode', event: '$pageview' }] } : {}
                 const call =
                     mode === 'exec'
-                        ? { name: 'exec', arguments: { command: `call ${tool} {}` } }
-                        : { name: tool, arguments: {} }
+                        ? { name: 'exec', arguments: { command: `call ${tool} ${JSON.stringify(argumentsForTool)}` } }
+                        : { name: tool, arguments: argumentsForTool }
 
                 const result = (await executor.handleToolCall(call, state)) as any
                 const text: string = result.content?.[0]?.text ?? ''
@@ -344,6 +339,34 @@ describe('ToolExecutor', () => {
                 }
             }
         )
+
+        it.each([
+            ['direct', 'warn'],
+            ['direct', 'block'],
+            ['exec', 'warn'],
+            ['exec', 'block'],
+        ])('returns the validation error before the no-data notice for a %s %s call', async (mode, variant) => {
+            const tool = 'query-trends'
+            const roster = catalog.getFilteredTools({ scopes: ['*'] }).filter((entry) => entry.name === tool)
+            const baseContext = makeToolExecutorState([]).context
+            const state = makeToolExecutorState(roster, {
+                useSingleExec: mode === 'exec',
+                projectHasData: false,
+                toolFeatureFlags: { [MCP_NO_DATA_INSTALL_NOTICE_FLAG]: variant },
+                context: {
+                    ...baseContext,
+                    stateManager: { getProjectId: vi.fn().mockResolvedValue('7') },
+                } as any,
+            })
+            const call =
+                mode === 'exec'
+                    ? { name: 'exec', arguments: { command: `call ${tool} {}` } }
+                    : { name: tool, arguments: {} }
+
+            const result = (await executor.handleToolCall(call, state)) as any
+
+            expect(result.content[0].text).not.toContain("hasn't received any events yet")
+        })
     })
 
     describe('handleToolsList', () => {

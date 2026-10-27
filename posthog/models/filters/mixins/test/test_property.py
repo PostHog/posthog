@@ -1,4 +1,6 @@
 import json
+from collections.abc import Callable
+from typing import Any
 
 import pytest
 from unittest.mock import patch
@@ -6,78 +8,88 @@ from unittest.mock import patch
 from posthoganalytics.contexts import get_capture_exception_code_variables_context
 from rest_framework.exceptions import ValidationError
 
-from posthog.models.filters.properties_timeline_filter import PropertiesTimelineFilter
+from posthog.models.entity import Entity
 from posthog.models.property import Property, PropertyGroup, PropertyValidationError
 
 
-def test_property_group_multi_level_parsing():
-    filter = PropertiesTimelineFilter(
-        data={
-            "properties": {
-                "type": "AND",
-                "values": [
-                    {
-                        "type": "AND",
-                        "values": [
-                            {"key": "attr", "value": "val_1"},
-                            {"key": "attr_2", "value": "val_2"},
-                        ],
-                    },
-                    {"type": "OR", "values": [{"key": "attr", "value": "val_2"}]},
-                ],
-            }
+def _entity(data: dict[str, Any]) -> Entity:
+    return Entity({"id": "$pageview", "type": "events", **data})
+
+
+@pytest.mark.parametrize("encode", [lambda data: data, json.dumps], ids=["dict", "json"])
+def test_property_group_multi_level_parsing(encode: Callable[[dict[str, Any]], Any]):
+    entity = _entity(
+        {
+            "properties": encode(
+                {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {"key": "attr", "value": "val_1"},
+                                {"key": "attr_2", "value": "val_2"},
+                            ],
+                        },
+                        {"type": "OR", "values": [{"key": "attr", "value": "val_2"}]},
+                    ],
+                }
+            )
         }
     )
 
-    assert filter.property_groups.type == "AND"
-    assert isinstance(filter.property_groups.values[0], PropertyGroup)
-    assert filter.property_groups.values[0].type == "AND"
-    assert isinstance(filter.property_groups.values[0].values[0], Property)
-    assert filter.property_groups.values[0].values[0].key == "attr"
-    assert filter.property_groups.values[0].values[0].value == "val_1"
-    assert isinstance(filter.property_groups.values[0].values[1], Property)
-    assert filter.property_groups.values[0].values[1].key == "attr_2"
-    assert filter.property_groups.values[0].values[1].value == "val_2"
+    assert entity.property_groups.type == "AND"
+    assert isinstance(entity.property_groups.values[0], PropertyGroup)
+    assert entity.property_groups.values[0].type == "AND"
+    assert isinstance(entity.property_groups.values[0].values[0], Property)
+    assert entity.property_groups.values[0].values[0].key == "attr"
+    assert entity.property_groups.values[0].values[0].value == "val_1"
+    assert isinstance(entity.property_groups.values[0].values[1], Property)
+    assert entity.property_groups.values[0].values[1].key == "attr_2"
+    assert entity.property_groups.values[0].values[1].value == "val_2"
 
-    assert isinstance(filter.property_groups.values[1], PropertyGroup)
-    assert filter.property_groups.values[1].type == "OR"
-    assert isinstance(filter.property_groups.values[1].values[0], Property)
-    assert filter.property_groups.values[1].values[0].key == "attr"
-    assert filter.property_groups.values[1].values[0].value == "val_2"
+    assert isinstance(entity.property_groups.values[1], PropertyGroup)
+    assert entity.property_groups.values[1].type == "OR"
+    assert isinstance(entity.property_groups.values[1].values[0], Property)
+    assert entity.property_groups.values[1].values[0].key == "attr"
+    assert entity.property_groups.values[1].values[0].value == "val_2"
 
 
-def test_property_group_simple_parsing():
-    filter = PropertiesTimelineFilter(
-        data={
-            "properties": {
-                "type": "AND",
-                "values": [
-                    {"key": "attr", "value": "val_1"},
-                    {"key": "attr_2", "value": "val_2"},
-                ],
-            }
+@pytest.mark.parametrize("encode", [lambda data: data, json.dumps], ids=["dict", "json"])
+def test_property_group_simple_parsing(encode: Callable[[dict[str, Any]], Any]):
+    entity = _entity(
+        {
+            "properties": encode(
+                {
+                    "type": "AND",
+                    "values": [
+                        {"key": "attr", "value": "val_1"},
+                        {"key": "attr_2", "value": "val_2"},
+                    ],
+                }
+            )
         }
     )
 
-    assert filter.property_groups.type == "AND"
-    assert isinstance(filter.property_groups.values[0], Property)
-    assert filter.property_groups.values[0].key == "attr"
-    assert filter.property_groups.values[0].value == "val_1"
-    assert isinstance(filter.property_groups.values[1], Property)
-    assert filter.property_groups.values[1].key == "attr_2"
-    assert filter.property_groups.values[1].value == "val_2"
+    assert entity.property_groups.type == "AND"
+    assert isinstance(entity.property_groups.values[0], Property)
+    assert entity.property_groups.values[0].key == "attr"
+    assert entity.property_groups.values[0].value == "val_1"
+    assert isinstance(entity.property_groups.values[1], Property)
+    assert entity.property_groups.values[1].key == "attr_2"
+    assert entity.property_groups.values[1].value == "val_2"
 
 
 def test_property_group_empty_parsing():
-    filter = PropertiesTimelineFilter(data={"properties": {}})
+    entity = _entity({"properties": {}})
 
-    assert filter.property_groups.type == "AND"
-    assert filter.property_groups.values == []
+    assert entity.property_groups.type == "AND"
+    assert entity.property_groups.values == []
 
 
 def test_property_group_invalid_parsing():
-    filter = PropertiesTimelineFilter(
-        data={
+    entity = _entity(
+        {
             "properties": {
                 "type": "XaND",
                 "values": [
@@ -89,12 +101,12 @@ def test_property_group_invalid_parsing():
     )
 
     with pytest.raises(ValidationError):
-        filter.property_groups  # noqa: B018
+        entity.property_groups  # noqa: B018
 
 
 def test_property_group_includes_unhomogenous_groups():
-    filter = PropertiesTimelineFilter(
-        data={
+    entity = _entity(
+        {
             "properties": {
                 "type": "AND",
                 "values": [
@@ -108,12 +120,12 @@ def test_property_group_includes_unhomogenous_groups():
     )
 
     with pytest.raises(ValidationError):
-        filter.property_groups  # noqa: B018
+        entity.property_groups  # noqa: B018
 
 
 def test_property_multi_level_to_dict():
-    filter = PropertiesTimelineFilter(
-        data={
+    entity = _entity(
+        {
             "properties": {
                 "type": "AND",
                 "values": [
@@ -130,7 +142,7 @@ def test_property_multi_level_to_dict():
         }
     )
 
-    assert filter.property_groups.to_dict() == {
+    assert entity.property_groups.to_dict() == {
         "type": "AND",
         "values": [
             {
@@ -149,8 +161,8 @@ def test_property_multi_level_to_dict():
 
 
 def test_property_group_simple_to_dict():
-    filter = PropertiesTimelineFilter(
-        data={
+    entity = _entity(
+        {
             "properties": {
                 "type": "AND",
                 "values": [
@@ -161,77 +173,13 @@ def test_property_group_simple_to_dict():
         }
     )
 
-    assert filter.property_groups.to_dict() == {
+    assert entity.property_groups.to_dict() == {
         "type": "AND",
         "values": [
             {"key": "attr", "value": "val_1", "type": "event"},
             {"key": "attr_2", "value": "val_2", "type": "event"},
         ],
     }
-
-
-def test_property_group_simple_json_parsing():
-    filter = PropertiesTimelineFilter(
-        data={
-            "properties": json.dumps(
-                {
-                    "type": "AND",
-                    "values": [
-                        {"key": "attr", "value": "val_1"},
-                        {"key": "attr_2", "value": "val_2"},
-                    ],
-                }
-            )
-        }
-    )
-
-    assert filter.property_groups.type == "AND"
-
-    assert isinstance(filter.property_groups.values[0], Property)
-    assert filter.property_groups.values[0].key == "attr"
-    assert filter.property_groups.values[0].value == "val_1"
-    assert isinstance(filter.property_groups.values[1], Property)
-    assert filter.property_groups.values[1].key == "attr_2"
-    assert filter.property_groups.values[1].value == "val_2"
-
-
-def test_property_group_multi_level_json_parsing():
-    filter = PropertiesTimelineFilter(
-        data={
-            "properties": json.dumps(
-                {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "type": "AND",
-                            "values": [
-                                {"key": "attr", "value": "val_1"},
-                                {"key": "attr_2", "value": "val_2"},
-                            ],
-                        },
-                        {"type": "OR", "values": [{"key": "attr", "value": "val_2"}]},
-                    ],
-                }
-            )
-        }
-    )
-
-    assert filter.property_groups.type == "AND"
-    assert isinstance(filter.property_groups.values[0], PropertyGroup)
-    assert filter.property_groups.values[0].type == "AND"
-
-    assert isinstance(filter.property_groups.values[0].values[0], Property)
-    assert filter.property_groups.values[0].values[0].key == "attr"
-    assert filter.property_groups.values[0].values[0].value == "val_1"
-    assert isinstance(filter.property_groups.values[0].values[1], Property)
-    assert filter.property_groups.values[0].values[1].key == "attr_2"
-    assert filter.property_groups.values[0].values[1].value == "val_2"
-
-    assert isinstance(filter.property_groups.values[1], PropertyGroup)
-    assert filter.property_groups.values[1].type == "OR"
-    assert isinstance(filter.property_groups.values[1].values[0], Property)
-    assert filter.property_groups.values[1].values[0].key == "attr"
-    assert filter.property_groups.values[1].values[0].value == "val_2"
 
 
 @pytest.mark.parametrize(
@@ -299,8 +247,8 @@ def test_property_group_parsing_reports_and_skips_unparsable_property(
     # with no visibility at all. It must still be dropped (callers across the codebase
     # rely on best-effort parsing of legacy/malformed data), but the failure must now be
     # reported — regardless of which internal check inside Property.__init__ rejected it.
-    filter = PropertiesTimelineFilter(
-        data={
+    entity = _entity(
+        {
             "properties": {
                 "type": "AND",
                 "values": [{"key": "attr", "value": "val_1"}, invalid_property],
@@ -309,7 +257,7 @@ def test_property_group_parsing_reports_and_skips_unparsable_property(
     )
 
     with patch("posthog.models.property.parse.capture_exception") as mock_capture_exception:
-        properties = filter.property_groups.values
+        properties = entity.property_groups.values
 
     assert len(properties) == 1
     assert isinstance(properties[0], Property)
@@ -330,10 +278,10 @@ def test_property_group_parsing_reports_non_mapping_property():
     # `Property(**prop_params)` unpacking with TypeError, before __init__ even runs. The
     # grouped-properties path can't reach this: a non-mapping element trips the "cannot
     # contain both PropertyGroup and Property objects" check first.
-    filter = PropertiesTimelineFilter(data={"properties": [{"key": "attr", "value": "val_1"}, "not-a-mapping"]})
+    entity = _entity({"properties": [{"key": "attr", "value": "val_1"}, "not-a-mapping"]})
 
     with patch("posthog.models.property.parse.capture_exception") as mock_capture_exception:
-        properties = filter.property_groups.values
+        properties = entity.property_groups.values
 
     assert len(properties) == 1
     assert isinstance(properties[0], Property)
@@ -359,12 +307,12 @@ def test_property_group_parsing_disables_code_variable_capture_for_reported_exce
     def fake_capture_exception(error, additional_properties=None):
         observed_context_values.append(get_capture_exception_code_variables_context())
 
-    filter = PropertiesTimelineFilter(data={"properties": [{"key": "attr", "value": "val_1"}, "not-a-mapping"]})
+    entity = _entity({"properties": [{"key": "attr", "value": "val_1"}, "not-a-mapping"]})
 
     with patch(
         "posthog.models.property.parse.capture_exception", side_effect=fake_capture_exception
     ) as mock_capture_exception:
-        _ = filter.property_groups.values
+        _ = entity.property_groups.values
 
     mock_capture_exception.assert_called_once()
     assert observed_context_values == [False]

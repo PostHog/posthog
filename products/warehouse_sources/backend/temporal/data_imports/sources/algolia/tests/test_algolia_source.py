@@ -22,8 +22,10 @@ class TestAlgoliaSource:
     def test_incremental_endpoints_declare_a_server_side_date_filter(self) -> None:
         # An endpoint that advertises incremental sync without a `startDate` to bind the cursor
         # to would re-read its whole period every run while reporting itself as incremental.
+        # A fan-out child can bind the cursor through its parent's `startDate` instead.
         for name, config in ALGOLIA_ENDPOINTS.items():
-            assert bool(config.incremental_fields) == (config.start_param is not None), name
+            filtered_config = ALGOLIA_ENDPOINTS[config.fanout.parent_name] if config.fanout else config
+            assert bool(config.incremental_fields) == (filtered_config.start_param is not None), name
 
     def test_get_schemas_offers_merge_but_never_append(self) -> None:
         schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}

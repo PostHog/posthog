@@ -1130,7 +1130,7 @@ class TestTrinoShadowRun:
         )
         assert shadow.kwargs["id"] == expected_shadow_id
         assert shadow.kwargs["parent_close_policy"] == ParentClosePolicy.ABANDON
-        assert shadow.kwargs["execution_timeout"] == dt.timedelta(hours=12)
+        assert shadow.kwargs["execution_timeout"] == dt.timedelta(hours=23)
         assert outcome.result.successful_nodes == 2
 
     @pytest.mark.parametrize(

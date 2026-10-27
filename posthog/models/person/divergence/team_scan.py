@@ -529,7 +529,7 @@ def run_chunk(
     files = chunk_files(scan_dir, chunk)
     cursor = load_cursor(files.cursor)
     if cursor is not None and not resume:
-        raise ScanError(f"{files.cursor} exists; pass resume to continue it")
+        raise ScanError(f"{files.cursor} exists; pass --resume to continue it")
     cursor = cursor or Cursor(phase=CH_PHASES[0])
     writer = _RunWriter(files, cursor)
     try:
@@ -621,7 +621,7 @@ def run_postgres(
     files = postgres_files(scan_dir, id_range)
     cursor = load_cursor(files.cursor)
     if cursor is not None and not resume:
-        raise ScanError(f"{files.cursor} exists; pass resume to continue it")
+        raise ScanError(f"{files.cursor} exists; pass --resume to continue it")
     cursor = cursor or Cursor(phase="postgres", after=str(id_range.start - 1 if id_range else 0))
     before = id_range.end if id_range else None
     writer = _RunWriter(files, cursor)

@@ -23,10 +23,9 @@ from products.experiments.backend.facade.contracts import (
 from products.experiments.backend.health.checks.change_wording import suggested_start, the_change
 from products.experiments.backend.health.checks.flag_change_findings import (
     change_finding,
-    changes_not_checked,
+    changes_to_check,
     exposed_when,
     few_exposed_units,
-    history_to_check,
     leave_out,
     not_checked_finding,
 )
@@ -37,7 +36,6 @@ from products.experiments.backend.health.condition_changes import (
     conditions_net_effect,
 )
 from products.experiments.backend.health.context import (
-    ConditionsChange,
     FlagHistory,
     FlagHistoryNotChecked,
     HealthContext,
@@ -52,7 +50,9 @@ from products.experiments.backend.health.pinned_share import (
     pinned_conditions,
     pinned_share_severity,
 )
+from products.experiments.backend.health.skips import CheckOutcome, CheckSkip
 from products.experiments.backend.health.split_changes import format_change_time
+from products.feature_flags.backend.facade.edits import ConditionsChange
 
 _TITLE = "The release conditions changed after launch"
 _OVERRIDE_TITLE = "A variant override was removed after launch"
@@ -61,10 +61,10 @@ _REVERTED_TITLE = "The release conditions changed and were set back"
 _NOT_CHECKED_TITLE = "Release condition changes were not checked"
 
 
-def release_conditions_changed_mid_run(ctx: HealthContext) -> ExperimentHealthFinding | None:
-    history = history_to_check(ctx)
-    if history is None:
-        return None
+def release_conditions_changed_mid_run(ctx: HealthContext) -> CheckOutcome:
+    history = changes_to_check(ctx)
+    if isinstance(history, CheckSkip):
+        return history
     if isinstance(history, FlagHistoryNotChecked):
         return _not_checked(history)
     effect = conditions_net_effect(history.counted(ConditionsChange), current=history.release_conditions)
@@ -148,9 +148,9 @@ def _edited_overrides(effect: ConditionsNetEffect) -> list[str]:
 def removed_overrides_to_grade(ctx: HealthContext) -> PinnedConditions | None:
     """The overrides removed after launch, as pins on the conditions that held them, which the finding is graded
     by as if they were still in place. None when no removed override has a condition left to count its users."""
-    history = ctx.flag_history
+    history = changes_to_check(ctx)
     flag = ctx.flag
-    if not isinstance(history, FlagHistory) or flag is None or flag.deleted or not ctx.is_running or ctx.archived:
+    if not isinstance(history, FlagHistory) or flag is None:
         return None
     effect = conditions_net_effect(history.counted(ConditionsChange), current=history.release_conditions)
     if effect is None:
@@ -329,7 +329,7 @@ def _finding(
 
 
 def _not_checked(history: FlagHistoryNotChecked) -> ExperimentHealthFinding | None:
-    effect = conditions_net_effect(changes_not_checked(history, ConditionsChange), current=None)
+    effect = conditions_net_effect(history.of_kind(ConditionsChange), current=None)
     if effect is None:
         return None
     return not_checked_finding(

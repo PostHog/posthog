@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { EnrichedReviewer } from '../../types'
+import { ReviewerClaim } from './SuggestedReviewerClaimControls'
 import {
     getReviewerExplanation,
     getReviewerSourceLabel,
@@ -80,10 +81,12 @@ export function SuggestedReviewersList({
     reviewers,
     disabled,
     onRemove,
+    claim,
 }: {
     reviewers: EnrichedReviewer[]
     disabled: boolean
     onRemove: (reviewers: EnrichedReviewer[]) => void
+    claim?: ReviewerClaim
 }): JSX.Element {
     const [showAll, setShowAll] = useState(false)
     const items = buildReviewerItems(reviewers)
@@ -99,6 +102,7 @@ export function SuggestedReviewersList({
                         reason={item.reason}
                         disabled={disabled}
                         onRemove={(reviewer) => onRemove([reviewer])}
+                        claim={claim}
                     />
                 ) : (
                     <SuggestedReviewerPerson
@@ -106,6 +110,7 @@ export function SuggestedReviewersList({
                         reviewer={item.reviewer}
                         disabled={disabled}
                         onRemove={() => onRemove([item.reviewer])}
+                        claim={claim}
                     />
                 )
             )}

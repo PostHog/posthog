@@ -686,16 +686,23 @@ class TestComputeMinSamplesForDetector:
                 173,
             ),
             ("ensemble_empty", {"type": "ensemble", "detectors": []}, 31),
-            # The AI detector's own default is 90, not the 30 the statistical ones fall back to,
-            # and it holds no training point back, so the window is the exact requirement.
-            ("llm_no_window", {"type": "llm"}, 90),
-            ("llm_null_window", {"type": "llm", "window": None}, 90),
-            ("llm_custom_window", {"type": "llm", "window": 60}, 60),
-            ("llm_minimum_window", {"type": "llm", "window": 5}, 5),
         ]
     )
     def test_compute_min_samples(self, _name: str, config: dict[str, Any], expected: int) -> None:
         assert _compute_min_samples_for_detector(config) == expected
+
+    @parameterized.expand(
+        [
+            # The AI detector holds no training point back, so its lookback is the exact requirement.
+            ("hour", "hour", 168),
+            ("day", "day", 90),
+            ("week", "week", 52),
+            ("month", "month", 24),
+            ("no_interval", None, 90),
+        ]
+    )
+    def test_llm_lookback_follows_the_interval(self, _name: str, interval: str | None, expected: int) -> None:
+        assert _compute_min_samples_for_detector({"type": "llm"}, interval) == expected
 
 
 def _make_stable_hourly_data(n_days: int = 14) -> np.ndarray:
@@ -813,3 +820,64 @@ class TestRealisticScoreBehavior:
             f"Ensemble OR fired on stable data (score={result.score:.4f}, "
             f"sub_results={result.metadata.get('sub_results')})"
         )
+
+
+_PARITY_PREPROCESSING = [
+    ("raw", {}),
+    ("diffs", {"diffs_n": 1}),
+    ("lags", {"lags_n": 3}),
+    ("smooth", {"smooth_n": 3}),
+    ("diffs_lags_smooth", {"diffs_n": 1, "lags_n": 5, "smooth_n": 3}),
+]
+
+
+def _parity_config(detector_type: str, preprocessing: dict[str, Any], training_offset: int) -> dict[str, Any]:
+    shared = {"preprocessing": preprocessing, "training_offset_n": training_offset}
+    if detector_type == "ensemble":
+        return {
+            "type": "ensemble",
+            "operator": "or",
+            "detectors": [{"type": "zscore", "window": 30, **shared}, {"type": "knn", **shared}],
+        }
+    if detector_type == "threshold":
+        return {"type": "threshold", "upper_bound": 150, **shared}
+    return {"type": detector_type, "window": 30, **shared}
+
+
+class TestFitAndScore:
+    @parameterized.expand(
+        [
+            (f"{detector_type}_{name}_offset_{offset}", detector_type, preprocessing, offset)
+            for detector_type in get_available_detectors()
+            for name, preprocessing in _PARITY_PREPROCESSING
+            for offset in (1, 3)
+        ]
+    )
+    def test_scoring_a_fitted_artifact_matches_detect(
+        self, _name: str, detector_type: str, preprocessing: dict[str, Any], offset: int
+    ) -> None:
+        data = np.random.default_rng(0).normal(100, 10, size=80)
+        data[-1] = 200.0
+        detector = get_detector(_parity_config(detector_type, preprocessing, offset))
+
+        expected = detector.detect(data)
+        scored = detector.score(detector.fit(data[:-1]), data[-1 - detector.context_buckets() :])
+
+        assert len(scored.all_scores) == 1
+        assert scored.score == pytest.approx(expected.score)
+        assert scored.is_anomaly is expected.is_anomaly
+
+    def test_ensemble_scores_each_bucket_through_its_sub_artifacts(self) -> None:
+        detector = get_detector(_parity_config("ensemble", {"diffs_n": 1, "lags_n": 5, "smooth_n": 3}, 1))
+        data = np.random.default_rng(1).normal(100, 10, size=80)
+        data[-2] = 400.0
+
+        artifact = detector.fit(data[:60])
+        scored = detector.score(artifact, data[60 - detector.context_buckets() :])
+
+        assert [child.detector_type for child in artifact.children] == ["zscore", "knn"]
+        assert artifact.children[1].model_bytes
+        assert detector.context_buckets() == 8
+        assert len(scored.all_scores) == len(scored.all_metadata) == 20
+        assert 18 in scored.triggered_indices
+        assert [sub["type"] for sub in scored.all_metadata[18]["sub_results"]] == ["zscore", "knn"]

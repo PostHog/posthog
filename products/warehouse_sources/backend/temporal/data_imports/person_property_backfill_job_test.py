@@ -1,6 +1,7 @@
 import uuid
 import asyncio
 import dataclasses
+from datetime import UTC, datetime
 
 import pytest
 from unittest.mock import AsyncMock, patch
@@ -97,6 +98,22 @@ class TestBackfillWarehousePersonPropertiesActivity:
         assert stage_value("changed") == 0
         assert stage_value("produced") == 0
 
+    @pytest.mark.parametrize("workflow_records_failure,expected_records", [(False, 1), (True, 0)])
+    async def test_activity_records_its_own_failure_only_for_workflows_that_do_not(
+        self, workflow_records_failure: bool, expected_records: int
+    ) -> None:
+        inputs = dataclasses.replace(_inputs(900003), workflow_records_failure=workflow_records_failure)
+        with (
+            patch.object(bj, "run_person_property_backfill", AsyncMock(side_effect=RuntimeError("boom"))),
+            patch.object(bj, "record_started_runs", AsyncMock()),
+            patch.object(bj, "record_failed_runs", AsyncMock()) as mock_failed,
+            patch.object(bj, "capture_exception"),
+            pytest.raises(RuntimeError),
+        ):
+            await ActivityEnvironment().run(bj.backfill_warehouse_person_properties_activity, inputs)
+
+        assert mock_failed.await_count == expected_records
+
 
 @pytest.mark.asyncio
 async def test_in_flight_backfill_runs_one_follow_up_with_the_latest_request() -> None:
@@ -120,6 +137,8 @@ async def test_in_flight_backfill_runs_one_follow_up_with_the_latest_request() -
     with (
         patch.object(bj.workflow, "execute_activity", AsyncMock(side_effect=execute_activity)),
         patch.object(bj.workflow, "wait_condition", AsyncMock()),
+        patch.object(bj.workflow, "now", return_value=datetime(2026, 10, 1, tzinfo=UTC)),
+        patch.object(bj.workflow, "patched", return_value=False),
     ):
         running = asyncio.create_task(runner.run(seed))
         await first_started.wait()
@@ -132,7 +151,8 @@ async def test_in_flight_backfill_runs_one_follow_up_with_the_latest_request() -
 
 
 @pytest.mark.asyncio
-async def test_a_failed_run_still_serves_a_request_that_arrived_while_it_ran() -> None:
+@pytest.mark.parametrize("records_failure", [False, True])
+async def test_a_failed_run_still_serves_a_request_that_arrived_while_it_ran(records_failure: bool) -> None:
     # The API reports a request that lands mid-run as queued, so losing it with the run it happened
     # to overlap would strand a mapping edit with nothing telling the user.
     first = _inputs(900004)
@@ -145,7 +165,10 @@ async def test_a_failed_run_still_serves_a_request_that_arrived_while_it_ran() -
     release_first = asyncio.Event()
     observed: list[PersonPropertyBackfillActivityInputs] = []
 
-    async def execute_activity(_activity, inputs, **_kwargs):
+    async def execute_activity(activity_fn, inputs, **_kwargs):
+        if activity_fn is bj.record_failed_person_property_backfill_runs_activity:
+            # The failed-run record can itself be lost to a worker shutdown.
+            raise _activity_error()
         observed.append(inputs)
         if len(observed) == 1:
             first_started.set()
@@ -155,6 +178,9 @@ async def test_a_failed_run_still_serves_a_request_that_arrived_while_it_ran() -
     with (
         patch.object(bj.workflow, "execute_activity", AsyncMock(side_effect=execute_activity)),
         patch.object(bj.workflow, "wait_condition", AsyncMock()),
+        patch.object(bj.workflow, "now", return_value=datetime(2026, 10, 1, tzinfo=UTC)),
+        patch.object(bj.workflow, "patched", return_value=records_failure),
+        patch.object(bj.workflow, "logger"),
     ):
         running = asyncio.create_task(runner.run(seed))
         await first_started.wait()
@@ -162,7 +188,7 @@ async def test_a_failed_run_still_serves_a_request_that_arrived_while_it_ran() -
         release_first.set()
         await running
 
-    assert observed == [first, latest]
+    assert [i.schema_name for i in observed] == [first.schema_name, latest.schema_name]
 
 
 @pytest.mark.asyncio
@@ -182,6 +208,8 @@ async def test_a_failed_run_with_nothing_queued_fails_the_workflow() -> None:
     with (
         patch.object(bj.workflow, "execute_activity", AsyncMock(side_effect=execute_activity)),
         patch.object(bj.workflow, "wait_condition", AsyncMock()),
+        patch.object(bj.workflow, "now", return_value=datetime(2026, 10, 1, tzinfo=UTC)),
+        patch.object(bj.workflow, "patched", return_value=False),
         pytest.raises(ActivityError),
     ):
         await runner.run(seed)

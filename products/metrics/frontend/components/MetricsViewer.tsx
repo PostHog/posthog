@@ -24,6 +24,7 @@ import { MetricsFacetRailLayout, MetricsFacetRailToggle } from './FacetRail/Metr
 import { MetricsAnomalyPanel } from './MetricsAnomalyPanel'
 import { type MetricsExemplar } from './MetricsExemplarMarkers'
 import { MetricsLogsSourceTag } from './MetricsLogsSourceTag'
+import { MetricsPercentileResolutionHint } from './MetricsPercentileResolutionHint'
 import { MetricsQueryControls } from './MetricsQueryControls'
 import { switchMetricsQueryLanguage } from './metricsQueryLanguageSwitch'
 import { MetricsRelatedMenu } from './MetricsRelatedMenu'
@@ -60,6 +61,7 @@ export const MetricsViewer = (): JSX.Element => {
         language,
         queryText,
         hasResults,
+        queryResults,
         seriesCapReached,
         displayType,
         metricsDisplay,
@@ -174,7 +176,7 @@ export const MetricsViewer = (): JSX.Element => {
 
     const languagesEnabled = useFeatureFlag('METRICS_QUERY_LANGUAGES')
     // The rail writes builder filter chips, which PromQL and SQL queries do not read.
-    const facetRailEnabled = useFeatureFlag('METRICS_FACET_RAIL') && language === 'builder'
+    const facetRailEnabled = useFeatureFlag('METRICS') && language === 'builder'
 
     return (
         <MetricsFacetRailLayout enabled={facetRailEnabled}>
@@ -327,6 +329,9 @@ export const MetricsViewer = (): JSX.Element => {
                         ) : null}
                         {queryLoading && !isHeatmap && <SpinnerOverlay />}
                     </div>
+                    {hasResults && !isHeatmap && !queryError && (
+                        <MetricsPercentileResolutionHint series={queryResults} metricName={metricName} />
+                    )}
                 </div>
                 {hasMetricName && (
                     <div className="xl:w-[26rem] shrink-0 xl:max-h-[360px] flex flex-col">

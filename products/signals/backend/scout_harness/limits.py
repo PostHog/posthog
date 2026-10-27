@@ -8,6 +8,7 @@ from __future__ import annotations
 # timeout — keep it below `WORKFLOW_HARD_CEILING_S`. Tuning this is a config decision,
 # not a per-run override knob.
 DEFAULT_MAX_RUNTIME_S = 20 * 60
+TRIGGERED_BY_ONBOARDING = "onboarding"
 
 # Slack added on top of `DEFAULT_MAX_RUNTIME_S` for the Temporal activity
 # `start_to_close_timeout`, so heartbeat-based failures get a chance to surface

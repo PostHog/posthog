@@ -315,6 +315,16 @@
           "supports_1m_context": false,
           "supports_fast_mode": false
         },
+        "zai-org/glm-5.2": {
+          "cost_multiplier": "≈0.57×",
+          "offered": false,
+          "reasoning_efforts": [
+            "high",
+            "max"
+          ],
+          "supports_1m_context": false,
+          "supports_fast_mode": false
+        },
         "zai-org/glm-5.3": {
           "cost_multiplier": "≈0.57×",
           "offered": true,

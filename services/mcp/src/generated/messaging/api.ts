@@ -3,10 +3,106 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 3 enabled ops
+ * PostHog API - MCP 7 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
+
+export const MessagingCategoriesListParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const MessagingCategoriesListQueryParams = () => zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+})
+
+export const MessagingCategoriesCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const messagingCategoriesCreateBodyKeyMax = 64
+
+export const messagingCategoriesCreateBodyNameMax = 128
+
+export const MessagingCategoriesCreateBody = () => zod.object({
+    key: zod
+        .string()
+        .max(messagingCategoriesCreateBodyKeyMax)
+        .describe(
+            "Stable identifier for the category, unique within the project, for example `newsletter`. Opt-out lists and preference imports refer to categories by key. You can't change the key after creation."
+        ),
+    name: zod
+        .string()
+        .max(messagingCategoriesCreateBodyNameMax)
+        .describe('Display name of the category, shown in the PostHog app.'),
+    description: zod
+        .string()
+        .optional()
+        .describe("Internal notes about which messages belong to this category. Recipients don't see it."),
+    public_description: zod
+        .string()
+        .optional()
+        .describe('Description that recipients see next to the category on the preferences page.'),
+    category_type: zod
+        .enum(['marketing', 'transactional'])
+        .describe('\* `marketing` - Marketing\n\* `transactional` - Transactional')
+        .optional()
+        .describe(
+            "`marketing` (the default): recipients can opt out of it, and sends skip recipients who did. `transactional`: for messages a recipient must get, such as receipts or password resets. Sends ignore opt-outs, and the category doesn't appear on the preferences page. Set `message_category_type` on a workflow message step to the type of its category.\n\n\* `marketing` - Marketing\n\* `transactional` - Transactional"
+        ),
+})
+
+export const MessagingCategoriesRetrieveParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this message category.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const MessagingCategoriesPartialUpdateParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this message category.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const messagingCategoriesPartialUpdateBodyNameMax = 128
+
+export const MessagingCategoriesPartialUpdateBody = () => zod.object({
+    name: zod
+        .string()
+        .max(messagingCategoriesPartialUpdateBodyNameMax)
+        .optional()
+        .describe('Display name of the category, shown in the PostHog app.'),
+    description: zod
+        .string()
+        .optional()
+        .describe("Internal notes about which messages belong to this category. Recipients don't see it."),
+    public_description: zod
+        .string()
+        .optional()
+        .describe('Description that recipients see next to the category on the preferences page.'),
+    category_type: zod
+        .enum(['marketing', 'transactional'])
+        .describe('\* `marketing` - Marketing\n\* `transactional` - Transactional')
+        .optional()
+        .describe(
+            "`marketing` (the default): recipients can opt out of it, and sends skip recipients who did. `transactional`: for messages a recipient must get, such as receipts or password resets. Sends ignore opt-outs, and the category doesn't appear on the preferences page. Set `message_category_type` on a workflow message step to the type of its category.\n\n\* `marketing` - Marketing\n\* `transactional` - Transactional"
+        ),
+})
 
 /**
  * Opt every recipient in the list out of the category named on their entry, or a default category.

@@ -1253,6 +1253,40 @@ class TestPRSnapshot(BaseTest):
         assert pipeline is not None
         assert [f.filename for f in pipeline.pr_files] == ["src/a.py"]
 
+    def test_a_delta_lens_session_without_its_baseline_reviews_the_whole_pr(self) -> None:
+        report_id = upsert_review_report(
+            team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata(head_sha="sha1")
+        )
+        persist_pr_snapshot(
+            team_id=self.team.id,
+            report_id=report_id,
+            head_sha="sha1",
+            pr_metadata=_pr_metadata(head_sha="sha1"),
+            pr_comments=[],
+            pr_files=[
+                PRFile(filename="src/a.py", status="modified", additions=500, deletions=0),
+                PRFile(filename="src/tests/test_a.py", status="modified", additions=500, deletions=0),
+            ],
+            review_design=REVIEW_DESIGN_SINGLE_AGENT,
+        )
+        delta_input = SandboxStageInput(
+            team_id=self.team.id,
+            user_id=self.user.id,
+            report_id=report_id,
+            head_sha="sha1",
+            repository="o/r",
+            branch="feat",
+            run_index=3,
+            review_mode=REVIEW_MODE_FLASH,
+            review_design=REVIEW_DESIGN_SINGLE_AGENT,
+            delta_since_head_sha="0" * 40,
+        )
+
+        prompt = _prepare_single_agent_prompt(delta_input, chunk_id=1, for_lens=True, guidelines="lens")
+
+        assert "## Scope" not in prompt
+        assert "## Changes since the last review" not in prompt
+
 
 class TestPersistVerdict(BaseTest):
     def test_persist_verdict_pairs_with_its_finding_by_issue_key(self) -> None:

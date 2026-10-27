@@ -101,7 +101,6 @@ def create_billing_response(**kwargs) -> dict[str, Any]:
 def create_missing_billing_customer(**kwargs) -> CustomerInfo:
     data: dict[str, Any] = {
         "customer_id": "cus_123",
-        "deactivated": False,
         "custom_limits_usd": {},
         "has_active_subscription": False,
         "current_total_amount_usd": "0.00",
@@ -132,7 +131,6 @@ def create_billing_customer(**kwargs) -> CustomerInfo:
         "current_total_amount_usd_after_discount": "100.00",
         "discount_percent": None,
         "discount_amount_usd": None,
-        "deactivated": False,
         "products": [
             {
                 "name": "Product OS",
@@ -429,7 +427,6 @@ class TestBillingAPI(APILicensedTest):
             "current_total_amount_usd_after_discount": "100.00",
             "discount_percent": None,
             "discount_amount_usd": None,
-            "deactivated": False,
             "products": [
                 {
                     "name": "Product OS",
@@ -629,7 +626,6 @@ class TestBillingAPI(APILicensedTest):
             "current_total_amount_usd_after_discount": "0.00",
             "discount_percent": None,
             "discount_amount_usd": None,
-            "deactivated": False,
             "stripe_portal_url": "http://localhost:8010/api/billing/portal",
             "billing_managed_by_partner": None,
         }

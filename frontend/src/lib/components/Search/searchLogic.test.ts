@@ -110,9 +110,9 @@ describe('searchLogic', () => {
     })
 
     it.each([
-        ['materialized views', 'dataManagementItems', 'Models'],
-        ['data modeling', 'dataManagementItems', 'Models'],
-        ['batch exports', 'dataManagementItems', 'Destinations Batch exports'],
+        ['materialized views', 'productsItems', 'Models'],
+        ['data modeling', 'productsItems', 'Models'],
+        ['batch exports', 'productsItems', 'Destinations Batch exports'],
         ['insights', 'productsItems', 'Product analytics'],
         ['semantic layer', 'productsItems', 'Data catalog'],
         ['Semantic Layer', 'productsItems', 'Data catalog'],

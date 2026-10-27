@@ -131,6 +131,44 @@ describe('query', () => {
         })
     })
 
+    it.each([
+        [true, 1],
+        [undefined, 0],
+    ])('when uses_history_table is %s, sends %i history queried events', async (usesHistoryTable, expectedEvents) => {
+        useMocks({
+            post: {
+                '/api/environments/:team_id/query/:kind': () => [
+                    200,
+                    {
+                        results: [],
+                        is_cached: false,
+                        used_data_warehouse_sources: [
+                            {
+                                id: 'src-1',
+                                source_type: 'Postgres',
+                                table_name: 'orders_cdc',
+                                uses_history_table: usesHistoryTable,
+                            },
+                        ],
+                    },
+                ],
+            },
+        })
+        const captureSpy = jest.spyOn(posthog, 'capture')
+        const q: HogQLQuery = setLatestVersionsOnQuery({ kind: NodeKind.HogQLQuery, query: 'select * from orders_cdc' })
+        captureSpy.mockClear()
+        await performQuery(q)
+        const historyCalls = captureSpy.mock.calls.filter((call) => call[0] === 'data warehouse history table queried')
+        expect(historyCalls).toHaveLength(expectedEvents)
+        if (expectedEvents) {
+            expect(historyCalls[0][1]).toMatchObject({
+                query_kind: NodeKind.HogQLQuery,
+                data_warehouse_source_ids: ['src-1'],
+                data_warehouse_source_types: ['Postgres'],
+            })
+        }
+    })
+
     it('captures precompute strategy and staleness from web analytics responses', async () => {
         const captureSpy = jest.spyOn(posthog, 'capture')
         const q = setLatestVersionsOnQuery({
@@ -379,6 +417,7 @@ describe('query', () => {
                 controller.abort()
             }
             const promise = pollForResults('test-query-id', { signal: controller.signal })
+            // oxlint-disable-next-line jest/valid-expect -- awaited after the abort below; awaiting here hangs the test
             const rejected = expect(promise).rejects.toMatchObject({ name: 'AbortError' })
             await jest.advanceTimersByTimeAsync(0)
             controller.abort()

@@ -39,6 +39,9 @@ const broadcastsCreate = (): ToolBase<ReturnType<typeof BroadcastsCreateSchema>,
         if (params.origin_product !== undefined) {
             body['origin_product'] = params.origin_product
         }
+        if (params.source_record !== undefined) {
+            body['source_record'] = params.source_record
+        }
         if (params.trigger_masking !== undefined) {
             body['trigger_masking'] = params.trigger_masking
         }
@@ -119,6 +122,9 @@ const workflowsCreate = (): ToolBase<ReturnType<typeof WorkflowsCreateSchema>, W
                 }
                 if (params.origin_product !== undefined) {
                     body['origin_product'] = params.origin_product
+                }
+                if (params.source_record !== undefined) {
+                    body['source_record'] = params.source_record
                 }
                 if (params.trigger_masking !== undefined) {
                     body['trigger_masking'] = params.trigger_masking
@@ -390,6 +396,7 @@ const workflowsList = (): ToolBase<
                     optimization_enabled: params.optimization_enabled,
                     origin_product: params.origin_product,
                     search: params.search,
+                    source_record: params.source_record,
                     status: params.status,
                     tags: params.tags,
                     trigger: params.trigger,

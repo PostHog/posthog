@@ -6,7 +6,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { dataTableLogic } from '~/queries/nodes/DataTable/dataTableLogic'
+import { DataTableRow, dataTableLogic } from '~/queries/nodes/DataTable/dataTableLogic'
 import { performQuery } from '~/queries/query'
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
@@ -428,6 +428,27 @@ describe('dataTableLogic', () => {
 
         expect(logic.values.dataTableRows).not.toBe(initialRows)
         expect((logic.values.dataTableRows?.[0]?.result as any[])[1]).toEqual('autocapture')
+    })
+
+    it('reapplies the rows transformer when the context passes a new one', async () => {
+        const hogQLQuery = setLatestVersionsOnQuery({
+            kind: NodeKind.DataTableNode,
+            source: { kind: NodeKind.HogQLQuery, query: 'select 1' },
+        }) as DataTableNode
+        const values = (rows: DataTableRow[]): number[] => rows.map((row) => (row.result as number[])[0])
+        const ascending = (rows: DataTableRow[]): DataTableRow[] =>
+            [...rows].sort((a, b) => (a.result as number[])[0] - (b.result as number[])[0])
+        const descending = (rows: DataTableRow[]): DataTableRow[] => ascending(rows).reverse()
+        const logicProps = { dataKey: testUniqueKey, vizKey: testUniqueKey, query: hogQLQuery }
+        ;(performQuery as any).mockResolvedValueOnce({ results: [[1], [3], [2]] })
+        logic = dataTableLogic({ ...logicProps, context: { dataTableRowsTransformer: ascending } })
+        logic.mount()
+        await expectLogic(logic).delay(0).toMatchValues({ responseLoading: false })
+        expect(values(logic.values.dataTableRows ?? [])).toEqual([1, 2, 3])
+
+        dataTableLogic({ ...logicProps, context: { dataTableRowsTransformer: descending } })
+
+        expect(values(logic.values.dataTableRows ?? [])).toEqual([3, 2, 1])
     })
 
     it('shows results even when columns in query do not match columns in response', async () => {

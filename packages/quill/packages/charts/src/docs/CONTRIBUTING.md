@@ -24,7 +24,7 @@ Where new code goes:
 - **`ChartScales` must not expose d3 types.** Public interface is `x(label) => px`, `y(value) => px`, `yTicks() => number[]`. d3 stays inside the chart-type's `createScales`.
 - **Canvas functions are stateless.** Pure functions in `canvas-renderer.ts`, no React or side effects. State lives in React; drawing reads it.
 - **Overlays use the granular hooks.** `useChartLayout()` doesn't re-render on hover; `useChartHover()` does. Use `useChart()` only when an overlay genuinely needs both — it re-renders on every mousemove.
-- **Pure logic is tested at the `core/` layer.** Chart-level tests assert on the rendered DOM through the `HogChart` accessor — see [TESTING.md](./TESTING.md).
+- **Pure logic is tested at the `core/` layer.** Chart-level tests assert on the rendered DOM through the `ChartAccessor` — see [TESTING.md](./TESTING.md).
 
 ## Adding a new chart type
 

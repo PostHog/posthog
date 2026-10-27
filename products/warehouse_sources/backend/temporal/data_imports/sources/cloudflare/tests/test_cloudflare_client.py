@@ -23,6 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cloudflare
     ZONES_PARENT,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.cloudflare.source import CloudflareSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientRetryableError,
 )
@@ -176,12 +177,28 @@ class TestZoneFanout:
 
         assert isinstance(result.raised, requests.HTTPError)
 
-    def test_forbidden_zone_listing_propagates(self) -> None:
-        # No zone access at all (the top-level listing) must still fail loudly
-        # so the schema is flagged non-retryable rather than silently emptied.
-        result = _driver().run("dns_records", [_error_response(403)])
+    @pytest.mark.parametrize(
+        "endpoint, expected_message",
+        [
+            ("zones", "can't list your zones"),
+            ("dns_records", "can't list your zones"),
+            ("audit_logs", "can't list your accounts"),
+        ],
+    )
+    def test_forbidden_parent_listing_fails_with_the_permission_to_add(
+        self, endpoint: str, expected_message: str
+    ) -> None:
+        # No access to the top-level listing must still fail loudly so the schema is flagged
+        # non-retryable rather than silently emptied, and the customer is told which list it was.
+        result = _driver().run(endpoint, [_error_response(403)])
 
         assert isinstance(result.raised, requests.HTTPError)
+        message = next(
+            message
+            for pattern, message in CloudflareSource().get_non_retryable_errors().items()
+            if error_message_matches(str(result.raised), [pattern])
+        )
+        assert message is not None and expected_message in message
 
 
 class TestRetry:

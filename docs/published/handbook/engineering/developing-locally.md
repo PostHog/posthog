@@ -140,7 +140,7 @@ To get PostHog running in a dev environment:
    brew install flox
    ```
 
-   Use Flox 1.18.2 or newer. To upgrade an existing Homebrew installation, run `brew update && brew upgrade flox`. For other installation methods, follow the [Flox upgrade instructions](https://flox.dev/docs/install-flox/install). Check the installed version with `flox --version`.
+   Use Flox 1.19.1 or newer. To upgrade an existing Homebrew installation, run `brew update && brew upgrade flox`. For other installation methods, follow the [Flox upgrade instructions](https://flox.dev/docs/install-flox/install). Check the installed version with `flox --version`.
 
    The repository's minimum CLI version only warns about older installations. Pulling the repository or running `flox activate` does not upgrade Flox itself or its Nix daemon.
 
@@ -330,11 +330,14 @@ You can narrow the run down to only files under matching paths:
 hogli test frontend/src/lib/components/DateFilter/DateFilter.test.tsx
 ```
 
-To update all visual regression test snapshots, make sure Storybook is running on your machine (you can start it with `hogli storybook` in a separate Terminal tab). You may also need to install Playwright with `pnpm exec playwright install`. And then run:
+CI takes the visual regression snapshots of every Storybook story, and you approve changed ones in the visual review run on your PR.
+To look at stories locally, run `pnpm storybook`. Set `STORYBOOK_STORIES` to a directory or a story file to load only those:
 
 ```bash
-hogli storybook:test
+STORYBOOK_STORIES=frontend/src/toolbar pnpm storybook
 ```
+
+The [Storybook README](https://github.com/PostHog/posthog/blob/master/common/storybook/README.md) covers the local snapshot runner, writing stories, and mocking data.
 
 ### Backend
 

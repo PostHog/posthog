@@ -93,6 +93,8 @@ class RuleV2:
     rule_type: RuleType
     # None for an experiment rule, whose values sit on its variants.
     value: FlagValue | None
+    # An experiment rule's variant values in stored order, equal values included; empty for other rules.
+    variant_values: tuple[FlagValue, ...] = ()
 
     def __post_init__(self) -> None:
         if self.rule_type not in get_args(RuleType):
@@ -170,4 +172,5 @@ def _rule_v2(rule: Mapping[str, Any]) -> RuleV2:
         ),
         rule_type=rule_type,
         value=None if rule_type == "experiment" else rule["value"],
+        variant_values=tuple(variant["value"] for variant in rule["variants"]) if rule_type == "experiment" else (),
     )

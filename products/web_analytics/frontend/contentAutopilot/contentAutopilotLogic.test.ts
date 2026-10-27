@@ -159,6 +159,26 @@ describe('contentAutopilotLogic', () => {
         expect(logic.values.opportunities).toEqual(EXAMPLE_OPPORTUNITIES)
     })
 
+    it('skips the refresh on open when the citation data was read in the last hour, but not after a settings save', async () => {
+        const freshOpportunities = EXAMPLE_OPPORTUNITIES.map((opportunity) => ({
+            ...opportunity,
+            last_refreshed_at: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
+        }))
+        jest.mocked(webAnalyticsContentAutopilotOpportunitiesList).mockResolvedValue(paginated(freshOpportunities))
+
+        const mountedLogic = await mountWorkspace()
+
+        expect(mountedLogic.values.opportunities).toEqual(freshOpportunities)
+        expect(mockOpportunitiesRefresh).not.toHaveBeenCalled()
+
+        await expectLogic(mountedLogic, () => mountedLogic.actions.saveProfile()).toDispatchActions([
+            'saveProfileSuccess',
+            'loadOpportunitiesSuccess',
+            'refreshOpportunities',
+        ])
+        expect(mockOpportunitiesRefresh).toHaveBeenCalledTimes(1)
+    })
+
     it('drafts only the selected opportunities for the current site and clears the selection', async () => {
         const mountedLogic = await mountWorkspace()
         const [first, second] = EXAMPLE_OPPORTUNITIES
@@ -215,7 +235,6 @@ describe('contentAutopilotLogic', () => {
             sourceUrls: 'https://blog.example.com/sitemap.xml',
             contentBoundaries: '/blog',
             brandRules: 'Use sentence case',
-            searchConsoleEnabled: false,
         })
 
         await expectLogic(mountedLogic, () => mountedLogic.actions.saveProfile()).toFinishAllListeners()
@@ -226,7 +245,6 @@ describe('contentAutopilotLogic', () => {
             source_urls: ['https://blog.example.com/sitemap.xml'],
             content_boundaries: ['/blog'],
             brand_rules: ['Use sentence case'],
-            search_console_enabled: false,
         })
     })
 

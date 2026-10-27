@@ -5,7 +5,7 @@ from urllib.parse import ParseResult, urlparse
 
 from posthog.dataclasses import frozen
 
-from products.web_analytics.backend.content_autopilot.edits import heading_levels
+from products.web_analytics.backend.content_autopilot.edits import first_h1, heading_levels
 from products.web_analytics.backend.content_autopilot.research import ResearchBundle
 from products.web_analytics.backend.content_autopilot.site_discovery import site_host
 
@@ -96,6 +96,12 @@ class _StructureProblem:
     message: str
 
 
+def _has_text_before_h1(markdown: str) -> bool:
+    lines = markdown.splitlines()
+    heading = first_h1(lines)
+    return heading is not None and any(line.strip() for line in lines[: heading[0]])
+
+
 def _structure_problems(markdown: str) -> dict[str, _StructureProblem]:
     levels = heading_levels(markdown)
     h1_count = levels.count(1)
@@ -115,6 +121,10 @@ def _structure_problems(markdown: str) -> dict[str, _StructureProblem]:
         problems["frontmatter"] = _StructureProblem(
             severity=1, message="it starts with frontmatter, which belongs in the content package"
         )
+    elif _has_text_before_h1(markdown):
+        problems["preamble"] = _StructureProblem(
+            severity=1, message="it has text before the H1, such as site navigation"
+        )
     return problems
 
 
@@ -125,7 +135,7 @@ def check_structure(markdown: str, *, baseline: str | None = None) -> Validation
         problems = {
             key: problem
             for key, problem in problems.items()
-            if key not in existing or problem.severity > existing[key].severity
+            if key == "preamble" or key not in existing or problem.severity > existing[key].severity
         }
     return ValidationCheck(
         check_key="structure",

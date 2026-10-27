@@ -29,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.signoz.set
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.signoz.signoz import (
     HOST_NOT_ALLOWED_ERROR,
+    NON_JSON_RESPONSE_ERROR,
     SIGNOZ_API_VERSION_V5,
     SigNozResumeConfig,
     signoz_source,
@@ -97,6 +98,7 @@ Create the API key in SigNoz under **Settings > Service Accounts**: create a ser
             "401 Client Error": "Invalid SigNoz API key. Generate a new key from a service account and reconnect.",
             "403 Client Error": "Your SigNoz API key lacks the required permissions for this data. Check the service account's role and reconnect.",
             HOST_NOT_ALLOWED_ERROR: "The configured SigNoz host is not allowed. Check the host and try again.",
+            NON_JSON_RESPONSE_ERROR: "Your SigNoz host didn't return API data, for example it returned a web page. Check that the host points at your SigNoz instance, not a login or proxy page, then try again.",
         }
 
     def get_retryable_errors(self) -> set[str]:

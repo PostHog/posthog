@@ -207,6 +207,7 @@ _PLACEHOLDERS_BY_NAME = (
     ("domain", "contract.example.com"),
     ("region", "us-east-1"),
     ("date", "2024-01-01"),
+    ("billing_period", "2024-01"),
 )
 _UUID = "00000000-0000-4000-8000-000000000000"
 

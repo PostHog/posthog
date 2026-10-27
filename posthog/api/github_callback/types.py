@@ -11,6 +11,8 @@ from django.conf import settings
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, ValidationError
 from rest_framework.exceptions import ValidationError as ApiValidationError
 
+from posthog.credentials_service.callers import CredentialsCaller
+from posthog.credentials_service.settings_fallback import get_or_settings
 from posthog.models.instance_setting import get_instance_settings
 
 # Server-side state cache used by the personal GitHub linking flow (the install
@@ -168,10 +170,11 @@ def github_app_install_url(state: str) -> str:
 
 
 def github_oauth_authorize_url(state: str) -> str:
-    if not settings.GITHUB_APP_CLIENT_ID:
+    client_id = get_or_settings("GITHUB_APP_CLIENT_ID", CredentialsCaller.INTEGRATIONS)
+    if not client_id:
         raise ApiValidationError("GitHub App client ID is not configured (GITHUB_APP_CLIENT_ID missing).")
     return "https://github.com/login/oauth/authorize?" + urlencode(
-        {"client_id": settings.GITHUB_APP_CLIENT_ID, "redirect_uri": github_oauth_redirect_uri(), "state": state}
+        {"client_id": client_id, "redirect_uri": github_oauth_redirect_uri(), "state": state}
     )
 
 

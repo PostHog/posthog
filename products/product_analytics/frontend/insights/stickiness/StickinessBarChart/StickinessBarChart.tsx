@@ -223,6 +223,7 @@ export function StickinessBarChart({ context }: StickinessBarChartProps): JSX.El
             config={chartConfig}
             tooltip={renderTooltip}
             onPointClick={hasClickHandler ? onPointClick : undefined}
+            onPointContextMenu={context?.dashboardResultMenu && hasClickHandler ? onPointClick : undefined}
             className="BarGraph"
             dataAttr="stickiness-bar-graph"
             onError={handleChartError}

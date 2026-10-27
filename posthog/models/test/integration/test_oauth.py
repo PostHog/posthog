@@ -267,7 +267,17 @@ class TestOauthIntegrationModel(BaseTest):
                 },
                 None,
                 '{"error":"invalid_grant","error_description":"Authorization code does not exist or has expired."}',
-                ["invalid_grant", "Authorization code does not exist"],
+                ["Start the connection again"],
+                ["invalid_grant", "Authorization code"],
+            ),
+            (
+                "json_error_body_other_code",
+                400,
+                {"error": "invalid_client", "error_description": "Client authentication failed."},
+                None,
+                '{"error":"invalid_client","error_description":"Client authentication failed."}',
+                ["invalid_client", "Client authentication failed"],
+                [],
             ),
             (
                 "non_json_error_body",
@@ -276,12 +286,21 @@ class TestOauthIntegrationModel(BaseTest):
                 ValueError("not json"),
                 "<html>Bad Gateway</html>",
                 ["salesforce"],
+                [],
             ),
         ]
     )
     @patch("posthog.models.integration.oauth.requests.post")
     def test_oauth_token_exchange_failure_raises_validation_error(
-        self, _name, status_code, json_return, json_side_effect, body_text, expected_in_message, mock_post
+        self,
+        _name,
+        status_code,
+        json_return,
+        json_side_effect,
+        body_text,
+        expected_in_message,
+        unexpected_in_message,
+        mock_post,
     ):
         """A failed token exchange must surface a ValidationError (→ DRF 400 with `detail`) so the
         frontend toast renders something useful. Covers both well-formed JSON error bodies (where
@@ -306,6 +325,8 @@ class TestOauthIntegrationModel(BaseTest):
             message = str(e.value).lower()
             for fragment in expected_in_message:
                 assert fragment.lower() in message
+            for fragment in unexpected_in_message:
+                assert fragment.lower() not in message
 
     @patch("posthog.models.integration.oauth.requests.post")
     def test_integration_errors_if_id_cannot_be_generated(self, mock_post):

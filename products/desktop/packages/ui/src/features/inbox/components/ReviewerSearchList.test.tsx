@@ -83,6 +83,8 @@ describe("ReviewerSearchList", () => {
     expect(mocks.updateReviewers).toHaveBeenCalledWith(
       {
         content: [{ user_uuid: "reviewer-1" }],
+        action: "add",
+        targets: [{ user_uuid: "reviewer-1" }],
         optimisticReviewers: [
           expect.objectContaining({
             github_login: "ada",

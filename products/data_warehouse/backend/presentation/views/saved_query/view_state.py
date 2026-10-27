@@ -65,10 +65,11 @@ class DataWarehouseSavedQuerySerializerMixin:
             return view.status if view.status in STATUSES_STILL_WRITTEN else None
         # Modified means "edited and not materialized since", which no run can express. A run that
         # happened after the edit answers it, so the column only wins while the edit is the newer fact.
+        query_updated_at = view.query_updated_at or view.updated_at
         edited_since_the_run = (
             view.status == DataWarehouseSavedQuery.Status.MODIFIED
-            and view.updated_at is not None
-            and view.updated_at > run.last_run_at
+            and query_updated_at is not None
+            and query_updated_at > run.last_run_at
         )
         return view.status if edited_since_the_run else run.status
 

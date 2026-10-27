@@ -1,3 +1,4 @@
+import { importProjectHomepage } from 'scenes/project-homepage/importProjectHomepage'
 import { preloadedScenes } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 
@@ -23,7 +24,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.Cohorts]: () => import('./cohorts/Cohorts'),
     [Scene.CustomCss]: () => import('./themes/CustomCssScene'),
     [Scene.Dashboard]: () => import('./dashboard/Dashboard'),
-    [Scene.Dashboards]: () => import('./dashboard/dashboards/Dashboards'),
+    [Scene.Dashboards]: () => import('products/dashboards/frontend/dashboards/Dashboards'),
     [Scene.DataManagement]: () => import('./data-management/DataManagementScene'),
     [Scene.DataPipelinesNew]: () => import('./data-pipelines/DataPipelinesNewScene'),
     [Scene.DeadLetterQueue]: () => import('./instance/DeadLetterQueue/DeadLetterQueue'),
@@ -78,7 +79,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.TwoFactorReset]: () => import('./authentication/two-factor-reset/TwoFactorReset'),
     [Scene.PreflightCheck]: () => import('./PreflightCheck/PreflightCheck'),
     [Scene.ProjectCreateFirst]: () => import('./project/Create'),
-    [Scene.ProjectHomepage]: () => import('./project-homepage/ProjectHomepage'),
+    [Scene.ProjectHomepage]: importProjectHomepage,
     [Scene.Library]: () => import('./library/Library'),
     [Scene.AnalyticsList]: () => import('./analytics/AnalyticsList'),
     [Scene.AnalyticsSpaces]: () => import('./analytics/AnalyticsSpaces'),
@@ -95,7 +96,8 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.Replay]: () => import('./session-recordings/SessionRecordings'),
     [Scene.ResourceTransfer]: () => import('./resource-transfer/ResourceTransfer'),
     [Scene.RealTimeUsage]: () => import('./real-time-usage/RealTimeUsage'),
-    [Scene.DashboardTemplateCopy]: () => import('./dashboard/dashboards/templates/DashboardTemplateCopyScene'),
+    [Scene.DashboardTemplateCopy]: () =>
+        import('products/dashboards/frontend/dashboards/templates/DashboardTemplateCopyScene'),
     [Scene.SQLEditor]: () => import('./data-warehouse/editor/EditorScene'),
     [Scene.SavedInsights]: () => import('products/product_analytics/frontend/insights/savedInsights/SavedInsights'),
     [Scene.WebScripts]: () => import('./data-pipelines/WebScriptsScene'),

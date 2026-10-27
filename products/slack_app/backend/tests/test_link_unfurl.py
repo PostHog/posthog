@@ -338,8 +338,15 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("allowed", True, True),
-            ("public_sharing_off", False, False),
+            ("allowed", True, None, True),
+            ("public_sharing_off", False, None, False),
+            (
+                "edited_in_editor",
+                True,
+                {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", "dateRange": {"date_from": "-90d"}}},
+                True,
+            ),
+            ("unchanged_in_editor", True, {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery"}}, True),
         ]
     )
     @patch("products.slack_app.backend.tasks.start_slack_unfurl_charts.delay")
@@ -350,6 +357,7 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
         self,
         _name: str,
         public_sharing: bool,
+        link_query: dict | None,
         expect_started: bool,
         mock_slack_integration_class: MagicMock,
         mock_resolve: MagicMock,
@@ -363,6 +371,8 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
         mock_resolve.return_value = MagicMock(user=self.user)
         mock_sync_connect.return_value.start_workflow = AsyncMock()
         url = f"http://testserver/project/{self.team.pk}/insights/{self.insight.short_id}"
+        if link_query is not None:
+            url += f"/edit?dashboard=1#q={quote(json.dumps(link_query))}"
 
         handle_posthog_link_unfurl(
             {"channel": "C1", "message_ts": "123.456", "user": "U1", "links": [{"url": url}]},
@@ -374,7 +384,10 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
             start_workflow.assert_not_called()
             return
         inputs = start_workflow.call_args.args[1]
-        assert [chart.insight_id for chart in inputs.charts] == [self.insight.id]
+        edited = link_query is not None and link_query != self.insight.query
+        assert [(chart.insight_id, chart.query) for chart in inputs.charts] == [
+            (None, link_query) if edited else (self.insight.id, None)
+        ]
         assert (
             inputs.unfurls == mock_slack_integration_class.return_value.client.chat_unfurl.call_args.kwargs["unfurls"]
         )
@@ -566,10 +579,12 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
 
     @parameterized.expand(
         [
-            # (run told to link, thread has a run, author resolved)
-            ("linking_run", True, True, "U_ACTOR"),
-            ("run_not_told_to_link", False, True, "U00"),
-            ("no_run_in_thread", True, False, "U00"),
+            # (event author, run told to link, thread has a run, author resolved)
+            ("placeholder_linking_run", "U00", True, True, "U_ACTOR"),
+            ("placeholder_run_not_told_to_link", "U00", False, True, "U00"),
+            ("placeholder_no_run_in_thread", "U00", True, False, "U00"),
+            ("our_bot_linking_run", "U_OUR_BOT", True, True, "U_ACTOR"),
+            ("our_bot_no_run_in_thread", "U_OUR_BOT", True, False, "U_OUR_BOT"),
         ]
     )
     @patch("products.slack_app.backend.api.resolve_slack_user")
@@ -577,16 +592,18 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
     def test_bot_reply_link_unfurls_for_the_thread_actor(
         self,
         _name: str,
+        author: str,
         run_links: bool,
         has_run: bool,
         expected_resolved: str,
         mock_slack_integration_class: MagicMock,
         mock_resolve: MagicMock,
     ) -> None:
-        # Slack reports a bot-posted message under a placeholder author that resolves to no PostHog
-        # user, so without this path a chart link in the agent's answer never unfurls. The
-        # attribution stays narrow: a thread whose run was told to share links, and the actor is
-        # the one the run recorded rather than the mapping's stale column.
+        # Slack credits a bot-posted message to our bot user or to a placeholder author, and neither
+        # resolves to a PostHog user, so without this path a chart link in the agent's answer never
+        # unfurls. The attribution stays narrow: a thread whose run was told to share links, and the
+        # actor is the one the run recorded rather than the mapping's stale column.
+        write_auth_state_ok(self.integration.id, bot_user_id="U_OUR_BOT")
         mock_resolve.side_effect = lambda _slack, _integration, uid, *_a, **_k: (
             MagicMock(user=self.user) if uid == "U_ACTOR" else None
         )
@@ -623,7 +640,7 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
                 "channel": "C1",
                 "message_ts": "123.456",
                 "thread_ts": "100.000",
-                "user": "U00",
+                "user": author,
                 "links": [{"url": url}],
             },
             self.integration,

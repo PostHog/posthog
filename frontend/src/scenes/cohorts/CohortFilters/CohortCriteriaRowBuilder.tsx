@@ -5,7 +5,7 @@ import { useActions, useValues } from 'kea'
 import { Field as KeaField } from 'kea-forms'
 
 import { IconCopy, IconTrash } from '@posthog/icons'
-import { LemonDivider } from '@posthog/lemon-ui'
+import { LemonDivider, Tooltip } from '@posthog/lemon-ui'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { eventsWithMoveNotice, moveAnnouncementUrl } from 'lib/components/TaxonomicFilter/utils/hiddenEvents'
@@ -206,8 +206,16 @@ export function CohortCriteriaRowBuilder({
 
 export interface LogicalRowDividerProps {
     logicalOperator: FilterLogicalOperator
+    tooltip?: string
 }
 
-export function LogicalRowDivider({ logicalOperator }: LogicalRowDividerProps): JSX.Element {
-    return <LemonDivider className="logical-row-divider my-4" label={logicalOperator} />
+export function LogicalRowDivider({ logicalOperator, tooltip }: LogicalRowDividerProps): JSX.Element {
+    const label = tooltip ? (
+        <Tooltip title={tooltip} openOnClick placement="right">
+            <span tabIndex={0}>{logicalOperator}</span>
+        </Tooltip>
+    ) : (
+        logicalOperator
+    )
+    return <LemonDivider className="logical-row-divider my-4" label={label} />
 }

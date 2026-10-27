@@ -12,6 +12,8 @@ infra-free by contract: everything re-exported here is a pure function or a
 frozen dataclass over counts.
 """
 
+from typing import TYPE_CHECKING
+
 from products.apm.backend.feature_flags import is_apm_enabled
 from products.apm.backend.logic.anomaly_detection.bands import NegativeBinomialBandModel
 from products.apm.backend.logic.anomaly_detection.baseline import TimeGrid, candidate_slice_pad_buckets
@@ -42,8 +44,25 @@ from products.apm.backend.logic.anomaly_detection.types import (
     TrafficTier,
     VerdictType,
 )
+from products.apm.backend.logic.health.contract import HealthRow, HealthStatus, ServiceHealth, rank_services, status_of
+from products.apm.backend.logic.health.sources import (
+    ServicesHealthResult,
+    list_services_health as _list_services_health,
+)
+
+if TYPE_CHECKING:
+    from datetime import datetime
+
+    from posthog.models import Team
 
 __all__ = [
+    "HealthRow",
+    "HealthStatus",
+    "ServiceHealth",
+    "ServicesHealthResult",
+    "list_services_health",
+    "rank_services",
+    "status_of",
     "BUCKET_MINUTES",
     "BUCKETS_PER_DAY",
     "BUCKETS_PER_WEEK",
@@ -72,3 +91,13 @@ __all__ = [
     "required_consecutive",
     "traffic_tier",
 ]
+
+
+def list_services_health(
+    *, team: "Team", date_from: "datetime", date_to: "datetime", environment: str
+) -> ServicesHealthResult:
+    """One health row per service in the environment and window, worst first.
+
+    Pure contracts out: the presentation layer serializes `ServicesHealthResult` without touching logic.
+    """
+    return _list_services_health(team=team, date_from=date_from, date_to=date_to, environment=environment)

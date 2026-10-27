@@ -3284,7 +3284,7 @@ class TestProcessTaskWorkflowUnit:
         assert cloned == ["posthog/posthog", "posthog/code"]
         for repository in ("posthog/posthog", "posthog/code"):
             assert clone_options[repository]["start_to_close_timeout"] == timedelta(minutes=5)
-            assert clone_options[repository]["retry_policy"].maximum_attempts == 3
+            assert clone_options[repository]["retry_policy"].maximum_attempts == 6
         assert result.clone_ms is None
 
     async def test_overlap_releases_agent_after_primary_clone_and_materializes_failed_secondary(self, monkeypatch):
@@ -3399,6 +3399,7 @@ class TestProcessTaskWorkflowUnit:
             if activity_fn is launch_agent_server:
                 return StartAgentServerOutput(sandbox_url=created.sandbox_url)
             if activity_fn is clone_repository_in_sandbox:
+                assert kwargs["retry_policy"].maximum_attempts == 6
                 raise RuntimeError("clone timed out")
             if activity_fn is mark_repo_ready:
                 ready_inputs.append(args[0])

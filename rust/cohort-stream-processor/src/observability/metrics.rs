@@ -72,8 +72,8 @@ pub const WAL_FSYNC_ERRORS_TOTAL: &str = "wal_fsync_errors_total";
 /// On-disk partition slices kept (reopen-live) across a durable restart, because still assigned to
 /// this pod (counter).
 pub const DURABLE_RESTORE_PARTITIONS_KEPT_TOTAL: &str = "durable_restore_partitions_kept_total";
-/// On-disk partition slices wiped because no longer assigned to this pod — stale state to cold-rebuild
-/// from the committed offset (counter).
+/// On-disk partition slices wiped at boot because another pod owns them, counting only slices that
+/// held a key (counter). A boot that follows a reshard wipes some, and other boots wipe none.
 pub const DURABLE_RESTORE_PARTITIONS_WIPED_STALE_TOTAL: &str =
     "durable_restore_partitions_wiped_stale_total";
 /// Partitions adopted as complete by opening a store without coverage records (counter).
@@ -93,13 +93,13 @@ pub const DURABLE_RESTORE_PENDING_TRANSFERS_RECOVERED_PARTITIONS_TOTAL: &str =
 /// Wall-clock duration of one whole-DB `Checkpoint::create_checkpoint` (histogram, seconds).
 /// Whole-DB checkpoint, so these are per-pod, not per-partition.
 pub const CHECKPOINT_DURATION_SECONDS: &str = "checkpoint_duration_seconds";
-/// On-disk size of a freshly-taken checkpoint directory (histogram, bytes).
+/// On-disk size of the newest local checkpoint directory (gauge, bytes).
 pub const CHECKPOINT_SIZE_BYTES: &str = "checkpoint_size_bytes";
-/// File count in a freshly-taken checkpoint directory (histogram).
+/// File count in the newest local checkpoint directory (gauge).
 pub const CHECKPOINT_FILE_COUNT: &str = "checkpoint_file_count";
 /// Checkpoint S3 uploads, labelled by `result` (`success`|`error`|`cancelled`|`unavailable`) and
-/// `trigger` (`periodic`|`final`), plus checkpoint ticks skipped by a failed WAL fsync
-/// (`result=flush_failed`) (counter). A cancelled final upload ran out of its budget.
+/// `trigger` (`periodic`|`requested`), plus checkpoint ticks skipped by a failed WAL fsync
+/// (`result=flush_failed`) (counter). A shutdown cancels an upload in flight.
 pub const CHECKPOINT_UPLOADS_TOTAL: &str = "checkpoint_uploads_total";
 /// Bytes a successful upload sent, labelled by `kind` (`full`|`incremental`) (counter). Sizes the
 /// bucket's growth for its expiry setting.
@@ -108,8 +108,9 @@ pub const CHECKPOINT_UPLOADED_BYTES_TOTAL: &str = "checkpoint_uploaded_bytes_tot
 /// staleness alert fires only after its threshold passes.
 pub const CHECKPOINT_LAST_CAPTURE_TIMESTAMP_SECONDS: &str =
     "checkpoint_last_capture_timestamp_seconds";
-/// Unix time of the last successful upload (gauge, seconds). Starts at the sweeper's start.
-/// **Alert on staleness**: no restorable checkpoint is getting newer.
+/// Capture time of the newest successful upload, in Unix seconds (gauge). Starts at the upload
+/// `uploaded.json` records, else at the sweeper's start. **Alert on staleness**: no restorable
+/// checkpoint is getting newer.
 pub const CHECKPOINT_LAST_UPLOAD_TIMESTAMP_SECONDS: &str =
     "checkpoint_last_upload_timestamp_seconds";
 /// `full_upload_at` of the newest upload: when its chain of incrementals began (gauge, seconds).

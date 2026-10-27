@@ -109,6 +109,36 @@ describe('withRetry', () => {
         expect(callCount).toBe(3)
     })
 
+    it.each([
+        ['Unavailable', Code.Unavailable, 50],
+        ['ResourceExhausted', Code.ResourceExhausted, 250],
+    ])('waits the %s backoff before the first retry', async (_name, code, firstDelayMs) => {
+        jest.useFakeTimers()
+        const random = jest.spyOn(Math, 'random').mockReturnValue(0)
+        try {
+            let callCount = 0
+            const result = withRetry(
+                () => {
+                    callCount++
+                    if (callCount === 1) {
+                        throw new ConnectError('transient', code)
+                    }
+                    return Promise.resolve('ok')
+                },
+                'test-client',
+                'test-method'
+            )
+            await jest.advanceTimersByTimeAsync(firstDelayMs - 1)
+            expect(callCount).toBe(1)
+            await jest.advanceTimersByTimeAsync(1)
+            await expect(result).resolves.toBe('ok')
+            expect(callCount).toBe(2)
+        } finally {
+            random.mockRestore()
+            jest.useRealTimers()
+        }
+    })
+
     it('respects custom maxRetries', async () => {
         let callCount = 0
         await expect(

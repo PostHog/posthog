@@ -30,6 +30,9 @@ pub struct RequestContext {
     /// Client IP
     pub ip: IpAddr,
 
+    /// Host of the `Origin` header, or of `Referer` without one.
+    pub origin_host: Option<String>,
+
     /// HTTP headers
     pub headers: HeaderMap,
 

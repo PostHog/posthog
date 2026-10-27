@@ -1,6 +1,6 @@
 import { TableDataCell } from '../dataVisualizationLogic'
 import { ColumnScalar } from '../types'
-import { compareTableCells } from './Table'
+import { MAX_COLUMN_WIDTH, MIN_COLUMN_WIDTH, compareTableCells, estimateColumnWidths } from './Table'
 
 function cell(value: string | number | boolean | Date | null, type: ColumnScalar = 'STRING'): TableDataCell<any> {
     return { value, formattedValue: value === null ? null : String(value), type }
@@ -27,5 +27,68 @@ describe('compareTableCells', () => {
         expect(
             Math.sign(compareTableCells(a as TableDataCell<any> | undefined, b as TableDataCell<any> | undefined))
         ).toBe(expected)
+    })
+})
+
+describe('estimateColumnWidths', () => {
+    const widthsFor = (titles: string[], rows: (string | number | null)[][]): number[] =>
+        estimateColumnWidths(titles, rows.length, (rowIndex, columnIndex) => cell(rows[rowIndex][columnIndex]))
+
+    it('keeps short columns narrow and widens columns with longer values', () => {
+        const [period, mrr, label] = widthsFor(
+            ['period', 'mrr', 'label'],
+            [
+                ['2026-11', '$8,565,043', 'A much longer description for this row'],
+                ['2026-10', '$7,973,096', 'short'],
+            ]
+        )
+
+        expect(period).toBeLessThan(150)
+        expect(mrr).toBeLessThan(150)
+        expect(label).toBeGreaterThan(mrr)
+        expect(label).toBeLessThanOrEqual(MAX_COLUMN_WIDTH)
+    })
+
+    it('stays inside the width bounds for empty and very long content', () => {
+        const [empty, long] = widthsFor(['a', 'b'], [[null, 'x'.repeat(1000)]])
+
+        expect(empty).toBeGreaterThanOrEqual(MIN_COLUMN_WIDTH)
+        expect(empty).toBeLessThan(100)
+        expect(long).toBe(MAX_COLUMN_WIDTH)
+    })
+
+    it('fits the longest header segment, because headers wrap at underscores', () => {
+        const [underscored, unbroken] = widthsFor(
+            ['a_b_c_d_e_f_g_h_i_j_k_l_m_n', 'abcdefghijklmnopqrstuvwxyz'],
+            [[1, 1]]
+        )
+
+        expect(underscored).toBeLessThan(unbroken)
+    })
+
+    it('includes values found late in the result', () => {
+        const rows = Array.from({ length: 1000 }, (_, index) => [index % 100 === 99 ? 'x'.repeat(30) : 'x'])
+        const getCell = jest.fn((rowIndex: number, columnIndex: number) => cell(rows[rowIndex][columnIndex]))
+
+        const [width] = estimateColumnWidths(['value'], rows.length, getCell)
+
+        expect(width).toBeGreaterThan(200)
+        expect(getCell.mock.calls.length).toBeLessThanOrEqual(1000)
+    })
+
+    it('keeps the sampled cells within the budget for very wide tables', () => {
+        const columnCount = 10_001
+        const titles = Array.from({ length: columnCount }, (_, index) => `row_${index}`)
+        const getCell = jest.fn((_rowIndex: number, columnIndex: number) =>
+            cell(columnIndex === 0 ? 'field_name' : 'x'.repeat(20))
+        )
+
+        const widths = estimateColumnWidths(titles, 10, getCell)
+
+        expect(getCell.mock.calls.length).toBeLessThanOrEqual(5000)
+        expect(widths).toHaveLength(columnCount)
+        // Unsampled columns reuse the typical sampled width
+        expect(widths[1]).toBe(widths[columnCount - 2])
+        expect(widths[1]).toBeGreaterThan(150)
     })
 })

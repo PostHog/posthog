@@ -37,7 +37,7 @@ would otherwise be repeatable free work.
 
 import uuid
 from collections import defaultdict
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from datetime import datetime
 from typing import TYPE_CHECKING, NamedTuple
 
@@ -327,7 +327,10 @@ def current_billing_period_bounds(organization: "Organization") -> BillingPeriod
 
 
 def get_signals_billing_credits_by_team(
-    begin: datetime, end: datetime, organization_id: str | uuid.UUID | None = None
+    begin: datetime,
+    end: datetime,
+    organization_id: str | uuid.UUID | None = None,
+    organization_ids: Collection[str | uuid.UUID] | None = None,
 ) -> list[tuple[int, int]]:
     """Signals credits used per team in `[begin, end)`.
 
@@ -336,7 +339,8 @@ def get_signals_billing_credits_by_team(
     such run exists before `begin`. Each billable report is charged a flat
     `SIGNALS_CREDITS_PER_REPORT_WITH_PR`. Returns `[(team_id, credits), ...]` for teams with
     non-zero usage only. `organization_id` narrows the scan to one org (the widget's live-count
-    path); usage reporting passes nothing and stays fleet-wide.
+    path), and `organization_ids` to a set of orgs (the quota run's recount). Usage reporting passes
+    neither and stays fleet-wide.
 
     The entry scan is bounded by PRs shipped in the period (via the `created_at` +
     `output__pr_url` indexes), not by the total number of reports, task runs, or teams.
@@ -350,6 +354,8 @@ def get_signals_billing_credits_by_team(
     )
     if organization_id is not None:
         bridges = bridges.filter(team__organization_id=organization_id)
+    if organization_ids is not None:
+        bridges = bridges.filter(team__organization_id__in=organization_ids)
     report_team: dict[uuid.UUID, int] = {}
     for report_id, team_id in bridges.values_list("report_id", "team_id"):
         report_team.setdefault(report_id, team_id)

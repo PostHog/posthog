@@ -9,10 +9,10 @@ import { preflightLogic } from 'lib/logic/preflightLogic'
 import { projectLogic } from 'scenes/projectLogic'
 
 import type { CachedNewExperimentQueryResponse, ExperimentMetric } from '~/queries/schema/schema-general'
-import { Experiment } from '~/types'
+import { Experiment, ExperimentStatus } from '~/types'
 import type { ExperimentIdType } from '~/types'
 
-import { isLaunched } from 'products/experiments/frontend/experimentStatus'
+import { getExperimentStatus, isLaunched } from 'products/experiments/frontend/experimentStatus'
 import {
     experimentsMetricsRecalculationCreate,
     experimentsMetricsRecalculationLatestRetrieve,
@@ -83,6 +83,13 @@ const MAX_POLL_DURATION_MS = 30 * 60 * 1000
 // A request that never settles neither resolves nor rejects, so without a deadline the page loads forever.
 const LATEST_REQUEST_TIMEOUT_MS = 30 * 1000
 const POLL_REQUEST_TIMEOUT_MS = 15 * 1000
+/** Each stale refresh is a full ClickHouse recalculation, so this threshold sets the load that page visits add. */
+const STALE_RESULTS_THRESHOLD_HOURS = 12
+/** A paused experiment collects no new data. An exposure-frozen one still collects metric events. */
+const STALE_REFRESH_STATUSES: ReadonlySet<ExperimentStatus> = new Set([
+    ExperimentStatus.Running,
+    ExperimentStatus.ExposureFrozen,
+])
 
 class RecalculationRequestTimeoutError extends Error {}
 
@@ -195,6 +202,12 @@ const recalculationHasGap = (experiment: Experiment, recalculation: Recalculatio
 
     return currentMetricUuids(experiment).some((uuid) => !coveredUuids.has(uuid))
 }
+
+const resultsAreStale = (experiment: Experiment, recalculation: RecalculationPayload): boolean =>
+    STALE_REFRESH_STATUSES.has(getExperimentStatus(experiment)) &&
+    currentMetricUuids(experiment).length > 0 &&
+    !!recalculation.query_to &&
+    dayjs.utc().diff(dayjs.utc(recalculation.query_to), 'hour', true) > STALE_RESULTS_THRESHOLD_HOURS
 
 type MetricErrorState = { detail: string; retriable: boolean } | null
 type ResolveByUuid<T> = (uuid: string) => T
@@ -802,7 +815,17 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                      * on page load. What is already shown stays visible and cells update in place as the run polls.
                      */
                     /** A rejected run gets the same answer on every heal, so a heal would only loop. */
-                    if (!rejectionMessage(recalculation) && recalculationHasGap(props.experiment, recalculation)) {
+                    if (rejectionMessage(recalculation)) {
+                        return
+                    }
+                    /**
+                     * A stale refresh advances the window over every metric, so it also fills a gap. It runs once
+                     * per mount, so a run that cannot advance the window does not start a new run on every load.
+                     */
+                    if (!cache.staleRefreshRequested && resultsAreStale(props.experiment, recalculation)) {
+                        cache.staleRefreshRequested = true
+                        actions.triggerRecalculation('stale_refresh')
+                    } else if (recalculationHasGap(props.experiment, recalculation)) {
                         actions.triggerRecalculation(HEAL_TRIGGER_BY_RESULT_SOURCE[recalculation.result_source])
                     }
                 } catch (error: any) {
@@ -964,9 +987,10 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                         /**
                          * Create can return an already-terminal run (e.g. a completed one finished between
                          * request and response). Load its results directly rather than polling. A rejected
-                         * run has no results on the create response, so latest serves the earlier ones.
+                         * run has no results on the create response, so latest serves the earlier ones. The
+                         * same applies to an existing run the backend returns instead of a stale refresh.
                          */
-                        if (rejectionMessage(recalculation)) {
+                        if (rejectionMessage(recalculation) || recalculation.is_existing) {
                             /** A failed reload never reaches applyResults, so the marks of this create clear here. */
                             actions.setRecalculatingMetricUuids(
                                 values.recalculatingMetricUuids.filter(

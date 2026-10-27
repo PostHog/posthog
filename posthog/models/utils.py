@@ -143,6 +143,26 @@ def namedtuplefetchall(cursor):
     return [nt_result(*row) for row in cursor.fetchall()]
 
 
+def strip_null_bytes(value: Any) -> Any:
+    """Recursively remove NUL (\\x00) from strings, because Postgres text/jsonb columns cannot store it.
+
+    Anything written to a Postgres text or JSON column that originates outside Postgres (ClickHouse
+    query results, LLM output, user-supplied prompts) must pass through this first. Otherwise Django
+    serializes the NUL to a unicode escape that Postgres rejects, and the whole write fails with a DataError.
+    """
+    if isinstance(value, str):
+        return value.replace("\x00", "")
+    if isinstance(value, list):
+        return [strip_null_bytes(v) for v in value]
+    if isinstance(value, tuple):
+        return tuple(strip_null_bytes(v) for v in value)
+    if isinstance(value, dict):
+        # Strip keys too: a Map(String, …) column can produce data-derived keys carrying NUL,
+        # and Postgres rejects it in a jsonb key just as it does in a value.
+        return {strip_null_bytes(k): strip_null_bytes(v) for k, v in value.items()}
+    return value
+
+
 def generate_random_token(nbytes: int = 32) -> str:
     """Generate a securely random token.
 

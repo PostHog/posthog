@@ -37,12 +37,7 @@ export {
   type SignedCommitToolCtx,
   type SignedCommitToolResult,
 } from "./signed-commit-shared";
-export {
-  type PeerMessageSendResult,
-  type TaskRunPeer,
-  TaskToolsApiClient,
-  TaskToolsApiError,
-} from "./task-tools-client";
+export { TaskToolsApiClient, TaskToolsApiError } from "./task-tools-client";
 export { FINISH_TOOL_NAME } from "./tools/finish";
 export { GH_STACK_QUALIFIED_TOOL_NAME } from "./tools/gh-stack";
 export { SHOW_ACTIONS_TOOL_NAME } from "./tools/show-actions";

@@ -832,4 +832,90 @@ describe('createProcessPersonsStep', () => {
             expect(distinctIds.sort()).toEqual(['anon-1', 'user-1'])
         })
     })
+
+    // The person repair tooling (`person_consistency fold` and `merge`) sends these events and relies on these outcomes.
+    describe('merge outcomes the person repair tooling relies on', () => {
+        it.each([
+            ['$identify', { $anon_distinct_id: 'a-moved' }],
+            ['$merge_dangerously', { alias: 'a-moved' }],
+        ])(
+            '%s whose two ids already share a person marks it identified and applies $set_once',
+            async (event, extra) => {
+                const person = await createPersonWithDistinctIds('b-own', 'a-moved')
+                expect(person.is_identified).toBe(false)
+
+                const step = createProcessPersonsStep(options, personOutputs)
+                const result = await step(
+                    createInput({
+                        normalizedEvent: {
+                            ...pluginEvent,
+                            event,
+                            distinct_id: 'b-own',
+                            properties: { ...extra, $set_once: { plan: 'pro' } },
+                        },
+                    })
+                )
+                expect(isOkResult(result)).toBe(true)
+                await personsStore.flush()
+
+                const persons = await fetchPostgresPersons(infra.postgres, teamId)
+                expect(persons).toHaveLength(1)
+                expect(persons[0].uuid).toBe(person.uuid)
+                expect(persons[0].is_identified).toBe(true)
+                expect(persons[0].properties).toMatchObject({ plan: 'pro' })
+                expect((await fetchDistinctIdValues(infra.postgres, persons[0])).sort()).toEqual(['a-moved', 'b-own'])
+            }
+        )
+
+        it('$merge_dangerously folds an older identified source into the survivor with the earlier created_at', async () => {
+            const olderCreatedAt = DateTime.fromISO('2024-01-01T00:00:00Z', { zone: 'utc' })
+            const source = await personRepository.createPerson(
+                olderCreatedAt,
+                { email: 'old@example.com', plan: 'pro' },
+                {},
+                {},
+                teamId,
+                null,
+                true,
+                new UUIDT().toString(),
+                { distinctId: 'a-ghost' }
+            )
+            const survivor = await personRepository.createPerson(
+                DateTime.fromISO('2026-09-01T00:00:00Z', { zone: 'utc' }),
+                { email: 'new@example.com' },
+                {},
+                {},
+                teamId,
+                null,
+                false,
+                new UUIDT().toString(),
+                { distinctId: 'b-own' }
+            )
+            if (!source.success || !survivor.success) {
+                throw new Error('setup failed')
+            }
+
+            const step = createProcessPersonsStep(options, personOutputs)
+            const result = await step(
+                createInput({
+                    normalizedEvent: {
+                        ...pluginEvent,
+                        event: '$merge_dangerously',
+                        distinct_id: 'b-own',
+                        properties: { alias: 'a-ghost' },
+                    },
+                })
+            )
+            expect(isOkResult(result)).toBe(true)
+            await personsStore.flush()
+
+            const live = await fetchPostgresPersons(infra.postgres, teamId)
+            expect(live).toHaveLength(1)
+            expect(live[0].uuid).toBe(survivor.person.uuid)
+            expect(live[0].is_identified).toBe(true)
+            expect(live[0].created_at.toISO()).toBe(olderCreatedAt.toISO())
+            expect(live[0].properties).toMatchObject({ email: 'new@example.com', plan: 'pro' })
+            expect((await fetchDistinctIdValues(infra.postgres, live[0])).sort()).toEqual(['a-ghost', 'b-own'])
+        })
+    })
 })

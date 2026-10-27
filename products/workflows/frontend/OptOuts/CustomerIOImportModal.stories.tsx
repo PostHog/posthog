@@ -45,6 +45,7 @@ const step1CompletedConfig: OptOutSyncConfigResponse = {
         imported_at: '2026-04-13T10:00:00Z',
         categories_created: 6,
         globally_unsubscribed_count: 1234,
+        suppressions_imported: 2045,
     },
 }
 

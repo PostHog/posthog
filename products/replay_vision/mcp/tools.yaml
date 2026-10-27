@@ -970,24 +970,6 @@ tools:
             What a signal-emitting scanner led to, all time: `signals_emitted` into the Signals inbox,
             `reports_contributed` (reports that include at least one of its signals), and implementation `prs_opened`
             and `prs_merged` by self-driving on those reports. All zero for a scanner that does not emit signals.
-    vision-scanners-suggest-tags:
-        operation: vision_scanners_suggest_tags_create
-        enabled: true
-        scopes:
-            - replay_scanner:read
-            - session_recording:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: false
-        title: Suggest classifier tags
-        description: >
-            Suggest tags for a classifier scanner, grounded in the org's product data and, when `scanner_id` is given,
-            in that scanner's own observations (its freeform tags and reasoning). Pass the classifier `prompt` and the
-            `tags` already configured so suggestions never repeat one. Returns `suggestions`, most relevant first; may
-            be empty when evidence is thin. Nothing is saved: add chosen tags with `vision-scanners-update`. A 503 means
-            the suggestions could not be generated; try again later.
-        requires_ai_consent: true
     vision-scanners-update:
         operation: vision_scanners_partial_update
         enabled: true

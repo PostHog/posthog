@@ -34,6 +34,23 @@ class LayoutCompaction(models.TextChoices):
 DASHBOARD_GRID_COMPACTION_MODES = tuple(LayoutCompaction.values)
 
 
+class TileGroupDisplay(models.TextChoices):
+    SECTIONS = "sections", "sections"
+    TABS = "tabs", "tabs"
+
+
+DASHBOARD_TILE_GROUP_DISPLAY_MODES = tuple(TileGroupDisplay.values)
+
+
+class DashboardTileGroupColor(models.TextChoices):
+    BLUE = "blue", "Blue"
+    PURPLE = "purple", "Purple"
+    GREEN = "green", "Green"
+    YELLOW = "yellow", "Yellow"
+    ORANGE = "orange", "Orange"
+    RED = "red", "Red"
+
+
 class DashboardManager(RootTeamManager):
     def get_queryset(self):
         return super().get_queryset().exclude(deleted=True)

@@ -100,11 +100,14 @@ export function TraceDialog(): JSX.Element | null {
             ) : (
                 <TraceView
                     traceId={trace.traceId}
+                    surface="trace_dialog"
                     inspectorOpen={inspectorOpen}
                     sessionId={traceSessionId}
                     showErrorsTab={sessionErrorBadgesEnabled}
                     openedFrom={openedFrom}
                     openedAtUs={openedAtUs}
+                    // The dialog loads a capped number of pages and offers Open in Tracing for the rest.
+                    spansPartial={traceSpans.truncated}
                 />
             )}
         </TraceViewDrawer>

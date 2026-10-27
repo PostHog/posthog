@@ -5,13 +5,13 @@ import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
 import { NavProductIcon } from '~/layout/panel-layout/navbar/tabs/NavProductIcon'
 
-import { TodayProductPreview } from './todayPreviewCards'
+import { TodayExplainerPreview, TodayProductPreview } from './todayPreviewCards'
 
 export function TodayProductHoverCard({
     preview,
     onAction,
 }: {
-    preview: TodayProductPreview
+    preview: TodayProductPreview | TodayExplainerPreview
     onAction: () => void
 }): JSX.Element {
     return (
@@ -23,7 +23,7 @@ export function TodayProductHoverCard({
                             className="flex size-4 shrink-0 items-center justify-center group/colorful-product-icons colorful-product-icons-true [&_svg]:size-4"
                             aria-hidden
                         >
-                            <NavProductIcon item={preview.product} />
+                            {preview.kind === 'product' ? <NavProductIcon item={preview.product} /> : preview.icon}
                         </span>
                         <span className="min-w-0 flex-1 font-semibold">{preview.label}</span>
                     </ItemTitle>

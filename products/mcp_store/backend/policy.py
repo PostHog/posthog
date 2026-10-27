@@ -7,8 +7,8 @@ can never make a tool more permissive than the team allows.
 1. Org rules — enabled team guardrails; a match locks the state.
 2. The stricter of the caller's own choice and the team ceiling. The caller's
    choice comes from its scope row, or for members from the legacy
-   per-installation state. The ceiling comes from the explicit team row, then
-   the audience preset.
+   per-installation state, which only its owner can approve through. The
+   ceiling comes from the explicit team row, then the audience preset.
 3. `needs_approval` — freshly discovered tools are opt-in when neither side
    has made a choice.
 
@@ -232,6 +232,17 @@ class _PolicyInputs:
 _STRICTNESS = {"do_not_use": 2, "needs_approval": 1, "approved": 0}
 
 
+def legacy_state_for_caller(state: str, *, caller_owns_installation: bool) -> str:
+    """Read an installation's legacy per-tool state for one caller.
+
+    Only the owner writes that column, so on a shared installation a teammate
+    keeps the owner's restrictions but not the owner's approvals.
+    """
+    if state == "approved" and not caller_owns_installation:
+        return "needs_approval"
+    return state
+
+
 def is_policy_state_allowed(state: str, ceiling: str | None) -> bool:
     """Whether ``state`` is at least as restrictive as ``ceiling``."""
     if ceiling is None:
@@ -252,6 +263,7 @@ class PolicyContext:
         gateway_server_id: UUID | None = None,
         installation: MCPServerInstallation | None = None,
         legacy_rows: dict[str, str] | None = None,
+        installation_owner_id: int | None = None,
         _preloaded: _PolicyInputs | None = None,
     ) -> None:
         if gateway_server is not None:
@@ -324,8 +336,14 @@ class PolicyContext:
         if legacy_rows is None and installation is not None and caller.kind == "member":
             for row in installation.tools.filter(removed_at__isnull=True).values("tool_name", "approval_state"):
                 raw_legacy[row["tool_name"]] = row["approval_state"]
+        owner_id = installation.user_id if installation is not None else installation_owner_id
+        caller_owns_installation = caller.user_id is not None and owner_id == caller.user_id
+        caller_legacy = {
+            tool_name: legacy_state_for_caller(state, caller_owns_installation=caller_owns_installation)
+            for tool_name, state in raw_legacy.items()
+        }
         self._legacy_rows = {
-            tool_name: state for tool_name, state in raw_legacy.items() if state != SYNC_DEFAULT_APPROVAL_STATE
+            tool_name: state for tool_name, state in caller_legacy.items() if state != SYNC_DEFAULT_APPROVAL_STATE
         }
 
     @classmethod

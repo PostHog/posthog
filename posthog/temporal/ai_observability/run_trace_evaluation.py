@@ -67,6 +67,7 @@ from posthog.temporal.ai_observability.message_utils import extract_text_from_me
 from posthog.temporal.ai_observability.metrics import increment_emit_event_outcome, increment_errors
 from posthog.temporal.ai_observability.run_evaluation import (
     WorkflowResult,
+    build_skipped_workflow_result,
     handle_llm_judge_activity_error,
     handle_terminal_user_error_result,
 )
@@ -886,15 +887,11 @@ class RunTraceEvaluationWorkflow(PostHogWorkflow):
         # The evaluation may have been paused or deleted during the aggregation window —
         # bail out instead of running against config the user just turned off.
         if evaluation["deleted"] or not evaluation["enabled"]:
-            disabled_result: WorkflowResult = {
-                "skipped": True,
-                "skip_reason": "evaluation_deleted" if evaluation["deleted"] else "evaluation_disabled",
-                "evaluation_id": inputs.evaluation_id,
-                "evaluation_type": evaluation_type,
-            }
-            if evaluation.get("output_type") not in ("numeric", "categorical"):
-                disabled_result["verdict"] = None
-            return disabled_result
+            return build_skipped_workflow_result(
+                evaluation=evaluation,
+                evaluation_type=evaluation_type,
+                skip_reason="evaluation_deleted" if evaluation["deleted"] else "evaluation_disabled",
+            )
 
         execute_inputs = ExecuteTraceEvaluationInputs(
             evaluation=evaluation,

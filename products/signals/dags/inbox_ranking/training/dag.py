@@ -46,6 +46,8 @@ from products.signals.backend.ranking.features import FEATURE_SETS
 from products.signals.backend.ranking.model_contract import model_mismatch, trained_head_files
 from products.signals.backend.ranking.overrides import read_ranking_overrides
 from products.signals.backend.ranking.serving_manifest import (
+    PROJECT_VECTORS_ENGAGEMENT_DATE_METADATA_KEY,
+    PROJECT_VECTORS_SCHEMA_VERSION_METADATA_KEY,
     ServingManifest,
     model_key,
     serving_manifest_key,
@@ -66,12 +68,19 @@ from products.signals.dags.inbox_ranking.common import (
     skip_unconfigured,
 )
 from products.signals.dags.inbox_ranking.dataset.dag import LABELS_TABLE, PROJECT_VECTORS_TABLE, STATE_TABLE
+from products.signals.dags.inbox_ranking.dataset.project_vectors import PROJECT_VECTORS_SCHEMA_VERSION
 from products.signals.dags.inbox_ranking.training.examples import (
     BASE_STATE_COLUMNS,
     PROVENANCE_LABEL_COLUMNS,
     PROVENANCE_STATE_COLUMNS,
     Snapshot,
     assemble_snapshot,
+)
+from products.signals.dags.inbox_ranking.training.families import (
+    MODEL_FAMILIES,
+    ModelFamily,
+    experiment_names,
+    serving_families,
 )
 from products.signals.dags.inbox_ranking.training.heads import (
     ACTION_LABEL_COLUMNS,
@@ -83,6 +92,7 @@ from products.signals.dags.inbox_ranking.training.promotion import decide_promot
 from products.signals.dags.inbox_ranking.training.recipe import RECIPE_HASH_KEY, recipe_mismatch
 from products.signals.dags.inbox_ranking.training.serving import FamilyModels, ManifestDecision, compose_manifest
 from products.signals.dags.inbox_ranking.training.telemetry import (
+    MirrorPublication,
     capture_training_events,
     promotion_event,
     serving_manifest_event,
@@ -93,10 +103,8 @@ from products.signals.dags.inbox_ranking.training.telemetry import (
 )
 from products.signals.dags.inbox_ranking.training.train import HoldoutGrade
 from products.signals.dags.inbox_ranking.training.unseen import (
-    MODEL_FAMILIES,
     SERVED_SCORES_TABLE,
     HeadGrade,
-    ModelFamily,
     calibration_rows,
     graded_rows,
     head_grades,
@@ -436,7 +444,7 @@ def _publish_manifest(context: RunContext, partition_key: str, run_id: str) -> d
             name=family.name,
             champion=_read_json_if_exists(client, bucket, champion_object_key(prefix, family.name)),
         )
-        for family in MODEL_FAMILIES
+        for family in serving_families(MODEL_FAMILIES)
     ]
     recent_versions = settings.INBOX_RANKING_SERVING_RECENT_VERSIONS
     recent = (
@@ -449,7 +457,7 @@ def _publish_manifest(context: RunContext, partition_key: str, run_id: str) -> d
     challengers = (
         [
             metadata
-            for family in MODEL_FAMILIES
+            for family in serving_families(MODEL_FAMILIES)
             if family.name != served["model_name"]
             for metadata in _recent_models(context, client, bucket, prefix, family.name, partition_key, 1)
         ]
@@ -507,7 +515,7 @@ def _publish_manifest(context: RunContext, partition_key: str, run_id: str) -> d
         context, client, bucket, prefix, manifest, primary, project_vectors_source=project_vectors_source
     )
     context.log.info(f"published serving manifest {manifest.manifest_version} serving {manifest.served.key}")
-    mirror_published = _publish_mirror(context, client, bucket, prefix, manifest)
+    mirror = _publish_mirror(context, client, bucket, prefix, partition_key, manifest)
     capture_training_events(
         context,
         partition_key,
@@ -521,7 +529,7 @@ def _publish_manifest(context: RunContext, partition_key: str, run_id: str) -> d
                 copied_keys=publication.copied,
                 present_keys=publication.present,
                 bytes_copied=publication.bytes_copied,
-                mirror_published=mirror_published,
+                mirror=mirror,
                 recipe_hashes={
                     model_key(metadata["model_name"], metadata["model_version"]): metadata.get(RECIPE_HASH_KEY)
                     for metadata in (
@@ -536,7 +544,13 @@ def _publish_manifest(context: RunContext, partition_key: str, run_id: str) -> d
         ],
     )
     mirror_metadata = (
-        {} if mirror_published is None else {"mirror_published": dagster.MetadataValue.bool(mirror_published)}
+        {}
+        if mirror is None
+        else {
+            "mirror_published": dagster.MetadataValue.bool(mirror.published),
+            "mirror_project_vectors_key": dagster.MetadataValue.text(mirror.project_vectors_key or ""),
+            "mirror_skip_reason": dagster.MetadataValue.text(mirror.skip_reason or ""),
+        }
     )
     return {
         "published": dagster.MetadataValue.bool(True),
@@ -642,8 +656,16 @@ def _recent_models(
 
 
 def _pin_metadata(client, bucket: str, prefix: str, key: str) -> tuple[dict[str, Any] | None, str | None]:
-    """The metadata of one pinned model, or None and the reason it cannot be served."""
+    """The metadata of one pinned model, or None and the reason it cannot be served.
+
+    The promote job, the served pointer, the pins and the recent and challenger reads all pass this
+    check, so an experiment family is refused here once for every path."""
     model_name, model_version = key.split("@", 1)
+    if model_name in experiment_names(MODEL_FAMILIES):
+        return None, (
+            f"{model_name} is an experiment family, and an experiment never serves. To serve this "
+            "recipe, register it as a serving family under a new model_name"
+        )
     metadata = _read_json_if_exists(client, bucket, model_object_key(prefix, model_name, model_version, METADATA_FILE))
     if metadata is None:
         return None, f"no {METADATA_FILE} in the dataset bucket"
@@ -663,38 +685,131 @@ def _pin_metadata(client, bucket: str, prefix: str, key: str) -> tuple[dict[str,
     return metadata, None
 
 
-def _publish_mirror(context: RunContext, client, bucket: str, prefix: str, manifest: ServingManifest) -> bool | None:
+# How many days before the publish partition the mirror region's project vectors day, and the
+# engagement export it was built from, may be. The mirror region builds day D after this region's
+# 05:00 UTC publish, so a mirror that keeps up names D-1.
+MIRROR_PROJECT_VECTORS_MAX_LAG_DAYS = 3
+
+NO_FRESH_PROJECT_VECTORS = "no_fresh_project_vectors"
+UNKNOWN_SCHEMA_VERSION = "unknown_schema_version"
+STALE_ENGAGEMENT_EXPORT = "stale_engagement_export"
+MIRROR_PUBLISH_FAILED = "publish_failed"
+
+
+@frozen
+class _MirrorProjectVectors:
+    """The mirror region's project vectors day the mirror manifest names, or the newest day refused."""
+
+    key: str | None
+    date: str | None
+    engagement_export_date: str | None
+    # Why no day passes, or None when `key` names one.
+    refusal: str | None
+
+
+def _project_vectors_refusal(metadata: Mapping[str, str], oldest: datetime.date) -> str | None:
+    if metadata.get(PROJECT_VECTORS_SCHEMA_VERSION_METADATA_KEY) != str(PROJECT_VECTORS_SCHEMA_VERSION):
+        return UNKNOWN_SCHEMA_VERSION
+    try:
+        engagement_date = datetime.date.fromisoformat(metadata.get(PROJECT_VECTORS_ENGAGEMENT_DATE_METADATA_KEY, ""))
+    except ValueError:
+        return STALE_ENGAGEMENT_EXPORT
+    return STALE_ENGAGEMENT_EXPORT if engagement_date < oldest else None
+
+
+def _mirror_project_vectors(mirror: _ServingStore, prefix: str, partition_key: str) -> _MirrorProjectVectors:
+    """The newest day within `MIRROR_PROJECT_VECTORS_MAX_LAG_DAYS` of the partition that the mirror
+    region wrote its own project vectors for, and that this build can name.
+
+    Only object metadata is read, never the body: this region must not hold the mirror region's
+    per-team vectors. The mirror grant has no list permission, so a missing key answers 403, and
+    `head_object` reads both as absent.
+    """
+    end = datetime.date.fromisoformat(partition_key)
+    oldest = end - datetime.timedelta(days=MIRROR_PROJECT_VECTORS_MAX_LAG_DAYS)
+    newest_refused: _MirrorProjectVectors | None = None
+    for offset in range(MIRROR_PROJECT_VECTORS_MAX_LAG_DAYS + 1):
+        day = (end - datetime.timedelta(days=offset)).isoformat()
+        key = serving_project_vectors_key(prefix, day)
+        head = mirror.storage.head_object(bucket=mirror.bucket, file_key=key)
+        if head is None:
+            continue
+        metadata = head.get("Metadata") or {}
+        refusal = _project_vectors_refusal(metadata, oldest)
+        found = _MirrorProjectVectors(
+            key=None if refusal else key,
+            date=day,
+            engagement_export_date=metadata.get(PROJECT_VECTORS_ENGAGEMENT_DATE_METADATA_KEY),
+            refusal=refusal,
+        )
+        if refusal is None:
+            return found
+        newest_refused = newest_refused or found
+    return newest_refused or _MirrorProjectVectors(
+        key=None, date=None, engagement_export_date=None, refusal=NO_FRESH_PROJECT_VECTORS
+    )
+
+
+def _publish_mirror(
+    context: RunContext, client, bucket: str, prefix: str, partition_key: str, manifest: ServingManifest
+) -> MirrorPublication | None:
     """Copy the same publish into the mirror store, if one is set. Returns None when no mirror is
-    set, otherwise whether the mirror now serves this manifest.
+    set, otherwise what the mirror now serves.
 
     The primary publish has already succeeded, so a mirror failure only logs: the region that
     trains keeps serving, and the mirror keeps its previous manifest and models.
 
     Project vectors are per-team data of this deployment's teams, so they never go to another
-    deployment's store. The mirror's manifest names none, and its sweep skips the models that read them.
-    A served model that reads them could not score there, so the mirror keeps its previous manifest.
+    deployment's store. When an entry reads them, the mirror's manifest names the mirror region's
+    own day instead (`_mirror_project_vectors`). That day is already in the mirror store, so
+    `publish_serving_models` gets no source and copies none. Without such a day the mirror's
+    manifest names none, and its sweep skips the models that read them. A served model that reads
+    them could not score there, so then the mirror keeps its previous manifest.
     """
     if not settings.INBOX_RANKING_SERVING_MIRROR_BUCKET:
         return None
-    if manifest.served.reads_project_vectors:
-        context.log.warning(
-            f"serving manifest {manifest.manifest_version} not mirrored: its served model reads project vectors"
-        )
-        return False
+    vectors: _MirrorProjectVectors | None = None
     try:
         mirror = _ServingStore(
             storage=serving_mirror_storage(),
             bucket=settings.INBOX_RANKING_SERVING_MIRROR_BUCKET,
             acl="bucket-owner-full-control",
         )
+        if manifest.project_vectors is not None:
+            vectors = _mirror_project_vectors(mirror, prefix, partition_key)
+        project_vectors_key = vectors.key if vectors else None
+        if manifest.served.reads_project_vectors and vectors is not None and project_vectors_key is None:
+            context.log.warning(
+                f"serving manifest {manifest.manifest_version} not mirrored: its served model reads project "
+                f"vectors and the mirror has no usable day ({vectors.refusal}, newest day {vectors.date})"
+            )
+            return _mirror_publication(vectors, skip_reason=vectors.refusal)
         publish_serving_models(
-            context, client, bucket, prefix, manifest.model_copy(update={"project_vectors": None}), mirror
+            context,
+            client,
+            bucket,
+            prefix,
+            manifest.model_copy(update={"project_vectors": project_vectors_key}),
+            mirror,
         )
     except Exception as error:
         context.log.exception(f"serving manifest {manifest.manifest_version} not mirrored: {error!r}")
-        return False
-    context.log.info(f"mirrored serving manifest {manifest.manifest_version} to {mirror.bucket}")
-    return True
+        return _mirror_publication(vectors, skip_reason=MIRROR_PUBLISH_FAILED)
+    context.log.info(
+        f"mirrored serving manifest {manifest.manifest_version} to {mirror.bucket}"
+        f" with project vectors {project_vectors_key}"
+    )
+    return _mirror_publication(vectors, skip_reason=None)
+
+
+def _mirror_publication(vectors: _MirrorProjectVectors | None, skip_reason: str | None) -> MirrorPublication:
+    return MirrorPublication(
+        published=skip_reason is None,
+        project_vectors_key=vectors.key if vectors and skip_reason is None else None,
+        project_vectors_date=vectors.date if vectors else None,
+        engagement_export_date=vectors.engagement_export_date if vectors else None,
+        skip_reason=skip_reason,
+    )
 
 
 @frozen

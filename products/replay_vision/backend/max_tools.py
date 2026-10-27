@@ -20,7 +20,7 @@ from posthog.models.user import User
 from posthog.scopes import APIScopeObject
 from posthog.session_recordings.playlist_filters import convert_filters_to_recordings_query
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
-from posthog.sync import database_sync_to_async, database_sync_to_async_pool
+from posthog.sync import database_sync_to_async
 
 from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
 from products.replay_vision.backend.api.scanners import SCANNER_QUERY_FILTER_KEYS, ReplayScannerSerializer
@@ -61,7 +61,6 @@ from products.replay_vision.backend.search import (
     async_query_vector_for,
     search_observations,
 )
-from products.replay_vision.backend.tag_suggestions import suggest_classifier_tags
 from products.replay_vision.backend.temporal.metrics import record_scanner_limit_reached
 
 from ee.hogai.tool import MaxTool
@@ -2096,72 +2095,3 @@ class AnalyzeReplayVisionImpactTool(ReplayVisionGatesMixin, MaxTool):
             f"{content} Put {members} of them into a static cohort, which doesn't update itself.",
             artifact,
         )
-
-
-SUGGEST_TAGS_TOOL_DESCRIPTION = """
-Use this tool to propose additional tags for a classifier scanner, grounded in what it has actually seen.
-
-# When to use
-- The user says a classifier's tags don't cover what's showing up in their recordings
-- The user asks what other categories they should be classifying into
-
-# What it returns
-Suggested tags with a reason for each, drawn from the scanner's own observations and the team's other
-classifiers. It only suggests; adding one means updating the scanner's tag vocabulary in the UI, since
-changing a classifier's vocabulary affects how every future observation is read. Costs no Replay Vision
-credits.
-"""
-
-
-class SuggestTagsArgs(BaseModel):
-    scanner_id: str = Field(description="The classifier scanner to suggest additional tags for.")
-
-
-class SuggestReplayVisionTagsTool(ReplayVisionGatesMixin, MaxTool):
-    # Suggests only; nothing is scanned and no scanner is changed.
-    needs_confirmation: ClassVar[bool] = False
-    name: str = "suggest_replay_vision_tags"
-    description: str = SUGGEST_TAGS_TOOL_DESCRIPTION
-    args_schema: type[BaseModel] = SuggestTagsArgs
-
-    def get_required_resource_access(self) -> list[tuple[APIScopeObject, AccessControlLevel]]:
-        return [("replay_scanner", "viewer"), ("session_recording", "viewer")]
-
-    async def _arun_impl(self, scanner_id: str) -> tuple[str, dict[str, Any]]:
-        scanner = await self._resolve(scanner_id)
-        if scanner is None:
-            return f"Scanner {scanner_id} not found.", {"error": "not_found"}
-        if scanner.scanner_type != ScannerType.CLASSIFIER:
-            return "Only classifier scanners have categories.", {"error": "not_a_classifier"}
-        # Pooled rather than thread-sensitive: the model call carries a 90s timeout, and the shared
-        # executor would queue every other database operation behind it. Still connection-managed,
-        # because the suggestion path reads observations and event definitions.
-        return await database_sync_to_async_pool(self._suggest)(scanner)
-
-    @database_sync_to_async
-    def _resolve(self, scanner_id: str) -> "ReplayScanner | None":
-        return self._scanner_for(scanner_id, "viewer")
-
-    def _suggest(self, scanner: ReplayScanner) -> tuple[str, dict[str, Any]]:
-        scanner_id = str(scanner.id)
-        try:
-            config = scanner.scanner_config or {}
-            suggestions = suggest_classifier_tags(
-                team=self._team,
-                user=self._user,
-                prompt=config.get("prompt", ""),
-                current_tags=config.get("tags") or [],
-                multi_label=bool(config.get("multi_label")),
-                allow_freeform_tags=bool(config.get("allow_freeform_tags")),
-                scanner=scanner,
-                user_access_control=self.user_access_control,
-            )
-        except Exception:
-            logger.exception("replay_vision.max_tools.suggest_tags_failed", scanner_id=scanner_id)
-            return "Couldn't come up with tag suggestions just now.", {"error": "suggest_failed"}
-        if not suggestions:
-            return "Nothing worth adding to that scanner's tags right now.", {"suggestions": []}
-        # Model-written over recording content, so it stays behind the fence.
-        return as_untrusted_data("suggested tags", [f"{s.tag}: {s.rationale}" for s in suggestions]), {
-            "suggestions": [{"tag": s.tag, "rationale": s.rationale} for s in suggestions]
-        }

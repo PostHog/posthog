@@ -1,4 +1,5 @@
 import datetime as dt
+import threading
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -6,7 +7,7 @@ import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -18,6 +19,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
+from posthog.models import Team
 
 from products.metrics.backend.facade.api import _output_unit, run_metric_query
 from products.metrics.backend.facade.contracts import MetricFilter, MetricGroupBy, MetricQueryClause, MetricQueryRequest
@@ -870,6 +872,47 @@ class TestRunMetricQueryFacade(ClickhouseTestMixin, APIBaseTest):
             run_metric_query(team=self.team, request=self._request(**overrides))
 
 
+class TestRunMetricQueryInParallel(SimpleTestCase):
+    def test_the_clause_queries_and_the_unit_lookup_run_at_the_same_time_and_close_their_connections(self) -> None:
+        # Each query waits until all three run, so a serial run breaks the barrier.
+        barrier = threading.Barrier(3, timeout=5)
+        anchor = dt.datetime(2026, 1, 1, 12, tzinfo=dt.UTC)
+
+        class _Runner:
+            def run(self) -> list[dict[str, Any]]:
+                barrier.wait()
+                return [{"time": anchor.isoformat(), "value": 1.0, "labels": {}, "series_fingerprints": [1]}]
+
+        def units(_team: Team, _names: set[str]) -> dict[int, str]:
+            barrier.wait()
+            return {1: "ms"}
+
+        with (
+            override_settings(IN_UNIT_TESTING=False),
+            patch("products.metrics.backend.facade.api.build_metric_query_runner", side_effect=lambda **_: _Runner()),
+            patch("products.metrics.backend.facade.api._units_by_fingerprint", side_effect=units),
+            patch("products.metrics.backend.facade.api.connection") as connection,
+        ):
+            series = run_metric_query(
+                team=Team(id=1),
+                request=MetricQueryRequest(
+                    clauses=(
+                        MetricQueryClause(name="a", metric_name="m1", aggregation=MetricAggregation.SUM),
+                        MetricQueryClause(name="b", metric_name="m2", aggregation=MetricAggregation.SUM),
+                    ),
+                    date_from=anchor - dt.timedelta(hours=1),
+                    date_to=anchor,
+                ),
+            )
+
+        assert [(item.clause, item.unit, [point.value for point in item.points]) for item in series] == [
+            ("a", "ms", [1.0]),
+            ("b", "ms", [1.0]),
+        ]
+        # Each worker closes the Postgres connection that it opened.
+        assert connection.close.call_count == 3
+
+
 class TestOutputUnit(SimpleTestCase):
     @parameterized.expand(
         [
@@ -1521,16 +1564,53 @@ class TestHistogramQuantileRunner(ClickhouseTestMixin, APIBaseTest):
         earliest = dt.datetime.fromisoformat(rows[0]["time"]).astimezone(dt.UTC)
         self.assertEqual(earliest, self.anchor)
 
-    def test_mismatched_bounds_raise(self):
-        self._seed_histogram([(self.anchor + dt.timedelta(seconds=0), [1, 1, 1, 0])], temporality="delta")
+    def test_mismatched_bounds_merge_onto_one_layout(self):
+        # Two endpoints with their own buckets chart together instead of failing.
+        self._seed_histogram([(self.anchor + dt.timedelta(seconds=0), [10, 0, 0, 0])], temporality="delta")
         self._seed_histogram(
-            [(self.anchor + dt.timedelta(seconds=10), [1, 1, 1, 0])],
+            [(self.anchor + dt.timedelta(seconds=10), [0, 10, 0, 0])],
             temporality="delta",
             bounds=[0.2, 0.6, 2.0],
             resource_labels={"k8s.pod.name": "other"},
         )
-        with self.assertRaises(ValueError):
-            self._run(0.5)
+        rows = self._run(0.75)
+        self.assertEqual(len(rows), 1)
+        # Union edges [0.1, 0.2, 0.5, 0.6, 1.0, 2.0] get counts [10, 0, 7.5, 2.5, 0, 0, 0], so p75 is 2/3 into (0.2, 0.5].
+        self.assertAlmostEqual(rows[0]["value"], 0.4)
+        # The (0.2, 0.6] bucket holds observations, so the 0.5 edge adds no precision.
+        self.assertEqual(rows[0]["histogram_bounds"], [0.1, 0.2, 0.6, 1.0, 2.0])
+
+    def test_cumulative_bucket_count_change_does_not_fail(self):
+        # metrics4 keeps one bounds array per series-hour, so samples can carry more counts than bounds.
+        self._seed_histogram(
+            [
+                (self.anchor + dt.timedelta(seconds=0), [1, 1, 1, 0]),
+                (self.anchor + dt.timedelta(seconds=30), [2, 2, 2, 0, 0]),
+            ],
+            temporality="cumulative",
+        )
+        self.assertEqual(self._run(0.5), [])
+
+    def test_exponential_histogram_reads_upper_edges(self):
+        # Ingest stores lower edges [0.1, 0.2, 0.4]: every value is in (0.2, 0.4].
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="latency",
+            metric_type="exponential_histogram",
+            aggregation_temporality="delta",
+            histogram_bounds=[0.1, 0.2, 0.4],
+            histogram_counts=[0, 10, 0],
+            points=[(self.anchor, 0.0)],
+        )
+        rows = self._run(0.5)
+        self.assertEqual(len(rows), 1)
+        self.assertAlmostEqual(rows[0]["value"], 0.3)
+        self.assertEqual(rows[0]["histogram_bounds"], [0.1, 0.2, 0.4, 0.8])
+
+    def test_rows_carry_the_bucket_edges(self):
+        self._seed_histogram([(self.anchor, [10, 10, 10, 0])], temporality="delta")
+        rows = self._run(0.5)
+        self.assertEqual(rows[0]["histogram_bounds"], self.BOUNDS)
 
     def test_histogram_quantile_via_api(self):
         self._seed_histogram(
@@ -1555,6 +1635,8 @@ class TestHistogramQuantileRunner(ClickhouseTestMixin, APIBaseTest):
         points = response.json()["results"][0]["points"]
         self.assertEqual(len(points), 1)
         self.assertAlmostEqual(points[0]["value"], 0.3)
+        # The chart reads the edges to tell how coarse the estimate is.
+        self.assertEqual(response.json()["results"][0]["histogram_bounds"], self.BOUNDS)
 
     def test_histogram_quantile_via_api_requires_quantile(self):
         response = self.client.post(

@@ -22,7 +22,12 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select
-from posthog.hogql.property import get_lowercase_index_hint, operator_is_negative, property_to_expr
+from posthog.hogql.property import (
+    get_lowercase_index_hint,
+    negative_operator_complement,
+    operator_is_negative,
+    property_to_expr,
+)
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql_queries.paginators import HogQLHasMorePaginator
@@ -148,18 +153,8 @@ def _generate_resource_attribute_filters(
     for filter in resource_attribute_filters:
         attribute_type = "resource" if filter.type == LogPropertyFilterType.LOG_RESOURCE_ATTRIBUTE else "log"
         if is_negative_filter:
-            # invert the negative filter back to the positive equivalent
-            # we invert the IN logic instead
-            filter.operator = {
-                PropertyOperator.IS_NOT: PropertyOperator.EXACT,
-                PropertyOperator.NOT_ICONTAINS: PropertyOperator.ICONTAINS,
-                PropertyOperator.NOT_STARTS_WITH: PropertyOperator.STARTS_WITH,
-                PropertyOperator.NOT_ENDS_WITH: PropertyOperator.ENDS_WITH,
-                PropertyOperator.NOT_REGEX: PropertyOperator.REGEX,
-                PropertyOperator.IS_NOT_SET: PropertyOperator.IS_SET,
-                PropertyOperator.NOT_BETWEEN: PropertyOperator.BETWEEN,
-                PropertyOperator.NOT_IN: PropertyOperator.IN_,
-            }.get(filter.operator, filter.operator)
+            # The subquery matches the positive form. The outer NOT IN excludes the matching resources.
+            filter.operator = negative_operator_complement(filter.operator)
 
         if filter.operator == PropertyOperator.IS_SET:
             converted_exprs.append(

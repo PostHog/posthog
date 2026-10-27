@@ -99,15 +99,63 @@ class TestHyrosSourcePagination:
         assert result.raised is None
         assert result.requests[0].param(param_name) == "2026-03-04T02:58:14+00:00"
 
-    def test_full_refresh_endpoint_never_filters_by_date(self) -> None:
+    @parameterized.expand(
+        [
+            ("sale_full_refresh", "SaleConversionPaths", "SALE", False, False),
+            ("call_incremental", "CallConversionPaths", "CALL", True, True),
+            ("lead_never_filters_by_join_date", "LeadConversionPaths", "LEAD", True, False),
+        ]
+    )
+    def test_conversion_paths_send_conversion_type(
+        self, _name: str, endpoint: str, conversion_type: str, incremental: bool, expect_from_date: bool
+    ) -> None:
         result = _driver().run(
-            "Stages",
+            endpoint,
+            [_response([{"id": "1"}], next_page_id="cursor-1"), _response([{"id": "2"}])],
+            should_use_incremental_field=incremental,
+            db_incremental_field_last_value=datetime(2026, 3, 4, tzinfo=UTC) if incremental else None,
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/v1/api/v1.0/conversion-paths"] * 2
+        expected: dict[str, tuple[str, ...]] = {"conversionType": (conversion_type,), "pageSize": ("250",)}
+        if expect_from_date:
+            expected["fromDate"] = ("2026-03-04T00:00:00+00:00",)
+        assert result.queries == [expected, {**expected, "pageId": ("cursor-1",)}]
+
+    def test_ads_lift_ad_source_keys_to_row_root(self) -> None:
+        result = _driver().run(
+            "Ads",
+            [
+                _response(
+                    [
+                        {"name": "ad", "adSource": {"adSourceId": "238", "adAccountId": "887", "platform": "FACEBOOK"}},
+                        {"name": "orphan"},
+                    ]
+                )
+            ],
+        )
+
+        assert result.raised is None
+        assert [(row["platform"], row["adSourceId"]) for row in result.rows] == [("FACEBOOK", "238"), (None, None)]
+
+    @parameterized.expand(
+        [
+            ("Stages", "/v1/api/v1.0/stages"),
+            ("Carts", "/v1/api/v1.0/carts"),
+            ("CustomCosts", "/v1/api/v1.0/custom-costs"),
+        ]
+    )
+    def test_full_refresh_endpoint_never_filters_by_date(self, endpoint: str, path: str) -> None:
+        result = _driver().run(
+            endpoint,
             [_response([{"id": "1"}])],
             should_use_incremental_field=True,
             db_incremental_field_last_value=datetime(2026, 3, 4, tzinfo=UTC),
         )
 
         assert result.raised is None
+        assert result.paths == [path]
         assert result.queries == [{"pageSize": ("250",)}]
 
 

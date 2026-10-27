@@ -7,6 +7,7 @@ import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from '@posthog/qu
 import { urls } from 'scenes/urls'
 
 import { TodayChatActionItems } from './TodayChatActionItems'
+import { todayListAppearanceLogic } from './todayListAppearanceLogic'
 import { CONTEXT_PARTS, SHEET_PARTS } from './todayMenuParts'
 import { useTodayPreviewMenuReport } from './todayPreviewCardContext'
 import { chatPreview } from './todayPreviewCards'
@@ -16,7 +17,7 @@ import { TodaySheetMenu } from './TodaySheetMenu'
 import { todayShellLogic } from './todayShellLogic'
 import { todaySpacesLogic } from './todaySpacesLogic'
 import { TodaySpacesRow } from './TodaySpacesRow'
-import { TodayWorkItem } from './todayWorkItems'
+import { TodayWorkItem, sessionDetails } from './todayWorkItems'
 
 interface TodayChatRowProps {
     item: TodayWorkItem
@@ -29,6 +30,9 @@ export function TodayChatRow({ item, dataAttr, optionValue }: TodayChatRowProps)
     const reportMenuOpen = useTodayPreviewMenuReport()
     const preview = useMemo(() => chatPreview(item), [item])
     const { phoneLayout } = useValues(todayShellLogic)
+    const { spaceNames } = useValues(todaySpacesLogic)
+    const { fields } = useValues(todayListAppearanceLogic)
+    const details = useMemo(() => sessionDetails(item, fields, spaceNames), [item, fields, spaceNames])
     const { touchMenuOpened } = useActions(todaySpacesLogic)
     const [sheetOpen, setSheetOpen] = useState(false)
 
@@ -40,6 +44,7 @@ export function TodayChatRow({ item, dataAttr, optionValue }: TodayChatRowProps)
                 to={urls.ai(item.id)}
                 active={location.pathname.endsWith('/ai') && searchParams.chat === item.id}
                 dataAttr={dataAttr}
+                details={details}
                 optionValue={optionValue}
             />
         </TodayPreviewTrigger>

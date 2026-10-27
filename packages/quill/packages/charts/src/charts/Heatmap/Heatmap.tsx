@@ -19,6 +19,7 @@ import type {
     TooltipContext,
 } from '../../core/types'
 import { DefaultTooltip } from '../../overlays/DefaultTooltip'
+import { useTooltipCapture } from '../../overlays/Tooltip'
 import { findClosestSeriesKey } from '../../overlays/tooltipUtils'
 import {
     drawColumnHighlights,
@@ -438,12 +439,14 @@ function HeatmapInner({
 
     const tooltipLabelFormatter = config?.tooltip?.labelFormatter
     const tooltipValueFormatter = config?.tooltip?.valueFormatter
+    const captureTooltip = useTooltipCapture<HeatmapRowMeta>()
     const renderTooltip = useMemo(
         () =>
             (ctx: HeatmapTooltipContext): React.ReactNode => {
                 // The base chart's `ctx.label` is the per-column key; restore the display label
                 // before it reaches either the custom or default tooltip.
                 const mapped = { ...ctx, label: resolveColumnLabel(ctx.label) }
+                captureTooltip(mapped)
                 if (tooltip) {
                     return tooltip(mapped)
                 }
@@ -466,7 +469,7 @@ function HeatmapInner({
                     />
                 )
             },
-        [tooltip, resolveColumnLabel, tooltipLabelFormatter, tooltipValueFormatter]
+        [tooltip, resolveColumnLabel, tooltipLabelFormatter, tooltipValueFormatter, captureTooltip]
     )
 
     const baseConfig = useMemo<ChartConfig>(

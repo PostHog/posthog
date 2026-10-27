@@ -20,24 +20,22 @@ from posthog.test.persons import create_person
 from products.experiments.backend.facade.contracts import ExperimentHealthFlagChangeKind, ExperimentHealthReaderAccess
 from products.experiments.backend.health.context import (
     MIN_EXPOSED_UNITS_TO_WARN,
-    BucketingChange,
-    BucketingSetting,
     ChangeWindow,
-    ConditionsChange,
     FlagHistory,
     FlagHistoryNotChecked,
     FlagHistoryNotCheckedReason,
-    SplitChange,
 )
 from products.experiments.backend.health.exposure_gate import (
     MAX_EXPOSURE_QUERIES,
     MAX_OVERRIDE_WINDOWS,
     load_flag_history,
+    load_split_history,
     query_any_exposure,
     query_exposed_units,
 )
 from products.experiments.backend.hogql_queries.exposure_query_logic import DEFAULT_EXPOSURE_EVENT
 from products.experiments.backend.models.experiment import Experiment
+from products.feature_flags.backend.facade.edits import BucketingChange, BucketingSetting, ConditionsChange, SplitChange
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 FLAG_KEY = "split-gate"
@@ -133,6 +131,7 @@ class TestLoadFlagHistory(BaseTest):
         *,
         units: list[int | Exception] | Callable[..., int] | None = None,
         reader_access: ExperimentHealthReaderAccess = FULL_ACCESS,
+        load: Callable[..., FlagHistory | FlagHistoryNotChecked | None] = load_flag_history,
     ) -> tuple[FlagHistory | FlagHistoryNotChecked | None, MagicMock]:
         with (
             patch("products.experiments.backend.health.exposure_gate.query_any_exposure", side_effect=answers) as query,
@@ -142,7 +141,7 @@ class TestLoadFlagHistory(BaseTest):
                 return_value=MIN_EXPOSED_UNITS_TO_WARN,
             ) as units_query,
         ):
-            history = load_flag_history(self.experiment, reader_access=reader_access)
+            history = load(self.experiment, reader_access=reader_access)
         self.units_query = units_query
         return history, query
 
@@ -246,6 +245,27 @@ class TestLoadFlagHistory(BaseTest):
                 (self.launched_at, changed_at[0], (("first-key", ("control", "test")),)),
             ],
         )
+
+    def test_split_history_counts_only_the_units_before_the_last_split_change(self) -> None:
+        first_at = self.launched_at + timedelta(days=1)
+        self._log_change(first_at, key=("first-key", FLAG_KEY))
+        self._log_split_changes([_split(50, 50), _split(60, 40)], first_at=first_at + timedelta(hours=1))
+
+        history, _ = self._load([True], load=load_split_history)
+
+        assert isinstance(history, FlagHistory)
+        self.assertEqual(
+            history.exposed_units_before_last, {ExperimentHealthFlagChangeKind.SPLIT: MIN_EXPOSED_UNITS_TO_WARN}
+        )
+        self.assertEqual(self.units_query.call_count, 1)
+
+    def test_split_history_without_a_split_change_queries_no_exposures(self) -> None:
+        self._log_change(self.launched_at + timedelta(days=1), bucketing_identifier=("distinct_id", "device_id"))
+
+        history, query = self._load([True], load=load_split_history)
+
+        assert isinstance(history, FlagHistory)
+        self.assertEqual((query.call_count, self.units_query.call_count), (0, 0))
 
     def test_a_count_is_cached_apart_from_the_exposure_answer_of_the_same_window(self) -> None:
         self._log_split_changes([_split(50, 50), _split(60, 40)])

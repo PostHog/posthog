@@ -24,6 +24,7 @@ from posthog.models.scoping import team_scope
 from posthog.models.scoping.manager import TeamScopeError
 from posthog.sync import database_sync_to_async
 
+from products.signals.backend.constants import SYSTEM_SCOUT_NAMES
 from products.signals.backend.models import (
     SignalReport,
     SignalReportAction,
@@ -96,6 +97,7 @@ from products.signals.backend.temporal.agentic.scout_coordinator import (
     _slot_anchor,
     _stamp_dispatched_runs,
     _start_delay_seconds,
+    _tick_capacity_properties,
     fetch_enabled_signals_scout_runs_activity,
     run_due_signal_report_checks_activity,
     stamp_dispatched_signals_scout_runs_activity,
@@ -1014,7 +1016,11 @@ class TestBackgroundEnrollment:
             for team in (never_run_team, engaged_team, backed_off_team)
         ] == expected
         assert PlannedRun(team_id=person_team.id, skill_name="signals-scout-errors") in planned
-        properties = capture.call_args.kwargs["properties"]
+        (properties,) = [
+            c.kwargs["properties"]
+            for c in capture.call_args_list
+            if c.kwargs["event"] == "signals_scout_background_tick"
+        ]
         assert {
             key: properties[key] for key in ("due", "dispatched", "deferred", "runs_last_24h", "never_run_due")
         } == {
@@ -2589,6 +2595,32 @@ def test_daily_budget_allocation(default_cfg, runs_today, due_skills, expected):
     assert sorted(d.skill_name for d in selected) == sorted(expected)
 
 
+@pytest.mark.parametrize(
+    "default_cfg,runs_today,global_cap,due_count,expected",
+    [
+        ({"max_runs_per_tick": 1}, {}, None, 3, ("per_tick", 1, 2, 0)),
+        # Daily headroom 1 is tighter than the per-tick cap 2, so the daily budget is what binds.
+        ({"max_runs_per_tick": 2, "max_runs_per_day": 3}, {7: 2}, None, 3, ("per_day", 1, 2, 0)),
+        # A spent budget still reads as the daily cap, not the per-tick cap.
+        ({"max_runs_per_day": 3}, {7: 3}, None, 2, ("per_day", 0, 2, 0)),
+        ({}, {}, 1, 3, ("global", 1, 2, 2)),
+        ({}, {}, None, 2, (None, 2, 0, 0)),
+    ],
+)
+def test_capacity_telemetry_names_the_binding_cap(default_cfg, runs_today, global_cap, due_count, expected):
+    due = [_due_run(7, f"signals-scout-{i}", i * 3600) for i in range(due_count)]
+    selected = _allocate_tick_budget(due, {}, default_cfg, runs_today, global_cap)
+
+    fleet, (project,) = _tick_capacity_properties(due, selected, {}, default_cfg, runs_today, global_cap, {7: 4})
+
+    assert (
+        project["deferred_reason"],
+        project["dispatched"],
+        project["deferred"],
+        fleet["deferred_global"],
+    ) == expected
+
+
 @pytest.mark.asyncio
 @pytest.mark.django_db
 async def test_daily_budget_bounds_dispatch_end_to_end(ateam):
@@ -2691,7 +2723,9 @@ async def test_enrolled_team_registers_and_runs_canonical_fleet(ateam):
     await database_sync_to_async(sync_canonical_skills)(ateam)
     seeded = await database_sync_to_async(
         lambda: set(
-            LLMSkill.objects.filter(team=ateam, name__startswith="signals-scout-").values_list("name", flat=True)
+            LLMSkill.objects.filter(team=ateam, name__startswith="signals-scout-")
+            .exclude(name__in=SYSTEM_SCOUT_NAMES)
+            .values_list("name", flat=True)
         )
     )()
     assert seeded
@@ -2702,6 +2736,7 @@ async def test_enrolled_team_registers_and_runs_canonical_fleet(ateam):
         lambda: set(SignalScoutConfig.all_teams.filter(team=ateam).values_list("skill_name", flat=True))
     )()
     assert config_names == seeded
+    assert config_names.isdisjoint(SYSTEM_SCOUT_NAMES)
     assert {p.skill_name for p in planned} == seeded
 
 

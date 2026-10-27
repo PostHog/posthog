@@ -22,22 +22,17 @@ from products.experiments.backend.health.bucketing_changes import (
 from products.experiments.backend.health.checks.change_wording import duration, suggested_start, the_change
 from products.experiments.backend.health.checks.flag_change_findings import (
     change_finding,
-    changes_not_checked,
+    changes_to_check,
     delay_after_launch,
     exposed_when,
     few_exposed_units,
-    history_to_check,
     leave_out,
     not_checked_finding,
 )
-from products.experiments.backend.health.context import (
-    BucketingChange,
-    BucketingSetting,
-    FlagHistory,
-    FlagHistoryNotChecked,
-    HealthContext,
-)
+from products.experiments.backend.health.context import FlagHistory, FlagHistoryNotChecked, HealthContext
+from products.experiments.backend.health.skips import CheckOutcome, CheckSkip
 from products.experiments.backend.health.split_changes import format_change_time
+from products.feature_flags.backend.facade.edits import BucketingChange, BucketingSetting
 
 _TITLE = "The flag's variant assignment changed after launch"
 _KEY_TITLE = "The flag key changed after launch"
@@ -52,10 +47,10 @@ _SETTING_NAMES = {
 }
 
 
-def bucketing_changed_mid_run(ctx: HealthContext) -> ExperimentHealthFinding | None:
-    history = history_to_check(ctx)
-    if history is None:
-        return None
+def bucketing_changed_mid_run(ctx: HealthContext) -> CheckOutcome:
+    history = changes_to_check(ctx)
+    if isinstance(history, CheckSkip):
+        return history
     if isinstance(history, FlagHistoryNotChecked):
         return _not_checked(history)
     effect = bucketing_net_effect(history.counted(BucketingChange))
@@ -133,7 +128,7 @@ def bucketing_changed_mid_run(ctx: HealthContext) -> ExperimentHealthFinding | N
 
 
 def _not_checked(history: FlagHistoryNotChecked) -> ExperimentHealthFinding | None:
-    effect = bucketing_net_effect(changes_not_checked(history, BucketingChange))
+    effect = bucketing_net_effect(history.of_kind(BucketingChange))
     if effect is None:
         return None
     if effect.shape == BucketingChangeShape.REVERTED:

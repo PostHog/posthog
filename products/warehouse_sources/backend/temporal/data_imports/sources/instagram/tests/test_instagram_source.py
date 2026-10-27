@@ -97,6 +97,10 @@ class TestInstagramSource:
             f"{PERMISSION_ERROR_PREFIX}: status=400, code=10, message=Application does not have permission",
             "Failed to refresh the Instagram connection",
             "Integration not found: 7",
+            "Instagram API error: status=400, code=100, message=Unsupported get request. Object with ID "
+            "'17841400000000000' does not exist, cannot be loaded due to missing permissions, or does not "
+            "support this operation. Please read the Graph API documentation at "
+            "https://developers.facebook.com/docs/graph-api",
         ],
     )
     def test_auth_and_scope_failures_stop_the_source_instead_of_retrying(self, observed_error: str) -> None:

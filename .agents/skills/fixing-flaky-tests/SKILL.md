@@ -37,8 +37,16 @@ Establish the timeline yourself from raw run data:
 
 ```bash
 # Pass/fail history for the workflow on the branch under suspicion (master shown):
-gh run list --repo PostHog/posthog --workflow=ci-backend.yml --branch master \
+gh run list --repo PostHog/posthog --workflow=ci-frontend.yml --branch master \
   --status completed --limit 60 --json conclusion,headSha,createdAt,databaseId
+# Backend CI's scheduled runs on master:
+depot ci workflow list --repo PostHog/posthog --name 'Backend CI on Depot' --trigger schedule -n 60 --output json
+```
+
+Read a backend job's log from Depot:
+
+```bash
+depot ci logs <run-id> --workflow <workflow-id> --job <job-key>
 ```
 
 The run-level conclusion is not enough — a red run may be failing on a _different_ job/test. Confirm it is the **same test** each time by reading the failing shard's log; and for green runs, confirm the test actually **ran and passed** in that shard (it may have been sharded elsewhere, not fixed):

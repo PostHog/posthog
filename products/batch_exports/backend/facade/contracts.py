@@ -33,6 +33,13 @@ class InvalidBatchExportFilters(ValueError):
     """Raised when event filters are not a list of filters a batch export can apply."""
 
 
+class InvalidDestinationConfigError(ValueError):
+    """Raised when a destination config does not match the workflow inputs of its destination type.
+
+    The message says which field is wrong.
+    """
+
+
 class UnsupportedDestinationTestError(ValueError):
     """Raised when a destination type has no connection test."""
 

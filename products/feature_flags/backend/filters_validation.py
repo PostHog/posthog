@@ -23,7 +23,7 @@ from rest_framework.settings import api_settings
 
 from posthog.hogql.property import parse_semver
 
-from posthog.models.property.property import STRING_PREFIX_SUFFIX_OPERATORS
+from posthog.models.property.property import SEMVER_OPERATORS, STRING_PREFIX_SUFFIX_OPERATORS
 from posthog.models.property.relative_date import determine_parsed_date_for_property_matching
 
 from products.feature_flags.backend.api.filters_schema import FeatureFlagFiltersSerializer
@@ -58,19 +58,6 @@ def _is_comparable_number(value: Any) -> bool:
 
 
 LIST_VALUE_OPERATORS: frozenset[str] = frozenset({"icontains_multi", "not_icontains_multi"})
-SEMVER_OPERATORS: frozenset[str] = frozenset(
-    {
-        "semver_gt",
-        "semver_gte",
-        "semver_lt",
-        "semver_lte",
-        "semver_eq",
-        "semver_neq",
-        "semver_tilde",
-        "semver_caret",
-        "semver_wildcard",
-    }
-)
 PERSON_AGGREGATED_PROPERTY_TYPES: tuple[str, ...] = ("person", "cohort", "flag")
 
 

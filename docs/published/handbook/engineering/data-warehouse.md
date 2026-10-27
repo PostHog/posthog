@@ -6,6 +6,10 @@ showTitle: true
 
 This is an internal guide to setting up and working with the data warehouse for PostHog engineers. If you're a PostHog user, check out our [data warehouse docs](https://posthog.com/docs/data-warehouse) instead.
 
+Projects with a connected warehouse source or warehouse table use ordinary empty insight results, even before ingesting events. They do not show sample-data placeholders or the project-wide "This project has no events yet" notice. Both onboarding messages wait until the warehouse setup check confirms no sources or tables exist; an unavailable check does not imply an empty project.
+
+Onboarding only checks warehouse setup for non-demo projects without events. Source detection returns an existence flag without serializing schemas, and table detection omits columns. Navigation refreshes an empty result so returning after source creation opens the Sources list.
+
 ## Model namespace reservation
 
 The shared PostHog catalog reserves `models.*` for authored data models. New warehouse tables, endpoint saved queries, and managed viewsets cannot claim that namespace. The bare name `models` is reserved for the namespace container; use a name such as `models.revenue` for a model. Names such as `models_v2` remain available. Saved queries with no origin are treated as authored models for compatibility.
@@ -16,6 +20,25 @@ Direct-connection catalogs contain no authored models and are exempt from the re
 
 This reservation does not add qualified names to existing models or require a namespace on new models.
 
+## Model materialization usage
+
+The Models **Usage** tab shows bytes read, CPU time, and run counts for materializations over a preset or custom range of complete UTC days.
+The totals and model breakdown follow saved-query access controls. The breakdown sorts by bytes read and includes soft-deleted models while their saved queries and job history exist.
+Usage includes schema checks, retries, failed runs, and canceled runs, and is attributed to the UTC day each run finished.
+The date and materialized-view filters apply to the whole tab. The jobs table also has a status filter. Projects with the Trino managed warehouse enabled also get a tab-level engine filter, daily bars stacked by engine, and separate ClickHouse and managed warehouse byte totals per model. Legacy Duckgres runs are not included.
+
+A daily partitioned Dagster job, `model_job_usage_job`, collects usage from the regional query log archive at 03:00 UTC for the previous day.
+It stores totals on `DataModelingJob`, keeping usage reads independent of query-log retention and leaving the streaming materialization path unchanged.
+The collector matches team, workflow ID, and workflow run ID, and leaves ambiguous or missing matches unmeasured.
+Re-running a partition replaces totals rather than adding them.
+Runs that start outside the supported 14-day archive backfill window remain unmeasured.
+Runs that cross midnight include queries from the full run.
+
+Unmeasured usage is null, including historical jobs with no archive data, and the tab reports how many runs have measurements.
+The totals cover measured runs only; missing measurements and days without measurements are not shown as zero.
+The current UTC day is excluded because usage is updated daily.
+These measurements describe query work and are not billing amounts.
+
 ## SQL editor drafts
 
 Saving a view infers its column types with LIMIT 0 on the outer SELECT branches and explicit IN subqueries.
@@ -25,6 +48,8 @@ API-key requests and background jobs retain the query runner's existing exemptio
 The SQL editor keeps unrun edits in browser storage, scoped to the user, project, and saved query. Explicit logout clears these drafts.
 An **Edited** label marks changes to a saved view or insight. **Discard changes** restores the saved copy already loaded in memory, then refreshes it from the server. The refresh preserves edits made after discarding.
 Insights can be saved or updated before running the SQL. Updating a view still requires a successful run of the current SQL so its result types match the saved query. **Continue in a notebook** is in the update button's dropdown for saved views and insights.
+
+The data warehouse sidebar lets you rename saved views. The dialog lists references from data model lineage. Renaming does not update SQL references in saved views, materialized views, endpoints, insights, dashboards, notebooks, or external systems.
 
 Returning to a notebook can reuse completed query results from the last two minutes in the same browser session. Saved insights still fetch their latest definition; changed queries load their own results. Explicit **Run** and refresh actions fetch results again. This browser cache is bounded and excludes shared notebooks, errors, incomplete responses, and large results; it does not change server cache freshness.
 
@@ -92,13 +117,17 @@ Direct connections group tables by schema. Search matches table and folder names
 
 ## Calculated measures in BI mode
 
+Choose **Edit measure expression** from a measure pill to edit its SQL and aggregation together. The editor shows the aggregation applied to each group. Choose **Custom SQL · no extra aggregation** when the expression already contains aggregate functions, such as `sum(revenue) / nullIf(count(), 0)`. This uses the expression directly without wrapping it in Count or Sum. Changes apply together when you select **Update SQL expression**; closing the editor discards the draft.
+
+Worksheet tables offer **Conditional formatting** beside the visualization settings button. It opens the same rule editor used by SQL insights. Rules apply to the table and persist with the worksheet, so copying its query into another insight is unnecessary. This control applies to tables, not pivot tables or charts.
+
 Chart settings offer **Reference lines** for BI line and bar charts. Add a constant target, or choose **Mean**, **Median**, **Minimum**, or **Maximum** across returned marks on the left axis. **Per series** calculates a separate reference for each color group or measure and includes its name in the label. Calculated lines update with the results, after aggregation and table calculations; they exclude missing values and respect result limits. They do not re-aggregate the underlying source rows or apply to the right axis. Calculated lines are hidden on 100% stacked charts, where constant percentage targets remain available.
 
 The **Marks** card offers table calculations per measure: percent of total, running total, difference or percent change from the preceding point, trailing moving average, and rank. **Compute using** selects the dimension to traverse, with the date dimension chosen by default; other dimensions partition the calculation. Moving averages use a trailing window including the current point, in ascending order. Partial windows average available non-null values; **Require a full window** leaves the result empty until every point in the window has a value. Calculations run before the result limit, and zero denominators produce empty cells.
 
 **Analysis → Missing dates** defaults to **Observed points only**. **Show gaps** creates empty buckets that occupy a point in the window but do not contribute to an average. **Fill with zero** makes those buckets contribute zero. Filling runs before calculations, separately for each series and comparison period, across the selected date range. It requires one bucketed date dimension matching the worksheet date column and a bounded range. It is available for project and warehouse tables in tables and time-series charts; direct connections do not support it. Saved worksheets and dashboard date overrides retain these semantics.
 
-Pivot tables display every measure beneath nested column headers. Expand or collapse a row or column header to move between hierarchy levels. Collapsed values are reaggregated from source rows, including averages and distinct counts. **Subtotals** also shows the intermediate aggregates while expanded. Row and column grand totals retain their separate controls, and total cells keep drill-down scoped to the visible dimensions. Expansion is local to the view; the worksheet's shelves and settings remain unchanged. Tracking records hierarchy expansion with axis and depth, and adds missing-date and full-window settings to the existing worksheet events.
+**Table** automatically uses a pivot layout when both **Rows** and **Columns** contain dimensions. Row members run down the table; column members run across it, with every measure beneath each column header. Move all dimensions onto one shelf to return to a flat table. Period comparisons keep their comparison table layout. Direct database connections keep the flat table layout. Large pivots virtualize rows and columns while retaining grouped headers and the sticky row labels. Pivots support up to 10,000 measure columns; wider results ask you to reduce column dimensions or use Top N. Text-valued custom aggregates retain their values. The explicit **Pivot table** chart uses the same pivot layout. Expand or collapse a row or column header to move between hierarchy levels. Collapsed values are reaggregated from source rows, including averages and distinct counts. **Subtotals** also shows the intermediate aggregates while expanded. Row and column grand totals retain their separate controls, and total cells keep drill-down scoped to the visible dimensions. Expansion is local to the view; the worksheet's shelves and settings remain unchanged. Tracking records hierarchy expansion with axis and depth, and adds missing-date and full-window settings to the existing worksheet events.
 
 **Hierarchies** in the data pane names an ordered set of dimensions, such as Country → State → City. Create a hierarchy with 2–10 levels, then start it on rows or columns. The level list marks the current field and shows the next levels. Selecting a result offers **Drill to** the next level in the current editor worksheet, retaining parent filters, date range, measures, variables, and formatting. The path above the result offers **Drill up**, removing only filters introduced by that drill. Navigation participates in undo/redo and respects Auto update. Changed or removed hierarchy levels disable an incompatible return path. Outside the editor, the action explicitly opens a new worksheet. Leaf values and levels already on a shelf do not offer another drill action; nested pivot expansion remains available for those shelves. Definitions stay with the saved worksheet and survive **Clear sheet**. **Import from worksheet** copies a hierarchy from an accessible saved worksheet using the same table and connection. The copy is independent: edits do not change the source worksheet or create global fields. Deleting a local calculated field removes its uses from hierarchy levels, dropping definitions with fewer than two remaining levels.
 
@@ -106,7 +135,9 @@ The **Analysis** card ranks **Top N** categories by a selected measure across th
 
 Each measure's **Format and display** dialog sets its label, currency, decimal precision, abbreviation, percentage format, and suffix. Percentage formatting expects fractional values (0.25 displays as 25%); percent-of-total and percent-change calculations produce that scale automatically. Formats persist in saved insights and apply to charts, tables, and pivot cells. The **Charts** panel exposes series style and left/right axis selectors for each measure. Bar, line, and area charts support these mixed styles and axes. **Combine line + bar** assigns two measures to separate axes with bar and line styles.
 
-Click a bar, line point, table cell, or pivot cell to explore its source rows. **Filter in new worksheet** preserves the original insight and adds the selected dimensions to a new worksheet. **View underlying rows** loads up to 1,000 matching source rows before aggregation; **Open in SQL editor** carries the same conditions, connection, and effective dashboard filters. When adding a drill-down condition would exceed the filter-group nesting limit, use **View underlying rows** or **Open in SQL editor**. Total cells omit rolled-up dimensions, and **Other** selects the categories outside the current Top N. Comparison-period points open rows from their original dates; their filtered-worksheet action is disabled to avoid combining current dates with prior-period conditions. These actions are unavailable on public shared insights.
+In the worksheet editor, click a bar, line point, table cell, or pivot cell to explore its source rows. **Filter in new worksheet** preserves the original insight and adds the selected dimensions to a new worksheet. **View underlying rows** loads up to 1,000 matching source rows before aggregation; **Open in SQL editor** carries the same conditions, connection, and effective dashboard filters. When adding a drill-down condition would exceed the filter-group nesting limit, use **View underlying rows** or **Open in SQL editor**. Total cells omit rolled-up dimensions, and **Other** selects the categories outside the current Top N. Comparison-period points open rows from their original dates; their filtered-worksheet action is disabled to avoid combining current dates with prior-period conditions. These actions are unavailable on public shared insights.
+
+On authenticated dashboards in view mode, right-clicking a chart result opens a context menu beside the pointer. A left click keeps its usual action, such as opening the people modal, pinning a multi-series tooltip, or opening the BI drill-down dialog. Right-clicking a link or an input keeps the browser menu. Chart tooltips stay hidden until the menu closes. BI worksheets offer **View underlying rows**, then **Open in SQL editor**. Product analytics datapoints offer **View people**, **View recordings** when the existing drilldown selects matched recordings, then **Open in SQL editor**. Lifecycle results offer people and SQL only: their actor query identifies bucket members without projecting matched events. The people and SQL actions preserve the selected date, breakdown, and aggregation. SQL and recording links become available after the selected actor rows load. Selecting another result or closing the menu cancels any pending query. Recordings use matched session IDs; when no sessions match, the recordings action stays disabled. A left click, Escape, or a click outside closes the menu. Right-clicking another result moves the menu to it. Native links support opening actions in another tab. These actions do not change dashboard filters or create saved insights. Public shares, embeds, exports, and layout editing retain their existing behavior.
 
 **Compare previous period** turns date comparison on or off in one click. The adjacent comparison picker still supports custom offsets. Select a bounded date range before enabling comparison.
 

@@ -12,6 +12,8 @@
     'gomod',
     'cargo',
     'custom.regex',
+    'nodenv',
+    'nvm',
   ],
   dependencyDashboardTitle: 'Renovate: Dependency Status',
   dependencyDashboardLabels: [
@@ -46,6 +48,19 @@
       depNameTemplate: 'renovate',
       datasourceTemplate: 'npm',
     },
+    {
+      customType: 'regex',
+      description: 'Update the nodesource nodejs package pinned in the task sandbox images',
+      managerFilePatterns: [
+        '/^products/tasks/backend/sandbox/images/Dockerfile\\.sandbox-(base|notebook|slim)$/',
+        '/^products/tasks/backend/logic/services/modal_sandbox\\.py$/',
+      ],
+      matchStrings: ['(?<currentValue>\\d+\\.\\d+\\.\\d+-\\d+nodesource\\d+)'],
+      depNameTemplate: 'nodejs',
+      datasourceTemplate: 'deb',
+      versioningTemplate: 'deb',
+      registryUrlTemplate: 'https://deb.nodesource.com/node_24.x?suite=nodistro&components=main&binaryArch=amd64',
+    },
   ],
   customDatasources: {
     'chrome-for-testing': {
@@ -69,6 +84,21 @@
     {
       matchManagers: ['github-actions'],
       groupName: 'github-actions',
+    },
+    // The sandbox images and the Modal slim image rebuild only when this pin changes,
+    // so skip the dashboard approval and open the PR as soon as nodesource ships a release
+    {
+      matchDatasources: ['deb'],
+      matchDepNames: ['nodejs'],
+      dependencyDashboardApproval: false,
+      groupName: 'sandbox nodejs',
+    },
+    // A stale Node pin keeps known vulnerabilities in CI, so skip the dashboard approval
+    // for `.node-version` and `.nvmrc` updates. A major bump still waits for approval
+    {
+      matchManagers: ['nodenv', 'nvm'],
+      matchUpdateTypes: ['minor', 'patch'],
+      dependencyDashboardApproval: false,
     },
   ],
 }

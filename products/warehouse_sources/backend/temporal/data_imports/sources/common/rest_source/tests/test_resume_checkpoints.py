@@ -111,6 +111,16 @@ def test_a_page_reaches_the_pipeline_with_its_resume_state_only_when_nothing_wra
     assert events == expected
 
 
+def test_the_resource_says_whether_the_page_handed_on_advanced_the_cursor() -> None:
+    resource = _resource(paged_config(ITEMS, ["items"], total_pages=1), "items", lambda state: None)
+
+    with activate_safe_point(lambda: None, covers_framework_checkpoints=True):
+        advanced = [resource.last_page_advanced_cursor for _page in resource]
+
+    # The last page comes with no next-page state, so a cursor committed then still names it.
+    assert advanced == [True, False]
+
+
 def test_a_safe_point_inside_the_hook_waits_until_the_page_is_handed_on() -> None:
     events: list[Any] = []
 

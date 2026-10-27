@@ -22,8 +22,11 @@ _COUNT_TIMEOUT_SECONDS = 30
 # result, which still ranks the events and clears the minimum weekly count.
 _COUNT_MAX_BYTES = 2_000_000_000
 MAX_EVENTS = 5000
+# A share needs far fewer events than a ranking, so its scan reads about this many whatever the project's size.
+_SHARE_SAMPLE_EVENTS = 1_000_000
 # PostHog's own events that mark a real moment, unlike the generic `$` events the planner must skip.
 ALLOWED_POSTHOG_EVENTS = frozenset({"$conversation_ticket_created"})
+MOBILE_LIBS = frozenset({"posthog-ios", "posthog-android", "posthog-react-native", "posthog-flutter"})
 
 
 def weekly_counts(team: Team) -> dict[str, int]:
@@ -47,6 +50,28 @@ def estimated_weekly_events(team: Team) -> int:
     response = _run_count(team, query, "workflows_data_suggestions_volume")
     rows = response.results or []
     return int(rows[0][0]) * _ESTIMATE_SAMPLE_DENOMINATOR if rows else 0
+
+
+def mobile_share(team: Team) -> float:
+    """The share of the project's app events that its mobile SDKs send, out of mobile and web together. Server-side
+    events are left out, because a mobile app's backend often sends them too."""
+    query = parse_select(
+        """
+        SELECT countIf(properties.$lib IN {mobile}), countIf(properties.$lib IN {app})
+        FROM events
+        WHERE timestamp >= now() - INTERVAL 1 DAY
+        """,
+        placeholders={"mobile": _strings(MOBILE_LIBS), "app": _strings(MOBILE_LIBS | {"web"})},
+    )
+    # The events table is sorted by event name, so a scan that stops at the read cap would count only the events
+    # early in that order. A sample keeps the scan under the cap and spreads it over every event.
+    sample_denominator = max(1, math.ceil(estimated_weekly_events(team) / 7 / _SHARE_SAMPLE_EVENTS))
+    if sample_denominator > 1 and isinstance(query, ast.SelectQuery) and query.select_from is not None:
+        query.select_from.sample = _sample(sample_denominator)
+    rows = _run_count(team, query, "workflows_data_suggestions_mobile_share").results or []
+    if not rows or not rows[0][1]:
+        return 0.0
+    return int(rows[0][0]) / int(rows[0][1])
 
 
 def _count_events(team: Team, sample_denominator: int, *, skip: frozenset[str]) -> dict[str, int]:

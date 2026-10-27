@@ -41,6 +41,7 @@ import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joins
  * `TaxonomicFilterProps` — only the fields that affect group definitions.
  */
 export interface UseTaxonomicGroupsContextInput {
+    allowNonCapturedEvents?: boolean
     eventNames?: string[]
     /** Requested group types — read by group definitions that adapt to which tabs are present. */
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
@@ -161,6 +162,7 @@ export function useTaxonomicGroupsContext(input: UseTaxonomicGroupsContextInput)
             // taxonomic-groups builder accepts.
             featureFlags: featureFlags as unknown as BuildTaxonomicGroupsContext['featureFlags'],
             includeHiddenEvents: input.includeHiddenEvents,
+            allowNonCapturedEvents: input.allowNonCapturedEvents ?? false,
         }
     }, [
         currentTeam,
@@ -184,6 +186,7 @@ export function useTaxonomicGroupsContext(input: UseTaxonomicGroupsContextInput)
         input.suggestedFiltersLabel,
         input.excludedProperties,
         input.includeHiddenEvents,
+        input.allowNonCapturedEvents,
         input.propertyAllowList,
         input.showNumericalPropsOnly,
         input.maxContextOptions,

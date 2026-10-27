@@ -539,6 +539,10 @@ describe('HogFunctionHandler', () => {
             expect(handlerResult.nextAction?.id).toBe('exit')
             expect(mockFetch).not.toHaveBeenCalled()
             expect(invocationResult.logs[0].message).toContain('no reachable mail servers')
+            expect(invocationResult.emailSendResult).toEqual({
+                status: 'skipped',
+                reason: 'Skipping send: the domain "dead.invalid" has no reachable mail servers, so this message would hard bounce.',
+            })
             expect(invocationResult.metrics).toEqual([
                 {
                     team_id: team.id,

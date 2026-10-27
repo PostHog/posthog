@@ -1,3 +1,4 @@
+import json
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -7,6 +8,12 @@ from uuid import UUID
 from posthog.dataclasses import frozen
 
 from products.workflows.backend.facade.enums import (
+    EmailDomainSetupRecordKind,
+    EmailDomainSetupRecordStatus,
+    EmailDomainSetupRecordType,
+    EmailDomainSetupStatus,
+    EmailDomainSetupStepKey,
+    EmailDomainSetupStepState,
     EmailDraftFallbackReason,
     EmailDraftOrigin,
     HogFlowBatchJobState,
@@ -422,6 +429,86 @@ class EmailDomainVerification(TypedDict):
     dnsRecords: list[EmailDomainDnsRecord]
 
 
+@frozen
+class EmailDomainStatusRecord:
+    kind: EmailDomainSetupRecordKind
+    hostname: str
+    type: EmailDomainSetupRecordType
+    value: str
+    priority: int | None = None
+    status: EmailDomainSetupRecordStatus = EmailDomainSetupRecordStatus.PENDING
+
+
+@frozen
+class EmailDomainStatusStep:
+    key: EmailDomainSetupStepKey
+    state: EmailDomainSetupStepState
+
+
+@frozen
+class EmailDomainCheck:
+    """What the email provider and public DNS report for a sending domain, read without changing either."""
+
+    status: EmailDomainSetupStatus
+    steps: tuple[EmailDomainStatusStep, ...]
+    records: tuple[EmailDomainStatusRecord, ...]
+    every_dns_lookup_answered: bool = True
+
+    @property
+    def is_verified(self) -> bool:
+        return self.status == EmailDomainSetupStatus.VERIFIED
+
+    # The Django cache pickles what it stores, so the check goes in as a JSON string of plain values.
+    def to_json(self) -> str:
+        return json.dumps(
+            {
+                "status": self.status.value,
+                "steps": [{"key": step.key.value, "state": step.state.value} for step in self.steps],
+                "records": [
+                    {
+                        "kind": record.kind.value,
+                        "hostname": record.hostname,
+                        "type": record.type.value,
+                        "value": record.value,
+                        "priority": record.priority,
+                        "status": record.status.value,
+                    }
+                    for record in self.records
+                ],
+                "every_dns_lookup_answered": self.every_dns_lookup_answered,
+            }
+        )
+
+    @classmethod
+    def from_json(cls, raw: str) -> "EmailDomainCheck":
+        data = json.loads(raw)
+        return cls(
+            status=EmailDomainSetupStatus(data["status"]),
+            steps=tuple(
+                EmailDomainStatusStep(
+                    key=EmailDomainSetupStepKey(step["key"]), state=EmailDomainSetupStepState(step["state"])
+                )
+                for step in data["steps"]
+            ),
+            records=tuple(
+                EmailDomainStatusRecord(
+                    kind=EmailDomainSetupRecordKind(record["kind"]),
+                    hostname=str(record["hostname"]),
+                    type=EmailDomainSetupRecordType(record["type"]),
+                    value=str(record["value"]),
+                    priority=None if record["priority"] is None else int(record["priority"]),
+                    status=EmailDomainSetupRecordStatus(record["status"]),
+                )
+                for record in data["records"]
+            ),
+            every_dns_lookup_answered=bool(data["every_dns_lookup_answered"]),
+        )
+
+
+class EmailProviderUnavailableError(Exception):
+    """The email provider could not be reached or refused the read, so the domain's state is unknown."""
+
+
 class TwilioPhoneNumber(TypedDict):
     """The fields callers read. The Twilio payload has more keys."""
 
@@ -434,6 +521,26 @@ class TwilioAccount(TypedDict, total=False):
     """Empty when the Twilio request fails."""
 
     sid: str
+
+
+@frozen
+class TeamUtmDefaults:
+    enabled: bool
+    params: dict[str, str]
+
+
+@frozen
+class FlowUtmUpdate:
+    actions: list[dict[str, Any]] | None
+    draft_actions: list[dict[str, Any]] | None
+    emails_updated: int
+    emails_turned_on: int
+
+
+@frozen
+class UtmDefaultsWriteResult:
+    write: "WorkflowWriteResult"
+    plan: FlowUtmUpdate
 
 
 @frozen
@@ -813,6 +920,8 @@ class DataSuggestionsResult:
     suggestions: tuple[DataSuggestion, ...]
     # The project's events that a build can wait on. Kept with the cards, so a build does not count events again.
     events: tuple[str, ...] = ()
+    # Whether most of the project's app events come from its mobile SDKs. Kept with the cards for the same reason.
+    mobile_first: bool = False
 
 
 DataSuggestionBuildStatus = Literal["ready", "building", "failed"]

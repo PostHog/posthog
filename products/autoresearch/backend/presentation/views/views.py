@@ -261,7 +261,8 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
         # them on or off, or archives or deletes a pipeline that writes them, needs person:write
         # like /score does.
         if self.action in ("create", "update", "partial_update"):
-            writes_persons = "write_person_property" in request.data
+            # A JSON null or list body is not a dict, so let the serializer reject it with a 400.
+            writes_persons = isinstance(request.data, dict) and "write_person_property" in request.data
         elif self.action in ("archive", "destroy") and not getattr(self, "swagger_fake_view", False):
             # Schema generation has no pipeline to read, so it documents the base scopes.
             writes_persons = api.pipeline_writes_person_property(self.team_id, self.kwargs["pk"])

@@ -13,6 +13,7 @@ from sshtunnel import BaseSSHTunnelForwarderError
 
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import cdc_error_info
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import HostNotAllowedError
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.tls import tls_options
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.config import PostgresCDCConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.errors import (
     classify_postgres_cdc_error,
@@ -135,6 +136,7 @@ class PostgresCDCAdapter:
             user=inputs.get("user", ""),
             password=inputs.get("password", ""),
             require_ssl=source_requires_ssl(source, config),
+            tls=tls_options(config),
             slot_name=cdc_config.slot_name,
             publication_name=cdc_config.publication_name,
         )

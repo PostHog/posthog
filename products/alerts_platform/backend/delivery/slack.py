@@ -62,11 +62,16 @@ def blocks_for(message: AlertMessage) -> list[dict[str, Any]]:
     blocks: list[dict[str, Any]] = [header_block(message.title)]
     if message.details:
         blocks.append(section_block(_body(message.details)))
+    elements: list[str] = []
     if message.context:
         # Context names things a user chose, such as services, so it is escaped like a detail.
         # Escaping can grow it fourfold, so the clip comes after it.
-        context = " | ".join(escape_slack_mrkdwn(line) for line in message.context)
-        blocks.append(context_block(clip_text(context, MAX_CONTEXT_CHARS)))
+        elements.append(clip_text(" | ".join(escape_slack_mrkdwn(line) for line in message.context), MAX_CONTEXT_CHARS))
+    if message.project is not None:
+        # Its own element, so a clipped context line never cuts the link in half.
+        elements.append(f"Project: <{message.project.url}|{escape_slack_mrkdwn(message.project.label)}>")
+    if elements:
+        blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": text} for text in elements]})
     if message.image is not None:
         blocks.append(image_block(message.image.url, message.image.alt_text))
     actions = actions_block([SlackButton(text=link.label, url=link.url) for link in message.links])
@@ -122,8 +127,11 @@ class SlackTransport:
                 blocks,
                 text,
                 thread_ts=in_reply_to.external_ref.get("ts") if in_reply_to else None,
-                # A root edit notifies nobody, so a resolve also goes to the channel, as legacy posted it.
-                reply_broadcast=in_reply_to is not None and message.transition.kind == AlertEventKind.RESOLVED,
+                # A root edit notifies nobody, and a thread reply notifies only the people who follow
+                # the thread. So a resolve and a repeat firing also go to the channel, where legacy
+                # posted each one as a new message.
+                reply_broadcast=in_reply_to is not None
+                and message.transition.kind in (AlertEventKind.RESOLVED, AlertEventKind.FIRING),
             )
 
         try:

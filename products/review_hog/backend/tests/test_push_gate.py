@@ -14,8 +14,11 @@ from posthog.llm.system_one import NoulAnswer, SystemOneNotConfigured, SystemOne
 from posthog.redis import TEST_clear_clients, get_client
 from posthog.token_bucket import BucketUnavailable, TEST_reset_scripts
 
+from products.review_hog.backend.reviewer.artefact_content import PRSnapshotArtefact
+from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRFileUpdate, PRMetadata
 from products.review_hog.backend.reviewer.push_gate import (
     PUSH_GATE_MODEL,
+    PRChange,
     PushGate,
     PushGateDecision,
     _NextPushCell,
@@ -23,7 +26,9 @@ from products.review_hog.backend.reviewer.push_gate import (
     apply_follow_up_value_rules,
     apply_next_push_rule,
     apply_throttle,
+    apply_zero_change_rule,
     next_push_probability,
+    plan_delta_review,
 )
 from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError
 
@@ -728,3 +733,212 @@ def test_next_push_rule_keeps_the_value_rule_inputs() -> None:
     with patch(f"{_MODULE}.NEXT_PUSH_SKIP_AT", 0.0):
         result = apply_next_push_rule(decision, follow_up=4, pr_lines=400)
     assert (result.reason, result.reviewable_lines, result.previous_findings) == ("next_push_likely", 400, 2)
+
+
+def _change(**overrides: Any) -> PRChange:
+    fields: dict[str, Any] = {
+        "changed_lines": 12,
+        "changed_reviewable_lines": 12,
+        "dependency_changed": False,
+        "comparable": True,
+        **overrides,
+    }
+    return PRChange(**fields)
+
+
+@parameterized.expand(
+    [
+        (
+            "no_change_in_the_treatment_arm_skips",
+            _running(0),
+            _change(changed_lines=0),
+            True,
+            (True, True, "zero_change"),
+        ),
+        (
+            "no_change_in_the_control_arm_runs_and_records_it",
+            _running(0),
+            _change(changed_lines=0),
+            False,
+            (False, True, "zero_change"),
+        ),
+        (
+            "a_changed_line_runs",
+            _running(0),
+            _change(changed_lines=1),
+            True,
+            (False, False, "system_one_above_threshold"),
+        ),
+        ("an_unknown_comparison_runs", _running(0), None, True, (False, False, "system_one_above_threshold")),
+        (
+            "a_change_the_snapshots_cannot_show_runs",
+            _running(0),
+            _change(changed_lines=0, comparable=False),
+            True,
+            (False, False, "system_one_above_threshold"),
+        ),
+        (
+            "a_shadow_match_is_taken_over",
+            PushGateDecision(skip=False, would_skip=True, reason="docs_only"),
+            _change(changed_lines=0),
+            True,
+            (True, True, "zero_change"),
+        ),
+        (
+            "a_gate_failure_keeps_running",
+            PushGateDecision(skip=False, would_skip=False, reason="compare_unavailable"),
+            _change(changed_lines=0),
+            True,
+            (False, False, "compare_unavailable"),
+        ),
+        (
+            "an_earlier_skip_keeps_its_reason",
+            PushGateDecision(skip=True, would_skip=True, reason="merge_only"),
+            _change(changed_lines=0),
+            True,
+            (True, True, "merge_only"),
+        ),
+    ]
+)
+def test_zero_change_rule_skips_only_a_known_unchanged_pr_diff_in_the_treatment_arm(
+    _name: str,
+    decision: PushGateDecision,
+    change: PRChange | None,
+    enabled: bool,
+    expected: tuple[bool, bool, str],
+) -> None:
+    result = apply_zero_change_rule(decision, change=change, enabled=enabled)
+    assert (result.skip, result.would_skip, result.reason) == expected
+
+
+def _snapshot(pr_files: list[PRFile], skipped_paths: list[str]) -> PRSnapshotArtefact:
+    metadata = PRMetadata(
+        number=1,
+        title="t",
+        state="open",
+        draft=False,
+        created_at="2026-10-01T00:00:00Z",
+        updated_at="2026-10-01T00:00:00Z",
+        author="a",
+        base_branch="master",
+        head_branch="feat",
+        commits=1,
+        additions=1,
+        deletions=0,
+        changed_files=1,
+    )
+    return PRSnapshotArtefact(head_sha="h", pr_metadata=metadata, pr_files=pr_files, skipped_paths=skipped_paths)
+
+
+def _code(filename: str, code: str) -> PRFile:
+    update = PRFileUpdate(type="addition", new_start_line=1, new_end_line=1, code=code)
+    return PRFile(filename=filename, status="modified", additions=1, deletions=0, changes=[update])
+
+
+@parameterized.expand(
+    [
+        ("same_reviewed_files", [_code("a.py", "x = 1")], [], [_code("a.py", "x = 1")], [], (0, False, True)),
+        (
+            "a_lockfile_in_the_pr_is_unseen_pnpm_lock_yaml",
+            [_code("a.py", "x = 1")],
+            ["pnpm-lock.yaml"],
+            [_code("a.py", "x = 1")],
+            ["pnpm-lock.yaml"],
+            (0, False, False),
+        ),
+        (
+            "a_lockfile_in_the_pr_is_unseen_bun_lockb",
+            [_code("a.py", "x = 1")],
+            ["bun.lockb"],
+            [_code("a.py", "x = 1")],
+            ["bun.lockb"],
+            (0, False, False),
+        ),
+        (
+            "a_lockfile_in_the_pr_is_unseen_npm_shrinkwrap_json",
+            [_code("a.py", "x = 1")],
+            ["npm-shrinkwrap.json"],
+            [_code("a.py", "x = 1")],
+            ["npm-shrinkwrap.json"],
+            (0, False, False),
+        ),
+        (
+            "a_file_without_a_patch_is_unseen_even_with_the_same_counts",
+            [PRFile(filename="big.py", status="modified", additions=5000, deletions=0)],
+            [],
+            [PRFile(filename="big.py", status="modified", additions=5000, deletions=0)],
+            [],
+            (0, False, False),
+        ),
+        (
+            "a_file_that_left_the_pr_has_no_delta_diff",
+            [_code("a.py", "x = 1"), _code("b.py", "guard()")],
+            [],
+            [_code("a.py", "x = 1")],
+            [],
+            (1, False, False),
+        ),
+        (
+            "a_manifest_change_is_a_dependency_change",
+            [_code("package.json", '"a": "1"')],
+            [],
+            [_code("package.json", '"a": "2"')],
+            [],
+            (2, True, True),
+        ),
+    ]
+)
+def test_pr_change_is_comparable_only_when_the_snapshots_show_every_change(
+    _name: str,
+    earlier_files: list[PRFile],
+    earlier_skipped: list[str],
+    current_files: list[PRFile],
+    current_skipped: list[str],
+    expected: tuple[int, bool, bool],
+) -> None:
+    change = PRChange.between(_snapshot(earlier_files, earlier_skipped), _snapshot(current_files, current_skipped))
+    assert (change.changed_lines, change.dependency_changed, change.comparable) == expected
+
+
+@parameterized.expand(
+    [
+        ("small_later_push_in_the_treatment_arm", _running(5), {}, (True, True)),
+        ("small_later_push_in_the_control_arm", _running(5), {"enabled": False}, (True, False)),
+        ("first_follow_up_stays_whole", _running(5), {"run_index": 2}, (False, False)),
+        ("over_the_share_stays_whole", _running(5), {"change": _change(changed_reviewable_lines=31)}, (False, False)),
+        ("at_the_share_is_in", _running(5), {"change": _change(changed_reviewable_lines=30)}, (True, True)),
+        (
+            "no_reviewable_change_stays_whole",
+            _running(5),
+            {"change": _change(changed_reviewable_lines=0)},
+            (False, False),
+        ),
+        ("a_dependency_change_stays_whole", _running(5), {"change": _change(dependency_changed=True)}, (False, False)),
+        ("an_uncomparable_change_stays_whole", _running(5), {"change": _change(comparable=False)}, (False, False)),
+        ("an_unknown_comparison_stays_whole", _running(5), {"change": None}, (False, False)),
+        (
+            "a_gate_failure_stays_whole",
+            PushGateDecision(skip=False, would_skip=False, reason="compare_unavailable"),
+            {},
+            (False, False),
+        ),
+        (
+            "a_skipped_push_reviews_nothing",
+            PushGateDecision(skip=True, would_skip=True, reason="small_pr"),
+            {},
+            (False, False),
+        ),
+    ]
+)
+def test_delta_review_covers_only_small_comparable_later_pushes(
+    _name: str, decision: PushGateDecision, overrides: dict[str, Any], expected: tuple[bool, bool]
+) -> None:
+    inputs: dict[str, Any] = {
+        "run_index": 3,
+        "change": _change(),
+        "reviewable_lines": 1000,
+        "enabled": True,
+        **overrides,
+    }
+    result = plan_delta_review(decision, **inputs)
+    assert (result.delta_eligible, result.delta_review) == expected

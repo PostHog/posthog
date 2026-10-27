@@ -174,6 +174,14 @@ class MovedAlertCheck:
     value: float | None
     state: AlertState
     error_message: str | None
+    # Names a failed check's reason, for the reasons the history shows by their code.
+    error_code: str | None = None
+    # A detector check's own output, as production keeps it on its check. Empty for a threshold check.
+    anomaly_scores: tuple[float | None, ...] = ()
+    triggered_points: tuple[int, ...] = ()
+    triggered_dates: tuple[str, ...] = ()
+    interval: str | None = None
+    triggered_metadata: dict[str, Any] | None = None
 
 
 @frozen

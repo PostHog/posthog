@@ -15,8 +15,9 @@ import { DROPDOWN_PARTS } from '~/layout/today/todayMenuParts'
 import { TodayPanelMoveMenuItems } from '~/layout/today/TodayPanelMoveMenuItems'
 import { todayShellLogic } from '~/layout/today/todayShellLogic'
 
+import { useThreadSkin } from 'products/posthog_ai/frontend/api/logics'
 import { DebugLogsMenuItem } from 'products/posthog_ai/frontend/api/menus'
-import { DebugLogsMenu, useThreadSkin } from 'products/posthog_ai/frontend/api/primitives'
+import { DebugLogsMenu } from 'products/posthog_ai/frontend/api/primitives'
 import { EmbeddedRunner } from 'products/posthog_ai/frontend/api/runner'
 
 import { aiSceneView } from '../aiSceneView'
@@ -270,7 +271,7 @@ function ChatArea({ threadVisible, conversation, onStartNewConversation }: ChatA
                             </LemonBanner>
                         </div>
                     )}
-                    <Thread className="p-3" />
+                    <Thread />
                 </ThreadAutoScroller>
             )}
 

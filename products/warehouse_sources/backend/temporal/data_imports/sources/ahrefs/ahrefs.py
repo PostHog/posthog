@@ -7,10 +7,10 @@ from requests import Request, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.ahrefs.settings import (
     API_BASE_URL,
+    CREDENTIAL_ERRORS,
     ENDPOINTS,
     HISTORY_DAYS,
     MAX_COMPETITORS,
-    NON_RETRYABLE_ERRORS,
     TOP_DOMAINS_COUNT,
     TOP_DOMAINS_PAGE_ROWS,
     EndpointSettings,
@@ -73,7 +73,7 @@ def validate_credentials(api_key: str) -> tuple[bool, str | None]:
             )
         )
     except ValueError as error:
-        message = NON_RETRYABLE_ERRORS.get(str(error))
+        message = CREDENTIAL_ERRORS.get(str(error))
         if message is None:
             raise
         return False, message

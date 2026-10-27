@@ -153,18 +153,23 @@ def link_pull_request(
             .exists()
         ):
             from products.signals.backend.pull_request_label import schedule_pull_request_label
-            from products.signals.backend.reviewer_pr_assignment import schedule_reviewer_pr_assignment
             from products.signals.backend.reviewer_pr_ready import schedule_open_pull_request_ready
 
-            schedule_reviewer_pr_assignment(
-                team_id=report.team_id, report_id=str(report.id), pr_url=pr.url, pr_state=pr.state
-            )
             schedule_open_pull_request_ready(
                 team_id=report.team_id, report_id=str(report.id), pr_url=pr.url, pr_state=pr.state
             )
             schedule_pull_request_label(
                 team_id=report.team_id, report_id=str(report.id), pr_url=pr.url, pr_state=pr.state
             )
+    if notify_reviewers and state_source != PullRequestStateSource.LEGACY_ASSIGNMENT:
+        # Every verified PR refresh can change paths, ownership, membership, or linked identities.
+        # The assignment worker is bounded and replaces only the owners named by its own latest
+        # provenance record, so repeated webhook deliveries are safe reassessment triggers.
+        from products.signals.backend.reviewer_pr_assignment import schedule_reviewer_pr_assignment
+
+        schedule_reviewer_pr_assignment(
+            team_id=report.team_id, report_id=str(report.id), pr_url=pr.url, pr_state=pr.state
+        )
     if state_source != PullRequestStateSource.LEGACY_ASSIGNMENT:
         schedule_participant_refresh(pr)
     return pr

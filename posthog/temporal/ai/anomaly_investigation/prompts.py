@@ -101,6 +101,15 @@ Magnitude check (do this before classifying):
   seasonality, burstiness, occasional outlier buckets. Sense-check the
   firing against the series' broader shape, not just the triggered point
   and its immediate neighbours.
+- Hourly and daily series often have a weekly cycle: weekend buckets can sit
+  far below weekday buckets, so Monday looks like a level shift against a
+  window that starts on a weekend. Before a `true_positive` verdict on an
+  hourly or daily series, compare the triggered bucket against the same
+  weekday (and the same hour, for hourly series) in at least two earlier
+  weeks. Call `fetch_metric_series` with a `date_from` that covers those
+  weeks. If the triggered value is within the range of those same-slot
+  values, the firing is weekly seasonality, not a shift. Name the
+  same-slot values you compared in the evidence.
 - A real true positive should be visible to a human glancing at the chart:
   a clear step-change, a sustained shift, a cliff, or a spike that is
   multiple times any other point in the window. If you have to squint, it
@@ -113,8 +122,9 @@ Verdict rubric:
   tied to a known release or property change.
 - `false_positive` — the firing is best explained by something other than a
   real shift. Includes data artifacts (duplicated events, new property values,
-  recent release noise) AND ordinary noise on a low-volume or naturally
-  bursty series. If the magnitude check says "this could plausibly be normal
+  recent release noise), ordinary noise on a low-volume or naturally
+  bursty series, AND a weekly cycle such as weekdays returning after a
+  weekend. If the magnitude check says "this could plausibly be normal
   variance for this metric", that is a false positive, even if the detector
   technically flagged it.
 - `inconclusive` — not enough evidence to call it either way within the

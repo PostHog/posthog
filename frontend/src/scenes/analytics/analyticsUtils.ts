@@ -204,7 +204,7 @@ export function fromPostHogProducts(): FromPostHogItem[] {
                       ...productAnalytics,
                       iconType: 'product_analytics',
                       href: urls.analyticsProductHome(),
-                      flag: FEATURE_FLAGS.PRODUCT_ANALYTICS_HOME_TAB,
+                      flag: FEATURE_FLAGS.TODAY_RAIL_NAV,
                   },
               },
           ]

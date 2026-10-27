@@ -2,7 +2,7 @@
 per send, so sends get the workflow's metrics, run history and versions."""
 
 import re
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from django.db import transaction
@@ -25,9 +25,13 @@ from products.messaging.backend.facade.contracts import (
     MarketingTemplate,
     QueuedEmail,
     QuotaLimited,
+    RecipientSuppressed,
     SenderUnavailable,
+    SendingPaused,
+    SendingSuspended,
     TemplateNotSendable,
     TemplateNotTransactional,
+    TransactionalEmailError,
     TransactionalEmailPaused,
 )
 from products.messaging.backend.models import MessageCategory, MessageTemplate
@@ -42,7 +46,39 @@ from products.workflows.backend.facade.transactional_emails import (
     update_transactional_email_workflow,
 )
 
+if TYPE_CHECKING:
+    import requests
+
 logger = structlog.get_logger(__name__)
+
+# The CDP service names the reason it refused a send in the body's `error`. A retry of the same request gets the
+# same refusal, so each of these reaches the caller as a 4xx and not as a retryable 503.
+PIPELINE_REFUSALS: dict[str, tuple[type[TransactionalEmailError], str]] = {
+    "quota_limited": (QuotaLimited, "The project is over its email quota."),
+    "idempotency_key_in_flight": (
+        IdempotencyKeyInFlight,
+        "A request with this Idempotency-Key is still being processed. Retry in a few seconds.",
+    ),
+    "idempotency_key_reused": (
+        IdempotencyKeyReused,
+        "This Idempotency-Key was already used for a different request. Use a new key for a new email.",
+    ),
+    "sending_suspended": (
+        SendingSuspended,
+        "Email sending is suspended for this project. Check the Reputation tab in Workflows, or contact support.",
+    ),
+    "sending_paused": (
+        SendingPaused,
+        "Email sending is paused for this transactional email because of its bounce or complaint rate. "
+        "Check the Reputation tab in Workflows.",
+    ),
+    "recipient_suppressed": (
+        RecipientSuppressed,
+        "The recipient is on this project's suppression list after a hard bounce or a spam complaint, so the "
+        "email can't be sent. Remove the address from the suppression list if it can receive email again.",
+    ),
+    "not_sendable": (TransactionalEmailPaused, "The template's transactional email isn't active."),
+}
 
 IDEMPOTENCY_KEY_PATTERN = re.compile(r"[!-~]{1,255}")
 
@@ -288,16 +324,10 @@ def send_transactional_email(
         raise DeliveryUnavailable() from e
 
     if response.status_code != 202:
-        if response.status_code == 429:
-            raise QuotaLimited("The project is over its email quota.")
-        if response.status_code == 409:
-            raise IdempotencyKeyInFlight(
-                "A request with this Idempotency-Key is still being processed. Retry in a few seconds."
-            )
-        if response.status_code == 422:
-            raise IdempotencyKeyReused(
-                "This Idempotency-Key was already used for a different request. Use a new key for a new email."
-            )
+        refusal = PIPELINE_REFUSALS.get(_refusal_code(response) or "")
+        if refusal is not None:
+            error_class, message = refusal
+            raise error_class(message)
         logger.error(
             "transactional_email_queue_rejected",
             team_id=team.id,
@@ -308,3 +338,12 @@ def send_transactional_email(
 
     body = response.json()
     return QueuedEmail(message_id=str(body["invocation_id"]), replayed=bool(body.get("replayed", False)))
+
+
+def _refusal_code(response: "requests.Response") -> str | None:
+    try:
+        body = response.json()
+    except ValueError:
+        return None
+    code = body.get("error") if isinstance(body, dict) else None
+    return code if isinstance(code, str) else None

@@ -5,7 +5,7 @@ from uuid import UUID, uuid4
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.warehouse_object_reads import TRUNCATE_WAREHOUSE_OBJECT_READS_DAILY_TABLES_SQL
+from posthog.clickhouse.warehouse_object_reads import TRUNCATE_WAREHOUSE_OBJECT_READS_DAILY_TABLES_SQL, ReadKind
 
 from products.warehouse_suggestions.backend.facade.enums import WarehouseSuggestionSubjectKind
 from products.warehouse_suggestions.backend.logic.reads import (
@@ -69,8 +69,9 @@ class TestReadTeamReads(ClickhouseTestMixin, BaseTest):
         classified = {name: _classification(reads.subjects, subjects[name]) for name, *_ in TAG_CASES}
         assert classified == {name: (human, surface) for name, _, human, surface in TAG_CASES}
 
-    def test_counts_requests_people_days_and_median_cost_of_reads_alone_inside_the_window(self) -> None:
+    def test_counts_reads_people_days_costs_and_refreshes_inside_the_window(self) -> None:
         view = uuid4()
+        unread_view = uuid4()
         seed_reads(
             self.team.pk + 1, [RollupRead(subject_id=uuid4(), day=TODAY - timedelta(days=3), request_id="other")]
         )
@@ -82,6 +83,42 @@ class TestReadTeamReads(ClickhouseTestMixin, BaseTest):
                 RollupRead(subject_id=view, day=TODAY - timedelta(days=2), request_id="b", user_id=2, duration_ms=900),
                 RollupRead(subject_id=view, day=TODAY - timedelta(days=40), request_id="old", user_id=3),
                 RollupRead(subject_id=view, day=TODAY, request_id="today", user_id=4),
+                RollupRead(subject_id=view, day=YESTERDAY, request_id="warmup", user_id=0, duration_ms=50),
+                RollupRead(
+                    subject_id=view,
+                    day=YESTERDAY,
+                    request_id="refresh-1",
+                    read_kind=ReadKind.REFRESH,
+                    workflow_id="run-1",
+                    duration_ms=1000,
+                ),
+                RollupRead(
+                    subject_id=view,
+                    day=YESTERDAY,
+                    request_id="refresh-2",
+                    read_kind=ReadKind.REFRESH,
+                    workflow_id="run-2",
+                    duration_ms=3000,
+                ),
+                *(
+                    RollupRead(
+                        subject_id=view,
+                        day=YESTERDAY,
+                        request_id=f"refresh-2-describe-{statement}",
+                        read_kind=ReadKind.REFRESH,
+                        workflow_id="run-2",
+                        duration_ms=10,
+                    )
+                    for statement in range(9)
+                ),
+                RollupRead(
+                    subject_id=unread_view,
+                    day=YESTERDAY,
+                    request_id="unread-refresh",
+                    read_kind=ReadKind.REFRESH,
+                    workflow_id="unread-run",
+                    duration_ms=500,
+                ),
                 RollupRead(
                     subject_id=uuid4(),
                     day=YESTERDAY,
@@ -99,8 +136,13 @@ class TestReadTeamReads(ClickhouseTestMixin, BaseTest):
         assert rollup_days == RollupDays(days_with_data=3, recent_days_with_data=3)
         assert (reads.readers, reads.view_readers, reads.view_reads) == (3, 2, 2)
         assert (view_reads.human_requests, view_reads.human_users, view_reads.human_days) == (2, 2, 2)
+        assert (view_reads.background_reads, view_reads.background_duration_ms) == (1, 50)
+        refreshes = reads.refreshes[view]
+        assert (refreshes.runs, refreshes.duration_ms) == (2, 4090)
+        assert {run.workflow_id: run.duration_ms for run in reads.refresh_runs[view]} == {"run-1": 1000, "run-2": 3090}
+        assert unread_view in reads.refreshes and unread_view not in reads.refresh_runs
         assert (view_reads.human_reads, view_reads.human_duration_ms, view_reads.alone_reads) == (3, 1300, 2)
-        assert 100 <= view_reads.alone_duration_ms_median <= 300
+        assert 100 <= view_reads.alone_duration_ms_median < view_reads.alone_duration_ms_p90 <= 300
         assert view_reads.last_read_at == datetime.combine(YESTERDAY, time(hour=12), tzinfo=UTC)
 
 

@@ -36,6 +36,7 @@ interface ObjectTagsPropsBase {
      * room surrounding table columns get.
      */
     wrap?: boolean
+    compact?: boolean
     editorFullWidth?: boolean
 }
 
@@ -82,6 +83,7 @@ export function ObjectTags({
     maxVisibleTags,
     showOverflowLabel = false,
     wrap = false,
+    compact = false,
     editorFullWidth = false,
 }: ObjectTagsProps): JSX.Element {
     const objectTagId = useId()
@@ -107,7 +109,8 @@ export function ObjectTags({
             style={style}
             className={clsx(
                 className,
-                'inline-flex flex-wrap gap-0.5 items-center',
+                'inline-flex gap-0.5 items-center',
+                compact ? 'flex-nowrap min-w-0' : 'flex-wrap',
                 wrap && 'min-w-0 max-w-full',
                 editingTags && editorFullWidth && 'w-full min-w-0'
             )}
@@ -141,10 +144,17 @@ export function ObjectTags({
                                       key={index}
                                       type={COLOR_OVERRIDES[tag] || colorForString(tag)}
                                       onClick={onTagClick ? () => onTagClick(tag) : undefined}
-                                      className={wrap ? 'max-w-full' : undefined}
+                                      size={compact ? 'small' : 'medium'}
+                                      className={compact ? 'min-w-0' : wrap ? 'max-w-full' : undefined}
                                       wrap={wrap}
                                   >
-                                      {tag}
+                                      {compact ? (
+                                          <span className="truncate" title={tag}>
+                                              {tag}
+                                          </span>
+                                      ) : (
+                                          tag
+                                      )}
                                   </LemonTag>
                               )
                           })}

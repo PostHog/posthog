@@ -1,12 +1,18 @@
 from posthog.test.base import BaseTest
 from unittest import mock
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
-from posthog.schema import CompareFilter, DateRange, MarketingAnalyticsTableQuery
+from posthog.schema import CompareFilter, DateRange, HogQLQueryModifiers, MarketingAnalyticsTableQuery
 
 from posthog import redis
 from posthog.clickhouse.query_tagging import Feature, get_query_tag_value, reset_query_tags, tags_context
+from posthog.models import Team
+from posthog.models.event.new_events_schema import events_route_scope, new_events_schema_for_request
+from posthog.redis import TEST_clear_clients
+from posthog.token_bucket import TEST_reset_scripts
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
 from products.marketing_analytics.backend.hogql_queries.marketing_lazy_precompute import (
@@ -15,6 +21,7 @@ from products.marketing_analytics.backend.hogql_queries.marketing_lazy_precomput
     REVALIDATION_TRIGGER,
     TEAM_WARM_BUDGET,
     _query_shape_key,
+    _revalidation_query,
     handle_not_ready,
     handle_stale_served,
     marketing_ensure_precomputed,
@@ -27,17 +34,42 @@ _DELAY = (
 )
 
 
+class TestMarketingRevalidationEventsTable(SimpleTestCase):
+    def setUp(self) -> None:
+        TEST_clear_clients()
+        TEST_reset_scripts()
+        self.addCleanup(TEST_clear_clients)
+        self.addCleanup(TEST_reset_scripts)
+
+    def test_rebuilds_keep_the_events_table_and_debounce_each_table_separately(self) -> None:
+        team = Team(id=44, timezone="UTC")
+        query = MarketingAnalyticsTableQuery(dateRange=DateRange(date_from="-7d"), properties=[])
+        with mock.patch(_DELAY) as delay, new_events_schema_for_request():
+            for native in (False, True, False, True):
+                with events_route_scope(HogQLQueryModifiers(useNewEventsSchema=native)):
+                    handle_not_ready(team=team, query=query)
+
+        assert [call.kwargs["query"]["modifiers"]["useNewEventsSchema"] for call in delay.call_args_list] == [
+            False,
+            True,
+        ]
+        assert query.modifiers is None
+
+
 class TestMarketingLazyPrecompute(BaseTest):
     def setUp(self):
         super().setUp()
         self.query = MarketingAnalyticsTableQuery(dateRange=DateRange(date_from="-7d"), properties=[])
-        redis.get_client().delete(f"ma_swr_reval:{self.team.id}:{_query_shape_key(self.query)}")
+        redis.get_client().delete(self._debounce_key(self.query))
         redis.get_client().delete(f"ma_swr_reval_rate:{self.team.id}")
         reset_query_tags()
 
     def tearDown(self):
         reset_query_tags()
         super().tearDown()
+
+    def _debounce_key(self, query: MarketingAnalyticsTableQuery) -> str:
+        return f"ma_swr_reval:{self.team.id}:{_query_shape_key(_revalidation_query(team=self.team, query=query))}"
 
     @parameterized.expand(
         [
@@ -110,7 +142,7 @@ class TestMarketingLazyPrecompute(BaseTest):
     @mock.patch(_DELAY)
     def test_debounce_splits_only_on_precompute_identity(self, _name, overrides, expected_enqueues, delay):
         variant = self.query.model_copy(update=overrides)
-        redis.get_client().delete(f"ma_swr_reval:{self.team.id}:{_query_shape_key(variant)}")
+        redis.get_client().delete(self._debounce_key(variant))
 
         handle_stale_served(team=self.team, query=self.query)
         handle_stale_served(team=self.team, query=variant)
@@ -126,11 +158,11 @@ class TestMarketingLazyPrecompute(BaseTest):
             for days in range(1, TEAM_WARM_BUDGET.burst + 4)
         ]
         for shape in shapes:
-            redis.get_client().delete(f"ma_swr_reval:{self.team.id}:{_query_shape_key(shape)}")
+            redis.get_client().delete(self._debounce_key(shape))
             handle_not_ready(team=self.team, query=shape)
 
         assert delay.call_count == TEAM_WARM_BUDGET.burst
-        throttled_key = f"ma_swr_reval:{self.team.id}:{_query_shape_key(shapes[-1])}"
+        throttled_key = self._debounce_key(shapes[-1])
         assert 0 < redis.get_client().ttl(throttled_key) <= ENQUEUE_FAILURE_BACKOFF_SECONDS
 
     @mock.patch(_DELAY)
@@ -148,7 +180,7 @@ class TestMarketingLazyPrecompute(BaseTest):
         # The slot is claimed before the enqueue is confirmed. If the enqueue fails, holding it the full
         # window would suppress every retry for 10 minutes with no rebuild in flight — release it to a
         # short backoff so revalidation resumes soon after the broker recovers.
-        key = f"ma_swr_reval:{self.team.id}:{_query_shape_key(self.query)}"
+        key = self._debounce_key(self.query)
 
         handle_stale_served(team=self.team, query=self.query)
 

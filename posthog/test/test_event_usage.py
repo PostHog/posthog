@@ -239,12 +239,21 @@ class TestReportUserAction(BaseTest):
 
         assert mock_capture.call_args[1]["properties"]["access_method"] == expected
 
+    @parameterized.expand(
+        [
+            ("no_set_once", {}, {}),
+            ("caller_set_once_kept", {"$set_once": {"first_used_at": "2026-01-01"}}, {"first_used_at": "2026-01-01"}),
+        ]
+    )
     @patch("posthog.event_usage.posthoganalytics.capture")
-    def test_no_request_passes_properties_unchanged(self, mock_capture):
-        report_user_action(self.user, "test event", properties={"key": "val"})
+    def test_no_request_passes_properties_unchanged(self, _name, extra, expected_set_once, mock_capture):
+        report_user_action(self.user, "test event", properties={"key": "val", **extra})
 
         mock_capture.assert_called_once()
-        assert mock_capture.call_args[1]["properties"] == {"key": "val", "$set_once": {"email": self.user.email}}
+        assert mock_capture.call_args[1]["properties"] == {
+            "key": "val",
+            "$set_once": {**expected_set_once, "email": self.user.email},
+        }
 
     @patch("posthog.event_usage.posthoganalytics.capture")
     def test_analytics_props_merged_into_capture(self, mock_capture):

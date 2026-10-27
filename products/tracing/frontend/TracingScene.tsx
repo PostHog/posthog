@@ -416,6 +416,7 @@ function TracingSceneContents(): JSX.Element {
                     previous={spanTree.previous}
                     loading={spanTreeLoading}
                     initialSpanName={compareFlameSpanName}
+                    surface="compare_modal"
                 />
             </LemonModal>
         </SceneContent>

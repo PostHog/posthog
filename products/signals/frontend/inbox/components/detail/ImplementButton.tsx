@@ -8,6 +8,7 @@ import type { AgentPromptDestination } from 'lib/components/AgentPromptButton'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
+import { fullNameOrEmail } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import { captureInboxReportAction } from '../../inboxAnalytics'
@@ -24,7 +25,7 @@ const SLOT_CLAIM_DISABLED_REASON: Record<ImplementationSlotClaim, string> = {
 
 export function ImplementButton({ report }: { report: SignalReport }): JSX.Element {
     const { isCreatingPr, isDiscussing, createPrDisabledReason } = useValues(inboxTaskKickoffLogic)
-    const { implementationSlotClaim, reportTaskToOpen } = useValues(
+    const { implementationSlotClaim, reportTaskToOpen, reportClaimant, isClaimedByMe } = useValues(
         inboxReportDetailLogic({ reportId: report.id, report })
     )
     const { createPrFromReport, openReportTask } = useActions(inboxTaskKickoffLogic)
@@ -34,10 +35,11 @@ export function ImplementButton({ report }: { report: SignalReport }): JSX.Eleme
     const disabledReason =
         createPrDisabledReason ??
         (isDiscussing ? 'Wait for the discussion task to start.' : undefined) ??
-        (implementationSlotClaim ? SLOT_CLAIM_DISABLED_REASON[implementationSlotClaim] : undefined)
+        (implementationSlotClaim ? SLOT_CLAIM_DISABLED_REASON[implementationSlotClaim] : undefined) ??
+        (reportClaimant && !isClaimedByMe ? `${fullNameOrEmail(reportClaimant)} is working on this report.` : undefined)
 
     const submit = (note: string): void => {
-        if (isCreatingPr || isDiscussing || implementationSlotClaim) {
+        if (isCreatingPr || isDiscussing || implementationSlotClaim || (reportClaimant && !isClaimedByMe)) {
             return
         }
         if (createPrDisabledReason) {

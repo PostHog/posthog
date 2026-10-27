@@ -24,6 +24,19 @@
                     "description": "Whether the evaluation can return N/A for non-applicable generations.",
                     "type": "boolean"
                 },
+                "decision_threshold": {
+                    "anyOf": [
+                        {
+                            "maximum": 1,
+                            "minimum": 0,
+                            "type": "number"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Boolean decision-model judges only. Minimum probability of true required for a true result, inclusive. Omit or set null to use 0.5. Applies to new runs; historical results are unchanged."
+                },
                 "max": {
                     "anyOf": [
                         {

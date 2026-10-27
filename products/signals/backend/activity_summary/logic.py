@@ -5,6 +5,7 @@ import dataclasses
 from enum import StrEnum
 from typing import Any, Protocol
 
+from django.db import transaction
 from django.db.models import Value
 from django.db.models.functions import Coalesce
 from django.utils import timezone
@@ -12,6 +13,7 @@ from django.utils import timezone
 from posthog.dataclasses import frozen
 from posthog.models import Team
 
+from products.signals.backend.activity_summary.computed import compute_fields
 from products.signals.backend.activity_summary.inputs import activity_parents, user_activity, user_tasks, user_views
 from products.signals.backend.activity_summary.prompt import PROMPT_VERSION, summary_text
 from products.signals.backend.activity_summary.render import (
@@ -28,13 +30,21 @@ from products.signals.backend.activity_summary.summaries import (
     gateway_client,
     summarize,
 )
-from products.signals.backend.models import UserActivitySummary
+from products.signals.backend.models import UserActivitySummary, UserActivitySummaryVersion
 
 # Fewer rendered lines than this since the last update say too little to change the summary.
 MIN_UNITS = 3
 MIN_UPDATE_INTERVAL = datetime.timedelta(days=1)
+# What someone opens changes slowly, so an update that views led waits longer.
+VIEW_UPDATE_INTERVAL = datetime.timedelta(days=7)
+# The `UserActivitySummaryVersion` rows kept per summary. An update deletes the older ones.
+MAX_VERSIONS = 30
 # A pair that skipped or failed waits this long, so it does not take the queue head on every tick.
+# Each further skip since the last good update doubles the wait, up to the `max_skip_backoff` of the update.
 RETRY_BACKOFF = datetime.timedelta(hours=6)
+MAX_SKIP_BACKOFF = datetime.timedelta(hours=72)
+# Enough doublings to pass any sane maximum, and a small enough exponent for `timedelta`.
+_MAX_SKIP_DOUBLINGS = 16
 # The error prefixes of an update that raised before it stored a result, before and after the model call.
 EXCEPTION_ERROR_PREFIX = "exception: "
 EXCEPTION_AFTER_MODEL_CALL_ERROR_PREFIX = "exception_after_model_call: "
@@ -54,6 +64,7 @@ class UpdateStatus(StrEnum):
     OK = "ok"
     FAILED = "failed"
     SKIPPED_AI_NOT_APPROVED = "skipped_ai_not_approved"
+    SKIPPED_NOT_ENROLLED = "skipped_not_enrolled"
     SKIPPED_NOT_ELIGIBLE_YET = "skipped_not_eligible_yet"
     SKIPPED_TOO_FEW_UNITS = "skipped_too_few_units"
 
@@ -69,8 +80,11 @@ class ActivitySummaryUpdate:
     latency_ms: int | None = None
     error: str | None = None
     inputs_used: dict[str, Any] | None = None
+    computed: dict[str, Any] | None = None
     input_watermark: datetime.datetime | None = None
     rebuilt: bool = False
+    # The pair had no generated summary before this update.
+    new_summary: bool = False
 
 
 class StoredSummaryVersion(Protocol):
@@ -96,23 +110,80 @@ def is_stale(stored: StoredSummaryVersion | None, rebuild_before: datetime.datet
     return rebuild_before is not None and stored.generated_at < rebuild_before
 
 
+def skip_backoff(consecutive_skips: int, max_skip_backoff: datetime.timedelta) -> datetime.timedelta:
+    """The wait after a skip for too few units, when `consecutive_skips` skips came before it."""
+    return max(RETRY_BACKOFF, min(RETRY_BACKOFF * 2 ** min(consecutive_skips, _MAX_SKIP_DOUBLINGS), max_skip_backoff))
+
+
 def _input_start(watermark: datetime.datetime | None, now: datetime.datetime, window_days: int) -> datetime.datetime:
     earliest = now - datetime.timedelta(days=window_days)
     return earliest if watermark is None else max(earliest, watermark + _WATERMARK_STEP)
 
 
 def _back_off(
-    team_id: int, user_id: int, stored: UserActivitySummary | None, next_eligible_at: datetime.datetime
+    team_id: int,
+    user_id: int,
+    stored: UserActivitySummary | None,
+    now: datetime.datetime,
+    max_skip_backoff: datetime.timedelta,
 ) -> None:
+    skips = stored.consecutive_skips if stored is not None else 0
+    next_eligible_at = now + skip_backoff(skips, max_skip_backoff)
     # `update()` leaves `updated_at` alone, so the daily caps do not count a skip as a model call.
     if stored is not None:
-        UserActivitySummary.objects.for_team(team_id).filter(id=stored.id).update(next_eligible_at=next_eligible_at)
+        UserActivitySummary.objects.for_team(team_id).filter(id=stored.id).update(
+            next_eligible_at=next_eligible_at, consecutive_skips=min(skips + 1, _MAX_SKIP_DOUBLINGS)
+        )
         return
     UserActivitySummary.objects.for_team(team_id).get_or_create(
         team_id=team_id,
         user_id=user_id,
-        defaults={"status": UserActivitySummary.Status.SKIPPED, "next_eligible_at": next_eligible_at},
+        defaults={
+            "status": UserActivitySummary.Status.SKIPPED,
+            "next_eligible_at": next_eligible_at,
+            "consecutive_skips": 1,
+        },
     )
+
+
+# The fields of a successful update that `UserActivitySummaryVersion` keeps.
+_VERSION_FIELDS = (
+    "summary",
+    "summary_text",
+    "generated_at",
+    "model",
+    "prompt_version",
+    "render_version",
+    "input_watermark",
+    "inputs_used",
+    "computed",
+    "tokens_in",
+    "tokens_out",
+    "cost_usd",
+)
+
+
+def _store_version(team_id: int, user_id: int, fields: dict[str, Any], max_versions: int) -> None:
+    """Write a successful update to the summary row and append it as the next version, in one transaction."""
+    with transaction.atomic():
+        # The row lock orders concurrent updates of one pair, so each one takes the next version number.
+        row, _ = (
+            UserActivitySummary.objects.for_team(team_id)
+            .select_for_update()
+            .get_or_create(team_id=team_id, user_id=user_id, defaults={"status": UserActivitySummary.Status.OK})
+        )
+        for name, value in fields.items():
+            setattr(row, name, value)
+        row.version += 1
+        row.save()
+        versions = UserActivitySummaryVersion.objects.for_team(team_id)
+        versions.create(
+            team_id=team_id,
+            summary_row=row,
+            version=row.version,
+            **{name: fields[name] for name in _VERSION_FIELDS},
+        )
+        versions.filter(summary_row=row, version__lte=row.version - max_versions).delete()
 
 
 def record_update_exception(team_id: int, user_id: int, error: BaseException) -> ActivitySummaryUpdate:
@@ -175,6 +246,8 @@ def update_activity_summary(
     min_update_interval: datetime.timedelta = MIN_UPDATE_INTERVAL,
     limits: RenderLimits = DEFAULT_LIMITS,
     rebuild_before: datetime.datetime | None = None,
+    max_versions: int = MAX_VERSIONS,
+    max_skip_backoff: datetime.timedelta = MAX_SKIP_BACKOFF,
 ) -> ActivitySummaryUpdate:
     """Update the stored activity summary of one user in one project.
 
@@ -182,7 +255,9 @@ def update_activity_summary(
     run or for a stale summary (see `is_stale`). A stale summary is not sent to the model. A failed
     update records the error and keeps the stored summary and the watermark. With `dry_run`, the
     model is still called but nothing is written. `force` ignores `next_eligible_at`.
-    A skip for too few units and a failed update set `next_eligible_at` to `RETRY_BACKOFF` from now.
+    A failed update sets `next_eligible_at` to `RETRY_BACKOFF` from now. A skip for too few units sets it
+    to `skip_backoff` from now, which doubles with each skip until a good update resets it.
+    A successful update also appends a `UserActivitySummaryVersion` and keeps the latest `max_versions`.
     """
     team = Team.objects.select_related("organization").get(id=team_id)
     if team.organization.is_ai_data_processing_approved is not True:
@@ -194,6 +269,7 @@ def update_activity_summary(
         return ActivitySummaryUpdate(status=UpdateStatus.SKIPPED_NOT_ELIGIBLE_YET)
 
     rebuild = is_stale(stored, rebuild_before)
+    window_start = _input_start(None, now, limits.window_days)
     start = _input_start(stored.input_watermark if stored and not rebuild else None, now, limits.window_days)
     tasks = user_tasks(team_id, user_id, start, now)
     activity = user_activity(team_id, user_id, start, now)
@@ -209,7 +285,7 @@ def update_activity_summary(
     )
     if rendered is None or rendered.units < min_units:
         if not dry_run:
-            _back_off(team_id, user_id, stored, now + RETRY_BACKOFF)
+            _back_off(team_id, user_id, stored, now, max_skip_backoff)
         return ActivitySummaryUpdate(
             status=UpdateStatus.SKIPPED_TOO_FEW_UNITS,
             rendered_input=rendered.text if rendered else None,
@@ -225,6 +301,15 @@ def update_activity_summary(
         "limits": dataclasses.asdict(limits),
     }
     watermark = max([task.at for task in tasks] + [item.at for item in activity] + [view.at for view in views])
+    # An incremental update reads only the rows after the watermark, so the computed fields read the full window.
+    if start == window_start:
+        computed = compute_fields(tasks, activity, views).as_json()
+    else:
+        computed = compute_fields(
+            user_tasks(team_id, user_id, window_start, now),
+            user_activity(team_id, user_id, window_start, now),
+            user_views(team_id, user_id, window_start, now),
+        ).as_json()
     previous = stored.summary if stored is not None and not rebuild else None
     model = DEFAULT_MODEL
     outcome = summarize(
@@ -235,6 +320,7 @@ def update_activity_summary(
         as_of=now.date(),
         max_completion_tokens=limits.max_completion_tokens,
         profile_max_chars=limits.profile_max_chars,
+        computed=computed,
     )
     cost = cost_usd(outcome.tokens_in, outcome.tokens_out, MODEL_PRICES.get(model))
     result = ActivitySummaryUpdate(
@@ -247,8 +333,10 @@ def update_activity_summary(
         latency_ms=outcome.latency_ms,
         error=outcome.error,
         inputs_used=inputs_used,
+        computed=computed if outcome.summary is not None else None,
         input_watermark=watermark if outcome.summary is not None else None,
         rebuilt=rebuild,
+        new_summary=stored is None or stored.generated_at is None,
     )
     if dry_run:
         return result
@@ -274,21 +362,24 @@ def update_activity_summary(
             )
             return result
 
-        UserActivitySummary.objects.for_team(team_id).update_or_create(
-            team_id=team_id,
-            user_id=user_id,
-            defaults={
+        _store_version(
+            team_id,
+            user_id,
+            {
                 **accounting,
                 "status": UserActivitySummary.Status.OK,
                 "summary": outcome.summary,
                 "summary_text": summary_text(outcome.summary),
+                "computed": computed,
                 "generated_at": now,
                 "model": model,
                 "prompt_version": PROMPT_VERSION,
                 "render_version": RENDER_VERSION,
                 "input_watermark": watermark,
                 "next_eligible_at": now + min_update_interval,
+                "consecutive_skips": 0,
             },
+            max_versions,
         )
         return result
     except Exception as error:

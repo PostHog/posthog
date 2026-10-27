@@ -128,4 +128,34 @@ describe('Inbox activation progress', () => {
         await jest.advanceTimersByTimeAsync(20_000)
         expect(stateReads).toBe(readsBeforeDeadline + 1)
     })
+
+    it('follows the first report after activation settles and stops when the investigation finishes', async () => {
+        await settle()
+        state = {
+            ...state,
+            jobs: { scout: 'started', recommendations: 'skipped' },
+            first_report: { status: 'pending' },
+        }
+        await jest.advanceTimersByTimeAsync(10_000)
+        await settle()
+        state = {
+            ...state,
+            first_report: {
+                status: 'running',
+                task_id: '11111111-1111-4111-8111-111111111111',
+                task_run_id: '22222222-2222-4222-8222-222222222222',
+            },
+        }
+        await jest.advanceTimersByTimeAsync(20_000)
+        await settle()
+        expect(logic.values.savedState?.first_report).toEqual(state.first_report)
+        state = { ...state, first_report: { status: 'insufficient_data', missing_data: ['No completed signups yet.'] } }
+        await jest.advanceTimersByTimeAsync(10_000)
+        await settle()
+        expect(logic.values.savedState?.first_report).toEqual(state.first_report)
+        const completedReads = stateReads
+        await jest.advanceTimersByTimeAsync(20_000)
+        await settle()
+        expect(stateReads).toBe(completedReads)
+    })
 })

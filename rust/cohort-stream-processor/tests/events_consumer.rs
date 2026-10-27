@@ -1552,9 +1552,7 @@ async fn s3_restore_replays_past_the_checkpoint_after_the_broker_moved_on() {
     let restore = restore
         .expect("with the live store and local checkpoint gone, the boot restores a checkpoint");
     assert_eq!(restore.source().label(), "s3");
-    let resumed = restore
-        .plan()
-        .positions(&InputTopic::new(topic.as_str()), &SINGLE_POD);
+    let resumed = restore.plan().positions(&InputTopic::new(topic.as_str()));
     assert_eq!(
         resumed
             .get(&(idle_partition as u16))
@@ -1569,7 +1567,7 @@ async fn s3_restore_replays_past_the_checkpoint_after_the_broker_moved_on() {
     assert_eq!(
         restore
             .plan()
-            .positions(&InputTopic::new(topics.merges.as_str()), &SINGLE_POD)
+            .positions(&InputTopic::new(topics.merges.as_str()))
             .get(&(merges_with_events as u16))
             .map(|offset| offset.get()),
         Some(0),

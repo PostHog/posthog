@@ -20,6 +20,7 @@ import policy  # noqa: E402
 from products.stamphog.backend.logic.engine_pregate import run_engine_pregate  # noqa: E402
 from products.stamphog.backend.temporal import activities  # noqa: E402
 from products.stamphog.backend.temporal.activities import (  # noqa: E402
+    PullRequestHeadMovedError,
     _clone_pr,
     _effective_policy_files,
     _prefetch_review_blobs,
@@ -252,7 +253,7 @@ def test_shallow_clone_holds_every_object_the_pr_diff_reads(
 
     if head_moved:
         # The pull ref now names a newer commit than the one this run was queued for.
-        with pytest.raises(RuntimeError, match="the PR head is now"):
+        with pytest.raises(PullRequestHeadMovedError, match="the PR head is now"):
             _clone_pr(sandbox, "acme/widgets", "", base_tip, 7, "tok", deadline, step="head")  # type: ignore[arg-type]
         return
 

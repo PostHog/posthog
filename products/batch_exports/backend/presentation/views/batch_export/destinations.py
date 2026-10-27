@@ -1,8 +1,6 @@
 """Batch export destination serializers: the typed config and request shape of each destination type."""
 
 import typing
-import builtins
-import dataclasses
 import collections.abc
 
 from django.db import models
@@ -12,18 +10,16 @@ from rest_framework import serializers
 
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.models.integration import Integration
-from posthog.utils import str_to_bool
 
-from products.batch_exports.backend.models.batch_export import OBJECT_STORAGE_DESTINATIONS, BatchExportDestination
-from products.batch_exports.backend.service import (
-    DESTINATION_WORKFLOWS,
-    BaseBatchExportInputs,
-    coerce_config_to_declared_types,
-)
-from products.batch_exports.backend.temporal.destinations.constants import (
+from products.batch_exports.backend.facade import api as batch_exports_api
+from products.batch_exports.backend.facade.contracts import InvalidDestinationConfigError
+from products.batch_exports.backend.facade.enums import (
     AZURE_BLOB_SUPPORTED_COMPRESSIONS,
+    OBJECT_STORAGE_DESTINATIONS,
     S3_SUPPORTED_COMPRESSIONS,
+    BatchExportDestinationType,
 )
+from products.batch_exports.backend.models.batch_export import BatchExportDestination
 
 
 class DatabricksDestinationConfigSerializer(serializers.Serializer):
@@ -522,8 +518,8 @@ class BatchExportDestinationRequestField(serializers.JSONField):
 # the linked integration's kind. Adding a future S3-family destination (e.g. a
 # first-class GCS-via-S3 type) is a one-line addition here.
 S3_DESTINATION_TO_INTEGRATION_KIND: dict[str, Integration.IntegrationKind] = {
-    BatchExportDestination.Destination.AWS_S3: Integration.IntegrationKind.AWS_S3,
-    BatchExportDestination.Destination.S3_COMPATIBLE: Integration.IntegrationKind.S3_COMPATIBLE,
+    BatchExportDestinationType.AWS_S3: Integration.IntegrationKind.AWS_S3,
+    BatchExportDestinationType.S3_COMPATIBLE: Integration.IntegrationKind.S3_COMPATIBLE,
 }
 
 
@@ -535,10 +531,10 @@ def _writes_compressed_parquet(config: dict[str, typing.Any]) -> bool:
 def _uses_legacy_parquet_extension(destination_type: str, stored_config: dict[str, typing.Any]) -> bool:
     """Whether an export's stored config already writes the codec into its Parquet file names.
 
-    Reads through `coerce_config_to_declared_types`, because `EncryptedJSONField` stringifies
+    Reads through `coerce_destination_config`, because `EncryptedJSONField` stringifies
     scalars on write and the string "False" is truthy.
     """
-    coerced = coerce_config_to_declared_types(destination_type, stored_config)
+    coerced = batch_exports_api.coerce_destination_config(destination_type, stored_config)
     stored = coerced.get("legacy_parquet_extension")
     if stored is None:
         # export was created before the `legacy_parquet_extension` field was added
@@ -636,64 +632,17 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
         export_destination = BatchExportDestination.objects.create(**validated_data)
         return export_destination
 
-    def validate(self, attrs: collections.abc.Mapping[str, typing.Any]) -> collections.abc.Mapping[str, typing.Any]:
-        """Validate the destination configuration based on workflow inputs.
-
-        Ensure that the submitted destination configuration passes the following checks:
-        * Does NOT contain fields that do not exist in workflow inputs.
-        * Contains all required fields as defined by workflow inputs.
-        * Provided values match types required by workflow inputs.
-
-        Raises:
-            A `serializers.ValidationError` if any of these checks fail.
-        """
-        export_type, config = attrs["type"], attrs["config"]
+    def validate(self, attrs: dict[str, typing.Any]) -> dict[str, typing.Any]:
+        """Check the config against the destination's workflow inputs, through the facade."""
         request = self.context.get("request")
         is_patch = request is not None and request.method == "PATCH"
 
-        _, workflow_inputs = DESTINATION_WORKFLOWS[export_type]
-        base_field_names = {field.name for field in dataclasses.fields(BaseBatchExportInputs)}
-        workflow_fields = dataclasses.fields(workflow_inputs)
-        destination_fields = {field for field in workflow_fields if field.name not in base_field_names}
-
-        extra_fields = config.keys() - {field.name for field in destination_fields} - base_field_names
-        if extra_fields:
-            str_fields = ", ".join(f"'{extra_field}'" for extra_field in sorted(extra_fields))
-            raise serializers.ValidationError(f"Configuration has unknown field/s: {str_fields}")
-
-        # Destination config fields without a dataclass default must be provided.
-        for destination_field in destination_fields:
-            is_required = (
-                destination_field.default == dataclasses.MISSING
-                and destination_field.default_factory == dataclasses.MISSING
+        try:
+            attrs["config"] = batch_exports_api.validate_destination_config(
+                attrs["type"], attrs["config"], partial=is_patch
             )
-            if destination_field.name not in config:
-                if is_required and not is_patch:
-                    # When patching we expect a partial configuration. So, we don't
-                    # error on missing required fields.
-                    raise serializers.ValidationError(
-                        f"Configuration missing required field: '{destination_field.name}'"
-                    )
-                else:
-                    continue
-
-            config_value = config[destination_field.name]
-            field_type = destination_field.type
-
-            if not isinstance(field_type, type):
-                # `dataclasses.Field.type` could be something we can't work with.
-                # TODO: Validate these ones too?
-                continue
-
-            if not isinstance(config_value, field_type):
-                config_value, success = try_convert_to_type(config_value, field_type)
-
-                if not success:
-                    raise serializers.ValidationError(
-                        f"Configuration has invalid type: got '{type(config_value).__name__}', expected '{field_type.__name__}'"
-                    )
-
-                config[destination_field.name] = config_value
+        except InvalidDestinationConfigError as e:
+            raise serializers.ValidationError(str(e))
 
         return attrs
 
@@ -714,35 +663,6 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
             return target
 
         config = remove_secret_fields_recursive(data["config"])
-        data["config"] = coerce_config_to_declared_types(instance.type, config)
+        data["config"] = batch_exports_api.coerce_destination_config(instance.type, config)
 
         return data
-
-
-Success = bool
-
-
-def try_convert_to_type(value: typing.Any, target_type: type) -> tuple[typing.Any, Success]:
-    """Attempt to convert value to target type based on well-known casting functions.
-
-    This doesn't raise any exceptions but rather returns a tuple with a bool indicating
-    if the value in the first position was successfully casted to `target_type` or not.
-    If casting fails, the value in the first position is returned unchanged, otherwise a
-    new value of type `target_type` is returned.
-    """
-    current_type = type(value)
-
-    match (current_type, target_type):
-        case (builtins.str, builtins.bool):
-            cast_func: typing.Callable[[typing.Any], typing.Any] = str_to_bool
-        case (builtins.str, builtins.int):
-            cast_func = int
-        case _:
-            return (value, False)
-
-    try:
-        new_value = cast_func(value)
-    except Exception:
-        return (value, False)
-
-    return (new_value, True)

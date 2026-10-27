@@ -88,8 +88,10 @@ class DecisionEndpointBlockedError(LLMError):
 
 
 class DecisionRateLimitError(RetryableRateLimitError):
-    def __init__(self, retry_after: str | None) -> None:
-        super().__init__("The decision endpoint is temporarily unavailable. Try again later.", retry_after)
+    def __init__(self, retry_after: str | None, *, status: int) -> None:
+        super().__init__(
+            "The decision endpoint is temporarily unavailable. Try again later.", retry_after, status=status
+        )
 
 
 class DecisionClient:
@@ -173,7 +175,7 @@ class DecisionClient:
         if status == 404:
             raise ModelNotFoundError(model)
         if status in (408, 429, 503, 529):
-            raise DecisionRateLimitError(response.headers.get("Retry-After"))
+            raise DecisionRateLimitError(response.headers.get("Retry-After"), status=status)
         if status >= 500:
             raise ProviderConnectionError("The decision endpoint is temporarily unavailable. Try again.")
         if 300 <= status < 400:

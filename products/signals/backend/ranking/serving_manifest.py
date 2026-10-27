@@ -14,6 +14,8 @@ not act on is refused by the dag that composed it.
 
 from __future__ import annotations
 
+import datetime
+
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from products.signals.backend.artefact_schemas import MAX_RANKING_MODEL_RESULTS, RANKING_SERVED_ROLE
@@ -55,6 +57,12 @@ ENGAGEMENT_FILE = "engagement.parquet"
 
 _SERVING_SEGMENT = "serving"
 
+# The object metadata a mirror region stamps on its own project vectors day. The region that trains
+# reads only these, through `head_object`, before its mirror manifest names the day. The schema
+# version key is the one `write_parquet` stamps.
+PROJECT_VECTORS_SCHEMA_VERSION_METADATA_KEY = "feature-schema-version"
+PROJECT_VECTORS_ENGAGEMENT_DATE_METADATA_KEY = "engagement-export-date"
+
 
 def serving_manifest_key(prefix: str) -> str:
     return f"{prefix}/{_SERVING_SEGMENT}/{MANIFEST_FILE}"
@@ -76,6 +84,17 @@ def serving_engagement_key(prefix: str, partition_key: str) -> str:
     """Where one day of the engagement export for another region's reports sits. The US dataset dag
     writes it to the mirror store, and the mirror region reads it to build its own project vectors."""
     return f"{prefix}/{_SERVING_SEGMENT}/engagement/{partition_key}/{ENGAGEMENT_FILE}"
+
+
+def serving_project_vectors_date(key: str) -> datetime.date | None:
+    """The `dt` of a `serving_project_vectors_key`, or None when the key has another shape."""
+    parts = key.rsplit("/", 2)
+    if len(parts) != 3 or parts[2] != PROJECT_VECTORS_FILE:
+        return None
+    try:
+        return datetime.date.fromisoformat(parts[1])
+    except ValueError:
+        return None
 
 
 def model_key(model_name: str, model_version: str) -> str:

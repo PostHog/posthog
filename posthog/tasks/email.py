@@ -63,6 +63,7 @@ from products.cdp.backend.models.plugin import Plugin, PluginConfig
 from products.conversations.backend.models import Ticket
 from products.data_modeling.backend.facade.api import (
     declared_targets_by_saved_query,
+    get_node_ids_for_saved_queries,
     suspended_saved_query_ids_by_team,
     suspension_state_for_saved_query,
 )
@@ -1481,6 +1482,7 @@ def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], 
     }
     new_failure_cutoff = timezone.now() - datetime.timedelta(hours=24)
     declared_targets = declared_targets_by_saved_query(team_id, all_ids)
+    node_ids = get_node_ids_for_saved_queries(team_id, all_ids)
 
     latest_jobs: dict[str, DataModelingJob] = {}
     for latest_job in (
@@ -1535,7 +1537,7 @@ def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], 
                 "section": section,
                 "suspended": suspended,
                 "schedule": schedule,
-                "url": f"{settings.SITE_URL}/project/{team_id}/sql?open_view={sq.id}",
+                "url": settings.SITE_URL + matview_view_path(team_id, qid, node_ids.get(qid)),
             }
         )
 
@@ -1600,13 +1602,25 @@ def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], 
         )
 
 
+def matview_view_path(team_id: int, saved_query_id: str, node_id: str | None) -> str:
+    """Where a failure email or notification sends the reader: the view's node detail, which shows its runs and error.
+
+    A view with no DAG node has no node detail page, so it falls back to the SQL editor.
+    """
+    if node_id:
+        return f"/project/{team_id}/models/{node_id}"
+    return f"/project/{team_id}/sql?open_view={saved_query_id}"
+
+
 @shared_task(**EMAIL_TASK_KWARGS)
 @skip_team_scope_audit
-def send_matview_failure_immediate_email(team_id: int, saved_query_id: str, job_id: str) -> None:
+def send_matview_failure_immediate_email(
+    team_id: int, saved_query_id: str, job_id: str, suspended: bool = False
+) -> None:
     """Email members who asked for a materialization failure email as it happens.
 
-    Dispatched on the first failure of a streak only; the job-scoped campaign key
-    makes redelivery idempotent per recipient.
+    Dispatched on the first failure of a streak, and again when the streak suspends the view;
+    the job-scoped campaign key makes redelivery idempotent per recipient.
     """
 
     if not is_email_available(with_absolute_urls=True):
@@ -1636,18 +1650,27 @@ def send_matview_failure_immediate_email(team_id: int, saved_query_id: str, job_
 
     job = DataModelingJob.objects.filter(id=job_id, team_id=team_id).first()
     error = (job.error if job else None) or saved_query.latest_error or ""
+    node_id = get_node_ids_for_saved_queries(team_id, [saved_query.id]).get(str(saved_query.id))
     if len(error) > MAX_ERROR_CHARS:
         error = error[: MAX_ERROR_CHARS - 3] + "..."
 
+    if suspended:
+        campaign_key = f"matview_suspended_{saved_query_id}_{job_id}"
+        subject = f"PostHog: Materialized view '{saved_query.name}' was suspended in {team.name}"
+    else:
+        campaign_key = f"matview_failure_immediate_{saved_query_id}_{job_id}"
+        subject = f"PostHog: Materialized view '{saved_query.name}' failed in {team.name}"
     message = EmailMessage(
-        campaign_key=f"matview_failure_immediate_{saved_query_id}_{job_id}",
-        subject=f"PostHog: Materialized view '{saved_query.name}' failed in {team.name}",
+        campaign_key=campaign_key,
+        subject=subject,
         template_name="saved_query_materialization_failure",
         template_context={
             "team": team,
             "saved_query_name": saved_query.name,
             "saved_query_id": str(saved_query.id),
+            "view_url": settings.SITE_URL + matview_view_path(team_id, str(saved_query.id), node_id),
             "error": error,
+            "suspended": suspended,
         },
     )
     for membership in memberships_to_email:

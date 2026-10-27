@@ -113,7 +113,7 @@ All flag routes accept trailing slashes.
 The POST handler follows this pipeline:
 
 1. **Rate limiting**: IP-based check (DDoS defense), then token-based check (per-project limits)
-2. **Body decoding**: JSON, base64, or gzip-compressed bodies
+2. **Body decoding**: JSON, base64, or gzip-compressed bodies. A body with arrays or objects nested more than 128 levels deep gets a 400.
 3. **Authentication**: Extracts API token from body, query params, or headers
 4. **Team lookup**: HyperCache (Redis -> S3) with PostgreSQL fallback (configurable via `SKIP_PG_TEAM_FALLBACK`)
 5. **Flag definitions fetch**: HyperCache (Redis -> S3) with PostgreSQL fallback

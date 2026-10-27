@@ -59,7 +59,6 @@ import { QueryScanTileTooltip } from '~/queries/nodes/DataNode/QueryScanTileTool
 import { WarehouseSyncWarningList } from '~/queries/nodes/DataNode/WarehouseSyncWarningList'
 import { outOfDateSyncWarnings } from '~/queries/nodes/DataNode/warehouseSyncWarnings'
 import { copyTableData, getInsightExportAdapter } from '~/queries/nodes/InsightViz/exportAdapters'
-import { useInsightDisplayOptions } from '~/queries/nodes/InsightViz/insightDisplayOptions'
 import { Node, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import {
     isDataVisualizationNode,
@@ -86,6 +85,7 @@ import {
 } from 'products/alerts/frontend/logic/insightAlertsLogic'
 import type { AlertType } from 'products/alerts/frontend/types'
 import { ManageAlertsModal } from 'products/alerts/frontend/views/ManageAlertsModal'
+import { useInsightDisplayOptions } from 'products/product_analytics/frontend/insights/editor/insightDisplayOptions'
 
 import { DashboardInsightDisplayOptions } from './DashboardInsightDisplayOptions'
 import { useDashboardVisualizationOptions } from './dashboardVisualizationOptions'
@@ -113,6 +113,8 @@ interface InsightMetaProps extends Pick<
     | 'dashboardId'
     | 'canEditDashboard'
     | 'moveToDashboard'
+    | 'tileGroupMoveOptions'
+    | 'moveToTileGroup'
     | 'copyToDashboard'
     | 'showEditingControls'
     | 'showDetailsControls'
@@ -160,6 +162,8 @@ export function InsightMeta({
     duplicate,
     setOverride,
     moveToDashboard,
+    tileGroupMoveOptions,
+    moveToTileGroup,
     copyToDashboard,
     areDetailsShown,
     setAreDetailsShown,
@@ -682,6 +686,8 @@ export function InsightMeta({
                                         <DashboardWidgetPlacementMenus
                                             placementDestinations={copyToDestinations}
                                             onMoveToDashboard={moveToDashboard}
+                                            tileGroupMoveOptions={tileGroupMoveOptions}
+                                            onMoveToTileGroup={moveToTileGroup}
                                             onCopyToDashboard={canShowCopyToDashboardTile ? copyToDashboard : undefined}
                                         />
                                         {removeFromDashboard && (

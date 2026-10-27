@@ -63,6 +63,7 @@ class BooleanOutputConfig(BaseModel):
     # must be reported as a fail. Defaulting to False keeps stored configs written before this field
     # reading exactly as they did, with no backfill and no default to re-supply at each read site.
     true_is_failure: bool = False
+    decision_threshold: float | None = Field(default=None, ge=0, le=1, strict=True, allow_inf_nan=False)
 
 
 class NumericPassingRule(BaseModel):

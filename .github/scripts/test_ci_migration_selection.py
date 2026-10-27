@@ -38,13 +38,16 @@ def commit_file(repo: Path, name: str, content: str) -> str:
 def commit_on_master(repo: Path, master: str, name: str, content: str) -> None:
     git(repo, "checkout", "-q", "master")
     commit_file(repo, name, content)
-    git(repo, "update-ref", f"refs/remotes/{master}", "HEAD")
+    git(repo, "update-ref", f"refs/remotes/{MASTER}", "HEAD")
     git(repo, "checkout", "-q", "topic")
 
 
+MASTER = "upstream/master"
+
+
 @functools.cache
-def list_step(engine: str) -> str:
-    workflow = yaml.safe_load((ROOT / engine / "workflows/ci-backend.yml").read_text())
+def list_step() -> str:
+    workflow = yaml.safe_load((ROOT / ".depot/workflows/ci-backend.yml").read_text())
     return next(
         step["run"]
         for job in workflow["jobs"].values()
@@ -53,7 +56,6 @@ def list_step(engine: str) -> str:
     )
 
 
-@pytest.mark.parametrize("engine,master", [(".github", "origin/master"), (".depot", "upstream/master")])
 @pytest.mark.parametrize(
     "case,expected",
     [
@@ -69,8 +71,6 @@ def list_step(engine: str) -> str:
     ],
 )
 def test_lists_only_this_prs_migrations(
-    engine: str,
-    master: str,
     case: str,
     expected: tuple[list[str], list[str]] | None,
     tmp_path: Path,
@@ -83,7 +83,7 @@ def test_lists_only_this_prs_migrations(
     git(repo, "config", "commit.gpgsign", "false")
     base = commit_file(repo, "0001_base.py", "base\n")
     commit_file(repo, "0002_master.py", "master\n")
-    git(repo, "update-ref", f"refs/remotes/{master}", "HEAD")
+    git(repo, "update-ref", f"refs/remotes/{MASTER}", "HEAD")
     git(repo, "checkout", "-qb", "topic")
 
     if case == "based on master":
@@ -92,10 +92,10 @@ def test_lists_only_this_prs_migrations(
     elif case == "stale base":
         commit_file(repo, "0003_own.py", "own\n")
     elif case == "master adds a similar migration later":
-        commit_on_master(repo, master, "0003_master.py", MIGRATION_TEMPLATE.format(table="master_table"))
+        commit_on_master(repo, MASTER, "0003_master.py", MIGRATION_TEMPLATE.format(table="master_table"))
         commit_file(repo, "0003_own.py", MIGRATION_TEMPLATE.format(table="own_table"))
     elif case == "master edits a migration the branch carries":
-        commit_on_master(repo, master, "0002_master.py", "master fixed\n")
+        commit_on_master(repo, MASTER, "0002_master.py", "master fixed\n")
     elif case == "edits an existing migration":
         commit_file(repo, "0001_base.py", "modified\n")
     elif case == "base missing from the clone":
@@ -107,16 +107,15 @@ def test_lists_only_this_prs_migrations(
             ["git", "clone", "-q", "--depth=1", "--no-single-branch", "-b", "topic", source.as_uri(), str(repo)],
             check=True,
         )
-        if engine == ".depot":
-            git(repo, "update-ref", f"refs/remotes/{master}", "refs/remotes/origin/master")
-            git(repo, "remote", "remove", "origin")
+        git(repo, "update-ref", f"refs/remotes/{MASTER}", "refs/remotes/origin/master")
+        git(repo, "remote", "remove", "origin")
     elif case == "unknown base":
         base = "0" * 40
     elif case == "no master ref":
-        git(repo, "update-ref", "-d", f"refs/remotes/{master}")
+        git(repo, "update-ref", "-d", f"refs/remotes/{MASTER}")
 
     result = subprocess.run(
-        ["bash", "-e", "-c", list_step(engine)],
+        ["bash", "-e", "-c", list_step()],
         cwd=repo,
         env={
             **os.environ,

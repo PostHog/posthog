@@ -12,6 +12,9 @@ from parameterized import parameterized
 
 from posthog.models import Organization, Team
 
+from products.ai_observability.backend.api.offline_experiment_read_serializers import (
+    OfflineScorerHistoryQuerySerializer,
+)
 from products.ai_observability.backend.models.offline_evaluations import (
     OfflineEvaluationResult,
     OfflineEvaluationResultPayload,
@@ -22,7 +25,11 @@ from products.ai_observability.backend.models.offline_evaluations import (
 )
 from products.ai_observability.backend.models.score_definitions import ScoreDefinition, ScoreDefinitionVersion
 from products.ai_observability.backend.offline_evaluation_read_service import OfflineEvaluationReadService
-from products.ai_observability.backend.offline_evaluation_read_types import OfflineReadQuery, OfflineStatusCounts
+from products.ai_observability.backend.offline_evaluation_read_types import (
+    OfflineHistoryBreakdown,
+    OfflineReadQuery,
+    OfflineStatusCounts,
+)
 from products.ai_observability.backend.offline_evaluation_service import (
     OfflineEvaluationNotFound,
     OfflineEvaluationValidationError,
@@ -102,13 +109,19 @@ class TestOfflineEvaluationReads(TestCase):
         )
 
     def _item(
-        self, experiment: OfflineExperiment, *, case_key: str | None = None, trial: str | None = None
+        self,
+        experiment: OfflineExperiment,
+        *,
+        case_key: str | None = None,
+        trial: str | None = None,
+        model_version: str | None = None,
     ) -> OfflineExperimentItem:
         return OfflineExperimentItem.objects.for_team(self.team.id).create(
             id=uuid4(),
             team=self.team,
             experiment=experiment,
             case_key=case_key,
+            model_version=model_version,
             trial=trial,
             submission_fingerprint="a" * 64,
         )
@@ -333,6 +346,138 @@ class TestOfflineEvaluationReads(TestCase):
         self.assertEqual([experiment.id for experiment in older_page.results], expected[3:])
         self.assertIsNone(older_page.next_cursor)
         self.assertEqual(self.service.get_experiment(expected[0]).id, expected[0])
+
+    def test_model_breakdown_uses_item_overrides_and_group_coverage(self) -> None:
+        experiment = self._experiment()
+        experiment.model_version = "model-a"
+        experiment.save(update_fields=["model_version"])
+        inherited = self._item(experiment, case_key="one")
+        override = self._item(experiment, case_key="one", model_version="model-b")
+        error = self._item(experiment, case_key="two", model_version="model-b")
+        self._item(experiment, case_key="missing", model_version="model-b")
+        self._result(inherited, self.numeric, 1.0)
+        self._result(override, self.numeric, 0.0)
+        self._result(error, self.numeric, status="error")
+        self._result(inherited, self.boolean, True)
+        self._result(override, self.boolean, False)
+        self._result(inherited, self.categorical, ["a"])
+        self._result(override, self.categorical, ["b"])
+
+        for version in (self.numeric, self.boolean, self.categorical):
+            page = self.service.scorer_history(
+                version.definition_id, OfflineReadQuery(breakdown=OfflineHistoryBreakdown.MODEL)
+            )
+            self.assertEqual(page.count, 2)
+            groups = {point.breakdown_value: point.summary for point in page.results}
+            self.assertEqual(groups["model-a"].observed_item_count, 1)
+            self.assertEqual(groups["model-b"].observed_item_count, 3)
+            self.assertEqual(groups["model-a"].status_counts.ok, 1)
+            self.assertEqual(groups["model-b"].status_counts.ok, 1)
+            if version == self.numeric:
+                self.assertEqual(groups["model-a"].mean, 1.0)
+                self.assertEqual(groups["model-b"].mean, 0.0)
+                self.assertEqual(groups["model-b"].status_counts.error, 1)
+                self.assertEqual(groups["model-b"].missing_result_count, 1)
+            elif version == self.boolean:
+                self.assertEqual(groups["model-a"].pass_rate, 1.0)
+                self.assertEqual(groups["model-b"].pass_rate, 0.0)
+            else:
+                self.assertEqual([category.rate for category in groups["model-a"].categories], [1.0, 0.0, 0.0])
+                self.assertEqual([category.rate for category in groups["model-b"].categories], [0.0, 1.0, 0.0])
+
+        whole = self.service.scorer_history(self.numeric.definition_id, OfflineReadQuery()).results[0].summary
+        self.assertEqual((whole.mean, whole.observed_item_count, whole.missing_result_count), (0.5, 4, 1))
+        self.assertEqual(self.service.get_item(experiment.id, inherited.id).model_version, "model-a")
+        self.assertEqual(self.service.get_item(experiment.id, override.id).model_version, "model-b")
+
+    @parameterized.expand([(None,), (OfflineHistoryBreakdown.MODEL,), (OfflineHistoryBreakdown.SUITE,)])
+    def test_model_filter_matches_item_models_across_experiments(
+        self, breakdown: OfflineHistoryBreakdown | None
+    ) -> None:
+        experiments = []
+        for index, model in enumerate(("model-a", "model-b")):
+            experiment = self._experiment(started_at=self.now - timedelta(hours=index))
+            experiment.model_version = model
+            experiment.save(update_fields=["model_version"])
+            experiments.append(experiment)
+            matching_model = None if model == "model-a" else "model-a"
+            other_model = "model-b" if model == "model-a" else None
+            self._result(self._item(experiment, model_version=matching_model), self.numeric, float(index + 1))
+            self._item(experiment, model_version=matching_model)
+            self._result(self._item(experiment, model_version=other_model), self.numeric, 100.0)
+            self._item(experiment, model_version=other_model)
+
+        query = OfflineReadQuery(model_version="model-a", breakdown=breakdown, limit=1)
+        for index, experiment in enumerate(experiments):
+            page = self.service.scorer_history(self.numeric.definition_id, query)
+            self.assertEqual(page.count, 2)
+            self.assertEqual(len(page.results), 1)
+            point = page.results[0]
+            self.assertEqual(point.experiment.id, experiment.id)
+            self.assertEqual(point.breakdown_value, "model-a" if breakdown == OfflineHistoryBreakdown.MODEL else None)
+            self.assertEqual(point.summary.mean, float(index + 1))
+            self.assertEqual(point.summary.status_counts.ok, 1)
+            self.assertEqual(point.summary.observed_item_count, 2)
+            self.assertEqual(point.summary.missing_result_count, 1)
+            self.assertEqual(page.next_cursor is None, index == 1)
+            query = replace(query, cursor=page.next_cursor)
+
+        listed = self.service.list_experiments(OfflineReadQuery(model_version="model-a"))
+        self.assertEqual([experiment.id for experiment in listed.results], [experiments[0].id])
+
+    def test_model_breakdown_paginates_missing_and_named_models_without_duplicates(self) -> None:
+        experiment = self._experiment()
+        models = [None, "model-a", "model-b", "Not specified", "模" * 255, "😀" * 255, "😁" * 255]
+        for index, model in enumerate(models):
+            self._result(self._item(experiment, model_version=model, case_key="scored"), self.numeric, 1.0)
+            for missing in range(index + 1):
+                self._item(experiment, model_version=model, case_key=f"missing-{missing}")
+        query = OfflineReadQuery(breakdown=OfflineHistoryBreakdown.MODEL, limit=1)
+        values = []
+        while True:
+            page = self.service.scorer_history(self.numeric.definition_id, query)
+            self.assertEqual(page.count, len(models))
+            self.assertEqual(len(page.results), 1)
+            point = page.results[0]
+            values.append(point.breakdown_value)
+            missing_count = models.index(point.breakdown_value) + 1
+            self.assertEqual(point.summary.observed_item_count, missing_count + 1)
+            self.assertEqual(point.summary.distinct_case_count, missing_count + 1)
+            self.assertEqual(point.summary.missing_result_count, missing_count)
+            if not page.next_cursor:
+                break
+            serializer = OfflineScorerHistoryQuerySerializer(
+                data={"breakdown": "model_version", "limit": 1, "cursor": page.next_cursor}
+            )
+            self.assertTrue(serializer.is_valid(), serializer.errors)
+            with self.assertRaises(OfflineEvaluationValidationError):
+                self.service.scorer_history(
+                    self.numeric.definition_id,
+                    replace(query, cursor=page.next_cursor, breakdown=OfflineHistoryBreakdown.SUITE),
+                )
+            query = replace(query, cursor=page.next_cursor)
+        self.assertCountEqual(values, models)
+
+    @parameterized.expand(
+        [
+            (OfflineHistoryBreakdown.PROMPT, "prompt-a"),
+            (OfflineHistoryBreakdown.APPLICATION, "build-a"),
+            (OfflineHistoryBreakdown.SUITE, "suite-a"),
+            (OfflineHistoryBreakdown.SOURCE, "ci"),
+        ]
+    )
+    def test_experiment_breakdowns_keep_all_items_in_one_group(
+        self, breakdown: OfflineHistoryBreakdown, value: str
+    ) -> None:
+        experiment = self._experiment()
+        setattr(experiment, breakdown, value)
+        experiment.save(update_fields=[breakdown])
+        for model in ("model-a", "model-b"):
+            self._result(self._item(experiment, model_version=model), self.numeric, 1.0)
+        page = self.service.scorer_history(self.numeric.definition_id, OfflineReadQuery(breakdown=breakdown))
+        self.assertEqual(page.count, 1)
+        self.assertEqual(page.results[0].breakdown_value, value)
+        self.assertEqual(page.results[0].summary.observed_item_count, 2)
 
     def test_history_pages_experiment_version_groups_by_execution_time(self) -> None:
         older = self._experiment(started_at=self.now - timedelta(days=5), run_source="ci")

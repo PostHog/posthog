@@ -121,7 +121,7 @@ export function analyticsListUrlParams(filters: AnalyticsListFilters): Analytics
     return {
         orderBy: filters.orderBy,
         type: filters.type === 'all' ? undefined : filters.type,
-        search: filters.search.trim() || undefined,
+        search: filters.search || undefined,
         createdBy: filters.createdBy.length ? filters.createdBy : undefined,
         folder: filters.folder ?? undefined,
         tags: filters.tags.length ? filters.tags : undefined,

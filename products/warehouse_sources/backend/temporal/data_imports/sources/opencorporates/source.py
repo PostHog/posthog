@@ -57,7 +57,7 @@ class OpencorporatesSource(ResumableSource[OpencorporatesSourceConfig, Opencorpo
             releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your OpenCorporates API token and a search term to pull matching company and officer records into the PostHog Data warehouse.
 
-Get an API token from [OpenCorporates](https://opencorporates.com/api_accounts/new). The free open-data tier is limited to around 50 requests a day and 200 a month, so scope your search with a jurisdiction to stay within it.""",
+Get an API token from [OpenCorporates](https://opencorporates.com/api_accounts/new). The free open-data tier is limited to around 50 requests a day and 200 a month, so scope your search with a jurisdiction to stay within it. The company filings and company statements tables make at least one request for every matching company.""",
             iconPath="/static/services/opencorporates.png",
             docsUrl="https://posthog.com/docs/cdp/sources/opencorporates",
             keywords=["company registry", "kyb", "firmographics"],

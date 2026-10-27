@@ -695,7 +695,11 @@ class RESTClient:
                 )
             )
 
-        if response.status_code == 429 or response.status_code >= 500:
+        # 408 joins 429/5xx here because it's the same signal as both: the server itself, not our
+        # transport, is telling us to come back later. Individual sources already special-case it
+        # this way (openrouter, datadog, hubspot, ...) when they hand-roll their own transport; the
+        # shared client should give every REST-framework source the same behavior by default.
+        if response.status_code in (408, 429) or response.status_code >= 500:
             # `_safe_url` drops the query string entirely: `_redact` only masks the raw secret, not
             # the percent-encoded form an `api_key` query credential takes in the URL, so scheme/
             # host/path-only is what keeps an encoded credential out of the persisted `latest_error`.

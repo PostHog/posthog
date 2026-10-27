@@ -50,6 +50,7 @@ from posthog.errors import ExposedCHQueryError, QueryErrorCategory, classify_que
 from posthog.event_usage import get_request_analytics_properties
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
+from posthog.hogql_queries.actor_strategies import PERSON_EMAIL_PROPERTY_KEYS, person_email_property_keys
 from posthog.hogql_queries.properties_timeline import PropertiesTimeline
 from posthog.hogql_queries.serialized_actors import SerializedPerson, get_serialized_people
 from posthog.metrics import LABEL_TEAM_ID
@@ -57,7 +58,6 @@ from posthog.models import Person, Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response, parse_activity_page_params
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
-from posthog.models.filters.properties_timeline_filter import PropertiesTimelineFilter
 from posthog.models.person.bulk_delete import (
     delete_persons_profile,
     queue_person_event_deletion,
@@ -639,9 +639,6 @@ _GET_OBJECT_DISTINCT_ID_LIMITS: dict[str, int] = {
 # hide the other matches.
 _COMPLETE_EMAIL_TERM = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
-# Keep in sync with the email arms of `PersonStrategy.filter_conditions`.
-_EMAIL_PROPERTY_KEYS = ("email", "Email")
-
 
 def _is_canonical_uuid(value: str) -> bool:
     # Only the dashed form counts, so the fast path answers the same terms the fuzzy search
@@ -684,7 +681,7 @@ def _search_match_fields(search: str, person: SerializedPerson, known_fields: Co
         (PersonSearchMatchField.DISTINCT_ID, any(needle in did.lower() for did in person["distinct_ids"])),
         (
             PersonSearchMatchField.EMAIL,
-            any(needle in str(properties.get(key) or "").lower() for key in _EMAIL_PROPERTY_KEYS),
+            any(needle in str(properties.get(key) or "").lower() for key in PERSON_EMAIL_PROPERTY_KEYS),
         ),
         (PersonSearchMatchField.NAME, needle in str(properties.get("name") or "").lower()),
         (PersonSearchMatchField.ID, needle in str(person["id"]).lower()),
@@ -930,7 +927,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                             {"type": "hogql", "key": identifier_hit},
                             *(
                                 {"type": "person", "key": key, "value": search, "operator": "icontains"}
-                                for key in (*_EMAIL_PROPERTY_KEYS, "name")
+                                for key in (*person_email_property_keys(team), "name")
                             ),
                         ],
                     }
@@ -1710,18 +1707,9 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
 
     # PRAGMA: Methods for getting Persons via clickhouse queries
-    @extend_schema(
-        methods=["GET"],
-        deprecated=True,
+    @validated_request(
+        request_serializer=PropertiesTimelineRequestSerializer,
         parameters=[_PERSON_ID_PARAMETER],
-        responses={200: PropertiesTimelineResponseSerializer},
-        summary="Get a person's properties timeline from legacy filter parameters",
-        description="Reads a legacy insight filter from the query string. Send a POST with the data point's actors query instead.",
-    )
-    @extend_schema(
-        methods=["POST"],
-        parameters=[_PERSON_ID_PARAMETER],
-        request=PropertiesTimelineRequestSerializer,
         responses={200: PropertiesTimelineResponseSerializer},
         summary="Get a person's properties timeline for an insight data point",
         description=(
@@ -1729,21 +1717,15 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "properties are the person properties that the insight's query uses."
         ),
     )
-    @action(methods=["GET", "POST"], detail=True, required_scopes=["person:read"])
-    def properties_timeline(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+    @action(methods=["POST"], detail=True, required_scopes=["person:read"])
+    def properties_timeline(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
         if request.user.is_anonymous or not self.team:
             return response.Response(data=[])
 
         person = self.get_object()
         tag_queries(product=ProductKey.PERSONS, feature=Feature.QUERY)
-        if request.method == "GET":
-            filter = PropertiesTimelineFilter(request=request, team=self.team)
-            return response.Response(data=PropertiesTimeline().run_for_filter(filter, self.team, person))
-
-        serializer = PropertiesTimelineRequestSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
         try:
-            properties_timeline = PropertiesTimeline().run(serializer.validated_data["query"], self.team, person)
+            properties_timeline = PropertiesTimeline().run(request.validated_data["query"], self.team, person)
         except ExposedHogQLError as error:
             # Covers both `QueryError` and the `SyntaxError` a malformed HogQL filter parses into.
             raise ValidationError({"query": [str(error)]})

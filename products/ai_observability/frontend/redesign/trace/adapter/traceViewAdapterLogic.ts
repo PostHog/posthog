@@ -2,17 +2,18 @@ import { MakeLogicType, actions, connect, kea, key, listeners, path, props, redu
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { aiObservabilityTraceLogic } from '../../../aiObservabilityTraceLogic'
-import { llmEvaluationsLogic } from '../../../evaluations/llmEvaluationsLogic'
-import { EvaluationConfig, EvaluationRun } from '../../../evaluations/types'
-import type { TraceNodeApi, TraceTimelineRowApi } from '../../../generated/api.schemas'
-import { generationEvaluationRunsLogic } from '../../../generationEvaluationRunsLogic'
+import type { SaveToDatasetButtonProps } from '../../../datasets/SaveToDatasetButton'
+import type { TraceEvaluationResultApi, TraceNodeApi, TraceTimelineRowApi } from '../../../generated/api.schemas'
 import { TraceHeaderProps } from '../components/TraceHeader'
 import { TraceSummaryBarProps } from '../components/TraceSummaryBar'
 import { TraceViewStatus, traceViewLogic } from '../traceViewLogic'
 import { ConversationState, LabeledLink, NodeDetailTab, NodeLoad, TraceMode } from '../types'
+import { toDatasetItemSource } from './toDatasetItemSource'
 import { toBackLink, toHeader } from './toHeader'
 import { NodeDetailData, toNodeDetail } from './toNodeDetail'
 import { toThread } from './toThread'
@@ -31,16 +32,14 @@ export interface traceViewAdapterLogicValues {
     newerTraceId: string | null // aiObservabilityTraceLogic
     olderTimestamp: string | null // aiObservabilityTraceLogic
     olderTraceId: string | null // aiObservabilityTraceLogic
-    generationEvaluationRuns: EvaluationRun[] // generationEvaluationRunsLogic
-    generationEvaluationRunsLoading: boolean // generationEvaluationRunsLogic
-    detectorEvaluationIds: string[] // llmEvaluationsLogic
-    evaluations: EvaluationConfig[] // llmEvaluationsLogic
-    evaluationsSettled: boolean // llmEvaluationsLogic
+    featureFlags: FeatureFlagsSet // featureFlagLogic
     searchParams: Record<string, any> // router
     currentTeamId: number | null // teamLogic
     createdAt: string | null // traceViewLogic
     defaultNodeId: string // traceViewLogic
     errorMessage: string // traceViewLogic
+    evaluationResults: TraceEvaluationResultApi[] | null // traceViewLogic
+    evaluationResultsFailed: boolean // traceViewLogic
     nodeIdsByAlias: Record<string, string> // traceViewLogic
     nodes: Record<string, NodeLoad> // traceViewLogic
     personLabel: string | null // traceViewLogic
@@ -57,6 +56,7 @@ export interface traceViewAdapterLogicValues {
     tree: TraceNodeApi[] // traceViewLogic
     backLink: LabeledLink
     canViewInThread: boolean
+    datasetItemSource: SaveToDatasetButtonProps | null
     detailData: NodeDetailData | null
     detailTab: NodeDetailTab
     header: TraceHeaderProps
@@ -144,16 +144,19 @@ export interface traceViewAdapterLogicMeta {
             selectedTreeNode: TraceNodeApi | null,
             selectedNodeLoad: NodeLoad,
             tree: TraceNodeApi[],
-            generationEvaluationRuns: EvaluationRun[],
-            generationEvaluationRunsLoading: boolean,
-            evaluations: EvaluationConfig[],
-            detectorEvaluationIds: string[],
-            evaluationsSettled: boolean,
+            evaluationResults: TraceEvaluationResultApi[] | null,
+            evaluationResultsFailed: boolean,
             currentTeamId: number | null,
             personLabel: string | null,
             createdAt: string | null,
             sessionId: string | null
         ) => NodeDetailData | null
+        datasetItemSource: (
+            featureFlags: FeatureFlagsSet,
+            selectedNodeLoad: NodeLoad,
+            createdAt: string | null,
+            traceId: string
+        ) => SaveToDatasetButtonProps | null
         thread: (
             status: TraceViewStatus,
             threadNodeLoad: NodeLoad | null,
@@ -198,17 +201,17 @@ export const traceViewAdapterLogic = kea<traceViewAdapterLogicType>([
                 'sessionId',
                 'defaultNodeId',
                 'nodeIdsByAlias',
+                'evaluationResults',
+                'evaluationResultsFailed',
             ],
             aiObservabilityTraceLogic,
             ['eventId', 'initialTab', 'olderTraceId', 'olderTimestamp', 'newerTraceId', 'newerTimestamp'],
-            generationEvaluationRunsLogic({ traceId: props.traceId }),
-            ['generationEvaluationRuns', 'generationEvaluationRunsLoading'],
             teamLogic,
             ['currentTeamId'],
-            llmEvaluationsLogic,
-            ['evaluations', 'detectorEvaluationIds', 'evaluationsSettled'],
             router,
             ['searchParams'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
         actions: [
             aiObservabilityTraceLogic,
@@ -309,11 +312,8 @@ export const traceViewAdapterLogic = kea<traceViewAdapterLogicType>([
                 s.selectedTreeNode,
                 s.selectedNodeLoad,
                 s.tree,
-                s.generationEvaluationRuns,
-                s.generationEvaluationRunsLoading,
-                s.evaluations,
-                s.detectorEvaluationIds,
-                s.evaluationsSettled,
+                s.evaluationResults,
+                s.evaluationResultsFailed,
                 s.currentTeamId,
                 s.personLabel,
                 s.createdAt,
@@ -323,11 +323,8 @@ export const traceViewAdapterLogic = kea<traceViewAdapterLogicType>([
                 node: TraceNodeApi | null,
                 load: NodeLoad,
                 tree: TraceNodeApi[],
-                evalRuns: EvaluationRun[],
-                evalRunsLoading: boolean,
-                evaluations: EvaluationConfig[],
-                detectorEvaluationIds: string[],
-                evaluationsSettled: boolean,
+                evaluationResults: TraceEvaluationResultApi[] | null,
+                evaluationResultsFailed: boolean,
                 teamId: number | null,
                 person: string | null,
                 createdAt: string | null,
@@ -338,15 +335,24 @@ export const traceViewAdapterLogic = kea<traceViewAdapterLogicType>([
                           node,
                           load,
                           tree,
-                          evalRuns,
-                          evalRunsLoading,
-                          evaluations,
-                          detectorEvaluationIds,
-                          evaluationsSettled,
+                          evaluationResults,
+                          evaluationResultsFailed,
                           teamId,
                           person,
                           trace: { createdAt, sessionId },
                       })
+                    : null,
+        ],
+        datasetItemSource: [
+            (s, p) => [s.featureFlags, s.selectedNodeLoad, s.createdAt, p.traceId],
+            (
+                featureFlags: FeatureFlagsSet,
+                load: NodeLoad,
+                createdAt: string | null,
+                traceId: string
+            ): SaveToDatasetButtonProps | null =>
+                featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DATASETS] && createdAt
+                    ? toDatasetItemSource({ traceId, createdAt, load })
                     : null,
         ],
         thread: [

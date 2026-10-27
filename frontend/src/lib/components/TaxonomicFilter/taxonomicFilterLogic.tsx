@@ -574,6 +574,7 @@ export interface taxonomicFilterLogicValues {
     ownsSearchInput: boolean
     propertyAllowList: TaxonomicFilterGroupValueMap | undefined
     propertyFilters: {
+        allowNonCapturedEvents: boolean
         excludedProperties: TaxonomicFilterGroupValueMap
         includeHiddenEvents: boolean | undefined
         propertyAllowList: TaxonomicFilterGroupValueMap | undefined
@@ -703,8 +704,10 @@ export interface taxonomicFilterLogicMeta {
             excludedProperties: TaxonomicFilterGroupValueMap,
             propertyAllowList: TaxonomicFilterGroupValueMap | undefined,
             arg: any,
-            arg2: any
+            arg2: any,
+            allowNonCapturedEvents: boolean
         ) => {
+            allowNonCapturedEvents: boolean
             excludedProperties: TaxonomicFilterGroupValueMap
             includeHiddenEvents: boolean | undefined
             propertyAllowList: TaxonomicFilterGroupValueMap | undefined
@@ -750,6 +753,7 @@ export interface taxonomicFilterLogicMeta {
             metadataSource: AnyDataNode,
             suggestedFiltersLabel: any,
             propertyFilters: {
+                allowNonCapturedEvents: boolean
                 excludedProperties: TaxonomicFilterGroupValueMap
                 includeHiddenEvents: boolean | undefined
                 propertyAllowList: TaxonomicFilterGroupValueMap | undefined
@@ -1107,6 +1111,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 s.propertyAllowList,
                 (_, props) => props.includeHiddenEvents,
                 (_, props) => props.showNumericalPropsOnly,
+                s.allowNonCapturedEvents,
             ],
             (
                 excludedProperties: import('lib/components/TaxonomicFilter/types').TaxonomicFilterGroupValueMap,
@@ -1114,8 +1119,15 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     | import('lib/components/TaxonomicFilter/types').TaxonomicFilterGroupValueMap
                     | undefined,
                 includeHiddenEvents: boolean | undefined,
-                showNumericalPropsOnly: boolean | undefined
-            ) => ({ excludedProperties, propertyAllowList, includeHiddenEvents, showNumericalPropsOnly }),
+                showNumericalPropsOnly: boolean | undefined,
+                allowNonCapturedEvents: boolean
+            ) => ({
+                excludedProperties,
+                propertyAllowList,
+                includeHiddenEvents,
+                showNumericalPropsOnly,
+                allowNonCapturedEvents,
+            }),
             { resultEqualityCheck: objectsEqual },
         ],
         allowNonCapturedEvents: [
@@ -1202,6 +1214,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     propertyAllowList:
                         | import('lib/components/TaxonomicFilter/types').TaxonomicFilterGroupValueMap
                         | undefined
+                    allowNonCapturedEvents: boolean
                     includeHiddenEvents: boolean | undefined
                     showNumericalPropsOnly: boolean | undefined
                 },
@@ -1230,8 +1243,15 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 const { eventNames, primaryPropertiesForContextEvents, mcpExcludedEventProperties } =
                     eventNamesWithPrimaryProperties
                 const { id: teamId } = currentTeam
-                const { excludedProperties, propertyAllowList, includeHiddenEvents, showNumericalPropsOnly } =
-                    propertyFilters
+                const {
+                    excludedProperties,
+                    propertyAllowList,
+                    includeHiddenEvents,
+                    showNumericalPropsOnly,
+                    allowNonCapturedEvents,
+                } = propertyFilters
+                const fuzzyEventSearch =
+                    !!featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_FUZZY_EVENT_SEARCH] && !allowNonCapturedEvents
                 const groups: TaxonomicFilterGroup[] = [
                     {
                         name: 'Events',
@@ -1243,6 +1263,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         endpoint: combineUrl(`api/projects/${projectId}/event_definitions`, {
                             event_type: EventDefinitionType.Event,
                             exclude_hidden: true,
+                            fuzzy_search: fuzzyEventSearch,
                         }).url,
                         excludedProperties: [
                             ...(excludedProperties?.[TaxonomicFilterGroupType.Events]?.filter(isString) ?? []),
@@ -1995,6 +2016,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         endpoint: combineUrl(`api/projects/${projectId}/event_definitions`, {
                             event_type: EventDefinitionType.EventCustom,
                             exclude_hidden: true,
+                            fuzzy_search: fuzzyEventSearch,
                         }).url,
                         getName: (eventDefinition: EventDefinition) => eventDefinition.name,
                         getValue: (eventDefinition: EventDefinition) => eventDefinition.name,

@@ -616,6 +616,7 @@ def _refuse_incomplete_run(export_signal: ExportSignalMessage) -> None:
         before_batch_index=export_signal.batch_index,
     )
     if unfinished.count == 0:
+        _refuse_unloaded_continued_jobs(export_signal)
         return
 
     INCOMPLETE_RUN_COMPLETIONS_REFUSED_TOTAL.inc()
@@ -628,6 +629,37 @@ def _refuse_incomplete_run(export_signal: ExportSignalMessage) -> None:
         before_batch_index=export_signal.batch_index,
         unfinished_batches=unfinished.count,
         first_unfinished_batch_index=unfinished.first_batch_index,
+        unfinished_states=list(unfinished.states),
+    )
+    raise IncompleteRunError()
+
+
+def _refuse_unloaded_continued_jobs(export_signal: ExportSignalMessage) -> None:
+    """Raise when a batch of a job whose cursor this run continues did not load.
+
+    Those batches hold the rows before the continued cursor, and no later run reads them again
+    once this run completes. A failed job keeps the committed cursor, and the next job does not
+    continue it, so that job reads those rows again.
+    """
+    if not export_signal.continued_job_ids:
+        return
+    unfinished = BatchQueue.get_unfinished_batches_of_jobs_sync(
+        settings.WAREHOUSE_SOURCES_DATABASE_URL,
+        team_id=export_signal.team_id,
+        schema_id=export_signal.schema_id,
+        job_ids=export_signal.continued_job_ids,
+    )
+    if unfinished.count == 0:
+        return
+
+    INCOMPLETE_RUN_COMPLETIONS_REFUSED_TOTAL.inc()
+    logger.error(
+        "run_completion_refused_unfinished_continued_job_batches",
+        team_id=export_signal.team_id,
+        external_data_schema_id=export_signal.schema_id,
+        external_data_job_id=export_signal.job_id,
+        continued_job_ids=export_signal.continued_job_ids,
+        unfinished_batches=unfinished.count,
         unfinished_states=list(unfinished.states),
     )
     raise IncompleteRunError()

@@ -8,7 +8,7 @@ from django.db.models.fields.json import KT
 from django.db.models.functions import Cast
 from django.utils import timezone
 
-from posthog.api.tagged_item import cleanup_orphan_tags, current_tag_names, set_tags_on_object
+from posthog.api.tagged_item import current_tag_names, replace_tags_on_object, set_tags_on_object
 from posthog.models import TaggedItem
 from posthog.models.tag import tagify
 
@@ -125,8 +125,7 @@ def update_template(team_id: int, template_id: UUID | str, fields: dict[str, Any
             _apply_fields(template, fields)
             template.save()
         if tags_changed:
-            set_tags_on_object(tags, template)
-            cleanup_orphan_tags(team_id)
+            replace_tags_on_object(tags, template)
     return template
 
 

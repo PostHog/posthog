@@ -33,6 +33,11 @@ from products.business_knowledge.backend.logic import is_maintained_for_team
 from products.data_catalog.backend.facade.api import approved_metric_names_for_team
 from products.mcp_store.backend.facade.api import get_sandbox_mcp_server_names
 from products.signals.backend.agent_runtime import STEP_SCOUT, AgentRuntime, resolve_agent_runtime
+from products.signals.backend.constants import FIRST_REPORT_SCOUT, FIRST_REPORT_SCOUT_TIMEOUT_SECONDS
+from products.signals.backend.first_report_completion import complete_first_report_investigation
+from products.signals.backend.first_report_experiment import FirstReportExperiment, resolve_first_report_experiment
+from products.signals.backend.first_report_scout import set_first_report_state
+from products.signals.backend.first_report_scout_types import FirstReportScoutResult
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.scout_harness.acting_user import resolve_scout_run_acting_user
 from products.signals.backend.scout_harness.derived_metadata import stamp_derived_metadata
@@ -46,6 +51,7 @@ from products.signals.backend.scout_harness.limits import (
     STALE_RUN_CUTOFF_S,
     TRIAL_ACTIVITY_TIMEOUT_S,
     TRIAL_MAX_RUNTIME_S,
+    TRIGGERED_BY_ONBOARDING,
     TRIGGERED_BY_SCHEDULE,
     failure_streak_pause_threshold,
     interval_runs_in_tolerance_window,
@@ -53,6 +59,7 @@ from products.signals.backend.scout_harness.limits import (
 from products.signals.backend.scout_harness.model_selection import RUNTIME_ADAPTER_CODEX, resolve_scout_model
 from products.signals.backend.scout_harness.prompt import (
     HARNESS_PROMPT_VERSION,
+    FirstReportScoutRunSummary,
     SignalScoutRunSummary,
     build_run_prompt,
 )
@@ -78,6 +85,7 @@ from products.signals.backend.scout_harness.trial_launch import (
 )
 from products.signals.backend.scout_harness.trial_result import export_trial_result, validate_trial_runtime
 from products.signals.backend.scout_harness.trial_state import SCOUT_TRIAL_METADATA_KEY, initial_trial_state
+from products.signals.backend.scout_report import scout_report_tags_in_use
 from products.signals.backend.temporal.agentic import (
     SIGNALS_REPORT_RESEARCH_ENV_NAME,
     get_or_create_signals_sandbox_env,
@@ -257,6 +265,7 @@ async def _arun_signals_scout(
     verbose: bool = False,
     triggered_by: str = TRIGGERED_BY_SCHEDULE,
     run_note: str | None = None,
+    trigger_workflow_id: str | None = None,
     agent_runtime: AgentRuntime | None = None,
     trial_launch_id: str | None = None,
     check_id: str | None = None,
@@ -275,10 +284,15 @@ async def _arun_signals_scout(
     its own prompt section and is stamped on the run row, so the run it steered says so in its own
     history; it is never carried into a later run.
 
+    `trigger_workflow_id` is the workflow whose "Run scout" step started a `"workflow"` run. It
+    renders in the run's identity and is stamped on the run row.
+
     `precheck_rows` are the rows the pre-check of a scheduled run found (`scout_harness/precheck.py`).
     They render in their own prompt section as untrusted data. `precheck_query_source` says which
     pre-check started the run, and is stamped on the run row.
     """
+    if skill_name == FIRST_REPORT_SCOUT and triggered_by != TRIGGERED_BY_ONBOARDING:
+        raise ValueError("The first-report scout only accepts onboarding dispatches.")
     team = await database_sync_to_async(_get_team, thread_sensitive=False)(team_id)
     trial = (
         await database_sync_to_async(load_trial_launch, thread_sensitive=False)(
@@ -452,6 +466,23 @@ async def _arun_signals_scout(
     # runtime/model/effort triple is taken from one source — a Codex runtime never pairs with a
     # model it can't serve. Model-only pin entries are still ignored for scout: a pin supplies
     # model+runtime as a pair, and overriding one without the other would mis-route.
+    experiment = None
+    if skill.name == FIRST_REPORT_SCOUT and agent_runtime is None and trial is None:
+        experiment = await database_sync_to_async(resolve_first_report_experiment, thread_sensitive=False)(team)
+        if experiment is None or experiment.agent_runtime is None:
+            await database_sync_to_async(set_first_report_state, thread_sensitive=False)(team.id, "incomplete")
+            return RunResult(
+                run_id=None,
+                task_run_id=None,
+                status=None,
+                last_message=None,
+                runtime_s=0.0,
+                skill_name=skill.name,
+                skill_version=skill.version,
+                skip_reason="first-report experiment disabled" if experiment is None else "first-report control arm",
+            )
+        agent_runtime = experiment.agent_runtime
+    runtime = agent_runtime.runtime if agent_runtime is not None else "acp"
     if agent_runtime is not None:
         runtime_adapter: str | None = agent_runtime.runtime_adapter
         model: str | None = agent_runtime.model
@@ -524,8 +555,11 @@ async def _arun_signals_scout(
             runtime_adapter=runtime_adapter,
             reasoning_effort=reasoning_effort,
             service_tier=service_tier,
+            runtime=runtime,
+            experiment=experiment,
             triggered_by=triggered_by,
             run_note=run_note,
+            trigger_workflow_id=trigger_workflow_id,
             trial=trial,
             check_id=check_id,
             precheck_rows=precheck_rows,
@@ -543,6 +577,13 @@ async def _arun_signals_scout(
         # after fixing its skill.
         if trial is None:
             await database_sync_to_async(_clear_failure_streak, thread_sensitive=False)(config.pk)
+        outcome_properties = (
+            await database_sync_to_async(complete_first_report_investigation, thread_sensitive=False)(
+                team.id, str(run_id)
+            )
+            if experiment is not None
+            else {}
+        )
         _capture_run_finished(
             team=team,
             config=config,
@@ -559,6 +600,9 @@ async def _arun_signals_scout(
             model=model,
             runtime_adapter=runtime_adapter,
             service_tier=service_tier,
+            runtime=runtime,
+            experiment=experiment,
+            extra_properties=outcome_properties,
         )
         return RunResult(
             run_id=str(run_id),
@@ -628,6 +672,13 @@ async def _arun_signals_scout(
             if triggered_by == TRIGGERED_BY_SCHEDULE
             else None
         )
+        outcome_properties = (
+            await database_sync_to_async(complete_first_report_investigation, thread_sensitive=False)(
+                team.id, str(run_id)
+            )
+            if experiment is not None
+            else {}
+        )
         _capture_run_finished(
             team=team,
             config=config,
@@ -644,9 +695,11 @@ async def _arun_signals_scout(
             model=model,
             runtime_adapter=runtime_adapter,
             service_tier=service_tier,
+            runtime=runtime,
+            experiment=experiment,
             error_type=type(exc).__name__,
             error_message=str(exc)[:300],
-            extra_properties=_failure_properties(exc),
+            extra_properties={**outcome_properties, **(_failure_properties(exc) or {})},
         )
         if streak is not None and streak.tripped:
             _capture_config_auto_paused(
@@ -689,6 +742,13 @@ async def _arun_signals_scout(
         # The failure-streak breaker is deliberately untouched: a cancelled run says nothing
         # about whether this lane can succeed, and counting worker shutdowns toward the streak
         # would pause healthy scouts after a few deploys.
+        outcome_properties = (
+            await database_sync_to_async(complete_first_report_investigation, thread_sensitive=False)(
+                team.id, str(run_id)
+            )
+            if experiment is not None
+            else {}
+        )
         _capture_run_finished(
             team=team,
             config=config,
@@ -705,6 +765,9 @@ async def _arun_signals_scout(
             model=model,
             runtime_adapter=runtime_adapter,
             service_tier=service_tier,
+            runtime=runtime,
+            experiment=experiment,
+            extra_properties=outcome_properties,
         )
         raise
     finally:
@@ -725,6 +788,7 @@ async def arun_signals_scout(
     verbose: bool = False,
     triggered_by: str = TRIGGERED_BY_SCHEDULE,
     run_note: str | None = None,
+    trigger_workflow_id: str | None = None,
     agent_runtime: AgentRuntime | None = None,
     trial_launch_id: str | None = None,
     check_id: str | None = None,
@@ -740,6 +804,7 @@ async def arun_signals_scout(
             verbose=verbose,
             triggered_by=triggered_by,
             run_note=run_note,
+            trigger_workflow_id=trigger_workflow_id,
             agent_runtime=agent_runtime,
             trial_launch_id=trial_launch_id,
             check_id=check_id,
@@ -779,6 +844,20 @@ def _project_has_governed_metrics(team: Team, user_id: int) -> bool:
     except Exception as error:
         capture_exception(error)
         return False
+
+
+def _report_tags_in_use(team: Team, *, report_channel: bool) -> list[str]:
+    """The team's report tags for the prompt, or none for a signal-channel scout.
+
+    A failed read is an empty list: the listing is optional steering, so an outage must not fail the run.
+    """
+    if not report_channel:
+        return []
+    try:
+        return scout_report_tags_in_use(team_id=team.id)
+    except Exception as error:
+        capture_exception(error)
+        return []
 
 
 def _granted_write_scopes(config: SignalScoutConfig) -> list[str]:
@@ -913,8 +992,11 @@ async def _spawn_and_run(
     runtime_adapter: str | None = None,
     reasoning_effort: str | None = None,
     service_tier: str | None = None,
+    runtime: str = "acp",
+    experiment: FirstReportExperiment | None = None,
     triggered_by: str = TRIGGERED_BY_SCHEDULE,
     run_note: str | None = None,
+    trigger_workflow_id: str | None = None,
     trial: TrialLaunch | None = None,
     check_id: str | None = None,
     precheck_rows: str | None = None,
@@ -1004,6 +1086,7 @@ async def _spawn_and_run(
         reasoning_effort=reasoning_effort,
         # Codex-only, and independent of the model pin: which OpenAI queue the run's turns join.
         service_tier=service_tier,
+        runtime=runtime,
         sandbox_timeout_seconds=TRIAL_ACTIVITY_TIMEOUT_S + 60 if trial is not None else None,
     )
     project_has_governed_metrics = await database_sync_to_async(_project_has_governed_metrics, thread_sensitive=False)(
@@ -1011,6 +1094,9 @@ async def _spawn_and_run(
     )
     mcp_server_names = await database_sync_to_async(_mcp_server_names_for_run, thread_sensitive=False)(
         team, user_id, config
+    )
+    report_tags_in_use = await database_sync_to_async(_report_tags_in_use, thread_sensitive=False)(
+        team, report_channel=report_channel
     )
     prompt = build_run_prompt(
         skill,
@@ -1034,6 +1120,7 @@ async def _spawn_and_run(
         write_scopes=scope_posture["extra_write_scopes"],
         tool_allowlist_narrowed=mcp_tool_allowlist is not None,
         run_note=run_note,
+        trigger_workflow_id=trigger_workflow_id,
         # The repositories the sandbox clones, so the prompt can point the agent at the checkout
         # instead of leaving it to discover the tree. Same list the sandbox context carries, so
         # the prompt can never describe a tree the run does not have.
@@ -1043,6 +1130,7 @@ async def _spawn_and_run(
         triggered_by=triggered_by,
         is_private_trial=trial is not None,
         precheck_rows=precheck_rows,
+        report_tags_in_use=report_tags_in_use,
     )
     logger.info(
         "signals_scout: spawning sandbox",
@@ -1066,12 +1154,15 @@ async def _spawn_and_run(
             runtime_adapter=runtime_adapter,
             reasoning_effort=reasoning_effort,
             service_tier=service_tier,
+            runtime=runtime,
+            experiment=experiment,
             github_guidance=github_guidance,
             business_knowledge_maintained=business_knowledge_maintained,
             background_backoff=background_backoff,
             repositories=repositories,
             triggered_by=triggered_by,
             run_note=run_note,
+            trigger_workflow_id=trigger_workflow_id,
             trial=trial,
             check_id=check_id,
             precheck_query_source=precheck_query_source,
@@ -1096,16 +1187,20 @@ async def _spawn_and_run(
                 model=model,
                 runtime_adapter=runtime_adapter,
                 service_tier=service_tier,
+                runtime=runtime,
+                experiment=experiment,
             )
         )
 
+    summary_model = FirstReportScoutRunSummary if skill.name == FIRST_REPORT_SCOUT else SignalScoutRunSummary
     session, result = await MultiTurnSession.start(
         prompt=prompt,
         context=context,
-        model=SignalScoutRunSummary,
+        model=summary_model,
         step_name=_step_name(skill),
         verbose=verbose,
         origin_product=tasks_facade.TaskOriginProduct.SIGNALS_SCOUT,
+        internal=skill.name == FIRST_REPORT_SCOUT,
         mcp_builtin_agent_key="scout",
         # No credential owner on purpose: a scout is a team resource, so its runs mount only
         # connections members shared to the whole team, never anyone's personal grants. That
@@ -1123,14 +1218,30 @@ async def _spawn_and_run(
         # full skill name for canonical and custom scouts alike.
         ai_agent_name=skill.name,
         before_task_dispatch=_create_bridge_row,
-        origin_key=f"scout-trial:{trial.id}" if trial is not None else None,
+        origin_key=(
+            "first-report"
+            if skill.name == FIRST_REPORT_SCOUT
+            else f"scout-trial:{trial.id}"
+            if trial is not None
+            else None
+        ),
         # Leave the activity's cleanup allowance after the scout's own timeout.
-        max_poll_seconds=TRIAL_MAX_RUNTIME_S if trial is not None else DEFAULT_MAX_RUNTIME_S,
+        max_poll_seconds=(
+            FIRST_REPORT_SCOUT_TIMEOUT_SECONDS
+            if skill.name == FIRST_REPORT_SCOUT
+            else TRIAL_MAX_RUNTIME_S
+            if trial is not None
+            else DEFAULT_MAX_RUNTIME_S
+        ),
         # The close-out is free-text markdown — if the agent ends with prose or malformed JSON
         # instead of a SignalScoutRunSummary object, keep the raw text as the summary rather than
         # failing the whole run. A failed run never finalizes, so its scan-position close-out is
         # lost and the next run inherits a doubled scan delta.
-        fallback_from_text=lambda text: SignalScoutRunSummary(summary=text),
+        fallback_from_text=lambda text: (
+            FirstReportScoutRunSummary(summary=text, first_report_result=FirstReportScoutResult(outcome="incomplete"))
+            if skill.name == FIRST_REPORT_SCOUT
+            else SignalScoutRunSummary(summary=text)
+        ),
     )
     end_status = "completed"
     end_error: str | None = None
@@ -1150,6 +1261,7 @@ async def _spawn_and_run(
             team_id=team.parent_team_id or team.id,
             summary=result.summary,
             trial=trial is not None,
+            first_report_result=result.first_report_result if isinstance(result, FirstReportScoutRunSummary) else None,
         )
         return result.summary, str(session.task_run.id)
     except BaseException as error:
@@ -1345,12 +1457,15 @@ def _create_run_row(
     runtime_adapter: str | None = None,
     reasoning_effort: str | None = None,
     service_tier: str | None = None,
+    runtime: str = "acp",
+    experiment: FirstReportExperiment | None = None,
     github_guidance: bool = False,
     business_knowledge_maintained: bool = False,
     background_backoff: BackgroundBackoff | None = None,
     repositories: list[str] | None = None,
     triggered_by: str = TRIGGERED_BY_SCHEDULE,
     run_note: str | None = None,
+    trigger_workflow_id: str | None = None,
     trial: TrialLaunch | None = None,
     check_id: str | None = None,
     precheck_query_source: str | None = None,
@@ -1370,6 +1485,9 @@ def _create_run_row(
         )
         if value is not None
     }
+    metadata["runtime"] = runtime
+    if experiment is not None:
+        metadata.update(experiment.properties())
     # Stamped only when non-default, like the model triple: absence means the run held the
     # trusted-domains posture. Stamped (rather than read off the config later) because the
     # config row can be edited after the fact, which would silently rewrite what past runs
@@ -1435,6 +1553,9 @@ def _create_run_row(
     # were — a scheduled patrol or a human's "Run now" must not extend it.
     if triggered_by != TRIGGERED_BY_SCHEDULE:
         metadata["triggered_by"] = triggered_by
+    # The only record of which workflow spent the run, so its author can find the runs it started.
+    if trigger_workflow_id:
+        metadata["trigger_workflow_id"] = trigger_workflow_id
     # The only record of why a manual run behaved differently from the scheduled ones around it,
     # because the note is deliberately never stored as a scout note.
     if run_note:
@@ -1663,6 +1784,8 @@ def _capture_run_started(
     model: str | None = None,
     runtime_adapter: str | None = None,
     service_tier: str | None = None,
+    runtime: str = "acp",
+    experiment: FirstReportExperiment | None = None,
 ) -> None:
     """Emit the scout-owned run-started analytics event.
 
@@ -1682,6 +1805,9 @@ def _capture_run_started(
         "run_id": str(run_id),
         "task_run_id": task_run_id,
     }
+    properties["runtime"] = runtime
+    if experiment is not None:
+        properties.update(experiment.properties())
     _attach_run_shape_props(
         properties,
         config=config,
@@ -1878,6 +2004,8 @@ def _capture_run_finished(
     model: str | None = None,
     runtime_adapter: str | None = None,
     service_tier: str | None = None,
+    runtime: str = "acp",
+    experiment: FirstReportExperiment | None = None,
     error_type: str | None = None,
     error_message: str | None = None,
     extra_properties: dict[str, Any] | None = None,
@@ -1911,6 +2039,9 @@ def _capture_run_finished(
         "runtime_seconds": round(runtime_s, 1),
         "emitted_count": emitted_count,
     }
+    properties["runtime"] = runtime
+    if experiment is not None:
+        properties.update(experiment.properties())
     _attach_run_shape_props(
         properties,
         config=config,
@@ -1944,13 +2075,25 @@ def _capture_run_finished(
         )
 
 
-def _finalize_run_row(*, run_id: Any, team_id: int, summary: str, trial: bool = False) -> None:
+def _finalize_run_row(
+    *,
+    run_id: Any,
+    team_id: int,
+    summary: str,
+    trial: bool = False,
+    first_report_result: FirstReportScoutResult | None = None,
+) -> None:
     # Targeted UPDATE rather than `.save()` — the row's other fields are untouched
     # by the agent's close-out, and `update()` skips the full model refresh. `updated_at` is stamped
     # by hand because `auto_now` runs in `save()`, which this path deliberately skips.
     SignalScoutRun.objects.unscoped().filter(team_id=team_id, id=run_id).update(
         summary=summary, updated_at=timezone.now()
     )
+    if first_report_result is not None:
+        with transaction.atomic():
+            run = SignalScoutRun.objects.for_team(team_id).select_for_update().get(id=run_id)
+            run.metadata = {**(run.metadata or {}), "first_report_result": first_report_result.model_dump(mode="json")}
+            run.save(update_fields=["metadata", "updated_at"])
     # Stamped here rather than at each emit/edit site so the flags are computed once, from the
     # run's settled output, in the same hop that persists the close-out. Best-effort inside, so
     # a stamp failure never costs the summary write that already landed above.

@@ -32,7 +32,7 @@ import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { extractValidationError, extractValidationErrorCode } from '~/queries/nodes/InsightViz/utils'
 import { Query } from '~/queries/Query/Query'
 import { DashboardFilter, HogQLVariable } from '~/queries/schema/schema-general'
-import { queryVizDefinitelyRendersToCanvas } from '~/queries/utils'
+import { isBIVisualizationNode, queryVizDefinitelyRendersToCanvas } from '~/queries/utils'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -47,6 +47,8 @@ import {
 } from '~/types'
 
 import type { AlertType } from 'products/alerts/frontend/types'
+import { DashboardInsightResultMenu } from 'products/dashboards/frontend/components/DashboardInsightResultMenu'
+import type { TileGroupMoveOptions } from 'products/dashboards/frontend/dashboardTileSections'
 
 import { DashboardResizeHandles } from '../handles'
 import { EditModeEdge, EditModeEdgeOverlay } from './EditModeEdgeOverlay'
@@ -90,6 +92,7 @@ type AlertModalState = {
 }
 
 export interface InsightCardProps extends Resizeable {
+    resultMenuEnabled?: boolean
     /** Insight to display. */
     insight: InsightModel
     /** id of the dashboard the card is on (when the card is being displayed on a dashboard) **/
@@ -126,6 +129,8 @@ export interface InsightCardProps extends Resizeable {
     duplicate?: () => void
     setOverride?: () => void
     moveToDashboard?: (target: Pick<DashboardType, 'id' | 'name'>) => void
+    tileGroupMoveOptions?: TileGroupMoveOptions
+    moveToTileGroup?: (sectionKey: string | null) => void
     /** Copy this insight tile to another dashboard (same insight; requires editor on destination). */
     copyToDashboard?: (dashboard: DashboardBasicType) => void
     /** buttons to add to the "more" menu on the card**/
@@ -194,6 +199,8 @@ function InsightCardInternal(
         duplicate,
         setOverride,
         moveToDashboard,
+        tileGroupMoveOptions,
+        moveToTileGroup,
         copyToDashboard,
         className,
         moreButtons,
@@ -205,6 +212,7 @@ function InsightCardInternal(
         onOverlayVisibilityChange,
         filtersOverride,
         variablesOverride,
+        resultMenuEnabled,
         children,
         projectId,
         projectTimezone,
@@ -400,6 +408,11 @@ function InsightCardInternal(
                 cachedResults={insight}
                 context={{
                     insightProps: insightLogicProps,
+                    dashboardResultMenu: resultMenuEnabled,
+                    dataVisualizationTableVirtualized:
+                        renderVizWhenMounted && placement === DashboardPlacement.Dashboard,
+                    // Small tables keep natural column widths because their full row count is cheap to render.
+                    dataVisualizationTableVirtualizationCellThreshold: 100,
                 }}
                 readOnly
                 embedded
@@ -408,11 +421,25 @@ function InsightCardInternal(
                 editMode={false}
             />
         )
-    }, [BlockingEmptyState, insight, insightLogicProps, variablesOverride, placement])
+    }, [
+        BlockingEmptyState,
+        insight,
+        insightLogicProps,
+        variablesOverride,
+        placement,
+        renderVizWhenMounted,
+        resultMenuEnabled,
+    ])
 
     const vizContent = shouldRenderViz ? (
         <div className="InsightCard__viz">
-            <div className="InsightCard__vizInner">{vizInner}</div>
+            <div className="InsightCard__vizInner">
+                {resultMenuEnabled && (!isBIVisualizationNode(insight.query) || insight.query.config.querySnapshot) ? (
+                    <DashboardInsightResultMenu insight={insight}>{vizInner}</DashboardInsightResultMenu>
+                ) : (
+                    vizInner
+                )}
+            </div>
         </div>
     ) : (
         <InsightVisualizationSkeleton query={insight.query} />
@@ -457,6 +484,8 @@ function InsightCardInternal(
                         duplicate={duplicate}
                         setOverride={setOverride}
                         moveToDashboard={moveToDashboard}
+                        tileGroupMoveOptions={tileGroupMoveOptions}
+                        moveToTileGroup={moveToTileGroup}
                         copyToDashboard={copyToDashboard}
                         areDetailsShown={areDetailsShown}
                         setAreDetailsShown={setAreDetailsShown}

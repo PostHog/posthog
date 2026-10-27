@@ -122,8 +122,6 @@ pub enum Error {
     MissingEventUuid,
     #[error("event uuid is not valid: {0}")]
     InvalidEventUuid(String),
-    #[error("duplicate event uuid: {0}")]
-    DuplicateEventUuid(String),
     #[error("event submitted with invalid timestamp")]
     InvalidEventTimestamp,
     #[error("event properties is not a JSON object")]
@@ -188,7 +186,6 @@ impl Error {
             Self::DistinctIdTooLarge => "distinct_id_too_large",
             Self::MissingEventUuid => "missing_event_uuid",
             Self::InvalidEventUuid(_) => "invalid_event_uuid",
-            Self::DuplicateEventUuid(_) => "duplicate_event_uuid",
             Self::InvalidEventTimestamp => "invalid_event_timestamp",
             Self::MalformedEventProperties => "malformed_event_properties",
             Self::DroppedPerformanceEvent => "dropped_performance_event",
@@ -247,7 +244,6 @@ impl Error {
             | Self::DistinctIdTooLarge
             | Self::MissingEventUuid
             | Self::InvalidEventUuid(_)
-            | Self::DuplicateEventUuid(_)
             | Self::InvalidEventTimestamp
             | Self::MalformedEventProperties
             | Self::DroppedPerformanceEvent
@@ -309,7 +305,6 @@ impl Error {
             | Self::DistinctIdTooLarge
             | Self::MissingEventUuid
             | Self::InvalidEventUuid(_)
-            | Self::DuplicateEventUuid(_)
             | Self::InvalidEventTimestamp
             | Self::MalformedEventProperties
             | Self::DroppedPerformanceEvent => StatusCode::BAD_REQUEST,

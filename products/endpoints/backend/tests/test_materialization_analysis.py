@@ -581,7 +581,9 @@ class TestCombinatorReaggregation(SimpleTestCase):
 class TestMaterializedReadPath(SimpleTestCase):
     """Test that the read path applies value_wrapper_fns when filtering the materialized table."""
 
-    def _build_read_query(self, query_str: str, variables_meta: dict, variable_values: dict) -> str:
+    def _build_read_query(
+        self, query_str: str, variables_meta: dict, variable_values: dict, column_type: str | None = None
+    ) -> str:
         """Simulate the materialized read path: analyze variables, then build a SELECT with filters."""
         hogql_query = {"kind": "HogQLQuery", "query": query_str, "variables": variables_meta}
         _, _, var_infos = analyze_variables_for_materialization(hogql_query)
@@ -601,6 +603,7 @@ class TestMaterializedReadPath(SimpleTestCase):
                     op=mat_var.operator,
                     value_wrapper_fns=mat_var.value_wrapper_fns,
                     bucket_fn=mat_var.bucket_fn,
+                    column_type=column_type,
                 )
 
         return select_query.to_hogql()
@@ -625,14 +628,35 @@ class TestMaterializedReadPath(SimpleTestCase):
 
         assert "toDate('2024-01-15 14:30:00')" in result
 
-    def test_lower_wrapper_applied_to_value(self):
+    @parameterized.expand(
+        [
+            (
+                "lower",
+                "SELECT count() FROM events WHERE lower(event) = lower({variables.value})",
+                "$PageView",
+                None,
+                "lower('$PageView')",
+            ),
+            (
+                "city_hash_with_numeric_column",
+                "SELECT count() FROM events WHERE cityHash64(distinct_id) = cityHash64({variables.value})",
+                "123",
+                "UInt64",
+                "cityHash64('123')",
+            ),
+        ]
+    )
+    def test_wrapper_applied_to_value(
+        self, _name: str, query: str, value: str, column_type: str | None, expected: str
+    ) -> None:
         result = self._build_read_query(
-            "SELECT count() FROM events WHERE lower(event) = lower({variables.event_name})",
-            {"var-1": {"code_name": "event_name", "value": "$PageView"}},
-            {"event_name": "$PageView"},
+            query,
+            {"var-1": {"code_name": "value", "value": value}},
+            {"value": value},
+            column_type,
         )
 
-        assert "lower('$PageView')" in result
+        assert expected in result
 
     def test_range_with_wrapper_both_sides(self):
         result = self._build_read_query(

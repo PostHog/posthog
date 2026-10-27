@@ -1,14 +1,17 @@
 import { Node } from '@xyflow/react'
 import { useActions } from 'kea'
 
-import { IconCursor, IconPerson } from '@posthog/icons'
+import { IconCursor, IconPeople, IconPerson } from '@posthog/icons'
 import { LemonDivider, LemonLabel } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 
 import { workflowLogic } from '../../workflowLogic'
 import { HogFlowEventFilters, HogFlowPropertyFilters } from '../filters/HogFlowFilters'
 import { HogFlowAction } from '../types'
+import { joinCohortMembershipEntry, splitCohortMembershipEntry } from './components/cohortMembershipEvent'
+import { CohortMembershipEventPicker } from './components/CohortMembershipEventPicker'
 import { HogFlowDuration } from './components/HogFlowDuration'
 import { StepSchemaErrors } from './components/StepSchemaErrors'
 import { useDebouncedNameInput } from './utils'
@@ -27,7 +30,9 @@ export function StepWaitUntilConditionConfiguration({
         partialSetWorkflowActionConfig(action.id, { condition: updatedCondition })
     )
 
-    const eventFilters = events?.[0]?.filters ?? {}
+    const cohortConditionsEnabled = useFeatureFlag('WORKFLOWS_COHORT_CONDITIONS')
+    const { eventEntries, cohort } = splitCohortMembershipEntry(events)
+    const eventFilters = eventEntries[0]?.filters ?? {}
 
     return (
         <>
@@ -46,7 +51,7 @@ export function StepWaitUntilConditionConfiguration({
                     filters={eventFilters}
                     setFilters={(newFilters) =>
                         partialSetWorkflowActionConfig(action.id, {
-                            events: newFilters ? [{ filters: newFilters }] : undefined,
+                            events: joinCohortMembershipEntry(newFilters ? [{ filters: newFilters }] : [], cohort),
                         })
                     }
                     typeKey="workflow-wait-until-event"
@@ -54,6 +59,36 @@ export function StepWaitUntilConditionConfiguration({
                     excludeGroupProperties
                 />
             </div>
+
+            {cohortConditionsEnabled || cohort ? (
+                <>
+                    <div className="flex items-center gap-4 my-2">
+                        <div className="flex-1 border-t border-border" />
+                        <span className="text-xs text-tertiary uppercase tracking-wide">or</span>
+                        <div className="flex-1 border-t border-border" />
+                    </div>
+
+                    <div className="flex flex-col gap-3">
+                        <span className="flex gap-1">
+                            <IconPeople className="text-lg" />
+                            <span className="text-md font-semibold">Cohort change to wait for</span>
+                        </span>
+                        <span className="text-xs text-muted">
+                            The workflow continues on the matched path when the person joins or leaves this cohort. Only
+                            realtime cohorts report these changes.
+                        </span>
+                        <CohortMembershipEventPicker
+                            value={cohort}
+                            onChange={(nextCohort) =>
+                                partialSetWorkflowActionConfig(action.id, {
+                                    events: joinCohortMembershipEntry(eventEntries, nextCohort),
+                                })
+                            }
+                            dataAttr="workflow-wait-until"
+                        />
+                    </div>
+                </>
+            ) : null}
 
             <div className="flex items-center gap-4 my-2">
                 <div className="flex-1 border-t border-border" />

@@ -33,6 +33,10 @@ REQUIRED_SLACK_SCOPES: frozenset[str] = frozenset(
 )
 
 
+SLACK_FILE_SCOPE = "files:write"
+SLACK_CANVAS_SCOPE = "canvases:write"
+
+
 def has_scopes(integration: Integration, required: Iterable[str]) -> bool:
     """Whether the install granted these bot scopes. Fails closed, so an install whose
     granted set can't be read never enables anything."""

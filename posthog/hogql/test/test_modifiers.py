@@ -80,6 +80,7 @@ class TestModifiers(BaseTest):
             == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED  # no change here
         )
 
+        # A modifier removed from the schema can stay stored on a project.
         self.team.modifiers = {
             "personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
             "useNewEventsCluster": True,
@@ -87,7 +88,6 @@ class TestModifiers(BaseTest):
         self.team.save()
         modifiers = create_default_modifiers_for_team(self.team)
         assert modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
-        assert modifiers.useNewEventsCluster is None
 
     def test_unparseable_custom_bot_definitions_are_dropped(self):
         # modifiers is hand-editable JSON (e.g. Django admin), so an entry that is not a rule object

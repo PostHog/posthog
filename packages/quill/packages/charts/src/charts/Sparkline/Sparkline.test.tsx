@@ -2,7 +2,7 @@ import { fireEvent } from '@testing-library/react'
 
 import type { ChartTheme, TooltipContext } from '../../core/types'
 import { DefaultTooltip } from '../../overlays/DefaultTooltip'
-import { createDefaultTooltipAccessor, hoverUntilTooltip, renderHogChart } from '../../testing'
+import { createDefaultTooltipAccessor, hoverUntilTooltip, renderChart } from '../../testing'
 import { Sparkline } from './Sparkline'
 
 const THEME: ChartTheme = { colors: ['#22d3ee', '#f14f58'], backgroundColor: '#ffffff' }
@@ -10,13 +10,13 @@ const LABELS = ['Jan', 'Feb', 'Mar', 'Apr']
 
 describe('Sparkline', () => {
     it('renders a canvas for the line chart', () => {
-        const { container } = renderHogChart(<Sparkline data={[100, 200, 300, 400]} labels={LABELS} theme={THEME} />)
+        const { container } = renderChart(<Sparkline data={[100, 200, 300, 400]} labels={LABELS} theme={THEME} />)
         expect(container.querySelector('canvas')).not.toBeNull()
     })
 
     it('fires onHoverIndexChange with the hovered index and -1 when leaving', () => {
         const onHover = jest.fn()
-        const { chart, container } = renderHogChart(
+        const { chart, container } = renderChart(
             <Sparkline data={[100, 200, 300, 400]} labels={LABELS} theme={THEME} onHoverIndexChange={onHover} />
         )
         // Initial hoverIndex is -1, so the first subscription fire matches the "not hovering" state.
@@ -33,7 +33,7 @@ describe('Sparkline', () => {
 
     it('fires -1 on unmount so a parent still mounted does not show a stale positive index', () => {
         const onHover = jest.fn()
-        const { chart, unmount } = renderHogChart(
+        const { chart, unmount } = renderChart(
             <Sparkline data={[100, 200, 300]} labels={LABELS.slice(0, 3)} theme={THEME} onHoverIndexChange={onHover} />
         )
         chart.hoverAtIndex(1)
@@ -43,12 +43,12 @@ describe('Sparkline', () => {
     })
 
     it('does not require labels — falls back to index strings', () => {
-        const { container } = renderHogChart(<Sparkline data={[10, 20, 30]} theme={THEME} />)
+        const { container } = renderChart(<Sparkline data={[10, 20, 30]} theme={THEME} />)
         expect(container.querySelector('canvas')).not.toBeNull()
     })
 
     it('renders multi-series stacked bars via the series prop', () => {
-        const { chart } = renderHogChart(
+        const { chart } = renderChart(
             <Sparkline
                 type="bar"
                 series={[
@@ -63,7 +63,7 @@ describe('Sparkline', () => {
     })
 
     it('tooltips a bar the cursor is above, which a bar chart would not', async () => {
-        const { chart } = renderHogChart(
+        const { chart } = renderChart(
             <Sparkline
                 type="bar"
                 data={[100, 1, 1, 1]}
@@ -77,7 +77,7 @@ describe('Sparkline', () => {
     })
 
     it('enables the tooltip when a tooltip render prop is supplied', async () => {
-        const { chart } = renderHogChart(
+        const { chart } = renderChart(
             <Sparkline
                 data={[100, 200, 300, 400]}
                 labels={LABELS}

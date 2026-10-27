@@ -11,8 +11,9 @@ from enum import StrEnum
 from posthog.dataclasses import frozen
 
 from products.experiments.backend.facade.contracts import ExperimentHealthFindingSeverity
-from products.experiments.backend.health.context import ConditionSetTraffic, ReachableCondition, Split
+from products.experiments.backend.health.context import ConditionSetTraffic, ReachableCondition
 from products.experiments.backend.health.split_changes import format_change_time
+from products.feature_flags.backend.facade.edits import Split
 
 # A finding is graded by the largest share that pinned users make up of one variant's users, in this window, or
 # since launch or the flag's last save if later. The bias is per variant, so a few pinned users weigh more in a

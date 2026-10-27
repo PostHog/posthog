@@ -125,7 +125,7 @@ export function ExperimentsSettingsScene(): JSX.Element {
             <SettingsSection title="Recalculation">
                 <SettingsItem
                     label="Daily recalculation time"
-                    description="The time of day when experiment metrics are recalculated, in your project's timezone."
+                    description="The time of day when experiment time series are recalculated, in your project's timezone."
                 >
                     <ExperimentRecalculationTime />
                 </SettingsItem>

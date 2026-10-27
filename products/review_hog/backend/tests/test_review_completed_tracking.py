@@ -21,7 +21,7 @@ from products.review_hog.backend.reviewer.constants import (
 )
 from products.review_hog.backend.reviewer.finding_budget import budget_arm
 from products.review_hog.backend.reviewer.fingerprint import ReviewHogMarker
-from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRMetadata
+from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRFileUpdate, PRMetadata
 from products.review_hog.backend.reviewer.models.issue_validation import IssueValidation
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, LineRange
 from products.review_hog.backend.reviewer.persistence import (
@@ -475,6 +475,101 @@ class TestTrackReviewCompleted(BaseTest):
 
         props = capture.call_args.kwargs["properties"]
         assert (result.skip, result.reason, props["previous_findings"], props["reviewable_lines"]) == expected
+
+    @parameterized.expand(
+        [
+            ("unchanged_in_the_treatment_arm", "limit = 10", [], True, (True, "zero_change", 0, False)),
+            ("unchanged_in_the_control_arm", "limit = 10", [], False, (False, "zero_change", 0, False)),
+            # The snapshot leaves a lockfile out, so its change is unseen, and it changes what the code runs with.
+            (
+                "lockfile_in_the_pr",
+                "limit = 10",
+                ["pnpm-lock.yaml"],
+                True,
+                (False, "system_one_above_threshold", 0, False),
+            ),
+            ("small_code_change", "limit = 20", [], True, (False, "system_one_above_threshold", 2, True)),
+            (
+                "small_code_change_with_a_lockfile_in_the_pr",
+                "limit = 20",
+                ["pnpm-lock.yaml"],
+                True,
+                (False, "system_one_above_threshold", 2, False),
+            ),
+        ]
+    )
+    def test_the_gate_compares_the_stored_pr_diff_of_both_heads(
+        self,
+        _name: str,
+        changed_code: str,
+        skipped_paths: list[str],
+        treatment: bool,
+        expected: tuple[bool, str, int, bool],
+    ) -> None:
+        report_id = self._review_report()
+
+        def code_file(code: str) -> PRFile:
+            return PRFile(
+                filename="a.py",
+                status="modified",
+                additions=900,
+                deletions=0,
+                changes=[
+                    PRFileUpdate(type="addition", new_start_line=1, new_end_line=1, code=code),
+                    PRFileUpdate(
+                        type="addition",
+                        new_start_line=2,
+                        new_end_line=900,
+                        code="\n".join(f"x{line} = {line}" for line in range(2, 901)),
+                    ),
+                ],
+            )
+
+        for head_sha, code in (("sha0", "limit = 10"), ("sha1", changed_code)):
+            persist_pr_snapshot(
+                team_id=self.team.id,
+                report_id=report_id,
+                head_sha=head_sha,
+                pr_metadata=_pr_metadata(),
+                pr_comments=[],
+                pr_files=[code_file(code)],
+                review_design=REVIEW_DESIGN_SINGLE_AGENT,
+                skipped_paths=skipped_paths,
+            )
+        decision = PushGateDecision(
+            skip=False, would_skip=False, reason="system_one_above_threshold", own_code_lines=100
+        )
+
+        with (
+            patch("products.review_hog.backend.temporal.activities._installation_auth", return_value=("tok", None)),
+            patch("products.review_hog.backend.temporal.activities.PushGate") as gate,
+            patch("products.review_hog.backend.temporal.activities.apply_throttle", side_effect=lambda d, **_: d),
+            patch("products.review_hog.backend.temporal.activities.posthoganalytics.capture") as capture,
+        ):
+            gate.return_value.decide.return_value = decision
+            gate.return_value.record_small_change_streak.side_effect = lambda decision, **_: decision
+            result = _gate_push(
+                GatePushInput(
+                    team_id=self.team.id,
+                    report_id=report_id,
+                    repository="o/r",
+                    previous_head_sha="sha0",
+                    head_sha="sha1",
+                    run_index=3,
+                    review_mode=REVIEW_MODE_FLASH,
+                    zero_change_skip=treatment,
+                    delta_band=treatment,
+                    coordinator=not treatment,
+                )
+            )
+
+        props = capture.call_args.kwargs["properties"]
+        assert (result.skip, result.reason, props["pr_changed_lines"], result.delta_review) == expected
+        assert (props["zero_change_skip_arm"], props["delta_band_arm"], props["coordinator"]) == (
+            treatment,
+            treatment,
+            not treatment,
+        )
 
     def _gate_draft_push(self, report_id: str, live_pr: dict[str, object] | Exception) -> tuple[PushGateDecision, Any]:
         live = MagicMock(side_effect=live_pr) if isinstance(live_pr, Exception) else MagicMock()

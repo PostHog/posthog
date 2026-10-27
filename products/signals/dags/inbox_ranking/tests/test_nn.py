@@ -57,17 +57,17 @@ from products.signals.dags.inbox_ranking.training.dag import (
     model_object_key,
     served_object_key,
 )
-from products.signals.dags.inbox_ranking.training.heads import HEADS_BY_NAME, Head
-from products.signals.dags.inbox_ranking.training.recipe import RECIPE_HASH_KEY, RECIPE_KEY, model_recipe, recipe_hash
-from products.signals.dags.inbox_ranking.training.serving import FamilyModels, compose_manifest
-from products.signals.dags.inbox_ranking.training.train import HeadMetrics
-from products.signals.dags.inbox_ranking.training.unseen import (
+from products.signals.dags.inbox_ranking.training.families import (
     NN_FAMILY,
     NN_MODEL_NAME,
     NN_WITH_PRIO_FAMILY,
     NN_WITH_PRIO_MODEL_NAME,
     ModelFamily,
 )
+from products.signals.dags.inbox_ranking.training.heads import HEADS_BY_NAME, Head
+from products.signals.dags.inbox_ranking.training.recipe import RECIPE_HASH_KEY, RECIPE_KEY, model_recipe, recipe_hash
+from products.signals.dags.inbox_ranking.training.serving import FamilyModels, compose_manifest
+from products.signals.dags.inbox_ranking.training.train import HeadMetrics
 
 PREFIX = settings.INBOX_RANKING_DATASET_S3_PREFIX
 # A retired per-head XGBoost family. Its saved versions stay servable by key.
@@ -252,7 +252,18 @@ def test_the_nn_decision_is_graded_against_the_served_nn_model_and_writes_nothin
     assert client.objects == before
 
 
-@pytest.mark.parametrize("family", [NN_FAMILY, NN_WITH_PRIO_FAMILY], ids=lambda family: family.name)
+_PRIO_EXPERIMENT = ModelFamily(
+    name="nn_with_prio_experiment",
+    feature_set=NN_WITH_PRIO_FAMILY.feature_set,
+    learner=ONNX_MODEL_KIND,
+    location=NN_FAMILY.location,
+    experiment=True,
+    baseline=NN_MODEL_NAME,
+    expires=datetime.date(2026, 12, 31),
+)
+
+
+@pytest.mark.parametrize("family", [NN_FAMILY, NN_WITH_PRIO_FAMILY, _PRIO_EXPERIMENT], ids=lambda family: family.name)
 def test_the_nn_candidate_writes_a_graph_whose_columns_follow_its_recorded_head_order(
     monkeypatch, no_side_effects, family
 ):
@@ -282,6 +293,17 @@ def test_the_nn_candidate_writes_a_graph_whose_columns_follow_its_recorded_head_
     assert metadata["feature_set"] == family.feature_set.name
     assert metadata[ONNX_OUTPUT_HEADS_KEY] == list(NN_HEAD_NAMES)
     assert model_mismatch(metadata) is None
+    # Only an experiment is graded against a baseline, with one paired AUC per seed and head.
+    if family.experiment:
+        assert metadata["vs_baseline"]["baseline"] == NN_MODEL_NAME
+        assert {
+            name: len(grade["within_team"]["experiment_aucs"])
+            == len(grade["within_team"]["baseline_aucs"])
+            == len(nn_dag.EXPERIMENT_SEEDS)
+            for name, grade in metadata["vs_baseline"]["heads"].items()
+        } == dict.fromkeys(NN_HEAD_NAMES, True)
+    else:
+        assert "vs_baseline" not in metadata
     assert {head["head"] for head in metadata["heads"]} == set(NN_HEAD_NAMES)
     assert {(head["file"], head["holdout_file"]) for head in metadata["heads"]} == {
         (ONNX_MODEL_FILE, HOLDOUT_MODEL_FILE)

@@ -27,6 +27,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.posthog_ai.backend.models.assistant import AgentArtifact, Conversation
 from products.product_analytics.backend.facade.models import Insight
+from products.subscriptions.backend.facade.testing import create_subscription
 
 from ee.hogai.chat_agent.schema_generator.nodes import SchemaGenerationException
 from ee.hogai.context.context import AssistantContextManager
@@ -213,7 +214,13 @@ class TestCreateInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
         await insight.arefresh_from_db()
         self.assertEqual(insight.query, {"kind": "TrendsQuery", "series": []})
 
-    async def test_saved_update_blocks_restricted_query_on_public_share(self):
+    @parameterized.expand(
+        [
+            ("public_share", "publicly shared"),
+            ("subscription", "delivered by a subscription"),
+        ]
+    )
+    async def test_saved_update_blocks_restricted_query_on_exposed_insight(self, exposure: str, expected_reason: str):
         tool = await self._create_tool()
         original_query = {"kind": "TrendsQuery", "series": []}
         insight = await Insight.objects.acreate(team=self.team, query=original_query)
@@ -226,10 +233,13 @@ class TestCreateInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
             self.organization, "editor@example.com", "test-password"
         )
         tool = await self._create_tool()
-        await SharingConfiguration.objects.acreate(team=self.team, insight=insight, enabled=True)
+        if exposure == "public_share":
+            await SharingConfiguration.objects.acreate(team=self.team, insight=insight, enabled=True)
+        else:
+            await database_sync_to_async(create_subscription)(team_id=self.team.id, insight_id=insight.id)
 
-        with patch("posthog.api.sharing_publish_gate.blocked_access_for_user", return_value=["restricted table"]):
-            with self.assertRaisesRegex(MaxToolRetryableError, "publicly shared"):
+        with patch("posthog.api.sharing_publish_gate.denied_query_resources", return_value=["restricted table"]):
+            with self.assertRaisesRegex(MaxToolRetryableError, expected_reason):
                 await tool._save_insight_query(insight, {"kind": "TrendsQuery", "series": [], "interval": "week"})
 
         await insight.arefresh_from_db()

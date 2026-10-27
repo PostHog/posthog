@@ -56,10 +56,7 @@ function searchTableNames(source: ExternalDataSource, breakdown: SearchBreakdown
     if (source.source_type === 'GoogleSearchConsole') {
         return detail
             ? ['search_analytics_by_query_page']
-            : [
-                  breakdown === 'page' ? 'search_analytics_by_page' : 'search_analytics_by_query',
-                  'search_analytics_by_query_page',
-              ]
+            : [breakdown === 'page' ? 'search_analytics_by_page' : 'search_analytics_by_query']
     }
     if (source.source_type === 'GoogleAds') {
         return breakdown === 'page' ? ['landing_page_stats'] : ['keyword', 'keyword_stats']
@@ -80,10 +77,7 @@ export function searchPerformanceSource(
     }
     const tables = searchTableNames(source, breakdown, detail).map(table)
     if (source.source_type === 'GoogleSearchConsole') {
-        const index = tables.findIndex(Boolean)
-        return index < 0
-            ? null
-            : { sourceType: 'GoogleSearchConsole', statsTable: tables[index]!, queryPageTable: detail || index === 1 }
+        return tables[0] ? { sourceType: 'GoogleSearchConsole', statsTable: tables[0], queryPageTable: detail } : null
     }
     if (tables.length === 0 || tables.some((table) => !table)) {
         return null
@@ -110,8 +104,7 @@ export function searchPerformanceSourceNotice(
     detail = false
 ): string | null {
     const querySource = searchPerformanceSource(source, breakdown, detail)
-    const fallback = querySource?.queryPageTable && !detail
-    if (querySource && !fallback) {
+    if (querySource) {
         if (source.source_type === 'GoogleAds' && breakdown === 'keyword' && !querySource.placementTable) {
             const status = searchTableStatus(source.schemas.find((schema) => schema.name === 'keyword_placement_stats'))
             const message = {
@@ -149,7 +142,7 @@ export function searchPerformanceSourceNotice(
         }[status]
     })
     const label = source.description || SEARCH_PLATFORM_LABELS[source.source_type as SearchPlatform]
-    return `${label}: ${issues.join(' ')}${fallback ? ' Showing query-and-page data instead. Totals may differ from the dedicated query or page table.' : ' Data from this source will appear when the tables are ready.'}`
+    return `${label}: ${issues.join(' ')}`
 }
 
 export const SEARCH_SOURCE_TYPES = ['GoogleAds', 'BingAds', 'GoogleSearchConsole']

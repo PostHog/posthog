@@ -29,7 +29,7 @@ import { HogInputsService } from './hog-inputs.service'
 import { EMAIL_QUEUE_PRIORITY, getEmailQueuePriorityClass } from './messaging/email-priority'
 import { EmailService } from './messaging/email.service'
 import { PushNotificationService } from './messaging/push-notification.service'
-import { RecipientTokensService } from './messaging/recipient-tokens.service'
+import { RecipientTokensService, preferencesTokenSourceForInvocation } from './messaging/recipient-tokens.service'
 import {
     SELF_LOOP_MAX_DEPTH,
     getSelfLoopDepth,
@@ -245,10 +245,10 @@ export class HogExecutorAsyncService {
                 functions: {
                     generateMessagingPreferencesUrl: (identifier): string | null => {
                         return identifier && typeof identifier === 'string'
-                            ? this.deps.recipientTokensService.generatePreferencesUrl({
-                                  team_id: invocation.teamId,
-                                  identifier,
-                              })
+                            ? this.deps.recipientTokensService.generatePreferencesUrl(
+                                  { team_id: invocation.teamId, identifier },
+                                  preferencesTokenSourceForInvocation(invocation)
+                              )
                             : null
                     },
                     ...options.functions,

@@ -187,6 +187,7 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
                         "18-Jan-2020",
                         "19-Jan-2020",
                     ],
+                    "order": 0,
                     "status": "new",
                     "action": {
                         "id": "$pageview",
@@ -238,6 +239,7 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
                         "18-Jan-2020",
                         "19-Jan-2020",
                     ],
+                    "order": 0,
                     "status": "returning",
                     "action": {
                         "id": "$pageview",
@@ -289,6 +291,7 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
                         "18-Jan-2020",
                         "19-Jan-2020",
                     ],
+                    "order": 0,
                     "status": "resurrecting",
                     "action": {
                         "id": "$pageview",
@@ -340,6 +343,7 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
                         "18-Jan-2020",
                         "19-Jan-2020",
                     ],
+                    "order": 0,
                     "status": "dormant",
                     "action": {
                         "id": "$pageview",
@@ -461,6 +465,7 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
                         "18-Jan-2020",
                         "19-Jan-2020",
                     ],
+                    "order": 0,
                     "status": "new",
                     "action": {
                         "id": "$pageview",
@@ -512,6 +517,7 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
                         "18-Jan-2020",
                         "19-Jan-2020",
                     ],
+                    "order": 0,
                     "status": "returning",
                     "action": {
                         "id": "$pageview",
@@ -563,6 +569,7 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
                         "18-Jan-2020",
                         "19-Jan-2020",
                     ],
+                    "order": 0,
                     "status": "resurrecting",
                     "action": {
                         "id": "$pageview",
@@ -614,6 +621,7 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
                         "18-Jan-2020",
                         "19-Jan-2020",
                     ],
+                    "order": 0,
                     "status": "dormant",
                     "action": {
                         "id": "$pageview",
@@ -961,6 +969,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         "18-Jan-2020",
                         "19-Jan-2020",
                     ],
+                    "order": 0,
                     "status": "new",
                     "action": {
                         "id": "$pageview",
@@ -1012,6 +1021,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         "18-Jan-2020",
                         "19-Jan-2020",
                     ],
+                    "order": 0,
                     "status": "returning",
                     "action": {
                         "id": "$pageview",
@@ -1063,6 +1073,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         "18-Jan-2020",
                         "19-Jan-2020",
                     ],
+                    "order": 0,
                     "status": "resurrecting",
                     "action": {
                         "id": "$pageview",
@@ -1114,6 +1125,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         "18-Jan-2020",
                         "19-Jan-2020",
                     ],
+                    "order": 0,
                     "status": "dormant",
                     "action": {
                         "id": "$pageview",

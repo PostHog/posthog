@@ -207,7 +207,7 @@ function RunSurfaceBootstrap({ taskId }: { taskId: string }): null {
         if (awaitingOptimisticAttach) {
             // Attaching a freshly-created run to a seeded optimistic instance: skip the reset so the seed
             // survives, and take the fresh-run fast path. The live SSE echo dedups the seeded message.
-            bootstrapRun({ taskId, runId, justCreatedRun: true, taskRuntime })
+            bootstrapRun({ taskId, runId, justCreatedRun: true, taskRuntime, pagedHistory: true })
             return
         }
         // Reset first so a reused instance (stable streamKey, changed run) replays/streams the new run
@@ -215,7 +215,7 @@ function RunSurfaceBootstrap({ taskId }: { taskId: string }): null {
         // `interaction` is in the deps so a status transition (live → terminal) re-bootstraps the right
         // mode — the bound logic re-keys on it, so `bootstrapRun`/`reset` are fresh references anyway.
         reset()
-        bootstrapRun({ taskId, runId, taskRuntime })
+        bootstrapRun({ taskId, runId, taskRuntime, pagedHistory: true })
     }, [
         taskId,
         runId,

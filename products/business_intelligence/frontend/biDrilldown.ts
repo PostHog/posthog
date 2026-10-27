@@ -22,6 +22,7 @@ import {
 } from './biEditorTypes'
 import { isBIConditionGroup, normalizeBIConditionGroup } from './biFilterGroups'
 import { getBIMemberLabel } from './biMemberAliases'
+import { isBIPivotTable } from './biTableLayout'
 
 export interface BIDrillSelection {
     filters: BIFilter[]
@@ -89,12 +90,7 @@ export function getBIDrillSelection(config: BIConfig, record: Record<string, unk
             continue
         }
         const displayValue = value
-        if (
-            config.chartType === ChartDisplayType.TwoDimensionalHeatmap ||
-            config.totals?.rows ||
-            config.totals?.columns ||
-            config.totals?.subtotals
-        ) {
+        if (isBIPivotTable(config) || config.totals?.rows || config.totals?.columns || config.totals?.subtotals) {
             if (value === 'Total') {
                 continue
             }

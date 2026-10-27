@@ -19,6 +19,10 @@ function statusLabel(status: InsightDataChecksStatus, findingCount: number): str
             return 'No data to check'
         case 'inconclusive':
             return 'Data not checked'
+        case 'on_request':
+            return 'Data not checked yet'
+        case 'partial':
+            return 'Data partly checked'
         case 'warning':
             return pluralize(findingCount, 'data warning')
         case 'problem':

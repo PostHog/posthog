@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from django.conf import settings
 from django.db import transaction
+from django.utils import timezone
 
 import structlog
 from drf_spectacular.utils import extend_schema_field
@@ -25,7 +26,7 @@ from posthog.hogql.printer import prepare_and_print_ast
 
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
-from posthog.errors import ExposedCHQueryError
+from posthog.errors import ExposedCHQueryError, QueryErrorCategory, classify_query_error
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
@@ -65,6 +66,13 @@ GENERIC_LINEAGE_SYNC_ERROR = (
 def _lineage_sync_error_detail(error: Exception) -> str:
     # The marker is served verbatim by the node API, so only a message written for the user may reach it.
     return str(error) if isinstance(error, ExposedHogQLError) else GENERIC_LINEAGE_SYNC_ERROR
+
+
+def _capture_unless_user_error(error: Exception) -> None:
+    # Errors in the user's own SQL are not defects. Classify by error code, not by class, because
+    # some user-safe ClickHouse codes, for example UNKNOWN_IDENTIFIER, are not ExposedCHQueryError.
+    if classify_query_error(error) != QueryErrorCategory.USER_ERROR:
+        capture_exception(error)
 
 
 def _as_uuid(value: object) -> uuid.UUID | None:
@@ -369,7 +377,7 @@ class DataWarehouseSavedQuerySerializer(
 
                 view.external_tables = view.get_s3_tables(database=self.context["database"])
             except Exception as e:
-                capture_exception(e)
+                _capture_unless_user_error(e)
                 logger.exception("Failed to retrieve types for view %s", view.name)
                 raise _view_types_validation_error(e)
 
@@ -494,7 +502,7 @@ class DataWarehouseSavedQuerySerializer(
             except (RecursionError, ResolutionCycleError):
                 raise serializers.ValidationError("Model contains a cycle")
             except Exception as e:
-                capture_exception(e)
+                _capture_unless_user_error(e)
                 logger.exception("Failed to retrieve types for view %s", probe.name)
                 raise _view_types_validation_error(e)
 
@@ -528,6 +536,7 @@ class DataWarehouseSavedQuerySerializer(
 
             if query_changed:
                 validated_data["query_revision"] = uuid.uuid4()
+                validated_data["query_updated_at"] = timezone.now()
 
             if frequency_changed:
                 # The node target is the only store of frequency intent. The interval column
@@ -536,6 +545,7 @@ class DataWarehouseSavedQuerySerializer(
                 validated_data["sync_frequency_interval"] = None
 
             view: DataWarehouseSavedQuery = super().update(locked_instance, validated_data)
+            name_changed = before_update.name != view.name
 
             if frequency_changed:
                 previous_target = modeling_api.declared_targets_by_saved_query(view.team_id, [view.pk]).get(
@@ -590,7 +600,7 @@ class DataWarehouseSavedQuerySerializer(
 
             # Best effort sync to the data modeling DAG representation. The savepoint keeps a
             # failed sync best effort without poisoning the update's own transaction.
-            if "query" in validated_data:
+            if "query" in validated_data or name_changed:
                 try:
                     with transaction.atomic():
                         modeling_api.sync_saved_query_to_dag(view)

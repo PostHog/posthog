@@ -2,12 +2,101 @@ import pytest
 
 from django.test import SimpleTestCase
 
+from markdown_it import MarkdownIt
 from parameterized import parameterized
 
 from posthog.helpers.markdown_safety import strip_external_links_markdown
 
 
 class TestStripExternalLinks(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("encoded", "[source]: h&#116;tps://example.com/report", []),
+            ("image_before_reference", "![](https://posthog.com)[source]: h&#116;tps://example.com/report", []),
+            (
+                "unicode_line_separator",
+                "\u2028\n\n[source]: h&#116;tps://example.com/report\n[safe]: https://posthog.com/docs",
+                [],
+            ),
+            (
+                "carriage_returns",
+                "[source]: https://posthog.com/docs\r\n[safe]: https://posthog.com/",
+                ["https://posthog.com/docs"],
+            ),
+            ("duplicate", "[source]: h&#116;tps://example.com/one\n[source]: h&#116;tps://example.com/two", []),
+            (
+                "posthog",
+                "[source]: https://posthog.com/docs?topic=reports#slack",
+                ["https://posthog.com/docs?topic=reports#slack"],
+            ),
+            (
+                "instance",
+                "[source]: https://reports.example.com/report?view=weekly#traffic",
+                ["https://reports.example.com/report?view=weekly#traffic"],
+            ),
+        ]
+    )
+    def test_reference_links_use_resolved_destinations(self, _name: str, definitions: str, expected: list[str]) -> None:
+        markdown = f"[Open report][source]\n\n{definitions}\n"
+        filtered = strip_external_links_markdown(markdown, additional_allowed_origin="https://reports.example.com/")
+        destinations = [
+            child.attrGet("href")
+            for token in MarkdownIt("commonmark").parse(filtered)
+            for child in token.children or []
+            if child.type == "link_open"
+        ]
+        self.assertEqual(destinations, expected)
+
+    @parameterized.expand(
+        [
+            ("instance", "http://localhost:8010/report", True),
+            ("other_port", "http://localhost:8011/report", False),
+            ("other_scheme", "https://localhost:8010/report", False),
+            ("hostname_suffix", "http://localhost.example.com:8010/report", False),
+            ("userinfo", "http://localhost:8010@evil.example/report", False),
+            ("external", "https://example.com/report", False),
+        ]
+    )
+    def test_configured_origin_only_preserves_matching_named_links(self, _name: str, url: str, allowed: bool) -> None:
+        markdown = f"[Report]({url})"
+        self.assertEqual(
+            strip_external_links_markdown(markdown, additional_allowed_origin="http://localhost:8010/"),
+            markdown if allowed else "Report",
+        )
+        self.assertEqual(strip_external_links_markdown(markdown), "Report")
+
+    @parameterized.expand(
+        [
+            ("[Open [report]](h&#116;tps://example.com/report)", []),
+            ("[Open [report]](https://posthog.com/docs)", ["https://posthog.com/docs"]),
+            ("> [Open [report]](h&#116;tps://example.com/report)", []),
+            ("- [Open [report]](h&#116;tps://example.com/report)", []),
+        ]
+    )
+    def test_nested_link_labels_follow_url_policy(self, markdown: str, expected: list[str]) -> None:
+        filtered = strip_external_links_markdown(markdown)
+        links = [
+            child.attrGet("href")
+            for token in MarkdownIt("commonmark").parse(filtered)
+            for child in token.children or []
+            if child.type == "link_open"
+        ]
+        assert links == expected
+
+    @parameterized.expand([("*",), ("**",), ("***",), ("_",), ("__",), ("___",), ("~~",)])
+    def test_formatted_url_preserves_emphasis(self, marker: str) -> None:
+        url = "https://example.com/weekly_report?period=current_week"
+        self.assertEqual(
+            strip_external_links_markdown(f"{marker}{url}{marker}: **42** views"),
+            f"{marker}`{url}`{marker}: **42** views",
+        )
+
+    def test_adjacent_formatted_urls_remain_inert(self) -> None:
+        self.assertEqual(
+            strip_external_links_markdown("**https://example.com/one**https://example.com/two"),
+            "**`https://example.com/one`**`https://example.com/two`",
+        )
+
     @parameterized.expand(
         [
             ("no_title", "[x](https://evil.example.com)"),

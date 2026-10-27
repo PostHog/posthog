@@ -5,9 +5,11 @@ import { expectLogic, partial } from 'kea-test-utils'
 import posthog from 'posthog-js'
 import { v4 as uuidv4 } from 'uuid'
 
+import { ApiError } from 'lib/api-error'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { scrollToFormError } from 'lib/forms/scrollToFormError'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { cohortBlockingWorkflowsModalLogic } from 'scenes/cohorts/cohortBlockingWorkflowsModalLogic'
 import { CohortLogicProps, REALTIME_POLL_INTERVAL_MS, cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { CRITERIA_VALIDATIONS, NEW_CRITERIA, ROWS } from 'scenes/cohorts/CohortFilters/constants'
@@ -18,6 +20,7 @@ import { urls } from 'scenes/urls'
 import { toPaginatedResponse } from '~/mocks/handlers'
 import { useMocks } from '~/mocks/jest'
 import { cohortsModel } from '~/models/cohortsModel'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { ActorsQuery, DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { mockCohort } from '~/test/mocks'
@@ -31,6 +34,7 @@ import {
     FilterLogicalOperator,
     PropertyFilterType,
     PropertyOperator,
+    PropertyType,
     TimeUnitType,
 } from '~/types'
 
@@ -1184,6 +1188,44 @@ describe('cohortEditLogic', () => {
             expect(api.update).toHaveBeenCalledTimes(0)
         })
 
+        const MB = 1024 * 1024
+
+        it.each([
+            { case: 'over the default limit', isStatic: true, configuredMax: undefined, blocked: true },
+            { case: 'under a larger configured limit', isStatic: true, configuredMax: 50 * MB, blocked: false },
+            { case: 'left on a cohort switched to dynamic', isStatic: false, configuredMax: undefined, blocked: false },
+        ])('csv size check: $case', async ({ isStatic, configuredMax, blocked }) => {
+            await initCohortLogic({ id: 1 })
+            preflightLogic.actions.loadPreflightSuccess({
+                ...preflightLogic.values.preflight,
+                cohort_csv_upload_max_bytes: configuredMax,
+            } as any)
+            const csv = new File(['user_1'], 'ids.csv')
+            Object.defineProperty(csv, 'size', { value: 20 * MB + 1 })
+            logic.actions.setCohort({ ...mockCohort, is_static: isStatic, csv })
+            expect(logic.values.cohortValidationErrors.csv).toEqual(
+                blocked
+                    ? 'CSV file is larger than the limit of 20 MB. Split the file into smaller parts and upload them one at a time.'
+                    : undefined
+            )
+        })
+
+        it('shows the size limit when the save is rejected with a 413', async () => {
+            await initCohortLogic({ id: 1 })
+            ;(api.update as jest.Mock).mockRejectedValueOnce(new ApiError('Payload too large', 413))
+            await expectLogic(logic, async () => {
+                logic.actions.setCohort({
+                    ...mockCohort,
+                    is_static: true,
+                    groups: [],
+                    csv: new File(['user_1'], 'ids.csv'),
+                })
+                logic.actions.setStaticCohortMode('people')
+                logic.actions.submitCohort()
+            }).toDispatchActions(['submitCohort', 'saveCohortSuccess'])
+            expect(lemonToast.error).toHaveBeenCalledWith(expect.stringContaining('larger than the limit of 20 MB'))
+        })
+
         it('calls scrollToFormError with fallback message on submitCohortFailure', async () => {
             await initCohortLogic({ id: 1 })
             const mockScrollToFormError = scrollToFormError as jest.Mock
@@ -1225,6 +1267,45 @@ describe('cohortEditLogic', () => {
         beforeEach(async () => {
             await initCohortLogic({ id: 1 })
         })
+
+        it.each([
+            ['email', PropertyOperator.IsSet, PropertyOperator.IsSet],
+            ['birth_date', PropertyOperator.IsDateBefore, PropertyOperator.IsDateBefore],
+            ['email', PropertyOperator.IContains, PropertyOperator.IsDateExact],
+        ])(
+            'switching a %s row on %s to a DateTime property leaves the operator %s',
+            async (startKey, startOperator, expectedOperator) => {
+                propertyDefinitionsModel.mount()
+                propertyDefinitionsModel.actions.updatePropertyDefinitions({
+                    'person/email': { id: 'email', name: 'email', property_type: PropertyType.String },
+                    'person/birth_date': { id: 'birth_date', name: 'birth_date', property_type: PropertyType.DateTime },
+                    'person/signup_date': {
+                        id: 'signup_date',
+                        name: 'signup_date',
+                        property_type: PropertyType.DateTime,
+                    },
+                })
+                logic.actions.setCriteria(
+                    {
+                        type: BehavioralFilterKey.Person,
+                        value: BehavioralEventType.HaveProperty,
+                        key: startKey,
+                        operator: startOperator,
+                    },
+                    0,
+                    0
+                )
+
+                await expectLogic(logic, () => {
+                    logic.actions.setCriteria({ key: 'signup_date' }, 0, 0)
+                }).toFinishAllListeners()
+
+                const group = logic.values.cohort.filters.properties.values[0] as CohortCriteriaGroupFilter
+                expect(group.values[0]).toEqual(
+                    expect.objectContaining({ key: 'signup_date', operator: expectedOperator })
+                )
+            }
+        )
 
         it('duplicate group', async () => {
             const expectedGroupValue = partial({

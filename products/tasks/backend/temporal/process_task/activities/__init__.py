@@ -37,11 +37,6 @@ from .provision_sandbox import (
     restore_sandbox_connection_state,
 )
 from .read_sandbox_logs import ReadSandboxLogsInput, read_sandbox_logs
-from .record_peer_message_outcome import (
-    RecordPeerMessageOutcomeInput,
-    peer_message_id_from_context,
-    record_peer_message_outcome,
-)
 from .refresh_sandbox_credentials import (
     RefreshSandboxCredentialsInput,
     RefreshSandboxCredentialsOutput,
@@ -128,9 +123,6 @@ __all__ = [
     "SendPermissionResponseToSandboxInput",
     "SendFollowupToSandboxInput",
     "STEER_DECLINED_OUTCOME",
-    "RecordPeerMessageOutcomeInput",
-    "peer_message_id_from_context",
-    "record_peer_message_outcome",
     "cleanup_sandbox",
     "complete_run_stream",
     "create_resume_snapshot",

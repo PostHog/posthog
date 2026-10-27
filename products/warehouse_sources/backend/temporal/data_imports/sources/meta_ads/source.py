@@ -404,9 +404,7 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
         try:
             accounts = list_ad_accounts(integration)
         except MetaAdsAuthError as e:
-            raise IntegrationAccountListingError(
-                f"{META_AUTH_ERROR_MESSAGE} Make sure the connected account can access your ad accounts."
-            ) from e
+            raise IntegrationAccountListingError(META_AUTH_ERROR_MESSAGE) from e
         except MetaAdsRateLimitError as e:
             # Throttling is not a bug: surface it as an actionable 400 the user can retry, rather
             # than a 500 that pages us.

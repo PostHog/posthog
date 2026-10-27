@@ -126,6 +126,26 @@ describe('WatchFeedCard helpers', () => {
                 expected: 'Tagged something uncommon for this scanner lately.',
             },
             {
+                name: 'names the category of an embedding pick with no similar sessions',
+                reason: { kind: 'embedding_pick', watch_category: 'failure', similar_count: 0 } as WatchFeedReasonApi,
+                expected: 'Something failed in this session.',
+            },
+            {
+                name: 'counts the similar sessions behind an embedding pick',
+                reason: { kind: 'embedding_pick', watch_category: 'struggle', similar_count: 1 } as WatchFeedReasonApi,
+                expected: 'The user struggled in this session. 1 other session from this scanner looks similar.',
+            },
+            {
+                name: 'counts the people behind an embedding pick when it reached more than one',
+                reason: {
+                    kind: 'embedding_pick',
+                    watch_category: 'failure',
+                    similar_count: 5,
+                    affected_people: 4,
+                } as WatchFeedReasonApi,
+                expected: 'Something failed in this session. 4 people had a similar session.',
+            },
+            {
                 name: 'renders a sentence for a reason kind this frontend does not know',
                 reason: { kind: 'some_future_kind' } as unknown as WatchFeedReasonApi,
                 expected: 'Worth a look.',

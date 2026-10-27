@@ -52,6 +52,56 @@ install_regctl() {
     chmod 755 "$executable"
 }
 
+validate_timeout() {
+    if ! [[ "$1" =~ ^[1-9][0-9]{0,2}$ ]]; then
+        echo 'Invalid ordered image publication timeout' >&2
+        return 1
+    fi
+}
+
+readback() {
+    local readback_status=0 readback_seconds="${READBACK_TIMEOUT_SECONDS:-40}"
+    validate_timeout "$readback_seconds" || return 1
+    resolved_digest="$(timeout --foreground --kill-after=5s "${readback_seconds}s" aws ecr batch-get-image \
+        --registry-id "${ECR_REGISTRY%%.*}" \
+        --repository-name "$ECR_REPO" \
+        --image-ids imageTag="$ORDERED_ALIAS" \
+        --accepted-media-types \
+            "application/vnd.oci.image.index.v1+json" \
+            "application/vnd.docker.distribution.manifest.list.v2+json" \
+            "application/vnd.oci.image.manifest.v1+json" \
+            "application/vnd.docker.distribution.manifest.v2+json" \
+        --query 'images[0].imageId.imageDigest' --output text)" || readback_status=$?
+    if [ "$readback_status" -ne 0 ]; then
+        result=unknown
+    elif [ "$resolved_digest" = "None" ]; then
+        result=absent
+    elif [[ "$resolved_digest" =~ ^sha256:[0-9a-f]{64}$ ]] && [ "$resolved_digest" = "${EXPECTED_DIGEST:-}" ]; then
+        result=present-at-expected-digest
+    elif [[ "$resolved_digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+        result=integrity-mismatch
+    else
+        result=unknown
+    fi
+    if [ -n "${GITHUB_OUTPUT:-}" ]; then
+        echo "outcome=$result" >> "$GITHUB_OUTPUT"
+    fi
+}
+
+read_alias() {
+    if [ -z "${ECR_REGISTRY:-}" ] || [ -z "${ECR_REPO:-}" ] || [ -z "${ORDERED_ALIAS:-}" ]; then
+        echo 'Ordered image read requires a registry, repository and alias' >&2
+        return 1
+    fi
+    local resolved_digest result
+    readback || return 1
+    printf '%s\n' "$resolved_digest"
+    if [ "$result" = unknown ]; then
+        echo 'Ordered image readback unavailable' >&2
+        return 1
+    fi
+}
+
 publish_alias() {
     if [ -z "${EXPECTED_DIGEST:-}" ]; then
         echo "::warning title=Ordered image alias source digest unavailable::Ordered image alias publication was skipped because no image digest was resolved."
@@ -72,36 +122,16 @@ publish_alias() {
     fi
     local source_image="${SOURCE_REGISTRY:-$ECR_REGISTRY}/${SOURCE_REPO:-$ECR_REPO}@${EXPECTED_DIGEST}"
     local target_image="${ECR_REGISTRY}/${ECR_REPO}:${ORDERED_ALIAS}"
-    local publication_status=0 readback_status=0 resolved_digest result
-    timeout --kill-after=5s 40s "$REGCTL" image copy \
+    local publication_status=0 resolved_digest result
+    local copy_seconds="${COPY_TIMEOUT_SECONDS:-40}" readback_seconds="${READBACK_TIMEOUT_SECONDS:-40}"
+    validate_timeout "$copy_seconds" || return 1
+    validate_timeout "$readback_seconds" || return 1
+    timeout --foreground --kill-after=5s "${copy_seconds}s" "$REGCTL" image copy \
         "$source_image" "$target_image" || publication_status=$?
     if [ "$publication_status" -ne 0 ]; then
         echo "::warning::Ordered alias publication exited with status $publication_status"
     fi
-    resolved_digest="$(timeout --kill-after=5s 40s aws ecr batch-get-image \
-        --registry-id "${ECR_REGISTRY%%.*}" \
-        --repository-name "$ECR_REPO" \
-        --image-ids imageTag="$ORDERED_ALIAS" \
-        --accepted-media-types \
-            "application/vnd.oci.image.index.v1+json" \
-            "application/vnd.docker.distribution.manifest.list.v2+json" \
-            "application/vnd.oci.image.manifest.v1+json" \
-            "application/vnd.docker.distribution.manifest.v2+json" \
-        --query 'images[0].imageId.imageDigest' --output text)" || readback_status=$?
-    if [ "$readback_status" -ne 0 ]; then
-        result=unknown
-    elif [ "$resolved_digest" = "None" ]; then
-        result=absent
-    elif [[ "$resolved_digest" =~ ^sha256:[0-9a-f]{64}$ ]] && [ "$resolved_digest" = "$EXPECTED_DIGEST" ]; then
-        result=present-at-expected-digest
-    elif [[ "$resolved_digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
-        result=integrity-mismatch
-    else
-        result=unknown
-    fi
-    if [ -n "${GITHUB_OUTPUT:-}" ]; then
-        echo "outcome=$result" >> "$GITHUB_OUTPUT"
-    fi
+    readback || return 1
     case "$result" in
         present-at-expected-digest)
             echo "::notice title=Ordered image alias present::The ordered image alias resolves to the expected image digest." ;;
@@ -117,6 +147,7 @@ publish_alias() {
 case "${1:-}" in
     tag) compute_tag ;;
     install) install_regctl "$2" ;;
+    read) read_alias ;;
     publish) publish_alias ;;
-    *) echo 'usage: ordered-image-release.sh tag|install PATH|publish' >&2; exit 2 ;;
+    *) echo 'usage: ordered-image-release.sh tag|install PATH|read|publish' >&2; exit 2 ;;
 esac

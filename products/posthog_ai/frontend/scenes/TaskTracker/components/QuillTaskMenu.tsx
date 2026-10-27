@@ -4,6 +4,8 @@ import { useState } from 'react'
 import { IconEllipsis } from '@posthog/icons'
 import { Button, DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@posthog/quill-primitives'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
 import { DROPDOWN_PARTS, SHEET_PARTS, TodayMenuParts } from '~/layout/today/todayMenuParts'
 import { panelChatTaskFor } from '~/layout/today/todayPanelChat'
 import { TodayPanelMoveMenuItems } from '~/layout/today/TodayPanelMoveMenuItems'
@@ -23,9 +25,11 @@ export interface QuillTaskMenuProps {
 
 export function QuillTaskMenu({ task, selectedRun, onArchive }: QuillTaskMenuProps): JSX.Element {
     const { todayRailEnabled, phoneLayout } = useValues(todayShellLogic)
+    const sandboxModeEnabled = useFeatureFlag('PHAI_SANDBOX_MODE')
     const [sheetOpen, setSheetOpen] = useState(false)
-    // The phone layout has no floating or docked panel to move the chat into.
-    const chat = todayRailEnabled && !phoneLayout ? panelChatTaskFor(task, selectedRun) : null
+    // The phone layout has no floating or docked panel to move the chat into. Without the sandbox, the panel
+    // shows the legacy chat and cannot show the task.
+    const chat = todayRailEnabled && !phoneLayout && sandboxModeEnabled ? panelChatTaskFor(task, selectedRun) : null
 
     const items = (parts: TodayMenuParts): JSX.Element => (
         <TaskMenuItems

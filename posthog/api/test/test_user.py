@@ -2524,6 +2524,7 @@ class TestUserAPI(APIBaseTest):
             {
                 "notification_settings": {
                     "plugin_disabled": False,
+                    "mobile_push_tasks_enabled": False,
                     "discussions_mentioned": False,
                     "error_tracking_issue_assigned": False,
                     "project_weekly_digest_disabled": {123: True},
@@ -2542,6 +2543,10 @@ class TestUserAPI(APIBaseTest):
                 "plugin_disabled": False,
                 "discussions_mentioned": False,
                 "task_comments_slack_dm": True,
+                "mobile_push_enabled": True,
+                "mobile_push_tasks_enabled": False,
+                "mobile_push_reports_enabled": True,
+                "mobile_push_report_updates_enabled": True,
                 "project_weekly_digest_disabled": {"123": True},  # Note: JSON converts int keys to strings
                 "all_weekly_digest_disabled": True,
                 "error_tracking_issue_assigned": False,
@@ -2570,6 +2575,10 @@ class TestUserAPI(APIBaseTest):
                 "plugin_disabled": False,
                 "discussions_mentioned": False,
                 "task_comments_slack_dm": True,
+                "mobile_push_enabled": True,
+                "mobile_push_tasks_enabled": False,
+                "mobile_push_reports_enabled": True,
+                "mobile_push_report_updates_enabled": True,
                 "project_weekly_digest_disabled": {"123": True},
                 "all_weekly_digest_disabled": True,
                 "error_tracking_issue_assigned": False,
@@ -2845,7 +2854,11 @@ class TestUserAPI(APIBaseTest):
             {
                 "plugin_disabled": True,  # Default value
                 "discussions_mentioned": True,  # Default value
-                "task_comments_slack_dm": True,  # Default value
+                "task_comments_slack_dm": True,
+                "mobile_push_enabled": True,
+                "mobile_push_tasks_enabled": True,
+                "mobile_push_reports_enabled": True,
+                "mobile_push_report_updates_enabled": True,
                 "project_weekly_digest_disabled": {},  # Default value
                 "all_weekly_digest_disabled": True,
                 "error_tracking_issue_assigned": True,  # Default value

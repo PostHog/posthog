@@ -87,6 +87,7 @@ class AgentRuntime:
     model: str | None = None
     reasoning_effort: str | None = None
     service_tier: str | None = None
+    runtime: str = "acp"
 
 
 DEFAULT_RUNTIME = AgentRuntime()

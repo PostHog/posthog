@@ -40,6 +40,7 @@ from products.signals.backend.ranking import scorer
 from products.signals.backend.ranking.inventory import SCORABLE_STATUSES, spine_report_filter
 from products.signals.backend.ranking.model_store import ModelLoadError, ServingSet, load_serving_set
 from products.signals.backend.ranking.overrides import RankingOverrides, read_ranking_overrides
+from products.signals.backend.ranking.serving_manifest import serving_project_vectors_date
 from products.signals.backend.report_embedding_reader import REPORT_EMBEDDINGS_TABLE
 from products.signals.backend.report_embeddings import EMBEDDING_DOCUMENT_TYPE, EMBEDDING_PRODUCT
 
@@ -344,6 +345,12 @@ def score_inbox_reports(limit: int | None = None) -> ScoreInboxReportsResult:
             scored += sum(1 for outcome in outcomes if outcome.score is not None)
             no_vector += sum(1 for outcome in outcomes if outcome.reason == scorer.NO_VECTOR)
 
+    # The day the pass read, so a stale mirror region day shows in the log.
+    vectors_date = (
+        serving_project_vectors_date(serving.manifest.project_vectors)
+        if project_vectors is not None and project_vectors.available and serving.manifest.project_vectors
+        else None
+    )
     result = ScoreInboxReportsResult(
         candidates=len(candidates),
         scored=scored,
@@ -364,6 +371,8 @@ def score_inbox_reports(limit: int | None = None) -> ScoreInboxReportsResult:
         deferred_teams=result.deferred_teams,
         deferred_reports=result.deferred_reports,
         manifest_version=result.manifest_version,
+        project_vectors_date=vectors_date.isoformat() if vectors_date else None,
+        project_vectors_age_days=(now.date() - vectors_date).days if vectors_date else None,
         override_served=override.served if override else None,
         override_expires_at=override.expires_at.isoformat() if override and override.expires_at else None,
         peak_rss_mb=_peak_rss_mb(),

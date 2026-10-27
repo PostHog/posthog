@@ -1,22 +1,26 @@
-import { Card as QuillCard, CardContent, CardHeader, CardTitle } from '@posthog/quill-primitives'
+import { Card as QuillCard, CardAction, CardContent, CardHeader, CardTitle } from '@posthog/quill-primitives'
 
 export function Card({
     children,
     className,
     flush = false,
     title,
+    action,
 }: {
     children: React.ReactNode
     className?: string
     /** Let a full-bleed child (table, chart) reach the card's edges, with no header-to-content gap. */
     flush?: boolean
     title?: string
+    /** Control shown at the top right of the header. */
+    action?: React.ReactNode
 }): JSX.Element {
     return (
         <QuillCard size="sm" flush={flush} className={className}>
             {title ? (
-                <CardHeader>
+                <CardHeader className={action ? 'flex flex-wrap items-start justify-between gap-2' : undefined}>
                     <CardTitle>{title}</CardTitle>
+                    {action ? <CardAction>{action}</CardAction> : null}
                 </CardHeader>
             ) : null}
             {/* min-h-0 lets a height-constrained card's content shrink instead of overflowing the card's clip. */}

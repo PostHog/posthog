@@ -654,7 +654,7 @@ def report_user_action(
     if not isinstance(user, User) or not user.distinct_id:
         return
     if user.email:
-        properties["$set_once"] = {"email": user.email}
+        properties["$set_once"] = {**properties.get("$set_once", {}), "email": user.email}
     with _tracer.start_as_current_span("report_user_action"):
         posthoganalytics.capture(
             distinct_id=user.distinct_id,

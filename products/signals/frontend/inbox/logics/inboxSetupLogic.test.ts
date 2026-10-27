@@ -18,6 +18,7 @@ import type {
     SignalSourceConfigApi,
     SignalScoutConfigApi,
 } from '../../generated/api.schemas'
+import { allReports } from '../__mocks__/inboxMocks'
 import { mockScoutConfigs, mockScoutSuggestionSet } from '../__mocks__/scoutConfigs'
 import { signalSourcesLogic } from '../signalSourcesLogic'
 import { inboxOnboardingLogic } from './inboxOnboardingLogic'
@@ -67,8 +68,9 @@ describe('focused Inbox setup', () => {
         scanners = []
         useMocks({
             get: {
-                '/api/projects/@current': () => [200, { ...MOCK_DEFAULT_TEAM, ingested_event: hasEvents }],
+                '/api/projects/:id': () => [200, { ...MOCK_DEFAULT_TEAM, ingested_event: hasEvents }],
                 '/api/projects/:id/signals/reports/available_reviewers/': {},
+                '/api/projects/:id/wizard/sessions/latest/': () => [204, null],
                 '/api/environments/:id/external_data_sources/': () => ({
                     results: warehouseConnected
                         ? [
@@ -289,12 +291,8 @@ describe('focused Inbox setup', () => {
             const onboarding = inboxOnboardingLogic()
             onboarding.mount()
             try {
-                if (assignment === 'test-ui') {
-                    await expectLogic(logic, () => logic.actions.continueFromWelcome()).toFinishAllListeners()
-                    await expectLogic(logic, () => logic.actions.continueFromWelcome()).toFinishAllListeners()
-                } else {
-                    await expectLogic(logic, () => onboarding.actions.requestManualSetup()).toFinishAllListeners()
-                }
+                await expectLogic(logic, () => logic.actions.continueFromWelcome()).toFinishAllListeners()
+                await expectLogic(logic, () => logic.actions.continueFromWelcome()).toFinishAllListeners()
                 expect(logic.values.usesFocusedSetup).toBe(true)
                 expect(logic.values.inProgress).toBe(true)
                 expect(onboarding.values.onboardingMode).toBe('takeover')
@@ -349,7 +347,10 @@ describe('focused Inbox setup', () => {
                 )
                 expect(
                     capture.mock.calls.filter(([event]) => event === 'self-driving onboarding welcome continued')
-                ).toHaveLength(assignment === 'test-ui' ? 1 : 0)
+                ).toHaveLength(1)
+                expect(
+                    capture.mock.calls.filter(([event]) => event === 'Inbox welcome manual setup clicked')
+                ).toHaveLength(assignment === 'test-ui' ? 0 : 1)
             } finally {
                 onboarding.unmount()
                 capture.mockRestore()
@@ -384,6 +385,52 @@ describe('focused Inbox setup', () => {
             )
         }
     )
+
+    it('shows the paused reminder when a Wizard-completed control project disables its sources', async () => {
+        variant = 'control'
+        savedDraft = null
+        completedAt = '2026-10-14T12:00:00Z'
+        sources = [
+            {
+                ...draft.sources[0],
+                id: 'source-one',
+                created_at: completedAt,
+                updated_at: completedAt,
+                status: null,
+            },
+        ]
+        useMocks({
+            get: {
+                '/api/projects/:id/signals/reports/': {
+                    results: allReports.slice(0, 1),
+                    count: 1,
+                    next: null,
+                    previous: null,
+                },
+            },
+        })
+        await expectLogic(logic, () => logic.actions.loadSetup()).toFinishAllListeners()
+        const onboarding = inboxOnboardingLogic()
+        onboarding.mount()
+        try {
+            await expectLogic(onboarding, () => {
+                onboarding.actions.refreshSetupState()
+                signalSourcesLogic.actions.loadVisionScanners()
+            }).toFinishAllListeners()
+            await waitFor(() => expect(onboarding.values.isSetupLoaded).toBe(true))
+            expect(logic.values.completed).toBe(true)
+            expect(onboarding.values.onboardingMode).toBe('none')
+
+            sources[0].enabled = false
+            await expectLogic(signalSourcesLogic, () =>
+                signalSourcesLogic.actions.loadSourceConfigs()
+            ).toFinishAllListeners()
+            await waitFor(() => expect(onboarding.values.onboardingMode).toBe('banner'))
+            expect(logic.values.completed).toBe(true)
+        } finally {
+            onboarding.unmount()
+        }
+    })
 
     it.each([true, false])('retries partial activation with usage-based pricing %s', async (usageBasedPricing) => {
         featureFlagLogic.actions.setFeatureFlags([], {

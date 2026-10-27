@@ -339,4 +339,22 @@ describe('todayWorkItems', () => {
             )
         ).toEqual(expected)
     })
+
+    it('shows the creator and activity under a chat row, like a session row', () => {
+        const item = chatItem({
+            id: 'chat',
+            title: 'Login funnel',
+            updated_at: '2026-03-10T10:00:00',
+            user: { id: 1, first_name: 'Ada', last_name: 'Lovelace', email: 'ada@example.com' },
+        } as ConversationDetail)
+
+        expect(
+            sessionDetails(
+                item,
+                ['space', 'repository', 'branch', 'creator', 'activity'],
+                {},
+                dayjs('2026-03-10T12:00:59')
+            ).map((detail) => detail.text)
+        ).toEqual(['Ada Lovelace', '2h ago'])
+    })
 })

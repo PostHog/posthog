@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from .cli import HarnessOptions
     from .dashboard import EvalDashboard
     from .discovery import EvalSuite
+    from .skill_snapshot import SkillSnapshot
 
 EVAL_RESULTS_JSONL = "eval_results.jsonl"
 """Machine-readable per-experiment summary export, opt-in via ``EXPORT_EVAL_RESULTS``."""
@@ -83,6 +84,7 @@ class ProgressReporter:
     ) -> None:
         self._revision = revision
         self._worktree_dirty = worktree_dirty
+        self._skills_snapshot: SkillSnapshot | None = None
         self._total_suites = total_suites
         self._verbose = verbose
         self._lock = asyncio.Lock()
@@ -370,6 +372,10 @@ class ProgressReporter:
             progress = f"[{self._case_counts[experiment_name]}/{total} cases]" if total is not None else ""
             await asyncio.to_thread(_emit, f"EXPERIMENT DONE  {experiment_name}  {progress}")
 
+    def set_skill_snapshot(self, snapshot: SkillSnapshot) -> None:
+        self._skills_snapshot = snapshot
+        _emit(f"SKILLS SNAPSHOT  sha256={snapshot.sha256}  manifest={snapshot.manifest_path}")
+
     def write_run_report(
         self, options: HarnessOptions, suites: Sequence[EvalSuite], *, exit_code: int, duration_seconds: float
     ) -> None:
@@ -408,6 +414,12 @@ class ProgressReporter:
             experiments=experiments,
             revision=self._revision,
             worktree_dirty=self._worktree_dirty,
+            skills_sha256=self._skills_snapshot.sha256 if self._skills_snapshot is not None else None,
+            skills_manifest_path=str(self._skills_snapshot.manifest_path)
+            if self._skills_snapshot is not None
+            else None,
+            skills_source_sha256=self._skills_snapshot.source_sha256 if self._skills_snapshot is not None else None,
+            skills_archive_path=str(self._skills_snapshot.archive_path) if self._skills_snapshot is not None else None,
         )
         options.results_file.parent.mkdir(parents=True, exist_ok=True)
         temporary = options.results_file.with_suffix(".tmp")
@@ -518,7 +530,6 @@ class ProgressReporter:
             lines.append(f"  PostHog: {posthog_url}")
         if (offline_status := self._posthog_offline_statuses.get(experiment_name)) and offline_status != "uploaded":
             lines.append(f"  PostHog offline: {offline_status}")
-        lines.append(f"  {summary.engine_name.title()}: {summary.experiment_url or '(local run, not uploaded)'}")
         log_dir = self._log_dirs.get(experiment_name)
         if log_dir:
             lines.append(f"  Agent logs: {log_dir}")

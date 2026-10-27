@@ -1,6 +1,8 @@
 import { combineUrl, router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -374,6 +376,22 @@ describe('llmEvaluationsLogic', () => {
             logic.actions.restoreEvaluationSuccess(olderEvaluation)
 
             expect(logic.values.evaluations).toEqual([newerEvaluation, olderEvaluation])
+        })
+    })
+
+    describe('default date range', () => {
+        it.each([
+            { flagOn: true, dateFrom: undefined, expected: '-7d' },
+            { flagOn: false, dateFrom: undefined, expected: '-24h' },
+            { flagOn: true, dateFrom: '-30d', expected: '-30d' },
+        ])('flag on $flagOn with date_from $dateFrom starts at $expected', async ({ flagOn, dateFrom, expected }) => {
+            const flag = FEATURE_FLAGS.AI_OBSERVABILITY_EVALUATIONS_OVERVIEW
+            featureFlagLogic.actions.setFeatureFlags(flagOn ? [flag] : [], { [flag]: flagOn })
+
+            router.actions.push(combineUrl(urls.aiObservabilityEvaluations(), { date_from: dateFrom }).url)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.dateFilter.dateFrom).toEqual(expected)
         })
     })
 

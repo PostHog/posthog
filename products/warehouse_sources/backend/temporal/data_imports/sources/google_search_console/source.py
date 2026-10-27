@@ -137,6 +137,20 @@ class GoogleSearchConsoleSource(
         # stable `(retryable)` marker, which does not collide with the 401/403 non-retryable keys.
         return {"(retryable)"}
 
+    def get_retry_exhausted_errors(self) -> dict[str, str]:
+        # The quota raise sites name the customer's site and our own retry bookkeeping. The quota
+        # is shared by every table synced from the site, so a run that keeps exhausting it needs
+        # fewer or less frequent tables rather than a wait.
+        quota_message = (
+            "Google Search Console's query limit for your site ran out before this sync finished. "
+            "Sync fewer tables or sync them less often to stay within the limit."
+        )
+        return {
+            "Search Analytics daily quota for": quota_message,
+            "Search Analytics quota for": quota_message,
+            "Search Console quota exhausted while listing": quota_message,
+        }
+
     def get_oauth_accounts(
         self, integration_id: int, team_id: int, search: str | None = None
     ) -> list[IntegrationAccount]:

@@ -55,6 +55,7 @@ OPENALEX_ENDPOINTS: dict[str, OpenAlexEndpointConfig] = {
     "fields": OpenAlexEndpointConfig(name="fields", path="/fields"),
     "subfields": OpenAlexEndpointConfig(name="subfields", path="/subfields"),
     "sdgs": OpenAlexEndpointConfig(name="sdgs", path="/sdgs"),
+    "study_designs": OpenAlexEndpointConfig(name="study_designs", path="/study-designs"),
     "countries": OpenAlexEndpointConfig(name="countries", path="/countries"),
     "continents": OpenAlexEndpointConfig(name="continents", path="/continents"),
     "languages": OpenAlexEndpointConfig(name="languages", path="/languages"),
@@ -62,6 +63,18 @@ OPENALEX_ENDPOINTS: dict[str, OpenAlexEndpointConfig] = {
     "source_types": OpenAlexEndpointConfig(name="source_types", path="/source-types"),
     "institution_types": OpenAlexEndpointConfig(name="institution_types", path="/institution-types"),
     "licenses": OpenAlexEndpointConfig(name="licenses", path="/licenses"),
+    "indexes": OpenAlexEndpointConfig(name="indexes", path="/indexes"),
+    "source_lists": OpenAlexEndpointConfig(name="source_lists", path="/source-lists"),
+    # One row per harvested copy of a work. The `id` is a namespaced harvest identifier such as
+    # `doi:10.7717/peerj.4375` rather than an OpenAlex URL, but it is still unique per copy.
+    # Rows carry no `created_date`, and `ingested_at` is null on many older copies, so there is
+    # no stable date to partition on.
+    "locations": OpenAlexEndpointConfig(
+        name="locations",
+        path="/locations",
+        partition_key=None,
+        filter_config_field="locations_filter",
+    ),
 }
 
 ENDPOINTS = tuple(OPENALEX_ENDPOINTS.keys())
@@ -74,6 +87,11 @@ ENDPOINTS = tuple(OPENALEX_ENDPOINTS.keys())
 # late edits to older records; full refresh those when you need the corrections. Incremental
 # runs also cap the window at today, because OpenAlex carries future publication dates and one
 # of those rows would otherwise checkpoint a watermark nothing can lower again.
+#
+# `locations` filters on `ingested_at`, the time OpenAlex fetched the copy, which is also free.
+# New copies always carry it, so an incremental run picks up newly harvested copies. Older copies
+# without it only arrive through the first run or a full refresh.
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     "works": [incremental_field("publication_date", IncrementalFieldType.Date)],
+    "locations": [incremental_field("ingested_at", IncrementalFieldType.DateTime)],
 }

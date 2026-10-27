@@ -1,5 +1,6 @@
 import functools
 import dataclasses
+import unicodedata
 from collections.abc import AsyncIterable, Iterable, Iterator
 from typing import Any, Optional
 
@@ -256,8 +257,16 @@ INSTANCE_NOT_FOUND_MESSAGE = (
 )
 
 
+def clean_secret_key(secret_key: str) -> str:
+    # A Clerk secret key is ASCII, so an invisible format character (zero-width space, byte order
+    # mark, direction mark) or Unicode whitespace at either end is debris from the copy, not part of
+    # the key. Remove it so the pasted key works instead of failing the latin-1 header encoding.
+    return "".join(char for char in secret_key if unicodedata.category(char) != "Cf").strip()
+
+
 def validate_credentials(secret_key: str) -> tuple[bool, str | None]:
     """Validate Clerk API credentials by making a test request."""
+    secret_key = clean_secret_key(secret_key)
     # The key rides in the Authorization header, which http.client encodes as latin-1. A character
     # outside that range raises UnicodeEncodeError mid-request, so reject it as user input rather
     # than letting the encoding error surface. A carriage return or newline is ASCII but still
@@ -393,7 +402,7 @@ def clerk_source(
             "base_url": "https://api.clerk.com/v1",
             "auth": {
                 "type": "bearer",
-                "token": secret_key,
+                "token": clean_secret_key(secret_key),
             },
             "headers": {
                 "Content-Type": "application/json",
@@ -446,13 +455,11 @@ def clerk_source(
     def items() -> Iterable[Any] | AsyncIterable[Any]:
         if webhook_enabled:
             return webhook_source_manager.get_items(table_transformer=_webhook_table_transformer)
-        return polled_items()
-
-    def polled_items() -> Iterator[Any]:
         if gated_feature is None:
-            yield from resource
-            return
-        yield from _skip_when_feature_disabled(iter(resource), endpoint, gated_feature, logger)
+            # The resource itself, so the framework stages a page's resume state before the page is
+            # yielded and a hand-off keeps the rows the pipeline still buffers.
+            return resource
+        return _skip_when_feature_disabled(iter(resource), endpoint, gated_feature, logger)
 
     if endpoint_config.partition_key is None:
         return SourceResponse(

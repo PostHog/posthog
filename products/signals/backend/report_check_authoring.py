@@ -5,11 +5,8 @@ they must agree on what a check row means, so the cap, the metric-query copy, an
 live here rather than three times over. `report_checks.py` still owns the shapes and the bounds;
 this module owns the write.
 
-The report's own state decides when a check first runs. A check on a resolved report names the date
-to look on. A check on a report that is still open cannot: the fix it re-measures has not shipped,
-and many fixes never get a merged pull request to date a soak window from. Such a check is stored
-`pending` with a soak duration and armed by the report's transition to `resolved`, whatever caused
-it. That makes the resolve the clock for every kind of fix.
+Checks execute only during enabled Monitoring. Pending checks retain provisional dates until
+Monitoring entry anchors their soak to the implementation-complete timestamp.
 """
 
 from __future__ import annotations
@@ -86,18 +83,13 @@ def create_check(
 ) -> SignalReportCheck:
     """Write one check on a report, armed or pending.
 
-    Pass `next_run_at` and `expires_at` for a check that names when to look. Pass `soak_minutes`
-    instead for one that names how long to wait after the report resolves.
-
-    Which of the two the row uses is the report's call, not the caller's. A report that has not
-    resolved has no fix live yet, so a check on it is stored `pending` with a soak, and its dates
-    stay provisional until `arm_pending_checks` rewrites them at the resolve. A dated check keeps
-    the gap its author left as that soak. Only a resolved report takes a date as written.
+    Legacy authoring accepts explicit dates or a soak duration. Pending dates remain provisional
+    until Monitoring entry anchors the measurement window. Stored schedules on Resolved reports
+    do not authorize execution.
 
     The report row is locked for the same reason the REST path locks it: the per-report cap is a
     count followed by an insert, which only holds if concurrent creates serialize. The status
-    decision is read under the same lock, so a resolve landing mid-write either precedes the row
-    or arms it.
+    decision is read under the same lock, so Monitoring entry cannot snapshot an incomplete write.
     """
     if (next_run_at is None) == (soak_minutes is None):
         raise CheckCreationError("a check names either a next_run_at or a soak_minutes, not both and not neither")
@@ -594,22 +586,17 @@ def arm_pending_checks(
         if report is None:
             return 0
         status = effective_report_status(report.status, team_id=team_id, monitoring_enabled=monitoring_enabled)
-        if expected_monitoring_started_at is not None:
-            if (
-                status != SignalReport.Status.MONITORING
-                or report.monitoring_started_at != expected_monitoring_started_at
-            ):
-                return 0
-            resolved_at = expected_monitoring_started_at
-            armed_at = timezone.now()
-        elif status == SignalReport.Status.RESOLVED:
-            armed_at = resolved_at
-        else:
+        if status != SignalReport.Status.MONITORING or report.monitoring_started_at is None:
+            return 0
+        if (
+            expected_monitoring_started_at is not None
+            and report.monitoring_started_at != expected_monitoring_started_at
+        ):
             return 0
         return _arm_pending_checks(
             team_id=team_id,
             report_id=report_id,
-            resolved_at=resolved_at,
-            armed_at=armed_at,
-            monitoring=status == SignalReport.Status.MONITORING,
+            resolved_at=report.monitoring_started_at,
+            armed_at=timezone.now(),
+            monitoring=True,
         )

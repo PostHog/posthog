@@ -94,6 +94,7 @@ function buildScoreDefinitionFromReviewScore(score: TraceReviewScore, teamId: nu
         tags: [],
         id: score.definition_id,
         name: score.definition_name,
+        short_name: '',
         description: score.definition_archived
             ? 'Archived scorer from this review.'
             : 'Saved scorer version from this review.',

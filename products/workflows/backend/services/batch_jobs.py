@@ -132,6 +132,12 @@ def hog_flow_ids_with_broadcast_status(*, team_id: int, statuses: Collection[str
     return list(queryset.filter(combined).values_list("id", flat=True))
 
 
+def delete_batch_jobs_for_teams(team_ids: Collection[int], batch_size: int = 1000) -> None:
+    jobs = HogFlowBatchJob.objects.filter(team_id__in=team_ids)
+    while batch_ids := list(jobs.values_list("id", flat=True)[:batch_size]):
+        jobs.filter(id__in=batch_ids).delete()
+
+
 REALTIME_COHORT_RESUMES = Counter(
     "workflows_realtime_cohort_resume_total",
     "Batch runs woken after their realtime cohort finished calculating, by the CDP API's outcome.",

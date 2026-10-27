@@ -18,6 +18,8 @@ import structlog
 from posthog.models.integration import Integration
 
 from products.slack_app.backend import inbox_channel, onboarding
+from products.slack_app.backend.logic.feature_tips.features import SlackFeature
+from products.slack_app.backend.logic.feature_tips.state import record_feature_used
 from products.slack_app.backend.services import slack_welcome_messages
 
 logger = structlog.get_logger(__name__)
@@ -134,6 +136,7 @@ def handle_inbox_join(payload: dict) -> HttpResponse:
         return HttpResponse(status=200)
 
     if inbox_channel.invite_user_to_inbox(integration, channel[0], slack_user_id):
+        record_feature_used(integration.integration_id, slack_user_id, SlackFeature.INBOX_CHANNEL)
         dm_channel = payload.get("channel", {}).get("id") or payload.get("container", {}).get("channel_id")
         message_ts = payload.get("message", {}).get("ts")
         if dm_channel and message_ts:

@@ -19,6 +19,8 @@ from products.slack_app.backend.facade.run_preferences import (
     find_model_choice,
     group_by_runtime,
 )
+from products.slack_app.backend.logic.feature_tips.features import SlackFeature
+from products.slack_app.backend.logic.feature_tips.state import record_feature_used
 from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.slack_app.backend.prompt_templates import PromptTemplates
 from products.slack_app.backend.services.integration_resolver import format_project_candidate_list, routable_projects
@@ -619,6 +621,7 @@ def classify_slack_app_model_override_activity(input: SlackAppModelOverrideInput
     )
     if override is None:
         return None
+    record_feature_used(input.slack_team_id, input.slack_user_id, SlackFeature.MODEL_IN_MENTION)
 
     logger.info(
         "slack_app_model_override_classified",
@@ -776,6 +779,7 @@ def classify_slack_app_project_route_activity(input: SlackAppProjectRouteInput) 
     if chosen is None or chosen.id == integration.id:
         return None
 
+    record_feature_used(input.slack_team_id, input.slack_user_id, SlackFeature.PROJECT_IN_MENTION)
     logger.info(
         "slack_app_project_route_classified",
         integration_id=integration.id,

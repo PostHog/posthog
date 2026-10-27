@@ -165,7 +165,10 @@ class McpDispatcher {
         this.resourceCatalog = new ResourceCatalog(env, redis)
         this.stateResolver = new RequestStateResolver(catalog, redis, env)
         this.instructionsBuilder = new InstructionsBuilder(GUIDELINES)
-        this.skillCatalogService = new SkillCatalogService(redis, { archiveUrl: env.POSTHOG_MCP_SKILLS_URL })
+        this.skillCatalogService = new SkillCatalogService(redis, {
+            archiveUrl: env.POSTHOG_MCP_SKILLS_URL,
+            expectedArchiveSha: env.POSTHOG_MCP_SKILLS_SHA256,
+        })
         this.toolExecutor = new ToolExecutor(catalog, this.instructionsBuilder, this.skillCatalogService)
         this.interviewRecruitment = new InterviewRecruitment(redis)
     }

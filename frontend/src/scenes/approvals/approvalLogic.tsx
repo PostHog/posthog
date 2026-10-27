@@ -163,7 +163,7 @@ export const approvalLogic = kea<approvalLogicType>([
     listeners(({ actions, values, props }) => {
         const navigateAfterAction = (fullReload: boolean = false): void => {
             const cr = values.changeRequest
-            const resourceUrl = cr ? getApprovalResourceUrl(cr.action_key, cr.resource_id) : null
+            const resourceUrl = cr ? getApprovalResourceUrl(cr.resource_type, cr.resource_id) : null
             const targetUrl = resourceUrl || urls.approvals()
 
             if (fullReload) {

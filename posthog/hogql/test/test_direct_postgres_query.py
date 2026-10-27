@@ -36,6 +36,7 @@ from posthog.hogql.query_stats import query_stats_scope
 
 from posthog.models import Team
 
+from products.managed_warehouse.backend.facade.contracts import ManagedWarehouseTarget
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.facade.source_management import SSL_REQUIRED_AFTER_DATE, HostNotAllowedError
 
@@ -1919,6 +1920,12 @@ class TestDirectPostgresQuery(APIBaseTest):
             ("tunnel_tls_on", _SSH_TUNNEL_CONFIG, "require"),
             ("tunnel_tls_off", _SSH_TUNNEL_TLS_OFF, "prefer"),
             ("disabled_tunnel_tls_off_ignored", _SSH_TUNNEL_DISABLED_TLS_OFF, "require"),
+            ("verify_certificate", {"verify_server_certificate": "true"}, "verify-full"),
+            (
+                "verify_certificate_through_tunnel",
+                {**_SSH_TUNNEL_CONFIG, "verify_server_certificate": "true"},
+                "verify-ca",
+            ),
         ]
     )
     @override_settings(DEBUG=False, TEST=False)
@@ -2148,6 +2155,69 @@ class TestDirectPostgresQuery(APIBaseTest):
         self.assertEqual(mock_connect.call_args.kwargs["sslcert"], "/tmp/no.txt")
         self.assertEqual(mock_connect.call_args.kwargs["sslkey"], "/tmp/no.txt")
         self.assertEqual(mock_connect.call_args.kwargs["sslrootcert"], "/tmp/no.txt")
+
+    @override_settings(DEBUG=False, TEST=False, CLOUD_DEPLOYMENT="US", MANAGED_WAREHOUSE_INGRESS_IPS="10.1.0.1")
+    @patch("posthog.hogql.direct_sql.postgres_adapter.psycopg.connect")
+    def test_execute_direct_postgres_query_reaches_the_teams_managed_warehouse(self, mock_connect):
+        # A managed warehouse host resolves to a private load balancer address. The host check
+        # exempts it only when the caller names the port and the source type.
+        host = "acme.dw.us.postwh.com"
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ph3",
+            job_inputs={
+                "host": host,
+                "port": 5432,
+                "database": "postgres",
+                "user": "postgres",
+                "password": "postgres",
+                "schema": "ph3",
+            },
+        )
+        DataWarehouseTable.objects.create(
+            name="posthog_dashboard",
+            format="Parquet",
+            team=self.team,
+            external_data_source=source,
+            url_pattern="direct://postgres",
+            columns={
+                "id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True},
+            },
+        )
+
+        mocked_cursor = MagicMock()
+        mocked_cursor.fetchall.return_value = [(1,)]
+        column = MagicMock(type_code=23)
+        column.name = "id"
+        mocked_cursor.description = [column]
+        mocked_connection = MagicMock()
+        mocked_connection.cursor.return_value.__enter__.return_value = mocked_cursor
+        mock_connect.return_value.__enter__.return_value = mocked_connection
+
+        with (
+            patch(
+                f"{_MIXINS_MODULE}.socket.getaddrinfo",
+                return_value=[(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("10.1.0.1", 5432))],
+            ),
+            patch(f"{_MIXINS_MODULE}._managed_warehouse_organization_id", return_value="org-1"),
+            patch(
+                "products.managed_warehouse.backend.managed_ingress.get_managed_warehouse_target",
+                return_value=ManagedWarehouseTarget(host=host, ports=frozenset({5432})),
+            ),
+        ):
+            HogQLQueryExecutor(
+                query="SELECT id FROM posthog_dashboard LIMIT 1",
+                team=self.team,
+                connection_id=str(source.id),
+            ).execute()
+
+        self.assertEqual(mock_connect.call_args.kwargs["host"], host)
+        self.assertEqual(mock_connect.call_args.kwargs["hostaddr"], "10.1.0.1")
 
     def test_hogql_query_for_synced_source_prints_identical_sql_to_pure_direct(self):
         job_inputs = {

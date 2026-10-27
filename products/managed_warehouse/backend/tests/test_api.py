@@ -3,6 +3,8 @@ from unittest.mock import patch
 
 from django.test import SimpleTestCase
 
+from parameterized import parameterized
+
 from posthog.models import Organization
 
 from products.managed_warehouse.backend.facade.api import (
@@ -67,12 +69,25 @@ def test_stored_warehouse_config_maps_connection_and_catalog_without_returning_t
 
 
 class TestDataModelingShadowReadiness(SimpleTestCase):
-    def test_requires_a_ready_trino_target_without_translation_records(self) -> None:
-        for catalog in (None, "managed_catalog"):
-            with self.subTest(catalog=catalog):
-                with patch(
-                    "products.managed_warehouse.backend.trino_compiler.get_ready_trino_catalog_name",
-                    return_value=catalog,
-                ) as get_catalog:
-                    assert is_data_modeling_shadow_ready(organization_id="organization-id") is (catalog is not None)
-                get_catalog.assert_called_once_with("organization-id")
+    @parameterized.expand(
+        [
+            ("no_catalog", None, object(), False),
+            ("no_table_mapping", "managed_catalog", None, False),
+            ("ready", "managed_catalog", object(), True),
+        ]
+    )
+    def test_requires_a_ready_trino_target_and_a_table_mapping(
+        self, _name: str, catalog: str | None, membership: object | None, expected: bool
+    ) -> None:
+        with (
+            patch(
+                "products.managed_warehouse.backend.trino_compiler.get_ready_trino_catalog_name",
+                return_value=catalog,
+            ) as get_catalog,
+            patch(
+                "products.managed_warehouse.backend.facade.cp_teams.get_org_team_membership",
+                return_value=membership,
+            ),
+        ):
+            assert is_data_modeling_shadow_ready(organization_id="organization-id", team_id=7) is expected
+        get_catalog.assert_called_once_with("organization-id")

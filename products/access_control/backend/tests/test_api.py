@@ -5,6 +5,7 @@ from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
 from posthog.models import User
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import Organization, OrganizationMembership
 
 from products.access_control.backend.facade import contracts
@@ -66,6 +67,9 @@ class TestSetObjectAccessControl(BaseTest):
         assert self._grant(None) is None
         assert self._other_user_level() == "none"
         assert self._grant(None) is None
+
+        logged = ActivityLog.objects.filter(scope="AccessControl", item_id=str(rule.id)).order_by("created_at")
+        assert [log.activity for log in logged] == ["created", "updated", "deleted"]
 
     def test_role_rule_grants_role_members(self) -> None:
         role = Role.objects.create(name="Sales", organization=self.organization)

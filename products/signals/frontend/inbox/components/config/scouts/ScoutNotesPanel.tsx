@@ -96,7 +96,7 @@ function LeaveNoteDialog({
     })
 }
 
-/** Opens the note composer. Sits in the scout page header and above the notes panel. */
+/** Opens the note composer. Sits in the scout page header and in the attention banner. */
 export function LeaveScoutNoteButton({
     skillName,
     size = 'small',

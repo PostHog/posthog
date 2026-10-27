@@ -41,6 +41,7 @@ from posthog.schema import (
 from posthog.hogql.constants import LimitContext
 
 from posthog.api.query import (
+    CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS,
     CONCURRENCY_LIMIT_USER_MESSAGE,
     MANAGED_WAREHOUSE_QUERY_UNAVAILABLE_CODE,
     MANAGED_WAREHOUSE_QUERY_UNAVAILABLE_MESSAGE,
@@ -150,8 +151,10 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 {"query": HogQLQuery(query="select 1").model_dump()},
             )
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertEqual(response["Retry-After"], str(CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS))
         detail = response.json()["detail"]
-        self.assertEqual(detail, CONCURRENCY_LIMIT_USER_MESSAGE)
+        self.assertTrue(detail.startswith(CONCURRENCY_LIMIT_USER_MESSAGE), detail)
+        self.assertIn(f"Expected available in {CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS} seconds.", detail)
         self.assertNotIn("app:query:per-org", detail)
 
     @parameterized.expand(

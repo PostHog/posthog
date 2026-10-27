@@ -43,6 +43,7 @@ function Step1Content(): JSX.Element {
     // Prefer local reducer state, fall back to DB-persisted result
     const displayResult = importProgress?.status === 'completed' ? importProgress : null
     const persistedResult = !displayResult && result?.status === 'completed' ? result : null
+    const partialErrors = displayResult?.errors ?? persistedResult?.errors ?? []
 
     if (isImporting) {
         return (
@@ -74,6 +75,11 @@ function Step1Content(): JSX.Element {
                     <LemonBanner type="success">
                         <span className="font-semibold">API import complete</span>
                     </LemonBanner>
+                    {partialErrors.length > 0 && (
+                        <LemonBanner type="warning">
+                            Some data didn't import. Run the import again to retry. {partialErrors.join(', ')}
+                        </LemonBanner>
+                    )}
                     <div className="space-y-2 text-sm">
                         {(persistedResult?.imported_at || displayResult) && (
                             <div className="flex items-center justify-between">
@@ -93,6 +99,16 @@ function Step1Content(): JSX.Element {
                                 {(
                                     displayResult?.globally_unsubscribed_count ??
                                     persistedResult?.globally_unsubscribed_count ??
+                                    0
+                                ).toLocaleString()}
+                            </LemonTag>
+                        </div>
+                        <div className="flex items-center justify-between">
+                            <span>Suppressed addresses:</span>
+                            <LemonTag>
+                                {(
+                                    displayResult?.suppressions_imported ??
+                                    persistedResult?.suppressions_imported ??
                                     0
                                 ).toLocaleString()}
                             </LemonTag>
@@ -554,7 +570,7 @@ export function CustomerIOImportModal(): JSX.Element {
     return (
         <LemonModal
             title="Customer.io integration"
-            description="Import categories and unsubscribed users from Customer.io."
+            description="Import categories, unsubscribed users and suppressed addresses from Customer.io."
             isOpen={isImportModalOpen}
             onClose={closeImportModal}
             width={640}
@@ -585,7 +601,7 @@ export function CustomerIOImportModal(): JSX.Element {
                                 key: 'step1',
                                 header: (
                                     <div className="flex items-center justify-between w-full">
-                                        <span>1. Import categories & global opt-outs</span>
+                                        <span>1. Import categories, opt-outs & suppressions</span>
                                         <StepBadge status={stepCompletion.step1} />
                                     </div>
                                 ),

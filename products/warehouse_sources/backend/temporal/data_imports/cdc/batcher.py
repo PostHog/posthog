@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 
 import pyarrow as pa
 
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import CDCReservedColumnError
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import ChangeEvent
+from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 
 # CDC metadata column names — database-agnostic
 CDC_OP_COLUMN = "_ph_cdc_op"
@@ -46,6 +47,33 @@ TOAST_OMITTED_COLUMN = "_ph_toast_omitted"
 # SCD Type 2 columns added to the _cdc history table
 SCD2_VALID_FROM_COLUMN = "valid_from"
 SCD2_VALID_TO_COLUMN = "valid_to"
+
+# Values of `cdc_table_mode` that write the history table.
+CDC_HISTORY_TABLE_MODES: frozenset[str] = frozenset({"cdc_only", "both"})
+
+
+def is_history_table_mode(cdc_table_mode: object) -> bool:
+    # The create payload is free-form, so a malformed mode can be stored, and a list or dict is unhashable.
+    return isinstance(cdc_table_mode, str) and cdc_table_mode in CDC_HISTORY_TABLE_MODES
+
+
+def history_column_collisions(
+    column_names: Iterable[str],
+    enabled_columns: list[str] | None,
+    primary_keys: list[str] | None,
+    incremental_field: str | None = None,
+) -> list[str]:
+    """Source columns that the history table would receive under its validity column names."""
+    synced = set(column_names)
+    # The same projection capture applies (`filter_columns_by_enabled_columns`), kept inline because
+    # that module's package imports Django models and this one sits on the capture path.
+    if enabled_columns is not None:
+        synced &= {*enabled_columns, *(primary_keys or []), *([incremental_field] if incremental_field else [])}
+    # The load renames columns to snake_case before the history transform adds the validity columns,
+    # so `validFrom` collides too. The source names are returned, because those are what a user renames.
+    validity_columns = {SCD2_VALID_FROM_COLUMN, SCD2_VALID_TO_COLUMN}
+    return sorted(name for name in synced if NamingConvention.normalize_identifier(name) in validity_columns)
+
 
 # Columns that are CDC/SCD2 metadata — always filled from the event itself,
 # never overwritten when enriching DELETE rows with last-known source data.

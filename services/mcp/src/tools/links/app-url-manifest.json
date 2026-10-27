@@ -70,12 +70,12 @@
         "scope": "project"
     },
     "aiObservabilityDataset": {
-        "template": "/ai-evals/datasets/{id}",
+        "template": "/ai-evals/evaluations/offline/datasets/{id}",
         "params": ["id"],
         "scope": "project"
     },
     "aiObservabilityDatasets": {
-        "template": "/ai-evals/datasets",
+        "template": "/ai-evals/evaluations/offline/experiments?tab=datasets",
         "params": [],
         "scope": "project"
     },
@@ -246,6 +246,11 @@
     },
     "annotations": {
         "template": "/data-management/annotations",
+        "params": [],
+        "scope": "project"
+    },
+    "applicationObservability": {
+        "template": "/application-observability",
         "params": [],
         "scope": "project"
     },
@@ -587,6 +592,11 @@
     "dataCatalogMetric": {
         "template": "/data-catalog/metrics/{name}",
         "params": ["name"],
+        "scope": "project"
+    },
+    "dataCatalogNewMetric": {
+        "template": "/data-catalog/new-metric",
+        "params": [],
         "scope": "project"
     },
     "dataManagementHistory": {
@@ -2017,6 +2027,11 @@
     "workflows": {
         "template": "/workflows",
         "params": [],
+        "scope": "project"
+    },
+    "workflowsEmailDomain": {
+        "template": "/workflows/channels/email/{id}",
+        "params": ["id"],
         "scope": "project"
     },
     "workflowsLibraryMessage": {

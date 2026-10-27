@@ -7,7 +7,7 @@ from django.apps import apps
 
 from parameterized import parameterized
 
-from posthog.models import Team
+from posthog.models import Organization, Team
 
 from products.signals.backend.artefact_schemas import TASK_RUN_TYPE_IMPLEMENTATION, TASK_RUN_TYPE_RESEARCH
 from products.signals.backend.billing import (
@@ -128,6 +128,19 @@ class TestSignalsBilling(BaseTest):
     def test_flat_credit_is_fifteen_dollars(self) -> None:
         # 1 credit = $0.01, so $15 == 1500 credits.
         self.assertEqual(SIGNALS_CREDITS_PER_REPORT_WITH_PR, 1500)
+
+    @parameterized.expand([("organization_id", False), ("organization_ids", True)])
+    def test_organization_filter_excludes_other_organizations(self, _name: str, as_list: bool) -> None:
+        other_team = Team.objects.create(organization=Organization.objects.create(name="Other org"))
+        for team in (self.team, other_team):
+            self._pr_run(self._report(team=team), created_at=_at(10), team=team)
+
+        org_filter = (
+            {"organization_ids": [self.organization.id]} if as_list else {"organization_id": self.organization.id}
+        )
+        self.assertEqual(
+            dict(get_signals_billing_credits_by_team(PERIOD_START, PERIOD_END, **org_filter)), {self.team.id: 1500}
+        )
 
     def test_report_with_pr_billed_flat(self) -> None:
         report = self._report()

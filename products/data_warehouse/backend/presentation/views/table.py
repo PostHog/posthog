@@ -3,10 +3,17 @@ import uuid
 from typing import Any, cast
 
 from django.conf import settings
+from django.db.models import QuerySet
 
 import boto3
 import posthoganalytics
-from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    OpenApiResponse,
+    extend_schema,
+    extend_schema_field,
+    extend_schema_view,
+)
 from rest_framework import filters, parsers, request, response, serializers, status, viewsets
 
 from posthog.schema import DatabaseSerializedFieldType
@@ -28,12 +35,14 @@ from posthog.event_usage import EventSource, get_event_source, is_wizard_self_dr
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.models.user import User
+from posthog.permissions import is_service_auth
 
 from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
 )
 from products.data_warehouse.backend.facade.api import get_s3_client
+from products.data_warehouse.backend.presentation.table_activity import log_table_activity, snapshot_table
 from products.warehouse_sources.backend.facade.api import (
     FILE_FORMAT_READ_HINTS,
     FILE_FORMAT_TO_TABLE_FORMAT,
@@ -42,6 +51,7 @@ from products.warehouse_sources.backend.facade.api import (
     SUPPORTED_FILE_FORMATS,
     build_file_upload_s3_path,
     build_file_upload_url_pattern,
+    denied_table_ids,
     hosted_upload_s3_path,
 )
 from products.warehouse_sources.backend.facade.contracts import (
@@ -423,6 +433,7 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
             table.save()
         except Exception as err:
             raise serializers.ValidationError(str(err))
+        log_table_activity(table, "created")
 
         validate_data_warehouse_table_columns.delay(self.context["team_id"], str(table.id))
 
@@ -576,6 +587,18 @@ class CreateTableFromUploadSerializer(UploadedFileSerializer):
         return table_name
 
 
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "include_columns",
+                bool,
+                description="Include table columns. Disable for lightweight table existence or name lookups.",
+                default=True,
+            )
+        ]
+    )
+)
 class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     """
     Create, Read, Update and Delete Warehouse Tables.
@@ -608,6 +631,18 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
             .order_by(self.ordering)
         )
 
+    def _filter_queryset_by_access_level(self, queryset: QuerySet) -> QuerySet:
+        queryset = super()._filter_queryset_by_access_level(queryset)
+        if self.action != "list" or is_service_auth(self.request):
+            return queryset
+        # Without resource access the generic filter already keeps only explicit grants and the
+        # reader's own tables, and a rule on a source cannot override either.
+        if not self.user_access_control.has_resource_access("warehouse_table"):
+            return queryset
+        # The generic filter reads rules on tables only. A table also resolves through its source,
+        # so a rule that denies the source must hide its tables from the list too.
+        return queryset.exclude(id__in=denied_table_ids(self.team_id, self.user_access_control))
+
     def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         instance: DataWarehouseTable = self.get_object()
 
@@ -624,6 +659,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
             )
 
         instance.soft_delete()
+        log_table_activity(instance, "deleted")
         _delete_hosted_upload_file(instance)
 
         return response.Response(status=status.HTTP_204_NO_CONTENT)
@@ -631,6 +667,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
     def perform_update(self, serializer):
         instance = serializer.instance
         validated_data = serializer.validated_data
+        before = snapshot_table(instance)
 
         credential_data = validated_data.pop("credential", None)
         if credential_data:
@@ -654,8 +691,12 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
             credential.save()
 
         old_csv_allow_double_quotes = instance.csv_allow_double_quotes
+        was_history_table = instance.is_history_table
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
+        # The sync owns this marker, and an `options` edit through this API must not drop it.
+        if was_history_table:
+            instance.mark_as_history_table()
 
         if (
             instance._is_csv_format()
@@ -671,6 +712,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
             instance.save()
         except Exception as err:
             raise serializers.ValidationError(str(err))
+        log_table_activity(instance, "updated", before=before, credential_changed=bool(credential_data))
 
     @action(methods=["POST"], detail=True)
     def update_schema(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
@@ -685,6 +727,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
                 status=status.HTTP_400_BAD_REQUEST, data={"message": "The table must be a manually linked table"}
             )
 
+        before = snapshot_table(table)
         columns = table.columns or {}
         column_keys = list(columns.keys())
         for key in updates.keys():
@@ -720,6 +763,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
 
         table.columns = columns
         table.save()
+        log_table_activity(table, "updated", before=before)
 
         return response.Response(status=status.HTTP_200_OK)
 
@@ -738,6 +782,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
     @action(methods=["POST"], detail=True, required_scopes=["warehouse_table:write"])
     def refresh_schema(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         table: DataWarehouseTable = self.get_object()
+        before = snapshot_table(table)
 
         # get_columns surfaces read failures as a plain Exception carrying a user-facing message.
         # Without this it reaches the handler as a 500, the same way TableSerializer.create avoids.
@@ -746,6 +791,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
         except Exception as err:
             raise serializers.ValidationError(str(err))
         table.save()
+        log_table_activity(table, "updated", before=before)
 
         return response.Response(status=status.HTTP_200_OK)
 
@@ -922,6 +968,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
         )
 
         table.save()
+        log_table_activity(table, "created")
         if file_upload_sources_enabled(self.team_id):
             # The table reads the file in place until the source's first sync imports it.
             create_file_upload_source(self.team_id, table.pk, upload, read_settings)
@@ -1112,6 +1159,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
             return self._replace_file_from_legacy_upload(table, file, safe_filename, file_format)
 
         created_table = table is None
+        before = snapshot_table(table) if table is not None else None
 
         # Create the table record
         try:
@@ -1169,6 +1217,8 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
                 # the URL above is always scoped to this team's own managed/ prefix, never taken
                 # verbatim from request input the way the PATCH endpoint's url_pattern field is.
                 table.save(internally_computed_url_pattern=True)
+                # A re-upload replaces the data even when no metadata changes, so it is always logged.
+                log_table_activity(table, "created" if created_table else "updated", before=before, force_save=True)
 
                 # Validate columns in background
                 validate_data_warehouse_table_columns.delay(team_id, str(table.id))

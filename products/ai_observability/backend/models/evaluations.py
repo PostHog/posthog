@@ -12,7 +12,6 @@ from rest_framework.exceptions import ValidationError
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import UUIDTModel
 
-from ..facade.evaluation_signals import evaluation_output_changed
 from .evaluation_configs import (
     EVALUATION_CONFIG_MODELS,
     EvaluationType,
@@ -146,8 +145,6 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
     updated_at = models.DateTimeField(auto_now=True)
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     deleted = models.BooleanField(default=False)
-
-    _writes_output_on_save = False
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -305,11 +302,6 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
             raise ValidationError({"conditions": compile_error})
 
         self.conditions = compiled_conditions
-        # Any save that writes an output field notifies, changed or not. Comparing with the stored row instead would
-        # miss a concurrent save that writes a stale output after another save changed it.
-        self._writes_output_on_save = update_fields is None or bool(
-            {"output_type", "output_config"} & set(update_fields)
-        )
         result = super().save(*args, **kwargs)
         # Refresh the baseline so the next save cycle compares against the post-save state.
         self._initial_enabled = self.enabled
@@ -336,18 +328,4 @@ def evaluation_saved(sender, instance, created, **kwargs):
     # on_commit fires synchronously, preserving prior behavior.
     team_id = instance.team_id
     evaluation_id = str(instance.id)
-    # Registered before the worker reload, because an on_commit callback that raises stops the ones after it.
-    if instance._writes_output_on_save:
-        transaction.on_commit(lambda: _notify_evaluation_output_changed(team_id))
     transaction.on_commit(lambda: reload_evaluations_on_workers(team_id=team_id, evaluation_ids=[evaluation_id]))
-
-
-def _notify_evaluation_output_changed(team_id: int) -> None:
-    for receiver_fn, response in evaluation_output_changed.send_robust(sender=Evaluation, team_id=team_id):
-        if isinstance(response, Exception):
-            logger.error(
-                "evaluation_output_changed_receiver_failed",
-                receiver=getattr(receiver_fn, "__qualname__", repr(receiver_fn)),
-                team_id=team_id,
-                exc_info=response,
-            )

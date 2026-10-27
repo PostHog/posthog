@@ -254,6 +254,63 @@ class ManagedWarehouseSourceJobStatus(StrEnum):
     STALE = "stale"
 
 
+@frozen(kw_only=True)
+class ManagedWarehouseTarget:
+    """The endpoint an organization's managed warehouse answers on, for the host guard.
+
+    `host` is the control plane's own host string, so a comparison against it is a comparison
+    against the value the ingress was provisioned for rather than anything derived locally.
+    `ports` is the listener set this organization's sources may reach, which keeps a Postgres
+    source off the gateway listener and a Trino source off the pgwire one.
+
+    The guard compares a source's host, port and resolved addresses against this to decide
+    whether the private-address check applies. It is not a connection; it is an authorization
+    decision.
+    """
+
+    host: str
+    ports: frozenset[int]
+
+    def accepts(self, host: str, port: int | None, addresses: list[str] | None, ingress_ips: tuple[str, ...]) -> bool:
+        """Whether this target authorizes a dial to `host` on `port` at `addresses`.
+
+        Every condition is required, and a missing one denies. `addresses` must be non-empty
+        because an empty set is a failed lookup, not an approved destination, and it must be a
+        subset of `ingress_ips` so a record that points elsewhere is refused. The caller supplies
+        the ingress set because a contract cannot read settings without importing Django.
+
+        Both hostnames are compared in their normalized form, so a control-plane host that comes
+        back with a capital letter or a root-zone trailing dot still matches the name the guard
+        normalized.
+        """
+        if _normalize_host(host) != _normalize_host(self.host):
+            return False
+        if port is None or port not in self.ports:
+            return False
+        if not addresses or not ingress_ips:
+            return False
+        allowed = {_canonical_ip(ip) for ip in ingress_ips}
+        return all(_canonical_ip(address) in allowed for address in addresses)
+
+
+def _normalize_host(host: str) -> str:
+    """Lowercase a hostname and drop one root-zone trailing dot, as the guard does."""
+    return host.lower().strip().rstrip(".")
+
+
+def _canonical_ip(value: str) -> str:
+    """Compare addresses as numbers, so an IPv4-mapped IPv6 form matches its IPv4 spelling."""
+    import ipaddress  # noqa: PLC0415
+
+    try:
+        parsed = ipaddress.ip_address(value.strip().strip("[]"))
+    except ValueError:
+        return value
+    if isinstance(parsed, ipaddress.IPv6Address) and parsed.ipv4_mapped is not None:
+        return str(parsed.ipv4_mapped)
+    return str(parsed)
+
+
 @dataclass(frozen=True, kw_only=True)
 class ManagedWarehouseSourceJobUpdate:
     team_id: int

@@ -4,7 +4,8 @@ import {tmpdir} from 'os'
 import * as path from 'path'
 import * as yaml from 'js-yaml'
 import {parseGitDiffOutput} from '../../paths-filter/src/git'
-import {ChangeStatus, Filter, intervalFiles} from '../src/shared-image'
+import {ChangeStatus, Filter, GitRunner, intervalFiles} from '../src/shared-image'
+import {SourceHistory} from '../src/shared-image-history'
 
 let repo: string
 const git = (...args: string[]): string => execFileSync('git', ['-c', 'core.hooksPath=/dev/null', '-c', 'commit.gpgsign=false', ...args], {cwd: repo, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe']}).trim()
@@ -17,7 +18,11 @@ const commit = (name: string): string => {
   git('commit', '-m', name)
   return git('rev-parse', 'HEAD')
 }
-const options = (): {cwd: string; timeoutMs: number; maxBuffer: number} => ({cwd: repo, timeoutMs: 10000, maxBuffer: 1024 * 1024})
+const options = (overrides: {timeoutMs?: number; maxBuffer?: number} = {}): GitRunner => {
+  const history = new SourceHistory(repo, {fetchMs: 30000, comparisonMs: 30000, maxBuffer: overrides.maxBuffer ?? 1024 * 1024})
+  const deadline = Date.now() + (overrides.timeoutMs ?? 30000)
+  return args => history.git(args, deadline)
+}
 
 beforeEach(() => {
   repo = mkdtempSync(path.join(tmpdir(), 'shared-image-history-'))
@@ -28,7 +33,7 @@ beforeEach(() => {
 afterEach(() => rmSync(repo, {recursive: true, force: true}))
 
 describe('executing checkout first-parent interval', () => {
-  test('batched entries equal each delta, including merges, renames, typechanges, distinct statuses and unusual paths', () => {
+  test('batched entries equal each delta, including merges, renames, typechanges, distinct statuses and unusual paths', async () => {
     put('worker/run.py', 'base')
     put('worker/rename.py')
     put('worker/typechange.py')
@@ -49,7 +54,7 @@ describe('executing checkout first-parent interval', () => {
     commit('add')
     unlinkSync(path.join(repo, 'worker/temporary.py'))
     const head = commit('delete')
-    const files = intervalFiles(base, head, options())
+    const files = await intervalFiles(base, head, options())
     const individual = git('rev-list', '--first-parent', `${base}..${head}`).split('\n').flatMap(sha => {
       const output = execFileSync('git', ['diff', '--no-renames', '--name-status', '-z', `${sha}^1`, sha], {cwd: repo, encoding: 'utf8'})
       return parseGitDiffOutput(output).map(file => file.status === undefined ? {...file, status: ChangeStatus.Modified} : file)
@@ -70,10 +75,10 @@ describe('executing checkout first-parent interval', () => {
     const filter = new Filter(yaml.dump({worker: ['worker/**', '!worker/tests/**']}))
     expect(filter.match(files).worker).toEqual(filter.match(individual).worker)
     expect(filter.match(files).worker.some(file => file.filename.includes('\n'))).toBe(false)
-    expect(() => intervalFiles(secondParent, head, options())).toThrow(/first-parent/)
+    await expect(intervalFiles(secondParent, head, options())).rejects.toThrow(/first-parent/)
   })
 
-  test('a failed or skipped relevant build remains eligible on a later unrelated successful revision', () => {
+  test('a failed or skipped relevant build remains eligible on a later unrelated successful revision', async () => {
     put('worker/run.py', 'base')
     const base = commit('base')
     put('worker/run.py', 'changed')
@@ -81,11 +86,11 @@ describe('executing checkout first-parent interval', () => {
     put('other/unrelated.txt')
     const head = commit('successful build')
     const filter = new Filter('worker: ["worker/**"]')
-    expect(filter.match(intervalFiles(base, head, options())).worker.length).toBe(1)
-    expect(filter.match(intervalFiles(missed, head, options())).worker).toEqual([])
+    expect(filter.match(await intervalFiles(base, head, options())).worker.length).toBe(1)
+    expect(filter.match(await intervalFiles(missed, head, options())).worker).toEqual([])
   })
 
-  test('history membership fits an interval budget smaller than the complete first-parent history', () => {
+  test('history membership fits an interval budget smaller than the complete first-parent history', async () => {
     for (let index = 0; index < 4; index++) {
       put('other.txt', `${index}`)
       commit('earlier history')
@@ -94,31 +99,53 @@ describe('executing checkout first-parent interval', () => {
     put('worker/run.py')
     const head = commit('relevant interval')
     expect(Buffer.byteLength(git('rev-list', '--first-parent', head))).toBeGreaterThan(100)
-    expect(intervalFiles(base, head, {...options(), maxBuffer: 100})).toEqual([
+    expect(await intervalFiles(base, head, options({maxBuffer: 100}))).toEqual([
       {filename: 'worker/run.py', status: ChangeStatus.Added}
     ])
   })
 
-  test('missing history, wrong checkout and exhausted budgets fail explicitly', () => {
+  test.each(['short', 'long'])('tree discovery streams %s revision lists through stdin', async size => {
+    put('worker/run.py', 'base')
+    const base = commit('base')
+    put('worker/run.py', 'changed')
+    const head = commit('head')
+    const argumentLimit = Number(execFileSync('getconf', ['ARG_MAX'], {encoding: 'utf8'}).trim())
+    const count = size === 'short' ? 2 : Math.ceil(argumentLimit / (head.length + 1)) + 1
+    const revisions = Array.from({length: count}, (_, index) => index % 2 ? head : base)
+    const input = revisions.join('\n') + '\n'
+    if (size === 'long') expect(Buffer.byteLength(input)).toBeGreaterThan(argumentLimit)
+    const history = new SourceHistory(repo, {fetchMs: 30000, comparisonMs: 30000, maxBuffer: 4 * 1024 * 1024})
+    const runner = jest.spyOn(history, 'git')
+    try {
+      await expect(history['trees'](revisions, Date.now() + 30000)).resolves.toBeUndefined()
+      const discovery = runner.mock.calls.find(([args]) => args.includes('--format=%T'))!
+      expect(discovery[0]).toEqual(['rev-list', '--no-walk', '--no-commit-header', '--format=%T', '--stdin'])
+      expect(discovery[0].some(argument => revisions.includes(argument))).toBe(false)
+      expect(discovery[2]).toBe(input)
+      process.stdout.write(JSON.stringify({treeDiscovery: size, argumentLimit, revisions: count, inputBytes: Buffer.byteLength(input)}) + '\n')
+    } finally { runner.mockRestore() }
+  })
+
+  test('missing history, wrong checkout and exhausted budgets fail explicitly', async () => {
     put('worker/run.py')
     const base = commit('base')
     put('worker/run.py', 'changed')
     const head = commit('head')
-    expect(() => intervalFiles('f'.repeat(40), head, options())).toThrow()
-    expect(() => intervalFiles(base, base, options())).toThrow(/checkout/)
-    expect(() => intervalFiles(base, head, {...options(), timeoutMs: 0})).toThrow(/timed out/)
-    expect(() => intervalFiles(base, head, {...options(), maxBuffer: 1})).toThrow()
-    expect(intervalFiles(head, head, options())).toEqual([])
+    await expect(intervalFiles('f'.repeat(40), head, options())).rejects.toThrow()
+    await expect(intervalFiles(base, base, options())).rejects.toThrow(/checkout/)
+    await expect(intervalFiles(base, head, options({timeoutMs: 0}))).rejects.toThrow(/budget exhausted/)
+    await expect(intervalFiles(base, head, options({maxBuffer: 1}))).rejects.toThrow()
+    expect(await intervalFiles(head, head, options())).toEqual([])
     expect(readFileSync(path.join(repo, 'worker/run.py'), 'utf8')).toBe('changed')
     writeFileSync(path.join(repo, '.git/shallow'), `${head}\n`)
-    expect(() => intervalFiles(base, head, options())).toThrow(/Complete executing source history/)
+    await expect(intervalFiles(base, head, options())).rejects.toThrow(/Complete executing source history/)
     unlinkSync(path.join(repo, '.git/shallow'))
     const tree = git('rev-parse', `${head}^{tree}`)
     const treePath = path.join(repo, '.git/objects', tree.slice(0, 2), tree.slice(2))
     const object = readFileSync(treePath)
     unlinkSync(treePath)
     try {
-      expect(() => intervalFiles(base, head, options())).toThrow()
+      await expect(intervalFiles(base, head, options())).rejects.toThrow()
     } finally {
       writeFileSync(treePath, object)
     }

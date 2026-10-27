@@ -191,11 +191,15 @@ class RelaySlackMessageInput:
     trace_id: str | None = None
     # Set only for the agent's own answer, so a notice or a placeholder never gets reply buttons.
     offer_reply_suggestions: bool = False
+    # Set only for the agent's own answer, so a notice or a placeholder never gets a feature tip.
+    # Separate from the reply buttons, so turning those off for a surface leaves tips alone.
+    offer_feature_tip: bool = False
 
 
 @activity.defn
 @close_db_connections
 def relay_slack_message(input: RelaySlackMessageInput) -> None:
+    from products.slack_app.backend.facade.api import SlackFeature, record_slack_feature_used
     from products.slack_app.backend.models import SlackThreadTaskMapping
     from products.slack_app.backend.services.slack_messages import (
         leading_mention_prefix,
@@ -204,7 +208,11 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
     )
     from products.slack_app.backend.slack_thread import ReplyKind, SlackThreadContext, SlackThreadHandler
     from products.tasks.backend.models import TaskRun
-    from products.tasks.backend.temporal.process_task.utils import slack_reply_target, turn_person_message
+    from products.tasks.backend.temporal.process_task.utils import (
+        is_explicit_slack_reply,
+        slack_reply_target,
+        turn_person_message,
+    )
 
     try:
         task_run = TaskRun.objects.get(id=input.run_id)
@@ -260,8 +268,13 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
         turn_person_message=person_message,
     )
 
+    if handler.proactive_notifications_muted() and not is_explicit_slack_reply(task_run, input.message_id):
+        handler.delete_progress()
+        return
+    text = handler.notification_text(text, target)
+
     # The mention opens the answer, in the same line, so the reply reads as one message.
-    mention_prefix = leading_mention_prefix(text, target)
+    mention_prefix = leading_mention_prefix(text, handler.notification_target(target))
 
     compose_with_charts = has_pending_slack_files and has_pending_slack_image_artifacts(task_run)
 
@@ -316,6 +329,8 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
         if has_pending_slack_files and not compose_with_charts:
             deliver_pending_slack_file_artifacts(task_run)
     handler.capture_reply_posted(ReplyKind.ANSWER, delivered=answer_delivered)
+    if answer_delivered and has_pending_slack_files:
+        record_slack_feature_used(mapping.integration_id, target, SlackFeature.FILE_OUTPUTS)
 
     if input.reaction_emoji is not None:
         handler.update_reaction(input.reaction_emoji)
@@ -323,3 +338,5 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
     # Last, because the model call behind it is the slowest step and the answer must not wait for it.
     if answer_delivered and input.offer_reply_suggestions:
         handler.offer_reply_suggestions(text)
+    if answer_delivered and input.offer_feature_tip:
+        handler.offer_feature_tip()

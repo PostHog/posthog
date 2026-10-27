@@ -16,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.file_parsing import (
     FILE_MODIFIED_AT_COLUMN,
     FILE_PATH_COLUMN,
+    uses_brotli_compression,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.config import (
     CsvOptions,
@@ -285,6 +286,11 @@ def iter_parquet_tables(
 ) -> Iterator[pa.Table]:
     try:
         parquet_file = pq.ParquetFile(stream)
+        if uses_brotli_compression(parquet_file.metadata):
+            raise ObjectStorageError(
+                f"{FILE_PARSE_ERROR} '{file_path}' as Parquet: Brotli compression isn't supported. "
+                "Write the file with Snappy, Gzip, or Zstd compression instead."
+            )
         yielded = False
         for batch in parquet_file.iter_batches(batch_size=batch_rows, use_threads=False):
             if batch.num_rows:

@@ -749,11 +749,6 @@ def test_create_batch_export_with_hogql_model_allows_query_without_placeholders(
             "notAModifier: Extra inputs are not permitted",
         ),
         (
-            {"hogql_modifiers": {"useNewEventsCluster": True}},
-            "hogql_modifiers",
-            "Native events cluster queries are only supported by the synchronous query API",
-        ),
-        (
             {"model": "events", "hogql_modifiers": {"convertToProjectTimezone": False}},
             "hogql_modifiers",
             "'hogql_modifiers' is only supported for 'hogql' not 'events' model",
@@ -766,7 +761,6 @@ def test_create_batch_export_with_hogql_model_allows_query_without_placeholders(
         "unaliased-column",
         "filters",
         "unknown-modifier",
-        "native-cluster-modifier",
         "modifiers-with-events-model",
     ],
 )

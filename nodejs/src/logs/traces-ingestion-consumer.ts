@@ -54,6 +54,9 @@ export class TracesIngestionConsumer extends LogsIngestionConsumer {
                 // independently of log retention.
                 LOGS_RETENTION_ENABLED_TEAMS: config.TRACES_RETENTION_ENABLED_TEAMS,
                 LOGS_RETENTION_KILLSWITCH: config.TRACES_RETENTION_KILLSWITCH,
+                // Internal batches are logs only, so a signed traces batch is still billed.
+                LOGS_INTERNAL_INGESTION_SIGNING_KEYS: '',
+                LOGS_INTERNAL_INGESTION_ENABLED_TEAMS: '',
             },
             // Own Redis key namespace so traces token buckets don't share per-team state with logs.
             'traces-rate-limiter'

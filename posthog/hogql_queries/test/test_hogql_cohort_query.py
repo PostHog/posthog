@@ -6,12 +6,14 @@ import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_person, flush_persons_and_events
 from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
 from posthog.clickhouse.client import sync_execute
 from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery
 
 from products.cohorts.backend.models.cohort import Cohort
+from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
 
 
 class TestHogQLCohortQuery(ClickhouseTestMixin, APIBaseTest):
@@ -540,6 +542,69 @@ class TestHogQLCohortQuery(ClickhouseTestMixin, APIBaseTest):
         member_ids = {str(row[0]) for row in rows}
         self.assertIn(str(new_person.uuid), member_ids)
         self.assertNotIn(str(old_person.uuid), member_ids)
+
+    @parameterized.expand(
+        [
+            ("email", "starts_with", "first", "first"),
+            ("email", "not_starts_with", "first", "second"),
+            ("email", "ends_with", ".org", "second"),
+            ("email", "not_ends_with", ".org", "first"),
+            ("app_version", "semver_eq", "1.2.4", "first"),
+            ("app_version", "semver_neq", "1.2.4", "second"),
+            ("app_version", "semver_gt", "1.2.4", "second"),
+            ("app_version", "semver_gte", "2.0.0", "second"),
+            ("app_version", "semver_lt", "2.0.0", "first"),
+            ("app_version", "semver_lte", "1.2.4", "first"),
+            ("app_version", "semver_tilde", "1.2.3", "first"),
+            ("app_version", "semver_caret", "1.2.3", "first"),
+            ("app_version", "semver_wildcard", "2.*", "second"),
+            ("birth_date", "is_set", None, "first"),
+            ("birth_date", "is_not_set", None, "second"),
+        ]
+    )
+    def test_person_property_operators_calculate_cohort_membership(
+        self, key: str, operator: str, value: str | None, expected_member: str
+    ) -> None:
+        PropertyDefinition.objects.create(
+            team=self.team,
+            name="birth_date",
+            property_type=PropertyType.Datetime,
+            type=PropertyDefinition.Type.PERSON,
+        )
+        members = {
+            "first": _create_person(
+                team=self.team,
+                distinct_ids=["first"],
+                properties={"email": "first@example.com", "app_version": "1.2.4", "birth_date": "2000-01-01"},
+                immediate=True,
+            ),
+            "second": _create_person(
+                team=self.team,
+                distinct_ids=["second"],
+                properties={"email": "second@example.org", "app_version": "2.0.0"},
+                immediate=True,
+            ),
+        }
+        flush_persons_and_events()
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name=f"{operator} cohort",
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [{"key": key, "type": "person", "operator": operator, "value": value}],
+                        }
+                    ],
+                }
+            },
+        )
+
+        cohort.calculate_people_ch(pending_version=0)
+
+        self.assertEqual(self._cohort_member_ids(cohort, 0), {str(members[expected_member].uuid)})
 
     def _cohort_member_ids(self, cohort: Cohort, version: int) -> set[str]:
         rows = sync_execute(

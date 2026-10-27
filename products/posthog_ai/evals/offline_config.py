@@ -134,8 +134,8 @@ _SCORERS: dict[str, dict[str, OfflineScorer]] = {
             kind="boolean", version=UUID("01a15a27-735b-700b-9f5b-51533df620b3")
         ),
         "no_markdown_data_table": OfflineScorer(kind="boolean", version=UUID("01a15a27-69b4-7bc0-b6f6-b366acc272b2")),
-        "chart_from_typed_query": OfflineScorer(kind="boolean", version=UUID("01a15a27-5e27-7511-9f3e-58a57e74556d")),
-        "chart_shown": OfflineScorer(kind="boolean", version=UUID("01a15a27-553d-72d2-aeb2-903e7ed54473")),
+        "chart_from_typed_query": OfflineScorer(kind="boolean", version=UUID("01a16420-8c66-7f91-9939-997516aafc3b")),
+        "chart_shown": OfflineScorer(kind="boolean", version=UUID("01a16420-30a5-770e-a4f3-16ff4f7dcb84")),
         "answer_from_typed_query": OfflineScorer(kind="boolean", version=UUID("01a15a27-4bce-7e6c-b3ef-34d292489b30")),
         "answer_tool_not_execute_sql": OfflineScorer(
             kind="boolean", version=UUID("01a15581-3926-7c14-a907-e994586bd216")

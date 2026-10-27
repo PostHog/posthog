@@ -1,11 +1,12 @@
 import { useActions, useValues } from 'kea'
-import { type RefObject, useLayoutEffect, useRef } from 'react'
+import { type RefObject, Suspense, lazy, useLayoutEffect, useRef } from 'react'
 
 import { Skeleton } from '@posthog/quill'
 
 import { dayjs } from 'lib/dayjs'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
+import { retryImport } from 'lib/utils/retryImport'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -27,7 +28,12 @@ import { todayNumber } from './todayNumbers'
 import { TodayPulseCard } from './TodayPulseCard'
 import { TodayPulseHoverCard } from './TodayPulseHoverCard'
 import { pulseOpenHandlers } from './todayPulseOpenHandlers'
-import { TodaySparkline, type TodayTone } from './TodaySparkline'
+import type { TodayTone } from './todayTone'
+
+// The charts are most of the code the home page adds, so the numbers render first and the sparklines follow.
+const TodaySparkline = lazy(() =>
+    retryImport(() => import('./TodaySparkline').then((m) => ({ default: m.TodaySparkline })))
+)
 
 const CHANGE_THRESHOLD = 3
 const MIN_ABSOLUTE_CHANGE = 5
@@ -167,12 +173,14 @@ export function TodayPulse({ metrics }: { metrics: TodayPulseTile[] }): JSX.Elem
                             <TodayChange change={metric.change_pct} tone={tone} />
                         </span>
                         <span className="TodayPulse__spark">
-                            <TodaySparkline
-                                values={metric.series}
-                                labels={seriesLabels(metric)}
-                                emphasizeLast={metric.interval === 'day' ? 7 : 1}
-                                tone={tone}
-                            />
+                            <Suspense fallback={null}>
+                                <TodaySparkline
+                                    values={metric.series}
+                                    labels={seriesLabels(metric)}
+                                    emphasizeLast={metric.interval === 'day' ? 7 : 1}
+                                    tone={tone}
+                                />
+                            </Suspense>
                         </span>
                     </>
                 )

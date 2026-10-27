@@ -35,6 +35,7 @@ from posthog.api.cohort import (
 )
 from posthog.api.utils import ServiceRequest
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.constants import AvailableFeature
 from posthog.event_usage import EventSource, report_user_action
 from posthog.exceptions import (
     ClickHouseEstimatedQueryExecutionTimeTooLong,
@@ -51,6 +52,9 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.utils import str_to_bool
 
+from products.approvals.backend.actions.experiments import LaunchExperimentAction
+from products.approvals.backend.ownership import scope_by_owner_enabled
+from products.approvals.backend.policies import PolicyEngine
 from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.facade.contracts import ExperimentHealthFinding
 from products.experiments.backend.facade.launch_signals import experiment_launched
@@ -1188,6 +1192,7 @@ class ExperimentService:
         )
         self.validate_saved_metrics_ids(saved_metrics_ids, self.team.id)
         is_draft = start_date is None
+        self._reject_live_create_under_launch_policy(is_draft)
 
         feature_flag, used_variants = self._ensure_feature_flag(
             feature_flag_key=feature_flag_key,
@@ -1541,6 +1546,40 @@ class ExperimentService:
         )
 
         return feature_flag, variants or list(DEFAULT_VARIANTS)
+
+    def _reject_live_create_under_launch_policy(self, is_draft: bool) -> None:
+        """Refuse creating an already-running experiment when launching one needs approval.
+
+        A create mints the flag before the experiment row exists, so the flag is unowned for that
+        instant and `experiment.launch` cannot see it. Gating the create instead is not the
+        answer: a change request replays a flag write, and there is no experiment yet for that
+        write to belong to. So refuse, and point at the draft-then-launch route, where the launch
+        is reviewed.
+
+        Only reachable through the API. The experiment form sends no start date, so every
+        experiment it creates is a draft.
+
+        Existence of the policy decides, not evaluation of it, which mirrors the flag API's own
+        refusal of a write it cannot send for approval. A caller who could bypass the launch
+        approval is refused here too, because the create carries no intent to evaluate conditions
+        or a bypass against, and refusing is the direction that cannot leak an unreviewed launch.
+        """
+        if is_draft:
+            return
+        organization = self.team.organization
+        if not organization.is_feature_available(AvailableFeature.APPROVALS):
+            # Without the feature the gate admits every flag write, so there is no review to protect.
+            return
+        if not scope_by_owner_enabled(organization):
+            # The flag family still gates this create until the organization scopes policies by
+            # flag owner, so there is nothing for this guard to add.
+            return
+        if PolicyEngine().get_policy_for_action(LaunchExperimentAction, self.team, organization) is None:
+            return
+        raise ValidationError(
+            "Launching an experiment needs approval in this project. "
+            "Create the experiment as a draft, then launch it to request approval."
+        )
 
     def _assert_flag_access(
         self,
@@ -1935,7 +1974,7 @@ class ExperimentService:
             # A side-effect mutation can't be routed through the change-request flow (this runs
             # inside archive_experiment's transaction, so an ApprovalRequired would roll back the
             # just-created ChangeRequest) — refuse up front instead of letting the gate fire.
-            if flag_disable_requires_approval(self.team):
+            if flag_disable_requires_approval(feature_flag.id, team=self.team):
                 raise PermissionDenied(
                     "Disabling this feature flag requires approval. Disable it from the feature flag page "
                     "to go through the approval flow, then archive the experiment."

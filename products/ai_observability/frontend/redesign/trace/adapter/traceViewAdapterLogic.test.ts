@@ -15,13 +15,10 @@ import { decodeIdSegment, makeNodeDetail, makeTraceResource } from './testFixtur
 import { traceViewAdapterLogic } from './traceViewAdapterLogic'
 
 jest.mock('~/queries/query', () => ({ ...jest.requireActual('~/queries/query'), performQuery: jest.fn() }))
-jest.mock('../../../utils', () => ({
-    ...jest.requireActual('../../../utils'),
-    queryEvaluationRuns: jest.fn().mockResolvedValue([]),
-}))
 
 const TRACE_URL = '/api/projects/:team_id/ai_observability/traces/:id/'
 const NODE_URL = '/api/projects/:team_id/ai_observability/traces/:id/nodes/:node_id/'
+const EVALUATIONS_URL = '/api/projects/:team_id/ai_observability/traces/:id/evaluations/'
 
 const answeredGeneration = makeNodeDetail({
     id: 'gen-2',
@@ -56,6 +53,7 @@ describe('traceViewAdapterLogic', () => {
                     await traceGate
                     return [200, traceResource]
                 },
+                [EVALUATIONS_URL]: () => [200, { results: [] }],
                 [NODE_URL]: ({ params }) => {
                     const nodeId = decodeIdSegment(String(params.node_id))
                     nodeRequests.push(nodeId)

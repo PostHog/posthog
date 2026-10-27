@@ -199,12 +199,85 @@ class TestCursorPagination:
         assert result.params("after") == ["b2"]
 
 
+class TestFanOut:
+    def test_workspace_members_walk_every_workspace_and_skip_a_deleted_one(self):
+        members_page1 = [{"workspace_id": "ws-a", "user_id": f"u{i}"} for i in range(100)]
+        members_page2 = [{"workspace_id": "ws-a", "user_id": "u100"}]
+        result = _driver().run(
+            "workspace_members",
+            [
+                ScriptedResponse(json={"data": [{"id": "ws-b"}, {"id": "ws-a"}]}),
+                ScriptedResponse(json={"data": members_page1}),
+                ScriptedResponse(json={"data": members_page2}),
+                ScriptedResponse(status=404, json={"error": {"code": 404}}),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == [
+            "/api/v1/workspaces",
+            "/api/v1/workspaces/ws-a/members",
+            "/api/v1/workspaces/ws-a/members",
+            "/api/v1/workspaces/ws-b/members",
+        ]
+        assert result.params("offset") == ["0", "0", "100", "0"]
+        assert result.items == [members_page1, members_page2]
+        assert result.saved_states == [
+            OpenRouterResumeConfig(parent_id="ws-a", offset=100),
+            OpenRouterResumeConfig(parent_id="ws-a"),
+            OpenRouterResumeConfig(parent_id="ws-b"),
+        ]
+
+    def test_workspace_members_resume_partway_through_a_workspace(self):
+        result = _driver().run(
+            "workspace_members",
+            [
+                ScriptedResponse(json={"data": [{"id": "ws-a"}, {"id": "ws-b"}, {"id": "ws-c"}]}),
+                ScriptedResponse(json={"data": [{"workspace_id": "ws-b", "user_id": "u100"}]}),
+                ScriptedResponse(json={"data": []}),
+            ],
+            resume_state=OpenRouterResumeConfig(parent_id="ws-b", offset=100),
+        )
+
+        assert result.raised is None
+        assert result.paths == [
+            "/api/v1/workspaces",
+            "/api/v1/workspaces/ws-b/members",
+            "/api/v1/workspaces/ws-c/members",
+        ]
+        assert result.params("offset") == ["0", "100", "0"]
+
+    def test_model_endpoints_resume_after_saved_model_and_tag_rows_with_it(self):
+        endpoint = {"model_id": "openai/gpt-oss-20b", "tag": "azure"}
+        result = _driver().run(
+            "model_endpoints",
+            [
+                ScriptedResponse(json={"data": [{"id": "openai/gpt-oss-20b"}, {"id": "openai/gpt-oss-20b:free"}]}),
+                ScriptedResponse(json={"data": {"id": "openai/gpt-oss-20b:free", "endpoints": [endpoint]}}),
+            ],
+            resume_state=OpenRouterResumeConfig(parent_id="openai/gpt-oss-20b"),
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/api/v1/models", "/api/v1/models/openai/gpt-oss-20b:free/endpoints"]
+        assert result.items == [[{**endpoint, "parent_model_id": "openai/gpt-oss-20b:free"}]]
+
+
 class TestSingleAndSingleton:
     def test_models_yields_list(self):
         rows = [{"id": "a"}, {"id": "b"}]
         result = _driver().run("models", [ScriptedResponse(json={"data": rows})])
         assert result.raised is None
         assert result.items == [rows]
+
+    def test_task_classifications_copy_snapshot_onto_each_row(self):
+        classification = {"tag": "code:general_impl", "usage_share": 0.23, "models": [{"id": "openai/gpt-4.1-mini"}]}
+        body = {"data": {"as_of": "2026-06-17", "window_days": 7, "classifications": [classification]}}
+        result = _driver().run("task_classifications", [ScriptedResponse(json=body)])
+
+        assert result.raised is None
+        assert result.params("window") == ["7d"]
+        assert result.items == [[{**classification, "as_of": "2026-06-17", "window_days": 7}]]
 
     def test_credits_singleton_wrapped_in_list(self):
         row = {"total_credits": 10, "total_usage": 3}

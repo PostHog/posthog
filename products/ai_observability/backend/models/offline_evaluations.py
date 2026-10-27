@@ -123,6 +123,7 @@ class OfflineExperimentItem(OfflinePayloadOwner):
     experiment = models.ForeignKey(OfflineExperiment, on_delete=models.CASCADE, related_name="items", db_index=False)
     case_key = models.CharField(max_length=255, null=True, blank=True)
     trial = models.CharField(max_length=255, null=True, blank=True)
+    model_version = models.CharField(max_length=255, null=True, blank=True)
     dataset_item_identifier = models.CharField(max_length=255, null=True, blank=True)
     dataset_item_version_identifier = models.CharField(max_length=255, null=True, blank=True)
     dataset_item_version = models.ForeignKey(

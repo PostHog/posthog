@@ -6,6 +6,7 @@ import type { ScopedCache } from '@/lib/cache/ScopedCache'
 import { StateLookupCache } from '@/lib/cache/StateLookupCache'
 import {
     ErrorCode,
+    hasTimeoutCause,
     MissingOrganizationContextError,
     MissingProjectContextError,
     PostHogApiError,
@@ -32,6 +33,9 @@ const GATEWAY_TOOLS_CACHE_TTL_MS = 2 * 60 * 1000 // 2 minutes
 // shows up within a minute. `ingested_event` never returns to false and warehouse sources are
 // rarely removed, so a positive answer keeps the default TTL.
 export const NO_DATA_CACHE_TTL_MS = 60 * 1000 // 1 minute
+// The integration list only adds a line to the environment prompt, so a slow response must not
+// hold `switch-project` for the full default request deadline. The caller serves the cached list.
+const INTEGRATION_KINDS_TIMEOUT_MS = 10 * 1000
 // Cached for the short TTL like an empty answer, so an unreadable list is not requested on every call.
 const UNKNOWN_WAREHOUSE_COUNT = -1
 
@@ -506,6 +510,8 @@ export class StateManager {
         fetchedAtKey: F
         fetcher: () => Promise<NonNullable<State[D]>>
         ttlMs?: number | ((cached: State[D]) => number)
+        /** Skip the error report when the fetch hits its deadline. Use it for optional data with a short timeout. */
+        expectTimeouts?: boolean
     }): Promise<State[D]> {
         const [cached, fetchedAt] = (await Promise.all([
             this._cache.get(opts.cacheKey),
@@ -529,7 +535,9 @@ export class StateManager {
             ])
             return data as State[D]
         } catch (error) {
-            this._reportException(error, `get_or_fetch_${opts.name}`)
+            if (!(opts.expectTimeouts && hasTimeoutCause(error))) {
+                this._reportException(error, `get_or_fetch_${opts.name}`)
+            }
             await this._cache.set(opts.fetchedAtKey, Date.now() as State[F]).catch(() => {})
             return cached
         }
@@ -668,9 +676,11 @@ export class StateManager {
                     method: 'GET',
                     path: `/api/projects/${encodeURIComponent(projectId)}/integrations/`,
                     query: { limit: 100 },
+                    timeoutMs: INTEGRATION_KINDS_TIMEOUT_MS,
                 })
                 return [...new Set((result.results ?? []).map((integration) => String(integration.kind)))].sort()
             },
+            expectTimeouts: true,
         })
     }
 

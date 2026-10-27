@@ -10,7 +10,6 @@ import asyncio
 import datetime as dt
 import contextlib
 import collections.abc
-from string import Formatter
 from urllib.parse import urljoin
 
 from django.conf import settings
@@ -313,23 +312,6 @@ def add_log_comment_param(params: dict[str, typing.Any], query_tags: typing.Opti
     params[param_name] = query_tags.to_json()
 
 
-class KeywordOnlyFormatter(Formatter):
-    """Formatter supporting only keyword arguments.
-
-    Positional arguments are unchanged, missing keys are also left unchanged.
-    """
-
-    def get_value(self, key, args, kwargs):
-        if isinstance(key, int):
-            # Returns '{n}' unchanged, where n is a numerical index.
-            return f"{{{key}}}"
-        try:
-            return kwargs[key]
-        except KeyError:
-            # Returns '{key}' unchanged
-            return f"{{{key}}}"
-
-
 class ClickHouseClient:
     """An asynchronous client to access ClickHouse via HTTP.
 
@@ -429,23 +411,11 @@ class ClickHouseClient:
         if not query_parameters:
             return query
 
-        has_format_placeholders = re.search(r"(?<!{){[^{}]*}(?!})|{{[^{}]*}}", query)
-
         format_parameters = {k: encode_clickhouse_data(v).decode("utf-8") for k, v in query_parameters.items()}
-
-        if has_format_placeholders:
-            # Escape any curly brackets `{` or `}` in the format parameters so they are not parsed
-            # as format placeholders
-            escaped_parameters = {k: v.replace("{", "{{").replace("}", "}}") for k, v in format_parameters.items()}
-            query = query % escaped_parameters
-            # HogQL prints the empty-object sentinel '{}' inline for every property read on the native-JSON
-            # events table, and the formatter would auto-number it to '{0}'. An empty pair is never a placeholder.
-            query = re.sub(r"(?<!\{)\{\}(?!\})", "{{}}", query)
-            query = KeywordOnlyFormatter().format(query, **format_parameters)
-        else:
-            query = query % format_parameters
-
-        return query
+        # HogQL reserves percent placeholders for values and rejects percent signs in identifiers.
+        # Braces can occur in authorized identifiers, so interpreting them here would change the
+        # query after authorization. Leave typed ClickHouse parameters and all other braces intact.
+        return query % format_parameters
 
     def prepare_request_data(self, data: collections.abc.Sequence[typing.Any]) -> bytes | None:
         """Prepare the request data sent by encoding it.
@@ -842,8 +812,8 @@ class ClickHouseClient:
         """
         query = """
                 SELECT type, exception
-                FROM clusterAllReplicas({{cluster_name:String}}, system.query_log)
-                WHERE query_id = {{query_id:String}}
+                FROM clusterAllReplicas({cluster_name:String}, system.query_log)
+                WHERE query_id = {query_id:String}
                     AND event_date >= yesterday() AND event_time >= now() - interval 24 hour
                 FORMAT JSONEachRow
                 """
@@ -907,8 +877,8 @@ class ClickHouseClient:
         """
         query = """
                 SELECT written_rows
-                FROM clusterAllReplicas({{cluster_name:String}}, system.query_log)
-                WHERE query_id = {{query_id:String}}
+                FROM clusterAllReplicas({cluster_name:String}, system.query_log)
+                WHERE query_id = {query_id:String}
                     AND type = 'QueryFinish'
                     AND is_initial_query = 1
                     AND event_date >= yesterday() AND event_time >= now() - interval 24 hour
@@ -948,8 +918,8 @@ class ClickHouseClient:
         """
         query = """
                 SELECT 1
-                FROM clusterAllReplicas({{cluster_name:String}}, system.processes)
-                WHERE query_id = {{query_id:String}}
+                FROM clusterAllReplicas({cluster_name:String}, system.processes)
+                WHERE query_id = {query_id:String}
                     AND NOT is_cancelled
                 LIMIT 1
                 """
@@ -976,7 +946,7 @@ class ClickHouseClient:
         Arguments:
             query_id: The ID of the query to cancel.
         """
-        query = f"KILL QUERY ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' WHERE query_id = {{{{query_id:String}}}}"
+        query = f"KILL QUERY ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' WHERE query_id = {{query_id:String}}"
 
         await self.execute_query(
             query,

@@ -738,7 +738,7 @@ export class PushNotificationService {
                 result,
                 params,
                 subscription,
-                { apnsHost, bundleId, jwt, templateId },
+                { apnsHost, bundleId, jwt, templateId, appleTeamId },
                 addLog
             )
             // Apple rejects a small share of requests with a token it accepts on the next one. Retry each device
@@ -759,7 +759,7 @@ export class PushNotificationService {
                     result,
                     params,
                     subscription,
-                    { apnsHost, bundleId, jwt, templateId },
+                    { apnsHost, bundleId, jwt, templateId, appleTeamId },
                     addLog
                 )
             }
@@ -806,7 +806,7 @@ export class PushNotificationService {
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
         params: CyclotronInvocationQueueParametersSendPushNotificationType,
         subscription: DeviceSubscription,
-        apns: { apnsHost: string; bundleId: string; jwt: string; templateId: string },
+        apns: { apnsHost: string; bundleId: string; jwt: string; templateId: string; appleTeamId: string },
         addLog: ReturnType<typeof createAddLogFunction>
     ): Promise<{ sent: boolean; unregistered?: boolean; message?: string; error?: PushSendError }> {
         const payload = params.payload
@@ -832,6 +832,7 @@ export class PushNotificationService {
             // APNs requires HTTP/2
             allowH2: true,
             http2IdleTimeoutMs: APNS_IDLE_TIMEOUT_MS,
+            http2ConnectionGroup: `apns:${apns.appleTeamId}`,
         }
 
         if (params.timeoutMs !== undefined) {

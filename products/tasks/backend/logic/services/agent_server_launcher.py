@@ -37,6 +37,7 @@ from products.tasks.backend.logic.services.agentsh import (
     generate_policy_yaml,
     read_gh_guard_script,
 )
+from products.tasks.backend.logic.services.local_skills import verify_eval_skills
 from products.tasks.backend.logic.services.mcp_url import resolve_mcp_url
 from products.tasks.backend.logic.services.memory_watchdog import (
     MEMORY_WATCHDOG_MISSING_MARKER,
@@ -340,7 +341,6 @@ class AgentServerLaunchMixin(SandboxBase):
         repo_ready_file: str | None = None,
         rtk_enabled: bool = True,
         benjamin_enabled: bool = False,
-        peer_messaging: bool = False,
         pi_acp_conversation: bool = False,
         posthog_exec_permission_regex: str | None = None,
         claude_model_access: str | None = None,
@@ -366,7 +366,6 @@ class AgentServerLaunchMixin(SandboxBase):
             event_ingest_url=event_ingest_url,
             rtk_enabled=rtk_enabled,
             benjamin_enabled=benjamin_enabled,
-            peer_messaging=peer_messaging,
             pi_acp_conversation=pi_acp_conversation,
             unset_bedrock=self.disable_direct_bedrock,
         )
@@ -715,7 +714,6 @@ class AgentServerLaunchMixin(SandboxBase):
         wait_for_health: bool = True,
         rtk_enabled: bool = True,
         benjamin_enabled: bool = False,
-        peer_messaging: bool = False,
         pi_acp_conversation: bool = False,
         claude_model_access: str | None = None,
         codex_model_access: str | None = None,
@@ -733,6 +731,7 @@ class AgentServerLaunchMixin(SandboxBase):
         # Before the already-healthy shortcut: images that boot the agent server never relaunch it,
         # and the agent reads its skill directories when a session starts, not when the server does.
         preflight = self._agent_server_preflight(allowed_domains)
+        verify_eval_skills(self)
         if preflight.reused:
             return 0 if wait_for_health else None
 
@@ -802,7 +801,6 @@ class AgentServerLaunchMixin(SandboxBase):
                 repo_ready_file=repo_ready_file,
                 rtk_enabled=rtk_enabled,
                 benjamin_enabled=benjamin_enabled,
-                peer_messaging=peer_messaging,
                 pi_acp_conversation=pi_acp_conversation,
                 posthog_exec_permission_regex=exec_permission_regex,
                 claude_model_access=claude_model_access,

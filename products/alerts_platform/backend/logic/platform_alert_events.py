@@ -425,10 +425,23 @@ def notable_checks(team_id: int, configuration_id: UUID, *, since: datetime, lim
     )
 
 
+def _check_entry(
+    occurred_at: datetime, evaluation_key: str, state: str, value: float | None, error_message: str, source_detail: str
+) -> PlatformCheckEntry:
+    return PlatformCheckEntry(
+        occurred_at=occurred_at,
+        evaluation_key=evaluation_key,
+        state=PlatformAlertState(state),
+        value=value,
+        error_message=error_message or None,
+        source_detail=_snapshot(source_detail),
+    )
+
+
 _CHECKS_SQL = f"""
-SELECT occurred_at, evaluation_key, state, value, error_message, count() OVER () AS total
+SELECT occurred_at, evaluation_key, state, value, error_message, count() OVER () AS total, source_detail
 FROM (
-    SELECT alert_id, evaluation_key, occurred_at, state, value, error_message
+    SELECT alert_id, evaluation_key, occurred_at, state, value, error_message, source_detail
     FROM {PLATFORM_ALERT_EVENTS_TABLE}
     WHERE team_id = %(team_id)s
       AND configuration_id = %(configuration_id)s
@@ -486,16 +499,73 @@ def check_page(
     return PlatformCheckPage(
         total=total,
         checks=tuple(
-            PlatformCheckEntry(
-                occurred_at=occurred_at,
-                evaluation_key=evaluation_key,
-                state=PlatformAlertState(state),
-                value=value,
-                error_message=error_message or None,
-            )
-            for occurred_at, evaluation_key, state, value, error_message, _ in rows
+            _check_entry(occurred_at, evaluation_key, state, value, error_message, source_detail)
+            for occurred_at, evaluation_key, state, value, error_message, _, source_detail in rows
         ),
     )
+
+
+# Deduplicated as `_CHECKS_SQL` is. `JSONHas` is false for the empty string a check without detail
+# stores, so only checks whose source recorded every path are read. The paths filter before the
+# limit, so checks a caller does not want never use it up.
+def _checks_with_detail_sql(paths: Sequence[Sequence[str]]) -> str:
+    has_paths = "".join(
+        f"\n      AND JSONHas(source_detail, {', '.join(f'%(path_{i}_{j})s' for j in range(len(path)))})"
+        for i, path in enumerate(paths)
+    )
+    return f"""
+SELECT configuration_id, occurred_at, evaluation_key, state, value, error_message, source_detail
+FROM (
+    SELECT configuration_id, alert_id, evaluation_key, occurred_at, state, value, error_message, source_detail
+    FROM {PLATFORM_ALERT_EVENTS_TABLE}
+    WHERE team_id = %(team_id)s
+      AND configuration_id IN %(configuration_ids)s
+      AND grouping_key = ''
+      AND occurred_at >= toDateTime64(%(since)s, 6, 'UTC'){has_paths}
+    ORDER BY configuration_id, alert_id, occurred_at, evaluation_key
+    LIMIT 1 BY alert_id, evaluation_key
+)
+ORDER BY configuration_id, occurred_at DESC, evaluation_key DESC
+LIMIT %(limit)s BY configuration_id
+"""
+
+
+def checks_with_detail(
+    team_id: int,
+    configuration_ids: Collection[UUID],
+    *,
+    detail_paths: Sequence[Sequence[str]],
+    since: datetime,
+    limit: int,
+) -> dict[UUID, tuple[PlatformCheckEntry, ...]]:
+    """Each configuration's newest `limit` checks since `since` whose source detail holds every one
+    of `detail_paths`, newest first, in one query. A path is a list of keys into nested objects.
+
+    Only the ungrouped instance is read, as in `history`. A configuration with no such check is left
+    out. Raises on a ClickHouse failure, because only the caller knows what it can show instead.
+    """
+    if not configuration_ids:
+        return {}
+    tag_queries(product=Product.PLATFORM_AND_SUPPORT, feature=Feature.ALERTING)
+    # Not `_execute`, for the same reason as `history`.
+    rows = sync_execute(
+        _checks_with_detail_sql(detail_paths),
+        {
+            "team_id": team_id,
+            "configuration_ids": list(configuration_ids),
+            "since": _microseconds(since),
+            "limit": limit,
+            **{f"path_{i}_{j}": key for i, path in enumerate(detail_paths) for j, key in enumerate(path)},
+        },
+        team_id=team_id,
+        settings=_READ_BUDGET,
+    )
+    checks: dict[UUID, list[PlatformCheckEntry]] = {}
+    for configuration_id, occurred_at, evaluation_key, state, value, error_message, source_detail in rows:
+        checks.setdefault(configuration_id, []).append(
+            _check_entry(occurred_at, evaluation_key, state, value, error_message, source_detail)
+        )
+    return {configuration_id: tuple(entries) for configuration_id, entries in checks.items()}
 
 
 # Deduplication does not matter here, because two copies of one check are identical rows. The tuple

@@ -100,9 +100,12 @@ def _v2_string_values(filters: Mapping[str, Any]) -> list[str]:
     """
     try:
         config = parse_v2_config(filters)
-    except (KeyError, TypeError, ValueError):
+    except (KeyError, TypeError, ValueError, AttributeError):
         return []
     if config.return_type != "string":
         return []
-    candidates = [*(rule.value for rule in config.rules), config.default_value]
+    candidates = [
+        *(value for rule in config.rules for value in (rule.value, *rule.variant_values)),
+        config.default_value,
+    ]
     return list(dict.fromkeys(value for value in candidates if isinstance(value, str)))

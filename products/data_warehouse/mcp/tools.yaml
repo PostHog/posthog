@@ -281,8 +281,10 @@ tools:
         enrich_url: ?open_view={params.id}
         title: Run saved query
         description: >
-            Trigger a manual materialization run for a saved query. This immediately refreshes the materialized table
-            with the latest data. The view must already be materialized. Use 'view-run-history' to check run status.
+            Trigger a manual materialization run for a saved query. By default, this refreshes only the selected view.
+            Set direction to upstream to also run all dependencies. Set direction to downstream to also run all
+            dependents. Both options include the selected view and run the views in dependency order. Do not set
+            full_refresh when you set direction. Use 'view-run-history' to check each view's status.
     view-run-history:
         operation: warehouse_saved_queries_run_history_retrieve
         enabled: true

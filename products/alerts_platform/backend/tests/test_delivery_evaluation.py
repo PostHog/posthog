@@ -10,6 +10,8 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
+from posthog.utils import absolute_uri
+
 from products.alerts_platform.backend.delivery import delivery_paths, describers, legacy_webhook
 from products.alerts_platform.backend.delivery.destinations import list_alert_destination_groups
 from products.alerts_platform.backend.delivery.evaluation import LIVE_DELIVERY_FLAG, deliver_evaluation
@@ -28,14 +30,18 @@ from products.alerts_platform.backend.facade.contracts import (
     EvaluationAnnouncement,
     IncidentAction,
     LegacyEventEmission,
+    MessageLink,
     SourceKind,
 )
-from products.alerts_platform.backend.models import PlatformAlertConfiguration
+from products.alerts_platform.backend.facade.enums import HoldRelease
+from products.alerts_platform.backend.models import PlatformAlertConfiguration, PlatformAlertDeliveryHold
+from products.alerts_platform.backend.tests.recorded_metrics import recorded_metrics
 
 _MODULE = "products.alerts_platform.backend.delivery.evaluation"
 _LEGACY_MODULE = "products.alerts_platform.backend.delivery.legacy_webhook"
 _WEBHOOK_URL_MODULE = "products.alerts_platform.backend.delivery.webhook_url"
 FIRING = datetime(2026, 9, 30, 9, tzinfo=UTC)
+CONFIGURATION_ID = "01900000-0000-0000-0000-0000000000c1"
 
 FIRING_EVENT = "$logs_alert_firing"
 RESOLVED_EVENT = "$logs_alert_resolved"
@@ -102,7 +108,7 @@ class HeldTransport(RecordingTransport):
 def _request(
     team_id: int,
     *,
-    configuration_id: str = "cfg-1",
+    configuration_id: str = CONFIGURATION_ID,
     sends_messages: bool = True,
     incident_actions: dict[str, IncidentAction] | None = None,
     owned_by_platform: bool = False,
@@ -148,7 +154,7 @@ def _transition(
 def _announcement(*transitions: AnnouncedTransition) -> EvaluationAnnouncement:
     return EvaluationAnnouncement(
         source=SourceKind.LOGS,
-        configuration_id="cfg-1",
+        configuration_id=CONFIGURATION_ID,
         alert_name="API errors",
         consecutive_failures=0,
         transitions=transitions,
@@ -414,7 +420,7 @@ class TestDeliverEvaluation(APIBaseTest):
         assert RecordingTransport.sends == []
         assert outcome.sent == 0
 
-    def test_every_message_links_to_the_alert_page_the_request_names(self) -> None:
+    def test_every_message_links_to_the_alert_page_the_request_names_and_to_its_project(self) -> None:
         url = "https://app.example.com/project/7/logs/alerts/legacy-1"
 
         with (
@@ -429,13 +435,46 @@ class TestDeliverEvaluation(APIBaseTest):
         ):
             deliver_evaluation(replace(_request(self.team.id), source_alert_url=url))
 
-        assert [m.alert_url for _, m in RecordingTransport.sends] == [url]
+        assert [(m.alert_url, m.project) for _, m in RecordingTransport.sends] == [
+            (url, MessageLink(label=self.team.name, url=absolute_uri(f"/project/{self.team.id}")))
+        ]
 
     def test_an_evaluation_that_announced_nothing_sends_nothing(self) -> None:
         outcome = self._run(None, {FIRING_EVENT: [_group(SLACK)]})
 
         assert RecordingTransport.sends == []
         assert outcome.sent == 0
+
+    @parameterized.expand(
+        [("unreleased", None, 0), ("suppressed", HoldRelease.SUPPRESS, 0), ("sent", HoldRelease.SEND, 1)]
+    )
+    def test_a_held_evaluation_sends_only_once_released_with_a_send(
+        self, _name: str, release: HoldRelease | None, sent: int
+    ) -> None:
+        configuration = PlatformAlertConfiguration.objects.for_team(self.team.id).create(
+            id=CONFIGURATION_ID,
+            team=self.team,
+            name="API errors",
+            source_kind=PlatformAlertConfiguration.SourceKind.LOGS,
+            check_interval_minutes=10,
+        )
+        PlatformAlertDeliveryHold.objects.for_team(self.team.id).create(
+            team=self.team,
+            configuration=configuration,
+            evaluation_key="eval-1",
+            reason="investigation",
+            request={},
+            held_at=FIRING,
+            release_after=FIRING,
+            released_at=FIRING if release else None,
+            release_action=release,
+        )
+
+        outcome = self._run(
+            _announcement(_transition(AlertEventKind.FIRING)), {FIRING_EVENT: [_group(SLACK)]}, owned_by_platform=True
+        )
+
+        assert outcome.sent == sent
 
     def test_a_team_without_the_flag_is_not_contacted(self) -> None:
         outcome = self._run(
@@ -680,17 +719,23 @@ class TestDeliveryPath(APIBaseTest):
             )
 
     def test_a_rerun_after_a_refused_subscriber_send_emits_once(self) -> None:
-        for _ in range(2):
-            with pytest.raises(DeliveryError):
-                self._run(
-                    _announcement(_transition(AlertEventKind.FIRING)),
-                    self._chooses(DeliveryPath.HOG_FUNCTION),
-                    groups=[HOG_FUNCTION_SLACK, SUBSCRIBER],
-                    transport=RefusingTransport,
-                    real_thread_store=True,
-                )
+        with recorded_metrics() as metrics:
+            for _ in range(2):
+                with pytest.raises(DeliveryError):
+                    self._run(
+                        _announcement(_transition(AlertEventKind.FIRING)),
+                        self._chooses(DeliveryPath.HOG_FUNCTION),
+                        groups=[HOG_FUNCTION_SLACK, SUBSCRIBER],
+                        transport=RefusingTransport,
+                        real_thread_store=True,
+                    )
 
         assert len(self.emitted) == 1
+        assert [
+            (m.attributes["outcome"], m.value)
+            for m in metrics
+            if m.name == "alerts_platform_deliveries_total" and m.attributes["path"] == "hog_function"
+        ] == [("sent", 1), ("already_delivered", 1)]
 
     def test_a_held_subscriber_thread_holds_the_emission_for_the_rerun(self) -> None:
         with pytest.raises(ThreadBusy):

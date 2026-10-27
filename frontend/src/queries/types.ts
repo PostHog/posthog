@@ -19,6 +19,8 @@ import { BIVisualizationNode } from './schema/schema-business-intelligence'
 
 /** Pass custom metadata to queries. Used for e.g. custom columns in the DataTable. */
 export interface QueryContext<Q extends QuerySchema = QuerySchema> {
+    dashboardResultMenu?: boolean
+
     /** Column templates for the DataTable */
     columns?: Record<string, QueryContextColumn>
     tableLayout?: 'auto' | 'fixed'
@@ -70,6 +72,7 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     dataTableAllowContentScroll?: boolean
     /** Virtualize rows in an embedded SQL result table with a bounded height. */
     dataVisualizationTableVirtualized?: boolean
+    dataVisualizationTableVirtualizationCellThreshold?: number
     /** Keep the Data Table header row visible while the page scrolls. See `LemonTable`'s `stickyHeader`. */
     dataTableStickyHeader?: boolean
     /** Override the nouns used by Data Table counts and pagination. */

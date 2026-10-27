@@ -252,6 +252,7 @@ class TestContentAutopilotGeneration(BaseTest):
         assert proposal.lifecycle_status == ContentAutopilotProposal.LifecycleStatus.READY_FOR_REVIEW
         assert proposal.validation_report["passed"] is True
         assert proposal.original_markdown == REPLAY_DOC
+        assert proposal.title == "Session replay"
         assert proposal.content_package["file_path"] == "docs/session-replay.md"
         assert proposal.brief["working_title"] == "How session replay works"
         research = ResearchBundle.from_dict(proposal.research)
@@ -771,41 +772,80 @@ class TestSearchSitePages(SimpleTestCase):
 class TestFetchSitePage(SimpleTestCase):
     @parameterized.expand(
         [
-            ("full_twin", REPLAY_DOC, REPLAY_DOC, None),
+            ("full_twin", REPLAY_DOC, REPLAY_DOC, ()),
             (
                 "twin_with_a_notice_for_agents",
                 "> AI agents: this is one page from the docs.\n\n" + REPLAY_DOC,
                 REPLAY_DOC,
-                "AI agents",
+                ("AI agents",),
+            ),
+            (
+                "twin_with_a_canonical_url_and_a_notice_under_the_title",
+                "> AI agents: this is one page from the docs.\n\n# Session replay\n\n"
+                "Canonical URL: https://example.com/docs/session-replay\n\n"
+                "> **Cloud region:** This page uses US Cloud hosts.\n\n"
+                "Session replay records what users do and plays it back with console logs.",
+                "# Session replay\n\nSession replay records what users do and plays it back with console logs.",
+                ("Canonical URL", "Cloud region", "Products Pricing"),
+            ),
+            (
+                "twin_linking_to_other_pages_by_their_markdown_copies",
+                "# Session replay\n\nSee the [dashboard](https://example.com/docs/dashboard.md), "
+                "[heatmaps](/docs/heatmaps.md#setup) and the [README](https://github.com/example/repo/README.md). "
+                "Get the [guide](/download?file=guide.md) or read [setup](/docs/guide#example.md).",
+                "See the [dashboard](https://example.com/docs/dashboard), [heatmaps](/docs/heatmaps#setup) "
+                "and the [README](https://github.com/example/repo/README.md). "
+                "Get the [guide](/download?file=guide.md) or read [setup](/docs/guide#example.md).",
+                ("dashboard.md", "heatmaps.md"),
+            ),
+            (
+                "twin_with_only_a_title_and_metadata",
+                "# Session replay\n\nCanonical URL: https://example.com/docs/session-replay\n\n"
+                "> **Cloud region:** This page uses US Cloud hosts.",
+                "Session replay records every click, scroll and console error in the browser.",
+                ("Canonical URL", "Products Pricing"),
             ),
             (
                 "stub_twin_linking_to_its_page",
                 "# Session replay\n\nFull page: https://example.com/docs/session-replay",
                 "Session replay records every click, scroll and console error in the browser.",
-                None,
+                ("Products Pricing", "logo.png"),
             ),
             (
                 "stub_twin_linking_to_its_page_relatively",
                 "# Session replay\n\nRead the [full page](/docs/session-replay).",
                 "Session replay records every click, scroll and console error in the browser.",
-                None,
+                ("Products Pricing", "logo.png"),
             ),
         ]
     )
-    def test_prefers_the_richer_page_body(self, _name: str, twin: str, expected_text: str, absent: str | None) -> None:
+    def test_prefers_the_richer_page_body(
+        self, _name: str, twin: str, expected_text: str, absent: tuple[str, ...]
+    ) -> None:
         html = "<html><title>Session replay</title><body><p>Session replay records every click, scroll and console error in the browser.</p></body></html>"
+        rendered = FirecrawlScrape(
+            url="https://example.com/docs/session-replay",
+            final_url="https://example.com/docs/session-replay",
+            markdown="Products [Pricing](https://example.com/pricing) DocsCommunity\n\n"
+            + "![](https://cdn.example.com/logo.png)\n\n" * 20
+            + "Copy page\n\n# Session replay\n\n"
+            "Session replay records every click, scroll and console error in the browser.",
+        )
 
         def fetch(url: str, **kwargs: Any) -> FetchedPublicUrl:
             if url.endswith(".md"):
                 return FetchedPublicUrl(status_code=200, headers={"content-type": "text/markdown"}, body=twin.encode())
             return FetchedPublicUrl(status_code=200, headers={"content-type": "text/html"}, body=html.encode())
 
-        with patch("products.web_analytics.backend.content_autopilot.research.fetch_public_url", side_effect=fetch):
+        with (
+            patch("products.web_analytics.backend.content_autopilot.research.fetch_public_url", side_effect=fetch),
+            patch("products.web_analytics.backend.content_autopilot.research.scrape", return_value=rendered),
+        ):
             document = fetch_site_page("https://example.com/docs/session-replay")
 
         assert document is not None
         assert expected_text in document.text
-        assert absent is None or absent not in document.text
+        assert [text for text in absent if text in document.text] == []
 
     @parameterized.expand(
         [
@@ -891,11 +931,18 @@ class TestFetchSitePage(SimpleTestCase):
 
 
 class TestValidationChecks(SimpleTestCase):
-    def test_unsupported_claims_are_quoted_and_cut_at_a_word(self) -> None:
-        claim = (
-            '"Inconsistent bucketing: always use the same distinct_id when checking the flag server-side and '
-            "client-side. If the ID changes between requests, a user can flip variants."
-        )
+    @parameterized.expand(
+        [
+            (
+                "long_claim",
+                '"Inconsistent bucketing: always use the same distinct_id when checking the flag server-side and '
+                "client-side. If the ID changes between requests, a user can flip variants.",
+                '"Inconsistent bucketing: always use the same distinct_id when checking the flag server-side and '
+                'client-side. If the ID…"',
+            ),
+        ]
+    )
+    def test_unsupported_claims_are_quoted_and_cut_at_a_word(self, _name: str, claim: str, quoted: str) -> None:
         verdict = JudgeVerdict(
             unsupported_claims=(claim,), answers_prompt=True, answers_prompt_reason="", brand_rule_violations=()
         )
@@ -904,10 +951,7 @@ class TestValidationChecks(SimpleTestCase):
             check for check in judge_checks(verdict, has_brand_rules=False) if check.check_key == "grounding"
         ]
 
-        assert grounding.message == (
-            "These claims aren't backed by a source: \"Inconsistent bucketing: always use the same distinct_id when "
-            'checking the flag server-side and client-side. If the ID…".'
-        )
+        assert grounding.message == f"These claims aren't backed by a source: {quoted}."
 
     @parameterized.expand(
         [
@@ -962,12 +1006,18 @@ class TestValidationChecks(SimpleTestCase):
             ("problem_already_on_the_page", "# A\n\n# B\n\n" + GOOD_MARKDOWN.split("\n", 1)[1], True),
             ("problem_added_by_the_edit", "# A\n\n" + "word " * 300, False),
             ("problem_made_worse_by_the_edit", "# A\n\n# B\n\n# C\n\n## Section\n\n" + "word " * 300, False),
+            (
+                "site_navigation_before_the_title_even_when_the_page_had_it",
+                "Products Pricing Docs\n\n![](https://cdn.example.com/logo.png)\n\n# A\n\n# B\n\n## Section\n\n"
+                + "word " * 300,
+                False,
+            ),
         ]
     )
     def test_structure_of_an_improvement_ignores_what_the_page_already_had(
         self, _name: str, improved: str, passed: bool
     ) -> None:
-        original = "# A\n\n# B\n\n## Section\n\n" + "word " * 300
+        original = "Products Pricing Docs\n\n# A\n\n# B\n\n## Section\n\n" + "word " * 300
 
         assert check_structure(improved, baseline=original).passed is passed
 

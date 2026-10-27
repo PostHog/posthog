@@ -1411,6 +1411,18 @@ class TestHogQLModel:
                 id="events-with-special-chars",
             ),
             pytest.param(
+                r"""
+                SELECT 'quote\' backtick` slash\\ {log_comment} %(other)s' AS `{hogql_val_0}`,
+                    event AS `{log_comment}`, distinct_id AS `{{hogql_val_0}}`
+                FROM events
+                """,
+                ["{hogql_val_0}", "{log_comment}", "{{hogql_val_0}}"],
+                lambda events, persons: [
+                    ("quote' backtick` slash\\ {log_comment} %(other)s", e["event"], e["distinct_id"]) for e in events
+                ],
+                id="formatter-shaped-aliases",
+            ),
+            pytest.param(
                 "SELECT toString(id) AS id, properties.utm_medium AS utm_medium FROM persons",
                 ["id", "utm_medium"],
                 lambda events, persons: [(p["id"], "referral") for p in persons],

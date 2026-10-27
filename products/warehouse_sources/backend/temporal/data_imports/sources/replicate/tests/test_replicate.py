@@ -205,6 +205,62 @@ class TestGetRows:
         assert [r["id"] for r in rows] == ["a", "b"]
         assert fetched == [initial, page2]  # page3 never fetched
 
+    def test_416_on_first_page_treated_as_empty(self, monkeypatch: Any) -> None:
+        # Replicate returns 416 instead of an empty page for some requests that match nothing
+        # (e.g. a created_after filter predating the account's data). The sync must finish with
+        # zero rows rather than failing.
+        def raise_416(session: Any, url: str, headers: dict[str, str], logger: Any) -> Any:
+            response = requests.Response()
+            response.status_code = 416
+            response.url = url
+            raise requests.HTTPError(response=response)
+
+        monkeypatch.setattr(replicate, "_fetch_page", raise_416)
+        manager = _FakeResumableManager()
+
+        rows = []
+        for page in get_rows(
+            api_key="r8_test",
+            endpoint="predictions",
+            logger=MagicMock(),
+            resumable_source_manager=manager,  # type: ignore[arg-type]
+        ):
+            rows.extend(page)
+
+        assert rows == []
+        assert manager.saved == []
+
+    def test_416_mid_pagination_stops_like_a_last_page(self, monkeypatch: Any) -> None:
+        page2 = "https://api.replicate.com/v1/trainings?cursor=p2"
+        pages = {
+            f"https://api.replicate.com/v1{REPLICATE_ENDPOINTS['trainings'].path}": {
+                "results": [{"id": "t1"}],
+                "next": page2,
+            },
+        }
+
+        def fake_fetch(session: Any, url: str, headers: dict[str, str], logger: Any) -> Any:
+            if url == page2:
+                response = requests.Response()
+                response.status_code = 416
+                response.url = url
+                raise requests.HTTPError(response=response)
+            return pages[url]
+
+        monkeypatch.setattr(replicate, "_fetch_page", fake_fetch)
+        manager = _FakeResumableManager()
+
+        rows = []
+        for page in get_rows(
+            api_key="r8_test",
+            endpoint="trainings",
+            logger=MagicMock(),
+            resumable_source_manager=manager,  # type: ignore[arg-type]
+        ):
+            rows.extend(page)
+
+        assert rows == [{"id": "t1"}]
+
     def test_single_request_endpoints_do_not_paginate(self, monkeypatch: Any) -> None:
         cases = [
             ("hardware", [{"name": "Nvidia T4 GPU", "sku": "gpu-t4"}], [{"name": "Nvidia T4 GPU", "sku": "gpu-t4"}]),

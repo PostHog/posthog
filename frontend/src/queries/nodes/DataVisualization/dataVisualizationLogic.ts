@@ -99,6 +99,10 @@ export interface Column {
     dataIndex: number
 }
 
+export interface TableRow {
+    rowIndex: number
+}
+
 export interface TableDataCell<T extends string | number | boolean | Date | null> {
     value: T
     formattedValue: string | object | null
@@ -700,6 +704,8 @@ export interface dataVisualizationLogicValues {
     dashboardId: any
     dataVisualizationProps: DataVisualizationLogicProps
     effectiveVisualizationType: ChartDisplayType
+    getSourceTableCell: (rowIndex: number, columnIndex: number) => TableDataCell<any>
+    getTableCell: (rowIndex: number, columnIndex: number) => TableDataCell<any>
     hasDateTimeColumns: boolean
     hasMoreData: boolean
     hasSortedTable: boolean
@@ -725,10 +731,10 @@ export interface dataVisualizationLogicValues {
     showTableSettings: boolean
     sourceFeatures: Set<QueryFeature>
     sourceTabularColumns: AxisSeries<any>[]
-    sourceTabularData: TableDataCell<any>[][]
+    tableResults: HogQLQueryResponse['results']
+    tableRows: TableRow[]
     tabularColumnSettings: (SelectedYAxis | null)[] | null
     tabularColumns: AxisSeries<any>[]
-    tabularData: TableDataCell<any>[][]
     visualizationType: ChartDisplayType
     xData: AxisSeries<string> | null
     yData: AxisSeries<number | null>[]
@@ -927,22 +933,24 @@ export interface dataVisualizationLogicMeta {
             response: AnyResponseType | null,
             columns: Column[]
         ) => AxisSeries<any>[]
-        sourceTabularData: (
+        tableResults: (response: AnyResponseType | null) => HogQLQueryResponse['results']
+        getSourceTableCell: (
             sourceTabularColumns: AxisSeries<any>[],
-            response: AnyResponseType | null,
+            tableResults: any[],
             chartSettings: ChartSettings,
             query: VisualizationNode
-        ) => TableDataCell<any>[][]
+        ) => (rowIndex: number, columnIndex: number) => TableDataCell<any>
         tabularColumns: (
             sourceTabularColumns: AxisSeries<any>[],
-            sourceTabularData: TableDataCell<any>[][],
+            tableResults: any[],
             isTransposed: boolean
         ) => AxisSeries<any>[]
-        tabularData: (
+        tableRows: (tableResults: any[], sourceTabularColumns: AxisSeries<any>[], isTransposed: boolean) => TableRow[]
+        getTableCell: (
+            getSourceTableCell: (rowIndex: number, columnIndex: number) => TableDataCell<any>,
             sourceTabularColumns: AxisSeries<any>[],
-            sourceTabularData: TableDataCell<any>[][],
             isTransposed: boolean
-        ) => TableDataCell<any>[][]
+        ) => (rowIndex: number, columnIndex: number) => TableDataCell<any>
         dataVisualizationProps: (arg: any) => DataVisualizationLogicProps
         effectiveVisualizationType: (
             visualizationType: ChartDisplayType,
@@ -1532,6 +1540,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                           ? response.result
                           : []
 
+                const seriesRows = visualizationType === ChartDisplayType.ActionsTable ? [] : data
                 const mappedSeries = visualizationType === ChartDisplayType.Metric ? ySeries.slice(0, 1) : ySeries
                 const seriesData = mappedSeries
                     .map((series): AxisSeries<number | null> | null => {
@@ -1546,7 +1555,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
 
                         return {
                             column,
-                            data: data.map((n) => {
+                            data: seriesRows.map((n) => {
                                 try {
                                     const multiplier = series.settings.formatting?.style === 'percent' ? 100 : 1
 
@@ -1683,40 +1692,27 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 })
             },
         ],
-        sourceTabularData: [
-            (s) => [s.sourceTabularColumns, s.response, s.chartSettings, s.query],
+        tableResults: [
+            (s) => [s.response],
+            (response: AnyResponseType | null): HogQLQueryResponse['results'] => {
+                if (response && 'results' in response && Array.isArray(response.results)) {
+                    return response.results
+                }
+                if (response && 'result' in response && Array.isArray(response.result)) {
+                    return response.result
+                }
+                return []
+            },
+        ],
+        getSourceTableCell: [
+            (s) => [s.sourceTabularColumns, s.tableResults, s.chartSettings, s.query],
             (
                 sourceTabularColumns: AxisSeries<any>[],
-                response:
-                    | Record<string, any>
-                    | null
-                    | import('~/queries/schema/schema-general').ErrorTrackingQueryResponse
-                    | import('~/queries/schema/schema-general').HogQLAutocompleteResponse
-                    | import('~/queries/schema/schema-general').HogQLMetadataResponse
-                    | import('~/queries/schema/schema-general').HogQLQueryResponse<any[]>
-                    | import('~/queries/schema/schema-general').HogQueryResponse
-                    | import('~/queries/schema/schema-general').LogAttributesQueryResponse
-                    | import('~/queries/schema/schema-general').LogValuesQueryResponse
-                    | import('~/queries/schema/schema-general').MetricsQueryResponse
-                    | import('~/queries/schema/schema-general').SessionsQueryResponse
-                    | import('~/queries/schema/schema-general').TraceSpansAggregationQueryResponse
-                    | import('~/queries/schema/schema-general').TraceSpansAttributeBreakdownQueryResponse
-                    | import('~/queries/schema/schema-general').TraceSpansQueryResponse,
+                data: HogQLQueryResponse['results'],
                 chartSettings: ChartSettings,
                 query: VisualizationNode
-            ): TableDataCell<any>[][] => {
-                if (!response) {
-                    return []
-                }
-
+            ): ((rowIndex: number, columnIndex: number) => TableDataCell<any>) => {
                 const showNullsAsZero = chartSettings.showNullsAsZero ?? false
-                const data =
-                    'results' in response && Array.isArray(response.results)
-                        ? response.results
-                        : 'result' in response && Array.isArray(response.result)
-                          ? response.result
-                          : []
-
                 const dimensions = new Map(
                     query.kind === NodeKind.BIVisualizationNode
                         ? getBIResultDimensions(query.config).map(({ column, field }) => [column, field])
@@ -1725,89 +1721,88 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 const memberDisplay =
                     query.kind === NodeKind.BIVisualizationNode ? createBIMemberDisplayLookup(query.config) : undefined
 
-                return data.map((row): TableDataCell<any>[] => {
-                    return sourceTabularColumns.map((column): TableDataCell<any> => {
-                        if (!column) {
-                            return {
-                                value: null,
-                                formattedValue: null,
-                                type: 'STRING',
+                return (rowIndex, columnIndex): TableDataCell<any> => {
+                    const column = sourceTabularColumns[columnIndex]
+                    if (!column) {
+                        return {
+                            value: null,
+                            formattedValue: null,
+                            type: 'STRING',
+                        }
+                    }
+
+                    const value = data[rowIndex][column.column.dataIndex]
+                    const dimension = dimensions.get(column.column.name)
+                    const alias = dimension ? memberDisplay?.(dimension, value) : undefined
+                    if (alias !== undefined) {
+                        return { value, formattedValue: alias, type: column.column.type.name }
+                    }
+
+                    if (column.column.type.isNumerical) {
+                        try {
+                            if (value === null) {
+                                const nullReplacement = showNullsAsZero ? 0 : null
+
+                                return {
+                                    value: nullReplacement,
+                                    formattedValue: formatDataWithSettings(nullReplacement, column.settings),
+                                    type: column.column.type.name,
+                                }
                             }
-                        }
 
-                        const value = row[column.column.dataIndex]
-                        const dimension = dimensions.get(column.column.name)
-                        const alias = dimension ? memberDisplay?.(dimension, value) : undefined
-                        if (alias !== undefined) {
-                            return { value, formattedValue: alias, type: column.column.type.name }
-                        }
+                            const multiplier = column.settings?.formatting?.style === 'percent' ? 100 : 1
 
-                        if (column.column.type.isNumerical) {
-                            try {
-                                if (value === null) {
-                                    const nullReplacement = showNullsAsZero ? 0 : null
-
-                                    return {
-                                        value: nullReplacement,
-                                        formattedValue: formatDataWithSettings(nullReplacement, column.settings),
-                                        type: column.column.type.name,
-                                    }
-                                }
-
-                                const multiplier = column.settings?.formatting?.style === 'percent' ? 100 : 1
-
-                                if (
-                                    column.settings?.formatting?.decimalPlaces != null &&
-                                    column.settings.formatting.style !== 'short'
-                                ) {
-                                    return {
-                                        value,
-                                        formattedValue: formatDataWithSettings(
-                                            parseFloat(
-                                                (parseFloat(value.toString()) * multiplier).toFixed(
-                                                    column.settings.formatting.decimalPlaces
-                                                )
-                                            ),
-                                            column.settings
-                                        ),
-                                        type: column.column.type.name,
-                                    }
-                                }
-
-                                const isInt = Number.isInteger(value)
+                            if (
+                                column.settings?.formatting?.decimalPlaces != null &&
+                                column.settings.formatting.style !== 'short'
+                            ) {
                                 return {
                                     value,
                                     formattedValue: formatDataWithSettings(
-                                        isInt
-                                            ? parseInt(value.toString(), 10) * multiplier
-                                            : parseFloat(value.toString()) * multiplier,
+                                        parseFloat(
+                                            (parseFloat(value.toString()) * multiplier).toFixed(
+                                                column.settings.formatting.decimalPlaces
+                                            )
+                                        ),
                                         column.settings
                                     ),
                                     type: column.column.type.name,
                                 }
-                            } catch {
-                                return {
-                                    value: 0,
-                                    formattedValue: '0',
-                                    type: column.column.type.name,
-                                }
+                            }
+
+                            const isInt = Number.isInteger(value)
+                            return {
+                                value,
+                                formattedValue: formatDataWithSettings(
+                                    isInt
+                                        ? parseInt(value.toString(), 10) * multiplier
+                                        : parseFloat(value.toString()) * multiplier,
+                                    column.settings
+                                ),
+                                type: column.column.type.name,
+                            }
+                        } catch {
+                            return {
+                                value: 0,
+                                formattedValue: '0',
+                                type: column.column.type.name,
                             }
                         }
+                    }
 
-                        return {
-                            value: convertTableValue(value, column.column.type.name),
-                            formattedValue: formatDataWithSettings(value, column.settings),
-                            type: column.column.type.name,
-                        }
-                    })
-                })
+                    return {
+                        value: convertTableValue(value, column.column.type.name),
+                        formattedValue: formatDataWithSettings(value, column.settings),
+                        type: column.column.type.name,
+                    }
+                }
             },
         ],
         tabularColumns: [
-            (s) => [s.sourceTabularColumns, s.sourceTabularData, s.isTransposed],
+            (s) => [s.sourceTabularColumns, s.tableResults, s.isTransposed],
             (
                 sourceTabularColumns: AxisSeries<any>[],
-                sourceTabularData: TableDataCell<any>[][],
+                tableResults: HogQLQueryResponse['results'],
                 isTransposed: boolean
             ): AxisSeries<any>[] => {
                 if (!isTransposed) {
@@ -1837,7 +1832,8 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                             },
                         },
                     },
-                    ...sourceTabularData.map(
+                    ...Array.from(
+                        { length: tableResults.length },
                         (_, index): AxisSeries<any> => ({
                             column: {
                                 name: `${TRANSPOSED_ROW_COLUMN_PREFIX}${index}`,
@@ -1860,35 +1856,40 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 ]
             },
         ],
-        tabularData: [
-            (s) => [s.sourceTabularColumns, s.sourceTabularData, s.isTransposed],
-            (
-                sourceTabularColumns: AxisSeries<any>[],
-                sourceTabularData: TableDataCell<any>[][],
-                isTransposed: boolean
-            ): TableDataCell<any>[][] => {
-                if (!isTransposed) {
-                    return sourceTabularData
-                }
-
-                if (sourceTabularData.length === 0) {
+        tableRows: [
+            (s) => [s.tableResults, s.sourceTabularColumns, s.isTransposed],
+            (results: HogQLQueryResponse['results'], columns: AxisSeries<any>[], isTransposed: boolean): TableRow[] => {
+                if (results.length === 0) {
                     return []
                 }
-
-                return sourceTabularColumns.map((column, columnIndex) => [
-                    {
-                        value: column.column.name,
-                        formattedValue: null,
-                        type: 'STRING',
-                        sourceColumnName: column.column.name,
-                        isTransposedHeader: true,
-                    },
-                    ...sourceTabularData.map((row) => ({
-                        ...row[columnIndex],
-                        sourceColumnName: column.column.name,
-                    })),
-                ])
+                return Array.from({ length: isTransposed ? columns.length : results.length }, (_, rowIndex) => ({
+                    rowIndex,
+                }))
             },
+        ],
+        getTableCell: [
+            (s) => [s.getSourceTableCell, s.sourceTabularColumns, s.isTransposed],
+            (
+                getSourceTableCell: (rowIndex: number, columnIndex: number) => TableDataCell<any>,
+                columns: AxisSeries<any>[],
+                isTransposed: boolean
+            ): ((rowIndex: number, columnIndex: number) => TableDataCell<any>) =>
+                (rowIndex, columnIndex): TableDataCell<any> => {
+                    if (!isTransposed) {
+                        return getSourceTableCell(rowIndex, columnIndex)
+                    }
+                    const sourceColumnName = columns[rowIndex].column.name
+                    if (columnIndex === 0) {
+                        return {
+                            value: sourceColumnName,
+                            formattedValue: null,
+                            type: 'STRING',
+                            sourceColumnName,
+                            isTransposedHeader: true,
+                        }
+                    }
+                    return { ...getSourceTableCell(columnIndex - 1, rowIndex), sourceColumnName }
+                },
         ],
         dataVisualizationProps: [() => [(_, props) => props], (props): DataVisualizationLogicProps => props],
         effectiveVisualizationType: [
@@ -1993,6 +1994,12 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             const rules = values.conditionalFormattingRules
             const saveableRules = rules.filter((n) => n.columnName && n.input && n.templateId && n.bytecode.length)
 
+            if (values.query.kind === NodeKind.BIVisualizationNode) {
+                captureBIWorksheetAction('conditional_formatting_updated', values.query.config, {
+                    rule_count: saveableRules.length,
+                })
+            }
+
             actions.setQuery((query) => ({
                 ...query,
                 tableSettings: {
@@ -2012,6 +2019,11 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         },
     })),
     listeners(({ props, values, actions, sharedListeners }) => ({
+        setSideBarTab: ({ tab }) => {
+            if (tab === SideBarTab.ConditionalFormatting && values.query.kind === NodeKind.BIVisualizationNode) {
+                captureBIWorksheetAction('conditional_formatting_opened', values.query.config)
+            }
+        },
         loadHogVm: async () => {
             try {
                 actions.setHogVm(await retryImport(() => import('lib/hog')))

@@ -381,7 +381,23 @@ class TestClerkValidateCredentials:
         assert network.requests_log[0].path == "/v1/users"
         assert network.requests_log[0].param("limit") == "1"
 
-    @pytest.mark.parametrize("secret_key", ["sk_live_\u200bkey", "sk_live_\u3042key"])
+    @pytest.mark.parametrize(
+        "secret_key",
+        ["\u200bsk_live_key", "sk_live_\u200bkey", "sk_live_key\ufeff", "\u00a0sk_live_key", "sk_live_key\n"],
+    )
+    def test_invisible_paste_debris_is_removed_before_the_request(self, secret_key: str) -> None:
+        with scripted_network([ScriptedResponse(json=[])]) as network:
+            is_valid, message = validate_credentials(secret_key)
+        assert (is_valid, message) == (True, None)
+        assert network.requests_log[0].headers["authorization"] == "Bearer sk_live_key"
+
+    def test_sync_sends_the_cleaned_key(self) -> None:
+        driver = SourceDriver(ClerkSource(), ClerkSourceConfig(secret_key="\u200bsk_live_key\n"))
+        result = driver.run(_DIRECT_ARRAY_ENDPOINT, [ScriptedResponse(json=[])])
+        assert result.raised is None
+        assert result.requests[0].headers["authorization"] == "Bearer sk_live_key"
+
+    @pytest.mark.parametrize("secret_key", ["sk_live_\u3042key", "sk_live_\u00a0key"])
     def test_non_ascii_key_is_rejected_before_any_request(self, secret_key: str) -> None:
         # Such a key can't be encoded into the Authorization header, so dispatching the request
         # raises UnicodeEncodeError; the guard must catch it first and explain what to do.

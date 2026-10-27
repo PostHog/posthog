@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react'
 
 import { useChartLayout } from '../../core/chart-context'
-import { mixColors, perceivedLuminance, toSrgbColor } from '../../core/color-utils'
+import { mixColors, prefersLightText, toSrgbColor } from '../../core/color-utils'
 import { FONT_FAMILY, measureLabelWidth } from '../../utils/text-measure'
 import type { HeatmapCellDatum } from './Heatmap'
 import type { HeatmapResolvedCellStyles } from './heatmap-cells'
@@ -21,8 +21,6 @@ const LABEL_FONT = `500 ${LABEL_FONT_SIZE}px ${FONT_FAMILY}`
 const LABEL_PADDING_X = 4
 // Under this the text touches the cell edges and reads as one smear across rows.
 const MIN_CELL_HEIGHT = LABEL_FONT_SIZE + 4
-// Below this the fill is dark enough for white text; at or above it, dark text stays readable.
-const DARK_FILL_LUMINANCE = 0.55
 // Not `theme.axisColor`: a dark theme makes that light gray, which vanishes on a bright cell.
 const DARK_TEXT = '#111111'
 
@@ -114,7 +112,7 @@ export function HeatmapCellLabels({
                     text,
                     x: rect.x + rect.width / 2,
                     y: rect.y + rect.height / 2,
-                    color: perceivedLuminance(fill) < DARK_FILL_LUMINANCE ? '#ffffff' : DARK_TEXT,
+                    color: prefersLightText(fill) ? '#ffffff' : DARK_TEXT,
                 })
             }
         }

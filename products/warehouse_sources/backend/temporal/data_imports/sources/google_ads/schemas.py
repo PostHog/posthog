@@ -896,6 +896,30 @@ RESOURCE_SCHEMAS: dict[str, dict[str, Any]] = {
             "segments.date",
         ],
     },
+    "performance_max_search_term_stats": {
+        "resource_name": "campaign_search_term_view",
+        "primary_key": [
+            "campaign_search_term_view.search_term",
+            "campaign.id",
+            "customer.id",
+            "segments.date",
+        ],
+        "filter_field_names": [("segments.date", IncrementalFieldType.Date)],
+        "description": "Search terms that triggered Performance Max campaigns. Search campaign terms are in search_term_stats.",
+        # campaign_search_term_view also returns Search and Shopping campaigns, which search_term_stats already covers.
+        "extra_where": "campaign.advertising_channel_type = 'PERFORMANCE_MAX'",
+        "field_names": [
+            "campaign_search_term_view.search_term",
+            "campaign.id",
+            "customer.id",
+            "metrics.clicks",
+            "metrics.impressions",
+            "metrics.cost_micros",
+            "metrics.conversions",
+            "metrics.conversions_value",
+            "segments.date",
+        ],
+    },
     "geographic_stats": {
         "resource_name": "geographic_view",
         "primary_key": [

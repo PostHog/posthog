@@ -1,16 +1,7 @@
-"""Execution of the checks attached to signal reports.
+"""Coordinate interim measurements and final metric verification during enabled Monitoring.
 
-The coordinator calls ``run_due_report_checks`` on its tick, and each due check advances by one
-step. A ``metric_threshold`` check is answered here and then: one bounded Trends query, one
-comparison, one artefact, with no sandbox, no scout enrolment, and no LLM. An ``agent`` check needs
-a run to decide it, so it is handed to ``report_check_agent`` and closed later by the tool that run
-calls.
-
-Terminal results go through ``record_check_verdict``. Monitoring metric observations use
-``report_check_monitoring`` to save measurements without concluding the check or report.
-
-The comparison is the alerts product's, not a second one written here, so a check and an alert word
-a breach the same way and there is one place where "is this value out of bounds?" is decided.
+Authored agent checks use a separate execution contract. The legacy verdict
+utilities below do not run from the coordinator.
 """
 
 from __future__ import annotations
@@ -57,6 +48,7 @@ from products.signals.backend.report_check_evaluation import (
     errored_check_explanation,
     evaluate_check_value,
 )
+from products.signals.backend.report_check_final_metrics import run_due_final_metrics
 from products.signals.backend.report_check_monitoring import (
     MonitoringWindowClosed,
     measure_monitoring_check,
@@ -842,16 +834,9 @@ def collect_due_checks(
     candidates = (
         eligible_checks.annotate(_monitoring_ends_at=_monitoring_window_end_expression())
         .filter(
-            report_status_filter(
-                [SignalReport.Status.RESOLVED],
-                field="report__status",
-                disabled_monitoring_organization_ids=disabled_monitoring_organization_ids,
-            )
-            | (
-                _monitoring_metric_filter(disabled_monitoring_organization_ids)
-                & Q(report__monitoring_started_at__gt=now - MAX_CHECK_HORIZON, _monitoring_ends_at__gt=now)
-            ),
-            # Agent and legacy metric checks must stay dormant until the report resolves.
+            _monitoring_metric_filter(disabled_monitoring_organization_ids),
+            report__monitoring_started_at__gt=now - MAX_CHECK_HORIZON,
+            _monitoring_ends_at__gt=now,
         )
         .select_related("report", "report__team", "team__organization")
         # Rank each team's rows against its own, then read those ranks in order, so every team's
@@ -869,12 +854,6 @@ def collect_due_checks(
     per_team: dict[int, int] = {}
     due: list[SignalReportCheck] = []
     for check in candidates:
-        if (
-            check.report.status == SignalReport.Status.MONITORING
-            and check.team.organization_id in disabled_monitoring_organization_ids
-            and _resolved_monitoring_expiry(check) <= now
-        ):
-            continue
         taken = per_team.get(check.team_id, 0)
         if taken >= MAX_CHECK_RUNS_PER_TEAM_PER_TICK:
             continue
@@ -896,32 +875,26 @@ def _arm_monitoring_checks(now: datetime, *, disabled_monitoring_organization_id
     )
     reports = (
         SignalReport.objects.filter(
-            Q(monitoring_started_at__isnull=False) | Q(team__organization_id__in=disabled_monitoring_organization_ids),
             Exists(pending_checks),
             status=SignalReport.Status.MONITORING,
+            monitoring_started_at__isnull=False,
         )
+        .exclude(team__organization_id__in=disabled_monitoring_organization_ids)
         .select_related("team")
         .only("id", "status", "team_id", "monitoring_started_at", "team__organization_id")
         .order_by("id")[:MAX_CHECK_PARKS_PER_TICK]
     )
     for report in reports:
-        monitoring_enabled = report.team.organization_id not in disabled_monitoring_organization_ids
         arm_pending_checks(
             team_id=report.team_id,
             report_id=report.id,
             resolved_at=now,
-            monitoring_enabled=monitoring_enabled,
-            expected_monitoring_started_at=report.monitoring_started_at if monitoring_enabled else None,
+            expected_monitoring_started_at=report.monitoring_started_at,
         )
 
 
 def run_due_report_checks(*, now: datetime | None = None, limit: int = MAX_CHECK_RUNS_PER_TICK) -> CheckRunSummary:
-    """Expire what timed out, park what lost its resolve, then advance every due check by one step.
-
-    A `metric_threshold` check is measured and recorded here. An `agent` check is dispatched (or
-    its overdue dispatch is written off), and the run it started records the verdict later, so the
-    tick's time budget bounds the dispatch and not the investigation.
-    """
+    """Record due final metric results and interim measurements during enabled Monitoring."""
 
     now = now or timezone.now()
     candidate_checks = SignalReportCheck.all_teams.filter(
@@ -929,7 +902,6 @@ def run_due_report_checks(*, now: datetime | None = None, limit: int = MAX_CHECK
     )
     disabled_organizations = check_monitoring_disabled_organizations(candidate_checks)
     _prepare_monitoring_metrics(now, disabled_organizations)
-    _restore_resolved_monitoring_expiries(now, disabled_organizations)
     expired = expire_overdue_checks(now, disabled_monitoring_organization_ids=disabled_organizations)
     _arm_monitoring_checks(now, disabled_monitoring_organization_ids=disabled_organizations)
     park_checks_on_unresolved_reports(now, disabled_monitoring_organization_ids=disabled_organizations)
@@ -944,90 +916,25 @@ def run_due_report_checks(*, now: datetime | None = None, limit: int = MAX_CHECK
         "deferred": 0,
         "cancelled": 0,
     }
-    for check in collect_due_checks(now, limit=limit, disabled_monitoring_organization_ids=disabled_organizations):
+    final = run_due_final_metrics(now=now, deadline=deadline, limit=limit)
+    counts.update(
+        passed=final.passed,
+        failed=final.failed,
+        inconclusive=final.inconclusive,
+        errored=final.errored,
+        deferred=final.deferred,
+    )
+    remaining = max(0, limit - sum(counts.values()))
+    for check in collect_due_checks(now, limit=remaining, disabled_monitoring_organization_ids=disabled_organizations):
         if time.monotonic() >= deadline:
             break
-        if (
-            check.report.status == SignalReport.Status.MONITORING
-            and check.team.organization_id not in disabled_organizations
-            and check.kind == SignalReportCheck.Kind.METRIC_THRESHOLD
-            and check.config.get("monitoring")
-            and check.report.monitoring_started_at is not None
-        ):
-            try:
-                observation = measure_monitoring_check(check, now=now, deadline=deadline)
-                counts["observed"] += int(record_monitoring_observation(check, observation))
-            except (MetricQueryBudgetExhausted, MonitoringWindowClosed):
-                counts["deferred"] += 1
-            except Exception:
-                logger.exception(
-                    "signals.report_check.monitoring_step_failed", check_id=str(check.id), team_id=check.team_id
-                )
-            continue
-        if (
-            check.report.status == SignalReport.Status.MONITORING
-            and check.team.organization_id in disabled_organizations
-            and _resolved_monitoring_expiry(check) != check.expires_at
-        ):
-            counts["deferred"] += 1
-            continue
-        if check.kind == SignalReportCheck.Kind.AGENT:
-            # Deferred: the agent lane reaches the scout harness and the Temporal client, and this
-            # module is imported by the REST route load, which never dispatches anything.
-            from products.signals.backend.report_check_agent import run_agent_check  # noqa: PLC0415
-
-            try:
-                counts[run_agent_check(check, now=now)] += 1
-            except Exception:
-                logger.exception(
-                    "signals.report_check.agent_step_failed", check_id=str(check.id), team_id=check.team_id
-                )
-            continue
-        verdict: CheckVerdict | None = None
-        if check.kind == SignalReportCheck.Kind.METRIC_THRESHOLD:
-            start_at = check.measurement_start_at or now
-            try:
-                config = cast(MetricThresholdConfig, parse_check_config(check.kind, check.config))
-                query = resolve_check_query(config, check.report)
-                ready_at = metric_check_ready_at(query, check.report.team, start_at)
-                if config.monitoring is not None:
-                    ready_at = max(ready_at, start_at + timedelta(minutes=check.soak_minutes or 0))
-            except (CheckConfigValidationError, ValueError):
-                ready_at = now
-            if check.measurement_start_at is None or now < ready_at:
-                next_run_at = max(check.next_run_at, ready_at)
-                expires_at = check.expires_at
-                if check.measurement_start_at is None:
-                    expires_at = check_schedule_expires_at(
-                        next_run_at=next_run_at,
-                        run_interval_minutes=check.run_interval_minutes,
-                        runs_remaining=check.runs_remaining,
-                        start_at=start_at,
-                    )
-                if next_run_at >= expires_at:
-                    verdict = CheckVerdict(
-                        outcome="inconclusive",
-                        reason="unmeasurable",
-                        explanation="The full measurement window cannot fit before this check expires.",
-                    )
-                else:
-                    SignalReportCheck.objects.for_team(check.team_id).filter(
-                        id=check.id,
-                        status=SignalReportCheck.Status.ACTIVE,
-                        measurement_start_at=check.measurement_start_at,
-                    ).update(
-                        measurement_start_at=start_at,
-                        next_run_at=next_run_at,
-                        expires_at=expires_at,
-                        updated_at=now,
-                    )
-                    continue
-        if verdict is None:
-            verdict = measure_check(check, deadline=deadline)
         try:
-            record_check_verdict(check, verdict)
+            observation = measure_monitoring_check(check, now=now, deadline=deadline)
+            counts["observed"] += int(record_monitoring_observation(check, observation))
+        except (MetricQueryBudgetExhausted, MonitoringWindowClosed):
+            counts["deferred"] += 1
         except Exception:
-            logger.exception("signals.report_check.persist_failed", check_id=str(check.id), team_id=check.team_id)
-            continue
-        counts[verdict.outcome] += 1
+            logger.exception(
+                "signals.report_check.monitoring_step_failed", check_id=str(check.id), team_id=check.team_id
+            )
     return CheckRunSummary(expired=expired, **counts)

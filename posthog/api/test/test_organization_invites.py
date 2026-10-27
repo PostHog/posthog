@@ -1803,6 +1803,8 @@ class TestOnboardingSkipAPI(APIBaseTest):
             [c.kwargs["properties"] for c in skip_calls],
             [{"step_at_skip": "mcp", "reason": "later", "flow_variant": "simple"}],
         )
+        self.assertEqual(skip_calls[0].kwargs["groups"]["project"], str(self.team.uuid))
+        self.assertEqual(skip_calls[0].kwargs["groups"]["organization"], str(self.organization.id))
 
     def test_skip_rejects_invalid_reason(self):
         response = self.client.post(self._skip_url(), {"reason": "nope"})

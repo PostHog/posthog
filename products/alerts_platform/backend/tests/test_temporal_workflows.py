@@ -638,6 +638,20 @@ class TestDemandDiscovery(APIBaseTest):
             demand.discover_demand(self.tick.isoformat(), limits_by_source={SourceKind.LOGS: 0})
 
 
+async def test_a_failed_inventory_count_does_not_raise() -> None:
+    with (
+        patch.object(
+            alert_workflows,
+            "count_inventory",
+            side_effect=OperationalError("canceling statement due to statement timeout"),
+        ),
+        patch.object(alert_workflows, "push_inventory") as push,
+    ):
+        await alert_workflows.alerts_platform_record_inventory_activity()
+
+    push.assert_not_called()
+
+
 @pytest.mark.parametrize("scheduled", [False, True])
 async def test_discovery_uses_scheduled_cutoff_or_manual_start(scheduled: bool) -> None:
     tick_time = dt.datetime(2026, 9, 16, 10, tzinfo=dt.UTC)

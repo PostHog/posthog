@@ -47,23 +47,29 @@ class HelpScoutEndpointConfig:
     is_report: bool = False
 
 
+# The conversations list returns only active conversations unless a status is sent.
+_ALL_CONVERSATION_STATUSES: dict[str, Any] = {"status": "all"}
+
 HELP_SCOUT_ENDPOINTS: dict[str, HelpScoutEndpointConfig] = {
     "conversations": HelpScoutEndpointConfig(
         name="conversations",
         path="/conversations",
         embedded_key="conversations",
-        incremental_fields=[incremental_field("modifiedAt")],
-        default_incremental_field="modifiedAt",
+        # Rows carry no `modifiedAt`. Only some changes move `userUpdatedAt`, so a watermark on it
+        # lags `modifiedSince` and a sync re-reads rows rather than skipping them.
+        incremental_fields=[incremental_field("userUpdatedAt")],
+        default_incremental_field="userUpdatedAt",
         updated_since_param="modifiedSince",
         supports_sort=True,
         has_v3_route=True,
+        params=_ALL_CONVERSATION_STATUSES,
     ),
     "customers": HelpScoutEndpointConfig(
         name="customers",
         path="/customers",
         embedded_key="customers",
-        incremental_fields=[incremental_field("modifiedAt")],
-        default_incremental_field="modifiedAt",
+        incremental_fields=[incremental_field("updatedAt")],
+        default_incremental_field="updatedAt",
         updated_since_param="modifiedSince",
         supports_sort=True,
         has_v3_route=True,
@@ -102,6 +108,7 @@ HELP_SCOUT_ENDPOINTS: dict[str, HelpScoutEndpointConfig] = {
             resolve_field="id",
             include_from_parent=["id"],
             parent_field_renames={"id": "conversation_id"},
+            parent_params=_ALL_CONVERSATION_STATUSES,
         ),
     ),
     "mailbox_fields": HelpScoutEndpointConfig(

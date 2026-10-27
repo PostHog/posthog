@@ -64,12 +64,20 @@ posthog_worktree_borrow() {
     _ph_main="$(posthog_main_repo "$(pwd)")"
     [ -n "$_ph_main" ] || return 0
 
-    # flox-installed pnpm/uv/node live under the main clone's .flox/run --
-    # add them to PATH so borrowing works even from GUI git clients that
-    # don't inherit a flox-activated shell.
-    if [ -d "$_ph_main/.flox/run" ]; then
+    # flox-installed pnpm/uv/node live under .flox/run -- add them to PATH so
+    # borrowing works even from GUI git clients that don't inherit a
+    # flox-activated shell. Prefer the worktree's own flox env, because the
+    # main clone's can pin older tools than this worktree's branch requires.
+    _ph_flox_root="$_ph_main"
+    for _ph_bin in .flox/run/*/bin; do
+        if [ -d "$_ph_bin" ]; then
+            _ph_flox_root="$(pwd)"
+            break
+        fi
+    done
+    if [ -d "$_ph_flox_root/.flox/run" ]; then
         _ph_flox_on_path=""
-        for _ph_bin in "$_ph_main/.flox/run"/*/bin; do
+        for _ph_bin in "$_ph_flox_root/.flox/run"/*/bin; do
             if [ -d "$_ph_bin" ]; then
                 PATH="$_ph_bin:$PATH"
                 _ph_flox_on_path=1

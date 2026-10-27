@@ -114,6 +114,19 @@ class TestOfflineExperimentReads(APIBaseTest):
             self._history(),
         ]
 
+    def test_history_model_breakdown_uses_the_item_model(self) -> None:
+        self.experiment.model_version = "model-a"
+        self.experiment.save(update_fields=["model_version"])
+        self.item.model_version = "model-b"
+        self.item.save(update_fields=["model_version"])
+        response = self.client.get(self._history(), {"breakdown": "model_version", "model_version": "model-b"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertEqual(response.data["results"][0]["breakdown_value"], "model-b")
+        self.assertEqual(response.data["results"][0]["summary"]["pass_rate"], 1.0)
+        response = self.client.get(self._history(), {"breakdown": "model_version", "model_version": "model-a"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertEqual(response.data["count"], 0)
+
     def test_author_filter_applies_to_experiments_and_history(self) -> None:
         self.user.hedgehog_config = {
             "version": 2,
@@ -345,6 +358,8 @@ class TestOfflineExperimentReads(APIBaseTest):
         definition = ScoreDefinition.objects.create(team=self.team, name="Category", kind="categorical")
         version = definition.create_new_version(config=config, created_by=self.user)
         unused_version = definition.create_new_version(config=config, created_by=self.user)
+        definition.short_name = "Category label"
+        definition.save(update_fields=["short_name"])
         items = [
             self.item,
             *OfflineExperimentItem.objects.for_team(self.team.id).bulk_create(
@@ -382,6 +397,9 @@ class TestOfflineExperimentReads(APIBaseTest):
             sorted([str(version.id), str(unused_version.id)]),
         )
         self.assertEqual([scorer["config"] for scorer in response.data["scorer_versions"]], [config, config])
+        self.assertEqual(
+            [scorer["short_name"] for scorer in response.data["scorer_versions"]], ["Category label", "Category label"]
+        )
         for item in response.data["results"]:
             self.assertEqual(len(item["results"]), 1)
             result = item["results"][0]
@@ -526,6 +544,7 @@ class TestOfflineExperimentReads(APIBaseTest):
             (self._endpoint(), {"limit": 101}, "limit"),
             (self._endpoint(), {"created_by": "invalid"}, "created_by"),
             (self._history(), {"created_by": 0}, "created_by"),
+            (self._history(), {"breakdown": "unsupported"}, "breakdown"),
             (self._history(), {"created_by": self.user.id, "created_by_is_null": "true"}, "created_by"),
             (self._endpoint(f"{self.experiment.id}/"), {"limit": 1}, "limit"),
             (self._endpoint(f"{self.experiment.id}/items/{self.item.id}/"), {"limit": 1}, "limit"),

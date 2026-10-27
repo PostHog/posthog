@@ -2,10 +2,13 @@ import json
 import asyncio
 import datetime as dt
 import dataclasses
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 from django.conf import settings
 
 from azure.core.exceptions import HttpResponseError
+from azure.core.pipeline.transport import AioHttpTransport
 from azure.storage.blob import StorageErrorCode
 from azure.storage.blob.aio import BlobServiceClient, ContainerClient, ExponentialRetry
 from structlog.contextvars import bind_contextvars
@@ -14,10 +17,12 @@ from temporalio.common import RetryPolicy
 
 from posthog.models.integration import AzureBlobIntegration, Integration
 from posthog.models.integration.azure_blob import EndpointNotAllowedError, validate_azure_blob_connection_string
+from posthog.security.pinned_aiohttp import pinned_session
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_write_only_logger
 
+from products.batch_exports.backend.facade.enums import AZURE_BLOB_SUPPORTED_COMPRESSIONS as SUPPORTED_COMPRESSIONS
 from products.batch_exports.backend.service import (
     AzureBlobBatchExportInputs,
     BatchExportField,
@@ -32,10 +37,7 @@ from products.batch_exports.backend.temporal.batch_exports import (
     is_over_billing_limit_error,
     start_batch_export_run,
 )
-from products.batch_exports.backend.temporal.destinations.constants import (
-    AZURE_BLOB_SUPPORTED_COMPRESSIONS as SUPPORTED_COMPRESSIONS,
-    FILE_FORMAT_EXTENSIONS,
-)
+from products.batch_exports.backend.temporal.destinations.constants import FILE_FORMAT_EXTENSIONS
 from products.batch_exports.backend.temporal.destinations.utils import EXTERNAL_LOGGER, get_manifest_key, get_object_key
 from products.batch_exports.backend.temporal.pipeline.consumer import Consumer, run_consumer_from_stage
 from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
@@ -52,9 +54,11 @@ NON_RETRYABLE_ERROR_TYPES = (
     "AzureBlobIntegrationError",
     "AzureBlobIntegrationNotFoundError",
     "ClientAuthenticationError",
+    "EndpointNotAllowedError",
     "MalformedConnectionStringError",
     "MissingRequiredPermissionsError",
     "ResourceNotFoundError",
+    "SSRFBlockedError",
     "UnsupportedCompressionError",
     "UnsupportedFileFormatError",
 )
@@ -134,6 +138,44 @@ def azure_blob_default_fields() -> list[BatchExportField]:
     return default_fields
 
 
+@asynccontextmanager
+async def azure_container_client(connection_string: str, container_name: str) -> AsyncIterator[ContainerClient]:
+    try:
+        pinned_ips = await asyncio.to_thread(validate_azure_blob_connection_string, connection_string)
+    except EndpointNotAllowedError:
+        raise
+    except ValueError:
+        raise MalformedConnectionStringError()
+
+    async with pinned_session(pinned_ips or {}) as session:
+        async with AioHttpTransport(
+            session=session,
+            # Increase the read timeout to 10 minutes to account for large uploads.
+            read_timeout=600,
+            # Preserved default from BlobServiceClient
+            connection_timeout=20,
+        ) as transport:
+            try:
+                blob_service_client = BlobServiceClient.from_connection_string(
+                    connection_string,
+                    transport=transport,
+                    # These are Azure SDK defaults but we set them explicitly for visibility.
+                    # See: https://learn.microsoft.com/en-us/python/api/azure-storage-blob/azure.storage.blob.blobserviceclient
+                    # Blobs larger than `max_single_put_size` are uploaded in blocks of `max_block_size`.
+                    max_single_put_size=64 * 1024 * 1024,  # 64 MiB
+                    max_block_size=4 * 1024 * 1024,  # 4 MiB
+                    # Azure SDK defaults but we set them explicitly for visibility.
+                    retry_policy=ExponentialRetry(initial_backoff=15, increment_base=3, retry_total=3),
+                    permit_redirects=False,
+                )
+            except ValueError:
+                # The SDK does other checks that we don't
+                raise MalformedConnectionStringError()
+
+            async with blob_service_client as client:
+                yield client.get_container_client(container_name)
+
+
 class AzureBlobConsumer(Consumer):
     """Consumer that uploads data to Azure Blob Storage."""
 
@@ -154,6 +196,7 @@ class AzureBlobConsumer(Consumer):
         super().__init__(model=model.name)
 
         self.container_client = container_client
+
         self.prefix = prefix
         self.data_interval_start = data_interval_start
         self.data_interval_end = data_interval_end
@@ -169,35 +212,13 @@ class AzureBlobConsumer(Consumer):
         self.files_uploaded: list[str] = []
 
     @classmethod
-    async def from_inputs(
+    def from_inputs(
         cls,
         inputs: AzureBlobInsertInputs,
-        connection_string: str,
+        /,
+        container_client: ContainerClient,
         max_concurrency: int,
     ) -> "AzureBlobConsumer":
-        # Blobs larger than `max_single_put_size` are uploaded in blocks of `max_block_size`.
-        # These are Azure SDK defaults but we set them explicitly for visibility.
-        # See: https://learn.microsoft.com/en-us/python/api/azure-storage-blob/azure.storage.blob.blobserviceclient
-
-        try:
-            await asyncio.to_thread(validate_azure_blob_connection_string, connection_string)
-            blob_service_client = BlobServiceClient.from_connection_string(
-                conn_str=connection_string,
-                max_single_put_size=64 * 1024 * 1024,  # 64 MiB
-                max_block_size=4 * 1024 * 1024,  # 4 MiB
-                # Increase the read timeout to 10 minutes to account for large uploads.
-                read_timeout=600,
-                # Azure SDK defaults but we set them explicitly for visibility.
-                retry_policy=ExponentialRetry(initial_backoff=15, increment_base=3, retry_total=3),
-                permit_redirects=False,
-            )
-        except EndpointNotAllowedError:
-            raise
-        except ValueError:
-            raise MalformedConnectionStringError()
-
-        container_client = blob_service_client.get_container_client(inputs.container_name)
-
         return cls(
             container_client=container_client,
             prefix=inputs.prefix,
@@ -347,12 +368,6 @@ async def insert_into_azure_blob_activity_from_stage(inputs: AzureBlobInsertInpu
             )
             return BatchExportResult(records_completed=0, bytes_exported=0)
 
-        consumer = await AzureBlobConsumer.from_inputs(
-            inputs=inputs,
-            connection_string=azure_integration.connection_string,
-            max_concurrency=settings.BATCH_EXPORT_AZURE_BLOB_MAX_CONCURRENT_UPLOADS,
-        )
-
         json_columns = ("properties", "person_properties", "set", "set_once")
         if inputs.file_format.lower() == "jsonlines":
             transformer = get_json_stream_transformer(
@@ -367,14 +382,21 @@ async def insert_into_azure_blob_activity_from_stage(inputs: AzureBlobInsertInpu
                 max_file_size_bytes=inputs.max_file_size_mb * 1024 * 1024 if inputs.max_file_size_mb else 0,
             )
 
-        return await run_consumer_from_stage(
-            queue=queue,
-            consumer=consumer,
-            producer_task=producer_task,
-            transformer=transformer,
-            json_columns=json_columns,
-            records_total=inputs.records_total,
-        )
+        async with azure_container_client(azure_integration.connection_string, inputs.container_name) as client:
+            consumer = AzureBlobConsumer.from_inputs(
+                inputs,
+                container_client=client,
+                max_concurrency=settings.BATCH_EXPORT_AZURE_BLOB_MAX_CONCURRENT_UPLOADS,
+            )
+
+            return await run_consumer_from_stage(
+                queue=queue,
+                consumer=consumer,
+                producer_task=producer_task,
+                transformer=transformer,
+                json_columns=json_columns,
+                records_total=inputs.records_total,
+            )
 
 
 @workflow.defn(name="azure-blob-export", failure_exception_types=[workflow.NondeterminismError])

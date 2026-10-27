@@ -27,9 +27,12 @@ from typing import Any
 import structlog
 from prometheus_client import Counter
 
+from posthog.schema import HogQLQueryModifiers
+
 from posthog import redis
 from posthog.clickhouse.query_tagging import get_query_tag_value, tag_queries
 from posthog.models import Team
+from posthog.models.event.new_events_schema import events_route_cache_modifiers, use_new_events_schema
 from posthog.token_bucket import BucketDecision, Budget, consume
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
@@ -125,8 +128,13 @@ def marketing_ensure_precomputed(*, team: Team, **kwargs: Any) -> LazyComputatio
 
 
 def _query_shape_key(query: Any) -> str:
+    query_json = query.model_dump(mode="json", exclude_none=True, exclude=set(FINAL_READ_ONLY_FIELDS))
+    if "modifiers" in query_json:
+        query_json["modifiers"] = events_route_cache_modifiers(query_json["modifiers"], reads_events=True)
+        if not query_json["modifiers"]:
+            query_json.pop("modifiers")
     payload = json.dumps(
-        query.model_dump(mode="json", exclude_none=True, exclude=set(FINAL_READ_ONLY_FIELDS)),
+        query_json,
         sort_keys=True,
         default=str,
     )
@@ -150,6 +158,17 @@ def _scope_to_revalidation(query: Any) -> Any:
     return scoped
 
 
+def _revalidation_query(*, team: Team, query: Any) -> Any:
+    """The query the revalidation task rebuilds, which also keys its debounce slot.
+
+    The events table the stale read resolved is pinned, so the task, which runs without the reader's cookie, rebuilds
+    from the same table, and each table gets its own slot.
+    """
+    modifiers = (query.modifiers or HogQLQueryModifiers()).model_copy()
+    modifiers.useNewEventsSchema = use_new_events_schema(team.pk, modifiers)
+    return _scope_to_revalidation(query.model_copy(update={"modifiers": modifiers}))
+
+
 def is_on_demand_revalidation() -> bool:
     """True inside the Celery revalidation task, which a user read can trigger.
 
@@ -171,7 +190,7 @@ def enqueue_stale_revalidation(*, team: Team, query: Any) -> None:
         revalidate_marketing_analytics_precompute,
     )
 
-    query = _scope_to_revalidation(query)
+    query = _revalidation_query(team=team, query=query)
     claimed = False
     debounce_key: str | None = None
     try:

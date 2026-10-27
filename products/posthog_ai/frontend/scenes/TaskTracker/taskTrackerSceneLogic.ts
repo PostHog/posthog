@@ -121,6 +121,7 @@ export interface TaskTrackerSceneLogicProps {
 }
 
 const LAST_REPOSITORY_CONFIG_STORAGE_KEY = 'posthog_ai.tasks.lastRepositoryConfig'
+const DEFAULT_REPOSITORY_CONFIG_STORAGE_KEY = 'posthog_ai.tasks.defaultRepositoryConfig'
 
 /**
  * The page a pending creation belongs to, before the created task has an id to compare against.
@@ -226,6 +227,7 @@ export interface taskTrackerSceneLogicValues {
     composerAdapter: string
     consentBlocked: boolean
     customImages: SandboxCustomImageDTOApi[] | null
+    defaultRepositoryConfig: PersistedRepositoryConfig
     desktopAccess: LegacyDesktopAccessResponseApi | null
     desktopAccessLoading: boolean
     displayEffort: ReasoningEffortEnumApi
@@ -236,6 +238,7 @@ export interface taskTrackerSceneLogicValues {
     favoriteCloudTarget: string | null
     hasDesktopAccess: boolean
     headlineSeed: number
+    isDefaultRepository: boolean
     isDefaultSelection: boolean
     isSubmittingTask: boolean
     newTaskData: TaskCreateForm
@@ -244,6 +247,7 @@ export interface taskTrackerSceneLogicValues {
     sandboxEnvironments: SandboxEnvironmentDTOApi[] | null
     selectedCloudTarget: string | null
     selectedCloudTargetIds: CloudTargetIds
+    startsFromDefaultRepository: boolean
     startsInPlanMode: boolean
 }
 
@@ -390,6 +394,12 @@ export interface taskTrackerSceneLogicActions {
     pickPermissionMode: (permissionMode: PermissionMode) => {
         permissionMode: PermissionMode
     }
+    removeRepository: () => {
+        value: true
+    }
+    requestRepository: () => {
+        value: true
+    }
     resetNewTaskData: () => {
         value: true
     }
@@ -402,6 +412,9 @@ export interface taskTrackerSceneLogicActions {
     ) => {
         environments: SandboxEnvironmentDTOApi[] | null
         images: SandboxCustomImageDTOApi[] | null
+    }
+    setDefaultRepositoryConfig: (config: PersistedRepositoryConfig) => {
+        config: PersistedRepositoryConfig
     }
     setHeadlineSeed: (seed: number) => {
         seed: number
@@ -419,6 +432,9 @@ export interface taskTrackerSceneLogicActions {
         error: string
     }
     submitNewTaskSuccess: () => {
+        value: true
+    }
+    toggleDefaultRepository: () => {
         value: true
     }
     toggleFavoriteCloudTarget: (cloudTarget: string) => {
@@ -463,6 +479,11 @@ export interface taskTrackerSceneLogicMeta {
             effectiveComposerOverride: ComposerOverride | null
         ) => RepositoryConfig
         isDefaultSelection: (newTaskData: TaskCreateForm) => boolean
+        startsFromDefaultRepository: (featureFlags: FeatureFlagsSet) => boolean
+        isDefaultRepository: (
+            newTaskData: TaskCreateForm,
+            defaultRepositoryConfig: PersistedRepositoryConfig
+        ) => boolean
         favoriteCloudTarget: (taskDefaults: TasksTaskDefaultsApi | null) => string | null
         cloudTargetEnabled: (
             featureFlags: FeatureFlagsSet,
@@ -568,6 +589,10 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
         applyPrefill: (prompt: string, mode?: PermissionMode) => ({ prompt, mode }),
         setHeadlineSeed: (seed: number) => ({ seed }),
         setPersistedRepositoryConfig: (config: PersistedRepositoryConfig) => ({ config }),
+        setDefaultRepositoryConfig: (config: PersistedRepositoryConfig) => ({ config }),
+        toggleDefaultRepository: true,
+        requestRepository: true,
+        removeRepository: true,
         openExistingTask: (task: Task) => ({ task }),
         // Re-points the panel at a fresh run started from the composer on a reopened terminal task
         // (the run surface's own re-pointing targets the detail scene, which the panel doesn't render).
@@ -638,6 +663,13 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             { persist: true, storageKey: LAST_REPOSITORY_CONFIG_STORAGE_KEY },
             {
                 setPersistedRepositoryConfig: (_, { config }) => config,
+            },
+        ],
+        defaultRepositoryConfig: [
+            {} as PersistedRepositoryConfig,
+            { persist: true, storageKey: DEFAULT_REPOSITORY_CONFIG_STORAGE_KEY },
+            {
+                setDefaultRepositoryConfig: (_, { config }) => config,
             },
         ],
         sandboxEnvironments: [
@@ -758,6 +790,18 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             (s) => [s.newTaskData],
             (newTaskData: TaskCreateForm): boolean => !newTaskData.model && !newTaskData.reasoningEffort,
         ],
+        startsFromDefaultRepository: [
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): boolean =>
+                !!featureFlags[FEATURE_FLAGS.PHAI_QUILL] || !!featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV],
+        ],
+        isDefaultRepository: [
+            (s) => [s.newTaskData, s.defaultRepositoryConfig],
+            (newTaskData: TaskCreateForm, defaultRepositoryConfig: PersistedRepositoryConfig): boolean =>
+                !!newTaskData.repositoryConfig.repository &&
+                newTaskData.repositoryConfig.repository === defaultRepositoryConfig.repository &&
+                newTaskData.repositoryConfig.integrationId === defaultRepositoryConfig.integrationId,
+        ],
         favoriteCloudTarget: [
             (s) => [s.taskDefaults],
             (taskDefaults: TasksTaskDefaultsApi | null): string | null => taskDefaults?.default_cloud_target ?? null,
@@ -832,6 +876,24 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
         [codexBillingLogic.actionTypes.setPreferredCodexModelAccess]: () => {
             actions.noteNewTaskDraft()
         },
+        toggleDefaultRepository: () => {
+            const { integrationId, repository } = values.newTaskData.repositoryConfig
+            if (!repository) {
+                return
+            }
+            const starred = !values.isDefaultRepository
+            actions.setDefaultRepositoryConfig(starred ? { integrationId, repository } : {})
+            posthog.capture('task composer repository starred', { starred })
+        },
+        requestRepository: () => {
+            posthog.capture('task composer repository requested')
+        },
+        removeRepository: () => {
+            actions.setNewTaskData({
+                repositoryConfig: { ...values.newTaskData.repositoryConfig, repository: undefined, branch: undefined },
+            })
+            posthog.capture('task composer repository removed')
+        },
         pickCloudTarget: ({ cloudTarget }) => {
             posthog.capture('task composer environment picked', {
                 kind: cloudTarget?.split(':')[0] ?? 'default',
@@ -882,7 +944,9 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             const initial = props.initialRepositoryConfig
             const { integrationId, repository } = initial?.repository
                 ? { integrationId: initial.integrationId ?? githubIntegrations[0].id, repository: initial.repository }
-                : values.persistedRepositoryConfig
+                : values.startsFromDefaultRepository
+                  ? values.defaultRepositoryConfig
+                  : values.persistedRepositoryConfig
             if (integrationId && githubIntegrations.some((integration) => integration.id === integrationId)) {
                 actions.setNewTaskData({ repositoryConfig: { integrationId, repository } })
                 return

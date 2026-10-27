@@ -110,13 +110,6 @@ class TestInsightResponseParity(ClickhouseTestMixin, APIBaseTest):
     def _trends_query(self, **kwargs: Any) -> dict[str, Any]:
         return TrendsQuery(**kwargs).model_dump()
 
-    def _compare_mode_rollout(self):
-        """Eligibility is re-checked on every materialized read, not just when materializing."""
-        return mock.patch(
-            "products.endpoints.backend.models.posthoganalytics.feature_enabled",
-            return_value=True,
-        )
-
     # =========================================================================
     # TRENDS
     # =========================================================================
@@ -177,6 +170,47 @@ class TestInsightResponseParity(ClickhouseTestMixin, APIBaseTest):
         assert first["count"] == 10.0, f"Unexpected count: {first['count']}"
         assert len(first["labels"]) == 10, f"Expected 10 labels, got {len(first['labels'])}"
         assert len(first["days"]) == 10, f"Expected 10 days, got {len(first['days'])}"
+
+    def test_materialized_trends_compare_override_matches_inline_response(self):
+        endpoint = create_endpoint_with_version(
+            name="trends_compare_override_parity",
+            team=self.team,
+            query=self._trends_query(
+                series=[EventsNode(event="$pageview")],
+                dateRange={"date_from": "2026-01-06", "date_to": "2026-01-10"},
+            ),
+            created_by=self.user,
+            is_active=True,
+        )
+        filters_override = {"compareFilter": {"compare": True}}
+
+        inline_response = self._run_endpoint(endpoint, filters_override=filters_override)
+        assert inline_response.status_code == status.HTTP_200_OK, inline_response.json()
+        inline_data = inline_response.json()
+
+        saved_query = self._materialize_endpoint(endpoint)
+        flat_response = process_query_model(
+            self.team,
+            HogQLQuery.model_validate(saved_query.query),
+            user=self.user,
+        )
+        assert isinstance(flat_response, HogQLQueryResponse | CachedHogQLQueryResponse)
+
+        def execute_query(team, query, *args, **kwargs):
+            if isinstance(query, HogQLQuery):
+                return flat_response
+            return process_query_model(team, query, *args, **kwargs)
+
+        with mock.patch(
+            "products.endpoints.backend.logic.execution.process_query_model",
+            side_effect=execute_query,
+        ):
+            materialized_response = self._run_endpoint(endpoint, filters_override=filters_override)
+
+        assert materialized_response.status_code == status.HTTP_200_OK, materialized_response.json()
+        materialized_data = materialized_response.json()
+        assert len(materialized_data["results"]) == len(inline_data["results"]) == 2
+        assert materialized_data["resolved_compare_date_range"] == inline_data["resolved_compare_date_range"]
 
     def test_materialized_trends_with_breakdown_has_insight_shape(self):
         endpoint = create_endpoint_with_version(
@@ -443,8 +477,7 @@ class TestInsightResponseParity(ClickhouseTestMixin, APIBaseTest):
             inline_response = self._run_endpoint(endpoint)
             assert inline_response.status_code == status.HTTP_200_OK
             inline_compare_range = inline_response.json()["resolved_compare_date_range"]
-            with self._compare_mode_rollout():
-                saved_query = self._materialize_endpoint(endpoint, data_freshness_seconds=604800)
+            saved_query = self._materialize_endpoint(endpoint, data_freshness_seconds=604800)
 
             flat_response = process_query_model(
                 self.team,
@@ -455,7 +488,6 @@ class TestInsightResponseParity(ClickhouseTestMixin, APIBaseTest):
 
         with (
             time_machine.travel(materialized_at + timedelta(days=6), tick=False),
-            self._compare_mode_rollout(),
             mock.patch(
                 "products.endpoints.backend.logic.execution.process_query_model",
                 return_value=flat_response,

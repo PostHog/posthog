@@ -322,7 +322,15 @@ export function ReplayScannersScene(): JSX.Element {
                 activeKey={activeTab}
                 onChange={(tab) => push(urls.replayVision(), tab === DEFAULT_TAB ? {} : { tab })}
                 tabs={[
-                    { key: 'watch', label: 'What to watch', content: <></> },
+                    {
+                        key: 'watch',
+                        // The new name ships with the embedding ranker, so it stays off the arms it does not describe.
+                        label:
+                            featureFlags[FEATURE_FLAGS.VISION_WATCH_FEED_RANKER] === 'embedding'
+                                ? 'Highlights'
+                                : 'What to watch',
+                        content: <></>,
+                    },
                     { key: 'scanners', label: 'Scanners', content: <></> },
                     { key: ReplayScannerTab.Search, label: 'Search', content: <></> },
                     { key: 'usage', label: 'Usage', content: <></> },

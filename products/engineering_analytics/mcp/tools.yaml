@@ -33,6 +33,7 @@ tools:
             breaking/resolved distinction needs the job-level source synced: without it those failures fall through to
             flaky/pr_only rather than being misreported. Counts are absolute, never rates (passing runs aren't in this
             data).
+        hooks: engineeringAnalytics/redactFailureLogsHooks
         feature_flag: engineering-analytics
     engineering-analytics-ci-failure-logs:
         operation: engineering_analytics_ci_failure_logs
@@ -53,6 +54,7 @@ tools:
             pushes' failures are included too. logs_available is false when CI hasn't failed, the logs aged out of the
             short Logs retention, or a fork PR has no run association to resolve. Use pr-runs or workflow-jobs for the
             run/job metadata behind these logs. Jobs carry ci_engine; null means unknown historical provenance.
+        hooks: engineeringAnalytics/redactFailureLogsHooks
         feature_flag: engineering-analytics
     engineering-analytics-dora:
         operation: engineering_analytics_dora
@@ -154,6 +156,7 @@ tools:
             or its logs aged out of the short Logs retention. Use ci-failure-logs instead when you have a PR number and
             want all its runs' failures. Pass ci_engine with run_id (latest_ci_engine for a triage row). Ambiguous
             integer IDs return 400. Null engine means unknown historical provenance.
+        hooks: engineeringAnalytics/redactFailureLogsHooks
         feature_flag: engineering-analytics
     engineering-analytics-sources:
         operation: engineering_analytics_sources

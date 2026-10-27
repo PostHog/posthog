@@ -3,6 +3,7 @@ import json
 from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 from datetime import datetime, timedelta
 from enum import Enum
+from functools import lru_cache, partial
 from itertools import batched, groupby
 from time import time
 from typing import Any, Optional, TypedDict, cast
@@ -31,6 +32,7 @@ from posthog.tasks.usage_report import (
     combine_posthog_code_credits,
     convert_team_usage_rows_to_dict,
     get_self_driving_credits_used_in_period_for_org,
+    get_self_driving_credits_used_in_period_for_orgs,
     get_signals_credited_refund_credits_for_org,
     get_teams_with_api_queries_metrics,
     get_teams_with_apm_tracing_usage_in_period,
@@ -431,6 +433,11 @@ def _signals_credited_refund_offset(organization: Organization, resource: QuotaR
     return get_signals_credited_refund_credits_for_org(organization.id, period_start, period_end)
 
 
+@lru_cache(maxsize=8192)
+def _period_timestamp(value: str) -> int:
+    return round(dateutil.parser.isoparse(value).timestamp())
+
+
 def org_quota_limited_until(
     organization: Organization,
     resource: QuotaResource,
@@ -514,8 +521,8 @@ def org_quota_limited_until(
     refund_offset_properties = {"signals_refund_offset": refund_offset} if refund_offset else {}
 
     is_over_limit = current_usage - refund_offset >= limit + OVERAGE_BUFFER[resource]
-    billing_period_start = round(dateutil.parser.isoparse(organization.usage["period"][0]).timestamp())
-    billing_period_end = round(dateutil.parser.isoparse(organization.usage["period"][1]).timestamp())
+    billing_period_start = _period_timestamp(organization.usage["period"][0])
+    billing_period_end = _period_timestamp(organization.usage["period"][1])
 
     # - customer_trust_scores can be empty {} for orgs not yet synced from billing. Default to 0 (no grace period)
     # - customer_trust_scores in posthog_organization use usage_key values (matching QuotaResource values)
@@ -1154,6 +1161,10 @@ def _identify_refresh_candidates(
          `quota_limiting_suspended_until` marker;
       3. it appears newly limitable from cached state — `usage + todays_usage >= limit + buffer`
          for any resource.
+
+    A resource with a zero limit and no overage buffer never makes an org a candidate. That
+    limit blocks the resource at any usage, so the cached state gives the same decision.
+    Signals credits are the exception, because a refund offset can lift a signals block.
     """
     # Either Redis set is reason enough to refresh, so union them once up front and
     # do a single membership check per resource below.
@@ -1175,6 +1186,10 @@ def _identify_refresh_candidates(
 
         for resource in QuotaResource:
             field = resource.value
+            usage_for_resource = org.usage.get(field)
+            limit = usage_for_resource.get("limit") if usage_for_resource else None
+            if limit == 0 and OVERAGE_BUFFER[resource] == 0 and resource != QuotaResource.SIGNALS_CREDITS:
+                continue
 
             # Redis check first: an org with a stale entry in either Redis set must be
             # refreshed and re-evaluated even when its `usage[resource]` is empty or
@@ -1184,7 +1199,6 @@ def _identify_refresh_candidates(
                 is_candidate = True
                 break
 
-            usage_for_resource = org.usage.get(field)
             if not usage_for_resource:
                 continue
 
@@ -1194,7 +1208,6 @@ def _identify_refresh_candidates(
                 is_candidate = True
                 break
 
-            limit = usage_for_resource.get("limit")
             if limit is None:
                 continue
             usage_value = usage_for_resource.get("usage") or 0
@@ -1483,12 +1496,31 @@ def update_all_orgs_billing_quotas(
                 .in_bulk
             ).values()
         }
+        signals_recount_ids = [
+            org_id
+            for org_id, fresh in fresh_orgs.items()
+            if (fresh.usage or {}).get(QuotaResource.SIGNALS_CREDITS.value)
+        ]
+        try:
+            signals_recounts = retry_quota_database_operation(
+                partial(get_self_driving_credits_used_in_period_for_orgs, signals_recount_ids, period.start, period.end)
+            )
+        except Exception as error:
+            if isinstance(error, (DatabaseError, InterfaceError)) and not settings.TEST:
+                close_old_connections()
+            capture_exception(error, {"organization_ids": signals_recount_ids})
+            # These organizations keep their existing limits. The loop still decides the rest of the chunk.
+            for org_id in signals_recount_ids:
+                discard_decision(org_id, teams_by_org.get(org_id, []))
+            signals_recounts = {}
         refresh_count += len(fresh_orgs)
         refresh_total_seconds += time() - refresh_start
         usage_batch = QuotaUsageBatch()
         for org_id, todays_report in reports.usage.items():
             org = orgs_by_id[org_id]
             try:
+                if org_id in failed_org_ids:
+                    continue
                 if org.usage and org.usage.get("period"):
                     if org_id in refresh_candidates:
                         fresh = fresh_orgs.get(org_id)
@@ -1501,9 +1533,7 @@ def update_all_orgs_billing_quotas(
                         usage_batch.require_unchanged_usage(org, fresh.usage_md5)
                         if (org.usage or {}).get(QuotaResource.SIGNALS_CREDITS.value):
                             # Push refreshes can raise signals usage after the source snapshot. Recount before writing it.
-                            todays_report["signals_credits"] = get_self_driving_credits_used_in_period_for_org(
-                                org_id, period.start, period.end
-                            )
+                            todays_report["signals_credits"] = signals_recounts.get(org_id, 0)
                     _patch_todays_usage(org, todays_report, batch=usage_batch)
                     org_is_limited = org_is_suspended = False
                     for resource in QuotaResource:

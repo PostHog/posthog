@@ -1,3 +1,5 @@
+import type { ReportRankingPredictionApi } from 'products/signals/frontend/generated/api.schemas'
+
 import { isRankingSortField, rankingScoreForField } from '../filterOptions'
 import type { InboxRankingSortField, InboxSortDirection, InboxSortField } from '../logics/inboxFiltersLogic'
 import { SignalReport, SignalReportStatus } from '../types'
@@ -18,6 +20,7 @@ const STATUS_RANK: Record<SignalReportStatus, number> = {
     [SignalReportStatus.CANDIDATE]: 4,
     [SignalReportStatus.POTENTIAL]: 5,
     [SignalReportStatus.FAILED]: 6,
+    [SignalReportStatus.MONITORING]: 6,
     [SignalReportStatus.RESOLVED]: 7,
     [SignalReportStatus.SUPPRESSED]: 8,
     [SignalReportStatus.DELETED]: 9,
@@ -47,18 +50,21 @@ function timestampKey(value: string): string {
     return value.includes('.') ? value : value.replace(/(Z|[+-]\d\d:?\d\d)$/, '.000000$1')
 }
 
-/**
- * The served probability a model sort orders by, or null when the report has no score for that head or the score is stale.
- * Non-staff users get no probabilities, so their rows order by the lift. The lift is the probability over the head's
- * base rate, so it gives the same order.
- */
+/** The served model's prediction for one outcome, or undefined when the report has none. */
+export function rankingPrediction(
+    ranking: SignalReport['ranking'],
+    outcome: string
+): ReportRankingPredictionApi | undefined {
+    return ranking?.predictions.find((prediction) => prediction.outcome === outcome)
+}
+
+/** The served probability a model sort orders by, or null when the report has no score for that outcome or the score is stale. */
 export function rankingSortScore(report: SignalReport, field: InboxRankingSortField): number | null {
-    if (report.ranking?.stale) {
+    if (report.ranking?.status !== 'scored') {
         return null
     }
-    const head = rankingScoreForField(field).head
-    const score = report.ranking?.scores[head] ?? report.ranking?.lifts?.[head]
-    return typeof score === 'number' ? score : null
+    const probability = rankingPrediction(report.ranking, rankingScoreForField(field).outcome)?.probability
+    return typeof probability === 'number' ? probability : null
 }
 
 /**

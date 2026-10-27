@@ -1,4 +1,4 @@
-import { Liquid } from 'liquidjs'
+import { Context, Emitter, Liquid, Tag, TagToken, Template, TopLevelToken } from 'liquidjs'
 
 import { rowScopedTriggerTypeForEvent } from '../schema/hogflow'
 import { HogFunctionInvocationGlobalsWithInputs } from '../types'
@@ -186,6 +186,22 @@ const formatCurrency = (value: unknown, first?: unknown, second?: unknown): unkn
     return currencyFormatter(first, second)?.format(amount) ?? value
 }
 
+// Customer.io templates write the unsubscribe link as a tag, `{% unsubscribe_url %}`, where we expose a
+// variable. The tag renders `{{ unsubscribe_url }}`, so it gets the same escaping as the variable and
+// renders empty when the send has no unsubscribe URL.
+class UnsubscribeUrlTag extends Tag {
+    private readonly templates: Template[]
+
+    constructor(token: TagToken, remainTokens: TopLevelToken[], liquid: Liquid) {
+        super(token, remainTokens, liquid)
+        this.templates = liquid.parse('{{ unsubscribe_url }}')
+    }
+
+    *render(ctx: Context, emitter: Emitter): Generator<unknown, void, unknown> {
+        yield this.liquid.renderer.renderTemplates(this.templates, ctx, emitter)
+    }
+}
+
 const createLiquid = (outputEscape: 'escape' | undefined): Liquid => {
     const liquid = new Liquid({
         outputEscape,
@@ -202,6 +218,7 @@ const createLiquid = (outputEscape: 'escape' | undefined): Liquid => {
         })
     }
     liquid.registerFilter('currency', formatCurrency)
+    liquid.registerTag('unsubscribe_url', UnsubscribeUrlTag)
     return liquid
 }
 

@@ -38,12 +38,7 @@ async def test_discovered_suites_match_reporting_enrollment(tmp_path: Path) -> N
             await suite.fn(ctx)
             assert len(runs) == 1, suite.id
             run = runs[0]
-            assert run.no_send_logs == suite.no_send_logs, suite.id
             config = run.offline_suite
-            if suite.id == "logs/eval_agent_observability::eval_agent_observability":
-                assert config is None
-                assert not run.no_send_logs
-                continue
             assert config is not None, suite.id
             assert run.send_to_posthog, suite.id
             assert config.key == suite.id
@@ -57,6 +52,3 @@ async def test_discovered_suites_match_reporting_enrollment(tmp_path: Path) -> N
             assert ("exit_code_zero" in metrics) == (suite.kind == SuiteKind.SANDBOXED), suite.id
             assert any(tag.startswith("team:") for tag in config.tags), suite.id
             assert any(tag.startswith("component:") for tag in config.tags), suite.id
-
-            if suite.domain in {"feature_flags", "dashboards", "business_knowledge", "turn_suggestions"}:
-                assert run.no_send_logs, suite.id

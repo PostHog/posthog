@@ -7,7 +7,14 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.schema import DashboardFilter, MetricsHistogramQuery, MetricsQueryFilter
+from posthog.schema import (
+    DashboardFilter,
+    MetricsDashboardVariable,
+    MetricsDashboardVariableSelection,
+    MetricsHistogramQuery,
+    MetricsQueryFilter,
+    MetricsVariableValue,
+)
 
 from posthog.hogql.errors import ExposedHogQLError
 
@@ -15,6 +22,7 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.metrics.backend.hogql_queries.metrics_histogram_query_runner import MetricsHistogramQueryRunner
+from products.metrics.backend.metric_query_runner import MetricQueryRunner
 from products.metrics.backend.tests._seeder import seed_metric, truncate_metrics_tables
 
 
@@ -57,18 +65,29 @@ class TestMetricsHistogramQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         return MetricsHistogramQueryRunner(query=query, team=self.team).calculate()
 
-    def test_dashboard_metric_filters_add_to_the_query_filters(self):
+    def test_dashboard_variables_apply_and_saved_metric_filters_do_not(self):
         own_filter = MetricsQueryFilter(key="namespace", op="eq", value="posthog")
         dashboard_filter = MetricsQueryFilter(key="service.name", op="eq", value="checkout")
         runner = MetricsHistogramQueryRunner(
-            query=MetricsHistogramQuery(metricName="latency", filters=[own_filter]), team=self.team
+            query=MetricsHistogramQuery(metricName="latency", filters=[own_filter], interval="$window"), team=self.team
         )
 
-        runner.apply_dashboard_filters(DashboardFilter(metricFilters=[dashboard_filter]))
+        runner.apply_dashboard_filters(
+            DashboardFilter(
+                metricFilters=[dashboard_filter],
+                metricVariables=[
+                    MetricsDashboardVariable(
+                        name="window", source="custom", current=MetricsDashboardVariableSelection(values=["1m"])
+                    )
+                ],
+            )
+        )
 
-        self.assertEqual(runner.query.filters, [own_filter, dashboard_filter])
+        self.assertEqual(runner.query.filters, [own_filter])
+        assert runner.query.variables is not None and runner.query.variables["window"].values == ["1m"]
 
-    def test_returns_a_time_by_bound_grid(self):
+    @parameterized.expand([("fixed", "minute"), ("variable", "$window")])
+    def test_returns_a_time_by_bound_grid(self, _name: str, interval: str) -> None:
         self._seed_histogram(
             [
                 (self.anchor + dt.timedelta(seconds=0), [10, 10, 10, 0]),
@@ -77,7 +96,7 @@ class TestMetricsHistogramQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ]
         )
 
-        response = self._run()
+        response = self._run(interval=interval, variables={"window": MetricsVariableValue(values=["1m"])})
 
         self.assertEqual(response.bounds, self.BOUNDS)
         # One column per minute bucket across the 3-minute window.
@@ -103,19 +122,42 @@ class TestMetricsHistogramQueryRunner(ClickhouseTestMixin, APIBaseTest):
     # an exponential histogram) blends into one heatmap.
     def test_metric_type_filters_to_that_type(self):
         self._seed_histogram([(self.anchor, [10, 10, 10, 0])])
-        self._seed_histogram([(self.anchor, [5, 5, 5, 0])], metric_type="exponential_histogram")
+        # Ingest stores exponential lower edges; the grid rows are upper edges.
+        self._seed_histogram([(self.anchor, [5, 5, 5])], bounds=[0.1, 0.2, 0.4], metric_type="exponential_histogram")
 
         response = self._run(metricType="exponential_histogram")
 
-        second_minute = [response.counts[b][1] for b in range(len(self.BOUNDS))]
-        self.assertEqual(second_minute, [5, 5, 5])
+        self.assertEqual(response.bounds, [0.1, 0.2, 0.4, 0.8])
+        self.assertEqual([row[1] for row in response.counts], [0, 5, 5, 5])
 
-    def test_rejects_mixed_bucket_layouts(self):
+    def test_merged_counts_keep_their_total(self):
+        # (0, 1.0] splits over four finer buckets: 1 observation must not round away to 0.
+        self._seed_histogram([(self.anchor, [1, 0])], bounds=[1.0])
+        self._seed_histogram([(self.anchor, [0, 0, 0, 0, 0])], bounds=[0.25, 0.5, 0.75, 1.0])
+
+        response = self._run()
+
+        self.assertEqual(sum(row[1] for row in response.counts), 1)
+
+    def test_rejects_a_large_grid_before_merging(self):
+        self._seed_histogram([(self.anchor, [10, 0, 0, 0])])
+
+        with (
+            patch.object(MetricQueryRunner, "merged_distributions", side_effect=AssertionError("merged")),
+            patch("products.metrics.backend.hogql_queries.metrics_histogram_query_runner.MAX_GRID_CELLS", 1),
+            self.assertRaisesRegex(Exception, "heatmap grid would hold"),
+        ):
+            self._run()
+
+    def test_merges_mixed_bucket_layouts_onto_their_union(self):
         self._seed_histogram([(self.anchor, [10, 0, 0, 0])], bounds=[0.1, 0.5, 1.0])
         self._seed_histogram([(self.anchor, [10, 0, 0, 0])], bounds=[0.2, 1.0, 2.0])
 
-        with self.assertRaises(Exception):
-            self._run()
+        response = self._run()
+
+        self.assertEqual(response.bounds, [0.1, 0.2, 0.5, 1.0, 2.0])
+        # The (0, 0.2] bucket splits evenly over (0, 0.1] and (0.1, 0.2].
+        self.assertEqual([row[1] for row in response.counts], [15, 5, 0, 0, 0])
 
     def test_no_trailing_column_when_date_to_sits_on_a_bucket_boundary(self):
         # date_to is exclusive: a range ending exactly on a bucket start has no

@@ -4,6 +4,7 @@ from uuid import UUID
 
 from django.db import connection, transaction
 from django.db.models import Q, QuerySet
+from django.utils import timezone
 
 import structlog
 
@@ -618,6 +619,31 @@ def _promote_view_nodes(nodes: QuerySet[Node]) -> int:
         nodes.filter(_materializes_q(), type=NodeType.VIEW)
         .exclude(saved_query__deleted=True)
         .update(type=NodeType.MAT_VIEW)
+    )
+
+
+def link_table_if_materializing(team_id: int, saved_query_id: UUID | str, table_id: UUID) -> bool:
+    """Link a published table to the saved query, unless the query stopped asking to materialize."""
+    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+
+    saved_query = DataWarehouseSavedQuery.objects.filter(team_id=team_id, id=saved_query_id)
+    with transaction.atomic():
+        intent = saved_query.select_for_update().values_list("is_materialized", "origin").first()
+        if intent is None:
+            return False
+        is_materialized, origin = intent
+        if not is_materialized and origin != DataWarehouseSavedQuery.Origin.MANAGED_VIEWSET:
+            return False
+        saved_query.update(table_id=table_id, updated_at=timezone.now())
+    return True
+
+
+def unlink_table(team_id: int, saved_query_id: UUID | str, table_id: UUID) -> None:
+    """Clear the saved query's table link if it still points at this table."""
+    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+
+    DataWarehouseSavedQuery.objects.filter(team_id=team_id, id=saved_query_id, table_id=table_id).update(
+        table_id=None, updated_at=timezone.now()
     )
 
 
