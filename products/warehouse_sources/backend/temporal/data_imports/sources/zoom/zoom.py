@@ -178,7 +178,16 @@ def _resource_config(config: ZoomEndpointConfig) -> EndpointResource:
         # A parent this endpoint can't serve (a user without the relevant license or plan, a meeting
         # that never took place) returns 400/404; skip that parent without aborting the whole sync
         # (an empty page that stops this parent's pagination). Any other non-2xx still raises.
+        # Code 300 is an invalid or expired `next_page_token`: ignoring it would silently drop the
+        # rest of that parent's pages, so fail the request instead and let the run retry.
         endpoint["response_actions"] = [
+            {
+                "status_code": 400,
+                "json_field": "code",
+                "json_values": [300],
+                "action": "retry",
+                "message": "Zoom next_page_token is invalid or expired",
+            },
             {"status_code": 400, "action": "ignore"},
             {"status_code": 404, "action": "ignore"},
         ]
@@ -186,6 +195,11 @@ def _resource_config(config: ZoomEndpointConfig) -> EndpointResource:
     if row_map is not None:
         resource["data_map"] = row_map
     return resource
+
+
+def supports_resume(endpoint: str) -> bool:
+    # The REST framework checkpoints a fan-out with one dependent level only.
+    return len(_resource_chain(ZOOM_ENDPOINTS[endpoint])) <= 2
 
 
 def _fan_out_resource(
@@ -251,6 +265,7 @@ def zoom_source(
         partition_format="week" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
         column_hints=resource.column_hints,
+        supports_resume=supports_resume(endpoint),
     )
 
 

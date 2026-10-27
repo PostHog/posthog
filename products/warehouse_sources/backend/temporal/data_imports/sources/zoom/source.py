@@ -23,6 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.zoom.settings import ENDPOINTS, INCREMENTAL_FIELDS
 from products.warehouse_sources.backend.temporal.data_imports.sources.zoom.zoom import (
     ZoomResumeConfig,
+    supports_resume,
     validate_credentials as validate_zoom_credentials,
     zoom_source,
 )
@@ -155,6 +156,9 @@ class ZoomSource(ResumableSource[ZoomSourceConfig, ZoomResumeConfig]):
             client_secret=config.client_secret,
             schema_name=schema_name,
         )
+
+    def resume_covers_run(self, *, incremental_or_append: bool, schema_name: str | None = None) -> bool:
+        return schema_name is None or schema_name not in ENDPOINTS or supports_resume(schema_name)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[ZoomResumeConfig]:
         return ResumableSourceManager[ZoomResumeConfig](inputs, ZoomResumeConfig)

@@ -1,7 +1,9 @@
 from typing import Any
 
 import pytest
+from unittest.mock import patch
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import RESTClientRetryableError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     RecordedRequest,
     ScriptedResponse,
@@ -200,8 +202,52 @@ class TestFanOutRows:
         registrant_requests = [r for r in result.requests if r.path == f"/v2{registrants_root}/222/registrants"]
         assert [r.param("next_page_token") for r in registrant_requests] == [None, "t1"]
 
+    def test_expired_page_token_fails_instead_of_truncating(self) -> None:
+        responses = {
+            "/oauth/token": _TOKEN,
+            "/v2/users": ScriptedResponse(json={"users": [{"id": "u1"}], "next_page_token": ""}),
+            "/v2/users/u1/meetings": ScriptedResponse(json={"meetings": [{"id": 111}], "next_page_token": ""}),
+        }
+
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/v2/meetings/111/registrants":
+                if request.param("next_page_token") is None:
+                    return ScriptedResponse(json={"registrants": [{"id": "r1"}], "next_page_token": "t1"})
+                return ScriptedResponse(status=400, json={"code": 300, "message": "next_page_token expired"})
+            return responses[request.path]
+
+        with patch("time.sleep"):
+            result = _driver().run("meeting_registrants", respond)
+
+        assert isinstance(result.raised, RESTClientRetryableError)
+
 
 class TestZoomSourceResponse:
+    @pytest.mark.parametrize(
+        "endpoint,resumable",
+        [
+            ("users", True),
+            ("meetings", True),
+            ("webinars", True),
+            ("meeting_registrants", False),
+            ("webinar_registrants", False),
+            ("meeting_participants", False),
+            ("webinar_participants", False),
+        ],
+    )
+    def test_chained_tables_are_not_resumable(self, endpoint: str, resumable: bool) -> None:
+        assert ZoomSource().resume_covers_run(incremental_or_append=False, schema_name=endpoint) is resumable
+
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/oauth/token":
+                return _TOKEN
+            return ScriptedResponse(json={"users": [], "next_page_token": ""})
+
+        result = _driver().run(endpoint, respond)
+
+        assert result.response is not None
+        assert result.response.supports_resume is resumable
+
     @pytest.mark.parametrize("endpoint", ["users", "meetings", "webinars"])
     def test_primary_keys_per_endpoint(self, endpoint: str) -> None:
         def respond(request: RecordedRequest) -> ScriptedResponse:
