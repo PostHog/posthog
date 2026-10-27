@@ -222,6 +222,9 @@ export interface ChartDimensions {
     plotWidth: number
     /** Height of the drawable plot area. */
     plotHeight: number
+    /** Device pixels per CSS pixel when the chart was measured. Lets layout snap edges to device
+     *  pixels. Treat a missing value as 1. */
+    pixelRatio?: number
 }
 
 /** Spacing between the container edges and the plot area. */
@@ -610,6 +613,15 @@ export interface AreaSelectData extends LabelRange {
     yPixel0: number
     /** Bottom of the dragged range in canvas pixels. */
     yPixel1: number
+}
+
+/** Payload of a completed x-only drag on a continuous axis ({@link ChartProps.onPixelRangeSelect}).
+ *  Both edges are canvas pixels clamped to the plot. */
+export interface PixelRangeSelectData {
+    /** Left edge of the dragged range (always <= xPixel1). */
+    xPixel0: number
+    /** Right edge of the dragged range. */
+    xPixel1: number
 }
 
 /** `true` = drew a visible highlight; `false` = nothing visible (freeze the fade timer). */

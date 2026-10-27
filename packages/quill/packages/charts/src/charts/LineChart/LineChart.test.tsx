@@ -1,4 +1,4 @@
-import { fireEvent } from '@testing-library/react'
+import { act, fireEvent } from '@testing-library/react'
 
 import type { ChartTheme, Series } from '../../core/types'
 import { ReferenceLine } from '../../overlays/ReferenceLine'
@@ -360,6 +360,33 @@ describe('LineChart', () => {
             )
             chart.dragSelection(1, 3)
             expect(onDateRangeZoom).toHaveBeenCalled()
+            expect(onPointClick).not.toHaveBeenCalled()
+        })
+
+        it('abandons a drag on Escape without zooming or clicking the point under the release', () => {
+            const onDateRangeZoom = jest.fn()
+            const onPointClick = jest.fn()
+            const { chart } = renderHogChart(
+                <LineChart
+                    series={LONG_SERIES}
+                    labels={LONG_LABELS}
+                    theme={THEME}
+                    onDateRangeZoom={onDateRangeZoom}
+                    onPointClick={onPointClick}
+                />
+            )
+            const y = testDimensions.plotTop + testDimensions.plotHeight / 2
+            const to = { clientX: testDimensions.plotLeft + 200, clientY: y }
+            act(() => {
+                fireEvent.mouseDown(chart.element, { button: 0, clientX: testDimensions.plotLeft + 10, clientY: y })
+                fireEvent.mouseMove(chart.element, to)
+                fireEvent.keyDown(window, { key: 'Escape' })
+                // Hover resumes once the drag is gone, so an unswallowed click would hit this point.
+                fireEvent.mouseMove(chart.element, to)
+                fireEvent(window, new MouseEvent('mouseup', { bubbles: true, ...to }))
+                fireEvent.click(chart.element, to)
+            })
+            expect(onDateRangeZoom).not.toHaveBeenCalled()
             expect(onPointClick).not.toHaveBeenCalled()
         })
 

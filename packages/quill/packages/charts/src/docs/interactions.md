@@ -37,6 +37,17 @@ Takes precedence over `onDateRangeZoom` when both are set.
 - `Heatmap` exposes it as `onBrush` with row and column index ranges; a near-horizontal drag (under 8px vertical) spans every row.
 - `ScatterChart` exposes it as its own `onAreaSelect`, inverting the pixel spans through its continuous scales. The label range is meaningless there.
 
+## Continuous x-axis drag: `onPixelRangeSelect`
+
+On the base `Chart`, for chart-type adapters whose x axis is a measure rather than labels.
+The drag is x-only like drag-to-zoom, and the completed gesture reports the dragged pixel span, clamped to the plot, with the committed scales. A span under 8px reports nothing, the same floor a single-label zoom uses.
+`snapDragRect` rewrites the live band before it is drawn, so the band can show what the gesture will select.
+Ranks below `onAreaSelect` and above `onDateRangeZoom`.
+
+- `Histogram` exposes it as `onRangeSelect`, snapping the span outward to whole bins; see [chart-types.md](./chart-types.md#histogram).
+
+Escape abandons any drag in progress (drag-to-zoom, the 2D brush, or this one): nothing fires, and the release does not count as a click. The chart stops that key press, so a dialog around the chart stays open.
+
 ## Hover and touch
 
 Hover state lives in its own context so only `useChartHover()` consumers re-render on mousemove.
