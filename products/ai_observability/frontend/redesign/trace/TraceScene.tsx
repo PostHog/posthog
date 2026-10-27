@@ -34,6 +34,7 @@ interface ReadyActions {
     viewInThread: () => void
     prefetchNode: (id: string) => void
     showFeedback: (nodeId: string | null, entry: FeedbackEntry) => void
+    retryTraceFeedback: () => void
 }
 
 function toReadyProps(values: ReadyValues, actions: ReadyActions): TraceViewReadyProps | null {
@@ -73,6 +74,7 @@ function toReadyProps(values: ReadyValues, actions: ReadyActions): TraceViewRead
         thread: values.thread,
         timeline: values.timeline,
         feedbackMode: values.feedbackMode,
+        onRetryFeedback: actions.retryTraceFeedback,
         feedbackCount: values.feedbackCount,
         feedbackCountByNodeId: values.feedbackCountByNodeId,
     }

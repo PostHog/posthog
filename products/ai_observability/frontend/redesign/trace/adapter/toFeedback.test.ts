@@ -15,24 +15,27 @@ describe('toFeedback', () => {
         expect(toFeedbackChip(summary)).toEqual(expected)
     })
 
-    test('toStepFeedback puts trace-level entries, entries on a step the tree lacks and survey responses on the root', () => {
-        const score = makeFeedbackScore({ nodeId: 'gen-1' })
-        const traceScore = makeFeedbackScore({ id: 'score-2', nodeId: null })
-        const orphanScore = makeFeedbackScore({ id: 'score-3', nodeId: 'gone' })
-        const feedback = makeFeedback({
-            scores: [score, traceScore, orphanScore],
-            responses: [
-                makeFeedbackText({ nodeId: 'gen-1' }),
-                makeFeedbackText({ id: 'text-2', nodeId: null }),
-                makeSurveyResponse(),
-            ],
-        })
+    test.each(['trace-1', 'constructor', '__proto__'])(
+        'toStepFeedback puts trace-level entries, entries on a step the tree lacks and survey responses on the root %s',
+        (traceId) => {
+            const score = makeFeedbackScore({ nodeId: 'gen-1' })
+            const traceScore = makeFeedbackScore({ id: 'score-2', nodeId: null })
+            const orphanScore = makeFeedbackScore({ id: 'score-3', nodeId: 'gone' })
+            const feedback = makeFeedback({
+                scores: [score, traceScore, orphanScore],
+                responses: [
+                    makeFeedbackText({ nodeId: 'gen-1' }),
+                    makeFeedbackText({ id: 'text-2', nodeId: null }),
+                    makeSurveyResponse(),
+                ],
+            })
 
-        expect(toStepFeedback(feedback, makeTraceResource().tree, 'trace-1')).toEqual({
-            'gen-1': { scores: [score], responseCount: 1 },
-            'trace-1': { scores: [traceScore, orphanScore], responseCount: 2 },
-        })
-    })
+            expect({ ...toStepFeedback(feedback, makeTraceResource().tree, traceId) }).toEqual({
+                'gen-1': { scores: [score], responseCount: 1 },
+                [traceId]: { scores: [traceScore, orphanScore], responseCount: 2 },
+            })
+        }
+    )
 
     test('toFeedbackMode names each step, keeps an unknown step as trace-level and survey responses as they come', () => {
         const survey = makeSurveyResponse()

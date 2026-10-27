@@ -11,6 +11,7 @@ import { UnansweredSurveyRow } from './UnansweredSurveyRow'
 export interface TraceFeedbackViewProps {
     state: FeedbackModeState
     onSelectStep: (nodeId: string) => void
+    onRetry?: () => void
 }
 
 function firstFocusedEntryId(state: FeedbackModeState): string | null {
@@ -20,13 +21,13 @@ function firstFocusedEntryId(state: FeedbackModeState): string | null {
     return [...state.scores, ...state.responses].find((entry) => entry.focused)?.id ?? null
 }
 
-export function TraceFeedbackView({ state, onSelectStep }: TraceFeedbackViewProps): JSX.Element {
+export function TraceFeedbackView({ state, onSelectStep, onRetry }: TraceFeedbackViewProps): JSX.Element {
     const scrollTargetId = firstFocusedEntryId(state)
     if (state.status === 'loading') {
         return <LemonSkeleton repeat={3} className="h-8" />
     }
     if (state.status === 'error') {
-        return <ErrorCallout message="Feedback couldn't load. Try again in a moment." />
+        return <ErrorCallout message="Feedback couldn't load." onRetry={onRetry} />
     }
     if (state.scores.length === 0 && state.responses.length === 0 && state.unanswered.length === 0) {
         return <FeedbackEmptyState />
