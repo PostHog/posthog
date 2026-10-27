@@ -32,6 +32,7 @@ import { EmailStatusService } from './email-status.service'
 import { EmailSuppressionService, emailSuppressionConfigFromEnv } from './email-suppression.service'
 import {
     EmailService,
+    EmailServiceConfig,
     formatMailbox,
     parseAddressList,
     sanitizeEmailSubject,
@@ -178,12 +179,8 @@ describe('EmailService', () => {
     let hub: Hub
     let team: Team
     let workflowsActivationReporter: { report: jest.Mock }
-    beforeEach(async () => {
-        hub = await createHub({})
-        team = (await createTestTeamFixture(hub.postgres)).team
-        integrationIdBase = team.id
-        workflowsActivationReporter = { report: jest.fn() }
-        service = new EmailService(
+    const createService = (config: Partial<EmailServiceConfig> = {}): EmailService =>
+        new EmailService(
             {
                 sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
                 sesSecretAccessKey: hub.SES_SECRET_ACCESS_KEY,
@@ -191,6 +188,7 @@ describe('EmailService', () => {
                 sesEndpoint: hub.SES_ENDPOINT,
                 sesTrackedConfigurationSet: hub.SES_TRACKED_CONFIGURATION_SET,
                 sesUntrackedConfigurationSet: hub.SES_UNTRACKED_CONFIGURATION_SET,
+                ...config,
             },
             hub.integrationManager,
             new TeamWorkflowsConfigService(hub.postgres, hub.pubSub),
@@ -202,6 +200,12 @@ describe('EmailService', () => {
             null,
             workflowsActivationReporter
         )
+    beforeEach(async () => {
+        hub = await createHub({})
+        team = (await createTestTeamFixture(hub.postgres)).team
+        integrationIdBase = team.id
+        workflowsActivationReporter = { report: jest.fn() }
+        service = createService()
         mockFetch.mockClear()
     })
     afterEach(async () => {
@@ -2165,6 +2169,52 @@ describe('EmailService', () => {
                     fixedScanner
                         ? '<body><a href="https://example.com/pricing?utm_source=posthog&amp;utm_medium=email&amp;utm_campaign=Spring%20sale&amp;utm_content=Welcome">Click me</a></body>'
                         : '<body><a href=https://example.com/pricing>Click me</a></body>'
+                )
+            })
+
+            it.each([
+                {
+                    case: 'tags the links of a tracked send',
+                    trackingEnabled: true,
+                    allowlisted: true,
+                    isTest: false,
+                    tagged: true,
+                },
+                {
+                    case: 'leaves the links of a team off the allowlist',
+                    trackingEnabled: true,
+                    allowlisted: false,
+                    isTest: false,
+                    tagged: false,
+                },
+                {
+                    case: 'leaves the links of an untracked send',
+                    trackingEnabled: false,
+                    allowlisted: true,
+                    isTest: false,
+                    tagged: false,
+                },
+                {
+                    case: 'leaves the links of a test send',
+                    trackingEnabled: true,
+                    allowlisted: true,
+                    isTest: true,
+                    tagged: false,
+                },
+            ])('$case with the workflow run id', async ({ trackingEnabled, allowlisted, isTest, tagged }) => {
+                const taggingService = createService({ workflowRunLinkTagTeams: allowlisted ? String(team.id) : '' })
+                const send = jest.spyOn(taggingService.sesV2Client!, 'send') as jest.SpyInstance
+                send.mockResolvedValue({ MessageId: 'test-message-id' })
+                invocation.hogFunction.metadata = { tracking_enabled: trackingEnabled }
+                invocation.queueParameters = createEmailParams({
+                    from: { integrationId: 1 },
+                    html: '<a href="https://app.posthog-test.com/">a</a><a href="https://example.com/">b</a>',
+                })
+                const result = await taggingService.executeSendEmail(invocation, isTest)
+                expect(result.error).toBeUndefined()
+                const sentHtml: string = (send.mock.calls[0][0] as { input: any }).input.Content.Simple.Body.Html.Data
+                expect(sentHtml.match(/ph_workflow_run=[^"&]*/g) ?? []).toEqual(
+                    tagged ? ['ph_workflow_run=invocation-1'] : []
                 )
             })
 

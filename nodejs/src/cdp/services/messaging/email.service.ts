@@ -17,6 +17,7 @@ import { createAddLogFunction, logEntry } from '~/cdp/utils'
 import { createInvocationResult } from '~/cdp/utils/invocation-utils'
 import { buildIntegerMatcher } from '~/common/config/matchers'
 import { logger } from '~/common/utils/logger'
+import type { ValueMatcher } from '~/types'
 
 import { TRANSACTIONAL_EMAIL_EVENT } from '../hogflows/hogflow-sensitivity'
 import { IntegrationManagerService } from '../managers/integration-manager.service'
@@ -38,7 +39,7 @@ import { maybeAddPreheaderToEmail } from './helpers/preheader'
 import { SES_EMAIL_STATUS_TAG, SES_SENSITIVE_TAG } from './helpers/ses'
 import { quoteMailbox, removeSuppressedRecipients, unquoteMailbox } from './helpers/suppressed-recipients'
 import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME } from './helpers/tracking-code'
-import { addUtmTagsToEmail, renderUtmOverrides, resolveUtmTags } from './helpers/utm'
+import { addUtmTagsToEmail, addWorkflowRunTagToEmail, renderUtmOverrides, resolveUtmTags } from './helpers/utm'
 import { MessageAssetsService } from './message-assets.service'
 import {
     PreferencesTokenSource,
@@ -359,6 +360,7 @@ export interface EmailServiceConfig {
     teamEmailTierHourlyCaps?: number[]
     teamEmailTierDailyCaps?: number[]
     utmLinkScannerTeams?: string
+    workflowRunLinkTagTeams?: string
 }
 
 /**
@@ -437,6 +439,7 @@ export class EmailService {
 
     private recipientTokensService: RecipientTokensService
     private untrackedConfigSetWarningLogged = false
+    private workflowRunLinkTagTeams: ValueMatcher<number>
 
     constructor(
         private sesConfig: EmailServiceConfig,
@@ -462,6 +465,11 @@ export class EmailService {
               })
             : null
         this.recipientTokensService = new RecipientTokensService(encryptionSaltKeys, siteUrl)
+        this.workflowRunLinkTagTeams = buildIntegerMatcher(this.sesConfig.workflowRunLinkTagTeams, true)
+    }
+
+    private tagsLinksWithWorkflowRun(teamId: number, trackingEnabled: boolean, isTest: boolean): boolean {
+        return trackingEnabled && !isTest && this.workflowRunLinkTagTeams(teamId)
     }
 
     // Send email. `isTest` flags sends from the editor's "Run test" path so the tracking code
@@ -750,7 +758,7 @@ export class EmailService {
 
             // Tagged before click tracking wraps the links, so the tags land on the destination URL.
             const metadata = invocation.hogFunction.metadata
-            const sendParams =
+            const utmTaggedParams =
                 metadata?.utm_tags_enabled === true && params.html
                     ? {
                           ...paramsWithReplyTo,
@@ -775,6 +783,17 @@ export class EmailService {
                           ),
                       }
                     : paramsWithReplyTo
+            const sendParams =
+                utmTaggedParams.html && this.tagsLinksWithWorkflowRun(invocation.teamId, trackingEnabled, isTest)
+                    ? {
+                          ...utmTaggedParams,
+                          html: addWorkflowRunTagToEmail(utmTaggedParams.html, {
+                              runId: invocation.id,
+                              senderEmail: from.email,
+                              siteUrl: this.siteUrl,
+                          }),
+                      }
+                    : utmTaggedParams
 
             switch (integration.config.provider ?? 'ses') {
                 case 'maildev':
