@@ -3,7 +3,9 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
-import { ApiError } from 'lib/api-error'
+import { lemonToast } from '@posthog/lemon-ui'
+
+import { ApiError, readableErrorMessage } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -19,7 +21,7 @@ import { externalDataSchemasPartialUpdate } from 'products/warehouse_sources/fro
 import type { PaginatedResponse } from '../../../../../frontend/src/lib/api'
 import type { FeatureFlagsSet } from '../../../../../frontend/src/lib/logic/featureFlagLogic'
 import type { IntegrationType, TeamPublicType, TeamType } from '../../../../../frontend/src/types'
-import type { ExternalDataSource } from '../../../../../frontend/src/types'
+import type { ExternalDataSource, ExternalDataSourceSchema } from '../../../../../frontend/src/types'
 import type { ReplayScannerApi } from '../../../../replay_vision/frontend/generated/api.schemas'
 import {
     signalsConfigCreate,
@@ -339,6 +341,26 @@ export type inboxSetupLogicType = MakeLogicType<
 
 function isFirstReportProgress(report: FirstReportStateApi): report is FirstReportProgressState {
     return report.status !== 'report_created'
+}
+
+/**
+ * The API refuses to turn on a table that has no sync type, no sync frequency, or an incremental type
+ * without its field. Old tables that nobody set up are often in that state, so fill those gaps with defaults.
+ */
+export function requiredTableSyncUpdate(
+    schema: ExternalDataSourceSchema,
+    requiredSyncType?: 'full_refresh'
+): { should_sync: true; sync_type?: 'full_refresh'; sync_frequency?: '6hour' } {
+    const missingIncrementalField =
+        (schema.sync_type === 'incremental' || schema.sync_type === 'append') && !schema.incremental_field
+    const setSyncType = requiredSyncType
+        ? schema.sync_type !== requiredSyncType
+        : !schema.sync_type || missingIncrementalField
+    return {
+        should_sync: true,
+        ...(setSyncType ? { sync_type: 'full_refresh' } : {}),
+        ...(schema.sync_frequency ? {} : { sync_frequency: '6hour' }),
+    }
 }
 
 export const inboxSetupLogic = kea<inboxSetupLogicType>([
@@ -1012,7 +1034,8 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
                     })
                 } catch (error) {
                     actions.setError(
-                        error instanceof ApiError ? error.detail : 'Could not save your choices. Try again.',
+                        (error instanceof ApiError && readableErrorMessage(error.detail)) ||
+                            'Could not save your choices. Try again.',
                         'other',
                         'draft_save_failed'
                     )
@@ -1119,6 +1142,7 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
                     }
                     // Disable the legacy default before enabling any work that could create a pull request.
                     await signalsConfigCreate(projectId, { autostart_enabled: false })
+                    const unsyncedTables: { name: string; sourceId: string }[] = []
                     for (const source of values.sources.filter((item) => item.warehouseSource)) {
                         if (
                             !draft.sources.some(
@@ -1130,16 +1154,32 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
                         const setup = WAREHOUSE_SOURCE_SETUP[source.warehouseSource!]
                         const schemas = (values.dataWarehouseSources?.results ?? [])
                             .filter((item) => item.source_type === setup.dwSourceType)
-                            .flatMap((item) => item.schemas ?? [])
+                            .flatMap((item) => (item.schemas ?? []).map((schema) => ({ schema, sourceId: item.id })))
                         for (const table of setup.requiredTables) {
                             const matches = schemas.filter(
-                                (schema) => schema.name === table || schema.name.endsWith(`.${table}`)
+                                ({ schema }) => schema.name === table || schema.name.endsWith(`.${table}`)
                             )
                             if (!matches.length) {
                                 throw new Error(`Missing required table: ${table}`)
                             }
-                            for (const schema of matches.filter((item) => !item.should_sync)) {
-                                await externalDataSchemasPartialUpdate(projectId, schema.id, { should_sync: true })
+                            for (const { schema, sourceId } of matches.filter(
+                                ({ schema }) =>
+                                    !schema.should_sync ||
+                                    (!!setup.requiredTableSyncType && schema.sync_type !== setup.requiredTableSyncType)
+                            )) {
+                                try {
+                                    await externalDataSchemasPartialUpdate(
+                                        projectId,
+                                        schema.id,
+                                        requiredTableSyncUpdate(schema, setup.requiredTableSyncType)
+                                    )
+                                } catch (error) {
+                                    // A refused table needs manual setup in Data warehouse, so it must not block activation.
+                                    if (!(error instanceof ApiError) || error.status !== 400) {
+                                        throw error
+                                    }
+                                    unsyncedTables.push({ name: schema.name, sourceId })
+                                }
                             }
                         }
                     }
@@ -1243,11 +1283,27 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
                     actions.loadVisionScanners()
                     actions.loadScoutConfigs()
                     router.actions.replace(urls.inbox())
+                    if (unsyncedTables.length) {
+                        capture('self-driving onboarding tables not synced', { table_count: unsyncedTables.length })
+                        lemonToast.warning(
+                            `Self-Driving is active, but these tables are not syncing: ${unsyncedTables
+                                .map((table) => table.name)
+                                .join(', ')}. Set them up in Data warehouse to get signals from them.`,
+                            {
+                                button: {
+                                    label: 'Open source',
+                                    action: () =>
+                                        router.actions.push(
+                                            urls.dataWarehouseSource(`managed-${unsyncedTables[0].sourceId}`, 'schemas')
+                                        ),
+                                },
+                            }
+                        )
+                    }
                 } catch (error) {
                     actions.setError(
-                        error instanceof ApiError
-                            ? error.detail
-                            : 'Could not finish setup. Your choices are saved. Retry activation.',
+                        (error instanceof ApiError && readableErrorMessage(error.detail)) ||
+                            'Could not finish setup. Your choices are saved. Retry activation.',
                         'activation'
                     )
                 } finally {
