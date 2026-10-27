@@ -36,6 +36,12 @@ enum AckMode {
     AckExceptSeq(u64),
 }
 
+#[derive(Clone, Copy)]
+enum StreamEnding {
+    OnHalfClose,
+    Never,
+}
+
 enum ManualAck {
     Ok { seq: u64, accepted: u32 },
     Nack(u64),
@@ -46,6 +52,7 @@ type ManualAcks = Arc<Mutex<Option<mpsc::UnboundedReceiver<ManualAck>>>>;
 
 struct MockWorker {
     mode: AckMode,
+    ending: StreamEnding,
     received: Arc<Mutex<Vec<SubBatch>>>,
     hellos: Arc<Mutex<Vec<u64>>>,
     manual_acks: ManualAcks,
@@ -62,6 +69,7 @@ impl WorkerIngest for MockWorker {
         let mut inbound = request.into_inner();
         let (tx, rx) = mpsc::unbounded_channel();
         let mode = self.mode;
+        let ending = self.ending;
         let received = Arc::clone(&self.received);
         let hellos = Arc::clone(&self.hellos);
         let manual = self.manual_acks.lock().await.take();
@@ -181,6 +189,9 @@ impl WorkerIngest for MockWorker {
                     None => {}
                 }
             }
+            if matches!(ending, StreamEnding::Never) {
+                std::future::pending::<()>().await;
+            }
         });
 
         Ok(Response::new(UnboundedReceiverStream::new(rx)))
@@ -197,10 +208,19 @@ async fn start_mock(
     mode: AckMode,
     manual: Option<mpsc::UnboundedReceiver<ManualAck>>,
 ) -> MockHandle {
+    start_mock_with(mode, manual, StreamEnding::OnHalfClose).await
+}
+
+async fn start_mock_with(
+    mode: AckMode,
+    manual: Option<mpsc::UnboundedReceiver<ManualAck>>,
+    ending: StreamEnding,
+) -> MockHandle {
     let received = Arc::new(Mutex::new(Vec::new()));
     let hellos = Arc::new(Mutex::new(Vec::new()));
     let worker = MockWorker {
         mode,
+        ending,
         received: Arc::clone(&received),
         hellos: Arc::clone(&hellos),
         manual_acks: Arc::new(Mutex::new(manual)),
@@ -828,6 +848,52 @@ async fn a_stream_with_unacked_work_stays_open_past_the_idle_window() {
         SendOutcome::Accepted(1)
     ));
     assert_eq!(mock.hellos.lock().await.len(), 1);
+}
+
+#[tokio::test]
+async fn sends_that_arrive_during_the_idle_drain_open_the_next_stream_at_once() {
+    let mock = start_mock_with(AckMode::Immediate, None, StreamEnding::Never).await;
+    let mut transport =
+        GrpcTransport::new(GrpcPort::Fixed(mock.addr.port()), Duration::from_secs(30));
+    transport.set_idle_close(Duration::from_millis(300));
+    let url = worker_url(mock.addr);
+
+    transport
+        .begin_send(&url, "batch-1", vec![msg("d1", 1)], false)
+        .wait()
+        .await
+        .expect("first send");
+    // The idle timer has fired and the worker is still holding its side open.
+    tokio::time::sleep(Duration::from_millis(400)).await;
+
+    let started = tokio::time::Instant::now();
+    let second = transport.begin_send(&url, "batch-2", vec![msg("d1", 2)], false);
+    let third = transport.begin_send(&url, "batch-3", vec![msg("d1", 3)], false);
+    second.wait().await.expect("send during the drain");
+    third.wait().await.expect("send during the drain");
+    assert!(
+        started.elapsed() < Duration::from_millis(150),
+        "sends waited {:?} behind the old stream's drain",
+        started.elapsed()
+    );
+
+    assert_eq!(*mock.hellos.lock().await, vec![1, 2]);
+    let order: Vec<_> = mock
+        .received
+        .lock()
+        .await
+        .iter()
+        .map(|s| (s.seq, s.batch_id.clone()))
+        .collect();
+    assert_eq!(
+        order,
+        vec![
+            (1, "batch-1".to_string()),
+            (1, "batch-2".to_string()),
+            (2, "batch-3".to_string())
+        ],
+        "work enqueued during the drain rides the new stream in order"
+    );
 }
 
 #[tokio::test]

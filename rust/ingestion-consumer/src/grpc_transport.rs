@@ -444,9 +444,9 @@ impl WorkerStreamRunner {
                     backoff = (backoff * 2).min(Duration::from_secs(5));
                 }
                 StreamEnd::Idle => {
-                    // Stream ended cleanly with nothing outstanding (e.g. the
-                    // worker restarted gracefully) — reconnect without delay
-                    // escalation.
+                    // Stream ended cleanly with nothing outstanding (the worker
+                    // restarted gracefully, or the idle timer closed it) —
+                    // reconnect without delay escalation.
                     backoff = Duration::from_millis(100);
                 }
             }
@@ -496,7 +496,7 @@ impl WorkerStreamRunner {
             {
                 Ok(Some(ack)) => ack,
                 Ok(None) => continue,
-                Err(StreamEnd::Idle) => return self.close_idle(out_tx, acks).await,
+                Err(StreamEnd::Idle) => return self.close_idle(out_tx, acks, retained_frames),
                 Err(end) => return end,
             };
             if let Err(end) = self.handle_ack(ack, queue, &mut pending_first, &mut ledger) {
@@ -811,17 +811,23 @@ impl WorkerStreamRunner {
         Ok(())
     }
 
-    async fn close_idle(
+    /// Half-closes and returns at once; a spawned task waits for the worker's
+    /// end, so work that arrives meanwhile is not held behind the drain.
+    fn close_idle(
         &self,
         out_tx: mpsc::UnboundedSender<IngestStreamRequest>,
         mut acks: tonic::Streaming<IngestStreamResponse>,
+        retained_frames: RetainedFrameGauge,
     ) -> StreamEnd {
         drop(out_tx);
-        // The worker ends its side once it reads the half-close. Dropping
-        // `acks` before that would reset the stream instead.
-        let worker_end = async { while let Ok(Some(_)) = acks.message().await {} };
-        let bound = self.idle_close.unwrap_or(self.ack_timeout);
-        let _ = tokio::time::timeout(bound, worker_end).await;
+        let bound = self.ack_timeout;
+        tokio::spawn(async move {
+            // Dropping `acks` before the worker ends its side would reset the
+            // stream instead.
+            let worker_end = async { while let Ok(Some(_)) = acks.message().await {} };
+            let _ = tokio::time::timeout(bound, worker_end).await;
+            drop(retained_frames);
+        });
         counter!("ingestion_consumer_worker_stream_idle_closes_total").increment(1);
         StreamEnd::Idle
     }
