@@ -44,10 +44,11 @@ describe('SURVEY_SDK_REQUIREMENTS', () => {
         ['an object', { 0: { name: 'checkout completed' } }],
         ['a single event', { name: 'checkout completed' }],
         ['a number', 1],
-    ])('reads trigger events stored as %s as no trigger events', (_name, values) => {
+        ['a string', 'checkout completed'],
+    ])('reads a trigger condition stored as %s as an empty condition', (_name, values) => {
         const survey = {
             questions: [],
-            conditions: { events: { values }, cancelEvents: { values } },
+            conditions: { events: { values }, cancelEvents: { values }, actions: { values } },
         } as unknown as Survey
 
         expect(getSurveyWarnings(survey, { 'posthog-js': '1.400.0' })).toEqual([])

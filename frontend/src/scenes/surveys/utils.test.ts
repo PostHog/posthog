@@ -675,6 +675,20 @@ describe('survey utils', () => {
             expect(result?.events).toEqual({ values: [{ name: 'test' }] })
             expect(result?.deviceTypes).toEqual(['mobile'])
         })
+
+        it('replaces a values that is not a list with an empty list', () => {
+            const input = {
+                events: { repeatedActivation: true, values: { name: 'checkout completed' } },
+                cancelEvents: { values: 'checkout completed' },
+                actions: { values: 1 },
+            } as unknown as SurveyDisplayConditions
+
+            const result = sanitizeSurveyDisplayConditions(input, SurveyType.Popover)
+
+            expect(result?.events).toEqual({ repeatedActivation: true, values: [] })
+            expect(result?.cancelEvents).toEqual({ values: [] })
+            expect(result?.actions).toEqual({ values: [] })
+        })
     })
 
     describe('sanitizeSurvey', () => {
@@ -861,6 +875,15 @@ describe('survey utils', () => {
             targeting_flag: null,
             targeting_flag_filters: undefined,
         } as unknown as Survey
+
+        it('leaves out a trigger condition stored in a shape that is not a list', () => {
+            const survey = {
+                ...baseSurvey,
+                conditions: { events: { values: 'checkout completed' }, actions: { values: { id: 1 } } },
+            } as unknown as Survey
+
+            expect(getSurveyDisplayConditionsSummary(survey)).toEqual([])
+        })
 
         it('summarizes simple person-property audience rules', () => {
             const survey = {

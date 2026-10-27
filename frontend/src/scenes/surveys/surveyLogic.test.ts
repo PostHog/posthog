@@ -184,6 +184,42 @@ describe('editor sync', () => {
     })
 })
 
+describe('trigger conditions stored in a shape that is not a list', () => {
+    beforeEach(() => {
+        initKeaTests()
+
+        useMocks({
+            get: {
+                '/api/projects/:team/surveys/': () => [200, { count: 0, results: [], next: null, previous: null }],
+                '/api/projects/:team/surveys/test-survey/': () => [
+                    200,
+                    {
+                        ...createPersistedSurvey(),
+                        conditions: {
+                            events: { repeatedActivation: true, values: { name: 'checkout completed' } },
+                            cancelEvents: { values: 'checkout completed' },
+                        },
+                    },
+                ],
+                '/api/projects/:team/surveys/test-survey/archived-response-uuids/': () => [200, []],
+            },
+        })
+    })
+
+    it('reads them as empty conditions, so every scene can render the survey', async () => {
+        const logic = surveyLogic({ id: 'test-survey' })
+        logic.mount()
+
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.survey.conditions).toEqual({
+            events: { repeatedActivation: true, values: [] },
+            cancelEvents: { values: [] },
+        })
+        expect(logic.values.surveyWarnings).toEqual([])
+    })
+})
+
 describe('translation validation', () => {
     let logic: ReturnType<typeof surveyLogic.build>
 

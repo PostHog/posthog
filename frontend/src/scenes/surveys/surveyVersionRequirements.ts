@@ -5,7 +5,6 @@ import {
     MultipleSurveyQuestion,
     RatingSurveyQuestion,
     Survey,
-    SurveyEventsWithProperties,
     SurveyMatchType,
     SurveyPosition,
     SurveyQuestionType,
@@ -40,13 +39,11 @@ export type SurveyFeatureRequirement = {
 
 /**
  * The API stores `conditions` as free-form JSON, so a survey can carry a `values` that is not a
- * list. Read such a survey as having no trigger events, because `getSurveyWarnings` runs in a
- * selector that the survey scenes depend on, and a throw there replaces the whole scene with an
- * error page.
+ * list. Read such a condition as having no values, because `getSurveyWarnings` runs in a selector
+ * that the survey scenes depend on, and a throw there replaces the whole scene with an error page.
+ * A `values` that is a string also has a length, so a length check alone is not enough.
  */
-function triggerEventValues(
-    condition: { values?: SurveyEventsWithProperties[] } | null | undefined
-): SurveyEventsWithProperties[] {
+function conditionValues<T>(condition: { values?: T[] } | null | undefined): T[] {
     return Array.isArray(condition?.values) ? condition.values : []
 }
 
@@ -228,7 +225,7 @@ export const SURVEY_SDK_REQUIREMENTS: SurveyFeatureRequirement[] = [
         },
         unsupportedSdks: [],
         check: (s) =>
-            triggerEventValues(s.conditions?.events).some((e) => Object.keys(e.propertyFilters ?? {}).length > 0),
+            conditionValues(s.conditions?.events).some((e) => Object.keys(e.propertyFilters ?? {}).length > 0),
     },
     {
         // No SDK survey matcher implements gte or lte, so a stored filter with either operator never matches.
@@ -242,7 +239,7 @@ export const SURVEY_SDK_REQUIREMENTS: SurveyFeatureRequirement[] = [
             { sdk: 'posthog_flutter', issue: false },
         ],
         check: (s) =>
-            [...triggerEventValues(s.conditions?.events), ...triggerEventValues(s.conditions?.cancelEvents)].some((e) =>
+            [...conditionValues(s.conditions?.events), ...conditionValues(s.conditions?.cancelEvents)].some((e) =>
                 Object.values(e.propertyFilters ?? {}).some((filter) =>
                     (['gte', 'lte'] as string[]).includes(filter.operator)
                 )
@@ -257,7 +254,7 @@ export const SURVEY_SDK_REQUIREMENTS: SurveyFeatureRequirement[] = [
             { sdk: 'posthog-android', issue: 'https://github.com/PostHog/posthog-android/issues/393' },
             { sdk: 'posthog_flutter', issue: 'https://github.com/PostHog/posthog-flutter/issues/264' },
         ],
-        check: (s) => triggerEventValues(s.conditions?.cancelEvents).length > 0,
+        check: (s) => conditionValues(s.conditions?.cancelEvents).length > 0,
     },
     {
         feature: 'Targeting with actions',
@@ -268,7 +265,7 @@ export const SURVEY_SDK_REQUIREMENTS: SurveyFeatureRequirement[] = [
             { sdk: 'posthog-android', issue: 'https://github.com/PostHog/posthog-android/issues/394' },
             { sdk: 'posthog_flutter', issue: 'https://github.com/PostHog/posthog-flutter/issues/265' },
         ],
-        check: (s) => (s.conditions?.actions?.values?.length ?? 0) > 0,
+        check: (s) => conditionValues(s.conditions?.actions).length > 0,
     },
     {
         feature: 'Styling input appearance',
