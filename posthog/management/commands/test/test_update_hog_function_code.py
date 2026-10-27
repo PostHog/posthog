@@ -7,6 +7,12 @@ from django.core.management import call_command
 
 from parameterized import parameterized
 
+from posthog.management.commands._microsoft_ads_template_versions import (
+    MICROSOFT_ADS_CLICK_ID_ONLY,
+    MICROSOFT_ADS_EMAIL_OR_PHONE,
+)
+
+from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.validation import compile_hog as compile_hog_for_check
 
@@ -546,3 +552,48 @@ class TestUpdateHogFunctionCode(BaseTest):
         function.refresh_from_db()
         assert POWERPLATFORM_BRANCH not in function.hog
         self.assertIn("Updated: 0", out.getvalue())
+
+    @parameterized.expand(
+        [
+            ("synced template", "let body := {'dataProvider': 'posthog'}", True),
+            ("template not synced yet", "let body := {}", False),
+        ]
+    )
+    def test_microsoft_ads_whole_code_swap_only_touches_unedited_destinations(
+        self, _name: str, template_code: str, swaps: bool
+    ) -> None:
+        HogFunctionTemplate.objects.create(
+            template_id="template-microsoft-ads",
+            name="Microsoft Ads Conversions",
+            code=template_code,
+            inputs_schema=[],
+            type="destination",
+        )
+        unedited_hogs = [MICROSOFT_ADS_CLICK_ID_ONLY, MICROSOFT_ADS_EMAIL_OR_PHONE.strip()]
+        edited_hog = MICROSOFT_ADS_EMAIL_OR_PHONE.replace("Skipping...", "Skipping this one...")
+        with patch("products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers"):
+            functions = [
+                HogFunction.objects.create(
+                    team=self.team,
+                    name="Microsoft Ads Function",
+                    type="destination",
+                    template_id="template-microsoft-ads",
+                    hog=hog,
+                    enabled=True,
+                )
+                for hog in [*unedited_hogs, edited_hog]
+            ]
+
+        with patch(
+            "posthog.management.commands.update_hog_function_code.compile_hog",
+            return_value="compiled_bytecode",
+        ):
+            for expected in ("Updated: 2", "Updated: 0") if swaps else ("does not contain",):
+                out = StringIO()
+                call_command("update_hog_function_code", replace_key="microsoft-ads-capi-normalization", stdout=out)
+                self.assertIn(expected, out.getvalue())
+
+        for function in functions:
+            function.refresh_from_db()
+        expected_unedited = [template_code] * 2 if swaps else unedited_hogs
+        assert [function.hog for function in functions] == [*expected_unedited, edited_hog]

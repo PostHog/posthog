@@ -6,6 +6,12 @@ from django.core.paginator import Paginator
 
 import structlog
 
+from posthog.management.commands._microsoft_ads_template_versions import (
+    MICROSOFT_ADS_CLICK_ID_ONLY,
+    MICROSOFT_ADS_EMAIL_OR_PHONE,
+)
+
+from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.validation import compile_hog
 
@@ -24,6 +30,11 @@ class _ReplaceOption(TypedDict):
     # would otherwise also match code deliberately left behind (e.g. a sunset version kept dead on
     # purpose), this pins the run to the intended cohort.
     only_if_contains: NotRequired[str]
+    # Replaces the whole code with the current template code, but only where the saved code matches one of
+    # these earlier template versions exactly. A destination that a user edited is skipped.
+    whole_code_versions: NotRequired[list[str]]
+    # The current template code must contain this string. A run before the new template syncs then changes nothing.
+    template_marker: NotRequired[str]
 
 
 class Command(BaseCommand):
@@ -153,6 +164,15 @@ class Command(BaseCommand):
                     },
                 ],
             },
+            # Existing Microsoft Ads destinations hash email and phone in a form Microsoft cannot match,
+            # and do not send the required dataProvider. The template changed in too many places for
+            # string replacements, so unedited destinations get the whole current template code.
+            "microsoft-ads-capi-normalization": {
+                "template_id": "template-microsoft-ads",
+                "replacements": [],
+                "whole_code_versions": [MICROSOFT_ADS_CLICK_ID_ONLY, MICROSOFT_ADS_EMAIL_OR_PHONE],
+                "template_marker": "'dataProvider': 'posthog'",
+            },
         }
 
         if not replace_key or replace_key not in replaceOptions:
@@ -160,6 +180,21 @@ class Command(BaseCommand):
             return
 
         replaceOption = replaceOptions[replace_key]
+
+        current_template_code: str | None = None
+        earlier_versions: set[str] = set()
+        if "whole_code_versions" in replaceOption:
+            template = HogFunctionTemplate.get_template(replaceOption["template_id"])
+            marker = replaceOption.get("template_marker", "")
+            if template is None or marker not in template.code:
+                self.stdout.write(
+                    self.style.ERROR(
+                        f"The {replaceOption['template_id']} template does not contain {marker!r}. Sync the templates first."
+                    )
+                )
+                return
+            current_template_code = template.code
+            earlier_versions = {version.strip() for version in replaceOption["whole_code_versions"]}
 
         queryset = HogFunction.objects.filter(
             type="destination", deleted=False, template_id=replaceOption["template_id"]
@@ -191,6 +226,9 @@ class Command(BaseCommand):
                     continue
 
                 new_hog = destination.hog
+                if current_template_code is not None:
+                    if destination.hog.strip() in earlier_versions:
+                        new_hog = current_template_code
                 for replacement in replaceOption["replacements"]:
                     if replacement["from_string"] in new_hog:
                         new_hog = new_hog.replace(replacement["from_string"], replacement["to_string"])
