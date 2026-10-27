@@ -249,6 +249,10 @@ class TaskProfileError(ValueError):
     pass
 
 
+class RunOptionsConflictError(ValueError):
+    pass
+
+
 # Tasks stored without a profile and SQL filters only know a task's origin_product, so every profile
 # that shares an origin must agree on these fields.
 _ORIGIN_SCOPED_FIELDS = (
