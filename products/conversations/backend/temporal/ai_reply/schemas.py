@@ -88,6 +88,28 @@ class ClassifyOutput:
 
 
 @dataclass
+class WriteBriefInput:
+    team_id: int
+    ticket_id: str
+    ticket_context: str
+    ticket_type: str = "how_to"
+    trace_id: str = ""
+
+
+@dataclass(frozen=False)
+class WriteBriefOutput:
+    """Whether a brief was stored, and why not when it was not.
+
+    `reason` is for the run's own logs and metrics, never for the engineer: a ticket with no
+    brief simply shows no panel.
+    """
+
+    written: bool
+    reason: str = ""
+    llm_attempts: int = 1
+
+
+@dataclass
 class RefineQueriesInput:
     team_id: int
     ticket_context: str

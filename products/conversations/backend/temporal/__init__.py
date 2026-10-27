@@ -26,6 +26,7 @@ from products.conversations.backend.temporal.pipeline import (
     support_review_reply_activity,
     support_safety_filter_activity,
     support_validate_activity,
+    support_write_brief_activity,
 )
 from products.conversations.backend.temporal.zendesk_import.activities import (
     zendesk_import_batch_activity,
@@ -60,6 +61,7 @@ ACTIVITIES = [
     support_persist_reply_activity,
     support_persist_knowledge_gap_activity,
     support_record_triage_activity,
+    support_write_brief_activity,
     support_collect_eligible_tickets_activity,
     summary_collect_due_channels_activity,
     summarize_channel_period_activity,

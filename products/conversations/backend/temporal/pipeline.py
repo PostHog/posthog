@@ -30,6 +30,7 @@ with workflow.unsafe.imports_passed_through():
     from products.conversations.backend.temporal.ai_reply.activities.review_reply import support_review_reply_activity
     from products.conversations.backend.temporal.ai_reply.activities.safety_filter import support_safety_filter_activity
     from products.conversations.backend.temporal.ai_reply.activities.validate import support_validate_activity
+    from products.conversations.backend.temporal.ai_reply.activities.write_brief import support_write_brief_activity
     from products.conversations.backend.temporal.ai_reply.constants import (
         AI_REPLY_TRACE_NAMESPACE,
         BLOCKER_AWARE_LOOP_PATCH,
@@ -41,6 +42,7 @@ with workflow.unsafe.imports_passed_through():
         MAX_SAFETY_REVIEWED_CHARS,
         SCORE_THRESHOLD,
         TIERED_CLARIFY_PATCH,
+        WRITE_BRIEF_PATCH,
     )
     from products.conversations.backend.temporal.ai_reply.gate import (
         FINDINGS_WITHHELD_REASON,
@@ -69,6 +71,7 @@ with workflow.unsafe.imports_passed_through():
         SupportReplyInput,
         ValidateInput,
         ValidateOutput,
+        WriteBriefInput,
         coerce_dataclass,
     )
 
@@ -287,6 +290,28 @@ class SupportReplyWorkflow:
                 ticket_type = classify_output.ticket_type
                 needs_diagnostics = classify_output.needs_diagnostics and ctx_output.diagnostics_allowed
                 seed_queries = classify_output.seed_queries
+
+                # Restate the ticket for the engineer who picks it up. After classify, so an
+                # unactionable ticket has already returned and never gets a brief; before the
+                # draft loop, so the brief lands even on a ticket whose reply never resolves.
+                # The result is deliberately ignored: a brief is a convenience, and the run
+                # exists to draft a reply.
+                if workflow.patched(WRITE_BRIEF_PATCH):
+                    try:
+                        await workflow.execute_activity(
+                            support_write_brief_activity,
+                            WriteBriefInput(
+                                team_id=input.team_id,
+                                ticket_id=ticket_id,
+                                ticket_context=reviewed_context,
+                                ticket_type=ticket_type,
+                                trace_id=trace_id,
+                            ),
+                            start_to_close_timeout=timedelta(minutes=2),
+                            retry_policy=RetryPolicy(maximum_attempts=2),
+                        )
+                    except Exception:
+                        workflow.logger.warning("support_reply: brief failed; continuing without one")
             # Whether this reply would be auto-sent to the (untrusted) author on its channel.
             # Keeps customer-data read scopes off any auto-publishable draft (see draft.py).
             auto_publishable = ticket_type in ctx_output.auto_publish_ticket_types

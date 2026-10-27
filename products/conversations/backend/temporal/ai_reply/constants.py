@@ -12,6 +12,8 @@ DEFER_KNOWLEDGE_GAPS_UNTIL_RESOLUTION_PATCH = "defer-knowledge-gaps-until-resolu
 BLOCKER_AWARE_LOOP_PATCH = "blocker-aware-loop-2026-09"
 # Histories without this marker treat blocked_on_customer as findings, not a clarifying question.
 TIERED_CLARIFY_PATCH = "tiered-clarify-2026-09"
+# Histories without this marker never ran the brief activity, so replay must not add it.
+WRITE_BRIEF_PATCH = "write-ticket-brief-2026-10"
 MAX_CLARIFICATION_ROUNDS = 1
 MAX_CLARIFYING_QUESTION_CHARS = 500
 
