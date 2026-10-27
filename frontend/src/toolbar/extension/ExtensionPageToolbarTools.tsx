@@ -1,5 +1,5 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 
 import { IconExternal, IconX } from '@posthog/icons'
 
@@ -14,7 +14,6 @@ import { ExtensionActionsList } from './ExtensionActionsList'
 import { ExtensionEventsMenu } from './ExtensionEventsMenu'
 import { ExtensionExperimentEditor } from './ExtensionExperimentEditor'
 import { ExtensionExperimentsList } from './ExtensionExperimentsList'
-import { ExtensionFeatureList } from './ExtensionFeatureList'
 import { ExtensionFlagsMenu } from './ExtensionFlagsMenu'
 import { ExtensionHeatmapMenu } from './ExtensionHeatmapMenu'
 import { ExtensionInspectedElement } from './ExtensionInspectedElement'
@@ -22,6 +21,7 @@ import { ExtensionMoreMenu } from './ExtensionMoreMenu'
 import { extensionPageToolbarConnectionLogic } from './extensionPageToolbarConnectionLogic'
 import { PAGE_TOOLS, PageToolDefinition, PageToolMode } from './extensionPageTools'
 import { extensionPanelLogic } from './extensionPanelLogic'
+import { ExtensionToolHint } from './ExtensionToolHint'
 import { ExtensionWebVitalsMenu } from './ExtensionWebVitalsMenu'
 import { usePageToolDisabledReason } from './usePageToolDisabledReason'
 
@@ -33,8 +33,7 @@ function ToolBody({ mode }: { mode: PageToolMode }): JSX.Element {
             return (
                 <>
                     <div className="text-xs text-secondary">
-                        Hover an element on the page to see its selector and actions, or click it to keep it selected.
-                        Press Esc to stop.
+                        Click an element to keep it selected. Press Esc to stop.
                     </div>
                     <ExtensionInspectedElement />
                 </>
@@ -62,8 +61,11 @@ function ToolHeader({ tool }: { tool: PageToolDefinition }): JSX.Element {
     const { feature } = tool
 
     return (
-        <div className="flex items-center gap-1">
-            <h3 className="m-0 flex-1 truncate text-sm font-semibold">{tool.label}</h3>
+        <div className="flex items-start gap-1">
+            <div className="flex min-w-0 flex-1 flex-col">
+                <h3 className="m-0 truncate text-sm font-semibold">{tool.label}</h3>
+                <p className="m-0 text-xs text-secondary">{tool.description}</p>
+            </div>
             {feature && (
                 <LemonButton
                     size="xsmall"
@@ -84,12 +86,15 @@ function ToolHeader({ tool }: { tool: PageToolDefinition }): JSX.Element {
     )
 }
 
-export function ExtensionPageToolbarTools({ origin }: { origin: string }): JSX.Element {
+export function ExtensionPageToolbarTools(): JSX.Element {
     useMountedLogic(extensionPageToolbarConnectionLogic)
     const { mode, connectionStatus, selectorCounter } = useValues(extensionPageToolbarConnectionLogic)
     const { setMode, connectPage, requestSelectorCount } = useActions(extensionPageToolbarConnectionLogic)
     const disabledReason = usePageToolDisabledReason()
     const activeTool = PAGE_TOOLS.find((tool) => tool.mode === mode)
+    const [hoveredMode, setHoveredMode] = useState<PageToolMode | null>(null)
+    const [focusedMode, setFocusedMode] = useState<PageToolMode | null>(null)
+    const hintTool = PAGE_TOOLS.find((tool) => tool.mode === (hoveredMode ?? focusedMode)) ?? null
     // The page counts selector matches for every editor in the panel.
     const counter = useMemo<SelectorMatchCounter>(
         () => ({ count: selectorCounter.count, request: requestSelectorCount }),
@@ -98,16 +103,18 @@ export function ExtensionPageToolbarTools({ origin }: { origin: string }): JSX.E
 
     return (
         <SelectorCountContext.Provider value={counter}>
-            <div className="flex flex-col gap-2">
+            <div className="flex flex-1 flex-col gap-2">
                 <LemonSegmentedButton
                     fullWidth
                     size="small"
                     value={activeTool?.mode}
                     onChange={(toolMode) => setMode(toolMode === mode ? 'none' : toolMode)}
+                    onOptionHover={setHoveredMode}
+                    onOptionFocus={setFocusedMode}
                     options={PAGE_TOOLS.map((tool) => ({
                         value: tool.mode,
                         icon: tool.icon,
-                        tooltip: tool.label,
+                        tooltip: activeTool ? tool.label : undefined,
                         disabledReason: disabledReason(tool) ?? undefined,
                         'data-attr': `toolbar-extension-mode-${tool.mode}`,
                     }))}
@@ -129,28 +136,7 @@ export function ExtensionPageToolbarTools({ origin }: { origin: string }): JSX.E
                         <ToolBody mode={activeTool.mode} />
                     </>
                 ) : (
-                    <>
-                        <div className="flex flex-col gap-1">
-                            {PAGE_TOOLS.map((tool) => (
-                                <LemonButton
-                                    key={tool.mode}
-                                    fullWidth
-                                    icon={tool.icon}
-                                    disabledReason={disabledReason(tool)}
-                                    onClick={() => setMode(tool.mode)}
-                                    data-attr={`toolbar-extension-open-${tool.mode}`}
-                                >
-                                    <span className="flex min-w-0 flex-col">
-                                        <span>{tool.label}</span>
-                                        <span className="text-xs font-normal text-secondary whitespace-normal">
-                                            {tool.description}
-                                        </span>
-                                    </span>
-                                </LemonButton>
-                            ))}
-                        </div>
-                        <ExtensionFeatureList origin={origin} />
-                    </>
+                    <ExtensionToolHint tool={hintTool} />
                 )}
             </div>
         </SelectorCountContext.Provider>
