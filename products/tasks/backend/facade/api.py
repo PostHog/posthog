@@ -183,7 +183,6 @@ from products.tasks.backend.models import (
     TaskThreadMessage,
     TaskThreadMessageMention,
     TaskWorkflowDispatch,
-    task_source_fields,
 )
 from products.tasks.backend.pr_urls import (
     canonical_github_pull_request_url,
@@ -1982,10 +1981,7 @@ def link_slack_task_to_report(*, team_id: int, task_id: str, report_id: str, use
             return
         record_slack_report_discussion(team_id=team_id, report_id=report_id, task_id=task_id, user_id=user_id)
         task.signal_report_id = UUID(report_id)
-        source = task_source_fields(signal_report_id=str(task.signal_report_id), hog_flow_id=None)
-        task.source_kind = source["source_kind"]
-        task.source_id = source["source_id"]
-        task.save(update_fields=["signal_report_id", "source_kind", "source_id", "updated_at"])
+        task.save(update_fields=["signal_report_id", "updated_at"])
 
 
 def create_and_run_task(

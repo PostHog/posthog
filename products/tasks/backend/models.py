@@ -125,14 +125,6 @@ MCP_BUILT_IN_AGENT_KEY_BY_ORIGIN: dict[str, MCPBuiltInAgentKey] = {
 }
 
 
-def task_source_fields(*, signal_report_id: str | None, hog_flow_id: uuid.UUID | None) -> dict[str, str]:
-    if signal_report_id:
-        return {"source_kind": "signal_report", "source_id": str(signal_report_id)}
-    if hog_flow_id:
-        return {"source_kind": "hog_flow", "source_id": str(hog_flow_id)}
-    return {}
-
-
 def resolve_schema(schema: type[BaseModel] | dict) -> dict:
     if isinstance(schema, dict):
         return schema
@@ -466,9 +458,6 @@ class Task(Taggable, DeletedMetaFields, models.Model):
     description = models.TextField()
     origin_product = models.CharField(max_length=20, choices=task_origin_product_choices)
     profile = models.CharField(max_length=64, null=True, blank=True)
-    source_kind = models.CharField(max_length=32, null=True, blank=True)
-    source_id = models.CharField(max_length=64, null=True, blank=True)
-    idempotency_key = models.CharField(max_length=128, null=True, blank=True)
     client_provenance = models.CharField(
         max_length=32,
         choices=task_client_provenance_choices,
@@ -641,24 +630,10 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         if self.task_number is None:
             self._assign_task_number()
 
-        if is_new:
-            self._fill_contract_fields()
-
         super().save(*args, **kwargs)
 
         if is_new:
             transaction.on_commit(self._track_task_created)
-
-    def _fill_contract_fields(self) -> None:
-        if self.idempotency_key is None:
-            self.idempotency_key = self.origin_key or None
-        if self.source_kind is None:
-            source = task_source_fields(
-                signal_report_id=str(self.signal_report_id) if self.signal_report_id else None,
-                hog_flow_id=self.hog_flow_id,
-            )
-            self.source_kind = source.get("source_kind")
-            self.source_id = source.get("source_id")
 
     @property
     def mcp_builtin_agent_key(self) -> MCPBuiltInAgentKey | None:

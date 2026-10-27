@@ -1750,12 +1750,7 @@ class TestFacadeReadsAndMappers(TestCase):
             facade.link_slack_task_to_report(
                 team_id=self.team.id, task_id=str(created.task_id), report_id=str(report.id), user_id=self.user.id
             )
-        linked = Task.objects.get(id=created.task_id)
-        assert (linked.signal_report_id, linked.source_kind, linked.source_id) == (
-            report.id,
-            "signal_report",
-            str(report.id),
-        )
+        assert Task.objects.get(id=created.task_id).signal_report_id == report.id
         assert SignalReportArtefact.objects.filter(report_id=report.id, task_id=created.task_id).count() == 1
         assert (
             SignalReportAction.objects.for_team(self.team.id).get(report_id=report.id, user_id=self.user.id).count == 1

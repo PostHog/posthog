@@ -72,25 +72,6 @@ class TestTask(TestCase):
 
     @parameterized.expand(
         [
-            ("plain", {"origin_product": "user_created"}, (None, None, None)),
-            ("origin_key", {"origin_product": "user_created", "origin_key": "key-1"}, ("key-1", None, None)),
-            (
-                "hog_flow",
-                {"origin_product": "workflow", "hog_flow_id": uuid.UUID("5ab01f4d-5b1e-4990-9802-4f8792a76759")},
-                (None, "hog_flow", "5ab01f4d-5b1e-4990-9802-4f8792a76759"),
-            ),
-        ]
-    )
-    def test_direct_insert_fills_the_source_and_idempotency_key(
-        self, _name: str, fields: dict, expected: tuple[str | None, str | None, str | None]
-    ) -> None:
-        task = Task.objects.create(team=self.team, title="t", description="d", **fields)
-
-        task.refresh_from_db()
-        self.assertEqual((task.idempotency_key, task.source_kind, task.source_id), expected)
-
-    @parameterized.expand(
-        [
             ("missing_cloud", "", TaskRun.Environment.CLOUD, False),
             ("unknown_default_cloud", "unknown", None, False),
             ("retired_local", "automation", TaskRun.Environment.LOCAL, True),
