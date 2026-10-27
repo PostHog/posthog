@@ -99,11 +99,13 @@ def _per_parent_resource(endpoint: str, path: str, parent: str, parent_id_param:
             # Results come back as one object per parent, not a list.
             "data_selector": "$",
             "paginator": SinglePagePaginator(),
-            # 202 means the results are still being computed and 204 means the parent has none yet
-            # (e.g. a draft experiment). Skip the parent rather than fail the stream; the next sync
-            # picks it up. 4xx covers parents whose results the token can't read.
+            # 202 means the results are still being computed. These tables are full refresh, so
+            # skipping the parent would drop its previous snapshot: retry with the client's backoff,
+            # and fail the sync (keeping the old table) if the results never finish. 204 means the
+            # parent has no results yet (e.g. a draft experiment). 4xx covers parents whose results
+            # the token can't read.
             "response_actions": [
-                {"status_code": 202, "action": "ignore"},
+                {"status_code": 202, "action": "retry", "message": "Optimizely results are still being computed"},
                 {"status_code": 204, "action": "ignore"},
                 *_SKIP_INACCESSIBLE,
             ],
