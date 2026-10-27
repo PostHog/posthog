@@ -426,6 +426,11 @@ def _plan_and_build(
     step_templates = tuple(list_step_templates(team))
     channels = _offered_channels(team, mobile_first)
     event_properties = team_context.event_property_names(team, suggestion.trigger_event)
+    try:
+        person_properties = team_context.person_properties(team)
+    except _GENERATION_ERRORS:
+        # Without them a branch keeps an empty condition for the team to set, which is no reason to fail the build.
+        person_properties = {}
     context = BuildContext(
         allowed_events=frozenset({suggestion.trigger_event, *events}),
         step_template_ids=frozenset(template.template_id for template in step_templates),
@@ -436,6 +441,7 @@ def _plan_and_build(
         once_per_person=suggestion.stage in _ONCE_PER_PERSON_STAGES,
         event_properties=frozenset(event_properties),
         weekly_count=suggestion.weekly_count,
+        person_properties=person_properties,
         push_integration_ids=team_context.push_integration_ids(team),
     )
     built = None
@@ -453,6 +459,7 @@ def _plan_and_build(
                     channels=channels,
                     has_slack=slack_integration_id is not None,
                     event_properties=event_properties,
+                    person_properties=person_properties,
                     mobile_first=mobile_first,
                 ),
                 analytics_client=analytics_client,
