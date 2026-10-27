@@ -46,20 +46,23 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { clearDOMTextSelection, getJSHeapMemory, uuid } from 'lib/utils/dom'
-import {
-    DashboardEventSource,
-    DashboardFilterChangeType,
-    dashboardViewedProperties,
-    eventUsageLogic,
-    sanitizeDashboard,
-    filtersForAnalytics,
-    sanitizeQuery,
-    tileGroupProperties,
-} from 'lib/utils/eventUsageLogic'
+import { DashboardEventSource, eventUsageLogic, filtersForAnalytics, sanitizeQuery } from 'lib/utils/eventUsageLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { shouldCancelQuery } from 'lib/utils/requests'
 import { toParams } from 'lib/utils/url'
 import { addInsightToDashboardLogic } from 'scenes/dashboard/addInsightToDashboardModalLogic'
+import {
+    DashboardFilterChangeType,
+    dashboardViewedProperties,
+    reportDashboardEditModeDiscardPrompt,
+    reportDashboardFiltersChanged,
+    reportDashboardInsightDeleteAfterRemovalClicked,
+    reportDashboardLayoutEditModeEntered,
+    reportDashboardModeToggled,
+    reportDashboardTileDensityConfigured,
+    sanitizeDashboard,
+    tileGroupProperties,
+} from 'scenes/dashboard/dashboardEvents'
 import { BREAKPOINTS, dashboardToSaveableTemplate, getDashboardTileDisplayName } from 'scenes/dashboard/dashboardUtils'
 import { liveDashboardIds } from 'scenes/dashboard/liveDashboardIds'
 import { calculateDuplicateLayout, calculateLayouts } from 'scenes/dashboard/tileLayouts'
@@ -4985,9 +4988,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                     data-attr="delete-removed-insight"
                                     className="!m-0"
                                     onClick={() => {
-                                        eventUsageLogic.actions.reportDashboardInsightDeleteAfterRemovalClicked(
-                                            otherDashboardIds.size
-                                        )
+                                        reportDashboardInsightDeleteAfterRemovalClicked(otherDashboardIds.size)
                                         deleteInsight()
                                     }}
                                 >
@@ -5126,7 +5127,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 dashboardsModel.actions.updateDashboardSuccess(dashboard, {
                     layoutsPersisted: true,
                 })
-                eventUsageLogic.actions.reportDashboardTileDensityConfigured(tileSpacing)
+                reportDashboardTileDensityConfigured(tileSpacing)
             } catch {
                 if (!cache.pendingDashboardTileSpacing) {
                     actions.setDashboardTileSpacing(persistedTileSpacing)
@@ -5923,7 +5924,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 discard()
                 return
             }
-            eventUsageLogic.actions.reportDashboardEditModeDiscardPrompt(values.dashboard, 'shown')
+            reportDashboardEditModeDiscardPrompt(values.dashboard, 'shown')
             LemonDialog.open({
                 title: 'Discard unsaved changes?',
                 description:
@@ -5932,7 +5933,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     children: 'Discard changes',
                     status: 'danger',
                     onClick: () => {
-                        eventUsageLogic.actions.reportDashboardEditModeDiscardPrompt(values.dashboard, 'discarded')
+                        reportDashboardEditModeDiscardPrompt(values.dashboard, 'discarded')
                         discard()
                     },
                     'data-attr': 'dashboard-edit-mode-discard-confirm',
@@ -5940,7 +5941,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 secondaryButton: {
                     children: 'Keep editing',
                     onClick: () => {
-                        eventUsageLogic.actions.reportDashboardEditModeDiscardPrompt(values.dashboard, 'kept_editing')
+                        reportDashboardEditModeDiscardPrompt(values.dashboard, 'kept_editing')
                     },
                 },
             })
@@ -6017,7 +6018,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
 
             if (editing?.layout) {
-                eventUsageLogic.actions.reportDashboardLayoutEditModeEntered(
+                reportDashboardLayoutEditModeEntered(
                     values.dashboard,
                     source,
                     values.layoutEditMode ? values.layoutZoom : null
@@ -6026,7 +6027,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
         setDashboardMode: async ({ mode, source }) => {
             if (mode || source) {
-                eventUsageLogic.actions.reportDashboardModeToggled(
+                reportDashboardModeToggled(
                     values.dashboard,
                     mode,
                     source,
@@ -6183,7 +6184,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 remainingInsightIds: new Set(values.insightTiles.map((tile) => tile.insight!.short_id)),
             }
             cache.pendingFilterChange = filterChange
-            eventUsageLogic.actions.reportDashboardFiltersChanged(values.dashboard, changeType, {
+            reportDashboardFiltersChanged(values.dashboard, changeType, {
                 ...properties,
                 filter_change_id: filterChange.id,
                 supersedes_filter_change_id: previousChange?.id,

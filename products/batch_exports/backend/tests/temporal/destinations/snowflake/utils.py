@@ -100,6 +100,8 @@ class FakeMetadata(typing.NamedTuple):
     name: str
     type_code: int
     is_nullable: bool
+    precision: int | None = None
+    scale: int | None = None
 
 
 class FakeSnowflakeCursor:
