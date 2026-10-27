@@ -105,6 +105,22 @@ describe('formatMailbox', () => {
     ])('formats %s', (_name, name, expected) => {
         expect(formatMailbox(name, 'a@example.com')).toEqual(expected)
     })
+
+    it.each([
+        ['CJK name with a character outside the emoji range', '株式会社山田商事部𠮷田'.repeat(4)],
+        ['emoji name', 'Launch party 🎉🚀 '.repeat(5)],
+    ])('keeps a long %s intact across encoded words', (_desc, name) => {
+        const [displayName, address] = formatMailbox(name, 'a@example.com').split(' <')
+        const encodedWords = displayName.split(' ')
+        const decoded = Buffer.concat(
+            encodedWords.map((word) => Buffer.from(word.match(/^=\?UTF-8\?B\?(.+)\?=$/)![1], 'base64'))
+        ).toString('utf8')
+
+        expect(decoded).toEqual(name.trim())
+        expect(address).toEqual('a@example.com>')
+        expect(encodedWords.length).toBeGreaterThan(1)
+        expect(Math.max(...encodedWords.map((word) => word.length))).toBeLessThanOrEqual(75)
+    })
 })
 
 describe('parseAddressList', () => {

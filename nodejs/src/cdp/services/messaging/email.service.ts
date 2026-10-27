@@ -1,7 +1,6 @@
 import { MessageHeader, SESv2Client, SendEmailCommand, SendEmailCommandInput } from '@aws-sdk/client-sesv2'
 import { DateTime } from 'luxon'
 import { SendMailOptions } from 'nodemailer'
-import { encodeWord, isPlainText } from 'nodemailer/lib/mime-funcs'
 import { Counter, Histogram } from 'prom-client'
 
 import { CyclotronInvocationQueueParametersEmailType } from '~/cdp/schema/cyclotron'
@@ -387,10 +386,37 @@ function cleanDisplayName(name: string | undefined): string {
     return (name ?? '').replace(/[\x00-\x1F\x7F]/g, '').trim()
 }
 
+// 45 bytes encode to 60 base64 characters, which keeps each word within RFC 2047's 75-character limit.
+const ENCODED_WORD_MAX_BYTES = 45
+
 // SES passes the mailbox through to the header as given, and it requires a non-ASCII display name
-// as an RFC 2047 encoded word. An ASCII name becomes an RFC 5322 quoted string.
+// as an RFC 2047 encoded word. An ASCII name stays an RFC 5322 quoted string.
 function encodeDisplayName(name: string): string {
-    return isPlainText(name) ? `"${name.replace(/[\\"]/g, '\\$&')}"` : encodeWord(name, 'B', 52)
+    return /^[\x20-\x7E]*$/.test(name) ? quoteDisplayName(name) : toEncodedWords(name)
+}
+
+function quoteDisplayName(name: string): string {
+    return `"${name.replace(/[\\"]/g, '\\$&')}"`
+}
+
+function toEncodedWords(name: string): string {
+    return splitOnCodePoints(name, ENCODED_WORD_MAX_BYTES)
+        .map((chunk) => `=?UTF-8?B?${Buffer.from(chunk).toString('base64')}?=`)
+        .join(' ')
+}
+
+// An encoded word must hold whole characters, so a chunk never splits a code point or a surrogate pair.
+function splitOnCodePoints(text: string, maxBytes: number): string[] {
+    const chunks: string[] = []
+    let chunk = ''
+    for (const codePoint of text) {
+        if (chunk && Buffer.byteLength(chunk + codePoint) > maxBytes) {
+            chunks.push(chunk)
+            chunk = ''
+        }
+        chunk += codePoint
+    }
+    return [...chunks, chunk]
 }
 
 export function formatMailbox(name: string | undefined, email: string): string {
