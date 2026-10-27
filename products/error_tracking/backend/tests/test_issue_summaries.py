@@ -30,7 +30,9 @@ from products.error_tracking.backend.logic.issue_summaries import (
     IssueSummaryOutcome,
     IssueSummaryTimings,
     build_issue_summary_inputs,
+    build_issue_summary_inputs_from_event,
     compute_input_hash,
+    generate_issue_summary_from_event,
     get_or_generate_issue_summary,
     parse_summary_response,
 )
@@ -137,6 +139,9 @@ class TestIssueSummaryGeneration(BaseTest):
         )
         self.build_inputs = self.enterContext(
             patch.object(issue_summaries, "build_issue_summary_inputs", side_effect=lambda *_: self.inputs)
+        )
+        self.enterContext(
+            patch.object(issue_summaries, "build_issue_summary_inputs_from_event", side_effect=lambda *_: self.inputs)
         )
         self.enterContext(patch.object(issue_summaries.ml_inference, "decide_when_available", self.decide))
 
@@ -349,6 +354,27 @@ class TestIssueSummaryGeneration(BaseTest):
         shown = summaries_facade.get_issue_summary(self.team.id, self.issue.id, user=self.user)
         assert shown is not None
         assert (shown.generated_at, shown.checked_at) == (result.summary.generated_at, result.summary.checked_at)
+
+    def _write(self) -> IssueSummaryOutcome:
+        return generate_issue_summary_from_event(
+            self.team.id,
+            self.issue.id,
+            {},
+            budget_key=self._budget_key,
+            budget=issue_summaries.ISSUE_SUMMARY_BUDGET,
+        ).outcome
+
+    def test_write_generates_once_and_keeps_a_stored_summary(self) -> None:
+        with time_machine.travel(NOW, tick=False):
+            assert self._write() == IssueSummaryOutcome.GENERATED
+        self._release_lock()
+        self.inputs = IssueSummaryInputs(prompt="Exception: TypeError", input_hash="hash-2")
+
+        with time_machine.travel(NOW + timedelta(hours=25), tick=False):
+            assert self._write() == IssueSummaryOutcome.FRESH
+        assert self.llm_calls == 1
+        stored = issue_summaries.get_issue_summary(self.team.id, self.issue.id)
+        assert stored is not None and stored.input_hash == "hash-1"
 
     def test_merge_keeps_target_summary_and_deletes_source_summary(self) -> None:
         source = ErrorTrackingIssue.objects.create(team=self.team, name="TypeError")
@@ -637,6 +663,44 @@ class TestIssueSummaryInputs(ClickhouseTestMixin, BaseTest):
         assert "secret" not in inputs.prompt
         assert inputs.prompt.count("</issue>") == 1
         assert inputs.input_hash == compute_input_hash(fingerprints=["fp-1"], latest_release="1.2.0", occurrences=2)
+
+    @time_machine.travel(NOW, tick=False)
+    def test_event_in_hand_matches_clickhouse_hash_for_a_one_event_issue(self) -> None:
+        issue = ErrorTrackingIssue.objects.create(team=self.team, name="TypeError")
+        ErrorTrackingIssueFingerprintV2.objects.create(team=self.team, issue=issue, fingerprint="fp-1")
+        sync_issues_to_clickhouse(issue_ids=[issue.id], team_id=self.team.pk)
+        properties: dict[str, object] = {
+            "$exception_fingerprint": "fp-1",
+            "$exception_issue_id": str(issue.id),
+            "$exception_release": {"version": "2.0.0"},
+            "$session_id": "01890000-0000-7000-8000-000000000001",
+            "$exception_list": [
+                {
+                    "type": "TypeError",
+                    "value": "Cannot read properties of undefined",
+                    "stacktrace": {
+                        "type": "resolved",
+                        "frames": [{"resolved_name": "addToCart", "source": "cart.ts", "line": 42, "in_app": True}],
+                    },
+                }
+            ],
+        }
+        _create_event(
+            distinct_id="user-1",
+            event="$exception",
+            team=self.team,
+            timestamp=NOW - timedelta(minutes=5),
+            properties=properties,
+        )
+        flush_persons_and_events()
+
+        from_clickhouse = build_issue_summary_inputs(self.team, issue.id, IssueSummaryTimings())
+        from_event = build_issue_summary_inputs_from_event(self.team, issue.id, properties)
+
+        assert isinstance(from_clickhouse, IssueSummaryInputs)
+        assert isinstance(from_event, IssueSummaryInputs)
+        assert from_event.input_hash == from_clickhouse.input_hash
+        assert "Impact in range: 1 occurrences, 1 users, 1 sessions" in from_event.prompt
 
     def test_issue_without_exception_events_has_no_inputs(self) -> None:
         issue = ErrorTrackingIssue.objects.create(team=self.team, name="TypeError")
