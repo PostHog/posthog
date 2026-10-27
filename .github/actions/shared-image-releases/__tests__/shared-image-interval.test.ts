@@ -6,6 +6,7 @@ import * as yaml from 'js-yaml'
 import {parseGitDiffOutput} from '../../paths-filter/src/git'
 import {ChangeStatus, Filter, GitRunner, intervalFiles} from '../src/shared-image'
 import {SourceHistory} from '../src/shared-image-history'
+import * as commands from '../src/shared-image-command'
 
 let repo: string
 const git = (...args: string[]): string => execFileSync('git', ['-c', 'core.hooksPath=/dev/null', '-c', 'commit.gpgsign=false', ...args], {cwd: repo, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe']}).trim()
@@ -148,6 +149,29 @@ describe('executing checkout first-parent interval', () => {
       await expect(intervalFiles(base, head, options())).rejects.toThrow()
     } finally {
       writeFileSync(treePath, object)
+    }
+  })
+
+  test.each(['fetch', 'action'])('fetch retries stop when the %s deadline cannot fit the next wait', async budget => {
+    jest.useFakeTimers()
+    const deadline = Date.now() + 7999
+    const history = new SourceHistory(repo, {fetchMs: budget === 'fetch' ? 7999 : 30000, comparisonMs: 30000, maxBuffer: 1024}, budget === 'action' ? deadline : Infinity)
+    const tree = 'b'.repeat(40)
+    const runner = jest.spyOn(commands, 'command').mockImplementation(async (_executable, args) => {
+      if (args[0] === 'fetch') throw new Error('transient fetch failure')
+      if (args[0] === 'rev-list') return `${tree}\n`
+      if (args[0] === 'cat-file') return `${tree} missing\n`
+      throw new Error('Unexpected Git command')
+    })
+    try {
+      const result = expect(history.policyAt('a'.repeat(40)))
+        .rejects.toThrow(/^Interval trees remain unavailable after bounded fetch: Error: attempt 1 of 3: Error: transient fetch failure$/)
+      await jest.runAllTimersAsync()
+      await result
+      expect(runner.mock.calls.filter(([_executable, args]) => args[0] === 'fetch')).toHaveLength(1)
+    } finally {
+      runner.mockRestore()
+      jest.useRealTimers()
     }
   })
 })

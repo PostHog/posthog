@@ -7,6 +7,7 @@ export interface HistoryBudgets {
   fetchMs: number
   comparisonMs: number
   maxBuffer: number
+  retryDelaysMs?: number[]
 }
 
 export interface Comparison {
@@ -17,8 +18,15 @@ export interface Comparison {
 export class SourceHistory {
   private readonly prepared = new Map<string, Promise<Comparison>>()
   private readonly policies = new Map<string, Policy>()
+  private readonly retryDelaysMs: number[]
 
-  constructor(readonly cwd: string, private readonly budgets: HistoryBudgets, private readonly deadline = Infinity, private readonly policyPath = POLICY_PATH) {}
+  constructor(readonly cwd: string, private readonly budgets: HistoryBudgets, private readonly deadline = Infinity, private readonly policyPath = POLICY_PATH) {
+    const delays = budgets.retryDelaysMs === undefined ? [5000, 15000] : budgets.retryDelaysMs
+    if (!Array.isArray(delays) || delays.length !== 2 || !delays.every(delay => Number.isSafeInteger(delay) && delay >= 0)) {
+      throw new Error('Invalid publisher budget: retryDelaysMs')
+    }
+    this.retryDelaysMs = [...delays]
+  }
 
   readonly git: GitRunner = (args, deadline = Date.now() + this.budgets.comparisonMs, input) => command('git', args, {
     cwd: this.cwd, timeoutMs: Math.min(deadline, this.deadline) - Date.now(), maxBuffer: this.budgets.maxBuffer,
@@ -47,10 +55,25 @@ export class SourceHistory {
 
   private async fetch(objects: string[], filter: string | undefined, deadline: number): Promise<void> {
     if (!objects.length) return
-    await this.git([
-      'fetch', '--no-tags', '--no-recurse-submodules', '--no-write-fetch-head', '--no-auto-maintenance',
-      ...(filter ? [`--filter=${filter}`] : []), 'origin', '--stdin'
-    ], deadline, [...new Set(objects)].join('\n') + '\n')
+    const failures: string[] = []
+    const attempts = this.retryDelaysMs.length + 1
+    for (let attempt = 0; attempt < attempts; attempt++) {
+      if (attempt > 0) {
+        const delay = this.retryDelaysMs[attempt - 1]
+        if (Math.min(deadline, this.deadline) - Date.now() < delay + 3000) break
+        await new Promise<void>(resolve => setTimeout(resolve, delay))
+      }
+      try {
+        await this.git([
+          'fetch', '--no-tags', '--no-recurse-submodules', '--no-write-fetch-head', '--no-auto-maintenance',
+          ...(filter ? [`--filter=${filter}`] : []), 'origin', '--stdin'
+        ], deadline, [...new Set(objects)].join('\n') + '\n')
+        return
+      } catch (error) {
+        failures.push(`attempt ${attempt + 1} of ${attempts}: ${String(error)}`)
+      }
+    }
+    throw new Error(failures.join('; '))
   }
 
   private async trees(revisions: string[], fetchDeadline: number): Promise<void> {

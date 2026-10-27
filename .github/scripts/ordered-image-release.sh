@@ -2,15 +2,35 @@
 set -uo pipefail
 
 compute_tag() {
-    if [ "$(git rev-parse --is-shallow-repository)" = "true" ]; then
+    local fetch_status=0 attempt wait_seconds
+    local -a fetch_retry_delays
+    read -r -a fetch_retry_delays <<< "${FETCH_RETRY_DELAYS_SECONDS:-5 15}"
+    if [ "${#fetch_retry_delays[@]}" -ne 2 ] ||
+        ! [[ "${fetch_retry_delays[0]}" =~ ^[0-9]{1,3}$ && "${fetch_retry_delays[1]}" =~ ^[0-9]{1,3}$ ]]; then
+        echo 'Invalid ordered source fetch retry delays' >&2
+        return 1
+    fi
+    for attempt in 1 2 3; do
+        if [ "$(git rev-parse --is-shallow-repository)" != "true" ]; then
+            fetch_status=0
+            break
+        fi
         fetch_status=0
         timeout --kill-after=10s 90s git fetch \
             --no-tags --prune --no-recurse-submodules --unshallow --filter=tree:0 \
             origin "+${GITHUB_REF}:refs/remotes/origin/${GITHUB_REF_NAME}" || fetch_status=$?
-        if [ "$fetch_status" -ne 0 ]; then
-            echo "::warning title=Ordered release tag skipped::Source history could not be fetched (status $fetch_status)."
-            return 0
+        if [ "$fetch_status" -eq 0 ]; then
+            break
         fi
+        if [ "$attempt" -lt 3 ]; then
+            wait_seconds="${fetch_retry_delays[$((attempt - 1))]}"
+            echo "::notice title=Ordered source fetch retry::Source history fetch attempt $attempt of 3 failed (status $fetch_status); retrying in $wait_seconds seconds."
+            sleep "$wait_seconds"
+        fi
+    done
+    if [ "$fetch_status" -ne 0 ]; then
+        echo "::warning title=Ordered release tag skipped::Source history could not be fetched (status $fetch_status)."
+        return 0
     fi
     if [ "$(git rev-parse --is-shallow-repository 2>/dev/null)" != "false" ]; then
         echo "::warning title=Ordered release tag skipped::Complete source history is unavailable."
@@ -149,5 +169,8 @@ case "${1:-}" in
     install) install_regctl "$2" ;;
     read) read_alias ;;
     publish) publish_alias ;;
-    *) echo 'usage: ordered-image-release.sh tag|install PATH|read|publish' >&2; exit 2 ;;
+    *)
+        echo 'usage: ordered-image-release.sh tag|install PATH|read|publish' >&2
+        echo 'tag: FETCH_RETRY_DELAYS_SECONDS sets two retry waits in seconds (default: "5 15").' >&2
+        exit 2 ;;
 esac

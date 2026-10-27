@@ -17,8 +17,11 @@ beforeEach(() => { scratch = mkdtempSync(path.join(tmpdir(), 'shared-image-fetch
 afterEach(() => { jest.restoreAllMocks(); rmSync(scratch, {recursive: true, force: true}) })
 
 describe('publisher bounded tree fetching with the real command runner', () => {
-  test.each(['available', 'slow policy fetch', 'missing subtrees', 'missing', 'probe failure', 'fetch and probe failure'])('bounded tree fetch: %s', async mode => {
-    const available = mode === 'available' || mode === 'slow policy fetch' || mode === 'missing subtrees' || mode === 'probe failure'
+  test.each(['available', 'slow policy fetch', 'missing subtrees', 'missing', 'probe failure', 'fetch and probe failure',
+    'tree retry', 'policy retry', 'tree retries exhausted', 'policy retries exhausted'])('bounded tree fetch: %s', async mode => {
+    const retry = mode.startsWith('tree ') || mode.startsWith('policy ')
+    const exhausted = mode.endsWith('exhausted')
+    const available = retry || mode === 'available' || mode === 'slow policy fetch' || mode === 'missing subtrees' || mode === 'probe failure'
     const source = path.join(scratch, 'source')
     const cwd = path.join(scratch, 'executing')
     const origin = path.join(scratch, 'origin.git')
@@ -81,7 +84,7 @@ describe('publisher bounded tree fetching with the real command runner', () => {
       cwd, revision, digest: 'sha256:' + 'b'.repeat(64), alias: alias(revision),
       repository: 'posthog-cloud', registry: destination.registry,
       force: [], regctl, helper: path.join(cwd, 'helper'), evidence: path.join(scratch, 'evidence'),
-      budgets: {fetchMs: 30000, comparisonMs: 30000, maxBuffer: 1024 * 1024, registryMs: 30000, copySeconds: 1,
+      budgets: {fetchMs: 30000, comparisonMs: 30000, maxBuffer: 1024 * 1024, retryDelaysMs: [0, 0], registryMs: 30000, copySeconds: 1,
         readbackSeconds: 1, maxChannels: 1, concurrency: 1, channelMs: 120000, totalMs: 120000}
     }
     if (mode === 'slow policy fetch') options.budgets.comparisonMs = 1000
@@ -91,11 +94,17 @@ describe('publisher bounded tree fetching with the real command runner', () => {
     let fetched = false
     let policyFetchMs = 0
     let discoveryTimeoutMs = 0
+    let failedFetches = 0
+    const isRetryTarget = (args: string[], input?: string): boolean => args[0] === 'fetch' && (mode.startsWith('tree ')
+      ? args.includes('--filter=blob:none') : Boolean(input?.includes(policyBlob)))
     jest.spyOn(commands, 'command').mockImplementation(async (executable, args, configuration) => {
       if (mode.includes('probe failure') && fetched && executable === 'git' && args[0] === 'cat-file' && args.includes('--batch-check=%(objectname) %(objecttype)')) {
         throw new Error('post-fetch availability probe timed out')
       }
       if (executable === 'git' && args[0] === 'fetch') fetches.push({args, input: configuration.input})
+      if (retry && executable === 'git' && isRetryTarget(args, configuration.input) && (exhausted || failedFetches === 0)) {
+        throw new Error(`transient fetch failure ${++failedFetches}`)
+      }
       const delayed = mode === 'slow policy fetch' && executable === 'git' && args[0] === 'fetch' && configuration.input?.includes(policyBlob)
       const started = performance.now()
       if (delayed) await new Promise<void>(resolve => setTimeout(resolve, 2000))
@@ -110,7 +119,7 @@ describe('publisher bounded tree fetching with the real command runner', () => {
       }
     })
     const [result] = await publishChannels(options)
-    if (mode === 'available' || mode === 'slow policy fetch' || mode === 'missing subtrees') {
+    if (mode === 'available' || mode === 'slow policy fetch' || mode === 'missing subtrees' || (retry && !exhausted)) {
       expect(result).toMatchObject({decision: 'published', outcome: 'present-at-expected-digest'})
       if (mode === 'slow policy fetch') {
         expect(policyFetchMs).toBeGreaterThan(options.budgets.comparisonMs)
@@ -132,10 +141,18 @@ describe('publisher bounded tree fetching with the real command runner', () => {
       expect(comparison.policies.map(policy => policyDigest(policy!.filters.worker))).toEqual([policyDigest(['worker/**']), policyDigest(['new-worker/**'])])
       expect(new Filter(JSON.stringify({worker: ['new-worker/**']})).match(comparison.files).worker).toEqual([])
     } else {
-      expect(result).toMatchObject({decision: 'blocked', reason: expect.stringContaining('remain unavailable after bounded fetch')})
+      expect(result).toMatchObject({decision: 'blocked', reason: expect.stringContaining(mode === 'policy retries exhausted'
+        ? 'attempt 1 of 3' : 'remain unavailable after bounded fetch')})
+      if (retry) {
+        for (let attempt = 1; attempt <= 3; attempt++) expect(result.reason).toContain(`attempt ${attempt} of 3: Error: transient fetch failure ${attempt}`)
+      }
       if (mode.includes('probe failure')) expect(result.reason).toContain('post-fetch availability probe timed out')
       if (!available) expect(result.reason).toContain('git: exited')
       expect(published.size).toBe(0)
+    }
+    if (retry) {
+      expect(failedFetches).toBe(exhausted ? 3 : 1)
+      expect(fetches.filter(fetch => isRetryTarget(fetch.args, fetch.input))).toHaveLength(exhausted ? 3 : 2)
     }
   }, 15000)
 })

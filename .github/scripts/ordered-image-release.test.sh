@@ -220,6 +220,65 @@ test "$(git -C "$scratch/shallow" rev-list --first-parent --count HEAD)" = 1
 test "$(git -C "$scratch/shallow" rev-parse --is-shallow-repository)" = false
 test "$(cat "$GITHUB_OUTPUT")" = "$executing_tag"
 echo 'PASS shallow checkout fetches its configured origin and recovers first-parent ordinal'
+export REAL_GIT
+REAL_GIT="$(command -v git)"
+export FETCH_CALLS="$scratch/fetch-calls" FETCH_RETRY_DELAYS_SECONDS='0 0'
+cat > "$scratch/shims/git" <<'SHIM'
+#!/usr/bin/env bash
+if [ "$1" = fetch ]; then
+    calls="$(cat "$FETCH_CALLS")"
+    calls=$((calls + 1))
+    printf '%s\n' "$calls" > "$FETCH_CALLS"
+    if [ "$calls" -le "$FETCH_FAILURES" ]; then
+        if [ "${COMPLETE_FAILED_FETCH:-0}" = 1 ]; then "$REAL_GIT" "$@"; fi
+        exit "$((120 + calls))"
+    fi
+fi
+exec "$REAL_GIT" "$@"
+SHIM
+chmod +x "$scratch/shims/git"
+for failures in 2 3; do
+    git clone -q --depth 1 "file://$scratch/executing" "$scratch/retry-$failures"
+    export FETCH_FAILURES="$failures"
+    printf '0\n' > "$FETCH_CALLS"
+    : > "$GITHUB_OUTPUT"
+    : > "$TIMEOUT_ARGUMENTS"
+    (cd "$scratch/retry-$failures" && bash "$helper" tag) > "$scratch/retry-annotations"
+    test "$(cat "$FETCH_CALLS")" = 3
+    test "$(grep -c '^::notice ' "$scratch/retry-annotations")" = 2
+    grep -Fq 'attempt 1 of 3 failed (status 121); retrying in 0 seconds.' "$scratch/retry-annotations"
+    grep -Fq 'attempt 2 of 3 failed (status 122); retrying in 0 seconds.' "$scratch/retry-annotations"
+    test "$(cat "$TIMEOUT_ARGUMENTS")" = "$(printf '%s\n' --kill-after=10s 90s --kill-after=10s 90s --kill-after=10s 90s)"
+    if [ "$failures" -eq 2 ]; then
+        test "$(cat "$GITHUB_OUTPUT")" = "$executing_tag"
+        test "$(git -C "$scratch/retry-$failures" rev-parse --is-shallow-repository)" = false
+        if grep -q '^::warning ' "$scratch/retry-annotations"; then exit 1; fi
+        echo 'PASS tag retries two failed fetches and succeeds with two notices'
+    else
+        test ! -s "$GITHUB_OUTPUT"
+        grep -Fxq '::warning title=Ordered release tag skipped::Source history could not be fetched (status 123).' "$scratch/retry-annotations"
+        echo 'PASS tag stops after three failed fetches with the last status and no tag'
+    fi
+done
+printf '0\n' > "$FETCH_CALLS"
+: > "$GITHUB_OUTPUT"
+: > "$TIMEOUT_ARGUMENTS"
+(cd "$scratch/executing" && bash "$helper" tag) > "$scratch/retry-annotations"
+test "$(cat "$FETCH_CALLS")" = 0
+test ! -s "$TIMEOUT_ARGUMENTS"
+test ! -s "$scratch/retry-annotations"
+test "$(cat "$GITHUB_OUTPUT")" = "$executing_tag"
+echo 'PASS complete checkout generates a tag without fetching'
+git clone -q --depth 1 "file://$scratch/executing" "$scratch/completed-fetch"
+printf '0\n' > "$FETCH_CALLS"
+: > "$GITHUB_OUTPUT"
+(cd "$scratch/completed-fetch" && COMPLETE_FAILED_FETCH=1 bash "$helper" tag) > "$scratch/retry-annotations"
+test "$(cat "$FETCH_CALLS")" = 1
+test "$(cat "$GITHUB_OUTPUT")" = "$executing_tag"
+test "$(grep -c '^::notice ' "$scratch/retry-annotations")" = 1
+echo 'PASS tag rechecks shallow state after a failed fetch completes history'
+rm "$scratch/shims/git"
+unset FETCH_RETRY_DELAYS_SECONDS
 GITHUB_SHA="$(git -C "$scratch/mirror" rev-parse HEAD^1)"
 git -C "$scratch/mirror" cat-file -e "$GITHUB_SHA^{commit}"
 test "$GITHUB_SHA" != "$(git -C "$scratch/mirror" rev-parse HEAD)"

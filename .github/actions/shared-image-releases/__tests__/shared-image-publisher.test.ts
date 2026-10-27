@@ -468,9 +468,13 @@ describe('shared-image publication', () => {
     expect(() => validateRequests(loadPolicy(policy()), force, bootstrap)).toThrow(String(_name).startsWith('force') ? 'Force requires' : 'Bootstrap requires')
   })
 
-  test.each([0, -1, 1.5, Infinity])('invalid budget %s rejects before commands', async value => {
-    build(); options.budgets.registryMs = value
-    await expect(publishChannels(options)).rejects.toThrow('Invalid publisher budget: registryMs')
+  test.each([
+    ...[0, -1, 1.5, Infinity].map(value => ['registryMs', value] as const),
+    ...[null, 0, '5 15', [], [0], [0, 0, 0], [-1, 0], [0, 1.5], [0, Infinity], [0, Number.MAX_SAFE_INTEGER + 1], [0, '15']]
+      .map(value => ['retryDelaysMs', value] as const)
+  ])('invalid budget %s=%j rejects before commands', async (name, value) => {
+    build(); Object.assign(options.budgets, {[name]: value})
+    await expect(publishChannels(options)).rejects.toThrow(`Invalid publisher budget: ${name}`)
     expect(external).not.toHaveBeenCalled()
   })
 
