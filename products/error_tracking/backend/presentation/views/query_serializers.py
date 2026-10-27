@@ -78,8 +78,6 @@ class ErrorTrackingDateRangeSerializer(serializers.Serializer):
     )
 
 
-# Any value relative_date_parse reads as relative, including uppercase units it resolves to "now".
-_RELATIVE_DATE_PREFIX = re.compile(r"-?\d+[hdwmqysHDWMQY]")
 # Only the units relative_date_parse resolves: lowercase m is months, uppercase M is minutes.
 _SUPPORTED_RELATIVE_DATE = re.compile(r"-?\d+[hdwmqysM]")
 _DATE_COMPARISON_OPERATORS = ("gt", "gte", "lt", "lte", "is_date_after", "is_date_before")
@@ -94,12 +92,14 @@ def validate_filter_group(value: list[dict[str, object]]) -> list[dict[str, obje
             and item.get("key") == "first_seen"
             and item.get("operator") in _DATE_COMPARISON_OPERATORS
             and isinstance(date_value := item.get("value"), str)
-            and _RELATIVE_DATE_PREFIX.match(date_value)
         ):
-            raise serializers.ValidationError(
-                "Relative dates are not supported for first_seen comparisons in filterGroup. "
-                "Use firstSeenAfter for issues first seen after a time, or an ISO timestamp in filterGroup."
-            )
+            try:
+                serializers.DateTimeField().run_validation(date_value)
+            except serializers.ValidationError:
+                raise serializers.ValidationError(
+                    "first_seen comparisons in filterGroup need an ISO timestamp. "
+                    "Use firstSeenAfter for relative dates such as -24h."
+                )
     return value
 
 

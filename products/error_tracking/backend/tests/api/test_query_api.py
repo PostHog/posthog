@@ -339,34 +339,8 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
             timestamp=timestamp or now() - relativedelta(hours=1),
         )
 
-    @parameterized.expand(
-        [
-            ("relative", {"firstSeenAfter": "-1d"}, False, True),
-            ("absolute", {"firstSeenAfter": "2026-04-23T12:00:00Z"}, False, True),
-            ("milliseconds", {"firstSeenAfter": "2026-04-24T10:00:00.500Z"}, False, False),
-            ("before_both", {"firstSeenAfter": "-3d"}, True, True),
-            (
-                "filter_group_before",
-                {
-                    "filterGroup": [
-                        {"key": "$browser", "type": "event", "operator": "exact", "value": ["Chrome"]},
-                        {
-                            "key": "first_seen",
-                            "type": "error_tracking_issue",
-                            "operator": "lt",
-                            "value": "2026-04-23T12:00:00Z",
-                        },
-                    ]
-                },
-                True,
-                False,
-            ),
-        ]
-    )
     @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
-    def test_issues_list_accepts_typed_filters_and_matches_release_precisely(
-        self, _name: str, first_seen_fields: dict[str, object], old_included: bool, new_included: bool
-    ) -> None:
+    def test_issues_list_accepts_typed_filters_and_matches_release_precisely(self) -> None:
         self.create_issue()
         self.create_exception_event(
             properties={
@@ -382,30 +356,6 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
                 },
             }
         )
-        old_issue_id = "01936e7f-d7ff-7314-b2d4-7627981e34f1"
-        self.create_issue(issue_id=old_issue_id, fingerprint="old-fingerprint")
-        for issue_id, first_seen in [
-            (self.issue_id, (now() - timedelta(hours=2)).replace(microsecond=200000)),
-            (old_issue_id, now() - timedelta(days=2)),
-        ]:
-            ErrorTrackingIssueFingerprintV2.objects.filter(team=self.team, issue_id=issue_id).update(
-                first_seen=first_seen
-            )
-        ErrorTrackingIssueFingerprintV2.objects.create(
-            team=self.team, issue_id=old_issue_id, fingerprint="new-fingerprint-on-old-issue"
-        )
-        with time_machine.travel("2026-04-24T12:00:01Z", tick=False):
-            sync_issues_to_clickhouse(issue_ids=[self.issue_id, old_issue_id], team_id=self.team.pk)
-        self.create_exception_event(
-            issue_id=old_issue_id,
-            fingerprint="new-fingerprint-on-old-issue",
-            properties={
-                "$lib": "posthog-js",
-                "$browser": "Chrome",
-                "$current_url": "https://example.test/checkout",
-                "$exception_release": {"version": "2026.04.24"},
-            },
-        )
         flush_persons_and_events()
 
         with patch(f"{SUMMARIES_FACADE}.start_issue_summary_generation") as start_generation:
@@ -416,20 +366,16 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
                     "dateRange": {"date_from": "-1d", "date_to": "2026-04-25T00:00:00Z"},
                     "library": "posthog-js",
                     "release": "2026.04.24",
-                    "fingerprint": [self.fingerprint, "new-fingerprint-on-old-issue"],
+                    "fingerprint": self.fingerprint,
                     "url": "/checkout",
                     "filterGroup": [{"key": "$browser", "type": "event", "operator": "exact", "value": ["Chrome"]}],
-                    **first_seen_fields,
                 },
                 format="json",
             )
 
         assert response.status_code == 200
-        expected_ids = [
-            issue_id for issue_id, kept in [(self.issue_id, new_included), (old_issue_id, old_included)] if kept
-        ]
-        assert sorted(row["id"] for row in response.json()["results"]) == sorted(expected_ids)
-        assert all("summary" not in row for row in response.json()["results"])
+        assert [row["id"] for row in response.json()["results"]] == [self.issue_id]
+        assert "summary" not in response.json()["results"][0]
         start_generation.assert_not_called()
 
         project_response = self.client.post(
@@ -444,6 +390,66 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
 
         assert project_response.status_code == 200
         assert project_response.json()["results"] == []
+
+    @parameterized.expand(
+        [
+            ("relative", {"firstSeenAfter": "-1d"}, {"new"}),
+            ("relative_minutes", {"firstSeenAfter": "-180M"}, {"new"}),
+            ("absolute", {"firstSeenAfter": "2026-04-23T12:00:00Z"}, {"new"}),
+            ("milliseconds", {"firstSeenAfter": "2026-04-24T10:00:00.500Z"}, set()),
+            ("before_both", {"firstSeenAfter": "-3d"}, {"new", "old"}),
+            (
+                "filter_group_before",
+                {
+                    "filterGroup": [
+                        {
+                            "key": "first_seen",
+                            "type": "error_tracking_issue",
+                            "operator": "lt",
+                            "value": "2026-04-23T12:00:00Z",
+                        }
+                    ]
+                },
+                {"old"},
+            ),
+        ]
+    )
+    @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
+    def test_issues_list_filters_by_merged_issue_first_seen(
+        self, _name: str, request_fields: dict[str, object], expected: set[str]
+    ) -> None:
+        old_issue_id = "01936e7f-d7ff-7314-b2d4-7627981e34f1"
+        self.create_issue()
+        self.create_issue(issue_id=old_issue_id, fingerprint="old-fingerprint")
+        for issue_id, first_seen in [
+            (self.issue_id, (now() - timedelta(hours=2)).replace(microsecond=200000)),
+            (old_issue_id, now() - timedelta(days=2)),
+        ]:
+            ErrorTrackingIssueFingerprintV2.objects.filter(team=self.team, issue_id=issue_id).update(
+                first_seen=first_seen
+            )
+        ErrorTrackingIssueFingerprintV2.objects.create(
+            team=self.team, issue_id=old_issue_id, fingerprint="new-fingerprint-on-old-issue"
+        )
+        with time_machine.travel("2026-04-24T12:00:01Z", tick=False):
+            sync_issues_to_clickhouse(issue_ids=[self.issue_id, old_issue_id], team_id=self.team.pk)
+        self.create_exception_event()
+        self.create_exception_event(issue_id=old_issue_id, fingerprint="new-fingerprint-on-old-issue")
+        flush_persons_and_events()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/query/issues",
+            data={
+                "status": "all",
+                "dateRange": {"date_from": "-1d", "date_to": "2026-04-25T00:00:00Z"},
+                **request_fields,
+            },
+            format="json",
+        )
+
+        assert response.status_code == 200
+        ids_by_name = {"new": self.issue_id, "old": old_issue_id}
+        assert {row["id"] for row in response.json()["results"]} == {ids_by_name[name] for name in expected}
 
     @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
     def test_issue_queries_return_severity(self) -> None:
@@ -475,6 +481,13 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
                 "firstSeenAfter",
             )
             for operator in ("gt", "gte", "lt", "lte", "is_date_after", "is_date_before")
+        ]
+        + [
+            (
+                {"key": "first_seen", "type": "error_tracking_issue", "operator": "gt", "value": value},
+                "firstSeenAfter",
+            )
+            for value in ("-24H", "yesterday")
         ]
     )
     def test_rejects_unsupported_property_filters(self, item: dict[str, object], message: str) -> None:
