@@ -68,7 +68,10 @@ async function openPart(canvasElement: HTMLElement, part: string, panelText: str
 }
 
 export const ReportsOpen: Story = {
-    parameters: { pageUrl: `${urls.aiObservabilityEvaluation('new')}?template=helpfulness` },
+    parameters: {
+        pageUrl: `${urls.aiObservabilityEvaluation('new')}?template=helpfulness`,
+        testOptions: { waitForSelector: '[data-attr="llma-evaluation-create-step-body-reports"]' },
+    },
     decorators: [scene(1240)],
     play: async ({ canvasElement }) => {
         await openPart(canvasElement, 'reports', 'Send a report')
@@ -76,6 +79,7 @@ export const ReportsOpen: Story = {
 }
 
 export const SentimentEvaluation: Story = {
+    parameters: { testOptions: { waitForSelector: '[data-attr="llma-evaluation-create-step-body-check"]' } },
     decorators: [scene(1240)],
     play: async ({ canvasElement }) => {
         await openPart(canvasElement, 'method', 'Sentiment')
@@ -86,7 +90,10 @@ export const SentimentEvaluation: Story = {
 
 /** The "What it runs on" step, with the warning shown when no generation matched. */
 export const NothingMatches: Story = {
-    parameters: { pageUrl: `${urls.aiObservabilityEvaluation('new')}?template=helpfulness` },
+    parameters: {
+        pageUrl: `${urls.aiObservabilityEvaluation('new')}?template=helpfulness`,
+        testOptions: { waitForSelector: '[data-attr="llma-evaluation-create-volume-none"]' },
+    },
     decorators: [scene(0)],
     play: async ({ canvasElement }) => {
         await openPart(canvasElement, 'triggers', 'Triggers')
