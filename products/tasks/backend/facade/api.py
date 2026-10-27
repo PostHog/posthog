@@ -563,6 +563,7 @@ _TASK_RUN_PUBLIC_STATE_KEYS = frozenset(
         "codex_subscription_user_id",
         "context_window",
         "custom_image_id",
+        "disable_repo_hooks",
         "fast_mode",
         # An imported transcript's provenance and mirror cursor: the viewer marks the run as
         # imported, and the legacy mirror reads its own cursor back through this DTO.
