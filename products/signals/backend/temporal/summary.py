@@ -17,6 +17,11 @@ import posthoganalytics
 from structlog.types import FilteringBoundLogger
 from temporalio import workflow
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
+from temporalio.exceptions import (
+    ActivityError,
+    ApplicationError,
+    TimeoutError as TemporalTimeoutError,
+)
 from temporalio.workflow import ParentClosePolicy
 
 from posthog.clickhouse.client.connection import ClickHouseUser
@@ -102,6 +107,7 @@ def _capture_report_event(
     source_products: list[str],
     result: str | None = None,
     failure_reason: str | None = None,
+    error_type: str | None = None,
     pending_reason: str | None = None,
     chart_count: int | None = None,
     charts_enabled: bool | None = None,
@@ -126,11 +132,13 @@ def _capture_report_event(
         properties["charts_enabled"] = charts_enabled
     if failure_reason is not None:
         properties["failure_reason"] = failure_reason
+    if error_type is not None:
+        properties["error_type"] = error_type
     if pending_reason is not None:
         properties["pending_reason"] = pending_reason
 
     if event == "signal_report_completed" and result is not None:
-        metrics.increment_report_completed(result)
+        metrics.increment_report_completed(result, failure_reason=failure_reason, error_type=error_type)
 
     try:
         posthoganalytics.capture(
@@ -147,6 +155,17 @@ def _capture_report_event(
             event=event,
             report_id=report_id,
         )
+
+
+def _activity_error_type(error: BaseException) -> str | None:
+    if not isinstance(error, ActivityError):
+        return None
+    if isinstance(error.cause, TemporalTimeoutError):
+        return "activity_timeout"
+    # Temporal puts the class name of an unhandled activity exception in the ApplicationError type.
+    if isinstance(error.cause, ApplicationError):
+        return error.cause.type
+    return None
 
 
 @frozen
@@ -743,6 +762,7 @@ class SignalReportSummaryWorkflow:
                         if _is_research_sandbox_unavailable(e)
                         else "agentic_activity_error"
                     ),
+                    error_type=_activity_error_type(e),
                     signal_count=signal_count,
                     source_products=source_products,
                 ),
@@ -1227,12 +1247,13 @@ async def maybe_autostart_implementation_activity(input: MaybeAutostartImplement
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class MarkReportFailedInput:
     team_id: int
     report_id: str
     error: str
     failure_reason: str | None = None
+    error_type: str | None = None
     signal_count: int = 0
     source_products: list[str] = field(default_factory=list)
 
@@ -1279,6 +1300,7 @@ async def mark_report_failed_activity(input: MarkReportFailedInput) -> None:
         source_products=input.source_products,
         result="failed",
         failure_reason=input.failure_reason,
+        error_type=input.error_type,
     )
     logger.debug(
         f"Marked report {input.report_id} as failed",
