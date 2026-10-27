@@ -10,7 +10,6 @@ import (
 	"os"
 	"runtime/pprof"
 	"slices"
-	"strconv"
 	"strings"
 	"unsafe"
 )
@@ -54,9 +53,6 @@ const (
 	maxJSONArrayDepth        = 8
 	unparseablePropertiesKey = "$unparseable_properties"
 	maxRecycledValues        = 4096
-	// Each null path repeats its ancestor keys, so a small document with a long key and many null
-	// children can expand to gigabytes of paths. The budget bounds that expansion per document.
-	maxNullKeyBytes = 256 * 1024
 )
 
 var errMaxJSONDepth = errors.New("maximum JSON depth exceeded")
@@ -192,14 +188,21 @@ type processor struct {
 	tooDeepArrays bool
 	discard       bool
 	collectNulls  bool
-	nullKeys      []string
-	path          []string
-	pathBuf       bytes.Buffer
+	nullFrames    []nullFrame
+	nullKinds     map[string]valueKind
 	docs          [envelopeDocs]bytes.Buffer
-	docNullKeys   [envelopeDocs][]string
-	nullKeySeen   map[string]struct{}
-	nullKeyBytes  int
-	nullKeysOver  bool
+	nullDocs      [envelopeDocs]bytes.Buffer
+}
+
+// A container between the document root and the object being cleaned, with the node that collects the null
+// fields recorded below it. The null document mirrors the input's shape, so a recorded null costs its own key
+// and each container on the way to it once, however many nulls share that container. The node is created on
+// the first null below the container, so a document without nulls allocates nothing for them.
+type nullFrame struct {
+	kind  valueKind
+	key   string
+	index int
+	node  *value
 }
 
 func processLine(rawLine []byte, buf *bytes.Buffer) error {
@@ -848,14 +851,14 @@ func (p *processor) cleanNode(pathRules *pathRule, v *value, depth int) (*value,
 				continue
 			}
 			if p.collectNulls {
-				p.path = append(p.path, strconv.Itoa(i))
+				p.pushNullFrame(child.kind, "", i)
 			}
 			cleaned, err := p.cleanNode(pathRules, child, depth+1)
-			if p.collectNulls {
-				p.path = p.path[:len(p.path)-1]
-			}
 			if err != nil {
 				return nil, err
+			}
+			if p.collectNulls {
+				p.popNullFrame(true)
 			}
 			v.values[i] = cleaned
 		}
@@ -873,14 +876,14 @@ func (p *processor) cleanObject(pathRules *pathRule, obj *value, depth int) erro
 			childPathRules = pathRules.children[entry.key]
 		}
 		cleaned := entry.value
+		// Normalization can reset the value in place, so remember whether a frame was pushed for it.
+		pushedNullFrame := p.collectNulls && cleaned.kind >= kindObject
+		keepNulls := true
 		if cleaned.kind >= kindObject {
-			if p.collectNulls {
-				p.path = append(p.path, entry.key)
+			if pushedNullFrame {
+				p.pushNullFrame(cleaned.kind, entry.key, 0)
 			}
 			cleaned, err = p.cleanNode(childPathRules, cleaned, depth+1)
-			if p.collectNulls {
-				p.path = p.path[:len(p.path)-1]
-			}
 			if err != nil {
 				p.retainUnprocessedEntries(obj, writeIdx, readIdx)
 				return err
@@ -890,6 +893,9 @@ func (p *processor) cleanObject(pathRules *pathRule, obj *value, depth int) erro
 			p.mutated = true
 			original := cleaned
 			cleaned, err = p.normalizeValue(childPathRules.normalization, cleaned, depth)
+			// Nulls recorded below the child describe its shape before normalization. A wrapped object, a
+			// quarantined value or an array coerced to strings no longer has that shape.
+			keepNulls = err == nil && cleaned == original && childPathRules.normalization != normalizationStringArray
 			if err != nil {
 				cleaned = original
 				if unparsable.Len() == 0 {
@@ -907,10 +913,13 @@ func (p *processor) cleanObject(pathRules *pathRule, obj *value, depth int) erro
 				}
 			}
 		}
+		if pushedNullFrame {
+			p.popNullFrame(keepNulls)
+		}
 		if cleaned.kind == kindNull {
 			p.mutated = true
 			if p.collectNulls {
-				p.recordNullKey(entry.key)
+				p.recordNull(entry.key)
 			}
 			p.recycle(cleaned)
 			continue
@@ -929,6 +938,9 @@ func (p *processor) cleanObject(pathRules *pathRule, obj *value, depth int) erro
 		obj.entries = append(obj.entries, entry{key: unparseablePropertiesKey, value: marker})
 	}
 	p.deduplicateEntries(obj)
+	if p.collectNulls {
+		p.pruneNullEntries(obj)
+	}
 	return nil
 }
 
@@ -1456,24 +1468,10 @@ func (p *processor) processEnvelopeLine(rawLine []byte, buf *bytes.Buffer) error
 	for i, name := range envelopeDocNames {
 		buf.WriteString(`,"`)
 		buf.WriteString(name)
-		buf.WriteString(`_null_keys":[`)
-		for j, key := range p.docNullKeys[i] {
-			if j > 0 {
-				buf.WriteByte(',')
-			}
-			writeJSONString(buf, key)
-		}
-		buf.WriteByte(']')
+		buf.WriteString(`_nulls":`)
+		writeJSONString(buf, borrowedString(p.nullDocs[i].Bytes()))
 	}
 	buf.WriteString("}}")
-
-	// Null keys can borrow the input row; drop them so the pool worker does not retain it.
-	for i := range p.docNullKeys {
-		clear(p.docNullKeys[i])
-		p.docNullKeys[i] = p.docNullKeys[i][:0]
-	}
-	clear(p.nullKeys)
-	p.nullKeys = p.nullKeys[:0]
 	return nil
 }
 
@@ -1482,8 +1480,8 @@ func (p *processor) cleanEventDocument(raw []byte) {
 	temporary := &p.docs[envelopeTemporaryProperties]
 	permanent.Reset()
 	temporary.Reset()
-	p.docNullKeys[envelopeProperties] = p.docNullKeys[envelopeProperties][:0]
-	p.docNullKeys[envelopeTemporaryProperties] = p.docNullKeys[envelopeTemporaryProperties][:0]
+	p.nullDocs[envelopeProperties].Reset()
+	p.nullDocs[envelopeTemporaryProperties].Reset()
 
 	if isBlank(raw) {
 		permanent.WriteString("{}")
@@ -1520,7 +1518,7 @@ func (p *processor) cleanEventDocument(raw []byte) {
 	p.collectNulls = true
 	defer func() { p.collectNulls = false }()
 
-	p.resetNullKeys()
+	p.beginNullDocument()
 	cleaned, err := p.cleanEventProperties(parsed)
 	if err != nil || (p.mutated && exceedsJSONArrayDepth(cleaned, 0)) {
 		if err != nil {
@@ -1529,14 +1527,15 @@ func (p *processor) cleanEventDocument(raw []byte) {
 			p.recycle(cleaned)
 		}
 		p.recycle(temporaryObject)
+		p.discardNullDocument()
 		quarantine()
 		return
 	}
-	p.docNullKeys[envelopeProperties] = p.finishNullKeys(cleaned, p.docNullKeys[envelopeProperties])
+	p.finishNullDocument(&p.nullDocs[envelopeProperties])
 	p.writeValue(permanent, cleaned)
 	p.recycle(cleaned)
 
-	p.resetNullKeys()
+	p.beginNullDocument()
 	cleanedTemporary, err := p.cleanNode(nil, temporaryObject, 1)
 	if err != nil || (p.mutated && exceedsJSONArrayDepth(cleanedTemporary, 0)) {
 		// The permanent output already quarantines the raw document; do not duplicate it outside the allowlist.
@@ -1545,10 +1544,11 @@ func (p *processor) cleanEventDocument(raw []byte) {
 		} else {
 			p.recycle(cleanedTemporary)
 		}
+		p.discardNullDocument()
 		temporary.WriteString("{}")
 		return
 	}
-	p.docNullKeys[envelopeTemporaryProperties] = p.finishNullKeys(cleanedTemporary, p.docNullKeys[envelopeTemporaryProperties])
+	p.finishNullDocument(&p.nullDocs[envelopeTemporaryProperties])
 	p.writeValue(temporary, cleanedTemporary)
 	p.recycle(cleanedTemporary)
 }
@@ -1556,7 +1556,7 @@ func (p *processor) cleanEventDocument(raw []byte) {
 func (p *processor) cleanPersonDocument(raw []byte) {
 	out := &p.docs[envelopePersonProperties]
 	out.Reset()
-	p.docNullKeys[envelopePersonProperties] = p.docNullKeys[envelopePersonProperties][:0]
+	p.nullDocs[envelopePersonProperties].Reset()
 
 	if isBlank(raw) {
 		out.WriteString("{}")
@@ -1574,7 +1574,7 @@ func (p *processor) cleanPersonDocument(raw []byte) {
 	p.collectNulls = true
 	defer func() { p.collectNulls = false }()
 
-	p.resetNullKeys()
+	p.beginNullDocument()
 	cleaned, err := p.cleanNode(nil, parsed, 1)
 	if err != nil || (p.mutated && exceedsJSONArrayDepth(cleaned, 0)) {
 		if err != nil {
@@ -1582,10 +1582,11 @@ func (p *processor) cleanPersonDocument(raw []byte) {
 		} else {
 			p.recycle(cleaned)
 		}
+		p.discardNullDocument()
 		p.writeUnparseableProperties(out, raw)
 		return
 	}
-	p.docNullKeys[envelopePersonProperties] = p.finishNullKeys(cleaned, p.docNullKeys[envelopePersonProperties])
+	p.finishNullDocument(&p.nullDocs[envelopePersonProperties])
 	p.writeValue(out, cleaned)
 	p.recycle(cleaned)
 }
@@ -1599,118 +1600,131 @@ func isBlank(raw []byte) bool {
 	return true
 }
 
-func (p *processor) resetNullKeys() {
-	p.nullKeys = p.nullKeys[:0]
-	p.nullKeyBytes = 0
-	p.nullKeysOver = false
+func (p *processor) beginNullDocument() {
+	p.nullFrames = append(p.nullFrames[:0], nullFrame{kind: kindObject})
 }
 
-// %2E is the json_type_escape_dots_in_keys spelling, which tells the flat key `a.b` from the path `a` > `b`.
-func (p *processor) recordNullKey(key string) {
-	if p.nullKeysOver {
-		return
-	}
-	// Measure the path before building it, so an oversized path is never allocated.
-	size := encodedNullKeySegmentLen(key)
-	for _, segment := range p.path {
-		size += encodedNullKeySegmentLen(segment) + 1
-	}
-	p.nullKeyBytes += size
-	if p.nullKeyBytes > maxNullKeyBytes {
-		p.nullKeysOver = true
-		return
-	}
-	if len(p.path) == 0 && strings.IndexByte(key, '.') < 0 {
-		p.nullKeys = append(p.nullKeys, key)
-		return
-	}
-	p.pathBuf.Reset()
-	for _, segment := range p.path {
-		writeNullKeySegment(&p.pathBuf, segment)
-		p.pathBuf.WriteByte('.')
-	}
-	writeNullKeySegment(&p.pathBuf, key)
-	p.nullKeys = append(p.nullKeys, p.pathBuf.String())
+func (p *processor) pushNullFrame(kind valueKind, key string, index int) {
+	p.nullFrames = append(p.nullFrames, nullFrame{kind: kind, key: key, index: index})
 }
 
-func encodedNullKeySegmentLen(segment string) int {
-	return len(segment) + 2*strings.Count(segment, ".")
-}
-
-func writeNullKeySegment(buf *bytes.Buffer, segment string) {
-	for {
-		dot := strings.IndexByte(segment, '.')
-		if dot < 0 {
-			buf.WriteString(segment)
-			return
+func (p *processor) ensureNullNode(i int) *value {
+	if node := p.nullFrames[i].node; node != nil {
+		return node
+	}
+	frame := p.nullFrames[i]
+	node := p.newValue(frame.kind)
+	p.nullFrames[i].node = node
+	if i == 0 {
+		return node
+	}
+	parent := p.ensureNullNode(i - 1)
+	if parent.kind == kindArray {
+		// An array keeps its positions: each earlier element with nothing to restore is an empty object.
+		for len(parent.values) < frame.index {
+			parent.values = append(parent.values, p.newValue(kindObject))
 		}
-		buf.WriteString(segment[:dot])
-		buf.WriteString("%2E")
-		segment = segment[dot+1:]
+		parent.values = append(parent.values, node)
+	} else {
+		parent.entries = append(parent.entries, entry{key: frame.key, value: node})
 	}
+	return node
 }
 
-// A duplicate key can leave a non-null value under a recorded path after cleaning.
-// The seen set keeps deduplication linear, because one event can carry thousands of null fields.
-func (p *processor) finishNullKeys(root *value, out []string) []string {
-	// A partial list would claim that the unlisted fields were never sent, so record none.
-	if p.nullKeysOver || len(p.nullKeys) == 0 {
-		return out
+func (p *processor) recordNull(key string) {
+	node := p.ensureNullNode(len(p.nullFrames) - 1)
+	node.entries = append(node.entries, entry{key: key, value: p.newValue(kindNull)})
+}
+
+// A node that comes off is the last child of its parent, because only its own descendants ran since it was
+// attached, so no search is needed, and the placeholders that only led to it come off with it.
+func (p *processor) popNullFrame(keep bool) {
+	last := len(p.nullFrames) - 1
+	node := p.nullFrames[last].node
+	p.nullFrames[last] = nullFrame{}
+	p.nullFrames = p.nullFrames[:last]
+	if node == nil || keep && (len(node.entries) > 0 || len(node.values) > 0) {
+		return
 	}
-	if p.nullKeySeen == nil {
-		p.nullKeySeen = make(map[string]struct{}, len(p.nullKeys))
-	}
-	clear(p.nullKeySeen)
-	for _, key := range out {
-		p.nullKeySeen[key] = struct{}{}
-	}
-	for _, key := range p.nullKeys {
-		if _, seen := p.nullKeySeen[key]; seen || pathExists(root, key) {
-			continue
+	parent := p.nullFrames[last-1].node
+	if parent.kind == kindArray {
+		parent.values = parent.values[:len(parent.values)-1]
+		for n := len(parent.values); n > 0 && parent.values[n-1].kind == kindObject && len(parent.values[n-1].entries) == 0; n-- {
+			p.recycle(parent.values[n-1])
+			parent.values = parent.values[:n-1]
 		}
-		p.nullKeySeen[key] = struct{}{}
-		out = append(out, key)
+	} else {
+		parent.entries = parent.entries[:len(parent.entries)-1]
 	}
-	// A pooled worker reuses the processor across rows, so drop a large set instead of keeping its memory.
-	if len(p.nullKeySeen) > 4096 {
-		p.nullKeySeen = nil
-	}
-	return out
+	p.recycle(node)
 }
 
-// Each segment is one object key, with its dots written as %2E, or one array index.
-func pathExists(v *value, path string) bool {
-	for v != nil {
-		segment, rest, more := strings.Cut(path, ".")
-		switch v.kind {
-		case kindObject:
-			segment = strings.ReplaceAll(segment, "%2E", ".")
-			var next *value
-			for _, entry := range v.entries {
-				if entry.key == segment {
-					next = entry.value
-					break
-				}
+// A duplicate key can keep a value under a recorded null, record the same null twice, or replace a
+// container that recorded nulls below it with a value of another kind. A null stays only where no value
+// survived, once per key, and a child node only where its container kept its kind.
+func (p *processor) pruneNullEntries(obj *value) {
+	node := p.nullFrames[len(p.nullFrames)-1].node
+	if node == nil {
+		return
+	}
+	if p.nullKinds == nil {
+		p.nullKinds = make(map[string]valueKind, len(obj.entries))
+	}
+	for _, survivor := range obj.entries {
+		p.nullKinds[survivor.key] = survivor.value.kind
+	}
+	writeIdx := 0
+	for _, recorded := range node.entries {
+		kind, found := p.nullKinds[recorded.key]
+		var keep bool
+		if recorded.value.kind == kindNull {
+			keep = !found
+			if keep {
+				p.nullKinds[recorded.key] = kindNull
 			}
-			v = next
-		case kindArray:
-			index, err := strconv.Atoi(segment)
-			if err != nil || index < 0 || index >= len(v.values) {
-				return false
-			}
-			v = v.values[index]
-		default:
-			return false
+		} else {
+			keep = found && kind == recorded.value.kind
 		}
-		if v == nil {
-			return false
+		if keep {
+			node.entries[writeIdx] = recorded
+			writeIdx++
+		} else {
+			p.recycle(recorded.value)
 		}
-		if !more {
-			return true
-		}
-		path = rest
 	}
-	return false
+	clear(node.entries[writeIdx:])
+	node.entries = node.entries[:writeIdx]
+	// A pooled worker reuses the processor across rows, so drop a large map instead of keeping its memory.
+	if len(p.nullKinds) > maxRecycledValues {
+		p.nullKinds = nil
+	} else {
+		clear(p.nullKinds)
+	}
+}
+
+func (p *processor) finishNullDocument(out *bytes.Buffer) {
+	root := p.nullFrames[0].node
+	p.resetNullFrames()
+	if root == nil {
+		return
+	}
+	if len(root.entries) > 0 {
+		p.writeValue(out, root)
+	}
+	p.recycle(root)
+}
+
+// Every node is attached under the root when it is created, so recycling the root releases the whole tree.
+func (p *processor) discardNullDocument() {
+	root := p.nullFrames[0].node
+	p.resetNullFrames()
+	p.recycle(root)
+}
+
+// Frame keys borrow the input row, so the backing array is cleared before the pool worker reads the next row.
+func (p *processor) resetNullFrames() {
+	clear(p.nullFrames[:cap(p.nullFrames)])
+	p.nullFrames = p.nullFrames[:0]
 }
 
 func readLine(reader *bufio.Reader) ([]byte, error) {

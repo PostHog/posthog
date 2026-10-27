@@ -682,12 +682,12 @@ func TestProcessLineSplitsTemporaryProperties(t *testing.T) {
 }
 
 type envelopeResult struct {
-	Properties                  string   `json:"properties"`
-	TemporaryProperties         string   `json:"temporary_properties"`
-	PersonProperties            string   `json:"person_properties"`
-	PropertiesNullKeys          []string `json:"properties_null_keys"`
-	TemporaryPropertiesNullKeys []string `json:"temporary_properties_null_keys"`
-	PersonPropertiesNullKeys    []string `json:"person_properties_null_keys"`
+	Properties               string `json:"properties"`
+	TemporaryProperties      string `json:"temporary_properties"`
+	PersonProperties         string `json:"person_properties"`
+	PropertiesNulls          string `json:"properties_nulls"`
+	TemporaryPropertiesNulls string `json:"temporary_properties_nulls"`
+	PersonPropertiesNulls    string `json:"person_properties_nulls"`
 }
 
 func processEnvelope(t *testing.T, proc *processor, properties, personProperties string) envelopeResult {
@@ -716,49 +716,66 @@ func TestProcessEnvelopeLineSplitsEveryOutput(t *testing.T) {
 		`{"name":"x","email":null,"$initial_referrer":null,"address":{"city":null}}`,
 	)
 	want := envelopeResult{
-		Properties:                  `{"custom":"kept","nested":{"keep":1},"service.name":"api","user":{},"items":[{},2],"$exception_types":["TypeError"],"$feature_flags":{"demo":"control","off":"$false"}}`,
-		TemporaryProperties:         `{"$set":{"score":7},"$sdk_debug_probe":true}`,
-		PersonProperties:            `{"name":"x","address":{}}`,
-		PropertiesNullKeys:          []string{"plan", "nested.deep", "user.plan", "user.a%2Eb", "a%2Eb", "items.0.a"},
-		TemporaryPropertiesNullKeys: []string{"$set.gone"},
-		PersonPropertiesNullKeys:    []string{"email", "$initial_referrer", "address.city"},
+		Properties:               `{"custom":"kept","nested":{"keep":1},"service.name":"api","user":{},"items":[{},2],"$exception_types":["TypeError"],"$feature_flags":{"demo":"control","off":"$false"}}`,
+		TemporaryProperties:      `{"$set":{"score":7},"$sdk_debug_probe":true}`,
+		PersonProperties:         `{"name":"x","address":{}}`,
+		PropertiesNulls:          `{"plan":null,"nested":{"deep":null},"user":{"plan":null,"a.b":null},"a.b":null,"items":[{"a":null}]}`,
+		TemporaryPropertiesNulls: `{"$set":{"gone":null}}`,
+		PersonPropertiesNulls:    `{"email":null,"$initial_referrer":null,"address":{"city":null}}`,
 	}
 	if fmt.Sprint(got) != fmt.Sprint(want) {
 		t.Fatalf("got  %+v\nwant %+v", got, want)
 	}
 }
 
-func TestProcessEnvelopeLineNullKeysIgnoreSurvivingValues(t *testing.T) {
+func TestProcessEnvelopeLineNullsMatchCleanedShape(t *testing.T) {
 	proc := processor{kind: eventEnvelope}
-	var amplified strings.Builder
-	amplified.WriteString(`{"keep":1,"` + strings.Repeat("k", 1024) + `":{`)
-	for i := range 300 {
-		if i > 0 {
-			amplified.WriteByte(',')
-		}
-		fmt.Fprintf(&amplified, `"%d":null`, i)
-	}
-	amplified.WriteString(`}}`)
 	tests := []struct {
-		name, properties string
-		want             []string
+		name, properties, want string
 	}{
-		{"duplicate keeps value", `{"a":null,"a":1}`, nil},
-		{"duplicate keeps later value", `{"a":1,"a":null}`, nil},
-		{"dotted key keeps nested null", `{"Account.client_id":"abc","Account":{"client_id":null}}`, []string{"Account.client_id"}},
-		{"duplicate dotted key keeps value", `{"a.b":null,"a.b":1}`, nil},
-		{"paths over the byte budget record none", amplified.String(), nil},
-		{"repeated null once", `{"x":null,"x":null}`, []string{"x"}},
-		{"dropped list never recorded", `{"$ai_input":null,"$feature_flag_payload":null,"kept":null}`, []string{"kept"}},
-		{"null flags map", `{"$feature_flags":null}`, []string{"$feature_flags"}},
+		{"duplicate keeps value", `{"a":null,"a":1}`, ""},
+		{"duplicate keeps later value", `{"a":1,"a":null}`, ""},
+		{"dotted key keeps nested null", `{"Account.client_id":"abc","Account":{"client_id":null}}`, `{"Account":{"client_id":null}}`},
+		{"duplicate dotted key keeps value", `{"a.b":null,"a.b":1}`, ""},
+		{"repeated null once", `{"x":null,"x":null}`, `{"x":null}`},
+		{"dropped list never recorded", `{"$ai_input":null,"$feature_flag_payload":null,"kept":null}`, `{"kept":null}`},
+		{"null flags map", `{"$feature_flags":null}`, `{"$feature_flags":null}`},
+		{"null flag joins the map", `{"$feature/x":null,"$feature/y":true}`, `{"$feature_flags":{"x":null}}`},
+		{"array keeps positions", `{"items":[1,{"a":null},{"b":1},{"c":null},{"d":2}]}`, `{"items":[{},{"a":null},{},{"c":null}]}`},
+		{"container without surviving nulls is left out", `{"a":{"x":null,"x":1},"b":[{"y":null,"y":2}]}`, ""},
+		{"wrapped exception object loses its nulls", `{"$exception_list":{"type":null,"value":"x"}}`, ""},
+		{"exception list keeps its nulls", `{"$exception_list":[{"type":null,"value":"x"}]}`, `{"$exception_list":[{"type":null}]}`},
+		{"string array coercion loses its nulls", `{"$exception_types":[{"a":null}]}`, ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := processEnvelope(t, &proc, tt.properties, `{}`)
-			if fmt.Sprint(got.PropertiesNullKeys) != fmt.Sprint(tt.want) {
-				t.Fatalf("null keys = %v, want %v", got.PropertiesNullKeys, tt.want)
+			if got.PropertiesNulls != tt.want {
+				t.Fatalf("nulls = %s, want %s", got.PropertiesNulls, tt.want)
 			}
 		})
+	}
+}
+
+func TestProcessEnvelopeLineNullsStayWithinInputSize(t *testing.T) {
+	proc := processor{kind: eventEnvelope}
+	// A long key with many null children is the shape whose path list grew to gigabytes.
+	key := strings.Repeat("k", 64*1024)
+	var doc strings.Builder
+	doc.WriteString(`{"keep":1,"` + key + `":{`)
+	for i := range 10000 {
+		if i > 0 {
+			doc.WriteByte(',')
+		}
+		fmt.Fprintf(&doc, `"%d":null`, i)
+	}
+	doc.WriteString(`}}`)
+	got := processEnvelope(t, &proc, doc.String(), `{}`)
+	if len(got.PropertiesNulls) > doc.Len() {
+		t.Fatalf("nulls document is %d bytes for a %d byte input", len(got.PropertiesNulls), doc.Len())
+	}
+	if nulls, keys := strings.Count(got.PropertiesNulls, "null"), strings.Count(got.PropertiesNulls, key); nulls != 10000 || keys != 1 {
+		t.Fatalf("nulls document has %d nulls and the key %d times, want 10000 and 1", nulls, keys)
 	}
 }
 
@@ -810,7 +827,7 @@ func TestProcessEnvelopeLineMissingFields(t *testing.T) {
 	if err := proc.processLine([]byte(`{"properties":"{\"a\":null}"}`), &out); err != nil {
 		t.Fatal(err)
 	}
-	want := `{"result":{"properties":"{}","temporary_properties":"{}","person_properties":"{}","properties_null_keys":["a"],"temporary_properties_null_keys":[],"person_properties_null_keys":[]}}`
+	want := `{"result":{"properties":"{}","temporary_properties":"{}","person_properties":"{}","properties_nulls":"{\"a\":null}","temporary_properties_nulls":"","person_properties_nulls":""}}`
 	if out.String() != want {
 		t.Fatalf("processLine() = %s, want %s", out.String(), want)
 	}
@@ -832,9 +849,9 @@ func TestRunChunkedEnvelope(t *testing.T) {
 		t.Fatalf("got %d output lines, want 3: %q", len(lines), output.String())
 	}
 	want := []string{
-		`{"result":{"properties":"{\"keep\":1}","temporary_properties":"{\"$set\":{\"a\":1}}","person_properties":"{}","properties_null_keys":["drop"],"temporary_properties_null_keys":[],"person_properties_null_keys":["p"]}}`,
-		`{"result":{"properties":"{\"$feature_flags\":{\"enabled\":true}}","temporary_properties":"{}","person_properties":"{}","properties_null_keys":[],"temporary_properties_null_keys":[],"person_properties_null_keys":[]}}`,
-		`{"result":{"properties":"{}","temporary_properties":"{}","person_properties":"{}","properties_null_keys":[],"temporary_properties_null_keys":[],"person_properties_null_keys":[]}}`,
+		`{"result":{"properties":"{\"keep\":1}","temporary_properties":"{\"$set\":{\"a\":1}}","person_properties":"{}","properties_nulls":"{\"drop\":null}","temporary_properties_nulls":"","person_properties_nulls":"{\"p\":null}"}}`,
+		`{"result":{"properties":"{\"$feature_flags\":{\"enabled\":true}}","temporary_properties":"{}","person_properties":"{}","properties_nulls":"","temporary_properties_nulls":"","person_properties_nulls":""}}`,
+		`{"result":{"properties":"{}","temporary_properties":"{}","person_properties":"{}","properties_nulls":"","temporary_properties_nulls":"","person_properties_nulls":""}}`,
 	}
 	for i := range want {
 		if lines[i] != want[i] {

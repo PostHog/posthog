@@ -45,29 +45,29 @@ Malformed JSON still fails instead of entering this quarantine path.
 
 One call per event row for the native JSON events table. It takes the raw event and person properties, parses each document once, and returns a named tuple:
 
-| Field                            | Type            | Content                                                                       |
-| -------------------------------- | --------------- | ----------------------------------------------------------------------------- |
-| `properties`                     | `String`        | What `JSONCleanPostHogEventProperties` returns                                |
-| `temporary_properties`           | `String`        | What `JSONCleanPostHogTemporaryProperties` returns                            |
-| `person_properties`              | `String`        | What `JSONCleanPostHogPersonProperties` returns                               |
-| `properties_null_keys`           | `Array(String)` | Paths of the object fields removed from `properties` because they were `null` |
-| `temporary_properties_null_keys` | `Array(String)` | The same for `temporary_properties`                                           |
-| `person_properties_null_keys`    | `Array(String)` | The same for `person_properties`                                              |
+| Field                        | Type     | Content                                                                                        |
+| ---------------------------- | -------- | ---------------------------------------------------------------------------------------------- |
+| `properties`                 | `String` | What `JSONCleanPostHogEventProperties` returns                                                 |
+| `temporary_properties`       | `String` | What `JSONCleanPostHogTemporaryProperties` returns                                             |
+| `person_properties`          | `String` | What `JSONCleanPostHogPersonProperties` returns                                                |
+| `properties_nulls`           | `String` | The fields removed from `properties` because they were `null`, as a document of the same shape |
+| `temporary_properties_nulls` | `String` | The same for `temporary_properties`                                                            |
+| `person_properties_nulls`    | `String` | The same for `person_properties`                                                               |
 
-The typed JSON column cannot store `null`, so the cleaners drop null fields. The null-key arrays keep the difference between a property sent as `null` and one never sent. No reader uses them yet: queries, filters and exports treat a null property the same as a missing one, and the arrays keep the data so that a later change can restore the nulls. A path joins the object keys with `.` and writes array positions as numbers: `{"items":[{"a":null}]}` records `items.0.a`. A dot inside one key is written as `%2E`, the spelling `json_type_escape_dots_in_keys` uses, so `{"user":{"plan":null},"a.b":null}` records `user.plan` and `a%2Eb`. A path that still holds a value after duplicate handling is not recorded, so `{"a":null,"a":1}` records nothing. Nulls inside arrays are not object fields; they stay in the array. The paths of one document can use at most 256 KiB. If they need more, that document records no null keys, and its cleaned properties are unchanged. A path repeats every key above it, so without this limit a small document with a long key and many null children could produce gigabytes of paths.
+The typed JSON column cannot store `null`, so the cleaners drop null fields. The null documents keep the difference between a property sent as `null` and one never sent. No reader uses them yet: queries, filters and exports treat a null property the same as a missing one, and the documents keep the data so that a later change can restore the nulls. A null document is the input with everything but its null fields removed, so `{"user":{"plan":null,"tier":1},"a.b":null}` records `{"user":{"plan":null},"a.b":null}`, and a key keeps its dots. An array keeps its positions: `{"items":[1,{"a":null},{"b":2}]}` records `{"items":[{},{"a":null}]}`, where `{}` stands for an element with nothing to restore and the elements after the last affected one are left out. Every key appears once, in its own place, so the document is never larger than the input and needs no size limit. A null whose key still holds a value after duplicate handling is not recorded, so `{"a":null,"a":1}` records nothing. Nulls inside arrays are not object fields; they stay in the array. A container the cleaner reshapes loses the nulls recorded below it: an `$exception_list` object becomes an array and `$exception_types` becomes an array of strings, and neither keeps them. An empty string means the document had no nulls.
 
-The function never fails. Blank input becomes `{}`. Malformed, non-object, or too-deep input comes back quarantined under `$unparseable_properties` in that document, with `{}` temporary properties and no null keys, so the calling SQL needs no `isValidJSON` guards. Rows travel as `JSONEachRow` in both directions and the executable pool reads a chunk header before each batch.
+The function never fails. Blank input becomes `{}`. Malformed, non-object, or too-deep input comes back quarantined under `$unparseable_properties` in that document, with `{}` temporary properties and empty null documents, so the calling SQL needs no `isValidJSON` guards. Rows travel as `JSONEachRow` in both directions and the executable pool reads a chunk header before each batch.
 
 Read every field off one alias so the process runs once per row:
 
 ```sql
-SELECT cleaned.properties, cleaned.temporary_properties, cleaned.properties_null_keys
+SELECT cleaned.properties, cleaned.temporary_properties, cleaned.properties_nulls
 FROM (SELECT JSONCleanPostHogEvent(properties, person_properties) AS cleaned FROM events)
 ```
 
 ```sql
 SELECT JSONCleanPostHogEvent('{"$set":{"score":7},"$feature/demo":"control","plan":null,"custom":"kept"}', '{"email":null}');
--- ('{"custom":"kept","$feature_flags":{"demo":"control"}}','{"$set":{"score":7}}','{}',['plan'],[],['email'])
+-- ('{"custom":"kept","$feature_flags":{"demo":"control"}}','{"$set":{"score":7}}','{}','{"plan":null}','','{"email":null}')
 ```
 
 ### `JSONCleanPostHogTemporaryProperties(json)`

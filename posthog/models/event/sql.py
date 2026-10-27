@@ -240,8 +240,8 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     event String,
     properties {properties_json_type},
     temporary_properties {temporary_properties_json_type}{temporary_properties_storage},
-    properties_null_keys Array(LowCardinality(String)),
-    temporary_properties_null_keys Array(LowCardinality(String)){temporary_properties_storage},
+    properties_nulls String,
+    temporary_properties_nulls String{temporary_properties_storage},
     timestamp DateTime64(6, 'UTC'){gcd_codec},
     team_id Int64,
     distinct_id String,
@@ -251,7 +251,7 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     elements_chain String,
     person_id UUID,
     person_properties {person_properties_json_type},
-    person_properties_null_keys Array(LowCardinality(String)),
+    person_properties_nulls String,
     group0_properties String,
     group1_properties String,
     group2_properties String,
@@ -529,8 +529,8 @@ uuid,
 event,
 {properties_expr} AS properties,
 {temporary_properties_expr} AS temporary_properties,
-{cleaned}.properties_null_keys AS properties_null_keys,
-{cleaned}.temporary_properties_null_keys AS temporary_properties_null_keys,
+{cleaned}.properties_nulls AS properties_nulls,
+{cleaned}.temporary_properties_nulls AS temporary_properties_nulls,
 now64() AS inserted_at,
 timestamp,
 team_id,
@@ -539,7 +539,7 @@ elements_chain,
 created_at,
 person_id,
 {person_properties_expr} AS person_properties,
-{cleaned}.person_properties_null_keys AS person_properties_null_keys,
+{cleaned}.person_properties_nulls AS person_properties_nulls,
 person_created_at,
 group0_properties,
 group1_properties,
@@ -807,8 +807,8 @@ def BULK_INSERT_EVENT_SQL(table_name: str | None = None, *, values: str = "") ->
     source = (
         f"SELECT * EXCEPT ({EVENTS_JSON_CLEANED_ALIAS}) "
         f"REPLACE ({EVENTS_JSON_CLEANED_ALIAS}.properties AS c3, {EVENTS_JSON_CLEANED_ALIAS}.person_properties AS c9), "
-        f"{EVENTS_JSON_CLEANED_ALIAS}.temporary_properties, {EVENTS_JSON_CLEANED_ALIAS}.properties_null_keys, "
-        f"{EVENTS_JSON_CLEANED_ALIAS}.temporary_properties_null_keys, {EVENTS_JSON_CLEANED_ALIAS}.person_properties_null_keys "
+        f"{EVENTS_JSON_CLEANED_ALIAS}.temporary_properties, {EVENTS_JSON_CLEANED_ALIAS}.properties_nulls, "
+        f"{EVENTS_JSON_CLEANED_ALIAS}.temporary_properties_nulls, {EVENTS_JSON_CLEANED_ALIAS}.person_properties_nulls "
         f"FROM (SELECT *, {EVENTS_JSON_CLEANER}(c3, c9) AS {EVENTS_JSON_CLEANED_ALIAS} FROM values({values})) AS source "
         f"SETTINGS {EVENTS_JSON_INSERT_SETTINGS}"
         if table_name == EVENTS_JSON_DATA_TABLE
@@ -840,7 +840,7 @@ INSERT INTO {table_name}
     person_mode,
     created_at,
     _timestamp,
-    _offset{", temporary_properties, properties_null_keys, temporary_properties_null_keys, person_properties_null_keys" if table_name == EVENTS_JSON_DATA_TABLE else ""}
+    _offset{", temporary_properties, properties_nulls, temporary_properties_nulls, person_properties_nulls" if table_name == EVENTS_JSON_DATA_TABLE else ""}
 )
 {source}
 """

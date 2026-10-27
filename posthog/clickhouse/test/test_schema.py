@@ -92,9 +92,9 @@ def test_events_json_table_uses_dedicated_kafka_consumer_group(settings):
     assert "accurateCastOrNull(cleaned.properties," in mv_query
     assert "accurateCastOrNull(cleaned.temporary_properties," in mv_query
     assert "accurateCastOrNull(cleaned.person_properties," in mv_query
-    assert "cleaned.properties_null_keys AS properties_null_keys" in mv_query
-    assert "cleaned.temporary_properties_null_keys AS temporary_properties_null_keys" in mv_query
-    assert "cleaned.person_properties_null_keys AS person_properties_null_keys" in mv_query
+    assert "cleaned.properties_nulls AS properties_nulls" in mv_query
+    assert "cleaned.temporary_properties_nulls AS temporary_properties_nulls" in mv_query
+    assert "cleaned.person_properties_nulls AS person_properties_nulls" in mv_query
 
 
 @pytest.mark.parametrize(

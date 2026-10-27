@@ -187,13 +187,13 @@ async def mirror_events_into_native_json_table(client: ClickHouseClient, uuids: 
         f"""
     INSERT INTO sharded_events_json (
         uuid, event, timestamp, _timestamp, person_id, team_id,
-        properties, temporary_properties, properties_null_keys, temporary_properties_null_keys,
-        elements_chain, distinct_id, inserted_at, created_at, person_properties, person_properties_null_keys
+        properties, temporary_properties, properties_nulls, temporary_properties_nulls,
+        elements_chain, distinct_id, inserted_at, created_at, person_properties, person_properties_nulls
     )
     SELECT
         uuid, event, timestamp, _timestamp, person_id, team_id,
-        cleaned.properties, cleaned.temporary_properties, cleaned.properties_null_keys, cleaned.temporary_properties_null_keys,
-        elements_chain, distinct_id, inserted_at, created_at, cleaned.person_properties, cleaned.person_properties_null_keys
+        cleaned.properties, cleaned.temporary_properties, cleaned.properties_nulls, cleaned.temporary_properties_nulls,
+        elements_chain, distinct_id, inserted_at, created_at, cleaned.person_properties, cleaned.person_properties_nulls
     FROM
     (
         SELECT *, JSONCleanPostHogEvent(properties, person_properties) AS cleaned

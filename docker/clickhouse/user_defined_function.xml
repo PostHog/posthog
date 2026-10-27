@@ -600,7 +600,7 @@
     <function>
         <type>executable_pool</type>
         <name>JSONCleanPostHogEvent</name>
-        <return_type>Tuple(properties String, temporary_properties String, person_properties String, properties_null_keys Array(String), temporary_properties_null_keys Array(String), person_properties_null_keys Array(String))</return_type>
+        <return_type>Tuple(properties String, temporary_properties String, person_properties String, properties_nulls String, temporary_properties_nulls String, person_properties_nulls String)</return_type>
         <argument>
             <type>String</type>
             <name>properties</name>
