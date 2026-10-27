@@ -48,6 +48,7 @@ from products.signals.backend.report_check_evaluation import (
     errored_check_explanation,
     evaluate_check_value,
 )
+from products.signals.backend.report_check_final_agents import run_due_final_agents
 from products.signals.backend.report_check_final_metrics import run_due_final_metrics
 from products.signals.backend.report_check_monitoring import (
     MonitoringWindowClosed,
@@ -924,6 +925,9 @@ def run_due_report_checks(*, now: datetime | None = None, limit: int = MAX_CHECK
         errored=final.errored,
         deferred=final.deferred,
     )
+    agents = run_due_final_agents(now=now, deadline=deadline, limit=max(0, limit - sum(counts.values())))
+    counts["dispatched"] += agents.dispatched
+    counts["deferred"] += agents.deferred
     remaining = max(0, limit - sum(counts.values()))
     for check in collect_due_checks(now, limit=remaining, disabled_monitoring_organization_ids=disabled_organizations):
         if time.monotonic() >= deadline:
