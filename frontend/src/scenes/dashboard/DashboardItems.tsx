@@ -797,9 +797,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                         height={sectionRows * (rowHeight + margin[1]) - margin[1]}
                     />
                 )}
-                {/* The responsive grid keeps a copy of the layout beside the inner grid's own copy. While tiles
-                    stream in, the two copies can trade places on every render and never settle. Bands already
-                    pick one breakpoint, so they use the plain grid, which keeps one copy. */}
+                {/* Not Responsive: its layout copy and the inner grid's can swap on every render while tiles stream in. */}
                 <GridLayout
                     {...gridProps}
                     // The grid takes a new tile's position from `layout`, so a stable key lets tiles stream
