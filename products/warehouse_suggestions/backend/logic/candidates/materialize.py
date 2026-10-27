@@ -16,7 +16,6 @@ from products.data_modeling.backend.facade.api import (
     definition_database,
     dependent_saved_query_ids,
     get_saved_query_columns,
-    last_query_change_at,
     propose_incremental_config,
     saved_query_target_bounds,
     upstream_table_refs,
@@ -34,7 +33,7 @@ from ...facade.enums import (
 from ..lineage import recomputing_consumers
 from ..reads import Subject, SubjectReads
 from ..rules import MaterializeRules
-from ..view_costs import FAILED_MEASUREMENT, measured_cap_seconds
+from ..view_costs import unfinished_measurement
 from .base import (
     DAYS_PER_MONTH,
     MILLISECONDS_PER_SECOND,
@@ -48,12 +47,14 @@ from .base import (
     savings_between,
     stored_cost,
 )
+from .unmaterialize import effective_definition
 
 SECONDS_PER_MONTH = DAYS_PER_MONTH * 24 * 60 * 60
 READ_SECONDS_PER_MONTH = "read_seconds_per_month"
 READ_BYTES_PER_MONTH = "read_bytes_per_month"
 HUMAN_READS_PER_MONTH = "human_reads_per_month"
 UNMEASURED_REJECTION = "its cost has not been measured yet"
+NOT_RECOMPUTED_ENOUGH_REJECTION = "it is not computed often enough for a stored copy to save half of it"
 
 
 @frozen
@@ -81,9 +82,15 @@ class _Proposal:
 
 @frozen
 class Recomputations:
-    per_month: float
+    consumer_runs_per_month: float
     consumers: int
     fastest_consumer_interval: timedelta
+
+
+@frozen
+class ReadCosts:
+    observed: QueryCost
+    saved: QueryCost
 
 
 @frozen
@@ -106,7 +113,9 @@ class _Consumers:
         return frozenset(
             saved_query_id
             for saved_query_id in self._materialized_ids
-            if (refreshes := self._context.reads.refreshes.get(saved_query_id)) is not None and refreshes.runs > 0
+            if (refreshes := self._context.reads.refreshes.get(saved_query_id)) is not None
+            and refreshes.runs > 0
+            and not self._context.inventory.saved_queries[saved_query_id].refreshes_incrementally
         )
 
     @cached_property
@@ -290,24 +299,29 @@ class MaterializeCandidate(Candidate):
     ) -> _Proposal | _Unmeasured | str:
         if context.accepted_recently(WarehouseSuggestionKind.UNMATERIALIZE, saved_query.id):
             return f"was unmaterialized on a suggestion in the last {context.rules.lifecycle.flip_cooldown_days} days"
+        recomputations = count_recomputations(context, consumer_ids)
+        ceiling = min(context.rules.refresh.max_interval, recomputations.fastest_consumer_interval)
+        reads_qualify = (
+            reads is not None and reads.human_requests > 0 and self._read_floor_rejection(context, reads) is None
+        )
+        if not reads_qualify and not recomputed_often_enough(context, recomputations, ceiling):
+            return NOT_RECOMPUTED_ENOUGH_REJECTION
         frequency = saved_query_target_bounds(context.team_id, saved_query.id)
         if frequency is None:
             capture_exception(MissingDagNodeError(f"Saved query {saved_query.id} has no DAG node"))
             return "it has no node in a DAG"
-        recomputations = count_recomputations(context, reads, consumer_ids)
-        ceiling = min(context.rules.refresh.max_interval, recomputations.fastest_consumer_interval)
         intervals = sorted(interval for interval in frequency.bounds.allowed if interval <= ceiling)
         if not intervals:
             return "no refresh interval keeps up with the views that read it"
         interval = intervals[-1]
-        if not recomputed_often_enough(context, recomputations, interval):
-            return "it is not computed often enough for a stored copy to save half of it"
-        cost = evaluation_cost(context, saved_query.id, reads)
+        if not reads_qualify and not recomputed_often_enough(context, recomputations, interval):
+            return NOT_RECOMPUTED_ENOUGH_REJECTION
+        cost = evaluation_cost(context, saved_query, reads)
         if isinstance(cost, str):
             return cost
         if cost is None:
             return _Unmeasured(recomputations=recomputations)
-        estimate = recomputation_savings(context, recomputations, interval, cost)
+        estimate = recomputation_savings(context, reads, recomputations, interval, cost)
         if not estimate.clears_a_floor:
             return "savings stay under the floors at the interval the views that read it need"
         sources = _classify_sources(context, saved_query.id, frequency)
@@ -401,32 +415,43 @@ def refresh_cost(context: CandidateContext, saved_query_id: UUID, reads: Subject
 def estimate_savings(
     context: CandidateContext, reads: SubjectReads, interval: timedelta, refresh: QueryCost
 ) -> SavingsEstimate:
-    rules = context.rules.materialize
-    scale = context.month_scale
     refreshes_per_month = SECONDS_PER_MONTH / interval.total_seconds()
-    body_seconds = reads.alone_duration_ms_median / MILLISECONDS_PER_SECOND
-    read_seconds = reads.human_duration_ms / MILLISECONDS_PER_SECOND * scale
-    read_bytes = reads.human_read_bytes * scale
-    seconds_saved = min(read_seconds, reads.human_reads * body_seconds * scale) - refreshes_per_month * refresh.seconds
-    bytes_saved = (
-        min(read_bytes, reads.human_reads * reads.alone_read_bytes_median * scale)
-        - refreshes_per_month * refresh.read_bytes
-    )
+    read_costs = read_costs_of(context, reads)
     return _estimate(
-        rules,
+        context.rules.materialize,
         interval,
-        cost_without=QueryCost(seconds=read_seconds, read_bytes=read_bytes),
-        saved=QueryCost(seconds=seconds_saved, read_bytes=bytes_saved),
+        cost_without=read_costs.observed,
+        saved=QueryCost(
+            seconds=read_costs.saved.seconds - refreshes_per_month * refresh.seconds,
+            read_bytes=read_costs.saved.read_bytes - refreshes_per_month * refresh.read_bytes,
+        ),
     )
 
 
-def count_recomputations(
-    context: CandidateContext, reads: SubjectReads | None, consumer_ids: frozenset[UUID]
-) -> Recomputations:
+def read_costs_of(context: CandidateContext, reads: SubjectReads | None) -> ReadCosts:
+    if reads is None:
+        return ReadCosts(observed=QueryCost(seconds=0, read_bytes=0), saved=QueryCost(seconds=0, read_bytes=0))
+    scale = context.month_scale
+    observed = QueryCost(
+        seconds=reads.human_duration_ms / MILLISECONDS_PER_SECOND * scale, read_bytes=reads.human_read_bytes * scale
+    )
+    computed_on_read = QueryCost(
+        seconds=reads.human_reads * reads.alone_duration_ms_median / MILLISECONDS_PER_SECOND * scale,
+        read_bytes=reads.human_reads * reads.alone_read_bytes_median * scale,
+    )
+    return ReadCosts(
+        observed=observed,
+        saved=QueryCost(
+            seconds=min(observed.seconds, computed_on_read.seconds),
+            read_bytes=min(observed.read_bytes, computed_on_read.read_bytes),
+        ),
+    )
+
+
+def count_recomputations(context: CandidateContext, consumer_ids: frozenset[UUID]) -> Recomputations:
     consumer_runs = [context.reads.refreshes[consumer_id].runs for consumer_id in consumer_ids]
-    own_requests = (reads.human_requests + reads.other_background_requests) if reads else 0
     return Recomputations(
-        per_month=(own_requests + sum(consumer_runs)) * context.month_scale,
+        consumer_runs_per_month=sum(consumer_runs) * context.month_scale,
         consumers=len(consumer_ids),
         fastest_consumer_interval=timedelta(days=context.days_observed) / max(consumer_runs),
     )
@@ -434,41 +459,47 @@ def count_recomputations(
 
 def recomputed_often_enough(context: CandidateContext, recomputations: Recomputations, interval: timedelta) -> bool:
     refreshes_per_month = SECONDS_PER_MONTH / interval.total_seconds()
-    return recomputations.per_month - refreshes_per_month >= context.rules.materialize.min_saved_share * (
-        recomputations.per_month
-    )
+    runs = recomputations.consumer_runs_per_month
+    return runs - refreshes_per_month >= context.rules.materialize.min_saved_share * runs
 
 
 def evaluation_cost(
-    context: CandidateContext, saved_query_id: UUID, reads: SubjectReads | None
+    context: CandidateContext, saved_query: SavedQueryDefinition, reads: SubjectReads | None
 ) -> QueryCost | str | None:
+    definition = effective_definition(context.team_id, saved_query)
     if reads is not None and reads.last_measured_at is not None:
-        changed_at = last_query_change_at(context.team_id, [saved_query_id])
-        if changed_at is None or changed_at < reads.last_measured_at:
+        if definition.changed_at is None or definition.changed_at < reads.last_measured_at:
             return QueryCost(
                 seconds=reads.measured_duration_ms / MILLISECONDS_PER_SECOND, read_bytes=reads.measured_read_bytes
             )
-    cap_seconds = measured_cap_seconds(context.team_id, saved_query_id)
-    if cap_seconds == FAILED_MEASUREMENT:
+    unfinished = unfinished_measurement(context.team_id, saved_query.id)
+    if unfinished is None or unfinished.fingerprint != definition.fingerprint:
+        return None
+    if unfinished.failed:
         return "its cost could not be measured"
-    if cap_seconds is not None:
-        return QueryCost(seconds=cap_seconds, read_bytes=0)
-    return None
+    return QueryCost(seconds=unfinished.seconds, read_bytes=0)
 
 
 def recomputation_savings(
-    context: CandidateContext, recomputations: Recomputations, interval: timedelta, cost: QueryCost
+    context: CandidateContext,
+    reads: SubjectReads | None,
+    recomputations: Recomputations,
+    interval: timedelta,
+    cost: QueryCost,
 ) -> SavingsEstimate:
-    refreshes_per_month = SECONDS_PER_MONTH / interval.total_seconds()
+    runs = recomputations.consumer_runs_per_month
+    runs_saved = runs - SECONDS_PER_MONTH / interval.total_seconds()
+    read_costs = read_costs_of(context, reads)
     return _estimate(
         context.rules.materialize,
         interval,
         cost_without=QueryCost(
-            seconds=recomputations.per_month * cost.seconds, read_bytes=recomputations.per_month * cost.read_bytes
+            seconds=runs * cost.seconds + read_costs.observed.seconds,
+            read_bytes=runs * cost.read_bytes + read_costs.observed.read_bytes,
         ),
         saved=QueryCost(
-            seconds=(recomputations.per_month - refreshes_per_month) * cost.seconds,
-            read_bytes=(recomputations.per_month - refreshes_per_month) * cost.read_bytes,
+            seconds=runs_saved * cost.seconds + read_costs.saved.seconds,
+            read_bytes=runs_saved * cost.read_bytes + read_costs.saved.read_bytes,
         ),
     )
 
@@ -495,7 +526,7 @@ def _estimate(
 
 
 def _most_recomputed(unmeasured: list[tuple[Subject, Recomputations]], limit: int) -> tuple[Subject, ...]:
-    ranked = sorted(unmeasured, key=lambda pair: pair[1].per_month, reverse=True)
+    ranked = sorted(unmeasured, key=lambda pair: pair[1].consumer_runs_per_month, reverse=True)
     return tuple(subject for subject, _ in ranked[:limit])
 
 

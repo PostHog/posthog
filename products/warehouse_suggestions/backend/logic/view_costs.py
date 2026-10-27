@@ -10,17 +10,19 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Product, tag_queries
 from posthog.clickhouse.workload import Workload
+from posthog.dataclasses import frozen
 from posthog.errors import ClickHouseQueryTimeOut
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
 
-from products.data_modeling.backend.facade.api import get_saved_query_columns, get_saved_query_summary
+from products.data_modeling.backend.facade.api import get_saved_query_columns, saved_query_definitions
 
+from .candidates.unmaterialize import effective_definition
 from .reads import MEASUREMENT_FEATURE
 from .rules import MeasurementRules
 
 MEASUREMENT_QUERY_NAME = "warehouse_suggestions_view_cost"
-CAP_KEY_PREFIX = "warehouse_suggestions:view_cost_cap"
+UNFINISHED_KEY_PREFIX = "warehouse_suggestions:unfinished_view_cost"
 FAILED_MEASUREMENT = 0
 
 
@@ -31,31 +33,47 @@ class MeasurementOutcome(StrEnum):
     GONE = "gone"
 
 
-def measured_cap_seconds(team_id: int, saved_query_id: UUID) -> int | None:
-    return cache.get(_cap_key(team_id, saved_query_id))
+@frozen
+class UnfinishedMeasurement:
+    seconds: int
+    fingerprint: str
+
+    @property
+    def failed(self) -> bool:
+        return self.seconds == FAILED_MEASUREMENT
+
+
+def unfinished_measurement(team_id: int, saved_query_id: UUID) -> UnfinishedMeasurement | None:
+    remembered = cache.get(_unfinished_key(team_id, saved_query_id))
+    if not isinstance(remembered, dict):
+        return None
+    return UnfinishedMeasurement(seconds=remembered["seconds"], fingerprint=remembered["fingerprint"])
 
 
 def measure_view_cost(team_id: int, saved_query_id: UUID, rules: MeasurementRules) -> MeasurementOutcome:
-    summary = get_saved_query_summary(team_id, saved_query_id)
+    definitions = saved_query_definitions(team_id, ids=[saved_query_id])
     column_names = list(get_saved_query_columns(team_id, saved_query_id))
-    if summary is None or not column_names:
+    if not definitions or not column_names:
         return MeasurementOutcome.GONE
+    definition = definitions[0]
+    fingerprint = effective_definition(team_id, definition).fingerprint
     tag_queries(
         product=Product.DATA_MODELING, feature=MEASUREMENT_FEATURE, team_id=team_id, name=MEASUREMENT_QUERY_NAME
     )
     try:
         execute_hogql_query(
-            query=full_read_query(summary.name, column_names),
+            query=full_read_query(definition.name, column_names),
             team=Team.objects.get(id=team_id),
             workload=Workload.OFFLINE,
             settings=HogQLGlobalSettings(max_execution_time=rules.max_seconds),
+            bypass_warehouse_access_control=True,
         )
     except ClickHouseQueryTimeOut:
-        _remember_cap(team_id, saved_query_id, rules.max_seconds, rules)
+        _remember_unfinished(team_id, saved_query_id, rules, seconds=rules.max_seconds, fingerprint=fingerprint)
         return MeasurementOutcome.CAPPED
     except Exception as error:
         capture_exception(error)
-        _remember_cap(team_id, saved_query_id, FAILED_MEASUREMENT, rules)
+        _remember_unfinished(team_id, saved_query_id, rules, seconds=FAILED_MEASUREMENT, fingerprint=fingerprint)
         return MeasurementOutcome.FAILED
     return MeasurementOutcome.MEASURED
 
@@ -69,10 +87,14 @@ def full_read_query(view_name: str, column_names: list[str]) -> ast.SelectQuery:
     )
 
 
-def _remember_cap(team_id: int, saved_query_id: UUID, seconds: int, rules: MeasurementRules) -> None:
+def _remember_unfinished(
+    team_id: int, saved_query_id: UUID, rules: MeasurementRules, *, seconds: int, fingerprint: str
+) -> None:
     timeout = int(timedelta(days=rules.retry_after_days).total_seconds())
-    cache.set(_cap_key(team_id, saved_query_id), seconds, timeout=timeout)
+    cache.set(
+        _unfinished_key(team_id, saved_query_id), {"seconds": seconds, "fingerprint": fingerprint}, timeout=timeout
+    )
 
 
-def _cap_key(team_id: int, saved_query_id: UUID) -> str:
-    return f"{CAP_KEY_PREFIX}:{team_id}:{saved_query_id}"
+def _unfinished_key(team_id: int, saved_query_id: UUID) -> str:
+    return f"{UNFINISHED_KEY_PREFIX}:{team_id}:{saved_query_id}"

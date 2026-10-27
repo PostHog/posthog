@@ -72,13 +72,13 @@ def run_batch(team_ids: list[int], run_id: str) -> BatchOutcome:
         not_eligible=outcomes[TeamRunStatus.NOT_ELIGIBLE],
         disabled=outcomes[TeamRunStatus.DISABLED],
         failed=outcomes["failed"],
-        view_costs_to_measure=view_costs_to_measure,
+        view_costs_to_measure=view_costs_to_measure[: RULES.measurement.max_per_run],
     )
 
 
 def measure_view_costs_sync(requests: list[ViewCostRequest]) -> int:
     outcomes: Counter[MeasurementOutcome] = Counter()
-    for request in requests[: RULES.measurement.max_per_run]:
+    for request in requests:
         outcomes[measure_view_cost(request.team_id, UUID(request.saved_query_id), RULES.measurement)] += 1
     LOGGER.info(
         "warehouse_suggestions.view_costs_measured", **{outcome.value: count for outcome, count in outcomes.items()}

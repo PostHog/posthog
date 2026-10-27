@@ -61,6 +61,9 @@ class WarehouseSuggestionsWorkflow(PostHogWorkflow):
                     for field in dataclasses.fields(BatchOutcome)
                 }
             )
+        total = dataclasses.replace(
+            total, view_costs_to_measure=total.view_costs_to_measure[: RULES.measurement.max_per_run]
+        )
         if total.view_costs_to_measure and workflow.patched(MEASURE_VIEW_COSTS_PATCH):
             await workflow.execute_activity(
                 measure_view_costs,

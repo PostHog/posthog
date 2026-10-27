@@ -13,7 +13,7 @@ from products.warehouse_suggestions.backend.logic.view_costs import (
     FAILED_MEASUREMENT,
     MeasurementOutcome,
     measure_view_cost,
-    measured_cap_seconds,
+    unfinished_measurement,
 )
 
 VIEW_COSTS_MODULE = "products.warehouse_suggestions.backend.logic.view_costs"
@@ -36,7 +36,10 @@ class TestMeasureViewCost(ClickhouseTestMixin, BaseTest):
     def test_reads_every_column_of_the_view(self) -> None:
         outcome = measure_view_cost(self.team.pk, self.saved_query.id, RULES.measurement)
 
-        assert (outcome, measured_cap_seconds(self.team.pk, self.saved_query.id)) == (MeasurementOutcome.MEASURED, None)
+        assert (outcome, unfinished_measurement(self.team.pk, self.saved_query.id)) == (
+            MeasurementOutcome.MEASURED,
+            None,
+        )
 
     @parameterized.expand(
         [
@@ -50,4 +53,5 @@ class TestMeasureViewCost(ClickhouseTestMixin, BaseTest):
         with patch(f"{VIEW_COSTS_MODULE}.execute_hogql_query", side_effect=error):
             outcome = measure_view_cost(self.team.pk, self.saved_query.id, RULES.measurement)
 
-        assert (outcome, measured_cap_seconds(self.team.pk, self.saved_query.id)) == (expected_outcome, expected_cap)
+        unfinished = unfinished_measurement(self.team.pk, self.saved_query.id)
+        assert (outcome, unfinished.seconds if unfinished else None) == (expected_outcome, expected_cap)

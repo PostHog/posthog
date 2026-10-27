@@ -41,9 +41,13 @@ from products.warehouse_suggestions.backend.logic.candidates.materialize import 
     interval_basis,
     refresh_cost,
 )
-from products.warehouse_suggestions.backend.logic.candidates.unmaterialize import UnmaterializeCandidate
+from products.warehouse_suggestions.backend.logic.candidates.unmaterialize import (
+    EffectiveDefinition,
+    UnmaterializeCandidate,
+)
 from products.warehouse_suggestions.backend.logic.reads import RefreshRun, SubjectRefreshes
 from products.warehouse_suggestions.backend.logic.rules import RULES, Surface
+from products.warehouse_suggestions.backend.logic.view_costs import UnfinishedMeasurement
 from products.warehouse_suggestions.backend.tests.factories import (
     busy_reads,
     context,
@@ -576,38 +580,62 @@ class TestMaterializeAfterUnmaterialize(SimpleTestCase):
 
 MATERIALIZE_MODULE = "products.warehouse_suggestions.backend.logic.candidates.materialize"
 FIRST_CONSUMER, SECOND_CONSUMER = uuid4(), uuid4()
+CURRENT_DEFINITION, EARLIER_DEFINITION = "current", "earlier"
+TIME_LIMIT = RULES.measurement.max_seconds
 EVERY_BUCKET_ALLOWED = SimpleNamespace(
     bounds=SimpleNamespace(allowed=(timedelta(minutes=15), HOUR, timedelta(hours=6), DAY), floor=None),
     max_data_age=timedelta(0),
     best_effort_source_ids=set(),
     identities={},
 )
+UNREAD = {
+    "human_requests": 0,
+    "human_reads": 0,
+    "human_days": 0,
+    "human_duration_ms": 0,
+    "human_read_bytes": 0,
+    "alone_reads": 0,
+}
+CHEAP_PREVIEWS = {
+    "human_requests": HOURLY_RUNS,
+    "human_reads": HOURLY_RUNS,
+    "human_duration_ms": HOURLY_RUNS * 500,
+    "human_read_bytes": HOURLY_RUNS * 10**6,
+    "alone_duration_ms_median": 500.0,
+    "alone_read_bytes_median": float(10**6),
+}
 
 
 class TestMaterializeRecomputedUpstream(SimpleTestCase):
     @parameterized.expand(
         [
-            ("one_consumer_refreshes_it_as_often_as_a_stored_copy_would", [FIRST_CONSUMER], 3, None, None, False),
-            ("two_consumers_with_a_measured_cost", [FIRST_CONSUMER, SECOND_CONSUMER], 3, None, None, True),
-            ("two_consumers_and_no_measurement", [FIRST_CONSUMER, SECOND_CONSUMER], None, None, None, False),
-            ("measured_before_the_last_edit", [FIRST_CONSUMER, SECOND_CONSUMER], 3, 1, None, False),
-            ("measurement_hit_the_time_limit", [FIRST_CONSUMER, SECOND_CONSUMER], None, None, 180, True),
+            ("one_consumer_refreshes_it_as_often_as_a_stored_copy_would", 1, 0, UNREAD, 3, None, None, False, False),
+            ("two_consumers_with_a_measured_cost", 2, 0, UNREAD, 3, None, None, True, False),
+            ("two_consumers_and_no_measurement", 2, 0, UNREAD, None, None, None, False, True),
+            ("measured_before_the_last_edit", 2, 0, UNREAD, 3, 1, None, False, True),
+            ("measurement_hit_the_time_limit", 2, 0, UNREAD, None, None, (TIME_LIMIT, CURRENT_DEFINITION), True, False),
+            ("time_limit_hit_before_an_edit", 2, 0, UNREAD, None, None, (TIME_LIMIT, EARLIER_DEFINITION), False, True),
+            ("measurement_failed", 2, 0, UNREAD, None, None, (0, CURRENT_DEFINITION), False, False),
+            ("measurement_failed_before_an_edit", 2, 0, UNREAD, None, None, (0, EARLIER_DEFINITION), False, True),
+            ("an_incremental_consumer_does_not_count", 2, 1, UNREAD, 3, None, None, False, False),
+            ("one_consumer_and_cheap_previews", 1, 0, CHEAP_PREVIEWS, 3, None, None, False, False),
         ]
     )
     def test_proposes_a_view_that_materialized_views_compute_on_every_refresh(
         self,
         _name: str,
-        consumer_ids: list,
+        consumers: int,
+        incremental_consumers: int,
+        read_overrides: dict,
         measured_days_ago: int | None,
         edited_days_ago: int | None,
-        cap_seconds: int | None,
+        unfinished: tuple[int, str] | None,
         expect_draft: bool,
+        expect_measurement_request: bool,
     ) -> None:
+        consumer_ids = [FIRST_CONSUMER, SECOND_CONSUMER][:consumers]
         reads = busy_reads(
-            human_requests=0,
-            human_reads=0,
-            human_days=0,
-            alone_reads=0,
+            **read_overrides,
             measured_reads=1 if measured_days_ago else 0,
             measured_duration_ms=TWENTY_SECONDS_MS,
             last_measured_at=days_ago(measured_days_ago) if measured_days_ago else None,
@@ -620,24 +648,37 @@ class TestMaterializeRecomputedUpstream(SimpleTestCase):
                     for consumer_id in consumer_ids
                 },
             ),
-            views=[view(VIEW_ID), *(view(consumer_id, materializes=True) for consumer_id in consumer_ids)],
+            views=[
+                view(VIEW_ID),
+                *(
+                    view(consumer_id, materializes=True, refreshes_incrementally=index < incremental_consumers)
+                    for index, consumer_id in enumerate(consumer_ids)
+                ),
+            ],
         )
 
         with (
             patch(f"{MATERIALIZE_MODULE}.dependent_saved_query_ids", return_value={VIEW_ID: frozenset(consumer_ids)}),
             patch(f"{MATERIALIZE_MODULE}.saved_query_target_bounds", return_value=EVERY_BUCKET_ALLOWED),
             patch(
-                f"{MATERIALIZE_MODULE}.last_query_change_at",
-                return_value=days_ago(edited_days_ago) if edited_days_ago else None,
+                f"{MATERIALIZE_MODULE}.effective_definition",
+                return_value=EffectiveDefinition(
+                    fingerprint=CURRENT_DEFINITION,
+                    changed_at=days_ago(edited_days_ago) if edited_days_ago else None,
+                ),
             ),
-            patch(f"{MATERIALIZE_MODULE}.measured_cap_seconds", return_value=cap_seconds),
+            patch(
+                f"{MATERIALIZE_MODULE}.unfinished_measurement",
+                return_value=UnfinishedMeasurement(seconds=unfinished[0], fingerprint=unfinished[1])
+                if unfinished
+                else None,
+            ),
             patch(f"{MATERIALIZE_MODULE}.upstream_table_refs", return_value=[]),
             patch(f"{MATERIALIZE_MODULE}.definition_database", return_value=None),
         ):
             result = MaterializeCandidate().evaluate(candidate_context)
 
-        needs_measurement = measured_days_ago is None and cap_seconds is None or bool(edited_days_ago)
-        assert result.measurement_requests == ((view_subject(VIEW_ID),) if needs_measurement else ())
+        assert result.measurement_requests == ((view_subject(VIEW_ID),) if expect_measurement_request else ())
         if not expect_draft:
             assert result.drafts == ()
             return

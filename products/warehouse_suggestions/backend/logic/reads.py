@@ -11,13 +11,12 @@ from posthog.clickhouse.warehouse_object_reads import WAREHOUSE_OBJECT_READS_DAI
 from posthog.dataclasses import frozen
 
 from ..facade.enums import WarehouseSuggestionSubjectKind
-from .rules import TEMPORAL_QUERY_KIND, Rules, Surface, SurfaceRules, TrafficRules
+from .rules import Rules, Surface, SurfaceRules, TrafficRules
 
 READS_QUERY_SETTINGS = {"max_execution_time": 30, "max_threads": 2}
 FIRST_QUANTILE = 1
 SECOND_QUANTILE = 2
 MEASUREMENT_FEATURE = Feature.WAREHOUSE_SUGGESTIONS
-REFRESH_FEATURE = Feature.DATA_MODELING
 UNIX_EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 
 DAYS_FILTER = """day >= %(window_start)s
@@ -81,7 +80,6 @@ class SubjectReads:
     alone_read_bytes_p90: float
     last_read_at: datetime
     requests_by_surface: Mapping[Surface, int]
-    other_background_requests: int = 0
     measured_reads: int = 0
     measured_duration_ms: float = 0.0
     measured_read_bytes: float = 0.0
@@ -150,8 +148,6 @@ def read_team_reads(team_id: int, window: ReadWindow, rules: Rules, rollup_days:
         "refresh": ReadKind.REFRESH.value,
         "saved_query": WarehouseSuggestionSubjectKind.SAVED_QUERY.value,
         "measurement_feature": MEASUREMENT_FEATURE.value,
-        "refresh_feature": REFRESH_FEATURE.value,
-        "refresh_kind": TEMPORAL_QUERY_KIND,
     }
     human_sql, human_params = human_condition(rules.traffic)
     surface_sql, surface_params = surface_expression(rules.surfaces)
@@ -245,16 +241,14 @@ SELECT
     quantilesMergeIf(0.5, 0.9)(duration_ms_quantiles, read_alone AND NOT is_measurement)[{SECOND_QUANTILE}],
     quantilesMergeIf(0.5, 0.9)(read_bytes_quantiles, read_alone AND NOT is_measurement)[{SECOND_QUANTILE}],
     toTimeZone(max(max_event_time), 'UTC'),
-    uniqMergeIf(requests, NOT is_human AND NOT is_refresh AND NOT is_measurement),
     sumIf(read_count, is_measurement),
-    quantilesMergeIf(0.5, 0.9)(duration_ms_quantiles, is_measurement)[{FIRST_QUANTILE}],
-    quantilesMergeIf(0.5, 0.9)(read_bytes_quantiles, is_measurement)[{FIRST_QUANTILE}],
+    argMaxIf(duration_ms_sum / read_count, max_event_time, is_measurement),
+    argMaxIf(read_bytes_sum / read_count, max_event_time, is_measurement),
     toTimeZone(maxIf(max_event_time, is_measurement), 'UTC')
 FROM (
     SELECT
         *,
         {{human}} AS is_human,
-        lc_feature = %(refresh_feature)s AND lc_kind = %(refresh_kind)s AS is_refresh,
         lc_feature = %(measurement_feature)s AND read_alone AS is_measurement
     FROM {WAREHOUSE_OBJECT_READS_DAILY_TABLE}
     WHERE {WINDOW_FILTER}
@@ -342,11 +336,10 @@ def _subject_reads(
             alone_read_bytes_p90=float(row[16]),
             last_read_at=row[17],
             requests_by_surface=surface_counts.get(subject, {}),
-            other_background_requests=row[18],
-            measured_reads=row[19],
-            measured_duration_ms=_finite(row[20]),
-            measured_read_bytes=_finite(row[21]),
-            last_measured_at=row[22] if row[22] > UNIX_EPOCH else None,
+            measured_reads=row[18],
+            measured_duration_ms=_finite(row[19]),
+            measured_read_bytes=_finite(row[20]),
+            last_measured_at=row[21] if row[21] > UNIX_EPOCH else None,
         )
     return reads
 
