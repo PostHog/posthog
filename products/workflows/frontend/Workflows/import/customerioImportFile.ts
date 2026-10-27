@@ -1,9 +1,14 @@
-import { CustomerioCampaignApi } from 'products/workflows/frontend/generated/api.schemas'
+import {
+    CustomerioCampaignApi,
+    CustomerioSegmentApi,
+    CustomerioSenderIdentityApi,
+    WorkflowImportRequestApi,
+} from 'products/workflows/frontend/generated/api.schemas'
 
-export interface ParsedCustomerioFile {
-    campaigns: CustomerioCampaignApi[]
-    snippets: Record<string, string>
-}
+export type ParsedCustomerioFile = Pick<
+    WorkflowImportRequestApi,
+    'campaigns' | 'layouts' | 'segment_cohorts' | 'sender_identities' | 'segments'
+> & { snippets: Record<string, string> }
 
 type JsonObject = Record<string, unknown>
 
@@ -18,7 +23,7 @@ function templateList(value: unknown): JsonObject[] {
     if (isObject(value)) {
         return Object.entries(value)
             .filter((entry): entry is [string, JsonObject] => isObject(entry[1]))
-            .map(([id, template]) => ({ id, ...template }))
+            .map(([id, template]) => ({ ...template, id }))
     }
     return []
 }
@@ -30,7 +35,8 @@ function toCampaign(value: unknown): CustomerioCampaignApi | null {
     }
     return {
         campaign: value.campaign,
-        actions: value.actions.filter(isObject),
+        // Kept as is, so the API rejects a malformed step instead of the preview hiding it.
+        actions: value.actions as JsonObject[],
         templates: templateList(value.templates),
     }
 }
@@ -59,6 +65,10 @@ export function parseCustomerioFiles(contents: string[]): ParsedCustomerioFile {
     const campaigns: CustomerioCampaignApi[] = []
     const looseTemplates: JsonObject[] = []
     let snippets: Record<string, string> = {}
+    let layouts: Record<string, string> = {}
+    let segmentCohorts: Record<string, number> = {}
+    const senderIdentities: CustomerioSenderIdentityApi[] = []
+    const segments: CustomerioSegmentApi[] = []
 
     const collect = (value: unknown): void => {
         if (Array.isArray(value)) {
@@ -85,6 +95,18 @@ export function parseCustomerioFiles(contents: string[]): ParsedCustomerioFile {
             if (isObject(value.snippets)) {
                 snippets = { ...snippets, ...(value.snippets as Record<string, string>) }
             }
+            if (isObject(value.layouts)) {
+                layouts = { ...layouts, ...(value.layouts as Record<string, string>) }
+            }
+            if (isObject(value.segment_cohorts)) {
+                segmentCohorts = { ...segmentCohorts, ...(value.segment_cohorts as Record<string, number>) }
+            }
+            if (Array.isArray(value.sender_identities)) {
+                senderIdentities.push(...(value.sender_identities as CustomerioSenderIdentityApi[]))
+            }
+            if (Array.isArray(value.segments)) {
+                segments.push(...(value.segments as CustomerioSegmentApi[]))
+            }
         }
     }
 
@@ -103,5 +125,12 @@ export function parseCustomerioFiles(contents: string[]): ParsedCustomerioFile {
             campaign.templates = [...templateList(campaign.templates), ...used]
         }
     }
-    return { campaigns, snippets }
+    return {
+        campaigns,
+        snippets,
+        layouts,
+        segment_cohorts: segmentCohorts,
+        sender_identities: senderIdentities,
+        segments,
+    }
 }
