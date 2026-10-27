@@ -683,18 +683,24 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
                 with self.subTest(funnel_step=funnel_step):
                     results = get_actors(query, self.team, funnel_step=funnel_step, include_recordings=True)
                     self.assertEqual(len(results), 1)
-                    expected_step = 3
+                    expected_steps = [3]
                     if udf_version == 12:
                         if not visit_optional_steps:
-                            self.assertEqual(results[0][2], [])
-                            continue
-                        if funnel_step == -5:
-                            expected_step = 4
-                    self.assertEqual(
-                        [recording["session_id"] for recording in results[0][2]],
-                        [str(UUID(f"01800000-0000-7000-8000-{expected_step:012d}"))],
+                            expected_steps = []
+                        elif funnel_step == -5:
+                            expected_steps = [4]
+                    elif visit_optional_steps and funnel_step == -5:
+                        expected_steps = [3, 4]
+                    self.assertCountEqual(
+                        [
+                            (recording["session_id"], [event["uuid"] for event in recording["events"]])
+                            for recording in results[0][2]
+                        ],
+                        [
+                            (str(UUID(f"01800000-0000-7000-8000-{step:012d}")), [UUID(int=step)])
+                            for step in expected_steps
+                        ],
                     )
-                    self.assertEqual(results[0][2][0]["events"][0]["uuid"], UUID(int=expected_step))
 
             if udf_version != 12:
                 runner = FunnelsQueryRunner(query=query, team=self.team)

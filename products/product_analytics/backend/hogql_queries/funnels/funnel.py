@@ -403,8 +403,17 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
                 raise ValueError("Missing funnelStep actors query property")
             funnelStep = self.context.actorsQuery.funnelStep
             if uses_step_event_slots and funnelStep is not None and funnelStep < 0:
-                # The drop-off condition matches on the prior required step, so read the recordings from the same step
-                absolute_actors_step = self._prior_required_step_index(abs(funnelStep) - 1)
+                # The drop-off condition matches on the prior required step. Add the optional steps after it that the
+                # actor completed, because those events are the closest to the drop-off.
+                target_step_index = abs(funnelStep) - 1
+                prior_required_step_index = self._prior_required_step_index(target_step_index)
+                step_events = [f"matched_events_array[{prior_required_step_index + 1}]"] + [
+                    f"if(bitTest(steps_bitfield, {i}), matched_events_array[{i + 1}], [])"
+                    for i in self._optional_step_indexes_between(prior_required_step_index, target_step_index)
+                ]
+                if len(step_events) > 1:
+                    return [parse_expr(f"arrayDistinct(arrayConcat({', '.join(step_events)})) as matching_events")]
+                absolute_actors_step = prior_required_step_index
             return [parse_expr(f"matched_events_array[{absolute_actors_step + 1}] as matching_events")]
         return []
 
@@ -422,15 +431,19 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
             raise ValueError("Missing prior required step in actors query")
         return prior_required_step_indexes[-1]
 
+    def _optional_step_indexes_between(self, prior_required_step_index: int, target_step_index: int) -> list[int]:
+        # Iterate the series rather than a range from the request, so an out-of-range funnelStep stays cheap
+        return [i for i in range(len(self.context.query.series)) if prior_required_step_index < i < target_step_index]
+
     def _last_completed_step_slot(self, target_step_index: int) -> str:
         """The 1-indexed matched_events_array slot of the last step the actor completed before the target step."""
         prior_required_step_index = self._prior_required_step_index(target_step_index)
         # The slot of a skipped optional step is empty or holds events from another attempt, so check the path bitfield
         # and fall back through the optional steps to the prior required step
-        optional_step_indexes = [
-            i for i in range(len(self.context.query.series)) if prior_required_step_index < i < target_step_index
+        branches = [
+            f"bitTest(steps_bitfield, {i}), {i + 1}"
+            for i in reversed(self._optional_step_indexes_between(prior_required_step_index, target_step_index))
         ]
-        branches = [f"bitTest(steps_bitfield, {i}), {i + 1}" for i in reversed(optional_step_indexes)]
         if not branches:
             return str(prior_required_step_index + 1)
         return f"multiIf({', '.join(branches)}, {prior_required_step_index + 1})"

@@ -136,7 +136,7 @@
          source.matching_events AS matching_events
   FROM
     (SELECT aggregation_target AS actor_id,
-            matched_events_array[2] AS matching_events,
+            arrayDistinct(arrayConcat(matched_events_array[2], if(bitTest(steps_bitfield, 2), matched_events_array[3], []))) AS matching_events,
             actor_id AS id
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2), multiply(4, step_3)])))) AS events_array,
