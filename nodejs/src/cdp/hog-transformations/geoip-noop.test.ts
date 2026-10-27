@@ -86,6 +86,19 @@ describe('geoipNoopResult', () => {
         expect(geoipNoopResult(invocation) !== null).toBe(eligible)
     })
 
+    it('rejects a source with a long inner whitespace run in linear time', () => {
+        const invocation = createGeoipInvocation(
+            { hog: `${currentSource}${' '.repeat(80_000)}// edited` },
+            { $geoip_disable: true, $ip: VALID_IP }
+        )
+
+        const start = performance.now()
+        const result = geoipNoopResult(invocation)
+
+        expect(result).toBeNull()
+        expect(performance.now() - start).toBeLessThan(500)
+    })
+
     const conditionCases = [
         { name: '$geoip_disable is true', properties: { $geoip_disable: true, $ip: VALID_IP }, skipped: true },
         {

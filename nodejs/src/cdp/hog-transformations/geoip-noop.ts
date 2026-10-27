@@ -22,16 +22,28 @@ export const hogTransformationGeoipNoopSkips = new Counter({
 
 const noopSourceByFunction = new WeakMap<HogFunctionType, boolean>()
 
+function isSaveTrimmedChar(code: number): boolean {
+    return code === 0x20 || code === 0x09 || code === 0x0d || code === 0x0a
+}
+
+function trimLikeSave(source: string): string {
+    let start = 0
+    let end = source.length
+    while (start < end && isSaveTrimmedChar(source.charCodeAt(start))) {
+        start++
+    }
+    while (end > start && isSaveTrimmedChar(source.charCodeAt(end - 1))) {
+        end--
+    }
+    return source.slice(start, end)
+}
+
 function hasNoopSource(hogFunction: HogFunctionType): boolean {
     let matches = noopSourceByFunction.get(hogFunction)
     if (matches === undefined) {
         matches =
             typeof hogFunction.hog === 'string' &&
-            NOOP_SOURCE_HASHES.has(
-                createHash('sha256')
-                    .update(hogFunction.hog.replace(/^[ \t\r\n]+|[ \t\r\n]+$/g, ''))
-                    .digest('hex')
-            )
+            NOOP_SOURCE_HASHES.has(createHash('sha256').update(trimLikeSave(hogFunction.hog)).digest('hex'))
         noopSourceByFunction.set(hogFunction, matches)
     }
     return matches
