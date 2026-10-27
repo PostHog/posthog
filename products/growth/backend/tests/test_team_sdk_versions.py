@@ -19,6 +19,13 @@ class TestGetSdkVersionsForTeam(SimpleTestCase):
             ("posthog-convex",),
             ("posthog-rails",),
             ("posthog-aspnetcore",),
+            ("posthog-rs",),
+            ("posthog-rs-mcp",),
+            ("posthog-godot",),
+            ("posthog-unreal",),
+            ("posthog-go-mcp",),
+            ("posthog-ruby-mcp",),
+            ("js",),
         ]
     )
     @patch("products.growth.backend.team_sdk_versions.run_query")

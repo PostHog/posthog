@@ -1,4 +1,4 @@
-import type { Meta, StoryObj } from '@storybook/react'
+import type { Decorator, Meta, StoryObj } from '@storybook/react'
 import { fireEvent, waitFor, within } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
 import { ReactNode } from 'react'
@@ -476,10 +476,7 @@ const OPEN_REPORT_COUNT = 46
 // a story. Clearing it makes each story start clean, so only the sample stories show sample reports.
 // A story's `spaceFeedView` parameter is written after the clear, so it starts with that saved space feed view, the
 // way a returning person sees it.
-function clearTodayStorage(
-    Story: () => JSX.Element,
-    { parameters }: { parameters: { spaceFeedView?: Record<string, unknown> } }
-): JSX.Element {
+const clearTodayStorage: Decorator = (Story, { parameters }) => {
     for (const key of Object.keys(window.localStorage)) {
         if (/today|spaceFeedViewLogic/i.test(key)) {
             window.localStorage.removeItem(key)

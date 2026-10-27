@@ -80,8 +80,12 @@ from products.access_control.backend.facade.user_access_control import (
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.approvals.backend.mixins import ApprovalHandlingMixin
 from products.experiments.backend.experiment_service import ExperimentService, ExperimentVersionConflict
-from products.experiments.backend.facade.api import get_experiment_health, get_experiment_health_inputs
-from products.experiments.backend.facade.contracts import ExperimentHealthReaderAccess
+from products.experiments.backend.facade.api import (
+    get_experiment_health,
+    get_experiment_health_inputs,
+    get_running_time_target,
+)
+from products.experiments.backend.facade.contracts import ExperimentHealthReaderAccess, RunningTimeMode
 from products.experiments.backend.facade.legacy_migration import (
     LegacyMigrationError,
     migrate_experiment as migrate_legacy_experiment,
@@ -139,6 +143,8 @@ from products.experiments.backend.presentation.serializers import (
     RecalculateMetricsRequestSerializer,
     RunningTimeCalculationInputSerializer,
     RunningTimeCalculationResultSerializer,
+    RunningTimeTargetQuerySerializer,
+    RunningTimeTargetSerializer,
     ShipVariantSerializer,
 )
 from products.experiments.backend.recalculation import (
@@ -1690,6 +1696,27 @@ class EnterpriseExperimentsViewSet(
     def stats(self, request: Request, **kwargs: Any) -> Response:
         service = ExperimentService(team=self.team, user=request.user)
         return Response(service.get_velocity_stats())
+
+    @validated_request(
+        query_serializer=RunningTimeTargetQuerySerializer,
+        responses={200: OpenApiResponse(response=RunningTimeTargetSerializer)},
+    )
+    @action(methods=["GET"], detail=True, url_path="running_time_target", required_scopes=["experiment:read"])
+    def running_time_target(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        """The target sample of the experiment's running time estimate, which the experiment page's header compares
+        with the exposures so far, and what the experiment can detect over time.
+
+        In manual running time mode it is the saved target. Otherwise it is sized from the first primary metric's
+        current result: the variance the analysis uses (with CUPED when the analysis applied it) and the flag's
+        traffic split, so that the comparison of each variant with the control reaches the minimum detectable effect.
+        """
+        experiment: Experiment = self.get_object()
+        target = get_running_time_target(
+            team_id=self.team.id,
+            experiment_id=experiment.id,
+            mode=RunningTimeMode(mode) if (mode := request.validated_query_data.get("mode")) else None,
+        )
+        return Response(RunningTimeTargetSerializer(target).data)
 
     @validated_request(
         request_serializer=RunningTimeCalculationInputSerializer,
