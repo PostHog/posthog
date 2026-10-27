@@ -80,8 +80,12 @@ from products.access_control.backend.facade.user_access_control import (
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.approvals.backend.mixins import ApprovalHandlingMixin
 from products.experiments.backend.experiment_service import ExperimentService, ExperimentVersionConflict
-from products.experiments.backend.facade.api import get_experiment_health, get_experiment_health_inputs
-from products.experiments.backend.facade.contracts import ExperimentHealthReaderAccess
+from products.experiments.backend.facade.api import (
+    get_experiment_health,
+    get_experiment_health_inputs,
+    get_running_time_target,
+)
+from products.experiments.backend.facade.contracts import ExperimentHealthReaderAccess, RunningTimeMode
 from products.experiments.backend.facade.legacy_migration import (
     LegacyMigrationError,
     migrate_experiment as migrate_legacy_experiment,
@@ -139,6 +143,8 @@ from products.experiments.backend.presentation.serializers import (
     RecalculateMetricsRequestSerializer,
     RunningTimeCalculationInputSerializer,
     RunningTimeCalculationResultSerializer,
+    RunningTimeTargetQuerySerializer,
+    RunningTimeTargetSerializer,
     ShipVariantSerializer,
 )
 from products.experiments.backend.recalculation import (
@@ -976,6 +982,16 @@ class EnterpriseExperimentsViewSet(
         hours after launch, and when only secondary metrics read it, and a warning otherwise.
         `filter_on_another_flag` is a warning in every state, and the other findings stop at the end.
 
+        `metric_cannot_compile` builds and compiles the query of each metric without running it, as
+        the caller, so a metric that every calculation fails on shows before launch. A metric that
+        reads a warehouse table or view the caller may not query is not checked for them. The finding
+        names each failing metric in the `evidence` keys `metric_N`, `metric_N_role`, `metric_N_error`
+        (the error class, which is also the subcode of the first metric) and `metric_N_message` (the
+        compiler's message). It is a warning when a primary metric fails before the end, and info
+        otherwise. A failure inside ClickHouse, such as a type that the data holds, isn't found. A
+        failing metric compiles again on every request. A metric that compiles is cached per caller
+        for a day, so a cohort or table that is deleted after a compile can take up to a day to show.
+
         The severity of the `some_conditions_pinned` finding follows the largest share that the
         users of the pinned release conditions make up among the users who got one variant from
         the flag, in the last 7 days, or since launch or the flag's last save if later. It reads
@@ -1006,6 +1022,10 @@ class EnterpriseExperimentsViewSet(
         `running_but_flag_disabled`, as a warning. A caller who can't view the linked flag's
         history gets the warning, because the pause is not read. A draft whose flag is already
         active with multiple variants gets `not_started_but_multiple_variants_rolled_out` as info.
+        An ended experiment whose flag is still active with multiple variants gets
+        `ended_but_multiple_variants_rolled_out` as a warning, or `ended_flag_not_called` as info
+        when the flag's `last_called_at` shows no call in the 3 days after the end. The info waits
+        an extra hour, because `last_called_at` trails a call.
 
         A running experiment whose first primary metric is a funnel gets the info
         `early_significance` (subcode `below_detectable_effect`) when a significant variant's
@@ -1019,6 +1039,7 @@ class EnterpriseExperimentsViewSet(
             team_id=self.team_id,
             experiment_id=experiment.id,
             reader_access=self._health_reader_access(request, experiment),
+            user=request.user if isinstance(request.user, User) else None,
         )
         return Response(ExperimentHealthSerializer(health).data)
 
@@ -1675,6 +1696,27 @@ class EnterpriseExperimentsViewSet(
     def stats(self, request: Request, **kwargs: Any) -> Response:
         service = ExperimentService(team=self.team, user=request.user)
         return Response(service.get_velocity_stats())
+
+    @validated_request(
+        query_serializer=RunningTimeTargetQuerySerializer,
+        responses={200: OpenApiResponse(response=RunningTimeTargetSerializer)},
+    )
+    @action(methods=["GET"], detail=True, url_path="running_time_target", required_scopes=["experiment:read"])
+    def running_time_target(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        """The target sample of the experiment's running time estimate, which the experiment page's header compares
+        with the exposures so far, and what the experiment can detect over time.
+
+        In manual running time mode it is the saved target. Otherwise it is sized from the first primary metric's
+        current result: the variance the analysis uses (with CUPED when the analysis applied it) and the flag's
+        traffic split, so that the comparison of each variant with the control reaches the minimum detectable effect.
+        """
+        experiment: Experiment = self.get_object()
+        target = get_running_time_target(
+            team_id=self.team.id,
+            experiment_id=experiment.id,
+            mode=RunningTimeMode(mode) if (mode := request.validated_query_data.get("mode")) else None,
+        )
+        return Response(RunningTimeTargetSerializer(target).data)
 
     @validated_request(
         request_serializer=RunningTimeCalculationInputSerializer,

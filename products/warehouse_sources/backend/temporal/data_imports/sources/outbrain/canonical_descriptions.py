@@ -93,6 +93,25 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "cachedImageUrl": "URL of the cached version of the promoted link's image.",
         },
     },
+    "conversion_events": {
+        "description": "A conversion event (pixel or URL rule) defined by a marketer. Resolves the conversion ids in report conversion details.",
+        "docs_url": "https://amplifyv01.docs.apiary.io/#reference/multiple-conversions",
+        "columns": {
+            "id": "Unique identifier for the conversion event.",
+            "_marketer_id": "ID of the marketer that owns the conversion event (injected during sync).",
+            "marketerId": "ID of the marketer that owns the conversion event.",
+            "name": "The conversion event's name.",
+            "type": "How the conversion is detected (e.g. URL_BASED, EVENT_BASED).",
+            "category": "Conversion category (e.g. PURCHASE).",
+            "enabled": "Whether the conversion event is enabled.",
+            "trackingStatus": "Whether the conversion event is currently receiving data (ACTIVE or INACTIVE).",
+            "conversionWindow": "Number of days after a click in which a conversion is attributed.",
+            "includeInConversions": "Whether the event counts toward the reported conversions metric.",
+            "url": "URL rule that triggers a URL_BASED conversion.",
+            "creationTime": "Time at which the conversion event was created.",
+            "lastModified": "Time at which the conversion event was last modified.",
+        },
+    },
     "marketer_performance_daily": {
         "description": "Daily performance metrics (impressions, clicks, spend, conversions) per marketer.",
         "docs_url": "https://amplifyv01.docs.apiary.io/#reference/performance-reporting",
@@ -110,6 +129,33 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "_marketer_id": "ID of the marketer the metrics belong to (injected during sync).",
             "metadata": "Metadata identifying the campaign the metrics belong to.",
             **_REPORT_METRICS,
+        },
+    },
+    "promoted_link_performance": {
+        "description": "Per-promoted-link performance totals for a trailing window (a snapshot, full-refreshed each sync).",
+        "docs_url": "https://amplifyv01.docs.apiary.io/#reference/performance-reporting/promoted-content",
+        "columns": {
+            "_marketer_id": "ID of the marketer the metrics belong to (injected during sync).",
+            "metadata": "The promoted link the metrics belong to, including its id, campaignId, title, url and status.",
+            "metrics": "Performance metrics (impressions, clicks, spend, conversions) for the promoted link.",
+        },
+    },
+    "publisher_performance": {
+        "description": "Per-publisher performance totals for a trailing window (a snapshot, full-refreshed each sync).",
+        "docs_url": "https://amplifyv01.docs.apiary.io/#reference/performance-reporting/publishers",
+        "columns": {
+            "_marketer_id": "ID of the marketer the metrics belong to (injected during sync).",
+            "metadata": "The publisher the metrics belong to, including its id, name, url and block status.",
+            "metrics": "Performance metrics (impressions, clicks, spend, conversions) for the publisher.",
+        },
+    },
+    "section_performance": {
+        "description": "Per-section performance totals for a trailing window (a snapshot, full-refreshed each sync). Sections with fewer than 1 click or 10 impressions are omitted.",
+        "docs_url": "https://amplifyv01.docs.apiary.io/#reference/performance-reporting/sections",
+        "columns": {
+            "_marketer_id": "ID of the marketer the metrics belong to (injected during sync).",
+            "metadata": "The section the metrics belong to, including its id, name, publisherId, publisherName and block status.",
+            "metrics": "Performance metrics (impressions, clicks, spend, conversions) for the section.",
         },
     },
 }

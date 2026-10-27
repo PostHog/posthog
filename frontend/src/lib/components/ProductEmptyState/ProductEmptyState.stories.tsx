@@ -475,9 +475,8 @@ export const DataWarehouseNeedsSetup: ProductEmptyStateStory = productEmptyState
     {
         mocks: {
             get: {
-                // nosemgrep: no-environments-api-urls-frontend -- both APIs are env-scoped, so the msw mocks must match /api/environments to intercept them
-                '/api/environments/:team_id/external_data_sources/': [200, { results: [] }],
-                '/api/environments/:team_id/warehouse_tables/': [200, { results: [] }],
+                '/api/projects/:team_id/external_data_sources/exists/': [200, { exists: false }],
+                '/api/projects/:team_id/warehouse_tables/': [200, { results: [] }],
             },
         },
     }

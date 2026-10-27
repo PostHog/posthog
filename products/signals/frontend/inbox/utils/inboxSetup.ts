@@ -64,11 +64,16 @@ export function setupSources(
                 warehouseSources?.filter((source) => source.source_type === warehouseSetup?.dwSourceType) ?? []
             const hasRequiredTables =
                 !!warehouseSetup &&
-                warehouseSetup.requiredTables.every((table) =>
-                    connectedSources.some((source) =>
-                        source.schemas?.some((schema) => schema.name === table || schema.name.endsWith(`.${table}`))
+                warehouseSetup.requiredTables.every((table) => {
+                    // Case-insensitive: some sources name tables in PascalCase (e.g. BugHerd `Tasks`).
+                    const wanted = table.toLowerCase()
+                    return connectedSources.some((source) =>
+                        source.schemas?.some((schema) => {
+                            const name = schema.name.toLowerCase()
+                            return name === wanted || name.endsWith(`.${wanted}`)
+                        })
                     )
-                )
+                })
             const setupUrl =
                 connectedSources.length && !hasRequiredTables
                     ? urls.dataWarehouseSource(connectedSources[0].id, 'schemas')
