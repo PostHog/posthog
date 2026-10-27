@@ -477,6 +477,13 @@ export async function getInsightWithRetry(
         }
     }
 
+    const getTimedInsight = (url: string): Promise<InsightModel | null> =>
+        withRequestTiming(methodOptions, async (timing) => {
+            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
+            const response: Response = await api.getResponse(url, methodOptions, timing)
+            return await getJSONOrNull(response, timing)
+        })
+
     while (attempt < maxAttempts) {
         try {
             const apiUrl = `api/projects/${currentTeamId}/insights/${insight.id}/?${toParams({
@@ -488,11 +495,7 @@ export async function getInsightWithRetry(
                 ...(variablesOverride ? { variables_override: variablesOverride } : {}),
                 ...(tileFiltersOverride ? { tile_filters_override: tileFiltersOverride } : {}),
             })}`
-            const result: InsightModel | null = await withRequestTiming(methodOptions, async (timing) => {
-                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
-                const insightResponse: Response = await api.getResponse(apiUrl, methodOptions, timing)
-                return await getJSONOrNull(insightResponse, timing)
-            })
+            const result = await getTimedInsight(apiUrl)
 
             if (
                 result?.query_status?.error_code === RATE_LIMITED_ERROR_CODE ||
@@ -525,18 +528,7 @@ export async function getInsightWithRetry(
                                     ...(variablesOverride ? { variables_override: variablesOverride } : {}),
                                     ...(tileFiltersOverride ? { tile_filters_override: tileFiltersOverride } : {}),
                                 })}`
-                                const refreshedInsight: InsightModel | null = await withRequestTiming(
-                                    methodOptions,
-                                    async (timing) => {
-                                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
-                                        const refreshedInsightResponse: Response = await api.getResponse(
-                                            cacheUrl,
-                                            methodOptions,
-                                            timing
-                                        )
-                                        return await getJSONOrNull(refreshedInsightResponse, timing)
-                                    }
-                                )
+                                const refreshedInsight = await getTimedInsight(cacheUrl)
                                 if (refreshedInsight) {
                                     return {
                                         ...refreshedInsight,
