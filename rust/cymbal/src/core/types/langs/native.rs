@@ -133,7 +133,8 @@ pub struct RawNativeFrame {
     pub symbol_addr: Option<String>,
     pub image_addr: Option<String>,
     /// Display-language hint from the SDK (e.g. "rust"); the resolved
-    /// filename extension wins when available.
+    /// filename extension wins when available. Dart AOT frames use this hint
+    /// to keep their exact program counter for DWARF lookup.
     pub lang: Option<String>,
     pub module: Option<String>,
     pub function: Option<String>,
@@ -236,11 +237,14 @@ impl RawNativeFrame {
 
         let relative_addr = calculate_relative_addr(instruction_addr, debug_image)?;
 
-        // Subtract 1 from return-address frames so the lookup targets the call
-        // instruction rather than the instruction after it, giving the correct
-        // source line. Safe for top (crash-site) frames too: addr-1 still falls
-        // within the same function body.
-        let lookup_addr = relative_addr.saturating_sub(1);
+        // Dart AOT reports direct program counters, which can point to a
+        // function entry. Other native traces report return addresses, so
+        // look up the preceding call instruction for those frames.
+        let lookup_addr = if self.lang.as_deref() == Some("dart") {
+            relative_addr
+        } else {
+            relative_addr.saturating_sub(1)
+        };
 
         let symbols: Arc<ParsedNativeSymbols> = catalog
             .lookup(team_id, OrChunkId::chunk_id(debug_image.debug_id.clone()))
@@ -1163,6 +1167,42 @@ mod test {
         assert_eq!(resolved.resolved_name.as_deref(), Some("inner_function"));
         assert_eq!(resolved.source.as_deref(), Some("test_binary.c"));
         assert!(resolved.line.is_some());
+    }
+
+    #[sqlx::test(migrations = "./tests/test_migrations")]
+    async fn test_flutter_aot_frame_at_function_entry_keeps_its_program_counter(db: sqlx::PgPool) {
+        use crate::frames::RawFrame;
+
+        const ELF: &[u8] =
+            include_bytes!("../../../../tests/static/native/flutter_android_arm64.symbols.zst");
+        const SOURCE: &str = include_str!("../../../../tests/static/native/flutter_sample.dart");
+        let chunk_id = "098518b7-ef99-d0be-1ab8-0642060ddbf3";
+        let dwarf = zstd::decode_all(ELF).unwrap();
+        let zip = zip_fixture(
+            &dwarf,
+            Some((
+                "/private/tmp/posthog-flutter-symbols-research/sample/lib/main.dart",
+                SOURCE,
+            )),
+        );
+        let catalog = catalog_for_chunk(&db, chunk_id, zip).await;
+
+        let image_base = 0x7000000000u64;
+        let mut raw = native_frame_at(image_base + 0x205210, image_base);
+        raw.lang = Some("dart".to_string());
+        let debug_images = vec![debug_image_at(chunk_id, image_base)];
+        let resolved = RawFrame::Native(raw)
+            .resolve(1, &catalog, &debug_images, 3)
+            .await
+            .unwrap()
+            .pop()
+            .unwrap();
+
+        assert!(resolved.resolved, "{:?}", resolved.resolve_failure);
+        assert_eq!(resolved.resolved_name.as_deref(), Some("main"));
+        assert_eq!(resolved.lang, "dart");
+        assert_eq!(resolved.line, Some(7));
+        assert!(resolved.context.unwrap().line.line.contains("runApp("));
     }
 
     /// One raw frame at an address inside two levels of inlining expands into
