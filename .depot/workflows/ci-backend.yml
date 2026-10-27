@@ -3085,10 +3085,6 @@ jobs:
             # The default ref, which is the PR merge commit. turbo-discover selects the test files
             # from this tree, so a checkout of any other ref can lack a file that the selection lists.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              with:
-                  fetch-depth: 1
-                  lfs: true
-                  clean: false
             - name: Install signal-fanout
               shell: bash
               run: sudo install -m 0755 .github/scripts/signal-fanout /usr/local/bin/signal-fanout
