@@ -207,16 +207,16 @@ describe('buildSections', () => {
             ['results', 'events', 'ask-ai', 'persons'],
         ],
         [
-            'only a loading row below Results while persons that go first load',
+            'only result skeletons while persons that go first load',
             { events: [dashboard('e', '8')] },
             true,
-            ['results', 'loading-more'],
+            ['results'],
         ],
         [
-            'persons right below Results when they go first',
+            'persons above filter-only Results when they go first',
             { persons: [dashboard('p', '9')] },
             true,
-            ['results', 'persons', 'loading-more'],
+            ['persons', 'results', 'loading-more'],
         ],
     ])('reveals %s', (_, loaded, personsFirst, expectedKeys) => {
         const remote = emptyRemoteSlots()
@@ -233,6 +233,32 @@ describe('buildSections', () => {
             })
         )
         expect(sections.map((section) => section.key)).toEqual(expectedKeys)
+    })
+
+    it('ranks a person who matches every word of an email search above results that match fewer', () => {
+        const person: SearchItem = {
+            id: 'person-1',
+            name: 'ada.l@example.com',
+            displayName: 'ada.l@example.com',
+            category: 'persons',
+            record: { type: 'person', ref: '1' },
+        }
+        const remote = emptyRemoteSlots()
+        remote.results = {
+            cache: { 'ada.l@': [{ ...dashboard('a', '1'), name: 'Ada', rankKey: [-1, 0, 0, 0, -1, 0, 1, 0, 0] }] },
+        }
+        remote.persons = { cache: { 'ada.l@': [person] } }
+        const sections = buildSections(
+            input('search', {
+                remote,
+                remoteQueries: { results: 'ada.l@', persons: 'ada.l@' },
+                localQuery: 'ada.l@',
+                personsFirst: true,
+            })
+        )
+
+        expect(sections.map((section) => section.key)).toEqual(['best-matches'])
+        expect(sections[0].rows).toMatchObject([{ kind: 'item', section: 'persons', item: { id: 'person-1' } }])
     })
 
     it('says which words were dropped when a filter is active', () => {

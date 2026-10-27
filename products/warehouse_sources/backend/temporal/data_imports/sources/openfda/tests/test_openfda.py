@@ -144,10 +144,13 @@ class TestOpenfdaSource:
             ("drug_enforcement", ["recall_number"], "report_date"),
             ("drug_ndc", ["product_id"], None),
             ("device_510k", ["k_number"], "decision_date"),
+            # Incremental on `public_version_date` but partitioned on the fixed `publish_date`.
+            ("device_udi", ["public_device_record_key"], "publish_date"),
+            ("drug_shortages", None, None),
         ]
     )
     def test_source_response_carries_endpoint_config(
-        self, endpoint: str, primary_keys: list[str], partition_key: str | None
+        self, endpoint: str, primary_keys: list[str] | None, partition_key: str | None
     ) -> None:
         result = _driver().run(endpoint, [_page([])])
         assert result.raised is None

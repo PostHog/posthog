@@ -895,6 +895,8 @@ class TestNodeSuspension:
             "Error: InvalidMessageFormat: Arrow stream contains bytes that are not an IPC message: 'garbage'",
             'TrinoQueryError(type=INSUFFICIENT_RESOURCES, name=CLUSTER_OUT_OF_MEMORY, message="Query killed because the cluster is out of memory. Please try again in a few minutes.", query_id=20261011_000000_00000_abcde)',
             'TrinoQueryError(type=INTERNAL_ERROR, name=TOO_MANY_REQUESTS_FAILED, message="Encountered too many errors talking to a worker node. The node may have crashed or be under too much load.", query_id=20261017_000000_00000_abcde)',
+            'TrinoQueryError(type=INTERNAL_ERROR, name=PAGE_TRANSPORT_TIMEOUT, message="Page transport timed out. This is probably a transient issue, please retry.", query_id=20261024_000000_00000_abcde)',
+            "error 403: b'This tenant is not admitted to the pool yet; the request was not dispatched'",
         ],
     )
     async def test_externally_aborted_failures_do_not_suspend(self, ateam, anode, asaved_query, adag, aborted_error):
@@ -928,17 +930,31 @@ class TestNodeSuspension:
             await database_sync_to_async(job.delete)()
 
     @pytest.mark.parametrize(
-        "identifier",
+        "error",
         [
-            "Preempted",
-            "QueueEmpty",
-            "ProxyConnectionError",
-            "InvalidMessageFormat: Arrow stream contains bytes that are not an IPC message: ",
-            "InvalidMessageFormat: Encapsulated IPC message format must begin with continuation bytes, received: ",
+            *(
+                f"Code: 47. DB::Exception: Missing columns: '{identifier}' while processing query"
+                for identifier in [
+                    "Preempted",
+                    "QueueEmpty",
+                    "ProxyConnectionError",
+                    "InvalidMessageFormat: Arrow stream contains bytes that are not an IPC message: ",
+                    "InvalidMessageFormat: Encapsulated IPC message format must begin with continuation bytes, received: ",
+                ]
+            ),
+            *(
+                f"TrinoUserError(type=USER_ERROR, name=COLUMN_NOT_FOUND, message=\"line 1:8: Column '{identifier}' cannot be resolved\", query_id=20261024_000000_00000_abcde)"
+                for identifier in [
+                    "error 403: b'This tenant is not admitted to the pool yet",
+                    "name=CLUSTER_OUT_OF_MEMORY,",
+                    "name=TOO_MANY_REQUESTS_FAILED,",
+                    "name=PAGE_TRANSPORT_TIMEOUT,",
+                ]
+            ),
         ],
     )
     async def test_suspends_when_a_customer_identifier_spells_an_abort_marker(
-        self, ateam, anode, asaved_query, adag, identifier
+        self, ateam, anode, asaved_query, adag, error
     ):
         from posthog.temporal.data_modeling.activities.utils import (
             CONSECUTIVE_FAILURES_TO_SUSPEND,
@@ -946,7 +962,6 @@ class TestNodeSuspension:
             maybe_suspend_node_for_engine,
         )
 
-        error = f"Code: 47. DB::Exception: Missing columns: '{identifier}' while processing query"
         jobs = [
             await _make_job(ateam, asaved_query, DataModelingJob.Status.FAILED, error=error)
             for _ in range(CONSECUTIVE_FAILURES_TO_SUSPEND)

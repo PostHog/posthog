@@ -97,7 +97,7 @@ The input is always in exactly one mode, decided from the token under the cursor
   2. In-memory lists, filtered on every keystroke: **Data management**, **People**, **Health**, **Misc**, **Settings** (with a Dark mode / Light mode row for "dark", "light", "theme", "appearance"), **Create new**. For a search with words they keep only items that match every word with no typo. Products rank with the results instead.
   3. Remote lists that the file system does not hold: **Events**, **Properties**, **Workflows** (one unified search request), **Accounts** (behind the customer analytics flag), **Support tickets** (3+ characters or a ticket number).
   4. **Ask PostHog AI**.
-  5. **Persons**, **Groups**. Person and group searches can take seconds, so they come last and nothing above them waits for them. The person search starts with the file system search, after 50 ms. In the test group of the `command-k-persons-first-for-email` experiment, a search that contains "@" shows **Persons** right below **Results** instead, and the sections under it wait for the person search.
+  5. **Persons**, **Groups**. Person and group searches can take seconds, so they usually come last. The person search starts with the file system search, after 50 ms. A search that contains "@" waits for the person search and ranks the persons it finds with **Results** / **Best matches**. A person who matches every word comes first. Persons that do not rank stay in **Persons** below, with no duplicates. Other searches do not wait for persons or groups.
 - With any filter (a chip, or a valid `key:value` still being typed), only **Results** and **Ask PostHog AI** show, because filters apply only to objects.
 - With an `is:` chip (not negated), **Results** holds a **View all <types>** row (`View all feature flags`) that opens the list page of that type. With no search text it is the first row; once you type a search it moves below the results. It shows only for types with a list page.
 
@@ -195,6 +195,7 @@ These are the rules reviewers check. Breaking one is a bug.
 - **Same key twice** (`is:dashboard is:insight`): the later value replaces the earlier chip. While a value for a key that already has a chip is being typed, results preview the new value instead of the chip.
 - **Invalid value** (`is:banana`): keep it as plain text, no chip, and show "No type called banana" in the Suggestions section.
 - **Ask PostHog AI**: the last section in Search mode. Without filters, the question is the input text as typed. With filters and free text, the filters read as a sentence around the text (`Find notebooks created by me called "untitled"`). With filters and no free text, the section does not show and Tab does not ask AI.
+  Asking AI does not send the question. It closes the palette and opens the PostHog AI side panel with the question in the composer, so the user can edit it and send it with Enter.
 
 ## Out of scope for v1
 
