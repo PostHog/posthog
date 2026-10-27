@@ -132,6 +132,52 @@ function syncedTable(source: ExternalDataSource, name: string): string | undefin
     return schema.table.hogql_name ?? schema.table.name
 }
 
+export interface RecommendationDataGap {
+    sourceId: string
+    sourceName: string
+    table: string
+    description: string
+    rules: MarketingAnalyticsRecommendationRule[]
+}
+
+const DATA_GAP_TABLES: Omit<RecommendationDataGap, 'sourceId' | 'sourceName'>[] = [
+    {
+        table: 'search_term_stats',
+        description: 'Turn on search_term_stats to get recommendations about the searches that trigger your ads.',
+        rules: [
+            'brand_leak',
+            'brand_overlap',
+            'content_gap',
+            'keyword_gap',
+            'spend_without_conversions',
+            'striking_distance',
+        ],
+    },
+    {
+        table: 'search_term_keyword_stats',
+        description:
+            'Turn on search_term_keyword_stats to see which keyword matched each search term that wastes spend.',
+        rules: ['spend_without_conversions'],
+    },
+    {
+        table: 'campaign_impression_share_stats',
+        description: 'Turn on campaign_impression_share_stats to tell budget limits from ad rank limits.',
+        rules: ['budget_constrained', 'scale_campaign'],
+    },
+]
+
+// Tables a Google Ads source could sync to get more or better recommendations.
+export function recommendationDataGaps(source: ExternalDataSource): RecommendationDataGap[] {
+    if (source.source_type !== 'GoogleAds' || !recommendationsSource(source)) {
+        return []
+    }
+    return DATA_GAP_TABLES.filter((gap) => !syncedTable(source, gap.table)).map((gap) => ({
+        ...gap,
+        sourceId: source.id,
+        sourceName: source.prefix || 'Google Ads',
+    }))
+}
+
 export function recommendationsSource(source: ExternalDataSource): MarketingAnalyticsRecommendationsSource | null {
     if (source.source_type === 'GoogleAds') {
         const campaignTable = syncedTable(source, 'campaign')

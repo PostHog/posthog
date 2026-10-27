@@ -12,7 +12,12 @@ import {
 } from '~/queries/schema/schema-general'
 import { ExternalDataSource } from '~/types'
 
-import { RECOMMENDATIONS_QUERY_KEY, recommendationsSource } from './recommendations'
+import {
+    RECOMMENDATIONS_QUERY_KEY,
+    RecommendationDataGap,
+    recommendationDataGaps,
+    recommendationsSource,
+} from './recommendations'
 
 const RECOMMENDATION_SOURCE_TYPES = ['GoogleAds', 'GoogleSearchConsole']
 
@@ -27,7 +32,7 @@ export interface recommendationsLogicValues {
     dateFilter: DateFilter
     selectedSources: ExternalDataSource[]
     sources: MarketingAnalyticsRecommendationsSource[]
-    sourcesWithoutImpressionShare: ExternalDataSource[]
+    dataGaps: RecommendationDataGap[]
     hasAdsSource: boolean
     connectedSourceTypes: string[]
     query: MarketingAnalyticsRecommendationsQuery
@@ -81,15 +86,10 @@ export const recommendationsLogic = kea<recommendationsLogicType>([
             (selectedSources: ExternalDataSource[]): MarketingAnalyticsRecommendationsSource[] =>
                 selectedSources.flatMap((source) => recommendationsSource(source) ?? []),
         ],
-        sourcesWithoutImpressionShare: [
+        dataGaps: [
             (s) => [s.selectedSources],
-            (selectedSources: ExternalDataSource[]): ExternalDataSource[] =>
-                selectedSources.filter(
-                    (source) =>
-                        source.source_type === 'GoogleAds' &&
-                        !!recommendationsSource(source) &&
-                        !recommendationsSource(source)?.campaignImpressionShareTable
-                ),
+            (selectedSources: ExternalDataSource[]): RecommendationDataGap[] =>
+                selectedSources.flatMap(recommendationDataGaps),
         ],
         connectedSourceTypes: [
             (s) => [s.dataWarehouseSources],

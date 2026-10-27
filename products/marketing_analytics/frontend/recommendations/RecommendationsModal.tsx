@@ -1,6 +1,8 @@
 import { BindLogic } from 'kea'
 
-import { LemonBadge, LemonButton, LemonModal, LemonTable, LemonTag, LemonTagType } from '@posthog/lemon-ui'
+import { LemonBadge, LemonBanner, LemonButton, LemonModal, LemonTable, LemonTag, LemonTagType } from '@posthog/lemon-ui'
+
+import { urls } from 'scenes/urls'
 
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
@@ -12,6 +14,7 @@ import {
     RECOMMENDATION_CATEGORY_LABELS,
     RECOMMENDATION_RULE_DESCRIPTIONS,
     RECOMMENDATION_RULE_LABELS,
+    RecommendationDataGap,
     RecommendationGroup,
     RecommendationSection,
     RecommendationTotal,
@@ -113,6 +116,7 @@ export function RecommendationsModal({
     selectedGroup,
     onSelect,
     dataNodeProps,
+    dataGaps,
 }: {
     isOpen: boolean
     onClose: () => void
@@ -122,6 +126,7 @@ export function RecommendationsModal({
     selectedGroup: RecommendationGroup | undefined
     onSelect: (rule: string) => void
     dataNodeProps: DataNodeLogicProps
+    dataGaps: RecommendationDataGap[]
 }): JSX.Element {
     return (
         <LemonModal
@@ -201,6 +206,21 @@ export function RecommendationsModal({
                                 </div>
                                 <ImpactTotals totals={selectedGroup.totals} />
                             </div>
+                            {dataGaps
+                                .filter((gap) => gap.rules.includes(selectedGroup.rule))
+                                .map((gap) => (
+                                    <LemonBanner
+                                        key={`${gap.sourceId}-${gap.table}`}
+                                        type="info"
+                                        action={{
+                                            children: 'Manage source',
+                                            to: urls.dataWarehouseSource(`managed-${gap.sourceId}`),
+                                            'data-attr': 'marketing-recommendations-rule-data-gap-manage-source',
+                                        }}
+                                    >
+                                        {`${gap.sourceName}: ${gap.description}`}
+                                    </LemonBanner>
+                                ))}
                             <RecommendationRows rows={selectedGroup.recommendations} />
                         </section>
                     ) : (

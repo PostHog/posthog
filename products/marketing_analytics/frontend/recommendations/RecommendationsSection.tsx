@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
-import { IconLightBulb } from '@posthog/icons'
-import { LemonBadge, LemonBanner, LemonButton, LemonSkeleton, Popover } from '@posthog/lemon-ui'
+import { IconInfo, IconLightBulb } from '@posthog/icons'
+import { LemonBadge, LemonBanner, LemonButton, LemonDropdown, LemonSkeleton, Popover } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
@@ -9,6 +9,7 @@ import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { MarketingAnalyticsRecommendationsQueryResponse } from '~/queries/schema/schema-general'
 
 import { MarketingQueryError } from '../dashboard/MarketingQueryError'
+import { RecommendationDataGapList } from './RecommendationDataGapList'
 import {
     IMPACT_DIRECTION_LABELS,
     RecommendationTotal,
@@ -41,7 +42,7 @@ export function RecommendationsSection(): JSX.Element {
         dataWarehouseSources,
         sources,
         hasAdsSource,
-        sourcesWithoutImpressionShare,
+        dataGaps,
         selectedRule,
         introSeen,
         connectedSourceTypes,
@@ -119,6 +120,22 @@ export function RecommendationsSection(): JSX.Element {
                             </LemonButton>
                         </Popover>
                         <ImpactSummary totals={sumImpact(results)} />
+                        {dataGaps.length > 0 && (
+                            <LemonDropdown
+                                closeOnClickInside={false}
+                                overlay={<RecommendationDataGapList gaps={dataGaps} />}
+                            >
+                                <LemonButton
+                                    size="small"
+                                    type="tertiary"
+                                    icon={<IconInfo />}
+                                    sideIcon={<LemonBadge.Number count={dataGaps.length} status="muted" />}
+                                    data-attr="marketing-recommendations-data-gaps"
+                                >
+                                    Improve recommendations
+                                </LemonButton>
+                            </LemonDropdown>
+                        )}
                     </>
                 ) : sourcesLoading || (responseLoading && sources.length > 0) ? (
                     <LemonSkeleton className="h-6 w-60" />
@@ -134,19 +151,6 @@ export function RecommendationsSection(): JSX.Element {
                     Connect Google Ads and sync its campaign and campaign_stats tables to get campaign recommendations.
                 </LemonBanner>
             )}
-            {sourcesWithoutImpressionShare.map((source) => (
-                <LemonBanner
-                    key={source.id}
-                    type="info"
-                    action={{
-                        children: 'Manage source',
-                        to: urls.dataWarehouseSource(`managed-${source.id}`),
-                        'data-attr': 'marketing-recommendations-enable-impression-share',
-                    }}
-                >
-                    {`Turn on campaign_impression_share_stats in ${source.prefix || 'Google Ads'} to get budget and ad rank recommendations for its campaigns.`}
-                </LemonBanner>
-            ))}
             {sourcesLoading ? null : connectedSourceTypes.length === 0 ? (
                 <LemonBanner type="info" action={connectGoogleAds}>
                     Connect Google Ads to get recommendations on budgets, search terms and wasted spend. Add Google
@@ -180,6 +184,7 @@ export function RecommendationsSection(): JSX.Element {
                 selectedGroup={selectedGroup}
                 onSelect={setSelectedRule}
                 dataNodeProps={dataNodeProps}
+                dataGaps={dataGaps}
             />
         </div>
     )

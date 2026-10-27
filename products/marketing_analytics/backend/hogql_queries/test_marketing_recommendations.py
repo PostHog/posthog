@@ -126,13 +126,13 @@ class TestMarketingRecommendations(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("another_ad_often_shows_above", 0.6, "keep"),
-            ("ad_owns_the_top_spot", 0.95, "save"),
-            ("top_spot_not_measured", None, "save"),
+            ("another_ad_often_shows_above", 0.6, "keep", "Keep the ad"),
+            ("ad_owns_the_top_spot", 0.95, "save", "Test pausing"),
+            ("top_spot_not_measured", None, "save", "Check whether other ads show above yours"),
         ]
     )
     def test_brand_overlap_keeps_the_ad_when_another_ad_shows_above(
-        self, _name: str, absolute_top: float | None, direction: str
+        self, _name: str, absolute_top: float | None, direction: str, action_start: str
     ) -> None:
         brand = _campaign(id="brand", name="Brand")
         terms = (
@@ -144,6 +144,7 @@ class TestMarketingRecommendations(SimpleTestCase):
         overlap = [rec for rec in recommend(_inputs((brand,), terms, organic)) if rec.rule == "brand_overlap"]
 
         assert [(rec.subject, rec.impactDirection) for rec in overlap] == [("example", direction)]
+        assert overlap[0].action.startswith(action_start)
 
     @parameterized.expand(
         [

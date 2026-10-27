@@ -479,15 +479,26 @@ class _Recommender:
                         "measured",
                     )
                 )
+            elif term.absolute_top is None:
+                # Without the top position, a competitor bidding on the brand is invisible, so pausing is not safe to suggest.
+                recommendations.append(
+                    self._term_recommendation(
+                        MarketingAnalyticsRecommendationRule.BRAND_OVERLAP,
+                        term,
+                        "Check whether other ads show above yours before you test pausing",
+                        f"{reason} Top position data for this term is not synced yet.",
+                        term.cost,
+                        "save",
+                        "estimated",
+                    )
+                )
             else:
                 recommendations.append(
                     self._term_recommendation(
                         MarketingAnalyticsRecommendationRule.BRAND_OVERLAP,
                         term,
                         "Test pausing the ad in alternating weeks and compare total clicks",
-                        reason
-                        if term.absolute_top is None
-                        else f"{reason} Your ad is at the very top {term.absolute_top:.0%} of the time it shows.",
+                        f"{reason} Your ad is at the very top {term.absolute_top:.0%} of the time it shows.",
                         term.cost,
                         "save",
                         "measured",

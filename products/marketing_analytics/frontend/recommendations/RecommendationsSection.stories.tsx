@@ -115,6 +115,15 @@ const RESULTS: MarketingAnalyticsRecommendation[] = [
         impact: 310,
     }),
     recommendation({
+        rule: 'brand_overlap',
+        subject: 'acme app',
+        campaign: 'Search - Brand',
+        action: 'Check whether other ads show above yours before you test pausing',
+        reason: 'Ranks #1.0 organically with 640 clicks. Ads cost $180 for 150 clicks. Top position data for this term is not synced yet.',
+        impact: 180,
+        impactType: 'estimated',
+    }),
+    recommendation({
         rule: 'budget_constrained',
         level: 'campaign',
         subject: 'Search - Brand',
@@ -259,5 +268,41 @@ export const NoSources: Story = {
                 },
             },
         },
+    },
+}
+
+const SOURCES_WITH_GAPS = [
+    source('example-ads', 'GoogleAds', 'example', ['campaign', 'campaign_stats', 'customer', 'search_term_stats']),
+    SOURCES[1],
+]
+
+const MOCKS_WITH_GAPS: Mocks = {
+    ...MOCKS,
+    get: {
+        ...MOCKS.get,
+        '/api/environments/:team_id/external_data_sources/': {
+            results: SOURCES_WITH_GAPS,
+            count: SOURCES_WITH_GAPS.length,
+            next: null,
+            previous: null,
+        },
+    },
+}
+
+export const MissingTables: Story = {
+    parameters: { msw: { mocks: MOCKS_WITH_GAPS } },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByText('Improve recommendations', { selector: 'button *' }))
+    },
+}
+
+export const MissingTablesInModal: Story = {
+    parameters: { msw: { mocks: MOCKS_WITH_GAPS } },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByText('Recommendations', { selector: 'button *' }))
+        const modal = within(canvasElement.ownerDocument.body)
+        await userEvent.click(await modal.findByText('Spend without conversions', { selector: 'button *' }))
     },
 }
