@@ -20,6 +20,7 @@ from products.experiments.backend.health.checks.flag_change_findings import flag
 from products.experiments.backend.health.checks.flag_state import flag_state
 from products.experiments.backend.health.checks.flag_variants import flag_variants_mismatch
 from products.experiments.backend.health.checks.forced_variant import forced_variant_release_condition
+from products.experiments.backend.health.checks.metric_cannot_compile import metric_cannot_compile
 from products.experiments.backend.health.checks.metric_event_not_ingested import metric_event_not_ingested
 from products.experiments.backend.health.checks.multiple_variants import multiple_variants_share
 from products.experiments.backend.health.checks.new_flag_no_traffic import new_flag_no_traffic
@@ -88,6 +89,11 @@ EXPERIMENT_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
         key=ExperimentHealthCheckKey.METRIC_EVENT_NOT_INGESTED,
         name="Metric events",
         run=metric_event_not_ingested,
+    ),
+    HealthCheck(
+        key=ExperimentHealthCheckKey.METRIC_CANNOT_COMPILE,
+        name="Metric queries",
+        run=metric_cannot_compile,
     ),
     HealthCheck(
         key=ExperimentHealthCheckKey.EXPOSURE_CRITERIA_CANNOT_MATCH,
