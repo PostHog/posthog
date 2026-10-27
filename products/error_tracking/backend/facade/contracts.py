@@ -527,6 +527,8 @@ class SentryMigrationBuiltInFilter:
     key: str
     name: str
     description: str
+    # Short points on what the PostHog rule adds to the Sentry filter, or does differently.
+    compared_with_sentry: tuple[str, ...]
 
 
 @dataclass(frozen=True)
