@@ -87,8 +87,8 @@ const STEPS: Step[] = [
     {
         key: 'create',
         title: 'Create',
-        heading: 'Review and create',
-        description: ['Check each part, then create it.'],
+        heading: 'Ready to create',
+        description: ['Everything it needs is set.'],
         hoggie: pngHoggie(stampApprovedPng),
         parts: [],
         checks: [],
@@ -247,7 +247,7 @@ export function EvaluationFormSteps({
                             {isCreateStep && todo.length > 0 ? 'Almost there' : step.heading}
                         </h2>
                         {(isCreateStep && todo.length > 0
-                            ? ['Fix the parts marked below, then create it.']
+                            ? ['Finish the items below, then create it.']
                             : step.description
                         ).map((line) => (
                             <p key={line} className="mb-0 text-sm text-secondary">
@@ -265,14 +265,12 @@ export function EvaluationFormSteps({
                 {isCreateStep && (
                     <EvaluationCreateReview
                         checklist={checklist}
-                        rows={steps
-                            .filter((candidate) => candidate.key !== 'create')
-                            .map((candidate) => ({
-                                key: candidate.key,
-                                title: candidate.title,
-                                checks: candidate.checks,
-                                onEdit: () => goTo(steps.indexOf(candidate), 'stepper'),
-                            }))}
+                        onFix={(key) =>
+                            goTo(
+                                steps.findIndex((candidate) => candidate.checks.includes(key)),
+                                'stepper'
+                            )
+                        }
                     />
                 )}
                 <div className="flex items-center justify-between gap-2">
