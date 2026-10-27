@@ -5,6 +5,7 @@ import { IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonSelect } from '@posthog/lemon-ui'
 
 import { MemberSelect } from 'lib/components/MemberSelect'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
@@ -17,6 +18,8 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { urls } from 'scenes/urls'
 
 import { METRIC_BULK_MAX, compareText, humanizeDefinitionKind, metricCount, reportCatalogTableSorted } from '../common'
+import { CatalogExplainer } from '../components/CatalogExplainer'
+import { LifecycleStrip } from '../components/LifecycleStrip'
 import { MetricOwnerSelect } from '../components/MetricOwnerSelect'
 import type { DataCatalogMetricApi } from '../generated/api.schemas'
 import { BulkMetricAction, MetricStatusFilter, metricsLogic } from '../metricsLogic'
@@ -66,10 +69,19 @@ export function MetricsTab(): JSX.Element {
     // State, not a ref, so the table re-renders once the slot mounts and the bar can portal into it.
     // The bar portals below the table instead of above it, so selecting a row never shifts the rows.
     const [bulkBarTarget, setBulkBarTarget] = useState<HTMLDivElement | null>(null)
-    const { metrics, allMetrics, allMetricsLoading, filters, actionsInFlight, bulkActionInFlight, ownerFilterOptions } =
-        useValues(metricsLogic)
+    const {
+        metrics,
+        allMetrics,
+        allMetricsLoading,
+        filters,
+        actionsInFlight,
+        bulkActionInFlight,
+        ownerFilterOptions,
+        stageCounts,
+    } = useValues(metricsLogic)
     const {
         setFilters,
+        toggleStage,
         loadMetrics,
         approveMetric,
         refreshMetricFromInsight,
@@ -79,6 +91,8 @@ export function MetricsTab(): JSX.Element {
         bulkDeleteMetrics,
         bulkChangeMetricOwner,
     } = useActions(metricsLogic)
+
+    const reviewQueueEnabled = useFeatureFlag('DATA_CATALOG_REVIEW_QUEUE')
 
     const bulkBusyReason = bulkActionInFlight ? 'A bulk action is running' : undefined
     // Reload replaces the whole list and takes no breakpoint, so a load that resolves after a
@@ -252,7 +266,11 @@ export function MetricsTab(): JSX.Element {
     ]
 
     return (
-        <div className="flex flex-col gap-4">
+        <div className="@container flex flex-col gap-4">
+            <CatalogExplainer />
+            {reviewQueueEnabled && (
+                <LifecycleStrip counts={stageCounts} status={filters.status} onToggle={toggleStage} />
+            )}
             <div className="flex justify-between gap-2 flex-wrap items-center">
                 <LemonInput
                     type="search"
@@ -281,12 +299,14 @@ export function MetricsTab(): JSX.Element {
                             data-attr="data-catalog-metrics-owner-filter"
                         />
                     </div>
-                    <LemonSegmentedButton
-                        value={filters.status}
-                        onChange={(status) => setFilters({ status })}
-                        options={STATUS_FILTER_OPTIONS}
-                        size="small"
-                    />
+                    {!reviewQueueEnabled && (
+                        <LemonSegmentedButton
+                            value={filters.status}
+                            onChange={(status) => setFilters({ status })}
+                            options={STATUS_FILTER_OPTIONS}
+                            size="small"
+                        />
+                    )}
                     <LemonButton
                         type="secondary"
                         icon={<IconRefresh />}
