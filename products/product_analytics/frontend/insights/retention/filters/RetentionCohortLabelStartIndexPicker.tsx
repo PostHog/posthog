@@ -1,9 +1,9 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonSegmentedButton } from '@posthog/lemon-ui'
-
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+
+import { DisplayOptionToggleGroup } from '~/queries/nodes/InsightViz/DisplayOptionToggleGroup'
 
 export function RetentionCohortLabelStartIndexPicker(): JSX.Element | null {
     const { insightProps, canEditInsight } = useValues(insightLogic)
@@ -18,8 +18,7 @@ export function RetentionCohortLabelStartIndexPicker(): JSX.Element | null {
     const period = retentionFilter?.period || 'Day'
 
     return (
-        <LemonSegmentedButton
-            className="pb-2 px-2"
+        <DisplayOptionToggleGroup
             value={retentionFilter?.cohortLabelStartIndex ?? 0}
             onChange={(value: number) => {
                 updateInsightFilter({ cohortLabelStartIndex: value })
@@ -34,8 +33,6 @@ export function RetentionCohortLabelStartIndexPicker(): JSX.Element | null {
                     label: `${period} 1`,
                 },
             ]}
-            size="small"
-            fullWidth
         />
     )
 }

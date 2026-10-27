@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonCheckbox } from '@posthog/lemon-ui'
-
 import { insightLogic } from 'scenes/insights/insightLogic'
+
+import { DisplayOptionCheckbox } from '~/queries/nodes/InsightViz/DisplayOptionCheckbox'
 
 import { insightAlertsLogic } from 'products/alerts/frontend/logic/insightAlertsLogic'
 
@@ -17,12 +17,10 @@ export function ShowAlertAnomalyPointsFilter(): JSX.Element | null {
     }
 
     return (
-        <LemonCheckbox
-            className="p-1 px-2"
-            onChange={() => setShowAlertAnomalyPoints(!showAlertAnomalyPointsFlag)}
+        <DisplayOptionCheckbox
+            label="Show alert anomaly points"
             checked={showAlertAnomalyPointsFlag}
-            label={<span className="font-normal">Show alert anomaly points</span>}
-            size="small"
+            onChange={() => setShowAlertAnomalyPoints(!showAlertAnomalyPointsFlag)}
         />
     )
 }

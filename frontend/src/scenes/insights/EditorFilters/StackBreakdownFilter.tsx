@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
+import { DisplayOptionCheckbox } from '~/queries/nodes/InsightViz/DisplayOptionCheckbox'
 
 import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
 
@@ -12,14 +12,12 @@ export function StackBreakdownFilter(): JSX.Element {
     const { updateInsightFilter } = useActions(trendsDataLogic(insightProps))
 
     return (
-        <LemonCheckbox
-            className="p-1 px-2"
+        <DisplayOptionCheckbox
+            label="Stack breakdown values"
             checked={!!trendsFilter?.stackBreakdownValues}
             onChange={(checked) => {
                 updateInsightFilter({ stackBreakdownValues: checked })
             }}
-            label={<span className="font-normal">Stack breakdown values</span>}
-            size="small"
         />
     )
 }

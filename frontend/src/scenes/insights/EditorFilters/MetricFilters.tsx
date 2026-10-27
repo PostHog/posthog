@@ -1,10 +1,14 @@
 import { useActions, useValues } from 'kea'
 
 import { LemonSelect } from '@posthog/lemon-ui'
+import { Text } from '@posthog/quill'
 
 import { MetricDirectionColorPickers } from 'lib/components/Metric/MetricDirectionColorPickers'
-import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+
+import { DisplayOptionCheckbox } from '~/queries/nodes/InsightViz/DisplayOptionCheckbox'
+import { QuillDisplayOptionSelect } from '~/queries/nodes/InsightViz/QuillDisplayOptionSelect'
 
 import {
     METRIC_COLOR_BY_DIRECTION_DEFAULT,
@@ -17,12 +21,32 @@ import {
 
 import { insightLogic } from '../insightLogic'
 
+const METRIC_SUMMARY_OPTIONS: { value: MetricSummary; label: string }[] = [
+    { value: 'total', label: 'Total' },
+    { value: 'average', label: 'Average' },
+    { value: 'latest', label: 'Latest' },
+]
+
 export function MetricSummaryFilter(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { trendsFilter } = useValues(insightVizDataLogic(insightProps))
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
 
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
     const summary = trendsFilter?.metricSummary ?? METRIC_SUMMARY_DEFAULT
+    const onSummaryChange = (value: MetricSummary): void => updateInsightFilter({ metricSummary: value })
+
+    if (todayRailNav) {
+        return (
+            <div className="flex items-center justify-between gap-2">
+                <Text size="xs" render={<span />}>
+                    Headline value
+                </Text>
+                <QuillDisplayOptionSelect value={summary} onChange={onSummaryChange} options={METRIC_SUMMARY_OPTIONS} />
+            </div>
+        )
+    }
 
     return (
         <div className="flex items-center justify-between gap-2 p-1 px-2">
@@ -30,12 +54,8 @@ export function MetricSummaryFilter(): JSX.Element {
             <LemonSelect<MetricSummary>
                 size="small"
                 value={summary}
-                onChange={(value) => updateInsightFilter({ metricSummary: value })}
-                options={[
-                    { value: 'total', label: 'Total' },
-                    { value: 'average', label: 'Average' },
-                    { value: 'latest', label: 'Latest' },
-                ]}
+                onChange={onSummaryChange}
+                options={METRIC_SUMMARY_OPTIONS}
             />
         </div>
     )
@@ -50,12 +70,10 @@ export function MetricShowChangeFilter(): JSX.Element {
 
     return (
         <div className="flex flex-col">
-            <LemonCheckbox
-                className="p-1 px-2"
+            <DisplayOptionCheckbox
+                label="Show change"
                 checked={showChange}
                 onChange={() => updateInsightFilter({ metricShowChange: !showChange })}
-                label={<span className="font-normal">Show change</span>}
-                size="small"
             />
             {showChange && (
                 <MetricDirectionColorPickers
@@ -80,12 +98,10 @@ export function MetricColorFilter(): JSX.Element {
 
     return (
         <div className="flex flex-col">
-            <LemonCheckbox
-                className="p-1 px-2"
+            <DisplayOptionCheckbox
+                label="Color by trend"
                 checked={colorByDirection}
                 onChange={() => updateInsightFilter({ metricColorByDirection: !colorByDirection })}
-                label={<span className="font-normal">Color by trend</span>}
-                size="small"
             />
             {colorByDirection && (
                 <MetricDirectionColorPickers

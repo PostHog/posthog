@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonCheckbox } from '@posthog/lemon-ui'
-
 import { insightLogic } from 'scenes/insights/insightLogic'
+
+import { DisplayOptionCheckbox } from '~/queries/nodes/InsightViz/DisplayOptionCheckbox'
 
 import { insightVizDataLogic } from '../insightVizDataLogic'
 
@@ -15,13 +15,5 @@ export function ShowLegendFilter(): JSX.Element | null {
         updateInsightFilter({ showLegend: !showLegend })
     }
 
-    return (
-        <LemonCheckbox
-            className="p-1 px-2"
-            onChange={toggleShowLegend}
-            checked={!!showLegend}
-            label={<span className="font-normal">Show legend</span>}
-            size="small"
-        />
-    )
+    return <DisplayOptionCheckbox label="Show legend" checked={!!showLegend} onChange={toggleShowLegend} />
 }
