@@ -3260,9 +3260,9 @@ Diffed against: <https://raw.githubusercontent.com/coollabsio/coolify/main/opena
 - [x] `Audit events (GET /audit-events)` — analyze changes to deployed resources and identify the actors responsible (high)
 - [x] `Backup executions (GET /databases/{uuid}/backups/{scheduled_backup_uuid}/executions)` — measure backup reliability, failure rates, and recovery readiness (medium)
 - [x] `Application task executions (GET /applications/{uuid}/scheduled-tasks/{task_uuid}/executions)` — measure scheduled application job failures, duration, and execution volume (medium)
-- [ ] `Service task executions (GET /services/{uuid}/scheduled-tasks/{task_uuid}/executions)` — measure scheduled service job failures, duration, and execution volume (medium)
-- [ ] `Preview deployments (GET /applications/{uuid}/previews)` — analyze pull request preview environments and their current status (medium)
-- [ ] `Service applications and databases (GET /services/{uuid}/applications; GET /services/{uuid}/databases)` — include individual workloads within service deployments in the deployment inventory (medium)
+- [x] `Service task executions (GET /services/{uuid}/scheduled-tasks/{task_uuid}/executions)` — measure scheduled service job failures, duration, and execution volume (medium)
+- [x] `Preview deployments (GET /applications/{uuid}/previews)` — analyze pull request preview environments and their current status (medium)
+- [x] `Service applications and databases (GET /services/{uuid}/applications; GET /services/{uuid}/databases)` — include individual workloads within service deployments in the deployment inventory (medium)
 
 Note: The official OpenAPI specification was parsed for every GET operation and the relevant response schemas. Existing deployments already fetch application history, and teams already embed members. Execution tables need parent backup or task discovery; service workloads and previews need requests per parent. Instance versions and permissions affect availability; environment variables, keys, health checks, and configuration were excluded.
 
@@ -8472,16 +8472,16 @@ Today (12): `activity_events`, `categories`, `course_activities`, `course_enroll
 Diffed against: <https://developers.northpass.com/reference/get_v2-courses>
 
 - [x] `GET /v2/events` — the learner activity event stream (lesson views, completions, logins) - the fact table behind every engagement metric (high)
-- [ ] `GET /v2/groups/{group_uuid}/memberships` — the people-to-groups join table; groups and people are both synced but nothing links them (high)
-- [ ] `GET /v2/credentials/{credential_uuid}/achievements` — certificates/credentials actually earned by learners - the completion outcome enrollments only hint at (high)
-- [ ] `GET /v2/submissions and /v2/assignments/{assignment_uuid}/submissions` — learner assignment submissions with grades/status, the assessment counterpart to quizzes (high)
+- [x] `GET /v2/groups/{group_uuid}/memberships` — the people-to-groups join table; groups and people are both synced but nothing links them (high)
+- [x] `GET /v2/credentials/{credential_uuid}/achievements` — certificates/credentials actually earned by learners - the completion outcome enrollments only hint at (high)
+- [x] `GET /v2/submissions and /v2/assignments/{assignment_uuid}/submissions` — learner assignment submissions with grades/status, the assessment counterpart to quizzes (high)
 - [x] `GET /v2/courses/{course_uuid}/activities` — the lesson/activity structure inside a course - required to break enrollment progress down below course level (high)
-- [ ] `GET /v2/credentials` — lookup table resolving the credential definitions that achievements reference (medium)
+- [x] `GET /v2/credentials` — lookup table resolving the credential definitions that achievements reference (medium)
 - [ ] `GET /v2/assignments` — assignment definitions, the lookup that submissions join back to (medium)
 - [ ] `GET /v2/transcripts/{learner_id}` — per-learner transcript rolling up all course and learning-path completions (medium)
 - [ ] `GET /v2/groups/{group_uuid}/courses` — course assignments per group - which cohorts were given which curriculum (medium)
 - [ ] `GET /v2/communications/deliveries` — email delivery records for course invitations and reminders, for nudge-effectiveness analysis (medium)
-- [ ] `GET /v2/properties/people and /v2/properties/courses` — custom properties on people and courses plus /v2/properties/property-definitions as the schema lookup - the segmentation dimensions customers configure (medium)
+- [x] `GET /v2/properties/people and /v2/properties/courses` — custom properties on people and courses plus /v2/properties/property-definitions as the schema lookup - the segmentation dimensions customers configure (medium)
 - [ ] `GET /v2/quiz-attempts/{quiz_attempt_uuid}/answers and /v2/question-banks` — per-question answer detail and the question bank lookup; quizzes are synced but nothing about how learners answered (low)
 
 Note: Enumerated every /reference/get_v2-\* route from the ReadMe-hosted reference page (no public OpenAPI file is served). PostHog covers the 6 core objects plus 2 enrollment fan-outs; the learner-activity and assessment halves of the API are entirely absent.
