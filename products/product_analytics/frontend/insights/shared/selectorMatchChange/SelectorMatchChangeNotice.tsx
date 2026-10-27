@@ -6,8 +6,6 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { getSelectorMatchChangeActionIds } from 'scenes/insights/selectorMatchChange'
-import { selectorMatchChangeNoticeLogic } from 'scenes/insights/selectorMatchChangeNoticeLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 
@@ -15,6 +13,9 @@ import { InsightVizNode } from '~/queries/schema/schema-general'
 import { InsightLogicProps } from '~/types'
 
 import { ActionSelectorMatchChangeApi } from 'products/actions/frontend/generated/api.schemas'
+
+import { getSelectorMatchChangeActionIds } from './selectorMatchChange'
+import { selectorMatchChangeNoticeLogic } from './selectorMatchChangeNoticeLogic'
 
 interface SelectorMatchChangeNoticeProps {
     insightProps: InsightLogicProps<InsightVizNode>

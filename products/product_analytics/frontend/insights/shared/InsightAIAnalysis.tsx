@@ -1,13 +1,12 @@
 import { useActions, useValues } from 'kea'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
-
-import { insightLogic } from './insightLogic'
-import { insightVizDataLogic } from './insightVizDataLogic'
 
 export function InsightAIAnalysis(): JSX.Element | null {
     const { insight, insightProps } = useValues(insightLogic)
