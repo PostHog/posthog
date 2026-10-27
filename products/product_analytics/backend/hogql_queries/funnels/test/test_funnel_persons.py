@@ -641,19 +641,12 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         self.assertCountEqual(set(results[0][1]["distinct_ids"]), {"person1", "anon1"})
         self.assertCountEqual(set(results[1][1]["distinct_ids"]), {"person2", "anon2"})
 
-    @parameterized.expand([(12, False), (12, True), (13, False), (13, True), (None, False), (None, True)])
+    @parameterized.expand([(12, False), (12, True), (13, False), (13, True)])
     @time_machine.travel("2021-05-02", tick=False)
-    def test_optional_funnel_step_recordings(self, udf_version: int | None, visit_optional_steps: bool) -> None:
+    def test_optional_funnel_step_recordings(self, udf_version: int, visit_optional_steps: bool) -> None:
         with (
-            patch(
-                "products.product_analytics.backend.hogql_queries.funnels.funnel.UDF_VERSION",
-                udf_version if udf_version is not None else 12,
-            ),
-            patch.object(
-                UDFS["aggregate_funnel"],
-                "clickhouse_name",
-                f"aggregate_funnel_v{udf_version}" if udf_version is not None else "aggregate_funnel",
-            ),
+            patch("products.product_analytics.backend.hogql_queries.funnels.funnel.UDF_VERSION", udf_version),
+            patch.object(UDFS["aggregate_funnel"], "clickhouse_name", f"aggregate_funnel_v{udf_version}"),
         ):
             optional_steps = {2, 4}
             visited_steps = [1, 3]
@@ -715,6 +708,32 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
                 )
                 self.assertEqual(len(response.results), 1)
                 self.assertEqual(response.results[0][1][0][1], UUID(int=3))
+
+                last_step_before_drop_off = 4 if visit_optional_steps else 3
+                self.assertEqual(
+                    self._funnel_actor_timestamp(query, funnel_step=-5, column="timestamp"),
+                    datetime(2021, 5, 1, 0, last_step_before_drop_off, tzinfo=UTC),
+                )
+                last_step_before_step_3 = 2 if visit_optional_steps else 1
+                self.assertEqual(
+                    self._funnel_actor_timestamp(query, funnel_step=3, column="min_timestamp"),
+                    datetime(2021, 5, 1, 0, last_step_before_step_3, tzinfo=UTC),
+                )
+
+    def _funnel_actor_timestamp(self, query: FunnelsQuery, funnel_step: int, column: str) -> datetime:
+        runner = FunnelsQueryRunner(query=query, team=self.team)
+        runner.context.actorsQuery = FunnelsActorsQuery(source=query, funnelStep=funnel_step)
+        runner.context.includeTimestamp = column == "timestamp"
+        runner.context.includePrecedingTimestamp = column == "min_timestamp"
+        response = execute_hogql_query(
+            runner.to_actors_query(),
+            team=self.team,
+            query_type="test_funnel_paths_timestamps",
+            workload=Workload.ONLINE,
+        )
+        assert response.columns is not None
+        self.assertEqual(len(response.results), 1)
+        return response.results[0][response.columns.index(column)]
 
     def test_optional_funnel_step_actors_query(self):
         journeys_for(

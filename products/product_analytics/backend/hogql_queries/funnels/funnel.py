@@ -384,7 +384,7 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
             and self.context.actorsQuery is not None
             and self.context.actorsQuery.includeRecordings
         ):
-            uses_step_event_slots = UDFS["aggregate_funnel"].clickhouse_name == "aggregate_funnel" or UDF_VERSION >= 13
+            uses_step_event_slots = self._uses_step_event_slots()
             if self.context.includeFinalMatchingEvents:
                 required_step_indexes = self._required_step_indexes()
                 # step_reached counts required steps only. UDF v13+ keeps matched events in their own step slot.
@@ -408,6 +408,9 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
             return [parse_expr(f"matched_events_array[{absolute_actors_step + 1}] as matching_events")]
         return []
 
+    def _uses_step_event_slots(self) -> bool:
+        return UDFS["aggregate_funnel"].clickhouse_name == "aggregate_funnel" or UDF_VERSION >= 13
+
     def _required_step_indexes(self) -> list[int]:
         return [
             i for i, series in enumerate(self.context.query.series) if not getattr(series, "optionalInFunnel", False)
@@ -419,6 +422,19 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
             raise ValueError("Missing prior required step in actors query")
         return prior_required_step_indexes[-1]
 
+    def _last_completed_step_slot(self, target_step_index: int) -> str:
+        """The 1-indexed matched_events_array slot of the last step the actor completed before the target step."""
+        prior_required_step_index = self._prior_required_step_index(target_step_index)
+        # The slot of a skipped optional step is empty or holds events from another attempt, so check the path bitfield
+        # and fall back through the optional steps to the prior required step
+        branches = [
+            f"bitTest(steps_bitfield, {i}), {i + 1}"
+            for i in range(target_step_index - 1, prior_required_step_index, -1)
+        ]
+        if not branches:
+            return str(prior_required_step_index + 1)
+        return f"multiIf({', '.join(branches)}, {prior_required_step_index + 1})"
+
     def _get_timestamp_outer_select(self) -> list[ast.Expr]:
         """
         Returns timestamp selectors for the target step and optionally the preceding step.
@@ -426,11 +442,19 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
         """
         target_step = self._absolute_actors_step
 
-        if target_step is None:
+        if target_step is None or self.context.actorsQuery is None or self.context.actorsQuery.funnelStep is None:
             return []
 
         # We pull timestamps from matched_events_array and SQL arrays are 1-indexed
         target_step += 1
+        target_slot = str(target_step)
+        preceding_slot = str(target_step - 1)
+        funnelStep = self.context.actorsQuery.funnelStep
+        if self._uses_step_event_slots():
+            if funnelStep < 0:
+                target_slot = self._last_completed_step_slot(abs(funnelStep) - 1)
+            elif self.context.includePrecedingTimestamp and funnelStep > 1:
+                preceding_slot = self._last_completed_step_slot(funnelStep - 1)
 
         final_step = self.context.max_steps
         first_step = 1
@@ -440,12 +464,12 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
                 raise ValueError("Cannot request preceding step timestamp if target funnel step is the first step")
 
             return [
-                parse_expr(f"matched_events_array[{target_step}][1].1 AS max_timestamp"),
-                parse_expr(f"matched_events_array[{target_step - 1}][1].1 AS min_timestamp"),
+                parse_expr(f"matched_events_array[{target_slot}][1].1 AS max_timestamp"),
+                parse_expr(f"matched_events_array[{preceding_slot}][1].1 AS min_timestamp"),
             ]
         elif self.context.includeTimestamp:
             return [
-                parse_expr(f"matched_events_array[{target_step}][1].1 AS timestamp"),
+                parse_expr(f"matched_events_array[{target_slot}][1].1 AS timestamp"),
                 parse_expr(f"nullIf(matched_events_array[{final_step}][1].1, 0) AS final_timestamp"),
                 parse_expr(f"matched_events_array[{first_step}][1].1 as first_timestamp"),
             ]
