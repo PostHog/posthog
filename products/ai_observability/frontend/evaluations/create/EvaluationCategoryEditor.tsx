@@ -47,10 +47,12 @@ export function EvaluationCategoryEditor({
                             maxLength={256}
                             onChange={(label) => {
                                 const key = keepsStoredKey(option.key, index) ? option.key : categoryKey(label)
+                                // While another row still holds the old key, its pass mark stays with that row.
+                                const shared = options.some((item, i) => i !== index && item.key === option.key)
                                 onChange({
                                     options: options.map((item, i) => (i === index ? { label, key } : item)),
                                     passing_rule: withPassing(
-                                        passing.map((value) => (value === option.key ? key : value))
+                                        shared ? passing : passing.map((value) => (value === option.key ? key : value))
                                     ),
                                 })
                             }}

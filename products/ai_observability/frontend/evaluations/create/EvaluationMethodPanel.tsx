@@ -44,6 +44,10 @@ export function EvaluationMethodPanel(): JSX.Element | null {
     const judgeDisabledReason =
         isJudge && (byokModelsLoading || providerKeysLoading) ? 'Loading model capabilities.' : undefined
     const setMethod = (next: Method): void => {
+        // Re-selecting a method would reset its prompt or code.
+        if (next === method) {
+            return
+        }
         // Switching the type resets the prompt, so a move between the two judge methods keeps the type.
         if (next === 'llm_judge' || next === 'decision') {
             if (!isJudge) {
