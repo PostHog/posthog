@@ -5,7 +5,7 @@ so a user who cannot view one of those may not see the subscription either. The 
 subqueries over the target tables, so the access filter stays a single query.
 """
 
-from collections.abc import Callable
+from typing import Any, Protocol
 
 from django.contrib.postgres.expressions import ArraySubquery
 from django.contrib.postgres.fields import ArrayField
@@ -22,6 +22,11 @@ from products.product_analytics.backend.facade.models import Insight
 from products.subscriptions.backend.facade.contracts import SubscriptionRequestInvalidError
 
 
+class _Filterable(Protocol):
+    # A Protocol, not Manager, because type checkers read a Manager-typed field as a descriptor.
+    def filter(self, *args: Any, **kwargs: Any) -> QuerySet[Any]: ...
+
+
 @frozen
 class _TargetLookups:
     insight: str
@@ -32,9 +37,9 @@ class _TargetLookups:
     rendered_snapshot: str | None
     exported_insights: str
     no_selection: str
-    insights: Callable[[], QuerySet[Insight]]
-    dashboards: Callable[[], QuerySet[Dashboard]]
-    tiles: Callable[[], QuerySet[DashboardTile]]
+    insights: _Filterable
+    dashboards: _Filterable
+    tiles: _Filterable
 
 
 _SUBSCRIPTION_TARGETS = _TargetLookups(
@@ -46,9 +51,9 @@ _SUBSCRIPTION_TARGETS = _TargetLookups(
     rendered_snapshot=None,
     exported_insights="dashboard_export_insights__id__in",
     no_selection="dashboard_export_insights__isnull",
-    insights=Insight.objects.all,
-    dashboards=Dashboard.objects.all,
-    tiles=DashboardTile.objects.all,
+    insights=Insight.objects,
+    dashboards=Dashboard.objects,
+    tiles=DashboardTile.objects,
 )
 
 # A delivery keeps the results it rendered, so a soft-deleted target still restricts it.
@@ -61,9 +66,9 @@ _DELIVERY_TARGETS = _TargetLookups(
     rendered_snapshot="content_snapshot",
     exported_insights="subscription__dashboard_export_insights__id__in",
     no_selection="subscription__dashboard_export_insights__isnull",
-    insights=Insight.objects_including_soft_deleted.all,
-    dashboards=Dashboard.objects_including_soft_deleted.all,
-    tiles=DashboardTile.objects_including_soft_deleted.all,
+    insights=Insight.objects_including_soft_deleted,
+    dashboards=Dashboard.objects_including_soft_deleted,
+    tiles=DashboardTile.objects_including_soft_deleted,
 )
 
 
@@ -139,14 +144,13 @@ def _target_filter(user_access_control: UserAccessControl, team_id: int, targets
     if not has_object_rules and not denies_a_target_resource:
         return Q()
 
-    team_dashboards = targets.dashboards().filter(team_id=team_id)
-    target_insights = targets.insights().filter(team_id=team_id)
+    team_dashboards = targets.dashboards.filter(team_id=team_id)
+    target_insights = targets.insights.filter(team_id=team_id)
     blocked_insights = blocked_target_ids(user_access_control, target_insights, "insight")
     blocked_dashboards = blocked_target_ids(user_access_control, team_dashboards, "dashboard")
     # Distinct so the context-ref array below holds one entry per dashboard, not one per blocked tile.
     dashboards_with_blocked_tiles = (
-        targets.tiles()
-        .filter(dashboard__in=team_dashboards, insight_id__in=blocked_insights)
+        targets.tiles.filter(dashboard__in=team_dashboards, insight_id__in=blocked_insights)
         .values("dashboard_id")
         .distinct()
     )
