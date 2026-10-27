@@ -480,7 +480,6 @@ def _run_daily_unique_persons_pageviews(
         modifiers=modifiers,
     )
 
-    # Jobs are built from events, so they must expire with them like every `ensure_precomputed` job.
     executor = LazyComputationExecutor(events_retention_months=events_retention_months_for_team(team, team.pk))
     result = executor.execute(
         team=team,
