@@ -13,6 +13,7 @@ from posthog.schema import (
     FunnelsDataWarehouseNode,
     HogQLQuery,
     LifecycleDataWarehouseNode,
+    MarketingAnalyticsRecommendationsQuery,
     MarketingAnalyticsSearchQuery,
     RetentionEntity,
 )
@@ -349,7 +350,7 @@ def _references_data_warehouse(value) -> bool:
     """True if a structured query reads warehouse data anywhere in its tree."""
     if isinstance(value, (DataWarehouseNode, FunnelsDataWarehouseNode, LifecycleDataWarehouseNode)):
         return True
-    if isinstance(value, MarketingAnalyticsSearchQuery):
+    if isinstance(value, (MarketingAnalyticsSearchQuery, MarketingAnalyticsRecommendationsQuery)):
         return bool(value.sources)
     if isinstance(value, RetentionEntity) and value.type == EntityType.DATA_WAREHOUSE:
         return True

@@ -11799,6 +11799,23 @@
         "reads_ingested_data": "events",
         "system_prompt_hint": "Log filtering by severity/service/attribute"
     },
+    "query-marketing-recommendations": {
+        "description": "Get paid and organic search recommendations for the project's Google Ads accounts, built from synced Google Ads and Google Search Console warehouse tables. Mirrors the recommendations in the in-product **Marketing analytics** scene.\n\n# When to use\n\nUse this tool when the user asks where to cut ad spend, which campaigns to scale or review, which search terms waste money, or how paid and organic search overlap.\n\nDo not use it for attribution, conversion goals, or channel performance. Use `marketing-analytics-diagnose` when the data looks missing or wrong.\n\n# Inputs\n\n- `dateRange` — pass `{ \"date_from\": \"-30d\" }` unless the user asks for another period. Short ranges give few recommendations, because the rules need enough clicks and spend to compare.\n- Leave everything else out. The tool reads every synced Google Ads and Google Search Console source in the project.\n\n# Output\n\nEach result has:\n\n- `rule` — the check that produced it, for example `spend_without_conversions`, `brand_leak`, `budget_constrained`, `scale_campaign`, `review_campaign`, `brand_overlap`, `content_gap`, `keyword_gap`, `striking_distance` or `policy_limited`.\n- `level` — `campaign` or `search_term`. `subject` is the campaign name or the search term, and `campaign` is the campaign a search term belongs to.\n- `action` and `reason` — what to do and the numbers behind it. Quote them instead of inventing your own advice.\n- `impact` — the monthly money impact in `currency`, or null. `impactDirection` says how to read it: `save` is spend to cut, `invest` is extra budget to add, `gain` is value to win, and `keep` is spend to protect.\n- `impactType` — `measured` comes straight from the data. `estimated` is a projection, so present it as an estimate.\n\nTotals in different currencies come from different ad accounts. Never add them together.\n\nAn empty result means no rule fired, or the project has no synced Google Ads `campaign` and `campaign_stats` tables. Call `marketing-analytics-data-sources` to tell the two apart.\n\n# Example\n\n```json\n{\n  \"kind\": \"MarketingAnalyticsRecommendationsQuery\",\n  \"dateRange\": { \"date_from\": \"-30d\" }\n}\n```",
+        "category": "Marketing analytics",
+        "feature": "marketing_analytics",
+        "summary": "Get paid and organic search recommendations",
+        "title": "Get paid and organic search recommendations",
+        "required_scopes": ["query:read"],
+        "api_operations": ["POST /api/projects/{project_id}/query/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "marketing-analytics-recommendations",
+        "system_prompt_hint": "Google Ads and Search Console recommendations - wasted spend, budgets, brand and organic overlap"
+    },
     "query-mcp-harness-breakdown": {
         "description": "Group this project's MCP tool-call activity by the resolved client harness — the friendly product label for the MCP client (Claude Agent SDK, Claude Code, OpenAI Codex, Cursor, Claude.ai, …). Returns calls, error count, error rate, and session count per harness. Accepts the same dateRange / properties / filterTestAccounts filters as the dashboard and resolves the harness server-side over the same query runner, so results match the UI exactly. Use to answer \"which harnesses use our MCP, and how reliably?\".",
         "category": "MCP analytics",

@@ -106,6 +106,7 @@ async function loadSnapshotTools(): Promise<Tool<ZodObjectAny>[]> {
         'scouts-tool-access': true,
         'subscription-source-summaries': true,
         'marketing-analytics-conversion-setup-ai': true,
+        'marketing-analytics-recommendations': true,
         'workflows-mcp-onboarding': true,
         'insight-data-checks': true,
         'workflows-transactional-email-api': true,
