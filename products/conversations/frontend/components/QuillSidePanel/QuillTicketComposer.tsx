@@ -17,6 +17,8 @@ interface QuillTicketComposerProps {
     /** Seeds the editor once at mount, e.g. from a prefilled "Contact support" call to action. */
     draftContent?: JSONContent | string | null
     autoFocus?: boolean
+    /** Called when the customer edits the message, with whether the editor is now empty. */
+    onEmptyChange?: (isEmpty: boolean) => void
 }
 
 /**
@@ -31,6 +33,7 @@ export function QuillTicketComposer({
     minRows = 3,
     draftContent,
     autoFocus = false,
+    onEmptyChange,
 }: QuillTicketComposerProps): JSX.Element {
     const editorRef = useRef<RichContentEditorType | null>(null)
     const [isEmpty, setIsEmpty] = useState(!draftContent)
@@ -62,7 +65,10 @@ export function QuillTicketComposer({
                         setIsEmpty(false)
                     }
                 }}
-                onUpdate={setIsEmpty}
+                onUpdate={(empty) => {
+                    setIsEmpty(empty)
+                    onEmptyChange?.(empty)
+                }}
                 onPressCmdEnter={submit}
                 onUploadingChange={setIsUploading}
                 disabled={sending}

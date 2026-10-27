@@ -660,7 +660,13 @@ export const supportLogic = kea<supportLogicType>([
             props.onClose?.()
         },
 
-        setSendSupportRequestValue: ({ name }) => {
+        setSendSupportRequestValue: ({ name, value }) => {
+            // A cleared message means the customer started a different ticket, so the CTA's hidden context no longer applies
+            // kea-forms' <Field> passes the name as a path array, a direct call passes a string
+            const field = Array.isArray(name) ? name.join('.') : name
+            if (field === 'message' && !String(value ?? '').trim() && values.sendSupportRequest.ticket_context) {
+                actions.setSendSupportRequestValue('ticket_context', undefined)
+            }
             // Only update URL params for non-text fields to prevent focus loss during typing
             if (name !== 'message' && name !== 'name' && name !== 'email') {
                 actions.updateUrlParams()
