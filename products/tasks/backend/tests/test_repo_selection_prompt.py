@@ -258,11 +258,15 @@ def test_source_repository_section_included_only_when_given() -> None:
 
 
 @pytest.mark.parametrize(
-    "source,expected_in_prompt",
-    [("Acme/B", "acme/b"), (" acme/b ", "acme/b"), ("acme/gone", None)],
+    "source,expected_in_prompt,routing_rules,past_corrections",
+    [
+        ("Acme/B", "acme/b", "1. Client library bugs belong in `acme/a`", None),
+        (" acme/b ", "acme/b", None, "A reviewer corrected a client library report from `acme/b` to `acme/a`."),
+        ("acme/gone", None, None, None),
+    ],
 )
 def test_source_repository_is_a_default_for_the_agent_not_an_answer(
-    source: str, expected_in_prompt: str | None
+    source: str, expected_in_prompt: str | None, routing_rules: str | None, past_corrections: str | None
 ) -> None:
     result = RepoSelectionResult(repository="acme/a", reason="the code lives in acme/a")
     session = MagicMock()
@@ -274,7 +278,7 @@ def test_source_repository_is_a_default_for_the_agent_not_an_answer(
     with (
         patch(f"{_AGENT}.GitHubRepositoryFullCache") as cache,
         patch(f"{_AGENT}._list_eligible_full_names", return_value={"acme/a", "acme/b"}),
-        patch(f"{_AGENT}._routing_rules_block", return_value=None),
+        patch(f"{_AGENT}._routing_rules_block", return_value=routing_rules),
         patch(f"{_AGENT}.MultiTurnSession.start", start),
     ):
         cache.return_value.sync_full_cache = AsyncMock()
@@ -287,6 +291,7 @@ def test_source_repository_is_a_default_for_the_agent_not_an_answer(
             github=github,
             candidate_repos=["acme/a", "acme/b"],
             source_repository=source,
+            past_corrections=past_corrections,
         )
 
     assert selected.repository == "acme/a"
@@ -295,3 +300,7 @@ def test_source_repository_is_a_default_for_the_agent_not_an_answer(
         assert f"filed as an issue in `{expected_in_prompt}`" in prompt
     else:
         assert "## Source repository" not in prompt
+    if routing_rules:
+        assert routing_rules in prompt
+    if past_corrections:
+        assert past_corrections in prompt

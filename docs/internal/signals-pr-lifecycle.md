@@ -179,6 +179,13 @@ New metric checks validate numeric goals and baselines against their metric kind
 
 ## Repository selection
 
+For reports built from GitHub issues, the issue repository is a default when it is an eligible candidate.
+With multiple eligible candidates, selection can choose another repository based on code ownership, applicable routing rules, or past wrong-repository corrections.
+Matching paths can be vendored, generated, or mirrored copies; ownership evidence takes precedence over the source default.
+If the evidence otherwise leaves candidates equally plausible, selection prefers the issue repository.
+An unavailable source does not prevent selection from eligible repositories.
+A single eligible repository is selected without running the agent, and re-research reuses a stored non-null repository selection.
+
 The shared repository selection prompt asks the agent to check the sources in the supplied context before choosing a repository.
 For information from a private repository or another explicitly private source, it prefers a relevant private candidate and returns no repository if none is suitable or its visibility cannot be confirmed.
 Each candidate carries a private, public, or unknown label from the cached GitHub repository list, so the agent does not query GitHub for visibility.

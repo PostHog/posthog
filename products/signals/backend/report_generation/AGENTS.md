@@ -7,15 +7,15 @@ It is exercised locally via management commands, and it is also used by the prod
 
 - `select_repo.py`
   Selects the most relevant GitHub repository for a set of signals.
-  - If the team has 0 repos: returns `None` (report goes to `pending_input`).
-  - If the team has 1 repo: returns it directly (no sandbox needed).
-  - If the team has N repos: spawns a sandbox agent that uses `gh` CLI to explore candidates and pick the best match. Uses `PostHog/.github` as a small dummy repo for the sandbox clone, since the agent only needs `gh` CLI access (not the repo itself).
+  - If the team has 0 eligible repos: returns `None` (report goes to `pending_input`).
+  - If the team has 1 eligible repo: returns it directly (no sandbox needed).
+  - If the team has multiple eligible repos: spawns a sandbox agent that uses `gh` CLI to explore candidates and pick the best match. Uses `PostHog/.github` as a small dummy repo for the sandbox clone, since the agent only needs `gh` CLI access (not the repo itself).
   - Output: `RepoSelectionResult(repository: str | None, reason: str)`.
   - Persisted as a `repo_selection` artefact on the report (by the caller activity, not here).
   - On re-promotion, the activity reuses the previous artefact instead of re-running selection.
-  - A repository the signals name themselves is pinned before the agent runs. See `source_repository.py`.
+  - A source repository is the agent's default when eligible. Code ownership, applicable routing rules, and past corrections can override it; matching paths alone do not establish ownership. Equally plausible candidates favor the source. See `source_repository.py`.
 - `source_repository.py`
-  The repository a report's signals were filed against. A GitHub issue names its own repository in its URL, so `select_repo.py` pins it: the selector returns it when the team can reach it, and `repository=None` carrying the mismatch when it cannot, so a PR never lands in a repository the report never pointed at. Only one unambiguous repository counts; issues from two repositories name neither.
+  The repository a report's signals were filed against. A single unambiguous GitHub issue repository supplies a selection default; issues from two repositories supply none. An unavailable source does not prevent selection from eligible repositories.
 - `research.py`
   Orchestrates a multi-turn sandbox session over a report's signals.
   The agent researches each signal, then produces:

@@ -355,8 +355,11 @@ def _build_repo_selection_prompt(
 The request was filed as an issue in `{source_repository}`. Select it by default. Select a different
 candidate only on specific evidence that the code the request describes lives there: cache paths
 or README content, a matching team routing rule, or a past correction below. An issue filed in one
-repository often asks for a change in an SDK or another sibling repository. When both repositories
-contain the matching files, keep `{source_repository}`.
+repository often asks for a change in an SDK or another sibling repository. When the evidence
+otherwise leaves two candidates equally plausible, prefer `{source_repository}`. Matching file
+paths alone do not establish equal ownership: distinguish canonical code from vendored or mirrored
+copies. Applicable routing rules, past corrections, and specific ownership evidence override the
+source default.
 """
         if source_repository
         else ""
