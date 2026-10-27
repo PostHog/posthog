@@ -229,6 +229,7 @@ The worker stays alive across blocks and queries, and the keys can differ betwee
 The worker keeps the parsed filter for the most recent key array and parses it again only when the array changes.
 
 Both functions use the `json_drop_keys_udf` executable. The pool entry point uses `--row-binary` with chunk headers.
+Both functions are unversioned, so every environment registers them under these names and runs the top-level `json_drop_keys_udf`.
 RowBinary transport lets the JSON contain raw newlines and tabs.
 Malformed JSON, truncated chunks, a JSON value above 1 GiB, more than 65,536 keys, and a key above 64 KiB fail the query.
 Both functions return an empty string for an empty input value, which legacy events JSON columns can hold.
