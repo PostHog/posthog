@@ -80,13 +80,18 @@ FROM persons`
             expect(result[0].query).toContain("it\\'s;here")
         })
 
-        it('ignores semicolons inside single-line comments', () => {
-            const input = `SELECT 1 -- this; is a comment
+        it.each(['--', '//', '#'])('ignores semicolons inside %s single-line comments', (comment) => {
+            const input = `SELECT 1 ${comment} this; is a comment
 ; SELECT 2`
             const result = splitQueries(input)
             expect(result).toHaveLength(2)
             expect(result[0].query).toContain('SELECT 1')
             expect(result[1].query).toBe('SELECT 2')
+        })
+
+        it('does not treat positional references as hash comments', () => {
+            const result = splitQueries('SELECT 1 ORDER BY #1; SELECT 2')
+            expect(result).toHaveLength(2)
         })
 
         it('ignores semicolons inside block comments', () => {

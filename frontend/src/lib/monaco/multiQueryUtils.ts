@@ -50,9 +50,13 @@ function findSeparatorOffsets(input: string): number[] {
             continue
         }
 
-        // Skip single-line comments
-        if (ch === '-' && input[i + 1] === '-') {
-            i += 2
+        // Skip single-line comments. HogQL also supports `//` and `#`; the latter does not
+        // start a comment when it is a positional reference such as `ORDER BY #1`.
+        const isLineComment =
+            (ch === '-' && input[i + 1] === '-') ||
+            (ch === '/' && input[i + 1] === '/') ||
+            (ch === '#' && !/[0-9]/.test(input[i + 1] ?? ''))
+        if (isLineComment) {
             while (i < input.length && input[i] !== '\n') {
                 i++
             }

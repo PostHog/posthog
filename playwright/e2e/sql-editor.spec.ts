@@ -125,6 +125,60 @@ test.describe('SQL Editor', () => {
             await expect(page.getByTestId('sql-editor-sidebar-query-info-pane')).toBeVisible()
         })
 
+        test('Format query', async ({ page }) => {
+            const sqlInsight = new SqlInsight(page)
+            const oneLineQuery =
+                "select event, count() as total from events where event = '$pageview' group by event order by total desc limit 10"
+            const formattedQuery = [
+                'select',
+                '    event,',
+                '    count() as total',
+                'from',
+                '    events',
+                'where',
+                "    event = '$pageview'",
+                'group by',
+                '    event',
+                'order by',
+                '    total desc',
+                'limit',
+                '    10',
+            ].join('\n')
+            const readEditorText = (): Promise<string> =>
+                page.evaluate(
+                    () => (window as any).__monacoEditors?.at(-1)?.getModel()?.getValue().replace(/\r\n/g, '\n') ?? ''
+                )
+
+            const editorArea = page.getByTestId('hogql-query-editor')
+
+            await test.step('the keyboard shortcut reflows the query', async () => {
+                await sqlInsight.writeQuery(oneLineQuery)
+                await editorArea.click()
+                await page.keyboard.press('Shift+Alt+F')
+                await expect.poll(readEditorText).toEqual(formattedQuery)
+            })
+
+            await test.step('the context menu command reflows the query', async () => {
+                await sqlInsight.writeQuery(oneLineQuery)
+                await editorArea.locator('.view-lines').click({ button: 'right' })
+                const menuItem = page.getByRole('menuitem', { name: 'Format Document' })
+                await expect(menuItem).toBeVisible()
+                // Monaco arms a menu item's pointer-release listener 100 ms after the menu opens, to
+                // swallow the release of the right click that opened it. An earlier click is ignored.
+                await page.waitForTimeout(250)
+                await menuItem.click()
+                await expect.poll(readEditorText).toEqual(formattedQuery)
+            })
+
+            await test.step('a query that does not parse keeps its text', async () => {
+                await sqlInsight.writeQuery('select ) from events')
+                await editorArea.click()
+                await page.keyboard.press('Shift+Alt+F')
+                await expect(page.getByText("Couldn't format this query.", { exact: false })).toBeVisible()
+                await expect.poll(readEditorText).toEqual('select ) from events')
+            })
+        })
+
         test('Query variables pane', async ({ page }) => {
             await page.getByTestId('sql-editor-variables-button').click()
             await expect(page.getByPlaceholder('Search variables')).toBeVisible({ timeout: 60000 })
