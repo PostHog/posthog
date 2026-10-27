@@ -121,10 +121,6 @@ const DETAIL_CONTAINER_CLASS =
 const DETAIL_ASIDE_CLASS =
     'order-2 flex w-full min-w-0 flex-col gap-5 border-t border-primary p-5 @5xl:order-none @5xl:w-[26rem] @5xl:shrink-0 @5xl:self-stretch @5xl:border-t-0 @5xl:border-r'
 const DETAIL_MAIN_CLASS = 'order-1 flex min-w-0 flex-1 flex-col px-6 py-5 @5xl:order-none @5xl:px-8'
-// The rail folded away: a strip holding only the control that brings it back, in the same place the
-// hide control sat, so the toggle never jumps across the page.
-const DETAIL_ASIDE_COLLAPSED_CLASS =
-    'order-2 flex w-full items-start border-t border-primary px-5 py-2 @5xl:order-none @5xl:w-auto @5xl:self-stretch @5xl:border-t-0 @5xl:border-r @5xl:px-2 @5xl:py-5'
 
 /**
  * Layout-faithful placeholder shown while a report's base record loads on a cold open (deep link
@@ -297,32 +293,30 @@ export function InboxDetailFrame({
     )
 
     // Hiding the rail gives the report column the full width, which is what reading a diff needs.
-    // Both controls live on the rail: hide in the header of its first section, show in the strip
-    // the rail folds to.
+    // One toggle sits in the page toolbar and keeps its place in both states, so it never jumps.
     const onToggleRail = (): void => {
         toggleEvidenceRail()
         captureSectionToggle('evidence_rail')(!evidenceRailCollapsed)
     }
-    const hideRailButton = (
+    const railToggleButton = evidenceRailCollapsed ? (
         <LemonButton
-            size="xsmall"
-            type="tertiary"
-            icon={<IconSidebarClose />}
-            tooltip="Hide evidence to widen the report"
-            aria-label="Hide evidence"
-            onClick={onToggleRail}
-            data-attr="inbox-report-hide-evidence-rail"
-        />
-    )
-    const showRailButton = (
-        <LemonButton
-            size="xsmall"
+            size="small"
             type="tertiary"
             icon={<IconSidebarOpen />}
             tooltip="Show evidence"
             aria-label="Show evidence"
             onClick={onToggleRail}
             data-attr="inbox-report-show-evidence-rail"
+        />
+    ) : (
+        <LemonButton
+            size="small"
+            type="tertiary"
+            icon={<IconSidebarClose />}
+            tooltip="Hide evidence to widen the report"
+            aria-label="Hide evidence"
+            onClick={onToggleRail}
+            data-attr="inbox-report-hide-evidence-rail"
         />
     )
 
@@ -449,13 +443,10 @@ export function InboxDetailFrame({
     const overviewBody = (
         <BindLogic logic={inboxReportDetailLogic} props={logicProps}>
             <div className={DETAIL_CONTAINER_CLASS}>
-                {evidenceRailCollapsed ? (
-                    <aside className={DETAIL_ASIDE_COLLAPSED_CLASS}>{showRailButton}</aside>
-                ) : (
+                {!evidenceRailCollapsed && (
                     <aside className={DETAIL_ASIDE_CLASS}>
                         <ReportStatusSection
                             report={currentReport ?? report}
-                            rightSlot={hideRailButton}
                             onPriorityChange={updatePriority}
                             prioritySaving={prioritySaving}
                         />
@@ -573,16 +564,19 @@ export function InboxDetailFrame({
     return (
         <div className={DETAIL_PAGE_CLASS}>
             <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-                <LemonButton
-                    type="tertiary"
-                    size="small"
-                    icon={<IconArrowLeft />}
-                    to={backOverride ?? urls.inbox('reports')}
-                    className="-ml-4 w-fit"
-                    data-attr="inbox-report-back"
-                >
-                    {backLabel}
-                </LemonButton>
+                <div className="-ml-4 flex items-center gap-1">
+                    <LemonButton
+                        type="tertiary"
+                        size="small"
+                        icon={<IconArrowLeft />}
+                        to={backOverride ?? urls.inbox('reports')}
+                        className="w-fit"
+                        data-attr="inbox-report-back"
+                    >
+                        {backLabel}
+                    </LemonButton>
+                    {railToggleButton}
+                </div>
                 <div className="flex items-center gap-2">
                     {primaryAction}
                     {!summaryHasSolution && implementButton}

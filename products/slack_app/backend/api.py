@@ -5842,7 +5842,9 @@ def _handle_signals_dismiss_report(payload: dict) -> HttpResponse:
     return HttpResponse(status=200)
 
 
-def _replace_message_stripping_actions(payload: dict, text: str, *, keep_link_buttons: bool = True) -> None:
+def _replace_message_stripping_actions(
+    payload: dict, text: str, *, keep_link_buttons: bool = True, process_attachments: bool = False
+) -> None:
     """Best-effort: replace the original message's interactive buttons with a context line.
 
     When keep_link_buttons is True, link buttons (elements with a "url" key, e.g. "View in
@@ -5853,18 +5855,28 @@ def _replace_message_stripping_actions(payload: dict, text: str, *, keep_link_bu
         return
 
     original_message = payload.get("message", {})
-    kept_blocks = []
-    for block in original_message.get("blocks", []):
-        if block.get("type") != "actions":
-            kept_blocks.append(block)
-            continue
-        if keep_link_buttons:
-            kept_elements = [el for el in block.get("elements", []) if "url" in el]
-            if kept_elements:
-                kept_blocks.append({**block, "elements": kept_elements})
-    kept_blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": text}]})
 
-    inbox_interactivity.post_response_url(response_url, {"replace_original": True, "text": text, "blocks": kept_blocks})
+    def without_actions(blocks: list[dict]) -> list[dict]:
+        kept_blocks = []
+        for block in blocks:
+            if block.get("type") != "actions":
+                kept_blocks.append(block)
+                continue
+            if keep_link_buttons:
+                kept_elements = [el for el in block.get("elements", []) if "url" in el]
+                if kept_elements:
+                    kept_blocks.append({**block, "elements": kept_elements})
+        return kept_blocks
+
+    kept_blocks = without_actions(original_message.get("blocks", []))
+    kept_blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": text}]})
+    response: dict = {"replace_original": True, "text": text, "blocks": kept_blocks}
+    if process_attachments and original_message.get("attachments"):
+        response["attachments"] = [
+            {**attachment, "blocks": without_actions(attachment.get("blocks", []))}
+            for attachment in original_message["attachments"]
+        ]
+    inbox_interactivity.post_response_url(response_url, response)
 
 
 def _post_signals_dismiss_feedback(payload: dict, *, dismissed: bool, slack_user_id: str) -> None:
@@ -6051,7 +6063,9 @@ def _handle_insight_alert_snooze(payload: dict) -> HttpResponse:
         return HttpResponse(status=200)
     if outcome == "disabled":
         logger.info("insight_alert_snooze_alert_disabled", alert_id=str(alert_uuid))
-        _replace_message_stripping_actions(payload, "This alert is disabled, so there is nothing to snooze.")
+        _replace_message_stripping_actions(
+            payload, "This alert is disabled, so there is nothing to snooze.", process_attachments=True
+        )
         return HttpResponse(status=200)
     if outcome == "not_snoozable":
         logger.warning("insight_alert_snooze_refused_by_platform", alert_id=str(alert_uuid))
@@ -6083,7 +6097,7 @@ def _handle_insight_alert_snooze(payload: dict) -> HttpResponse:
         assert until is not None
         snoozed_wording = f"until {until.strftime('%Y-%m-%d %H:%M')} UTC"
     actor = f"<@{slack_user_id}>" if slack_user_id else "a teammate"
-    _replace_message_stripping_actions(payload, f"😴 Snoozed {snoozed_wording} by {actor}")
+    _replace_message_stripping_actions(payload, f"😴 Snoozed {snoozed_wording} by {actor}", process_attachments=True)
     return HttpResponse(status=200)
 
 

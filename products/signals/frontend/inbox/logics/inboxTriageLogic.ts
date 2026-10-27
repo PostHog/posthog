@@ -108,9 +108,9 @@ export interface inboxTriageLogicActions {
     } // reportListLogic
     loadReportsSuccess: (
         reportsResponse: import('./reportListLogic').ReportListResponse,
-        payload?: any
+        payload?: void | undefined
     ) => {
-        payload?: any
+        payload?: void | undefined
         reportsResponse: import('./reportListLogic').ReportListResponse
     } // reportListLogic
     removeReport: (reportId: string) => {

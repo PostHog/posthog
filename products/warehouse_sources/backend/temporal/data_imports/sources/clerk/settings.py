@@ -115,11 +115,20 @@ CLERK_ENDPOINTS: dict[str, ClerkEndpointConfig] = {
         # endpoints give. Skip zero rows instead of failing the schema every run.
         gated_feature="Satellite domains",
     ),
+    # Clerk answers 422 feature_requires_email_address_enabled for the SSO connection lists on
+    # instances without email address sign-in. Every table starts enabled, so most accounts never
+    # chose these tables. Skip zero rows instead of disabling the schema.
     "saml_connections": ClerkEndpointConfig(
-        name="saml_connections", path="/saml_connections", is_wrapped_response=True
+        name="saml_connections",
+        path="/saml_connections",
+        is_wrapped_response=True,
+        gated_feature="Enterprise SSO",
     ),
     "enterprise_connections": ClerkEndpointConfig(
-        name="enterprise_connections", path="/enterprise_connections", is_wrapped_response=True
+        name="enterprise_connections",
+        path="/enterprise_connections",
+        is_wrapped_response=True,
+        gated_feature="Enterprise SSO",
     ),
     "oauth_applications": ClerkEndpointConfig(
         name="oauth_applications",
@@ -140,7 +149,10 @@ CLERK_ENDPOINTS: dict[str, ClerkEndpointConfig] = {
         gated_feature="Machine (M2M) authentication",
     ),
     # /api_keys and /m2m_tokens cap `limit` at 100 rather than 500.
-    "api_keys": ClerkEndpointConfig(name="api_keys", path="/api_keys", is_wrapped_response=True),
+    # Clerk answers 403 feature_not_enabled on instances without API keys. Skip zero rows there.
+    "api_keys": ClerkEndpointConfig(
+        name="api_keys", path="/api_keys", is_wrapped_response=True, gated_feature="API keys"
+    ),
     "m2m_tokens": ClerkEndpointConfig(
         name="m2m_tokens",
         path="/m2m_tokens",
