@@ -201,7 +201,9 @@ class MetricResultStore:
     def current_data_until(self, calculation_config: MetricCalculationConfig) -> datetime | None:
         """When the data of the result that `current_outcome` picks ends, as `current_outcomes` defines it, or None when
         it has none."""
-        return self._current_rows({self.experiment_id: calculation_config}).values_list("data_until", flat=True).first()
+        # F() selects the alias, which values_list can't select by name.
+        rows = self._current_rows({self.experiment_id: calculation_config})
+        return rows.values_list(F("data_until"), flat=True).first()
 
     def previous_completed(
         self, metric_uuid: str, calculation_key: str, *, before: datetime
@@ -446,7 +448,7 @@ class MetricResultStore:
         return (
             ExperimentMetricResult.objects.filter(filed_under_config, status=_COMPLETED)
             # Postgres LEAST skips a NULL, so a row without completed_at ranks by its query_to.
-            .annotate(data_until=Least("query_to", "completed_at"))
+            .alias(data_until=Least("query_to", "completed_at"))
             .order_by("experiment_id", F("data_until").desc(), F("completed_at").desc(nulls_last=True), "-id")
             .distinct("experiment_id")
         )
