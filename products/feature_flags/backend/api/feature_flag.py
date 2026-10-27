@@ -1315,6 +1315,9 @@ class FeatureFlagCreateRequestSchemaSerializer(serializers.Serializer):
     )
 
 
+ROLLBACK_REASON_FIELDS = frozenset({"ask_rollback_reason", "rollback_reason", "rollback_reason_note"})
+
+
 class FeatureFlagRollbackReasonSerializer(serializers.Serializer):
     ask_rollback_reason = serializers.BooleanField(
         required=False,
@@ -1977,8 +1980,10 @@ class FeatureFlagSerializer(
     def _unsupported_v2_fields(self, attrs: dict, allowed: frozenset[str]) -> set[str]:
         submitted = set(self.initial_data) if isinstance(self.initial_data, Mapping) else set()
         names = {"filters" if field == "get_filters" else field for field in attrs} | submitted
-        # DRF drops unknown and read-only input fields; original_flag stays an ignored v1 compatibility field.
-        return names - allowed - {"original_flag"}
+        # DRF drops unknown and read-only input fields; original_flag stays an ignored v1 compatibility field. The
+        # rollback reason fields are request metadata that a version 2 write ignores, so a client may send them with
+        # any edit.
+        return names - allowed - {"original_flag"} - ROLLBACK_REASON_FIELDS
 
     def _resolve_v2_document(self, submitted: object, *, stored: Mapping[str, Any], flag_id: int | None) -> dict:
         """Resolve server-owned identity against ``stored`` and validate; the result is the exact document persisted."""
