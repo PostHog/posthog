@@ -1,32 +1,14 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, waitFor } from '@testing-library/react'
+import { render } from '@testing-library/react'
 
-import {
-    createDefaultTooltipAccessor,
-    getChart,
-    hoverUntilTooltip,
-    setupJsdom,
-    setupSyncRaf,
-} from '@posthog/quill-charts/testing'
+import { findChart, getChart, setupChartTests } from '@posthog/quill-charts/testing'
 
 import { initKeaTests } from '~/test/init'
 
 import { Sparkline, SparklineProps } from './Sparkline'
 
-let cleanupJsdom: () => void
-let cleanupRaf: () => void
-
-beforeEach(() => {
-    cleanupJsdom = setupJsdom()
-    cleanupRaf = setupSyncRaf()
-})
-
-afterEach(() => {
-    cleanupRaf()
-    cleanupJsdom()
-    cleanup()
-})
+setupChartTests()
 
 function renderSparkline(props: SparklineProps): void {
     initKeaTests()
@@ -64,11 +46,9 @@ describe('Sparkline', () => {
             renderLabel: (label) => `Day: ${label}`,
             renderTooltipValue: (value) => `$${value.toFixed(2)}`,
         })
-        const chart = getChart()
+        const tooltip = await (await findChart()).hoverTooltip(2)
 
-        const tooltip = createDefaultTooltipAccessor(await hoverUntilTooltip(chart.element, 2, LABELS.length))
-        // The portal mounts before its content commits, so poll until the header lands.
-        await waitFor(() => expect(tooltip.label()).toBe('Day: Wed'))
+        expect(tooltip.label()).toBe('Day: Wed')
         expect(tooltip.value('volume')).toBe('$3.00')
         expect(tooltip.rows()).toEqual(['volume'])
     })
