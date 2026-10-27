@@ -9,12 +9,7 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from posthog.dataclasses import frozen
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.interruptible_wait import (
-    interruptible_wait,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.safe_point import reach_safe_point
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.openweather.settings import (
@@ -33,12 +28,15 @@ MAX_RETRY_ATTEMPTS = 5
 # worker time and outbound fan-out — a malformed/abusive config can't tie up the pipeline.
 MAX_LOCATIONS = 100
 
-# A history backfill makes many calls per location, and the free tier allows 60 calls a minute.
-HISTORY_REQUEST_INTERVAL_SECONDS = 1.0
-
 
 class OpenWeatherRetryableError(Exception):
     pass
+
+
+@dataclasses.dataclass(frozen=True)
+class HistoryRange:
+    start: int
+    end: int
 
 
 @dataclasses.dataclass(frozen=True)
@@ -97,13 +95,7 @@ def _build_url(path: str, params: dict[str, Any], base_url: str | None = None) -
     return f"{base_url or OPENWEATHER_BASE_URL}{path}?{urlencode(params)}"
 
 
-@frozen
-class TimeWindow:
-    start: int
-    end: int
-
-
-def history_windows(window: HistoryWindow, start_from: int | None, end: int) -> Iterator[TimeWindow]:
+def history_windows(window: HistoryWindow, start_from: int | None, end: int) -> Iterator[HistoryRange]:
     """Split ``[start, end]`` into consecutive inclusive Unix ranges of at most ``window.size``.
 
     ``start_from`` is the incremental watermark. Without one the read starts at the window's
@@ -121,7 +113,7 @@ def history_windows(window: HistoryWindow, start_from: int | None, end: int) -> 
     size = int(window.size.total_seconds())
     while start <= end:
         window_end = min(start + size, end)
-        yield TimeWindow(start=start, end=window_end)
+        yield HistoryRange(start=start, end=window_end)
         # Ranges are inclusive, so the next one starts a second later to not read a boundary row twice.
         start = window_end + 1
 
@@ -269,11 +261,9 @@ def get_rows(
                 yield rows
             continue
 
-        for index, time_window in enumerate(history_windows(window, start_from, end)):
-            if index > 0:
-                interruptible_wait(HISTORY_REQUEST_INTERVAL_SECONDS, safe_point=reach_safe_point)
+        for history_range in history_windows(window, start_from, end):
             url = _build_url(
-                config.path, {**params, "start": time_window.start, "end": time_window.end}, config.base_url
+                config.path, {**params, "start": history_range.start, "end": history_range.end}, config.base_url
             )
             rows = _normalize_rows(config, _fetch(session, url, logger), location)
             if rows:

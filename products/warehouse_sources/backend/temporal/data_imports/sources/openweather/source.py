@@ -117,8 +117,8 @@ Each sync polls every location once. To accumulate a history of point-in-time sn
             SourceSchema(
                 name=endpoint,
                 # Only the history endpoints filter server-side (`start`/`end`), so only they are
-                # true incremental. Append on the others re-polls the (cheap) snapshot each sync,
-                # accumulating a time series across runs.
+                # true incremental. Append on the others re-polls the (cheap) snapshot each sync and
+                # merge dedupes on the primary key, accumulating a time series across runs.
                 supports_incremental=config.supports_incremental,
                 supports_append=config.supports_append,
                 incremental_fields=config.incremental_fields,
