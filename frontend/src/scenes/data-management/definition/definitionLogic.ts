@@ -211,6 +211,24 @@ export interface definitionLogicActions {
     loadPreviews: () => {
         value: true
     }
+    loadPreviewsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadPreviewsSuccess: (
+        previews: ObjectMediaPreview[],
+        payload?: {
+            value: true
+        }
+    ) => {
+        previews: ObjectMediaPreview[]
+        payload?: {
+            value: true
+        }
+    }
     loadPropertyUsage: (id: Definition['id']) => {
         id: string
     }
@@ -230,24 +248,6 @@ export interface definitionLogicActions {
         propertyUsage: PropertyUsageDetailApi | null
         payload?: {
             id: string
-        }
-    }
-    loadPreviewsFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    loadPreviewsSuccess: (
-        previews: ObjectMediaPreview[],
-        payload?: {
-            value: true
-        }
-    ) => {
-        previews: ObjectMediaPreview[]
-        payload?: {
-            value: true
         }
     }
     setDefinition: (
@@ -399,7 +399,14 @@ export const definitionLogic = kea<definitionLogicType>([
         metrics: [
             null as EventDefinitionMetrics | null,
             {
-                loadMetrics: async ({ id }) => await api.eventDefinitions.getMetrics({ eventDefinitionId: id }),
+                loadMetrics: async ({ id }) => {
+                    if (values.isEvent) {
+                        return await api.eventDefinitions.getMetrics({ eventDefinitionId: id })
+                    }
+
+                    // For properties, we currently don't have metrics in the same way as events.
+                    return null
+                },
             },
         ],
         propertyUsage: [

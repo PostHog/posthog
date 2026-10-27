@@ -131,12 +131,16 @@ export interface propertyDefinitionsTableLogicActions {
         errorObject?: any
     }
     loadQueryUsageByNameSuccess: (
-        queryUsageByName: Record<string, number> | null,
+        queryUsageByName: {
+            [k: string]: number
+        } | null,
         payload?: {
             value: true
         }
     ) => {
-        queryUsageByName: Record<string, number> | null
+        queryUsageByName: {
+            [k: string]: number
+        } | null
         payload?: {
             value: true
         }
@@ -182,7 +186,7 @@ export interface propertyDefinitionsTableLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         propertyTypeOptions: (
             groupTypes: Map<GroupTypeIndex, GroupType>,
-            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
+            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
         ) => LemonSelectOption<string>[]
         showVerifiedFilter: (propertyDefinitions: PropertyDefinitionsPaginatedResponse) => boolean
     }
