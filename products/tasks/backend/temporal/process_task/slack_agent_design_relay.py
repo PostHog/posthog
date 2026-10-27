@@ -59,7 +59,6 @@ _ACTIVITY_TIMEOUT = timedelta(seconds=30)
 _ACTIVITY_RETRY = RetryPolicy(maximum_attempts=3)
 # The parent's progress step that the first setup line shows.
 _SANDBOX_SETUP_STEP = "sandbox"
-_PATCH_ID_STREAM_ENDED = "tasks-slack-relay-stream-ended"
 
 
 def _trace_key(trace_id: Optional[str]) -> Optional[str]:
@@ -362,10 +361,8 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
             start_to_close_timeout=_ACTIVITY_TIMEOUT,
             retry_policy=_ACTIVITY_RETRY,
         )
-        # An older activity returns None, which means the stream is still open. Histories that
-        # carry the patch marker replay with deprecate_patch; delete it once those runs drain.
+        # An older activity returns None, which means the stream is still open.
         if stream_open is False:
-            workflow.deprecate_patch(_PATCH_ID_STREAM_ENDED)
             self._stream_ended = True
 
     @workflow.run
