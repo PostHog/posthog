@@ -58,18 +58,23 @@ def coerce_report_tags(tags: Sequence[object]) -> list[str]:
     for each loss instead of a `ValueError`.
     """
     kept: list[str] = []
-    dropped: list[object] = []
+    # Counts by reason only, never the tag text: agent output can carry customer data or secrets.
+    rejected: Counter[str] = Counter()
     for raw in tags:
         slug = slugify_tag(raw) if isinstance(raw, str) else ""
-        if not slug or len(slug) > SignalReport.MAX_TAG_LENGTH:
-            dropped.append(raw)
+        if not isinstance(raw, str):
+            rejected["not_a_string"] += 1
+        elif not slug:
+            rejected["empty_after_normalization"] += 1
+        elif len(slug) > SignalReport.MAX_TAG_LENGTH:
+            rejected["too_long"] += 1
         elif slug not in kept:
             kept.append(slug)
-    if dropped:
-        logger.warning("report tags: dropped invalid tags", dropped=[repr(raw)[:80] for raw in dropped])
     if len(kept) > SignalReport.MAX_TAGS:
-        logger.warning("report tags: dropped tags over the cap", dropped=kept[SignalReport.MAX_TAGS :])
+        rejected["over_the_cap"] = len(kept) - SignalReport.MAX_TAGS
         kept = kept[: SignalReport.MAX_TAGS]
+    if rejected:
+        logger.warning("report tags: dropped tags", rejected=dict(rejected))
     return kept
 
 
