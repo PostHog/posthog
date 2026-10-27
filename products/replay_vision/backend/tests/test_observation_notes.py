@@ -54,30 +54,46 @@ class TestObservationNotesAccess(APIBaseTest):
         self.member = User.objects.create_and_join(self.organization, "notes-member@posthog.com", "password")
 
     def _set_member_scanner_access(self, access_level: str) -> None:
+        self._set_member_access("replay_scanner", access_level, str(self.scanner.id))
+
+    def _set_member_access(self, resource: str, access_level: str, resource_id: str | None = None) -> None:
         AccessControl.objects.create(
             team=self.team,
-            resource="replay_scanner",
-            resource_id=str(self.scanner.id),
+            resource=resource,
+            resource_id=resource_id,
             organization_member=self.member.organization_memberships.get(organization=self.organization),
             access_level=access_level,
         )
 
-    @parameterized.expand([("denied", "none", False), ("viewer", "viewer", True)])
-    def test_notes_follow_scanner_access(self, _name: str, access_level: str, allowed: bool) -> None:
-        self._set_member_scanner_access(access_level)
+    @parameterized.expand(
+        [
+            ("scanner_denied", "replay_scanner", "none", False),
+            ("recordings_denied", "session_recording", "none", False),
+            ("scanner_viewer", "replay_scanner", "viewer", True),
+        ]
+    )
+    def test_notes_follow_observation_access(self, _name: str, resource: str, access_level: str, allowed: bool) -> None:
+        self._set_member_access(resource, access_level, str(self.scanner.id) if resource == "replay_scanner" else None)
         self.client.force_login(self.member)
         base = f"/api/projects/{self.team.id}/comments"
+        target = f"scope={SCOPE}&item_id={self.observation.id}"
 
-        listed = self.client.get(f"{base}?scope={SCOPE}&item_id={self.observation.id}").json()["results"]
+        listed = self.client.get(f"{base}?{target}").json()["results"]
         unscoped = self.client.get(base).json()["results"]
         detail = self.client.get(f"{base}/{self.note.id}")
+        thread = self.client.get(f"{base}/{self.note.id}/thread")
+        count = self.client.get(f"{base}/count?{target}").json()["count"]
         created = self.client.post(base, {"content": "my note", "scope": SCOPE, "item_id": str(self.observation.id)})
+        reply = self.client.post(base, {"content": "my reply", "scope": SCOPE, "source_comment": str(self.note.id)})
 
         assert [c["id"] for c in listed] == ([str(self.note.id)] if allowed else [])
         # Product-owned scopes never ride along on an unscoped list, whatever the caller's access.
         assert unscoped == []
         assert detail.status_code == (status.HTTP_200_OK if allowed else status.HTTP_404_NOT_FOUND)
+        assert thread.status_code == (status.HTTP_200_OK if allowed else status.HTTP_404_NOT_FOUND)
+        assert count == (1 if allowed else 0)
         assert created.status_code == (status.HTTP_201_CREATED if allowed else status.HTTP_403_FORBIDDEN)
+        assert reply.status_code == (status.HTTP_201_CREATED if allowed else status.HTTP_403_FORBIDDEN)
 
     @parameterized.expand([("denied", "none", False), ("viewer", "viewer", True)])
     @mock.patch("posthog.api.comments.send_mention_notifications")
@@ -266,9 +282,16 @@ class TestObservationNotesAccess(APIBaseTest):
             created_by=self.user,
         )
 
+        # Any spelling of the UUID resolves the observation, so the write stores one spelling for the cleanup to match.
+        uppercase = self.client.post(
+            f"/api/projects/{self.team.id}/comments",
+            {"content": "uppercase id", "scope": SCOPE, "item_id": str(self.observation.id).upper()},
+        )
+
         self.scanner.delete()
 
-        assert not Comment.objects.filter(id__in=[self.note.id, reply.id]).exists()
+        assert uppercase.status_code == status.HTTP_201_CREATED
+        assert not Comment.objects.filter(id__in=[self.note.id, reply.id, uppercase.json()["id"]]).exists()
         assert Comment.objects.filter(id=kept.id).exists()
 
     @mock.patch("posthog.tasks.email.is_email_available", return_value=True)

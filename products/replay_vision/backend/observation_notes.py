@@ -6,6 +6,8 @@ observation in a scanner delete. A retry deletes only failed or ineligible rows,
 and a team delete cascades comments through the team.
 """
 
+import uuid
+
 from django.db.models.signals import pre_delete
 from django.dispatch import receiver
 
@@ -14,7 +16,6 @@ from posthog.models.comment.comment import OBSERVATION_COMMENT_SCOPES
 
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
-from products.replay_vision.backend.scanner_access import is_uuid
 
 
 @receiver(pre_delete, sender=ReplayScanner)
@@ -29,8 +30,17 @@ def delete_scanner_observation_notes(sender: type[ReplayScanner], instance: Repl
         for observation_id in ReplayObservation.objects.filter(
             team_id=instance.team_id,
             scanner_id=instance.id,
-            id__in=[item_id for item_id in note_item_ids if is_uuid(item_id)],
+            id__in=[item_id for item_id in note_item_ids if _is_uuid(item_id)],
         ).values_list("id", flat=True)
     }
     if scanner_observation_ids:
         notes.filter(item_id__in=scanner_observation_ids).delete()
+
+
+def _is_uuid(value: str) -> bool:
+    # Parsed here rather than imported from scanner_access, which pulls the access-control facade onto startup.
+    try:
+        uuid.UUID(value)
+    except ValueError:
+        return False
+    return True

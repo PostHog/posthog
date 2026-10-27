@@ -311,15 +311,23 @@ def can_view_observation(access: UserAccessControl, team_id: int, observation_id
     return observation is not None and _can_view_loaded_observation(access, team_id, observation)
 
 
-def observation_accepts_notes(team_id: int, observation_id: str) -> bool:
-    """Whether notes can be written on the observation: only a finished scan keeps its id, since a retry
-    deletes a failed or ineligible row and the new scan gets a new one."""
-    return (
-        is_uuid(observation_id)
-        and ReplayObservation.objects.filter(
-            team_id=team_id, id=observation_id, status=ObservationStatus.SUCCEEDED
-        ).exists()
-    )
+NoteWriteRejection = Literal["forbidden", "not_finished"]
+
+
+def observation_note_write_rejection(
+    access: UserAccessControl, team_id: int, observation_id: str
+) -> NoteWriteRejection | None:
+    """Why the caller may not write a note on the observation, or None.
+
+    Notes need read access, and a succeeded scan: a retry deletes a failed or ineligible row and the new
+    scan gets a new id, which would strand the notes on the old one.
+    """
+    observation = _observation_for_access_check(team_id, observation_id)
+    if observation is None or not _can_view_loaded_observation(access, team_id, observation):
+        return "forbidden"
+    if observation.status != ObservationStatus.SUCCEEDED:
+        return "not_finished"
+    return None
 
 
 def observation_viewer_user_ids(*, team_id: int, observation_id: str, user_ids: Iterable[int]) -> set[int]:

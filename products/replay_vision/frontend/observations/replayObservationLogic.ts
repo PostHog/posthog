@@ -350,7 +350,12 @@ export const replayObservationLogic = kea<replayObservationLogicType>([
             scheduleObservationPoll(cache.disposables, inFlight, actions.loadObservation)
         }
         const syncScene = (observation: ReplayObservationApi): void => {
-            const sceneActions = replayObservationSceneLogic().actions
+            const sceneLogic = replayObservationSceneLogic()
+            // A late response for an observation the user has left must not change the one on screen.
+            if (sceneLogic.values.observationId && sceneLogic.values.observationId !== props.id) {
+                return
+            }
+            const sceneActions = sceneLogic.actions
             sceneActions.setParentBreadcrumb(parentBreadcrumbFor(observation, router.values.searchParams))
             sceneActions.setObservationStatus(observation.status)
         }

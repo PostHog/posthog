@@ -1,3 +1,4 @@
+import uuid
 from contextlib import nullcontext
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, cast
@@ -52,6 +53,11 @@ from posthog.tasks.comment_slack_sync import backfill_comment_slack_thread
 from posthog.tasks.email import send_discussions_mentioned
 
 from products.conversations.backend import reply_dedupe
+from products.replay_vision.backend.facade.api import (
+    can_view_observation,
+    observation_note_write_rejection,
+    observation_viewer_user_ids,
+)
 
 if TYPE_CHECKING:
     from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -92,23 +98,15 @@ def _require_ticket_editor_access(
 
 
 def _can_view_observation(*, team_id: int, item_id: str | None, user_access_control: "UserAccessControl") -> bool:
-    if not item_id:
-        return False
-    from products.replay_vision.backend.facade.api import (  # noqa: PLC0415 — keeps the generic comments API decoupled from replay vision, only imported for observation-scoped comments
-        can_view_observation,
-    )
-
-    return can_view_observation(user_access_control, team_id, item_id)
+    return bool(item_id) and can_view_observation(user_access_control, team_id, cast(str, item_id))
 
 
-def _observation_accepts_notes(*, team_id: int, item_id: str | None) -> bool:
-    if not item_id:
-        return False
-    from products.replay_vision.backend.facade.api import (  # noqa: PLC0415 — keeps the generic comments API decoupled from replay vision, only imported for observation-scoped comments
-        observation_accepts_notes,
-    )
-
-    return observation_accepts_notes(team_id, item_id)
+def _canonical_observation_id(item_id: Any) -> Any:
+    """Store observation ids in one spelling, so lookups and cleanup that compare strings find every note."""
+    try:
+        return str(uuid.UUID(str(item_id)))
+    except ValueError:
+        return item_id
 
 
 # A reservation with no posted root older than this is a crashed send — safe to retry.
@@ -272,10 +270,6 @@ def _mentions_allowed_for_comment_target(
     if scope in OBSERVATION_COMMENT_SCOPES:
         if not item_id:
             return []
-        from products.replay_vision.backend.facade.api import (  # noqa: PLC0415 — keeps the generic comments API decoupled from replay vision
-            observation_viewer_user_ids,
-        )
-
         viewer_ids = observation_viewer_user_ids(team_id=team_id, observation_id=item_id, user_ids=mentioned_user_ids)
         return [user_id for user_id in mentioned_user_ids if user_id in viewer_ids]
     if scope not in DESKTOP_COMMENT_SCOPES:
@@ -471,6 +465,9 @@ class CommentSerializer(serializers.ModelSerializer):
             scope = root.scope
             item_id = root.item_id
 
+        if scope in OBSERVATION_COMMENT_SCOPES and "item_id" in data:
+            data["item_id"] = item_id = _canonical_observation_id(item_id)
+
         # A note's replies are read through its thread, which checks only the root. Fixing where an observation
         # note sits, and which thread it is in, keeps a whole thread under one access check.
         if instance and ({instance.scope, scope, getattr(source_comment, "scope", None)} & OBSERVATION_COMMENT_SCOPES):
@@ -494,13 +491,16 @@ class CommentSerializer(serializers.ModelSerializer):
                     user_access_control=self.context["get_user_access_control"](),
                 )
             elif target_scope in OBSERVATION_COMMENT_SCOPES:
-                if not _can_view_observation(
-                    team_id=self.context["get_team"]().id,
-                    item_id=target_item_id,
-                    user_access_control=self.context["get_user_access_control"](),
-                ):
+                rejection = (
+                    observation_note_write_rejection(
+                        self.context["get_user_access_control"](), self.context["get_team"]().id, target_item_id
+                    )
+                    if target_item_id
+                    else "forbidden"
+                )
+                if rejection == "forbidden":
                     raise exceptions.PermissionDenied("You do not have access to this observation")
-                if not _observation_accepts_notes(team_id=self.context["get_team"]().id, item_id=target_item_id):
+                if rejection == "not_finished":
                     raise exceptions.ValidationError({"item_id": "You can add notes after the scan succeeds."})
 
         target_scope = data.get("scope", instance.scope if instance else None)
@@ -932,13 +932,7 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
             Ticket,
         )
 
-        pk = self.kwargs.get("pk")
-        if not pk:
-            return
-        try:
-            target = Comment.objects.filter(team_id=self.team_id, pk=pk).values_list("scope", "item_id").first()
-        except (ValueError, django_exceptions.ValidationError):
-            return
+        target = self._pk_target()
         if not target:
             return
         scope, item_id = target
@@ -958,15 +952,21 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
             # Match the list path, where a denied ticket's comments are simply absent.
             raise exceptions.NotFound()
 
+    def _pk_target(self) -> tuple[str, str | None] | None:
+        """The (scope, item_id) of the detail action's comment, read once for every scope gate."""
+        if not hasattr(self, "_pk_target_cache"):
+            target = None
+            if pk := self.kwargs.get("pk"):
+                try:
+                    target = Comment.objects.filter(team_id=self.team_id, pk=pk).values_list("scope", "item_id").first()
+                except (ValueError, django_exceptions.ValidationError):
+                    target = None
+            self._pk_target_cache = target
+        return self._pk_target_cache
+
     def _require_observation_viewer_access_for_pk(self) -> None:
         """Gate a detail action on the observation its target comment belongs to, as the list path does."""
-        pk = self.kwargs.get("pk")
-        if not pk:
-            return
-        try:
-            target = Comment.objects.filter(team_id=self.team_id, pk=pk).values_list("scope", "item_id").first()
-        except (ValueError, django_exceptions.ValidationError):
-            return
+        target = self._pk_target()
         if not target or target[0] not in OBSERVATION_COMMENT_SCOPES:
             return
         if not _can_view_observation(
