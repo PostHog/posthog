@@ -7,7 +7,7 @@ const meta: Meta<typeof CatalogExplainer> = {
     component: CatalogExplainer,
     parameters: { viewMode: 'story' },
     render: () => (
-        <div className="w-240 p-4">
+        <div className="@container w-240 p-4">
             <CatalogExplainer />
         </div>
     ),
