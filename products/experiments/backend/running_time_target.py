@@ -91,7 +91,7 @@ class RunningTimeOutlook:
     square root of the exposures, on the same curve the target is sized on."""
 
     days_since_launch: float
-    # The exposures that count toward the target, per day from launch to the end of the window the results cover.
+    # The exposures that count toward the target, per day from launch to when the data in the results ends.
     exposures_per_day: float
     # The smallest relative effect, as a percentage, that the exposures so far detect.
     detectable_effect_now: float
@@ -116,8 +116,8 @@ class RunningTimeTarget:
     variances: Mapping[str, ComparisonVariance] = field(default_factory=dict)
     # The level the analysis tests at, which sizes the target.
     confidence_level: float = 0.95
-    # None in manual mode, before the experiment has run long enough to project, and when no stored result can size the
-    # target.
+    # None in manual mode, before the experiment has run long enough to project, when no stored result can size the
+    # target, and when the caller doesn't say when the data in the result ends.
     outlook: RunningTimeOutlook | None = None
 
 
@@ -223,7 +223,7 @@ def load_running_time_target(experiment: Experiment, *, mode: RunningTimeMode | 
         calculation_config=calculation_config,
         response=response,
         mode=mode,
-        measured_until=store.current_query_to(calculation_config)
+        measured_until=store.current_data_until(calculation_config)
         if calculation_config is not None and response is not None
         else None,
     )
@@ -239,9 +239,9 @@ def running_time_target(
     measured_until: datetime | None = None,
 ) -> RunningTimeTarget:
     """The target from the first primary metric's `calculation_config` and its current stored `response`, for a
-    caller that has loaded them already. `measured_until` is the end of the window the response covers, which the
-    outlook's exposure rate divides by. Results are calculated about once a day, so dividing by the days until now
-    would understate the rate early in an experiment. The week marks start after today."""
+    caller that has loaded them already. `measured_until` is when the data in the response ends, which the outlook's
+    exposure rate divides by, and there is no outlook without it. Results are calculated about once a day, so dividing
+    by the days until now would understate the rate early in an experiment. The week marks start after today."""
     planned = planned_minimum_detectable_effect(experiment, team_config)
     metric = _analyzed_metric(calculation_config.definition) if calculation_config is not None else None
     confidence_level = _confidence_level(calculation_config) if calculation_config is not None else 0.95
@@ -261,7 +261,9 @@ def running_time_target(
     now = timezone.now()
     days_since_launch = (now - experiment.start_date).total_seconds() / 86400 if experiment.start_date else None
     days_measured = (
-        ((measured_until or now) - experiment.start_date).total_seconds() / 86400 if experiment.start_date else None
+        (measured_until - experiment.start_date).total_seconds() / 86400
+        if measured_until is not None and experiment.start_date
+        else None
     )
     sample_size = sizing.sample_size(planned) if sizing else None
     return RunningTimeTarget(

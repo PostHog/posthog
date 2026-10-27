@@ -8990,7 +8990,7 @@ class TestRunningTimeTargetEndpoint(APILicensedTest):
         with_result: bool = True,
         stats_config: dict | None = None,
         paused_variant_samples: int | None = None,
-        result_days_ago: int = 0,
+        result_days_ago: float = 0,
     ) -> Experiment:
         flag = FeatureFlag.objects.create(
             team=self.team,
@@ -9116,14 +9116,23 @@ class TestRunningTimeTargetEndpoint(APILicensedTest):
             self.assertAlmostEqual(outlook["exposures_per_day"], current / 3, places=0)
             self.assertEqual([c["weeks_since_launch"] for c in outlook["upcoming_checkpoints"]], [1, 2, 4])
 
-    def test_projects_the_rate_over_the_window_the_results_cover(self) -> None:
-        # Launched three days ago with results up to yesterday: 2,000 exposures over two days.
-        experiment = self._experiment({}, result_days_ago=1)
+    @parameterized.expand(
+        [
+            # Launched three days ago with results up to yesterday: 2,000 exposures over two days.
+            ("results_up_to_yesterday", 1, 1000),
+            # A backfill stamps today with the end of the day, but its data ends when it ran: 2,000 over three days.
+            ("a_backfill_of_today", -0.5, 2000 / 3),
+        ]
+    )
+    def test_projects_the_rate_over_the_window_the_results_cover(
+        self, _name: str, result_days_ago: float, exposures_per_day: float
+    ) -> None:
+        experiment = self._experiment({}, result_days_ago=result_days_ago)
 
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}/running_time_target/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
-        self.assertAlmostEqual(response.json()["outlook"]["exposures_per_day"], 1000, places=0)
+        self.assertAlmostEqual(response.json()["outlook"]["exposures_per_day"], exposures_per_day, places=0)
 
     @parameterized.expand(
         [
