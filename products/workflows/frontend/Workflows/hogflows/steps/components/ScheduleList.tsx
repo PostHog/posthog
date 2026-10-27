@@ -56,17 +56,41 @@ function ScheduleRow({ schedule, editing }: { schedule: HogFlowSchedule; editing
     const summary = summarizeSchedule(schedule.rrule, schedule.starts_at, schedule.timezone)
 
     return (
-        <LemonButton
-            fullWidth
-            active={editing}
-            onClick={pickThisRow}
-            data-attr="workflow-schedule-row"
-            sideAction={{
-                icon: <IconTrash />,
-                status: 'danger',
-                tooltip: 'Remove this schedule',
-                'data-attr': 'remove-workflow-schedule',
-                onClick: () =>
+        <div className="flex items-center gap-1 p-1">
+            <LemonButton
+                fullWidth
+                className="flex-1 min-w-0"
+                active={editing}
+                onClick={pickThisRow}
+                data-attr="workflow-schedule-row"
+            >
+                <div className="flex-1 min-w-0 py-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                        <span className="truncate">{summary}</span>
+                        <ScheduleStateTag status={schedule.status} />
+                        {editing && (
+                            <LemonTag type="highlight" size="small">
+                                Editing below
+                            </LemonTag>
+                        )}
+                    </div>
+                    <div className="text-xs text-muted font-normal">
+                        {schedule.timezone ?? 'UTC'}
+                        {schedule.next_run_at
+                            ? ` · next run ${dayjs(schedule.next_run_at)
+                                  .tz(schedule.timezone ?? 'UTC')
+                                  .format('D MMM, HH:mm')}`
+                            : ''}
+                    </div>
+                </div>
+            </LemonButton>
+            <LemonButton
+                icon={<IconTrash />}
+                size="small"
+                status="danger"
+                tooltip="Remove this schedule"
+                data-attr="remove-workflow-schedule"
+                onClick={() =>
                     LemonDialog.open({
                         title: 'Remove this schedule?',
                         description: `${summary}. The workflow stops running on it. Any other schedules keep going.`,
@@ -76,29 +100,10 @@ function ScheduleRow({ schedule, editing }: { schedule: HogFlowSchedule; editing
                             onClick: () => deleteSchedule(schedule.id),
                         },
                         secondaryButton: { children: 'Cancel' },
-                    }),
-            }}
-        >
-            <div className="flex-1 min-w-0 py-1">
-                <div className="flex items-center gap-2 flex-wrap">
-                    <span className="truncate">{summary}</span>
-                    <ScheduleStateTag status={schedule.status} />
-                    {editing && (
-                        <LemonTag type="highlight" size="small">
-                            Editing below
-                        </LemonTag>
-                    )}
-                </div>
-                <div className="text-xs text-muted font-normal">
-                    {schedule.timezone ?? 'UTC'}
-                    {schedule.next_run_at
-                        ? ` · next run ${dayjs(schedule.next_run_at)
-                              .tz(schedule.timezone ?? 'UTC')
-                              .format('D MMM, HH:mm')}`
-                        : ''}
-                </div>
-            </div>
-        </LemonButton>
+                    })
+                }
+            />
+        </div>
     )
 }
 
