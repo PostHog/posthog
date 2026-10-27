@@ -63,7 +63,8 @@ export function createProcessPersonsStep<TInput extends ProcessPersonsInput>(
             options.PERSON_PROPERTIES_UPDATE_ALL,
             shouldUpdateLastSeenAt,
             input.mergeFold.type === 'planned' ? input.mergeFold.plan : undefined,
-            options.PERSONHOG_IDENTITY_EMITS_MERGE_WARNINGS
+            options.PERSONHOG_IDENTITY_EMITS_MERGE_WARNINGS,
+            options.PERSON_MERGE_NOT_APPLIED_WAIT_MS
         )
 
         const processor = new PersonEventProcessor(

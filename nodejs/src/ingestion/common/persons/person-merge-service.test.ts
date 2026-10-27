@@ -14,7 +14,9 @@ import { MergeFoldPlan } from './person-merge-fold'
 import {
     PersonMergeService,
     mergeClaimDroppedCounter,
+    mergeFinalFailuresCounter,
     mergeFoldFallbackCounter,
+    mergeNotAppliedRetriesCounter,
     mergeResponseMismatchCounter,
     mergeSettledFailureCounter,
     mergeUnsettledCounter,
@@ -22,6 +24,7 @@ import {
 import {
     PersonMergeCallFailedError,
     PersonMergeLimitExceededError,
+    PersonMergeNotAppliedError,
     PersonMergeResponseMismatchError,
     SourcePersonHasDistinctIdsError,
     SourcePersonNotFoundError,
@@ -61,7 +64,8 @@ describe('PersonMergeService store-owned merges', () => {
     const makeService = (
         eventName = '$identify',
         mergeFoldPlan?: MergeFoldPlan,
-        identityEmitsMergeWarnings = false
+        identityEmitsMergeWarnings = false,
+        mergeNotAppliedWaitMs = 0
     ) => {
         const event = {
             event: eventName,
@@ -88,7 +92,8 @@ describe('PersonMergeService store-owned merges', () => {
             false,
             false,
             mergeFoldPlan,
-            identityEmitsMergeWarnings
+            identityEmitsMergeWarnings,
+            mergeNotAppliedWaitMs
         )
         return new PersonMergeService(context)
     }
@@ -208,6 +213,64 @@ describe('PersonMergeService store-owned merges', () => {
             .filter((entry: any) => entry?.value)
             .map((entry: any) => parseJSON(Buffer.from(entry.value).toString()).type)
         expect(warned).toContain('merge_settled_failure')
+    })
+
+    describe('a merge refused before it ran', () => {
+        const refused = (): Error =>
+            new PersonMergeNotAppliedError('refused before it ran', 'load_shed', new Error('shed'))
+        const warningTypes = (): string[] =>
+            outputs.queueMessages.mock.calls
+                .flat(3)
+                .filter((entry: any) => entry?.value)
+                .map((entry: any) => parseJSON(Buffer.from(entry.value).toString()).type)
+        const outcomes = async (): Promise<Record<string, number>> =>
+            Object.fromEntries(
+                (await mergeNotAppliedRetriesCounter.get()).values.map((entry) => [entry.labels.outcome, entry.value])
+            )
+
+        beforeEach(() => {
+            mergeNotAppliedRetriesCounter.reset()
+            jest.useFakeTimers()
+        })
+
+        afterEach(() => {
+            jest.useRealTimers()
+        })
+
+        it('is re-sent past the bounded retries and merges once capacity returns', async () => {
+            const finalBefore = await counterTotal(mergeFinalFailuresCounter)
+            for (let i = 0; i < 5; i++) {
+                store.mergePersons.mockRejectedValueOnce(refused())
+            }
+            const service = makeService('$identify', undefined, false, 5_000)
+
+            const merging = service.handleIdentifyOrAlias()
+            await jest.advanceTimersByTimeAsync(5_000)
+            const mergeResult = await merging
+
+            expect(mergeResult).toMatchObject({ success: true, person: survivor })
+            expect(store.mergePersons).toHaveBeenCalledTimes(6)
+            expect(warningTypes()).not.toContain('merge_settled_failure')
+            expect(await counterTotal(mergeFinalFailuresCounter)).toBe(finalBefore)
+            expect(await outcomes()).toEqual({ recovered: 1 })
+        })
+
+        it('escalates to the pipeline retry when the budget runs out, never settling', async () => {
+            const finalBefore = await counterTotal(mergeFinalFailuresCounter)
+            store.mergePersons.mockRejectedValue(refused())
+            const service = makeService('$identify', undefined, false, 1_000)
+
+            const settled = service.handleIdentifyOrAlias().catch((error) => error)
+            await jest.advanceTimersByTimeAsync(10_000)
+            const error = await settled
+
+            expect(error).toBeInstanceOf(PersonMergeNotAppliedError)
+            expect(error.isRetriable).toBe(true)
+            expect(store.mergePersons.mock.calls.length).toBeGreaterThan(4)
+            expect(warningTypes()).not.toContain('merge_settled_failure')
+            expect(await counterTotal(mergeFinalFailuresCounter)).toBe(finalBefore)
+            expect(await outcomes()).toEqual({ escalated: 1 })
+        })
     })
 
     it('a deterministic raw refusal acks once with a warning instead of wedging the batch', async () => {

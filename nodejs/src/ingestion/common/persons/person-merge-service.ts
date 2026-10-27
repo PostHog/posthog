@@ -11,12 +11,14 @@ import { timeoutGuard } from '~/common/utils/db/utils'
 import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
 import { promiseRetry } from '~/common/utils/retries'
+import { sleep } from '~/common/utils/utils'
 import { emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'
 
 import { PersonContext } from './person-context'
 import {
     PersonMergeCallFailedError,
     PersonMergeLimitExceededError,
+    PersonMergeNotAppliedError,
     PersonMergeRaceConditionError,
     PersonMergeResponseMismatchError,
     PersonMergeResult,
@@ -76,6 +78,15 @@ export const mergeClaimDroppedCounter = new Counter({
     help: 'Merges dropped because another lifecycle operation held a person through every retry.',
     labelNames: ['call'],
 })
+
+export const mergeNotAppliedRetriesCounter = new Counter({
+    name: 'person_merge_not_applied_retries_total',
+    help: 'Merges the backend refused before running, by whether the in-service wait got them accepted or the pipeline retry took over.',
+    labelNames: ['call', 'outcome'],
+})
+
+const NOT_APPLIED_FIRST_SLEEP_MS = 250
+const NOT_APPLIED_MAX_SLEEP_MS = 2_000
 
 /** Maps a thrown fold failure to the fallback counter's reason label. */
 function foldAbandonReason(error: unknown): MergeFoldAbortReason {
@@ -175,6 +186,10 @@ export class PersonMergeService {
             }
             if (e instanceof PersonMergeResponseMismatchError) {
                 // A malformed answer is a bug detector; fail the batch.
+                throw e
+            }
+            if (e instanceof PersonMergeNotAppliedError) {
+                // Nothing ran, so there is nothing to settle; the pipeline retry re-sends it.
                 throw e
             }
             // PersonMergeCallFailedError falls through: bounded retries ran,
@@ -299,20 +314,14 @@ export class PersonMergeService {
         // deliberately unwrapped; retrying re-runs the same comparison.
         // Mapping inside the retry lets an unsettled verdict re-present the
         // same op id, which the saga's conflict discard was built for.
-        try {
-            return await promiseRetry(
-                async () =>
-                    this.mapSingleSourceResult(
-                        await this.context.personStore.mergePersons(request),
-                        otherPersonDistinctId,
-                        mergeIntoDistinctId
-                    ),
-                'merge_distinct_ids',
-                undefined,
-                undefined,
-                undefined,
-                [ConnectError, PersonMergeResponseMismatchError]
+        const attempt = async (): Promise<PersonMergeResult> =>
+            this.mapSingleSourceResult(
+                await this.context.personStore.mergePersons(request),
+                otherPersonDistinctId,
+                mergeIntoDistinctId
             )
+        try {
+            return await this.mergeWithRetries(attempt)
         } catch (error) {
             if (!(error instanceof PersonMergeUnsettledError || error instanceof PersonMergeRaceConditionError)) {
                 throw error
@@ -343,6 +352,55 @@ export class PersonMergeService {
             })
             return mergeSuccess(undefined, warningAck, true)
         }
+    }
+
+    private async mergeWithRetries(attempt: () => Promise<PersonMergeResult>): Promise<PersonMergeResult> {
+        try {
+            return await promiseRetry(attempt, 'merge_distinct_ids', undefined, undefined, undefined, [
+                ConnectError,
+                PersonMergeResponseMismatchError,
+            ])
+        } catch (error) {
+            if (!(error instanceof PersonMergeNotAppliedError)) {
+                throw error
+            }
+            return await this.waitOutNotApplied(attempt, error)
+        }
+    }
+
+    /** The wait is for capacity, not for a saga, so it cannot stack on a saga deadline. */
+    private async waitOutNotApplied(
+        attempt: () => Promise<PersonMergeResult>,
+        refusal: PersonMergeNotAppliedError
+    ): Promise<PersonMergeResult> {
+        const call = this.context.event.event
+        const deadline = Date.now() + this.context.mergeNotAppliedWaitMs
+        let sleepMs = NOT_APPLIED_FIRST_SLEEP_MS
+        let last = refusal
+        for (let remaining = deadline - Date.now(); remaining > 0; remaining = deadline - Date.now()) {
+            // Jittered so a fleet waiting out one burst does not re-herd the backend.
+            await sleep(Math.min(remaining, sleepMs * (0.5 + Math.random() * 0.5)))
+            sleepMs = Math.min(sleepMs * 2, NOT_APPLIED_MAX_SLEEP_MS)
+            try {
+                const result = await attempt()
+                mergeNotAppliedRetriesCounter.labels({ call, outcome: 'recovered' }).inc()
+                return result
+            } catch (error) {
+                if (!(error instanceof PersonMergeNotAppliedError)) {
+                    mergeNotAppliedRetriesCounter.labels({ call, outcome: 'recovered' }).inc()
+                    throw error
+                }
+                last = error
+            }
+        }
+        mergeNotAppliedRetriesCounter.labels({ call, outcome: 'escalated' }).inc()
+        logger.warn('🤔', 'merge refused before it ran through every re-send; escalated to the pipeline retry', {
+            team_id: this.context.team.id,
+            distinctId: this.context.distinctId,
+            event_name: call,
+            reason: last.reason,
+        })
+        throw Object.assign(last, { isRetriable: true as const })
     }
 
     /**
