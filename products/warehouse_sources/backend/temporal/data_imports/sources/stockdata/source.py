@@ -145,6 +145,7 @@ Note: StockData.org plans are limited by daily request quotas (100 requests/day 
                     ),
                     SourceFieldInputConfig(
                         name="symbols",
+                        sync_setting=True,
                         label="Symbols",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
