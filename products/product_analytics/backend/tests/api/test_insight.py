@@ -592,7 +592,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         insight = Insight.objects.create(
             team=self.team,
             created_by=self.user,
-            query={"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+            query={"kind": "HogQLQuery", "query": "select 1"},
         )
         DashboardTile.objects.create(dashboard=dashboard, insight=insight)
         mock_calculate.return_value = InsightResult(
