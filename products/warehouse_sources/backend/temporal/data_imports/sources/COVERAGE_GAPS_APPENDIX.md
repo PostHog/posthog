@@ -2409,17 +2409,17 @@ Note: No machine-readable spec is published; I enumerated the full /reference/\*
 
 ## Chatwoot — gaps
 
-Today (11): `agents`, `contacts`, `conversations`, `custom_attribute_definitions`, `inbox_members`, `inboxes`, `labels`, `messages`, `reporting_events`, `team_members`, `teams`
+Today (13): `agents`, `audit_logs`, `contact_labels`, `contacts`, `conversations`, `custom_attribute_definitions`, `inbox_members`, `inboxes`, `labels`, `messages`, `reporting_events`, `team_members`, `teams`
 
 Diffed against: <https://raw.githubusercontent.com/chatwoot/chatwoot/develop/swagger/swagger.json>
 
 - [x] `/api/v1/accounts/{account_id}/reporting_events (and .../conversations/{conversation_id}/reporting_events)` — the per-conversation event stream (first_response, conversation_resolved, reply_time) that every support SLA metric is computed from (high)
 - [x] `/api/v1/accounts/{account_id}/teams/{team_id}/team_members` — lookup join table resolving which agents belong to which of the already-synced teams (high)
 - [x] `/api/v1/accounts/{account_id}/inbox_members/{inbox_id}` — lookup join table resolving agent-to-inbox assignment for routing and load analysis (high)
-- [ ] `/api/v2/accounts/{account_id}/summary_reports/agent | inbox | team | channel` — vendor-computed agent/inbox/team performance rollups (resolution counts, response times) (medium)
-- [ ] `/api/v2/accounts/{account_id}/reports/conversations and /reports/summary` — conversation volume and first-response-time timeseries, the product's headline dashboard numbers (medium)
-- [ ] `/api/v1/accounts/{account_id}/conversations/{conversation_id}/labels and /contacts/{id}/labels` — the label-to-conversation and label-to-contact join tables; the labels table alone cannot be joined to anything (medium)
-- [ ] `/api/v1/accounts/{account_id}/audit_logs` — who changed what in the account, useful for change-vs-metric correlation (low)
+- ~~`/api/v2/accounts/{account_id}/summary_reports/agent | inbox | team | channel` — vendor-computed agent/inbox/team performance rollups (resolution counts, response times) (medium)~~ — skipped: each call returns averages over a caller-chosen since/until window with no stable row identity, and `reporting_events` already syncs the per-conversation events these averages come from
+- ~~`/api/v2/accounts/{account_id}/reports/conversations and /reports/summary` — conversation volume and first-response-time timeseries, the product's headline dashboard numbers (medium)~~ — skipped: neither is a timeseries. `/reports/conversations` returns live open/unattended/unassigned counts, and `/reports/summary` returns one aggregate for a caller-chosen window, both derivable from `conversations` and `reporting_events`
+- [x] `/api/v1/accounts/{account_id}/conversations/{conversation_id}/labels and /contacts/{id}/labels` — the label-to-conversation and label-to-contact join tables; the labels table alone cannot be joined to anything (medium). Added as `contact_labels`, read through the contacts list's `labels[]` filter, one walk per label. Conversation labels need no table: every `conversations` row already carries a `labels` array
+- [x] `/api/v1/accounts/{account_id}/audit_logs` — who changed what in the account, useful for change-vs-metric correlation (low). Added as `audit_logs`, incremental on `created_at`
 
 Note: Vendor's own swagger.json in the chatwoot/chatwoot repo, 90 paths. Coverage of the core objects is good; what's missing is the reporting/event layer and the membership join tables.
 
@@ -3260,9 +3260,9 @@ Diffed against: <https://raw.githubusercontent.com/coollabsio/coolify/main/opena
 - [x] `Audit events (GET /audit-events)` — analyze changes to deployed resources and identify the actors responsible (high)
 - [x] `Backup executions (GET /databases/{uuid}/backups/{scheduled_backup_uuid}/executions)` — measure backup reliability, failure rates, and recovery readiness (medium)
 - [x] `Application task executions (GET /applications/{uuid}/scheduled-tasks/{task_uuid}/executions)` — measure scheduled application job failures, duration, and execution volume (medium)
-- [ ] `Service task executions (GET /services/{uuid}/scheduled-tasks/{task_uuid}/executions)` — measure scheduled service job failures, duration, and execution volume (medium)
-- [ ] `Preview deployments (GET /applications/{uuid}/previews)` — analyze pull request preview environments and their current status (medium)
-- [ ] `Service applications and databases (GET /services/{uuid}/applications; GET /services/{uuid}/databases)` — include individual workloads within service deployments in the deployment inventory (medium)
+- [x] `Service task executions (GET /services/{uuid}/scheduled-tasks/{task_uuid}/executions)` — measure scheduled service job failures, duration, and execution volume (medium)
+- [x] `Preview deployments (GET /applications/{uuid}/previews)` — analyze pull request preview environments and their current status (medium)
+- [x] `Service applications and databases (GET /services/{uuid}/applications; GET /services/{uuid}/databases)` — include individual workloads within service deployments in the deployment inventory (medium)
 
 Note: The official OpenAPI specification was parsed for every GET operation and the relevant response schemas. Existing deployments already fetch application history, and teams already embed members. Execution tables need parent backup or task discovery; service workloads and previews need requests per parent. Instance versions and permissions affect availability; environment variables, keys, health checks, and configuration were excluded.
 
@@ -8472,16 +8472,16 @@ Today (12): `activity_events`, `categories`, `course_activities`, `course_enroll
 Diffed against: <https://developers.northpass.com/reference/get_v2-courses>
 
 - [x] `GET /v2/events` — the learner activity event stream (lesson views, completions, logins) - the fact table behind every engagement metric (high)
-- [ ] `GET /v2/groups/{group_uuid}/memberships` — the people-to-groups join table; groups and people are both synced but nothing links them (high)
-- [ ] `GET /v2/credentials/{credential_uuid}/achievements` — certificates/credentials actually earned by learners - the completion outcome enrollments only hint at (high)
-- [ ] `GET /v2/submissions and /v2/assignments/{assignment_uuid}/submissions` — learner assignment submissions with grades/status, the assessment counterpart to quizzes (high)
+- [x] `GET /v2/groups/{group_uuid}/memberships` — the people-to-groups join table; groups and people are both synced but nothing links them (high)
+- [x] `GET /v2/credentials/{credential_uuid}/achievements` — certificates/credentials actually earned by learners - the completion outcome enrollments only hint at (high)
+- [x] `GET /v2/submissions and /v2/assignments/{assignment_uuid}/submissions` — learner assignment submissions with grades/status, the assessment counterpart to quizzes (high)
 - [x] `GET /v2/courses/{course_uuid}/activities` — the lesson/activity structure inside a course - required to break enrollment progress down below course level (high)
-- [ ] `GET /v2/credentials` — lookup table resolving the credential definitions that achievements reference (medium)
+- [x] `GET /v2/credentials` — lookup table resolving the credential definitions that achievements reference (medium)
 - [ ] `GET /v2/assignments` — assignment definitions, the lookup that submissions join back to (medium)
 - [ ] `GET /v2/transcripts/{learner_id}` — per-learner transcript rolling up all course and learning-path completions (medium)
 - [ ] `GET /v2/groups/{group_uuid}/courses` — course assignments per group - which cohorts were given which curriculum (medium)
 - [ ] `GET /v2/communications/deliveries` — email delivery records for course invitations and reminders, for nudge-effectiveness analysis (medium)
-- [ ] `GET /v2/properties/people and /v2/properties/courses` — custom properties on people and courses plus /v2/properties/property-definitions as the schema lookup - the segmentation dimensions customers configure (medium)
+- [x] `GET /v2/properties/people and /v2/properties/courses` — custom properties on people and courses plus /v2/properties/property-definitions as the schema lookup - the segmentation dimensions customers configure (medium)
 - [ ] `GET /v2/quiz-attempts/{quiz_attempt_uuid}/answers and /v2/question-banks` — per-question answer detail and the question bank lookup; quizzes are synced but nothing about how learners answered (low)
 
 Note: Enumerated every /reference/get_v2-\* route from the ReadMe-hosted reference page (no public OpenAPI file is served). PostHog covers the 6 core objects plus 2 enrollment fan-outs; the learner-activity and assessment halves of the API are entirely absent.
@@ -9794,10 +9794,10 @@ Today (6): `monitors`, `personas`, `prompts`, `responses`, `tags`, `topics`
 
 Diffed against: <https://promptwatch.com/docs/v2/openapi.json>
 
-- [ ] `Models (GET /api/v2/models)` — resolve response model identifiers into labels and search capabilities (high)
-- [ ] `Brands (GET /api/v2/brands)` — identify tracked brands and classify competitors for mention analysis (high)
-- [ ] `Grouped citations (GET /api/v2/citations/grouped)` — analyze cited URLs, citation share, position, and source authority beyond response citation counts (high)
-- [ ] `Visitor trends (GET /api/v2/analytics/visitors/trend)` — measure website traffic from AI referrers over time (high)
+- [x] `Models (GET /api/v2/models)` — resolve response model identifiers into labels and search capabilities (high)
+- [x] `Brands (GET /api/v2/brands)` — identify tracked brands and classify competitors for mention analysis (high)
+- [x] `Grouped citations (GET /api/v2/citations/grouped)` — analyze cited URLs, citation share, position, and source authority beyond response citation counts (high)
+- [x] `Visitor trends (GET /api/v2/analytics/visitors/trend)` — measure website traffic from AI referrers over time (high)
 - [ ] `Crawler activity events (GET /api/v2/analytics/crawlers/events)` — analyze AI crawler requests, failures, and requested pages (medium)
 - [ ] `Query fanouts (GET /api/v2/query-fanouts)` — analyze search queries generated by AI models when answering tracked prompts (medium)
 - [ ] `Tracked pages (GET /api/v2/page-tracker)` — measure citation performance for individual website pages (medium)
