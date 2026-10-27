@@ -133,11 +133,23 @@ def is_another_schemas_history_table(schema: ExternalDataSchema) -> bool:
     A sibling that keeps history counts before its history table is registered, which happens only after
     its first snapshot loads.
     """
-    name = build_table_name(schema.source, schema.name)
+    source = schema.source
+    name = build_table_name(
+        source, resolve_table_and_folder_names(schema.name, schema.resolved_s3_folder_name).table_storage_name
+    )
     siblings = ExternalDataSchema.objects.filter(
         team_id=schema.team_id, source_id=schema.source_id, deleted=False, sync_type=ExternalDataSchema.SyncType.CDC
     ).exclude(id=schema.id)
-    if any(history_table_name(sibling) == name for sibling in siblings):
+    # Only a sibling whose history name under some naming matches pays for the registration lookup.
+    candidates = [
+        sibling
+        for sibling in siblings
+        if any(
+            build_table_name(source, companion_resource_name(sibling.name, naming)) == name
+            for naming in (HISTORY_NAMING, LEGACY_HISTORY_NAMING)
+        )
+    ]
+    if any(history_table_name(sibling) == name for sibling in candidates):
         return True
     taken = (
         DataWarehouseTable.objects.filter(
@@ -148,7 +160,7 @@ def is_another_schemas_history_table(schema: ExternalDataSchema) -> bool:
     )
     if taken is None:
         return False
-    return taken.is_history_table or name in _legacy_history_names(schema.source, exclude_schema_id=schema.id)
+    return taken.is_history_table or name in _legacy_history_names(source, exclude_schema_id=schema.id)
 
 
 def _schema_names(source: ExternalDataSource, *, exclude_schema_id: UUID | None = None) -> list[str]:

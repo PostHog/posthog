@@ -133,6 +133,27 @@ class TestHistoryNaming(BaseTest):
         assert is_another_schemas_history_table(sibling)
         assert not is_another_schemas_history_table(self.schema)
 
+    # A schema renamed by the multi-schema migration keeps its pinned catalog name, not the name of its row.
+    @parameterized.expand([("unpinned", None, True), ("pinned_to_old_name", "orders_history", False)])
+    def test_the_reverse_guard_compares_the_catalog_name(
+        self, _name: str, s3_folder_name: str | None, refused: bool
+    ) -> None:
+        # `orders` would own `orders_history` itself.
+        self.schema.sync_type_config = {"cdc_table_mode": "consolidated"}
+        self.schema.save()
+        ExternalDataSchema.objects.create(
+            name="public.orders",
+            team=self.team,
+            source=self.source,
+            sync_type=ExternalDataSchema.SyncType.CDC,
+            sync_type_config={"cdc_table_mode": "both"},
+        )
+        sibling = ExternalDataSchema.objects.create(
+            name="public.orders_history", team=self.team, source=self.source, s3_folder_name=s3_folder_name
+        )
+
+        assert is_another_schemas_history_table(sibling) == refused
+
     def test_history_tables_finds_marked_and_unmarked_legacy_tables(self) -> None:
         legacy = self._table("orders_cdc")
         marked = self._table("other_history", {"history_table": True})
