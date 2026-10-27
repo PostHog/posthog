@@ -104,6 +104,7 @@ from products.conversations.backend.models.constants import Channel, ChannelDeta
 from products.conversations.backend.person_lookup import _get_persons_by_email
 from products.conversations.backend.services.delivery import cancel_open_deliveries_for_ticket
 from products.conversations.backend.services.messages import ticket_message_type
+from products.conversations.backend.services.ticket_brief import write_brief_for_ticket
 from products.conversations.backend.tasks.email import cancel_pending_email_replies_for_ticket
 
 from .. import reply_dedupe
@@ -265,6 +266,16 @@ class AiFeedbackRequestSerializer(serializers.Serializer):
     rating = serializers.ChoiceField(choices=["good", "bad"], help_text="Reviewer rating: good or bad.")
     feedback_text = serializers.CharField(
         required=False, allow_blank=True, max_length=2000, help_text="Optional text explaining a bad rating."
+    )
+
+
+class WriteTicketBriefResponseSerializer(serializers.Serializer):
+    """Outcome of writing a ticket brief on demand."""
+
+    written = serializers.BooleanField(help_text="Whether a brief was stored on the ticket.")
+    reason = serializers.CharField(
+        allow_blank=True,
+        help_text="Why no brief was stored. Empty when one was. One of: llm_failed, not_an_object, invalid, ticket_gone.",
     )
 
 
@@ -1990,6 +2001,31 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
             posthoganalytics.capture(distinct_id=distinct_id, event="$ai_metric", properties=properties)
 
         return Response(status=drf_status.HTTP_202_ACCEPTED)
+
+    @extend_schema(
+        parameters=[TICKET_ID_PARAM],
+        request=None,
+        responses={
+            200: OpenApiResponse(response=WriteTicketBriefResponseSerializer),
+            403: OpenApiResponse(response=TicketErrorSerializer),
+        },
+    )
+    @action(detail=True, methods=["post"], url_path="write_brief")
+    def write_brief(self, request, *args, **kwargs):
+        """Write this ticket's brief now, replacing any brief already stored.
+
+        Staff only, and deliberately separate from the team's own opt-in: this is how the
+        brief is read on a real ticket before a team turns it on for every new one.
+        """
+        if not request.user.is_staff:
+            return Response(
+                {"detail": "Staff only."},
+                status=drf_status.HTTP_403_FORBIDDEN,
+            )
+
+        ticket = self.get_object()
+        output = write_brief_for_ticket(team_id=self.team_id, ticket_id=str(ticket.id))
+        return Response(WriteTicketBriefResponseSerializer({"written": output.written, "reason": output.reason}).data)
 
     @extend_schema(
         parameters=[TICKET_ID_PARAM],

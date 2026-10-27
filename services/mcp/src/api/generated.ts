@@ -123594,6 +123594,16 @@ export namespace Schemas {
       failed: number;
     }
 
+    /**
+     * Outcome of writing a ticket brief on demand.
+     */
+    export interface WriteTicketBriefResponse {
+      /** Whether a brief was stored on the ticket. */
+      written: boolean;
+      /** Why no brief was stored. Empty when one was. One of: llm_failed, not_an_object, invalid, ticket_gone. */
+      reason: string;
+    }
+
     export interface ZendeskImportError {
       /** Human-readable error message. */
       detail: string;

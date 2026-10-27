@@ -11,14 +11,21 @@ from typing import Any
 from rest_framework import serializers
 
 from products.conversations.backend.models.constants import TicketBriefItemKind
-
-MAX_AFFECTED_ITEMS = 5
-MAX_ERROR_MESSAGE = 600
-MAX_FACTS = 5
-MAX_QUESTIONS = 6
-MAX_SCREENSHOTS = 5
-MAX_TRIED = 5
-MAX_URL_LENGTH = 2000
+from products.conversations.backend.models.ticket_brief_limits import (
+    MAX_AFFECTED_ITEMS,
+    MAX_AREA,
+    MAX_ASK,
+    MAX_ERROR_MESSAGE,
+    MAX_FACT,
+    MAX_FACTS,
+    MAX_ITEM_LABEL,
+    MAX_PURPOSE,
+    MAX_QUESTION,
+    MAX_QUESTIONS,
+    MAX_SCREENSHOTS,
+    MAX_TRIED,
+    MAX_URL_LENGTH,
+)
 
 # The fields a brief is unreadable without. Enforced in validate() rather than by `required`
 # alone, because a PATCH makes the parent serializer partial and DRF propagates that into a
@@ -40,18 +47,18 @@ class TicketBriefAffectedItemSerializer(serializers.Serializer):
         help_text="Link to the item in PostHog, so the engineer can open it without a search.",
     )
     label = serializers.CharField(
-        max_length=120,
+        max_length=MAX_ITEM_LABEL,
         help_text="Name of the item as the customer would recognize it.",
     )
 
 
 class TicketBriefSerializer(serializers.Serializer):
     ask = serializers.CharField(
-        max_length=400,
+        max_length=MAX_ASK,
         help_text="What the customer needs from PostHog, in one or two sentences. The line to read first.",
     )
     purpose = serializers.CharField(
-        max_length=300,
+        max_length=MAX_PURPOSE,
         required=False,
         allow_null=True,
         help_text=(
@@ -60,17 +67,17 @@ class TicketBriefSerializer(serializers.Serializer):
         ),
     )
     area = serializers.CharField(
-        max_length=80,
+        max_length=MAX_AREA,
         help_text="Product area the ticket is about, such as 'Feature flags' or 'Session replay'.",
     )
     questions = serializers.ListField(
-        child=serializers.CharField(max_length=200),
+        child=serializers.CharField(max_length=MAX_QUESTION),
         max_length=MAX_QUESTIONS,
         allow_empty=True,
         help_text="Each question the customer asks, as one short line. Empty when the customer asks nothing explicit.",
     )
     tried = serializers.ListField(
-        child=serializers.CharField(max_length=160),
+        child=serializers.CharField(max_length=MAX_FACT),
         max_length=MAX_TRIED,
         required=False,
         help_text="The steps the customer says they already took to fix or diagnose the problem.",
@@ -103,7 +110,7 @@ class TicketBriefSerializer(serializers.Serializer):
         help_text="Replay of the session the ticket came from. Null when the ticket has no session.",
     )
     facts = serializers.ListField(
-        child=serializers.CharField(max_length=160),
+        child=serializers.CharField(max_length=MAX_FACT),
         max_length=MAX_FACTS,
         required=False,
         help_text="Details the engineer needs to act on, such as region, plan, versions, and ids. One per line.",

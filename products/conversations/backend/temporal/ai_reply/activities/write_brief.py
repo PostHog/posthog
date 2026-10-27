@@ -15,14 +15,18 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.utils import close_db_connections
 
-from products.conversations.backend.api.ticket_brief import (
+from products.conversations.backend.models import Ticket
+from products.conversations.backend.models.ticket_brief_limits import (
+    MAX_AREA,
+    MAX_ASK,
     MAX_ERROR_MESSAGE,
+    MAX_FACT,
     MAX_FACTS,
+    MAX_PURPOSE,
+    MAX_QUESTION,
     MAX_QUESTIONS,
     MAX_TRIED,
-    TicketBriefSerializer,
 )
-from products.conversations.backend.models import Ticket
 from products.conversations.backend.temporal.ai_reply.constants import UTILITY_MODEL
 from products.conversations.backend.temporal.ai_reply.llms import (
     anthropic_output_config,
@@ -89,22 +93,22 @@ def _truncate(value: str, limit: int) -> str:
 def _build_brief(parsed: dict) -> dict:
     """Shape the model's object into the stored brief, applying the caps it may have ignored."""
     brief: dict = {
-        "ask": _truncate(str(parsed.get("ask") or ""), 400),
-        "area": _truncate(str(parsed.get("area") or ""), 80),
+        "ask": _truncate(str(parsed.get("ask") or ""), MAX_ASK),
+        "area": _truncate(str(parsed.get("area") or ""), MAX_AREA),
         "questions": [
-            _truncate(str(q), 200) for q in (parsed.get("questions") or [])[:MAX_QUESTIONS] if str(q).strip()
+            _truncate(str(q), MAX_QUESTION) for q in (parsed.get("questions") or [])[:MAX_QUESTIONS] if str(q).strip()
         ],
     }
-    purpose = _truncate(str(parsed.get("purpose") or ""), 300)
+    purpose = _truncate(str(parsed.get("purpose") or ""), MAX_PURPOSE)
     if purpose:
         brief["purpose"] = purpose
     error_message = _truncate(str(parsed.get("error_message") or ""), MAX_ERROR_MESSAGE)
     if error_message:
         brief["error_message"] = error_message
-    tried = [_truncate(str(t), 160) for t in (parsed.get("tried") or [])[:MAX_TRIED] if str(t).strip()]
+    tried = [_truncate(str(t), MAX_FACT) for t in (parsed.get("tried") or [])[:MAX_TRIED] if str(t).strip()]
     if tried:
         brief["tried"] = tried
-    facts = [_truncate(str(f), 160) for f in (parsed.get("facts") or [])[:MAX_FACTS] if str(f).strip()]
+    facts = [_truncate(str(f), MAX_FACT) for f in (parsed.get("facts") or [])[:MAX_FACTS] if str(f).strip()]
     if facts:
         brief["facts"] = facts
     return brief
@@ -146,8 +150,8 @@ def _brief_enabled(team_id: int) -> bool:
     return bool((settings_dict or {}).get(BRIEF_SETTING, False))
 
 
-async def _write_brief(input: WriteBriefInput) -> WriteBriefOutput:
-    if not await database_sync_to_async(_brief_enabled, thread_sensitive=False)(input.team_id):
+async def _write_brief(input: WriteBriefInput, *, respect_opt_in: bool = True) -> WriteBriefOutput:
+    if respect_opt_in and not await database_sync_to_async(_brief_enabled, thread_sensitive=False)(input.team_id):
         return WriteBriefOutput(written=False, reason="disabled")
 
     user_content = (
@@ -178,7 +182,12 @@ async def _write_brief(input: WriteBriefInput) -> WriteBriefOutput:
 
     brief = _build_brief(parsed)
     # The same serializer the API enforces, so a brief written here cannot differ in shape from
-    # one written through the endpoint.
+    # one written through the endpoint. Imported here rather than at module level: the API
+    # package imports this activity's caller, so a module-level import closes a cycle.
+    from products.conversations.backend.api.ticket_brief import (  # noqa: PLC0415 — breaks an import cycle
+        TicketBriefSerializer,
+    )
+
     serializer = TicketBriefSerializer(data=brief)
     if not serializer.is_valid():
         logger.warning("support_write_brief_invalid", ticket_id=input.ticket_id, errors=sorted(serializer.errors))

@@ -59,6 +59,7 @@ import {
 
 import {
     conversationsTicketsAiFeedbackCreate,
+    conversationsTicketsWriteBriefCreate,
     conversationsTicketsAiHumanOutcomeCreate,
     conversationsTicketsDestroy,
     conversationsTicketsMessagesFullEmailRetrieve,
@@ -337,6 +338,7 @@ export interface supportTicketSceneLogicValues {
     status: TicketStatus | null
     tags: string[]
     ticket: Ticket | null
+    ticketBriefWriting: boolean
     ticketDeleting: boolean
     ticketLoading: boolean
     ticketUpdating: boolean
@@ -536,6 +538,9 @@ export interface supportTicketSceneLogicActions {
     setTicket: (ticket: Ticket | null) => {
         ticket: Ticket | null
     }
+    setTicketBriefWriting: (writing: boolean) => {
+        writing: boolean
+    }
     setTicketDeleting: (deleting: boolean) => {
         deleting: boolean
     }
@@ -565,6 +570,9 @@ export interface supportTicketSceneLogicActions {
         rating: AiReplyFeedbackRating
     }
     updateTicket: () => {
+        value: true
+    }
+    writeTicketBrief: () => {
         value: true
     }
 }
@@ -707,6 +715,9 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         deleteMessage: (messageId: string) => ({ messageId }),
         deleteTicket: true,
         setTicketDeleting: (deleting: boolean) => ({ deleting }),
+
+        writeTicketBrief: true,
+        setTicketBriefWriting: (writing: boolean) => ({ writing }),
 
         submitAiReplyFeedback: (messageId: string, rating: AiReplyFeedbackRating, feedbackText?: string) => ({
             messageId,
@@ -955,6 +966,13 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             {
                 applyAiDraft: () => true,
                 setAiDraftApplying: (_, { applying }) => applying,
+            },
+        ],
+        ticketBriefWriting: [
+            false,
+            {
+                writeTicketBrief: () => true,
+                setTicketBriefWriting: (_, { writing }) => writing,
             },
         ],
         composerPrefillAt: [
@@ -1769,6 +1787,31 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 },
                 secondaryButton: { children: 'Cancel' },
             })
+        },
+        writeTicketBrief: async () => {
+            const ticket = values.ticket
+            if (!ticket) {
+                actions.setTicketBriefWriting(false)
+                return
+            }
+            try {
+                const result = await conversationsTicketsWriteBriefCreate(
+                    String(ApiConfig.getCurrentProjectId()),
+                    ticket.id
+                )
+                if (result.written) {
+                    // Reload rather than patch the ticket in place: the brief is written
+                    // server-side, so the stored one is the only version worth showing.
+                    actions.loadTicket()
+                    lemonToast.success('Wrote the brief')
+                } else {
+                    lemonToast.error(`No brief written: ${result.reason || 'unknown reason'}`)
+                }
+            } catch {
+                lemonToast.error("Couldn't write the brief")
+            } finally {
+                actions.setTicketBriefWriting(false)
+            }
         },
         submitAiReplyFeedback: async ({ messageId, rating, feedbackText }) => {
             const ticket = values.ticket

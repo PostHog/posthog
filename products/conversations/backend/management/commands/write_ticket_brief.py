@@ -7,14 +7,11 @@ same activity against one ticket, so the output can be read before the setting g
 from __future__ import annotations
 
 import json
-import asyncio
 
 from django.core.management.base import BaseCommand, CommandError
 
 from products.conversations.backend.models import Ticket
-from products.conversations.backend.temporal.ai_reply.activities.build_context import _build_context_sync
-from products.conversations.backend.temporal.ai_reply.activities.write_brief import _write_brief
-from products.conversations.backend.temporal.ai_reply.schemas import WriteBriefInput
+from products.conversations.backend.services.ticket_brief import write_brief_for_ticket
 
 
 class Command(BaseCommand):
@@ -40,20 +37,11 @@ class Command(BaseCommand):
         if ticket is None:
             raise CommandError(f"No ticket for team {team_id} matching {lookup}")
 
-        # The same context the pipeline's own first activity builds, so a brief written here
-        # reads exactly what a real run would have read.
-        built = _build_context_sync(team_id, str(ticket.id))
-        if built.ticket_gone:
-            raise CommandError(f"Ticket {ticket.ticket_number} is deleted.")
-        context = built.ticket_context
         if options["dry_run"]:
-            brief = asyncio.run(_preview(team_id, str(ticket.id), context))
-            self.stdout.write(json.dumps(brief, indent=2, ensure_ascii=False))
+            self.stdout.write(json.dumps(_preview(team_id, str(ticket.id)), indent=2, ensure_ascii=False))
             return
 
-        output = asyncio.run(
-            _write_brief(WriteBriefInput(team_id=team_id, ticket_id=str(ticket.id), ticket_context=context))
-        )
+        output = write_brief_for_ticket(team_id=team_id, ticket_id=str(ticket.id))
         if output.written:
             self.stdout.write(self.style.SUCCESS(f"Wrote the brief for #{ticket.ticket_number}."))
             return
@@ -65,11 +53,11 @@ class Command(BaseCommand):
         raise CommandError(f"No brief written for #{ticket.ticket_number}: {output.reason}")
 
 
-async def _preview(team_id: int, ticket_id: str, context: str) -> dict:
-    """Run the activity's own model call and shaping, then skip the store.
+def _preview(team_id: int, ticket_id: str) -> dict:
+    """Write the brief, but capture it instead of storing it.
 
-    Temporarily lends the activity a store that captures rather than writes, so a preview
-    cannot drift from what a real run would have saved.
+    Lends the activity a store that captures rather than writes, so a preview cannot drift
+    from what a real run would have saved.
     """
     captured: dict = {}
 
@@ -79,12 +67,12 @@ async def _preview(team_id: int, ticket_id: str, context: str) -> dict:
 
     import products.conversations.backend.temporal.ai_reply.activities.write_brief as module
 
-    real_store, real_gate = module._store_brief, module._brief_enabled
-    module._store_brief, module._brief_enabled = _capture, lambda _team_id: True
+    real_store = module._store_brief
+    module._store_brief = _capture
     try:
-        output = await _write_brief(WriteBriefInput(team_id=team_id, ticket_id=ticket_id, ticket_context=context))
+        output = write_brief_for_ticket(team_id=team_id, ticket_id=ticket_id)
     finally:
-        module._store_brief, module._brief_enabled = real_store, real_gate
+        module._store_brief = real_store
     if not output.written:
         raise CommandError(f"No brief: {output.reason}")
     return captured

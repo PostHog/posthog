@@ -699,6 +699,16 @@ export interface TicketReplyRequestApi {
     rich_content?: unknown
 }
 
+/**
+ * Outcome of writing a ticket brief on demand.
+ */
+export interface WriteTicketBriefResponseApi {
+    /** Whether a brief was stored on the ticket. */
+    written: boolean
+    /** Why no brief was stored. Empty when one was. One of: llm_failed, not_an_object, invalid, ticket_gone. */
+    reason: string
+}
+
 export interface BulkUpdateStatusRequestApi {
     /**
      * List of ticket UUIDs to update.

@@ -37,6 +37,7 @@ import type {
     TicketUnreadCountResponseApi,
     TicketUpdateRequestApi,
     TicketViewApi,
+    WriteTicketBriefResponseApi,
     ZendeskImportJobApi,
     ZendeskImportStartApi,
 } from './api.schemas'
@@ -448,6 +449,27 @@ export const conversationsTicketsReplyCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(ticketReplyRequestApi),
+    })
+}
+
+export const getConversationsTicketsWriteBriefCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/conversations/tickets/${id}/write_brief/`
+}
+
+/**
+ * Write this ticket's brief now, replacing any brief already stored.
+ *
+ * Staff only, and deliberately separate from the team's own opt-in: this is how the
+ * brief is read on a real ticket before a team turns it on for every new one.
+ */
+export const conversationsTicketsWriteBriefCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<WriteTicketBriefResponseApi> => {
+    return apiMutator<WriteTicketBriefResponseApi>(getConversationsTicketsWriteBriefCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
     })
 }
 

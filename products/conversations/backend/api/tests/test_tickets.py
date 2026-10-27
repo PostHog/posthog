@@ -67,6 +67,7 @@ from products.conversations.backend.reply_dedupe import (
     ReplyFingerprint,
     reserve,
 )
+from products.conversations.backend.temporal.ai_reply.schemas import WriteBriefOutput
 
 from ee.clickhouse.materialized_columns.columns import get_bloom_filter_lower_index_name
 
@@ -1089,7 +1090,37 @@ class TestTicketAPI(APIBaseTest):
                     self.assertIn("person", ticket_data)
 
 
-@patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
+class TestWriteBriefEndpoint(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.ticket = Ticket.objects.create_with_number(
+            team=self.team, widget_session_id="s", distinct_id="d", channel_source="widget", status="new"
+        )
+        self.url = f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/write_brief/"
+
+    def test_a_non_staff_user_cannot_write_a_brief(self):
+        # The button spends tokens on demand, so it stays with the people trialling the brief
+        # rather than with everyone who can open a ticket.
+        with patch("products.conversations.backend.api.tickets.write_brief_for_ticket") as helper:
+            response = self.client.post(self.url)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(helper.call_count, 0)
+
+    def test_a_staff_user_writes_a_brief_even_when_the_team_has_not_opted_in(self):
+        # Reading a brief on a real ticket is the whole point of the button, so it must not
+        # wait on the setting that governs automatic writes.
+        self.user.is_staff = True
+        self.user.save()
+        with patch(
+            "products.conversations.backend.api.tickets.write_brief_for_ticket",
+            return_value=WriteBriefOutput(written=True),
+        ) as helper:
+            response = self.client.post(self.url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"written": True, "reason": ""})
+        self.assertEqual(helper.call_args.kwargs["ticket_id"], str(self.ticket.id))
+
+
 class TestBulkUpdateStatus(APIBaseTest):
     def setUp(self):
         super().setUp()
