@@ -6,6 +6,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { initKeaTests } from '~/test/init'
 import { expectLogic } from '~/test/keaTestUtils'
+import type { UserType } from '~/types'
 
 import {
     dataCatalogMetricsApproveCreate,
@@ -275,6 +276,35 @@ describe('metricsLogic', () => {
         logic.actions.toggleStage('drifted')
         expect(logic.values.filters.status).toEqual('all')
         expect(logic.values.metrics).toEqual([proposed, approvedDrifted, approved])
+    })
+
+    it('orders the review queue by drift, ownership, then AI confidence, and keeps clean approved metrics out', async () => {
+        const me = userLogic.values.user as UserType
+        const mine = { id: 1, uuid: me.uuid, email: me.email, hedgehog_config: null }
+        const theirs = { id: 2, uuid: 'someone-else', email: 'them@example.com', hedgehog_config: null }
+        const metric = (name: string, overrides: Partial<DataCatalogMetricApi>): DataCatalogMetricApi =>
+            buildMetric({ id: name, name, created_by: theirs, created_at: '2026-10-01T00:00:00Z', ...overrides })
+        logic.actions.loadMetricsSuccess([
+            metric('their_proposal', {}),
+            metric('ai_low', { created_source: 'ai_generated', confidence: 0.6 }),
+            metric('approved_clean', { status: 'approved' }),
+            metric('my_newer_proposal', { created_by: mine, created_at: '2026-10-02T00:00:00Z' }),
+            metric('ai_high', { created_source: 'ai_generated', confidence: 0.9 }),
+            metric('their_drifted_approved', { status: 'approved', is_drifted: true }),
+            metric('my_older_proposal', { created_by: mine }),
+            metric('owned_drifted', { is_drifted: true, owner: me.email }),
+        ])
+
+        expect(logic.values.reviewQueue.map((m) => m.name)).toEqual([
+            'owned_drifted',
+            'their_drifted_approved',
+            'my_newer_proposal',
+            'my_older_proposal',
+            'ai_high',
+            'ai_low',
+            'their_proposal',
+        ])
+        expect(logic.values.approvedMetrics.map((m) => m.name)).toEqual(['approved_clean'])
     })
 
     it('patches approved rows and reloads to reconcile skipped ones', async () => {
