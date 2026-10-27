@@ -23,6 +23,15 @@ logger = structlog.get_logger(__name__)
 
 
 @frozen
+class _Pending:
+    observation_id: str
+    created_at: datetime
+    needs_group: bool
+    needs_scores: bool
+    needs_similarities: bool
+
+
+@frozen
 class SemanticBackfillResult:
     observations: int
     assigned: int
@@ -41,14 +50,22 @@ def backfill_team_semantics(team_id: int, since: datetime, *, dry_run: bool = Fa
         ReplayObservation.objects.filter(
             team_id=team_id, status="succeeded", created_at__gte=since, watch_rank__anchor_version=ANCHOR_VERSION
         )
-        .alias(has_similarities=has_similarities)
+        .annotate(has_similarities=has_similarities)
         .filter(Q(watch_rank__group__isnull=True) | Q(watch_rank__scores__isnull=True) | Q(has_similarities=False))
         .order_by("scanner_id", "created_at")
-        .values_list("id", "scanner_id", "created_at")
+        .values_list("id", "scanner_id", "created_at", "watch_rank", "has_similarities")
     )
-    by_scanner: dict[str, list[tuple[str, datetime]]] = {}
-    for observation_id, scanner_id, created_at in rows.iterator(chunk_size=2_000):
-        by_scanner.setdefault(str(scanner_id), []).append((str(observation_id), created_at))
+    by_scanner: dict[str, list[_Pending]] = {}
+    for observation_id, scanner_id, created_at, rank, has_row in rows.iterator(chunk_size=2_000):
+        by_scanner.setdefault(str(scanner_id), []).append(
+            _Pending(
+                observation_id=str(observation_id),
+                created_at=created_at,
+                needs_group=not (rank or {}).get("group"),
+                needs_scores=(rank or {}).get("scores") is None,
+                needs_similarities=not has_row,
+            )
+        )
     observations = sum(len(scanner_rows) for scanner_rows in by_scanner.values())
     if dry_run:
         return SemanticBackfillResult(observations=observations, assigned=0, named=0)
@@ -58,24 +75,35 @@ def backfill_team_semantics(team_id: int, since: datetime, *, dry_run: bool = Fa
     for scanner_id, scanner_rows in by_scanner.items():
         for start in range(0, len(scanner_rows), _VECTOR_CHUNK):
             chunk = scanner_rows[start : start + _VECTOR_CHUNK]
-            vectors = _stored_vectors(team_id, scanner_id, [observation_id for observation_id, _ in chunk], since)
-            readings = {observation_id: classify(vector, anchors) for observation_id, vector in vectors.items()}
+            vectors = _stored_vectors(team_id, scanner_id, [row.observation_id for row in chunk], since)
+            readings = {
+                row.observation_id: classify(vectors[row.observation_id], anchors)
+                for row in chunk
+                if row.observation_id in vectors and (row.needs_scores or row.needs_similarities)
+            }
             save_anchor_similarities(
-                team_id, {observation_id: reading.similarities for observation_id, reading in readings.items()}
+                team_id,
+                {
+                    row.observation_id: readings[row.observation_id].similarities
+                    for row in chunk
+                    if row.needs_similarities and row.observation_id in readings
+                },
             )
-            for observation_id, created_at in chunk:
-                vector = vectors.get(observation_id)
+            for row in chunk:
+                vector = vectors.get(row.observation_id)
                 if vector is None:
                     continue
-                merge_watch_rank(team_id, observation_id, {"scores": readings[observation_id].rank.scores})
-                assignment = assign_semantics(
-                    team_id=team_id,
-                    scanner_id=scanner_id,
-                    observation_id=observation_id,
-                    vector=vector.tolist(),
-                    now=created_at,
-                )
-                assigned += assignment is not None
+                if row.needs_scores:
+                    merge_watch_rank(team_id, row.observation_id, {"scores": readings[row.observation_id].rank.scores})
+                if row.needs_group:
+                    assignment = assign_semantics(
+                        team_id=team_id,
+                        scanner_id=scanner_id,
+                        observation_id=row.observation_id,
+                        vector=vector.tolist(),
+                        now=row.created_at,
+                    )
+                    assigned += assignment is not None
 
     named = 0
     now = timezone.now()
