@@ -255,6 +255,7 @@ Reporting tables use daily granularity, which Apple serves for the last 90 days 
                     ),
                     SourceFieldInputConfig(
                         name="start_date",
+                        sync_setting=True,
                         label="Report start date",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

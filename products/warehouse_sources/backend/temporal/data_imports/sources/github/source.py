@@ -347,6 +347,7 @@ class GithubSource(
                     ),
                     SourceFieldOauthAccountSelectConfig(
                         name="repositories",
+                        sync_setting=True,
                         label="Repositories",
                         integrationField="github_integration_id",
                         integrationKind="github",
@@ -359,6 +360,7 @@ class GithubSource(
                     # doubles as the marker for the repo whose schemas keep bare, unqualified names.
                     SourceFieldOauthAccountSelectConfig(
                         name="repository",
+                        sync_setting=True,
                         label="Repository",
                         integrationField="github_integration_id",
                         integrationKind="github",

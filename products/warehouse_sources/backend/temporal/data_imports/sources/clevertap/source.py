@@ -136,6 +136,7 @@ class ClevertapSource(ResumableSource[ClevertapSourceConfig, ClevertapResumeConf
                     ),
                     SourceFieldInputConfig(
                         name="event_name",
+                        sync_setting=True,
                         label="Event name",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
@@ -144,6 +145,7 @@ class ClevertapSource(ResumableSource[ClevertapSourceConfig, ClevertapResumeConf
                     ),
                     SourceFieldInputConfig(
                         name="start_date",
+                        sync_setting=True,
                         label="Start date (YYYY-MM-DD)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,

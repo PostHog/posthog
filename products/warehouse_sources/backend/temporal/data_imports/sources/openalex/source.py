@@ -147,6 +147,7 @@ OpenAlex indexes over 300 million works and 120 million authors, which is more t
                     ),
                     SourceFieldInputConfig(
                         name="works_filter",
+                        sync_setting=True,
                         label="Works filter (optional)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -155,6 +156,7 @@ OpenAlex indexes over 300 million works and 120 million authors, which is more t
                     ),
                     SourceFieldInputConfig(
                         name="authors_filter",
+                        sync_setting=True,
                         label="Authors filter (optional)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -163,6 +165,7 @@ OpenAlex indexes over 300 million works and 120 million authors, which is more t
                     ),
                     SourceFieldInputConfig(
                         name="awards_filter",
+                        sync_setting=True,
                         label="Awards filter (optional)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -171,6 +174,7 @@ OpenAlex indexes over 300 million works and 120 million authors, which is more t
                     ),
                     SourceFieldInputConfig(
                         name="locations_filter",
+                        sync_setting=True,
                         label="Locations filter (optional)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

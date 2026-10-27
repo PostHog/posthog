@@ -78,6 +78,7 @@ class SteamSource(SimpleSource[SteamSourceConfig]):
                     ),
                     SourceFieldInputConfig(
                         name="steam_ids",
+                        sync_setting=True,
                         label="Steam IDs",
                         type=SourceFieldInputConfigType.TEXTAREA,
                         required=True,

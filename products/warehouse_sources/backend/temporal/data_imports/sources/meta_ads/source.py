@@ -341,6 +341,7 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
                     ),
                     SourceFieldInputConfig(
                         name="sync_lookback_days",
+                        sync_setting=True,
                         label="Sync history for insights (days) - applies to every stats table",
                         type=SourceFieldInputConfigType.NUMBER,
                         required=False,
@@ -356,6 +357,7 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
                     # reconcile PostHog's numbers with Ads Manager, which reports on a specific window.
                     SourceFieldInputConfig(
                         name="action_attribution_windows",
+                        sync_setting=True,
                         label="Attribution windows for insights (comma-separated, e.g. 7d_click,1d_view)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -364,6 +366,7 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
                     ),
                     SourceFieldSelectConfig(
                         name="use_unified_attribution_setting",
+                        sync_setting=True,
                         label="Use Meta's unified attribution setting",
                         required=False,
                         defaultValue="",

@@ -286,6 +286,7 @@ class YouTubeAnalyticsSource(ResumableSource[YouTubeAnalyticsSourceConfig, YouTu
                     ),
                     SourceFieldInputConfig(
                         name="start_date",
+                        sync_setting=True,
                         label="Start date",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

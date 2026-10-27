@@ -99,6 +99,7 @@ Copy your API token from your [Scarf account settings](https://app.scarf.sh/acco
                     ),
                     SourceFieldInputConfig(
                         name="backfill_days",
+                        sync_setting=True,
                         label="Days of event history to import first",
                         caption="Defaults to 31. Each day uses one Scarf export run.",
                         type=SourceFieldInputConfigType.NUMBER,

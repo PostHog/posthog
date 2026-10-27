@@ -66,6 +66,7 @@ Each sync fetches the current metadata for every configured package. PyPI has no
                 [
                     SourceFieldInputConfig(
                         name="packages",
+                        sync_setting=True,
                         label="Packages",
                         type=SourceFieldInputConfigType.TEXTAREA,
                         required=True,

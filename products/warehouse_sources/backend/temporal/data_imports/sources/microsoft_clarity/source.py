@@ -157,6 +157,7 @@ Microsoft Clarity's export API allows a maximum of 10 requests per project per d
                     ),
                     SourceFieldSelectConfig(
                         name="num_of_days",
+                        sync_setting=True,
                         label="Reporting window",
                         required=True,
                         defaultValue=DEFAULT_NUM_OF_DAYS,
@@ -168,6 +169,7 @@ Microsoft Clarity's export API allows a maximum of 10 requests per project per d
                     ),
                     SourceFieldSelectConfig(
                         name="dimension1",
+                        sync_setting=True,
                         label="Breakdown dimension 1 (optional)",
                         required=False,
                         defaultValue=NO_DIMENSION,
@@ -175,6 +177,7 @@ Microsoft Clarity's export API allows a maximum of 10 requests per project per d
                     ),
                     SourceFieldSelectConfig(
                         name="dimension2",
+                        sync_setting=True,
                         label="Breakdown dimension 2 (optional)",
                         required=False,
                         defaultValue=NO_DIMENSION,
@@ -182,6 +185,7 @@ Microsoft Clarity's export API allows a maximum of 10 requests per project per d
                     ),
                     SourceFieldSelectConfig(
                         name="dimension3",
+                        sync_setting=True,
                         label="Breakdown dimension 3 (optional)",
                         required=False,
                         defaultValue=NO_DIMENSION,

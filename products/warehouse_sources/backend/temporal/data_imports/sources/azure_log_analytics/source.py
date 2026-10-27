@@ -248,6 +248,7 @@ List the tables to sync, one per line, for example `AppRequests` or `MyEvents_CL
                     *WORKSPACE_FIELDS,
                     SourceFieldInputConfig(
                         name="tables",
+                        sync_setting=True,
                         label="Tables",
                         type=SourceFieldInputConfigType.TEXTAREA,
                         required=False,

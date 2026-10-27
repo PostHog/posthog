@@ -95,6 +95,7 @@ def file_option_fields() -> list[FieldType]:
         [
             SourceFieldSelectConfig(
                 name="file_format",
+                sync_setting=True,
                 label="File format",
                 required=True,
                 defaultValue="infer",
@@ -115,6 +116,7 @@ def file_option_fields() -> list[FieldType]:
             ),
             SourceFieldSwitchGroupConfig(
                 name="combine_files",
+                sync_setting=True,
                 label="Combine every file into one table?",
                 caption=(
                     "Turn this on when the folder holds files that share the same columns, such as a "

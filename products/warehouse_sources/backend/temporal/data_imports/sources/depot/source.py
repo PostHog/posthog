@@ -96,6 +96,7 @@ class DepotSource(ResumableSource[DepotSourceConfig, DepotResumeState], CursorSo
                     ),
                     SourceFieldInputConfig(
                         name="repository",
+                        sync_setting=True,
                         label="Repository",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,

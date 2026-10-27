@@ -73,6 +73,7 @@ To sync the **daily** and **hourly** weather tables, set **Targets** to a comma-
                     ),
                     SourceFieldInputConfig(
                         name="targets",
+                        sync_setting=True,
                         label="Targets (station numbers)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -81,6 +82,7 @@ To sync the **daily** and **hourly** weather tables, set **Targets** to a comma-
                     ),
                     SourceFieldSelectConfig(
                         name="unit_of_measure",
+                        sync_setting=True,
                         label="Unit of measure",
                         required=False,
                         defaultValue="E",

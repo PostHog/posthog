@@ -148,6 +148,7 @@ class ClaySource(ResumableSource[ClaySourceConfig, ClayResumeConfig]):
                     ),
                     SourceFieldInputConfig(
                         name="table_ids",
+                        sync_setting=True,
                         label="Table IDs or URLs",
                         type=SourceFieldInputConfigType.TEXTAREA,
                         required=True,

@@ -100,6 +100,7 @@ To sync the optional `metric_time_series` table, also provide a [SignalFlow prog
                     ),
                     SourceFieldInputConfig(
                         name="signalflow_program",
+                        sync_setting=True,
                         label="SignalFlow program (optional, for metric_time_series)",
                         type=SourceFieldInputConfigType.TEXTAREA,
                         required=False,

@@ -116,6 +116,7 @@ Connect your Instagram account, then pick the professional account you want to s
                     ),
                     SourceFieldInputConfig(
                         name="start_date",
+                        sync_setting=True,
                         label="Start date",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

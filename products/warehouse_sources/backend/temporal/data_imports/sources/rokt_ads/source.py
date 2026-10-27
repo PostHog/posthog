@@ -206,6 +206,7 @@ class RoktAdsSource(ResumableSource[RoktAdsSourceConfig, RoktAdsResumeConfig]):
                     ),
                     SourceFieldInputConfig(
                         name="timezone_variation",
+                        sync_setting=True,
                         label="Time zone (Olson name)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -214,6 +215,7 @@ class RoktAdsSource(ResumableSource[RoktAdsSourceConfig, RoktAdsResumeConfig]):
                     ),
                     SourceFieldInputConfig(
                         name="currency_code",
+                        sync_setting=True,
                         label="Currency code",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

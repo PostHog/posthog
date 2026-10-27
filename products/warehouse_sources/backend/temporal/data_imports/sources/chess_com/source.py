@@ -70,6 +70,7 @@ class ChessComSource(SimpleSource[ChessComSourceConfig]):
                 [
                     SourceFieldInputConfig(
                         name="usernames",
+                        sync_setting=True,
                         label="Chess.com usernames",
                         type=SourceFieldInputConfigType.TEXTAREA,
                         required=True,

@@ -402,6 +402,7 @@ class GoogleSearchConsoleSource(
                     ),
                     SourceFieldSelectConfig(
                         name="search_types",
+                        sync_setting=True,
                         label="Search types",
                         required=True,
                         defaultValue=DEFAULT_SEARCH_TYPE,

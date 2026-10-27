@@ -117,6 +117,7 @@ The scope is the Azure Resource Manager path to read cost for, without a leading
                     ),
                     SourceFieldInputConfig(
                         name="start_date",
+                        sync_setting=True,
                         label="Start date (historical backfill)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

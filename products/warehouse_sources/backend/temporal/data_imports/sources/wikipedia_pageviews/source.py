@@ -160,6 +160,7 @@ class WikipediaPageviewsSource(ResumableSource[WikipediaPageviewsSourceConfig, W
                 [
                     SourceFieldInputConfig(
                         name="project",
+                        sync_setting=True,
                         label="Project domain",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
@@ -168,6 +169,7 @@ class WikipediaPageviewsSource(ResumableSource[WikipediaPageviewsSourceConfig, W
                     ),
                     SourceFieldSelectConfig(
                         name="access",
+                        sync_setting=True,
                         label="Access method",
                         required=True,
                         defaultValue="all-access",
@@ -177,6 +179,7 @@ class WikipediaPageviewsSource(ResumableSource[WikipediaPageviewsSourceConfig, W
                     ),
                     SourceFieldSelectConfig(
                         name="agent",
+                        sync_setting=True,
                         label="Agent type",
                         required=True,
                         defaultValue="user",
@@ -186,6 +189,7 @@ class WikipediaPageviewsSource(ResumableSource[WikipediaPageviewsSourceConfig, W
                     ),
                     SourceFieldInputConfig(
                         name="article_names",
+                        sync_setting=True,
                         label="Article titles",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -195,6 +199,7 @@ class WikipediaPageviewsSource(ResumableSource[WikipediaPageviewsSourceConfig, W
                     ),
                     SourceFieldInputConfig(
                         name="start_date",
+                        sync_setting=True,
                         label="Start date",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

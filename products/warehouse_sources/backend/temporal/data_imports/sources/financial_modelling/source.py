@@ -73,6 +73,7 @@ The symbol-keyed tables (company profiles, financial statements, historical pric
                     ),
                     SourceFieldInputConfig(
                         name="symbols",
+                        sync_setting=True,
                         label="Symbols",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,

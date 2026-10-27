@@ -235,6 +235,7 @@ class AdyenSource(ResumableSource[AdyenSourceConfig, AdyenResumeConfig]):
                     ),
                     SourceFieldInputConfig(
                         name="start_date",
+                        sync_setting=True,
                         label="Start date",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -243,6 +244,7 @@ class AdyenSource(ResumableSource[AdyenSourceConfig, AdyenResumeConfig]):
                     ),
                     SourceFieldInputConfig(
                         name="settlement_report_start_batch",
+                        sync_setting=True,
                         label="First settlement batch number",
                         type=SourceFieldInputConfigType.NUMBER,
                         required=False,

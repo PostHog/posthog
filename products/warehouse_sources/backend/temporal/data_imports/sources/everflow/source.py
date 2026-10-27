@@ -151,6 +151,7 @@ class EverflowSource(ResumableSource[EverflowSourceConfig, EverflowResumeConfig]
                     ),
                     SourceFieldInputConfig(
                         name="currency_code",
+                        sync_setting=True,
                         label="Reporting currency",
                         caption="Three-letter currency code for the daily performance table.",
                         type=SourceFieldInputConfigType.TEXT,

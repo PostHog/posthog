@@ -105,6 +105,7 @@ How far back the initial sync can reach depends on your Konnect plan's Advanced 
                     ),
                     SourceFieldInputConfig(
                         name="lookback_days",
+                        sync_setting=True,
                         label="Initial sync window (days)",
                         type=SourceFieldInputConfigType.NUMBER,
                         required=False,

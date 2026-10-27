@@ -131,6 +131,7 @@ Create an [access token](https://docs.dynatrace.com/docs/manage/identity-access-
                     ),
                     SourceFieldInputConfig(
                         name="metric_selector",
+                        sync_setting=True,
                         label="Metric keys",
                         caption="Up to 10 comma-separated [metric keys](https://docs.dynatrace.com/docs/dynatrace-api/environment-api/metric-v2/metric-selector) to sync hourly values for. Leave empty to sync only the metric catalog.",
                         type=SourceFieldInputConfigType.TEXT,

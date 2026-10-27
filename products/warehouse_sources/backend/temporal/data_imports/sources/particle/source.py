@@ -120,6 +120,7 @@ For **sandbox devices**, Particle has no API users, so use a personal access tok
                     ),
                     SourceFieldInputConfig(
                         name="event_prefixes",
+                        sync_setting=True,
                         label="Event name prefixes",
                         caption="Comma-separated. Particle matches event names by prefix, so `env/` receives `env/temp` and `env/humidity`.",
                         type=SourceFieldInputConfigType.TEXT,

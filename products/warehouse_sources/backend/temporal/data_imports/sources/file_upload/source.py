@@ -129,6 +129,7 @@ class FileUploadSource(SimpleSource[FileUploadInputs]):
     listed_in_catalog = False
     # A file someone uploads leaves no trace in a codebase.
     codebase_detection = NOT_DETECTABLE
+    runtime_job_input_keys = frozenset(SERVER_MANAGED_FIELDS)
 
     @property
     def source_type(self) -> ExternalDataSourceType:
