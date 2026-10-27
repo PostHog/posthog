@@ -12,6 +12,7 @@ from uuid import UUID
 
 from posthog.sync import database_sync_to_async_pool
 
+from products.warehouse_sources.backend.facade.contracts import UnreadableSourceInputsError
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -21,11 +22,6 @@ if TYPE_CHECKING:
     )
 
 DEFAULT_EXTRA_UPDATE_FIELDS: tuple[str, ...] = ("updated_at",)
-
-
-class UnreadableSourceInputsError(ValueError):
-    """The stored inputs do not decode to a mapping. The message never holds the value, because the
-    value can hold credentials."""
 
 
 class SourceInputsStore:
