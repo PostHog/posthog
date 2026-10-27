@@ -17,6 +17,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     PagerDutySourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.pagerduty.pagerduty import (
+    ANALYTICS_PERSONAL_KEY_ERROR,
+    ANALYTICS_READ_ONLY_KEY_ERROR,
     PAGE_SIZE,
     PagerDutyResumeConfig,
     _format_incremental_value,
@@ -275,8 +277,6 @@ class TestValidateCredentials:
             ("incident_alerts", "/incidents"),
             ("team_members", "/teams"),
             ("incident_notes", "/incidents"),
-            # The Analytics API answers POST only, so the probe reads the incident list instead.
-            ("incident_analytics", "/incidents"),
         ],
     )
     def test_probe_path(self, endpoint: str, expected_path: str) -> None:
@@ -285,6 +285,26 @@ class TestValidateCredentials:
 
         assert ok is True
         assert [request.path for request in network.requests_log] == [expected_path]
+
+    @pytest.mark.parametrize(
+        "status_code,expected_ok,expected_error",
+        [
+            (200, True, None),
+            # PagerDuty restricts read-only keys to GET requests.
+            (403, False, ANALYTICS_READ_ONLY_KEY_ERROR),
+            # Personal keys must send a team_ids or service_ids filter.
+            (400, False, ANALYTICS_PERSONAL_KEY_ERROR),
+        ],
+    )
+    def test_analytics_probe_posts_to_the_analytics_endpoint(
+        self, status_code: int, expected_ok: bool, expected_error: str | None
+    ) -> None:
+        with scripted_network(always(ScriptedResponse(status=status_code, json={}))) as network:
+            ok, status, error = validate_credentials("tok", "incident_analytics")
+
+        assert (ok, status, error) == (expected_ok, status_code, expected_error)
+        [request] = network.requests_log
+        assert (request.method, request.path) == ("POST", "/analytics/raw/incidents")
 
     def test_transport_failure_returns_zero_status(self) -> None:
         with scripted_network(always(ConnectionError("no network"))) as network:

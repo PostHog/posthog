@@ -274,6 +274,25 @@ def _skip_when_plan_gated(
         )
 
 
+ANALYTICS_READ_ONLY_KEY_ERROR = (
+    "The PagerDuty Analytics API only accepts POST requests, so a read-only API key can't sync the "
+    "incident_analytics table. Use a full access API key, or turn off syncing for this table."
+)
+ANALYTICS_PERSONAL_KEY_ERROR = (
+    "The PagerDuty Analytics API needs an account-level API key. A personal API key can't sync the "
+    "incident_analytics table. Use an account-level key, or turn off syncing for this table."
+)
+
+
+def _probe_analytics(api_token: str, url: str) -> tuple[bool, int | None]:
+    try:
+        session = make_tracked_session(redact_values=(api_token,))
+        response = session.post(url, headers=_get_headers(api_token), json={"limit": 1}, timeout=10.0)
+    except Exception:  # noqa: BLE001 — a credential probe must never raise; any failure means "not validated"
+        return False, None
+    return response.status_code == 200, response.status_code
+
+
 def validate_credentials(api_token: str, endpoint: Optional[str] = None) -> tuple[bool, int, str | None]:
     """Probe PagerDuty with a cheap single-row request.
 
@@ -284,20 +303,27 @@ def validate_credentials(api_token: str, endpoint: Optional[str] = None) -> tupl
     if config is not None and config.parent is not None:
         # A fan-out path carries an `{id}` placeholder. The parent list needs the same access scope.
         config = PAGERDUTY_ENDPOINTS[config.parent]
-    if config is not None and config.probe_endpoint is not None:
-        config = PAGERDUTY_ENDPOINTS[config.probe_endpoint]
     path = config.path if config else "/users"
-    url = f"{PAGERDUTY_BASE_URL}{path}?{urlencode({'limit': 1})}"
 
-    ok, status = validate_via_probe(
-        lambda: make_tracked_session(redact_values=(api_token,)),
-        url,
-        headers=_get_headers(api_token),
-    )
+    is_post = config is not None and config.method == "POST"
+    if is_post:
+        ok, status = _probe_analytics(api_token, f"{PAGERDUTY_BASE_URL}{path}")
+    else:
+        ok, status = validate_via_probe(
+            lambda: make_tracked_session(redact_values=(api_token,)),
+            f"{PAGERDUTY_BASE_URL}{path}?{urlencode({'limit': 1})}",
+            headers=_get_headers(api_token),
+        )
     if ok:
         return True, status if status is not None else 200, None
     if status is None:
         return False, 0, "Could not reach PagerDuty"
+    # Read-only keys can only make GET requests, and personal keys must filter Analytics requests by
+    # team or service, which this source does not do.
+    if is_post and status == 403:
+        return False, 403, ANALYTICS_READ_ONLY_KEY_ERROR
+    if is_post and status == 400:
+        return False, 400, ANALYTICS_PERSONAL_KEY_ERROR
     if status == 401:
         return False, 401, "Invalid PagerDuty API key"
     if status == 403:

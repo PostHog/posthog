@@ -33,10 +33,7 @@ class PagerDutyEndpointConfig:
     # their parent, so the parent id belongs in the child's primary key.
     parent: Optional[str] = None
     parent_id_column: Optional[str] = None
-    # POST endpoints (the Analytics API) can't be probed with the GET that `validate_credentials`
-    # sends, so they name a GET endpoint that reads the same data instead.
     method: Literal["GET", "POST"] = "GET"
-    probe_endpoint: Optional[str] = None
     # None when rows do not arrive in ascending order of the endpoint's incremental field.
     sort_mode: Optional[Literal["asc"]] = "asc"
 
@@ -100,7 +97,6 @@ PAGERDUTY_ENDPOINTS: dict[str, PagerDutyEndpointConfig] = {
         partition_key="created_at",
         incremental_fields=_UPDATED_AT_INCREMENTAL,
         method="POST",
-        probe_endpoint="incidents",
         # The metrics change while an incident is open and after it resolves, and `filters.updated_after`
         # selects the rows the analytics process recomputed. The API sorts only by created_at or
         # seconds_to_resolve, so rows do not arrive in updated_at order.
