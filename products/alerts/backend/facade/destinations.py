@@ -29,6 +29,7 @@ from products.alerts_platform.backend.facade.contracts import (
 )
 
 from ..logic import (
+    alert_email,
     delivery_destinations,
     delivery_path,
     destination_bucket_report,
@@ -38,6 +39,7 @@ from ..logic import (
     insight_alert_destinations,
 )
 from .contracts import (
+    AlertEmailRecipientResolver,
     AlertInternalEvent,
     DeliveryPathChoice,
     DestinationBucket,
@@ -256,6 +258,16 @@ def list_delivery_destination_groups(
     return delivery_destinations.list_delivery_destination_groups(
         team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids
     )
+
+
+def register_email_recipient_resolver(*, event_ids: Collection[str], resolver: AlertEmailRecipientResolver) -> None:
+    """Platform delivery of these events also emails the addresses `resolver` returns for the alert.
+
+    Register the events a source maps firing and resolved onto, and not its incident events, or an
+    incident would send a second email. Call it from the source's `ready()`. Raises when another
+    resolver already owns one of the events.
+    """
+    alert_email.register_recipient_resolver(event_ids=event_ids, resolver=resolver)
 
 
 def classify_alert_destinations(

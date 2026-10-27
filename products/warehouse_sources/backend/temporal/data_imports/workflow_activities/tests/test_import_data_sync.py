@@ -1365,6 +1365,37 @@ async def test_a_resumable_run_continues_the_cursor_of_the_interrupted_job_unles
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "is_incremental,external_destination_ids,reads_from_start",
+    [(False, ["dest-1"], True), (False, [], False), (True, ["dest-1"], False)],
+    ids=["full_refresh_to_destination", "full_refresh_to_warehouse_only", "incremental_to_destination"],
+)
+async def test_a_full_refresh_to_an_external_destination_reads_the_source_from_the_start(
+    is_incremental: bool, external_destination_ids: list[str], reads_from_start: bool
+) -> None:
+    source = mock.MagicMock(spec=ResumableSource)
+    source.parse_config.return_value = {}
+    source.source_for_pipeline.return_value = mock.MagicMock()
+    manager = source.get_resumable_source_manager.return_value
+    manager.continue_from_job.return_value = True
+    schema = _incremental_schema(is_incremental=is_incremental, lookback_seconds=None)
+    interrupted = mock.MagicMock(id="interrupted-job", workflow_run_id="interrupted-run")
+
+    with (
+        _patched_activity_reaching_run(source, schema) as run_mock,
+        mock.patch.object(module, "external_destination_ids_for", return_value=external_destination_ids),
+        mock.patch.object(module, "_jobs_to_continue", new=mock.AsyncMock(return_value=[interrupted])),
+        mock.patch.object(module, "_carry_rows_synced", new=mock.AsyncMock()),
+    ):
+        await import_data_activity_sync(_inputs_no_reset())
+
+    # The destination publishes the staging table of this attempt alone, so it must hold every row.
+    assert manager.clear_job_state.called is reads_from_start
+    assert manager.continue_from_job.called is not reads_from_start
+    assert run_mock.call_args.kwargs["continued_job_ids"] == (() if reads_from_start else ("interrupted-job",))
+
+
+@pytest.mark.asyncio
 async def test_pending_delta_revive_extracts_full_table_not_incremental_slice():
     source = mock.MagicMock(spec=SimpleSource)
     source.parse_config.return_value = {}

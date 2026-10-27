@@ -327,6 +327,7 @@ rules:
                               |ObjectMediaPreview
                               |OfflineEvaluationResult
                               |OfflineEvaluationResultPayload
+                              |OfflineEvaluationUsageLedger
                               |OfflineExperiment
                               |OfflineExperimentItem
                               |OfflineExperimentItemPayload
@@ -807,6 +808,7 @@ rules:
                         |ObjectMediaPreview
                         |OfflineEvaluationResult
                         |OfflineEvaluationResultPayload
+                        |OfflineEvaluationUsageLedger
                         |OfflineExperiment
                         |OfflineExperimentItem
                         |OfflineExperimentItemPayload
@@ -1175,6 +1177,7 @@ rules:
                         |ObjectMediaPreview
                         |OfflineEvaluationResult
                         |OfflineEvaluationResultPayload
+                        |OfflineEvaluationUsageLedger
                         |OfflineExperiment
                         |OfflineExperimentItem
                         |OfflineExperimentItemPayload
