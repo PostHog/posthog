@@ -553,7 +553,6 @@ _TASK_RUN_PUBLIC_STATE_KEYS = frozenset(
     {
         "ai_agent_name",
         "ai_stage",
-        "billing_product",
         "auto_publish",
         "benjamin_enabled",
         "claude_model_access",
