@@ -36,6 +36,7 @@ import {
 
 import api, { getJSONOrNull } from 'lib/api'
 import { ApiError, isAccessDeniedError } from 'lib/api-error'
+import { ApiRequestTiming, flattenRequestTiming } from 'lib/apiRequestTiming'
 import { DataColorTheme } from 'lib/colors'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -207,6 +208,7 @@ function reportDashboardTileRefreshed(
     variables: Record<string, any>,
     refreshDurationMs: number,
     individualRefresh: boolean,
+    requestTiming: ApiRequestTiming | undefined,
     filterChange?: PendingFilterChange
 ): void {
     const insight = tile.insight
@@ -223,6 +225,7 @@ function reportDashboardTileRefreshed(
         variables,
         refresh_duration_ms: refreshDurationMs,
         individual_refresh: individualRefresh,
+        ...flattenRequestTiming(requestTiming, ''),
         ...sanitizedQuery,
         ...(filterChange
             ? {
@@ -304,6 +307,7 @@ async function refreshInsightTile(
     const insight = tile.insight
     const queryId = uuid()
     let queryStartTime = performance.now()
+    let requestTiming: ApiRequestTiming | undefined
     const { signal, finish } = tileLoads.start([tile.id], refreshSignal, { forceRefresh, settings })
 
     try {
@@ -316,7 +320,12 @@ async function refreshInsightTile(
                 dashboardId,
                 queryId,
                 forceRefresh ? 'force_blocking' : 'blocking', // 'blocking' returns cached data if available, when manual refresh is triggered we want fresh results
-                { signal },
+                {
+                    signal,
+                    onRequestTiming: (timing) => {
+                        requestTiming = timing
+                    },
+                },
                 filters,
                 variables,
                 tile.filters_overrides
@@ -336,7 +345,8 @@ async function refreshInsightTile(
             urlFilters,
             variables,
             Math.floor(performance.now() - queryStartTime),
-            false
+            false,
+            requestTiming
         )
         return refreshedInsight.is_cached ? 'cached' : 'refreshed'
     } catch (e: any) {
@@ -5246,6 +5256,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 breakpoint()
 
                 const refreshStartTime = performance.now()
+                let requestTiming: ApiRequestTiming | undefined
                 // when one insight is refreshed manually, we want to avoid cache and force a refresh of the insight
                 // hence using 'force_blocking', small cost to give latest data for the insight
                 // also it's then consistent with the dashboard refresh button
@@ -5255,7 +5266,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     dashboardId,
                     uuid(),
                     'force_blocking',
-                    undefined,
+                    {
+                        onRequestTiming: (timing) => {
+                            requestTiming = timing
+                        },
+                    },
                     withCompactMetricVariables(effectiveRefreshFilters, savedMetricVariables),
                     urlVariables,
                     tile.filters_overrides
@@ -5289,6 +5304,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     urlVariables,
                     Math.floor(performance.now() - refreshStartTime),
                     true,
+                    requestTiming,
                     currentFilterChange
                 )
                 if (currentFilterChange?.remainingInsightIds.size === 0) {

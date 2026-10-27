@@ -4,7 +4,7 @@ import { ResponsiveLayouts } from 'react-grid-layout'
 import { lemonToast } from '@posthog/lemon-ui'
 import { getDashboardWidgetCatalogEntry } from '@posthog/products-dashboards/frontend/widget_types/catalog'
 
-import api, { ApiMethodOptions, getJSONOrNull, isAbortError } from 'lib/api'
+import api, { ApiMethodOptions, getJSONOrNull, isAbortError, withRequestTiming } from 'lib/api'
 import { ApiError, CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE } from 'lib/api-error'
 import type { Dayjs } from 'lib/dayjs'
 import { currentSessionId } from 'lib/internalMetrics'
@@ -488,9 +488,11 @@ export async function getInsightWithRetry(
                 ...(variablesOverride ? { variables_override: variablesOverride } : {}),
                 ...(tileFiltersOverride ? { tile_filters_override: tileFiltersOverride } : {}),
             })}`
-            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
-            const insightResponse: Response = await api.getResponse(apiUrl, methodOptions)
-            const result: InsightModel | null = await getJSONOrNull(insightResponse)
+            const result: InsightModel | null = await withRequestTiming(methodOptions, async (timing) => {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
+                const insightResponse: Response = await api.getResponse(apiUrl, methodOptions, timing)
+                return await getJSONOrNull(insightResponse, timing)
+            })
 
             if (
                 result?.query_status?.error_code === RATE_LIMITED_ERROR_CODE ||
@@ -523,13 +525,18 @@ export async function getInsightWithRetry(
                                     ...(variablesOverride ? { variables_override: variablesOverride } : {}),
                                     ...(tileFiltersOverride ? { tile_filters_override: tileFiltersOverride } : {}),
                                 })}`
-                                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
-                                const refreshedInsightResponse: Response = await api.getResponse(
-                                    cacheUrl,
-                                    methodOptions
+                                const refreshedInsight: InsightModel | null = await withRequestTiming(
+                                    methodOptions,
+                                    async (timing) => {
+                                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
+                                        const refreshedInsightResponse: Response = await api.getResponse(
+                                            cacheUrl,
+                                            methodOptions,
+                                            timing
+                                        )
+                                        return await getJSONOrNull(refreshedInsightResponse, timing)
+                                    }
                                 )
-                                const refreshedInsight: InsightModel | null =
-                                    await getJSONOrNull(refreshedInsightResponse)
                                 if (refreshedInsight) {
                                     return {
                                         ...refreshedInsight,

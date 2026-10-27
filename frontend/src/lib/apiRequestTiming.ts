@@ -24,6 +24,24 @@ export interface ApiRequestTiming {
     resource_callback_ms?: number
 }
 
+const FLATTENED_REQUEST_TIMING_FIELDS = [
+    'http_request_id',
+    'time_to_headers_ms',
+    'body_read_ms',
+    'json_parse_ms',
+    'resource_timing_status',
+] as const
+
+export function flattenRequestTiming(
+    timing: ApiRequestTiming | undefined,
+    prefix: '' | 'result_poll_'
+): Record<string, string | number | undefined> {
+    if (!timing) {
+        return {}
+    }
+    return Object.fromEntries(FLATTENED_REQUEST_TIMING_FIELDS.map((field) => [`${prefix}${field}`, timing[field]]))
+}
+
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const MAX_PENDING_RESOURCES = 32
 
