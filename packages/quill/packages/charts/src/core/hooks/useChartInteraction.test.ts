@@ -130,7 +130,7 @@ describe('useChartInteraction — tooltip pinning', () => {
         pinnable = true,
         onPointClick?: (data: unknown) => void,
         resolveClickToNearestSeries = false,
-        contextMenuPointClick = false
+        onPointContextMenu?: (data: unknown) => void
     ): RenderHookResult<ReturnType<typeof useChartInteraction>, unknown> {
         return renderHook(() =>
             useChartInteraction({
@@ -143,8 +143,8 @@ describe('useChartInteraction — tooltip pinning', () => {
                 showTooltip: true,
                 pinnable,
                 resolveClickToNearestSeries,
-                contextMenuPointClick,
                 onPointClick: onPointClick as never,
+                onPointContextMenu: onPointContextMenu as never,
                 resolveValue: (s, i) => s.data[i],
             })
         )
@@ -432,12 +432,18 @@ describe('useChartInteraction — tooltip pinning', () => {
     )
 
     it.each<[string, boolean, boolean, string | null]>([
-        ['fires for the nearest series', true, false, 'b'],
-        ['fires and keeps the pin on a pinned tooltip', true, true, 'b'],
-        ['does nothing unless contextMenuPointClick is set', false, false, null],
-    ])('a right click %s', (_, contextMenuPointClick, pinned, expectedKey) => {
+        ['fires onPointContextMenu for the nearest series', true, false, 'b'],
+        ['fires onPointContextMenu and keeps the pin on a pinned tooltip', true, true, 'b'],
+        ['does nothing without onPointContextMenu', false, false, null],
+    ])('a right click %s', (_, withContextMenu, pinned, expectedKey) => {
         const onPointClick = jest.fn()
-        const { result } = renderInteraction(true, onPointClick, false, contextMenuPointClick)
+        const onPointContextMenu = jest.fn()
+        const { result } = renderInteraction(
+            true,
+            onPointClick,
+            false,
+            withContextMenu ? onPointContextMenu : undefined
+        )
         if (pinned) {
             hoverAndPin(result)
         }
@@ -452,9 +458,8 @@ describe('useChartInteraction — tooltip pinning', () => {
             } as unknown as React.MouseEvent<HTMLDivElement>)
         })
 
-        expect(onPointClick.mock.calls.map(([data]) => [data.series.key, data.contextMenu])).toEqual(
-            expectedKey ? [[expectedKey, true]] : []
-        )
+        expect(onPointContextMenu.mock.calls.map(([data]) => data.series.key)).toEqual(expectedKey ? [expectedKey] : [])
+        expect(onPointClick).not.toHaveBeenCalled()
         expect(result.current.tooltipCtx?.isPinned ?? false).toBe(pinned)
     })
 
