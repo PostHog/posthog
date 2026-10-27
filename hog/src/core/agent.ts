@@ -34,6 +34,13 @@ export interface Mode {
     agentReason: string
     format: OutputFormat
     color: boolean
+    columns: number | undefined
+}
+
+export interface Terminal {
+    isTTY: boolean
+    hasColors: boolean
+    columns: number | undefined
 }
 
 function detectAgent(env: Env): { agent: string | undefined; reason: string } {
@@ -59,11 +66,12 @@ function detectAgent(env: Env): { agent: string | undefined; reason: string } {
     return { agent: undefined, reason: 'no agent env var is set' }
 }
 
-export function resolveMode(env: Env, stdoutIsTTY: boolean, requestedFormat: OutputFormat | undefined): Mode {
+export function resolveMode(env: Env, terminal: Terminal, requestedFormat: OutputFormat | undefined): Mode {
     const { agent, reason } = detectAgent(env)
     // Agents and pipes get JSON by default, people at a terminal get text.
-    const format = requestedFormat ?? (agent !== undefined || !stdoutIsTTY ? 'json' : 'text')
+    const format = requestedFormat ?? (agent !== undefined || !terminal.isTTY ? 'json' : 'text')
     const colorForced = env.FORCE_COLOR !== undefined && env.FORCE_COLOR !== '0'
-    const color = colorForced || (format === 'text' && stdoutIsTTY && agent === undefined && env.NO_COLOR === undefined)
-    return { agent, agentReason: reason, format, color }
+    const color =
+        colorForced || (format === 'text' && terminal.hasColors && agent === undefined && env.NO_COLOR === undefined)
+    return { agent, agentReason: reason, format, color, columns: terminal.columns }
 }

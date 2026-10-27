@@ -205,7 +205,8 @@ function toHogError(caught: unknown): HogError {
 
 export async function run(argv: readonly string[], runtime: Runtime): Promise<number> {
     const { format, commandIndex } = preParse(argv)
-    const mode = resolveMode(runtime.env, runtime.stdoutIsTTY, format)
+    const terminal = { isTTY: runtime.stdoutIsTTY, hasColors: runtime.stdoutHasColors, columns: runtime.stdoutColumns }
+    const mode = resolveMode(runtime.env, terminal, format)
     const state = { exitCode: 0 }
     const program = createProgram(runtime, mode, state)
     if (argv.length === 0) {

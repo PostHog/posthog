@@ -1,12 +1,33 @@
+import Table from 'cli-table3'
 import { styleText } from 'node:util'
 
 import type { Mode } from './agent'
 import type { HogError } from './errors'
 import type { Runtime } from './runtime'
 
-export type Style = 'bold' | 'dim' | 'red' | 'green' | 'yellow' | 'cyan'
+export type Style = 'bold' | 'dim' | 'red' | 'green' | 'yellow' | 'blue' | 'magenta' | 'cyan'
+
+export type ColumnKind = 'string' | 'number' | 'boolean' | 'date' | 'json'
+
+export interface TableColumn {
+    name: string
+    kind?: ColumnKind
+}
+
+const KIND_STYLES: Record<ColumnKind, Style[]> = {
+    string: [],
+    number: ['cyan'],
+    boolean: ['yellow'],
+    date: ['magenta'],
+    json: ['blue'],
+}
 
 const MAX_CELL_WIDTH = 48
+const MIN_CELL_WIDTH = 6
+const CELL_PADDING = 2
+// The border and padding around each cell in `│ a │ b │`: one bar per cell plus one, and a space on each side.
+const tableOverhead = (count: number): number => count * (CELL_PADDING + 1) + 1
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?)?$/
 
 export class Output {
     constructor(
@@ -35,29 +56,53 @@ export class Output {
         }
     }
 
-    table(columns: readonly string[], rows: readonly unknown[][]): void {
-        const cells = rows.map((row) => columns.map((_, index) => truncate(cellText(row[index]))))
-        const widths = columns.map((column, index) =>
-            Math.max(Bun.stringWidth(column), ...cells.map((row) => Bun.stringWidth(row[index] ?? '')))
-        )
-        const numeric = columns.map(
-            (_, index) => rows.length > 0 && rows.every((row) => typeof row[index] === 'number' || row[index] == null)
-        )
-        const pad = (text: string, index: number): string => {
-            const fill = ' '.repeat(Math.max(0, (widths[index] ?? 0) - Bun.stringWidth(text)))
-            return numeric[index] ? fill + text : text + fill
-        }
-
-        this.line(columns.map((column, index) => this.style(pad(column, index), 'bold')).join('  '))
-        this.line(this.style(widths.map((width) => '─'.repeat(width)).join('  '), 'dim'))
-        cells.forEach((row, rowIndex) => {
-            const text = row
-                .map((cell, index) =>
-                    rows[rowIndex]?.[index] == null ? this.style(pad(cell, index), 'dim') : pad(cell, index)
+    table(columns: readonly (string | TableColumn)[], rows: readonly unknown[][]): void {
+        const named = columns.map((column) => (typeof column === 'string' ? { name: column } : column))
+        const kinds = named.map((column, index) => column.kind ?? inferKind(rows.map((row) => row[index])))
+        const cells = rows.map((row) => named.map((_, index) => cellText(row[index])))
+        const widths = fitWidths(
+            named.map((column, index) =>
+                Math.min(
+                    MAX_CELL_WIDTH,
+                    Math.max(Bun.stringWidth(column.name), ...cells.map((row) => Bun.stringWidth(row[index] ?? '')))
                 )
-                .join('  ')
-            this.line(text.trimEnd())
+            ),
+            this.mode.columns
+        )
+
+        const bar = this.style('│', 'dim')
+        const table = new Table({
+            head: named.map((column) => this.style(column.name, 'bold')),
+            colWidths: widths.map((width) => width + CELL_PADDING),
+            colAligns: kinds.map((kind) => (kind === 'number' ? 'right' : 'left')),
+            style: { head: [], border: [] },
+            // Empty row separators keep one line per row. The rule under the header goes back in below.
+            chars: { left: bar, middle: bar, right: bar, mid: '', 'left-mid': '', 'mid-mid': '', 'right-mid': '' },
         })
+        table.push(
+            ...cells.map((row, rowIndex) =>
+                row.map((text, index) => {
+                    const value = rows[rowIndex]?.[index]
+                    return value == null
+                        ? this.style(text, 'dim')
+                        : this.style(text, ...KIND_STYLES[kinds[index] ?? 'string'])
+                })
+            )
+        )
+
+        // The top and bottom borders are whole lines, so they take one style each instead of one per character.
+        const [top = '', header = '', ...body] = table.toString().split('\n')
+        const bottom = body.pop() ?? ''
+        const rule = `├${widths.map((width) => '─'.repeat(width + CELL_PADDING)).join('┼')}┤`
+        for (const line of [
+            this.style(top, 'dim'),
+            header,
+            this.style(rule, 'dim'),
+            ...body,
+            this.style(bottom, 'dim'),
+        ]) {
+            this.line(line)
+        }
     }
 
     error(error: HogError): void {
@@ -93,19 +138,44 @@ function cellText(value: unknown): string {
     if (value == null) {
         return 'null'
     }
-    return typeof value === 'string' ? value : JSON.stringify(sortKeys(value))
+    const text = typeof value === 'string' ? value : JSON.stringify(sortKeys(value))
+    return text.replace(/\s+/g, ' ')
 }
 
-function truncate(text: string): string {
-    const flat = text.replace(/\s+/g, ' ')
-    if (Bun.stringWidth(flat) <= MAX_CELL_WIDTH) {
-        return flat
+function inferKind(values: readonly unknown[]): ColumnKind {
+    const present = values.filter((value) => value != null)
+    if (present.length === 0) {
+        return 'string'
     }
-    // Cut by code point, not UTF-16 unit, so an emoji is never split in half. Taking at most
-    // MAX_CELL_WIDTH code points first keeps the loop short for long values.
-    const chars = [...flat].slice(0, MAX_CELL_WIDTH)
-    while (chars.length > 0 && Bun.stringWidth(chars.join('')) > MAX_CELL_WIDTH - 1) {
-        chars.pop()
+    if (present.every((value) => typeof value === 'number' || typeof value === 'bigint')) {
+        return 'number'
     }
-    return `${chars.join('')}…`
+    if (present.every((value) => typeof value === 'boolean')) {
+        return 'boolean'
+    }
+    if (present.every((value) => typeof value === 'object')) {
+        return 'json'
+    }
+    if (present.every((value) => typeof value === 'string' && ISO_DATE.test(value))) {
+        return 'date'
+    }
+    return 'string'
+}
+
+function fitWidths(widths: readonly number[], terminalColumns: number | undefined): number[] {
+    const fitted = [...widths]
+    if (terminalColumns === undefined) {
+        return fitted
+    }
+    const budget = terminalColumns - tableOverhead(fitted.length)
+    let total = fitted.reduce((sum, width) => sum + width, 0)
+    while (total > budget) {
+        const widest = fitted.indexOf(Math.max(...fitted))
+        if ((fitted[widest] ?? 0) <= MIN_CELL_WIDTH) {
+            break
+        }
+        fitted[widest] = (fitted[widest] ?? 0) - 1
+        total -= 1
+    }
+    return fitted
 }

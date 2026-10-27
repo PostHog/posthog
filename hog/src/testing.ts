@@ -5,6 +5,7 @@ import { run } from './cli'
 export interface FakeRuntimeOptions {
     env?: Env
     stdoutIsTTY?: boolean
+    columns?: number
     files?: Record<string, string>
     stdin?: string
     // Answers every API request. Without it, requests fail with HTTP 500.
@@ -25,6 +26,8 @@ export function fakeRuntime(options: FakeRuntimeOptions = {}): FakeRuntime {
     return {
         env: options.env ?? {},
         stdoutIsTTY: options.stdoutIsTTY ?? false,
+        stdoutHasColors: options.stdoutIsTTY ?? false,
+        stdoutColumns: options.columns,
         writeStdout: (text) => {
             stdout += text
         },

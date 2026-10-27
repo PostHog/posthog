@@ -8,6 +8,8 @@ export type Env = Readonly<Record<string, string | undefined>>
 export interface Runtime {
     env: Env
     stdoutIsTTY: boolean
+    stdoutHasColors: boolean
+    stdoutColumns: number | undefined
     writeStdout: (text: string) => void
     writeStderr: (text: string) => void
     fetch: typeof fetch
@@ -20,6 +22,8 @@ export function processRuntime(): Runtime {
     return {
         env: process.env,
         stdoutIsTTY: process.stdout.isTTY === true,
+        stdoutHasColors: process.stdout.isTTY === true && process.stdout.hasColors(),
+        stdoutColumns: process.stdout.columns || undefined,
         writeStdout: (text) => {
             process.stdout.write(text)
         },

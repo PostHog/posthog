@@ -1,11 +1,30 @@
 import { defineCommand } from '@/core/command'
+import type { ColumnKind } from '@/core/output'
 import { plural } from '@/core/text'
 import { ApiError } from '@/posthog/api'
 
 interface QueryResponse {
     columns?: string[] | null
     results?: unknown[][] | null
+    types?: [string, string][] | null
     hasMore?: boolean | null
+}
+
+// ClickHouse returns 64-bit integers as JSON numbers and dates as strings, so the declared type
+// colors a column better than its values do.
+function kindOf(clickhouseType: string | undefined): ColumnKind | undefined {
+    // Only the prefix matters, so wrappers like LowCardinality(Nullable(String)) drop their opening half.
+    const base = clickhouseType?.replace(/^((Nullable|LowCardinality)\()+/, '')
+    if (!base) {
+        return undefined
+    }
+    const kinds: [RegExp, ColumnKind][] = [
+        [/^(U?Int|Float|Decimal)/, 'number'],
+        [/^Date/, 'date'],
+        [/^Bool/, 'boolean'],
+        [/^(Array|Map|Tuple|JSON|Object)/, 'json'],
+    ]
+    return kinds.find(([pattern]) => pattern.test(base))?.[1] ?? 'string'
 }
 
 export default defineCommand({
@@ -34,7 +53,10 @@ export default defineCommand({
 
     human({ result, out }) {
         const rows = result.results ?? []
-        out.table(result.columns ?? [], rows)
+        out.table(
+            (result.columns ?? []).map((name, index) => ({ name, kind: kindOf(result.types?.[index]?.[1]) })),
+            rows
+        )
         const count = plural(rows.length, 'row')
         out.line(out.style(result.hasMore ? `${count}, more available` : count, 'dim'))
     },
