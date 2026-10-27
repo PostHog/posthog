@@ -126,6 +126,12 @@ from products.feature_flags.backend.encrypted_flag_payloads import (
     get_decrypted_flag_payloads_protected,
     restore_redacted_flag_payloads,
 )
+from products.feature_flags.backend.exposure_change import (
+    ExposureChange,
+    ExposureDirection,
+    FlagExposureConfig,
+    classify_exposure_change,
+)
 from products.feature_flags.backend.facade import (
     config_writes,
     filters as flag_filters,
@@ -154,6 +160,7 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag, Feat
 from products.feature_flags.backend.models.team_feature_flag_policy_config import team_requires_flag_tags
 from products.feature_flags.backend.realtime_targeting import is_realtime_cohort_flag_targeting_enabled
 from products.feature_flags.backend.reserved_variant_keys import is_reserved_variant_key
+from products.feature_flags.backend.rollback_reason import RollbackReason, RollbackReasonContext
 from products.feature_flags.backend.session_recording_links import (
     REPLAY_GATE_DELETE_ERROR,
     ReplayFlagGates,
@@ -1308,7 +1315,36 @@ class FeatureFlagCreateRequestSchemaSerializer(serializers.Serializer):
     )
 
 
-class FeatureFlagPartialUpdateRequestSchemaSerializer(serializers.Serializer):
+class FeatureFlagRollbackReasonSerializer(serializers.Serializer):
+    ask_rollback_reason = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="When true and the edit lowers the flag's exposure, the flag is not saved and the response is a 409 "
+        "with the code `rollback_reason_required`. Send the edit again without this field to save it, with or "
+        "without a `rollback_reason`. Ignored for an edit that needs approval and for a config version 2 flag.",
+    )
+    rollback_reason = serializers.ChoiceField(
+        choices=RollbackReason.choices,
+        required=False,
+        allow_null=True,
+        help_text="Why this edit lowers the flag's exposure, for example a rollback after errors. Stored on the "
+        "activity log entry of the edit. Not stored for an edit that needs approval or for a config version 2 flag.",
+    )
+    rollback_reason_note = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        max_length=1000,
+        help_text="A free-text note for `rollback_reason`. Requires `rollback_reason`.",
+    )
+
+    def validate(self, attrs: dict) -> dict:
+        if attrs.get("rollback_reason_note") and not attrs.get("rollback_reason"):
+            raise serializers.ValidationError({"rollback_reason_note": "Send a rollback_reason with the note."})
+        return attrs
+
+
+class FeatureFlagPartialUpdateRequestSchemaSerializer(FeatureFlagRollbackReasonSerializer):
     key = serializers.CharField(required=False, help_text="Feature flag key.")
     name = serializers.CharField(
         required=False,
@@ -2736,6 +2772,14 @@ class FeatureFlagSerializer(
             request_data = {}
 
         validated_data["last_modified_by"] = request.user
+        # These are not flag fields, so they never reach the model. They come from the data this serializer validates,
+        # not from the request body, because a service caller can pass a request whose body is for another endpoint.
+        initial_data = getattr(self, "initial_data", None)
+        rollback_input = FeatureFlagRollbackReasonSerializer(
+            data=initial_data if isinstance(initial_data, dict) else {}
+        )
+        rollback_input.is_valid(raise_exception=True)
+        rollback_change: ExposureChange | None = None
         # Prevent DRF from attempting to set reverse FK relation directly
         validated_data.pop("evaluation_contexts", None)
 
@@ -2853,6 +2897,16 @@ class FeatureFlagSerializer(
                         )
                     validated_data = self._discard_unchanged_stale_fields(validated_data, original_flag)
 
+                if not self._v2_write:
+                    rollback = rollback_input.validated_data
+                    rollback_change = self._classify_for_rollback_reason(locked_instance, validated_data, rollback)
+                    if rollback_change is not None:
+                        locked_instance._activity_context = RollbackReasonContext(
+                            rollback_reason=rollback["rollback_reason"],
+                            rollback_reason_note=rollback.get("rollback_reason_note") or None,
+                            exposure_direction=rollback_change.direction,
+                        )
+
                 # Continue with the update
                 validated_data["version"] = locked_version + 1
                 # Every read and the save below use the locked row, not the instance loaded
@@ -2919,6 +2973,20 @@ class FeatureFlagSerializer(
             team=instance.team,
             request=request,
         )
+        if rollback_change is not None:
+            report_user_action(
+                request.user,
+                "feature flag rollback reason given",
+                {
+                    "feature_flag_id": instance.id,
+                    "feature_flag_version": instance.version,
+                    "rollback_reason": rollback_input.validated_data["rollback_reason"],
+                    "has_note": bool(rollback_input.validated_data.get("rollback_reason_note")),
+                    "exposure_direction": rollback_change.direction,
+                },
+                team=instance.team,
+                request=request,
+            )
 
         # If flag is using encrypted payloads, replace them with redacted string or unencrypted value
         # if the request was made with a personal API key
@@ -2931,6 +2999,36 @@ class FeatureFlagSerializer(
             _count_filters_write_success(self, "update", request)
 
         return instance
+
+    def _classify_for_rollback_reason(
+        self, locked_instance: FeatureFlag, validated_data: dict, rollback: dict
+    ) -> ExposureChange | None:
+        """Classifies the edit only when the request asks for a rollback reason or sends one, so other saves pay
+        nothing. Returns the classification when the request sends a reason."""
+        reason = rollback.get("rollback_reason")
+        if not rollback.get("ask_rollback_reason") and reason is None:
+            return None
+
+        # A deleted flag serves nobody, the same as a disabled one.
+        change = classify_exposure_change(
+            before=FlagExposureConfig(
+                active=locked_instance.active and not locked_instance.deleted, filters=locked_instance.filters
+            ),
+            after=FlagExposureConfig(
+                active=validated_data.get("active", locked_instance.active)
+                and not validated_data.get("deleted", locked_instance.deleted),
+                filters=validated_data.get("filters", locked_instance.filters),
+            ),
+        )
+        if reason is None:
+            if change.direction == ExposureDirection.LOWERS:
+                raise Conflict(
+                    detail="This edit lowers the flag's exposure. Send it again with a rollback_reason, or without "
+                    "ask_rollback_reason to save it without one.",
+                    code="rollback_reason_required",
+                )
+            return None
+        return change
 
     def _discard_unchanged_stale_fields(self, validated_data: dict, original_flag: dict | None) -> dict:
         if not original_flag:
