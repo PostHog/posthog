@@ -242,12 +242,14 @@ def theme_suggestions(team_id: int, scanner_ids: list[str], now: datetime) -> li
         .annotate(
             scanner_rank=Window(RowNumber(), partition_by=[F("scanner_id")], order_by=[F("member_count").desc(), "id"])
         )
+        .filter(scanner_rank__lte=per_scanner_cap)
         .order_by("-member_count", "id")
-        .values_list("scanner_id", "name", "scanner_rank")
+        # Twice the slots leaves room for duplicate names across scanners.
+        .values_list("name", flat=True)[: MAX_SUGGESTED_QUERIES * 2]
     )
     queries: list[str] = []
-    for _scanner_id, name, scanner_rank in themes:
-        if scanner_rank > per_scanner_cap or name in queries:
+    for name in themes:
+        if name in queries:
             continue
         queries.append(name)
         if len(queries) == MAX_SUGGESTED_QUERIES:
