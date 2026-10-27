@@ -15,7 +15,7 @@ from posthog.models.integration import Integration
 
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
-from products.messaging.backend.models.message_category import MessageCategory
+from products.messaging.backend.facade.categories import create_category
 from products.workflows.backend.facade.contracts import (
     CampaignSource,
     ImportCategory,
@@ -369,7 +369,7 @@ class TestWorkflowImportAPI(APIBaseTest):
     @patch("products.workflows.backend.services.customerio_import.app_api.requests.Session.get")
     def test_reads_message_content_with_the_stored_key(self, mock_get: MagicMock, _sleep: MagicMock) -> None:
         Integration.objects.create(team=self.team, kind="customerio-app", sensitive_config={"app_api_key": "k"})
-        MessageCategory.objects.create(team=self.team, key="customerio_topic_3", name="Product news")
+        create_category(self.team.id, None, {"key": "customerio_topic_3", "name": "Product news"})
         email_actions = [
             {"id": 1, "type": "email", "subject": "Hi", "body": "<p>Fetched {{customer.first_name}}</p>", "from_id": 4},
             {"id": 5, "type": "email", "subject": "Tips", "body": "<p>Tips</p>"},
