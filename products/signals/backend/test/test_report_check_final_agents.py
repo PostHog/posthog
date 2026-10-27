@@ -59,8 +59,8 @@ from products.signals.backend.temporal.agentic.scout_scheduler import (
 )
 from products.skills.backend.models.skills import LLMSkill, LLMSkillFile
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext
+from products.tasks.backend.facade.testing import create_task_run_oauth_access_token
 from products.tasks.backend.models import Task, TaskRun
-from products.tasks.backend.temporal.oauth import create_oauth_access_token
 
 
 class FinalAuthoredAgentChecksSetup(PostHogTestCase):
@@ -604,10 +604,10 @@ class TestFinalAuthoredAgentExecution(FinalAuthoredAgentChecksSetup, NonAtomicBa
             algorithm="RS256",
         )
         with patch("posthog.temporal.oauth.get_sandbox_oauth_app", return_value=application):
-            token = create_oauth_access_token(
-                run.task_run.task,
-                user=self.user,
-                run_id=run.task_run_id,
+            token = create_task_run_oauth_access_token(
+                team_id=self.team.id,
+                task_run_id=run.task_run_id,
+                user_id=self.user.id,
                 scopes=context.posthog_mcp_scopes or "read_only",
             )
         authenticator = OAuthAccessTokenAuthentication()
