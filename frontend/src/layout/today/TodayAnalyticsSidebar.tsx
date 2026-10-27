@@ -2,16 +2,16 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { Fragment, useMemo } from 'react'
 
-import { IconBell, IconBox, IconList, IconNotification, IconPerson, IconPinFilled } from '@posthog/icons'
-import { Button, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
+import { IconBell, IconBox, IconList, IconNotification, IconPerson } from '@posthog/icons'
 
 import { Logomark } from 'lib/brand'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { analyticsListFiltersFromUrl } from 'scenes/analytics/analyticsListLogic'
 import { AnalyticsSpaceGlyph } from 'scenes/analytics/AnalyticsSpaceGlyph'
-import { analyticsSpacesLogic } from 'scenes/analytics/analyticsSpacesLogic'
+import { AnalyticsStarButton } from 'scenes/analytics/AnalyticsStarButton'
+import { analyticsStarredLogic, starKey } from 'scenes/analytics/analyticsStarredLogic'
 import { AnalyticsTypeIcon } from 'scenes/analytics/AnalyticsTypeIcon'
-import { ANALYTICS_TYPE_INFO } from 'scenes/analytics/analyticsUtils'
+import { ANALYTICS_TYPE_INFO, AnalyticsType } from 'scenes/analytics/analyticsUtils'
 import { urls } from 'scenes/urls'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
@@ -46,7 +46,7 @@ const EXPLAINERS = {
         label: 'Collections',
         icon: <IconBox />,
         description:
-            'Keep related analytics together where your team can find it. Pin a collection to show it in this sidebar.',
+            'Keep related analytics together where your team can find it. Star a collection to show it in this sidebar.',
         example: 'Keep all the growth team’s dashboards and insights in one collection.',
     },
     alerts: {
@@ -67,12 +67,20 @@ const EXPLAINERS = {
     },
 } satisfies Record<string, TodayExplainerPreview>
 
-/** The Analytics sub-nav: the ways to browse, pinned collections, recently viewed items, PostHog's own analytics, and what to keep an eye on. */
+function AnalyticsItemIcon({ type }: { type: AnalyticsType }): JSX.Element {
+    return (
+        // eslint-disable-next-line react/forbid-dom-props
+        <span style={{ color: ANALYTICS_TYPE_INFO[type].color }}>
+            <AnalyticsTypeIcon type={type} />
+        </span>
+    )
+}
+
+/** The Analytics sub-nav: the ways to browse, starred items and collections, recently viewed items, PostHog's own analytics, and what to keep an eye on. */
 export function TodayAnalyticsSidebar(): JSX.Element {
     const { collapsedSections, fromPostHog, recentAnalytics } = useValues(todayAnalyticsLogic)
     const { toggleSection } = useActions(todayAnalyticsLogic)
-    const { pinnedSpaces, pinning } = useValues(analyticsSpacesLogic)
-    const { togglePin } = useActions(analyticsSpacesLogic)
+    const { starredAnalytics, starredShortcutIds } = useValues(analyticsStarredLogic)
     const { location, searchParams } = useValues(router)
     const path = removeProjectIdIfPresent(location.pathname)
     const isOpen = (section: TodayAnalyticsSection): boolean => !collapsedSections.includes(section)
@@ -96,14 +104,7 @@ export function TodayAnalyticsSidebar(): JSX.Element {
                 dataAttr="analytics-sidebar-search"
                 className="[&>div:first-child]:hidden"
             >
-                <TodayPaneSection
-                    label="Browse"
-                    open={isOpen('browse')}
-                    count={3 + pinnedSpaces.length}
-                    showCount={false}
-                    onToggle={() => toggleSection('browse')}
-                    dataAttr="analytics-section-browse"
-                >
+                <div className="flex flex-col gap-px pb-2">
                     <TodayPreviewTrigger payload={EXPLAINERS.all}>
                         <TodayPaneRow
                             value="browse:all"
@@ -134,37 +135,60 @@ export function TodayAnalyticsSidebar(): JSX.Element {
                             dataAttr="analytics-sidebar-browse"
                         />
                     </TodayPreviewTrigger>
-                    {pinnedSpaces.map((space) => (
-                        <TodayPaneRow
-                            key={space.path}
-                            value={`space:${space.path}`}
-                            label={space.name}
-                            icon={<AnalyticsSpaceGlyph name={space.name} />}
-                            to={urls.analyticsList({ folder: space.path })}
-                            active={openFolder === space.path}
-                            action={
-                                <Tooltip>
-                                    <TooltipTrigger
-                                        render={
-                                            <Button
-                                                variant="default"
-                                                size="icon-sm"
-                                                aria-label={`Unpin ${space.name}`}
-                                                loading={pinning === space.path}
-                                                onClick={() => togglePin(space)}
-                                                data-attr="analytics-sidebar-unpin-space"
-                                            />
-                                        }
-                                    >
-                                        <IconPinFilled />
-                                    </TooltipTrigger>
-                                    <TooltipContent>Unpin</TooltipContent>
-                                </Tooltip>
-                            }
-                            dataAttr="analytics-sidebar-starred-space"
-                        />
-                    ))}
-                </TodayPaneSection>
+                </div>
+                {starredAnalytics.length > 0 && (
+                    <TodayPaneSection
+                        label="Starred"
+                        open={isOpen('starred')}
+                        count={starredAnalytics.length}
+                        showCount={false}
+                        onToggle={() => toggleSection('starred')}
+                        dataAttr="analytics-section-starred"
+                    >
+                        {starredAnalytics.map((starred) =>
+                            starred.kind === 'collection' ? (
+                                <TodayPaneRow
+                                    key={starred.key}
+                                    value={`starred:${starred.key}`}
+                                    label={starred.name}
+                                    icon={<AnalyticsSpaceGlyph name={starred.name} />}
+                                    to={urls.analyticsList({ folder: starred.path })}
+                                    active={openFolder === starred.path}
+                                    action={
+                                        <AnalyticsStarButton
+                                            target={{ type: 'folder', ref: starred.path, name: starred.name }}
+                                            // pinned: tracking API, do not rename.
+                                            dataAttr="analytics-sidebar-unpin-space"
+                                        />
+                                    }
+                                    // pinned: tracking API, do not rename.
+                                    dataAttr="analytics-sidebar-starred-space"
+                                />
+                            ) : (
+                                <TodayPaneRow
+                                    key={starred.key}
+                                    value={`starred:${starred.key}`}
+                                    label={starred.item.name}
+                                    icon={<AnalyticsItemIcon type={starred.item.type} />}
+                                    to={starred.item.href}
+                                    active={path === removeProjectIdIfPresent(starred.item.href)}
+                                    action={
+                                        <AnalyticsStarButton
+                                            target={{
+                                                type: starred.item.type,
+                                                ref: starred.item.id,
+                                                name: starred.item.name,
+                                                href: starred.item.href,
+                                            }}
+                                            dataAttr="analytics-sidebar-unstar"
+                                        />
+                                    }
+                                    dataAttr="analytics-sidebar-starred"
+                                />
+                            )
+                        )}
+                    </TodayPaneSection>
+                )}
                 {recentAnalytics.length > 0 && (
                     <TodayPaneSection
                         label="Recents"
@@ -180,14 +204,16 @@ export function TodayAnalyticsSidebar(): JSX.Element {
                                 key={`${item.type}:${item.id}`}
                                 value={`recent:${item.type}:${item.id}`}
                                 label={item.name}
-                                icon={
-                                    // eslint-disable-next-line react/forbid-dom-props
-                                    <span style={{ color: ANALYTICS_TYPE_INFO[item.type].color }}>
-                                        <AnalyticsTypeIcon type={item.type} />
-                                    </span>
-                                }
+                                icon={<AnalyticsItemIcon type={item.type} />}
                                 to={item.href}
                                 active={path === removeProjectIdIfPresent(item.href)}
+                                action={
+                                    <AnalyticsStarButton
+                                        target={{ type: item.type, ref: item.id, name: item.name, href: item.href }}
+                                        dataAttr="analytics-sidebar-recent-star"
+                                    />
+                                }
+                                actionVisible={starredShortcutIds.has(starKey(item.type, item.id))}
                                 dataAttr="analytics-sidebar-recent"
                             />
                         ))}

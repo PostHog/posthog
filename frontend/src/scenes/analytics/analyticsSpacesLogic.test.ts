@@ -1,5 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { useMocks } from '~/mocks/jest'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -76,13 +77,11 @@ describe('analyticsSpacesLogic', () => {
         initKeaTests()
     })
 
-    it('lists spaces alphabetically with counts from the API, pinned ones first, leaving out Unfiled and Users', async () => {
+    it('lists spaces alphabetically with counts from the API, starred ones first, leaving out Unfiled and Users', async () => {
         const logic = analyticsSpacesLogic()
         logic.mount()
-        await expectLogic(logic, () => {
-            logic.actions.loadShortcuts()
-            logic.actions.loadSpaces()
-        }).toDispatchActions(['loadShortcutsSuccess', 'loadSpacesSuccess'])
+        await expectLogic(projectTreeDataLogic).toDispatchActions(['loadShortcutsSuccess'])
+        await expectLogic(logic, () => logic.actions.loadSpaces()).toDispatchActions(['loadSpacesSuccess'])
 
         expect(logic.values.spaces.map((space) => [space.name, space.total])).toEqual([
             ['Finance', 0],
@@ -90,16 +89,16 @@ describe('analyticsSpacesLogic', () => {
         ])
         expect(logic.values.spaces[1].counts).toEqual({ canvas: 0, dashboard: 2, insight: 7, notebook: 0 })
         // The shortcut's ref names the folder; a home folder shortcut is not a space.
-        expect(logic.values.pinnedSpaces.map((space) => space.path)).toEqual(['Growth'])
+        expect([...logic.values.starredCollectionPaths]).toEqual(['Growth'])
         expect(logic.values.visibleSpaces.map((space) => space.name)).toEqual(['Growth', 'Finance'])
         logic.actions.setSearch('fin')
         expect(logic.values.visibleSpaces.map((space) => space.name)).toEqual(['Finance'])
     })
 
-    it('drops the pin of a collection deleted through the project tree, and only for a top-level folder', async () => {
+    it('drops the star of a collection deleted through the project tree, and only for a top-level folder', async () => {
         const logic = analyticsSpacesLogic()
         logic.mount()
-        await expectLogic(logic, () => logic.actions.loadShortcuts()).toDispatchActions(['loadShortcutsSuccess'])
+        await expectLogic(projectTreeDataLogic).toDispatchActions(['loadShortcutsSuccess'])
 
         logic.actions.deleteSavedItem({ id: 'fs-Growth-Q4', type: 'folder', path: 'Growth/Q4' } as FileSystemEntry)
         await expectLogic(logic, () =>
@@ -109,7 +108,7 @@ describe('analyticsSpacesLogic', () => {
         expect(requests).toEqual(['delete shortcut sc-growth'])
     })
 
-    it('pages metadata after pin and literal name filters, and reuses metadata across searches', async () => {
+    it('pages metadata after star and literal name filters, and reuses metadata across searches', async () => {
         folders = [
             ...Array.from({ length: 22 }, (_, index) => `Collection ${String(index + 1).padStart(2, '0')}`),
             'Growth',
@@ -117,6 +116,7 @@ describe('analyticsSpacesLogic', () => {
         ]
         const logic = analyticsSpacesLogic()
         logic.mount()
+        await expectLogic(projectTreeDataLogic).toDispatchActions(['loadShortcutsSuccess'])
 
         await expectLogic(logic, () => logic.actions.loadSpaces()).toDispatchActions(['loadSpacesSuccess'])
         expect(logic.values.spaces).toHaveLength(20)
