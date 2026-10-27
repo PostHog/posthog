@@ -329,7 +329,10 @@ export const sentryMigrationLogic = kea<sentryMigrationLogicType>([
                     const showRateLimits = !!values.featureFlags[FEATURE_FLAGS.ERROR_TRACKING_RATE_LIMITING]
                     const showBuiltInFilters = !!values.featureFlags[FEATURE_FLAGS.ERROR_TRACKING_BUILT_IN_FILTERS]
                     return response.items.filter(
-                        (item) => (showRateLimits || !item.rate_limit) && (showBuiltInFilters || !item.built_in_filter)
+                        (item) =>
+                            item.fit !== 'unsupported' &&
+                            (showRateLimits || !item.rate_limit) &&
+                            (showBuiltInFilters || !item.built_in_filter)
                     )
                 },
                 selectProject: () => null,
