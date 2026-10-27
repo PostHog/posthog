@@ -21,7 +21,7 @@ def _datetime_field(name: str) -> IncrementalField:
     }
 
 
-@dataclass
+@dataclass(frozen=True)
 class OrbEndpointConfig:
     name: str
     path: str

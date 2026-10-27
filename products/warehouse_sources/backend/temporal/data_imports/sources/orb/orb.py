@@ -29,7 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.orb.settin
 )
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class OrbResumeConfig:
     next_cursor: Optional[str] = None
     # Per-customer resume state of a fan-out endpoint, as built by the rest_source framework.
