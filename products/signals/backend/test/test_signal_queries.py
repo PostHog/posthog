@@ -535,8 +535,10 @@ class TestSpendPublicationVersions(_SignalEmbeddingsTestBase):
             )
             assert all(second.versions[key] > version for key, version in first.versions.items())
             second_payloads = [call.kwargs["data"] for call in producer.__enter__.return_value.produce.call_args_list]
-            # Kafka acknowledged the move/deletion, but ClickHouse still contains the first row.
             assert not confirm_signal_spend_metadata(second)
+            for payload in second_payloads:
+                deliver(payload, second.versions[payload["model_name"]])
+            assert confirm_signal_spend_metadata(second)
             producer.__enter__.return_value.produce.reset_mock()
             clock.shift(timedelta(seconds=2))
             record_llm_spend(token_cost_microusd=300, team_id=self.team.id, signal_id=driver, stage="research")
@@ -544,8 +546,6 @@ class TestSpendPublicationVersions(_SignalEmbeddingsTestBase):
                 SignalSpendUpdate(
                     team_id=self.team.id,
                     signal_id=driver,
-                    published_metadata=second.metadata,
-                    published_versions=second.versions,
                     changes=[
                         SignalMetadataChange(deleted=True, expected_report_id="example-report")
                         if change.report_id

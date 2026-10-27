@@ -787,10 +787,13 @@ class TestSignalSpend(BaseTest):
         self._set_task_cost(resumed, 200)
         resumed.status = TaskRun.Status.FAILED
         resumed.save(update_fields=["status"])
-        self.temporal.execute_update_with_start_workflow.side_effect = RuntimeError("Kafka delivery failed")
-        with self.assertRaisesRegex(RuntimeError, "Kafka delivery failed"):
+        self.temporal.start_workflow.side_effect = RuntimeError("Temporal unavailable")
+        with self.assertRaisesRegex(RuntimeError, "Temporal unavailable"):
             self._complete_task_spend(team_id=self.team.id, run_id=str(resumed.id))
-        self.temporal.execute_update_with_start_workflow.side_effect = None
+        settled = SignalSpend.objects.for_team(self.team.id).get(task_run_id=resumed.id)
+        assert settled.finalized_at is not None
+        assert settled.spend == Decimal("4.02")
+        self.temporal.start_workflow.side_effect = None
         self._complete_task_spend(team_id=self.team.id, run_id=str(resumed.id))
         register_report_task_spend(
             team_id=self.team.id, run_id=str(run.id), report_id=str(report.id), stage=stage, signal_id=other
@@ -990,7 +993,7 @@ class TestSignalSpend(BaseTest):
         with transaction.atomic():
             self._set_task_cost(run, 10_001)
             assert signal_spend_totals(team_id=self.team.id, signal_ids=[driver]) == {driver: 5.0001}
-            self.temporal.execute_update_with_start_workflow.assert_not_called()
+            self.temporal.start_workflow.assert_not_called()
         try:
             with transaction.atomic():
                 self._set_task_cost(run, 20_002)
@@ -1012,7 +1015,7 @@ class TestSignalSpend(BaseTest):
         run.status = TaskRun.Status.COMPLETED
         run.save(update_fields=["status"])
         self._complete_task_spend(team_id=self.team.id, run_id=str(run.id))
-        assert self.temporal.execute_update_with_start_workflow.await_count == int(publishes)
+        assert self.temporal.start_workflow.await_count == int(publishes)
         spend = SignalSpend.objects.for_team(self.team.id).get(task_run_id=run.id)
         assert spend.spend == Decimal("5.0001")
         assert spend.finalized_at is not None
@@ -1047,7 +1050,7 @@ class TestSignalSpend(BaseTest):
             )
             assert owner.accounting_failed
             assert owner.finalized_at is None
-            self.temporal.execute_update_with_start_workflow.assert_not_called()
+            self.temporal.start_workflow.assert_not_called()
             fetch.reset_mock()
             fetch.return_value = GatewayRequestCost(model="example", provider="example", cost_microusd=123_456)
             self._complete_task_spend(team_id=self.team.id, run_id=str(run.id))
@@ -1061,7 +1064,7 @@ class TestSignalSpend(BaseTest):
             summary = signal_spend_summaries(team_id=self.team.id, signal_ids=[driver])[driver]
             assert summary.total_spend == 16.3456
             assert summary.failed_stages == []
-        assert self.temporal.execute_update_with_start_workflow.await_count == (0 if is_scout else 1)
+        assert self.temporal.start_workflow.await_count == (0 if is_scout else 1)
 
     def test_one_shot_calls_preserve_known_spend_and_record_failed_stage(self) -> None:
         driver = str(uuid4())

@@ -109,29 +109,15 @@ def publish_signal_spend_metadata(signal: SignalSpendUpdate) -> SignalSpendPubli
         row = _read_embedding(team, signal.signal_id, model)
         if row is None:
             raise RuntimeError("Signal embedding is not yet visible in ClickHouse")
-        previous_version = signal.published_versions.get(model.value, 0)
-        changes = signal.changes
-        if int(row.inserted_at.timestamp()) < previous_version:
-            # ClickHouse may lag Kafka. Reapply the acknowledged fields before newer changes.
-            changes = [signal.published_metadata[model.value], *changes]
-        updated = row.with_updates(summary, changes)
         # Kafka's second-resolution timestamp is the replacement version in ClickHouse.
-        if updated != row and max(int(row.inserted_at.timestamp()), previous_version) >= version:
+        if row.with_updates(summary, signal.changes) != row and int(row.inserted_at.timestamp()) >= version:
             raise RuntimeError("Waiting for a strictly newer embedding replacement version")
-        rows.append((row, updated))
+        rows.append(row)
     versions = {}
-    metadata = {}
-    for row, updated in rows:
-        report_id = updated.metadata.get("report_id")
-        metadata[row.model.value] = SignalMetadataChange(
-            report_id=report_id if isinstance(report_id, str) else None,
-            deleted=bool(updated.metadata.get("deleted")),
-            clear_content=not updated.content and not any(updated.embedding),
-        )
+    for row in rows:
+        updated = row.with_updates(summary, signal.changes)
         if updated == row:
-            versions[row.model.value] = max(
-                int(row.inserted_at.timestamp()), signal.published_versions.get(row.model.value, 0)
-            )
+            versions[row.model.value] = int(row.inserted_at.timestamp())
             continue
         payload = {
             "team_id": signal.team_id,
@@ -153,7 +139,7 @@ def publish_signal_spend_metadata(signal: SignalSpendUpdate) -> SignalSpendPubli
             )
         delivery.get(timeout=0)
         versions[row.model.value] = version
-    return SignalSpendPublication(signal=signal, summary=summary, versions=versions, metadata=metadata)
+    return SignalSpendPublication(signal=signal, summary=summary, versions=versions)
 
 
 def confirm_signal_spend_metadata(publication: SignalSpendPublication) -> bool:
@@ -163,7 +149,7 @@ def confirm_signal_spend_metadata(publication: SignalSpendPublication) -> bool:
         row = _read_embedding(team, publication.signal.signal_id, model)
         if (
             row is None
-            or row.with_updates(publication.summary, [publication.metadata[model.value]]) != row
+            or row.with_updates(publication.summary, publication.signal.changes) != row
             or int(row.inserted_at.timestamp()) < publication.versions[model.value]
         ):
             return False

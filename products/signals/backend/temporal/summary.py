@@ -59,8 +59,8 @@ from products.signals.backend.report_metrics import REPORT_METRIC_GOAL_FIELDS
 from products.signals.backend.spend import (
     begin_report_spend,
     finish_report_spend,
-    publish_signal_spend,
     report_triggering_signal,
+    submit_signal_metadata_updates,
 )
 from products.signals.backend.stack_plan import create_layer_reports, start_unblocked_layers_of_plan
 from products.signals.backend.temporal import metrics
@@ -1602,15 +1602,7 @@ async def publish_report_spend_activity(input: SignalReportSummaryWorkflowInputs
         await database_sync_to_async(finish_report_spend)(
             team_id=input.team_id, report_id=input.report_id, signal_id=signal_id
         )
-        # Release the shared activity slot between attempts so the metadata publisher can run.
-        await asyncio.wait_for(
-            publish_signal_spend(
-                team_id=input.team_id,
-                signal_id=signal_id,
-                update_id=f"{temporalio.activity.info().workflow_run_id}:{temporalio.activity.info().activity_id}",
-            ),
-            timeout=5,
-        )
+        await submit_signal_metadata_updates(team_id=input.team_id, signal_ids=[signal_id])
 
 
 @temporalio.activity.defn

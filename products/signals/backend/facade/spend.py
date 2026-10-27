@@ -1,5 +1,4 @@
 from products.signals.backend.spend import (
     complete_task_spend as complete_task_spend,
-    publish_signal_spend as publish_signal_spend,
     register_report_task_spend as register_report_task_spend,
 )

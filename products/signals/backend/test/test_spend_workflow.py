@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from datetime import timedelta
 from types import SimpleNamespace
 from uuid import uuid4
@@ -9,7 +10,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from django.test import override_settings
 
 from temporalio import activity, workflow
-from temporalio.client import WorkflowFailureError, WorkflowUpdateFailedError, WorkflowUpdateStage
+from temporalio.client import WorkflowFailureError
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
@@ -20,7 +21,6 @@ from products.signals.backend.spend import (
     SignalSpendPublication,
     SignalSpendSummary,
     SignalSpendUpdate,
-    publish_signal_spend,
     submit_signal_metadata_updates,
 )
 from products.signals.backend.temporal.spend import UpdateSignalSpendWorkflow
@@ -73,15 +73,21 @@ class ResearchAndSettle:
 @pytest.mark.parametrize("publication_fails", [False, True])
 async def test_spend_updates_retry_and_serialize_updates_arriving_during_and_after_a_write(
     publication_fails: bool,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
+    caplog.set_level(logging.INFO, logger="temporalio.workflow")
+    caplog.set_level(logging.INFO, logger="temporalio.activity")
     queue = f"spend-test-{uuid4()}"
     driver = str(uuid4())
     write_started, release_write = asyncio.Event(), asyncio.Event()
     confirmation_started, release_confirmation = asyncio.Event(), asyncio.Event()
+    confirmation_finished = asyncio.Event()
+    writes_before_confirmation: list[int] = []
     latest_spend = 1
     stored: list[int] = []
     changes: list[SignalMetadataChange] = []
     attempts = 0
+    expected_initial = [2] if publication_fails else [1, 2]
 
     @activity.defn(name="update_signal_spend_activity")
     async def write_metadata(input: SignalSpendUpdate) -> SignalSpendPublication:
@@ -96,6 +102,8 @@ async def test_spend_updates_retry_and_serialize_updates_arriving_during_and_aft
             await release_write.wait()
         if publication_fails:
             raise ApplicationError("Kafka delivery failed permanently", non_retryable=True)
+        if confirmation_started.is_set() and not confirmation_finished.is_set():
+            writes_before_confirmation.append(spend)
         stored.append(spend)
         changes.extend(input.changes)
         return SignalSpendPublication(
@@ -112,6 +120,7 @@ async def test_spend_updates_retry_and_serialize_updates_arriving_during_and_aft
             confirmation_started.set()
             await release_confirmation.wait()
             raise ApplicationError("ClickHouse ingestion delayed", type="SignalSpendNotVisible")
+        confirmation_finished.set()
 
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
@@ -125,56 +134,61 @@ async def test_spend_updates_retry_and_serialize_updates_arriving_during_and_aft
                 override_settings(VIDEO_EXPORT_TASK_QUEUE=queue),
                 patch("posthog.temporal.common.client.async_connect", new=AsyncMock(return_value=env.client)),
             ):
-                publication = asyncio.create_task(publish_signal_spend(team_id=1, signal_id=driver))
-                await asyncio.wait_for(write_started.wait(), timeout=20)
-                assert not publication.done()
+                await submit_signal_metadata_updates(team_id=1, signal_ids=[driver])
+                await asyncio.wait_for(write_started.wait(), timeout=30)
                 handle = env.client.get_workflow_handle(f"signal-spend-1-{driver}")
+                latest_spend = 2
+                await submit_signal_metadata_updates(team_id=1, signal_ids=[driver])
                 release_write.set()
                 if publication_fails:
-                    with pytest.raises(WorkflowUpdateFailedError):
-                        await asyncio.wait_for(publication, timeout=20)
                     with pytest.raises(WorkflowFailureError):
-                        await handle.result()
+                        await asyncio.wait_for(handle.result(), timeout=30)
                     assert stored == []
-                    assert confirmation_attempts == 0
-                    return
-                await asyncio.wait_for(publication, timeout=20)
-                await asyncio.wait_for(confirmation_started.wait(), timeout=20)
-                assert stored == [1]
-                latest_spend = 2
-                change = SignalMetadataChange(report_id="new-report", expected_report_id="old-report")
-                await submit_signal_metadata_updates(team_id=1, signal_ids=[driver], change=change)
-                await handle.signal("refresh")
-                next_publication = await handle.start_update(
-                    "publish_spend", wait_for_stage=WorkflowUpdateStage.ACCEPTED
-                )
-                await asyncio.wait_for(next_publication.result(), timeout=20)
-                assert not release_confirmation.is_set()
-                await handle.result()
-                assert stored == [1, 2]
-                assert changes == [change]
+                    publication_fails = False
+                    await submit_signal_metadata_updates(team_id=1, signal_ids=[driver])
+                await asyncio.wait_for(handle.result(), timeout=30)
+                assert stored == expected_initial
+                assert confirmation_attempts == 0
 
                 latest_spend = 3
-                await publish_signal_spend(team_id=1, signal_id=driver)
-                await env.client.get_workflow_handle(f"signal-spend-1-{driver}").result()
-                assert stored == [1, 2, 3]
-                assert confirmation_attempts == 3
+                change = SignalMetadataChange(report_id="new-report", expected_report_id="old-report")
+                await submit_signal_metadata_updates(team_id=1, signal_ids=[driver], change=change)
+                await asyncio.wait_for(confirmation_started.wait(), timeout=30)
+                latest_spend = 4
+                await submit_signal_metadata_updates(team_id=1, signal_ids=[driver])
+                await handle.signal("refresh")
+                release_confirmation.set()
+                await asyncio.wait_for(handle.result(), timeout=30)
+                assert stored[-2:] == [3, 4]
+                assert changes == [change]
+                assert confirmation_attempts == 2
+                assert writes_before_confirmation == []
+
+                latest_spend = 5
+                await submit_signal_metadata_updates(team_id=1, signal_ids=[driver])
+                await asyncio.wait_for(handle.result(), timeout=30)
+                assert stored[-1] == 5
+                assert confirmation_attempts == 2
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("publication_fails", [False, True])
-async def test_research_releases_shared_slot_before_waiting_for_task_settlement(publication_fails: bool) -> None:
+async def test_research_releases_shared_slot_before_waiting_for_task_settlement(
+    publication_fails: bool, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO, logger="temporalio.workflow")
+    caplog.set_level(logging.INFO, logger="temporalio.activity")
     queue = f"settlement-test-{uuid4()}"
     task_queue = f"task-test-{uuid4()}"
     task_workflow_id = str(uuid4())
     signal_id = str(uuid4())
     researches = 0
     published = False
-    publications = 0
+    confirmations = 0
 
     @activity.defn(name="publish_task_spend")
     async def publish_task_spend(input: SignalSpendUpdate) -> None:
-        await publish_signal_spend(team_id=input.team_id, signal_id=input.signal_id)
+        await submit_signal_metadata_updates(team_id=input.team_id, signal_ids=[input.signal_id])
 
     @activity.defn(name="research_and_end_session")
     async def research_and_end_session(input: SignalReportSummaryWorkflowInputs) -> None:
@@ -189,9 +203,8 @@ async def test_research_releases_shared_slot_before_waiting_for_task_settlement(
 
     @activity.defn(name="update_signal_spend_activity")
     async def write_metadata(input: SignalSpendUpdate) -> SignalSpendPublication:
-        nonlocal published, publications
-        publications += 1
-        if publication_fails and publications == 1:
+        nonlocal published
+        if publication_fails:
             raise ApplicationError("Kafka unavailable", non_retryable=True)
         published = True
         return SignalSpendPublication(
@@ -200,7 +213,8 @@ async def test_research_releases_shared_slot_before_waiting_for_task_settlement(
 
     @activity.defn(name="confirm_signal_spend_activity")
     async def confirm_metadata(input: SignalSpendPublication) -> None:
-        pass
+        nonlocal confirmations
+        confirmations += 1
 
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with (
@@ -257,5 +271,11 @@ async def test_research_releases_shared_slot_before_waiting_for_task_settlement(
                 )
                 assert result == "research retained"
                 assert researches == 1
-                assert published
-                assert publications == 2
+                handle = env.client.get_workflow_handle(f"signal-spend-1-{signal_id}")
+                if publication_fails:
+                    with pytest.raises(WorkflowFailureError):
+                        await asyncio.wait_for(handle.result(), timeout=30)
+                else:
+                    await asyncio.wait_for(handle.result(), timeout=30)
+                assert published is not publication_fails
+                assert confirmations == 0

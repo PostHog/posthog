@@ -84,8 +84,6 @@ class SignalSpendUpdate:
     team_id: int
     signal_id: str
     changes: list[SignalMetadataChange] = field(default_factory=list)
-    published_metadata: dict[str, SignalMetadataChange] = field(default_factory=dict)
-    published_versions: dict[str, int] = field(default_factory=dict)
 
 
 @frozen
@@ -93,7 +91,6 @@ class SignalSpendPublication:
     signal: SignalSpendUpdate
     summary: SignalSpendSummary
     versions: dict[str, int]
-    metadata: dict[str, SignalMetadataChange] = field(default_factory=dict)
 
 
 async def submit_signal_metadata_updates(
@@ -101,7 +98,6 @@ async def submit_signal_metadata_updates(
     team_id: int,
     signal_ids: list[str],
     change: SignalMetadataChange | None = None,
-    wait_for_completion: bool = False,
 ) -> None:
     from temporalio.common import WorkflowIDReusePolicy  # noqa: PLC0415 — keeps Temporal off Django startup
 
@@ -111,7 +107,7 @@ async def submit_signal_metadata_updates(
         return
     client = await asyncio.wait_for(async_connect(), timeout=5)
     for start in range(0, len(signal_ids), 20):
-        handles = await asyncio.gather(
+        await asyncio.gather(
             *(
                 client.start_workflow(
                     "update-signal-spend",
@@ -126,42 +122,6 @@ async def submit_signal_metadata_updates(
                 for signal_id in signal_ids[start : start + 20]
             )
         )
-        if wait_for_completion:
-            await asyncio.gather(*(handle.result() for handle in handles))
-
-
-async def publish_signal_spend(
-    *, team_id: int, signal_id: str, wait_for_completion: bool = True, update_id: str | None = None
-) -> None:
-    from temporalio.client import WithStartWorkflowOperation  # noqa: PLC0415 — keeps Temporal off Django startup
-    from temporalio.common import WorkflowIDConflictPolicy  # noqa: PLC0415 — keeps Temporal off Django startup
-    from temporalio.service import RPCError, RPCStatusCode  # noqa: PLC0415 — keeps Temporal off Django startup
-
-    from posthog.temporal.common.client import async_connect  # noqa: PLC0415 — keeps Temporal off Django startup
-
-    if not wait_for_completion:
-        await submit_signal_metadata_updates(team_id=team_id, signal_ids=[signal_id])
-        return
-    client = await asyncio.wait_for(async_connect(), timeout=5)
-    workflow_id = f"signal-spend-{team_id}-{signal_id}"
-    if update_id is not None:
-        try:
-            await client.get_workflow_handle(workflow_id).get_update_handle(update_id).result()
-            return
-        except RPCError as error:
-            if error.status != RPCStatusCode.NOT_FOUND:
-                raise
-    await client.execute_update_with_start_workflow(
-        "publish_spend",
-        id=update_id,
-        start_workflow_operation=WithStartWorkflowOperation(
-            "update-signal-spend",
-            SignalSpendUpdate(team_id=team_id, signal_id=signal_id),
-            id=workflow_id,
-            task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
-            id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
-        ),
-    )
 
 
 def _locked_ad_hoc_spend(*, team_id: int, signal_id: str) -> SignalSpend:
@@ -433,4 +393,4 @@ def complete_task_spend(*, team_id: int, run_id: str, report_id: str | None = No
         if spend.accounting_failed:
             raise TaskTokenUsageUnavailable("Task usage is not settled yet")
     if spend.signal_id:
-        async_to_sync(publish_signal_spend)(team_id=team_id, signal_id=str(spend.signal_id))
+        async_to_sync(submit_signal_metadata_updates)(team_id=team_id, signal_ids=[str(spend.signal_id)])
