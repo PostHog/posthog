@@ -838,8 +838,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/packagist/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/pagerduty/pagerduty.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/pagerduty/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/pandadoc/pandadoc.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/pandadoc/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/paperform/paperform.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/paperform/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/papersign/papersign.py
