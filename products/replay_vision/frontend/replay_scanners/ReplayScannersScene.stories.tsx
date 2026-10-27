@@ -1131,7 +1131,7 @@ export const UsageTab: StoryObj = {
     parameters: { pageUrl: `${urls.replayVision()}?tab=usage` },
 }
 
-// The other sessions in the first embedding card's duplicate group, as the scanner's observation list returns them.
+// The other sessions in the first embedding card's feed group, as the scanner's observation list returns them.
 const checkoutGroupMembers = [
     {
         email: 'bob@example.com',

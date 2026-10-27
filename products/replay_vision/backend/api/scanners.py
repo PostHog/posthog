@@ -1652,8 +1652,7 @@ WATCH_FEED_MAX_LIMIT = 50
 WATCH_FEED_DEFAULT_DATE_FROM = "-7d"
 # Widest window one request may rank. A scanner with few rows in the window walks its whole window before the cap stops it.
 WATCH_FEED_MAX_WINDOW_DAYS = 90
-# Rank at most this many of the newest succeeded observations in the window. A very high-volume
-# team ranks only the newest slice, which recency-biases the feed — acceptable for a preview surface.
+# The most picks one load ranks, and the furthest `offset` may reach.
 WATCH_FEED_CANDIDATE_CAP = 1000
 WATCH_FEED_IMPRESSIONS_MAX_IDS = 100
 # Loads in one bucket share their picks, so a reload or tab switch skips the pick query.
@@ -1797,7 +1796,7 @@ class WatchFeedReasonSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         help_text=(
-            "Distinct people across the session's duplicate group in the window, for `embedding_pick`. A finding "
+            "Distinct people across the session's feed group in the window, for `embedding_pick`. A finding "
             "that reached more people ranks higher."
         ),
     )

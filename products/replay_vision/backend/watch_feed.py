@@ -1,4 +1,4 @@
-"""Ordering shared by the Highlights feed: a cap on any one scanner's share, spacing between one session's cards, and
+"""Ordering for the Highlights feed: a cap on any one scanner's share, spacing between one session's cards, and
 the floor of filler rows a quiet window returns."""
 
 import math
@@ -19,7 +19,7 @@ WATCH_FEED_MIN_ITEMS = 3
 class WatchFeedEntry:
     observation_id: UUID
     reason: dict[str, Any]
-    # Set only by rankers that space a recording's cards apart; None opts the entry out.
+    # None opts the entry out of session spacing.
     session_id: str | None = None
 
 

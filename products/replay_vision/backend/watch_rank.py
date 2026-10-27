@@ -463,8 +463,8 @@ def rank_watch_feed_by_embedding(rows: list[dict[str, Any]]) -> list[WatchFeedEn
     A pick is a row in its scanner's top fifth by score whose category is an issue. Rows of one feed group
     collapse to their best-scoring row, which carries the size of the group. Picks sort by weighted
     percentile, decayed for each earlier impression, viewed rows docked, one scanner held to a share
-    of the picks, and one session's picks spaced apart. Every other row is filler, trimmed to the same
-    floor as the other rankers.
+    of the picks, and one session's picks spaced apart. Every other row is filler, kept only to reach the
+    feed's floor.
     """
     # Rows from `select_embedding_picks` carry their whole-window percentile; a plain candidate slice does not.
     percentiles = (
