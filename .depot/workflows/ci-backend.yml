@@ -1840,10 +1840,9 @@ jobs:
                   fi
                   # The load is atomic: on failure the transaction rolls back and
                   # the fallback below recreates an empty DB for a full migrate.
-                  # ensure_migration_defaults re-seeds data-migration rows the
+                  # The migrate in the next step seeds the data-migration rows the
                   # schema-only dump lacks.
-                  if gunzip -c schema.sql.gz | docker compose -f docker-compose.dev.yml exec -T db psql -q -v ON_ERROR_STOP=1 --single-transaction -U posthog posthog > /dev/null \
-                      && (cd upstream-master && .venv-master/bin/python manage.py ensure_migration_defaults); then
+                  if gunzip -c schema.sql.gz | docker compose -f docker-compose.dev.yml exec -T db psql -q -v ON_ERROR_STOP=1 --single-transaction -U posthog posthog > /dev/null; then
                       echo "Primed posthog DB from cached master schema"
                   else
                       echo "::warning::Cached schema restore failed — recreating empty DB; the next step runs all migrations from scratch"
