@@ -60848,6 +60848,8 @@ export namespace Schemas {
       useSessionsTable?: boolean | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
+      /** Per-request switches for how web analytics serves this query. */
+      webQueryModifiers?: WebAnalyticsQueryModifiers | null;
     }
 
     export interface PageURL {
