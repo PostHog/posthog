@@ -10,19 +10,12 @@ import type { DashboardTileSpacing, TileGroupDisplay } from '~/types'
 import {
     DASHBOARD_GRID_COMPACTION_LABELS,
     DASHBOARD_TILE_SPACING_LABELS,
+    getTileSpacingChoices,
     DashboardGridCompaction,
     type DashboardGridCompaction as DashboardGridCompactionType,
     TILE_GROUP_DISPLAY_LABELS,
 } from '../../dashboardCustomization'
 import { DashboardTileMovementPreview } from './DashboardTileMovementPreview'
-
-const TILE_SPACING_OPTIONS: { value: DashboardTileSpacing; label: string }[] = [
-    { value: 'tight', label: DASHBOARD_TILE_SPACING_LABELS.tight },
-    { value: 'condensed', label: DASHBOARD_TILE_SPACING_LABELS.condensed },
-    { value: 'standard', label: DASHBOARD_TILE_SPACING_LABELS.standard },
-    { value: 'relaxed', label: DASHBOARD_TILE_SPACING_LABELS.relaxed },
-    { value: 'wide', label: DASHBOARD_TILE_SPACING_LABELS.wide },
-]
 
 const TILE_GROUP_DISPLAY_OPTIONS: { value: TileGroupDisplay; label: string }[] = [
     { value: 'sections', label: TILE_GROUP_DISPLAY_LABELS.sections },
@@ -77,7 +70,10 @@ export function DashboardCustomizeMenu(): JSX.Element | null {
                 <LemonRadio<DashboardTileSpacing>
                     value={tileSpacing}
                     onChange={changeDashboardTileSpacing}
-                    options={TILE_SPACING_OPTIONS}
+                    options={getTileSpacingChoices(tileSpacing).map((value) => ({
+                        value,
+                        label: DASHBOARD_TILE_SPACING_LABELS[value],
+                    }))}
                     orientation="horizontal"
                     className={layoutAvailable ? 'flex-1 flex-wrap gap-x-3 gap-y-1' : 'flex-wrap gap-x-3 gap-y-1'}
                     aria-label="Tile density"
