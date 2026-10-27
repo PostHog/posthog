@@ -9,7 +9,14 @@ from parameterized import parameterized
 
 from posthog.models.team.team import Team
 
-from products.signals.backend.scout_harness.model_selection import GLM_MODEL, ScoutModel, resolve_scout_model
+from products.signals.backend.agent_runtime import AgentRuntime
+from products.signals.backend.scout_harness.model_selection import (
+    GLM_MODEL,
+    ScoutModel,
+    resolve_scout_default_models,
+    resolve_scout_model,
+)
+from products.tasks.backend.facade.run_config import get_default_model_for_runtime_adapter
 
 _PAYLOAD_PATH = "products.signals.backend.scout_harness.model_selection.posthoganalytics.get_feature_flag_payload"
 
@@ -18,6 +25,8 @@ _SKILL = "signals-scout-team-self-driving"
 _OTHER_SKILL = "signals-scout-errors"
 _GPT = "gpt-5.5"
 _RUN_ID = "0190a000-0000-7000-8000-000000000001"
+_CLAUDE_DEFAULT = get_default_model_for_runtime_adapter("claude")
+_CODEX_DEFAULT = get_default_model_for_runtime_adapter("codex")
 
 
 def _fake_team(team_id: int = _TEAM_ID, parent_team_id: int | None = None) -> Team:
@@ -307,3 +316,27 @@ class TestConfigModelPin:
         ):
             resolved = resolve_scout_model(_fake_team(), _SKILL, _RUN_ID, configured_model="claude-opus-4-5")
         assert resolved.model == _GPT
+
+
+class TestResolveScoutDefaultModels:
+    _PIPELINE_PATH = "products.signals.backend.scout_harness.model_selection.resolve_agent_runtime"
+
+    @parameterized.expand(
+        [
+            ("runtime_default", None, AgentRuntime(), _CLAUDE_DEFAULT),
+            ("pipeline_pin", None, AgentRuntime(runtime_adapter="codex", model=_GPT), _GPT),
+            ("pipeline_runtime_without_model", None, AgentRuntime(runtime_adapter="codex"), _CODEX_DEFAULT),
+            ("pipeline_model_without_runtime_is_ignored", None, AgentRuntime(model=_GPT), _CLAUDE_DEFAULT),
+            (
+                "payload_remainder_beats_pipeline_pin",
+                _scouts({_SKILL: {GLM_MODEL: 0.2, "default": "claude-opus-5-5"}}),
+                AgentRuntime(runtime_adapter="codex", model=_GPT),
+                "claude-opus-5-5",
+            ),
+        ]
+    )
+    def test_names_the_model_an_unpinned_run_lands_on(
+        self, _name: str, payload: object, pipeline: AgentRuntime, expected: str | None
+    ) -> None:
+        with patch(_PAYLOAD_PATH, return_value=payload), patch(self._PIPELINE_PATH, return_value=pipeline):
+            assert resolve_scout_default_models(_fake_team(), [_SKILL]) == {_SKILL: expected}

@@ -68,6 +68,7 @@ from __future__ import annotations
 
 import json
 import hashlib
+from collections.abc import Iterable
 from dataclasses import dataclass
 
 import posthoganalytics
@@ -76,8 +77,11 @@ from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
 
-from products.signals.backend.agent_runtime import KNOWN_SERVICE_TIERS
-from products.tasks.backend.facade.run_config import get_models_for_runtime_adapter
+from products.signals.backend.agent_runtime import KNOWN_SERVICE_TIERS, STEP_SCOUT, resolve_agent_runtime
+from products.tasks.backend.facade.run_config import (
+    get_default_model_for_runtime_adapter,
+    get_models_for_runtime_adapter,
+)
 
 SCOUTS_MODEL_FLAG = "scouts-model-selection"
 
@@ -441,3 +445,20 @@ def resolve_scout_model(team: Team, skill_name: str, run_id: str, configured_mod
         reasoning_effort=spec.reasoning_effort,
         service_tier=spec.service_tier,
     )
+
+
+def resolve_scout_default_models(team: Team, skill_names: Iterable[str]) -> dict[str, str | None]:
+    """The model each named scout runs on while it has no pin, so the settings UI can name it.
+
+    Follows the runner's chain for an unpinned run that no trial slice picks: this scout's `default`
+    remainder in the `scouts-model-selection` payload, then the `signals-pipeline-models` scout pin,
+    then the default model of the runtime. A scout with trial slices sends a share of its runs to
+    other models, and this names only the remainder. Each flag payload is read once for all scouts.
+    """
+    scouts = _team_scouts(_read_payload(), team.id, team.parent_team_id or team.id)
+    pipeline = resolve_agent_runtime(team.id, STEP_SCOUT)
+    # The runner ignores a pipeline pin without a runtime, and the agent server then runs Claude.
+    adapter = pipeline.runtime_adapter or RUNTIME_ADAPTER_CLAUDE
+    pipeline_model = pipeline.model if pipeline.runtime_adapter else None
+    fallback = pipeline_model or get_default_model_for_runtime_adapter(adapter)
+    return {name: _scout_config(scouts, name)[1] or fallback for name in skill_names}

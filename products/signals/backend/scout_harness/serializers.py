@@ -3654,6 +3654,14 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text=_SCOUT_MODEL_HELP,
     )
+    default_model = serializers.SerializerMethodField(
+        help_text=(
+            "The model id this scout runs on while `model` is null, so a client can name the default. "
+            "It follows the platform defaults for this project, so it can change without an edit to "
+            "this scout. A scout in a model trial sends a share of its runs to other models. Null when "
+            "the default cannot be resolved."
+        ),
+    )
     precheck_query = serializers.CharField(read_only=True, allow_null=True, help_text=_PRECHECK_QUERY_HELP)
     precheck_disabled = serializers.BooleanField(read_only=True, help_text=_PRECHECK_DISABLED_HELP)
     effective_precheck_query = serializers.SerializerMethodField(
@@ -3807,6 +3815,12 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
     def get_precheck_query_source(self, obj: SignalScoutConfig) -> str:
         return self._effective_precheck(obj).source
 
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_default_model(self, obj: SignalScoutConfig) -> str | None:
+        # Resolved by the view for the whole fleet (see `scout_config_context`), so the list reads
+        # each model flag payload once instead of once per scout.
+        return (self.context.get("default_model_by_skill_name") or {}).get(obj.skill_name)
+
     @extend_schema_field(ScoutDeprecationSerializer(allow_null=True))
     def get_deprecation(self, obj: SignalScoutConfig) -> dict[str, Any] | None:
         # Same single-query `skill_info` map as `get_description`. The marker is read off the
@@ -3855,6 +3869,7 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "structured_output_schema",
             "network_access",
             "model",
+            "default_model",
             "mcp_gateway_server_ids",
             "repositories",
             "write_scopes",

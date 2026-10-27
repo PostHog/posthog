@@ -64,10 +64,28 @@ const SCOUT_MODEL_IDS = [
 ]
 
 // Labels come from the generated catalog, so every surface names a model the same way.
+function scoutModelLabel(id: string): string {
+    return MODELS.find((model) => model.id === id)?.label ?? id
+}
+
 const SCOUT_MODEL_OPTIONS: { value: string | null; label: string }[] = [
     { value: null, label: 'Default' },
-    ...SCOUT_MODEL_IDS.map((id) => ({ value: id, label: MODELS.find((model) => model.id === id)?.label ?? id })),
+    ...SCOUT_MODEL_IDS.map((id) => ({ value: id, label: scoutModelLabel(id) })),
 ]
+
+// The default follows platform settings, so the "Default" option names the model it resolves to.
+function scoutModelOptions(config: SignalScoutConfig): { value: string | null; label: string; hidden?: boolean }[] {
+    const options = SCOUT_MODEL_OPTIONS.map((option) =>
+        option.value === null && config.default_model
+            ? { ...option, label: `Default (${scoutModelLabel(config.default_model)})` }
+            : option
+    )
+    // A pin stored via the API can name a catalog model the picker doesn't offer;
+    // keep it selected (hidden from the menu) so opening the picker doesn't lose it.
+    return config.model && !SCOUT_MODEL_OPTIONS.some((option) => option.value === config.model)
+        ? [...options, { value: config.model, label: config.model, hidden: true }]
+        : options
+}
 
 interface ScoutConfigFormProps extends ScoutConfigControlsProps {
     onDelete?: (configId: string) => void
@@ -288,17 +306,12 @@ export function ScoutConfigForm({
                     <LemonSelect
                         size="small"
                         value={config.model ?? null}
-                        // A pin stored via the API can name a catalog model the picker doesn't offer;
-                        // keep it selected (hidden from the menu) so opening the picker doesn't lose it.
-                        options={
-                            config.model && !SCOUT_MODEL_OPTIONS.some((option) => option.value === config.model)
-                                ? [...SCOUT_MODEL_OPTIONS, { value: config.model, label: config.model, hidden: true }]
-                                : SCOUT_MODEL_OPTIONS
-                        }
+                        options={scoutModelOptions(config)}
                         // Editable while the scout is disabled for the same reason as network access:
                         // a newly enabled scout is immediately due, so the model must be settable first.
                         disabledReason={updating ? 'Saving scout settings' : undefined}
-                        className="w-44"
+                        // "Default (<model>)" is longer than the other options, so the picker grows to fit it.
+                        className="min-w-44"
                         onChange={(value) => {
                             if (value !== (config.model ?? null)) {
                                 onUpdate(config.id, { model: value })

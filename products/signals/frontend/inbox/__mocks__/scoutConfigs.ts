@@ -47,6 +47,7 @@ function makeMockScout(overrides: MockScoutOverrides): SignalScoutConfigApi {
         structured_output_schema: null,
         network_access: 'trusted',
         model: null,
+        default_model: 'claude-sonnet-5-5',
         precheck_query: null,
         precheck_disabled: false,
         effective_precheck_query: null,

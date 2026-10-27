@@ -104,6 +104,7 @@ from products.signals.backend.scout_harness.lifecycle_lock import (
     resolve_auth_kind,
     user_holds_scout_lifecycle_claim,
 )
+from products.signals.backend.scout_harness.model_selection import resolve_scout_default_models
 from products.signals.backend.scout_harness.precheck import (
     dry_run_scout_precheck,
     resolve_effective_precheck,
@@ -3277,6 +3278,7 @@ def scout_config_context(team: Team, skill_names: list[str], request: Request) -
         # `skill_name`), so they hold across edits to the skill body. `created_by` / `enabled_by`
         # on the config row say who last flipped a switch, which is a different question.
         "owners_by_skill_name": owners_by_skill_name,
+        "default_model_by_skill_name": resolve_scout_default_models(team, skill_names),
     }
 
 

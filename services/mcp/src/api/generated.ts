@@ -105921,6 +105921,11 @@ export namespace Schemas {
          */
       readonly model: string | null;
       /**
+         * The model id this scout runs on while `model` is null, so a client can name the default. It follows the platform defaults for this project, so it can change without an edit to this scout. A scout in a model trial sends a share of its runs to other models. Null when the default cannot be resolved.
+         * @nullable
+         */
+      readonly default_model: string | null;
+      /**
          * MCP gateway servers (by id) this scout's runs may use, chosen from the connections members shared to the whole team. Selection is per scout: an empty list gives the scout no MCP servers. Applies from the scout's next run.
          * @maxItems 100
          */
