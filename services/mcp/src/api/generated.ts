@@ -82883,6 +82883,7 @@ export namespace Schemas {
      * * `source_sync` - Source sync
      * * `fastest_schedule` - Fastest schedule
      * * `read_rate` - Read rate
+     * * `consumer_refresh` - Consumer refresh
      * * `savings` - Savings
      */
     export type WarehouseSuggestionRefreshIntervalBasisEnum = typeof WarehouseSuggestionRefreshIntervalBasisEnum[keyof typeof WarehouseSuggestionRefreshIntervalBasisEnum];
@@ -82892,6 +82893,7 @@ export namespace Schemas {
       SourceSync: 'source_sync',
       FastestSchedule: 'fastest_schedule',
       ReadRate: 'read_rate',
+      ConsumerRefresh: 'consumer_refresh',
       Savings: 'savings',
     } as const;
 
@@ -82905,11 +82907,12 @@ export namespace Schemas {
        * * `full` - Full
        * * `incremental` - Incremental */
       refresh_mode: WarehouseSuggestionRefreshModeEnum;
-      /** Why the interval is not shorter. source_sync: the view's sources sync no faster. fastest_schedule: PostHog refreshes views no more often. read_rate: people read the view no more often. savings: a shorter interval would cost more than it saves. Null on suggestions made before this was recorded.
+      /** Why the interval is not shorter. source_sync: the view's sources sync no faster. fastest_schedule: PostHog refreshes views no more often. read_rate: people read the view no more often. consumer_refresh: the materialized views that read it refresh no more often. savings: a shorter interval would cost more than it saves. Null on suggestions made before this was recorded.
        *
        * * `source_sync` - Source sync
        * * `fastest_schedule` - Fastest schedule
        * * `read_rate` - Read rate
+       * * `consumer_refresh` - Consumer refresh
        * * `savings` - Savings */
       refresh_interval_basis: WarehouseSuggestionRefreshIntervalBasisEnum | null;
       /** Name of the view to materialize. */
@@ -82936,6 +82939,8 @@ export namespace Schemas {
       unique_key?: string[];
       /** How far before the last refresh's highest incremental_key value each refresh reads again, in seconds. The last incremental_key value is always read again. */
       lookback_seconds?: number;
+      /** How many materialized views compute this view again on every refresh, because it is not stored. 0 when the saving comes only from people's reads. */
+      recomputed_by_views?: number;
     }
 
     export interface WarehouseSuggestionUnmaterializePayload {

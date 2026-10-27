@@ -1,5 +1,6 @@
 from dataclasses import replace
 from datetime import timedelta
+from types import SimpleNamespace
 from typing import Any
 from uuid import uuid4
 
@@ -571,3 +572,79 @@ class TestMaterializeAfterUnmaterialize(SimpleTestCase):
             (),
             ["was unmaterialized on a suggestion in the last 30 days"],
         )
+
+
+MATERIALIZE_MODULE = "products.warehouse_suggestions.backend.logic.candidates.materialize"
+FIRST_CONSUMER, SECOND_CONSUMER = uuid4(), uuid4()
+EVERY_BUCKET_ALLOWED = SimpleNamespace(
+    bounds=SimpleNamespace(allowed=(timedelta(minutes=15), HOUR, timedelta(hours=6), DAY), floor=None),
+    max_data_age=timedelta(0),
+    best_effort_source_ids=set(),
+    identities={},
+)
+
+
+class TestMaterializeRecomputedUpstream(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("one_consumer_refreshes_it_as_often_as_a_stored_copy_would", [FIRST_CONSUMER], 3, None, None, False),
+            ("two_consumers_with_a_measured_cost", [FIRST_CONSUMER, SECOND_CONSUMER], 3, None, None, True),
+            ("two_consumers_and_no_measurement", [FIRST_CONSUMER, SECOND_CONSUMER], None, None, None, False),
+            ("measured_before_the_last_edit", [FIRST_CONSUMER, SECOND_CONSUMER], 3, 1, None, False),
+            ("measurement_hit_the_time_limit", [FIRST_CONSUMER, SECOND_CONSUMER], None, None, 180, True),
+        ]
+    )
+    def test_proposes_a_view_that_materialized_views_compute_on_every_refresh(
+        self,
+        _name: str,
+        consumer_ids: list,
+        measured_days_ago: int | None,
+        edited_days_ago: int | None,
+        cap_seconds: int | None,
+        expect_draft: bool,
+    ) -> None:
+        reads = busy_reads(
+            human_requests=0,
+            human_reads=0,
+            human_days=0,
+            alone_reads=0,
+            measured_reads=1 if measured_days_ago else 0,
+            measured_duration_ms=TWENTY_SECONDS_MS,
+            last_measured_at=days_ago(measured_days_ago) if measured_days_ago else None,
+        )
+        candidate_context = context(
+            team_reads(
+                {view_subject(VIEW_ID): reads},
+                refreshes={
+                    consumer_id: SubjectRefreshes(runs=HOURLY_RUNS, duration_ms=HOURLY_RUNS * 60_000, read_bytes=1)
+                    for consumer_id in consumer_ids
+                },
+            ),
+            views=[view(VIEW_ID), *(view(consumer_id, materializes=True) for consumer_id in consumer_ids)],
+        )
+
+        with (
+            patch(f"{MATERIALIZE_MODULE}.dependent_saved_query_ids", return_value={VIEW_ID: frozenset(consumer_ids)}),
+            patch(f"{MATERIALIZE_MODULE}.saved_query_target_bounds", return_value=EVERY_BUCKET_ALLOWED),
+            patch(
+                f"{MATERIALIZE_MODULE}.last_query_change_at",
+                return_value=days_ago(edited_days_ago) if edited_days_ago else None,
+            ),
+            patch(f"{MATERIALIZE_MODULE}.measured_cap_seconds", return_value=cap_seconds),
+            patch(f"{MATERIALIZE_MODULE}.upstream_table_refs", return_value=[]),
+            patch(f"{MATERIALIZE_MODULE}.definition_database", return_value=None),
+        ):
+            result = MaterializeCandidate().evaluate(candidate_context)
+
+        needs_measurement = measured_days_ago is None and cap_seconds is None or bool(edited_days_ago)
+        assert result.measurement_requests == ((view_subject(VIEW_ID),) if needs_measurement else ())
+        if not expect_draft:
+            assert result.drafts == ()
+            return
+        [draft] = result.drafts
+        assert isinstance(draft.payload, MaterializePayload)
+        assert (
+            draft.payload.refresh_interval_seconds,
+            draft.payload.recomputed_by_views,
+            draft.payload.refresh_interval_basis,
+        ) == (HOUR.total_seconds(), 2, WarehouseSuggestionRefreshIntervalBasis.CONSUMER_REFRESH)

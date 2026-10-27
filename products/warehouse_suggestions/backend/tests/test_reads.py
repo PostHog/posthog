@@ -87,6 +87,26 @@ class TestReadTeamReads(ClickhouseTestMixin, BaseTest):
                 RollupRead(
                     subject_id=view,
                     day=YESTERDAY,
+                    request_id="consumer-refresh",
+                    user_id=0,
+                    lc_kind="temporal",
+                    lc_feature="data_modeling",
+                    duration_ms=4000,
+                ),
+                RollupRead(
+                    subject_id=view,
+                    day=TODAY - timedelta(days=2),
+                    request_id="measurement",
+                    user_id=0,
+                    lc_kind="temporal",
+                    lc_feature="warehouse_suggestions",
+                    read_alone=True,
+                    duration_ms=7000,
+                    read_bytes=5000,
+                ),
+                RollupRead(
+                    subject_id=view,
+                    day=YESTERDAY,
                     request_id="refresh-1",
                     read_kind=ReadKind.REFRESH,
                     workflow_id="run-1",
@@ -136,7 +156,10 @@ class TestReadTeamReads(ClickhouseTestMixin, BaseTest):
         assert rollup_days == RollupDays(days_with_data=3, recent_days_with_data=3)
         assert (reads.readers, reads.view_readers, reads.view_reads) == (3, 2, 2)
         assert (view_reads.human_requests, view_reads.human_users, view_reads.human_days) == (2, 2, 2)
-        assert (view_reads.background_reads, view_reads.background_duration_ms) == (1, 50)
+        assert (view_reads.background_reads, view_reads.background_duration_ms) == (3, 11050)
+        assert view_reads.other_background_requests == 1
+        assert (view_reads.measured_duration_ms, view_reads.measured_read_bytes) == (7000, 5000)
+        assert view_reads.last_measured_at == datetime.combine(TODAY - timedelta(days=2), time(hour=12), tzinfo=UTC)
         refreshes = reads.refreshes[view]
         assert (refreshes.runs, refreshes.duration_ms) == (2, 4090)
         assert {run.workflow_id: run.duration_ms for run in reads.refresh_runs[view]} == {"run-1": 1000, "run-2": 3090}
