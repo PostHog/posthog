@@ -419,6 +419,55 @@ tools:
                 - status
                 - version
                 - filters
+    feature-flag-rules-update:
+        operation: feature_flags_partial_update
+        enabled: true
+        scopes:
+            - feature_flag:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        input_schema: FlagRulesV2UpdateInputSchema
+        enrich_url: '{id}'
+        title: Replace feature flag rules
+        description: >
+            Replace the rules of a feature flag whose `filters.version` is 2. Requires the flag's numeric ID; use
+            `feature-flag-get-definition-by-key` to get it from a key. For a flag without `filters.version` 2, use
+            `update-feature-flag` instead; this tool cannot convert a flag between the two formats.
+
+
+            Read the flag first with `feature-flag-get-definition` or `feature-flag-get-definition-by-key`. Build the
+            new `filters` from what you read and send the whole document: `version` 2, the same `return_type`,
+            `default_value` and the complete ordered `rules` list. The server replaces the stored `filters` with what
+            you send, so a rule you leave out is deleted. Rules are evaluated in order and the first rule that returns a
+            value wins.
+
+
+            Each rule you read has an `id`, and randomized rules (`percentage_rollout`, `experiment`) have a `seed`.
+            Send both unchanged on every rule you keep, edit or move, so the rule keeps its identity and nobody is
+            reassigned. Leave `id` and `seed` off a new rule; the server assigns them. Never invent an `id` or change a
+            `seed`: the write is refused.
+
+
+            Send the flag's top-level `version` from your read (not `filters.version`). Returns 409 when the flag
+            changed after that version, and writes nothing. Read the flag again, rebuild the change on the current rules
+            and send it with the new `version`. Do not retry with the same `version`.
+
+
+            Returns 400 naming the first invalid field when the document is invalid. Fix it and send the document again;
+            the next attempt can name another field. Returns 400 with code `reserved_config_version` ("filters.version
+            is reserved") when this project or this flag does not accept version 2 rule changes. Do not remove
+            `filters.version`. Report that to the user; do not work around it with `update-feature-flag`. This tool
+            changes only `filters`. Use `feature-flag-enable` and `feature-flag-disable` to turn the flag on or off.
+        feature_flag: feature-flag-rules-v2-mcp
+        response:
+            include:
+                - id
+                - key
+                - active
+                - version
+                - filters
     feature-flag-set-release-condition-rollout:
         operation: feature_flags_set_release_condition_rollout_create
         enabled: true

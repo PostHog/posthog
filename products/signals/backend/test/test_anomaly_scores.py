@@ -47,7 +47,7 @@ from products.signals.backend.anomaly_scores.scoring import (
     score_series,
     trends_query_for,
 )
-from products.signals.backend.anomaly_scores.state import needs_training
+from products.signals.backend.anomaly_scores.state import TrainDue, train_due
 from products.signals.backend.anomaly_scores.tick import _INSIGHT_TIMEOUT
 
 NEW_YORK = ZoneInfo("America/New_York")
@@ -436,46 +436,48 @@ def _state(**changes: Any) -> TrainedState:
     return TrainedState(**fields)
 
 
-class TestNeedsTraining(SimpleTestCase):
+class TestTrainDue(SimpleTestCase):
     @parameterized.expand(
         [
-            ("fresh_state", _state(), False),
-            ("one_of_two_series_missing", _state(missing_series=1), False),
-            ("no_state", None, True),
-            ("no_artifact", _state(artifact_key=""), True),
+            ("fresh_state", _state(), TrainDue.NO),
+            ("one_of_two_series_missing", _state(missing_series=1), TrainDue.NO),
+            ("no_state", None, TrainDue.HARD),
+            ("no_artifact", _state(artifact_key=""), TrainDue.HARD),
             (
                 "query_changed",
                 _state(identity=StateIdentity(interval=IntervalType.DAY, detector_version="v1", query_hash="q0")),
-                True,
+                TrainDue.HARD,
             ),
             (
                 "detector_changed",
                 _state(identity=StateIdentity(interval=IntervalType.DAY, detector_version="v0", query_hash="q1")),
-                True,
+                TrainDue.HARD,
             ),
-            ("trained_too_long_ago", _state(trained_at=datetime(2026, 1, 2, tzinfo=UTC)), True),
-            ("gap_over_the_backfill_cap", _state(scored_through=datetime(2025, 12, 1, tzinfo=UTC)), True),
-            ("most_series_missing", _state(missing_series=2), True),
+            ("trained_too_long_ago", _state(trained_at=datetime(2026, 1, 2, tzinfo=UTC)), TrainDue.SOFT),
+            ("past_the_model_age_ceiling", _state(trained_at=datetime(2025, 12, 13, tzinfo=UTC)), TrainDue.HARD),
+            ("gap_over_the_backfill_cap", _state(scored_through=datetime(2025, 12, 1, tzinfo=UTC)), TrainDue.SOFT),
+            ("most_series_missing", _state(missing_series=2), TrainDue.HARD),
         ]
     )
-    def test_a_visit_trains_when_the_stored_state_cannot_score_it(
-        self, _name: str, state: TrainedState | None, trains: bool
+    def test_only_a_missing_or_untrusted_model_stops_score_steps(
+        self, _name: str, state: TrainedState | None, expected: TrainDue
     ) -> None:
         assert (
-            needs_training(
+            train_due(
                 state,
                 identity=_IDENTITY,
                 now=datetime(2026, 1, 10, 1, tzinfo=UTC),
                 timezone=ZoneInfo("UTC"),
                 train_every=7,
+                max_model_age=28,
                 max_backfill=30,
             )
-            is trains
+            == expected
         )
 
-    @parameterized.expand([("kept_current", 23, False), ("retrain_due", 24, True)])
-    def test_an_hourly_insight_kept_current_trains_only_after_train_every(
-        self, _name: str, hours_since_trained: int, trains: bool
+    @parameterized.expand([("kept_current", 23, TrainDue.NO), ("retrain_due", 24, TrainDue.SOFT)])
+    def test_an_hourly_insight_kept_current_is_due_only_after_train_every(
+        self, _name: str, hours_since_trained: int, expected: TrainDue
     ) -> None:
         identity = StateIdentity(interval=IntervalType.HOUR, detector_version="v1", query_hash="q1")
         now = datetime(2026, 1, 10, 12, 5, tzinfo=UTC)
@@ -486,8 +488,16 @@ class TestNeedsTraining(SimpleTestCase):
         )
 
         assert (
-            needs_training(state, identity=identity, now=now, timezone=ZoneInfo("UTC"), train_every=24, max_backfill=30)
-            is trains
+            train_due(
+                state,
+                identity=identity,
+                now=now,
+                timezone=ZoneInfo("UTC"),
+                train_every=24,
+                max_model_age=96,
+                max_backfill=30,
+            )
+            == expected
         )
 
 
