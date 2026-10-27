@@ -9,11 +9,13 @@ import html
 import time
 import hashlib
 from concurrent.futures import ThreadPoolExecutor, wait
+from http.client import HTTPException
 from typing import Any
 from urllib.parse import urlsplit
 
 import requests
 import structlog
+from urllib3.exceptions import HTTPError as Urllib3HTTPError
 
 from posthog.models import Team, User
 from posthog.models.uploaded_media import MEDIA_PURPOSE_EMAIL, ObjectStorageUnavailable, UploadedMedia, sniff_image
@@ -132,7 +134,10 @@ def _copy_images(team: Team, user: User, urls: list[str], budget: ImageBudget) -
             done, _ = wait(futures, timeout=max(budget.deadline - time.monotonic(), 0))
             for future, url in futures.items():
                 content = future.result() if future in done else None
-                media = _save(team, user, url, content) if content is not None else None
+                # Storage can be slow too, so nothing new is saved once the deadline has passed.
+                if content is None or time.monotonic() > budget.deadline:
+                    continue
+                media = _save(team, user, url, content)
                 if media is not None:
                     for spelling in spellings[names[url]]:
                         copied[spelling] = media.get_absolute_url()
@@ -174,7 +179,8 @@ def _download(url: str, deadline: float) -> bytes | None:
                     logger.info("workflows.import.image_download_failed", reason="too_large_or_slow")
                     return None
             return content
-    except requests.RequestException as error:
+    # The raw read raises socket and HTTP errors itself, outside what requests wraps.
+    except (requests.RequestException, OSError, HTTPException, Urllib3HTTPError) as error:
         logger.info("workflows.import.image_download_failed", error=type(error).__name__)
         return None
 
@@ -258,11 +264,13 @@ def _html(action: dict[str, Any]) -> str | None:
 def _with_html(action: dict[str, Any], body: str) -> dict[str, Any]:
     config = action["config"]
     email = config["inputs"]["email"]
+    # The design is built from the HTML when the draft is checked, so it is dropped and built again from the copies.
+    value = {key: item for key, item in email["value"].items() if key != "design"}
     return {
         **action,
         "config": {
             **config,
-            "inputs": {**config["inputs"], "email": {**email, "value": {**email["value"], "html": body}}},
+            "inputs": {**config["inputs"], "email": {**email, "value": {**value, "html": body}}},
         },
     }
 

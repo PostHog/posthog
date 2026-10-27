@@ -621,6 +621,11 @@ class TestWorkflowImportAPI(APIBaseTest):
         assert any(note["step_id"] == "cio_7" and "content" in note["message"] for note in result["notes"])
         assert all(call.kwargs["headers"]["Authorization"] == "Bearer k" for call in mock_get.call_args_list)
 
+        HogFlow.objects.filter(pk=result["workflow_id"]).update(status="active")
+        mock_get.reset_mock()
+        assert self._post(body).json()["results"][0]["status"] == "skipped"
+        assert not mock_get.called
+
     @patch("products.workflows.backend.services.customerio_import.app_api.time.sleep")
     @patch("products.workflows.backend.services.customerio_import.app_api.requests.Session.get")
     def test_rejected_key_still_imports_and_says_why(self, mock_get: MagicMock, _sleep: MagicMock) -> None:
@@ -650,12 +655,15 @@ class TestWorkflowImportAPI(APIBaseTest):
         smuggled = "https://userimg-assets.customeriomail.com&#64;evil.example.com/a.png"
         lookalike = "https://userimg-assets.customeriomaİl.com/a.png"
         guide = "https://userimg-assets.customeriomail.com/files/client-env-1/guide.pdf"
+        stalled = "https://userimg-assets.customeriomail.com/images/client-env-1/stalled.png"
         served = {hero, hero_webp, f"{hero}?w=1&h=2", logo}
 
         def respond(url: str, **kwargs: Any) -> MagicMock:
-            response = MagicMock(status_code=200 if url in served else 404)
+            response = MagicMock(status_code=200 if url in served or url == stalled else 404)
             response.__enter__.return_value = response
             response.raw = io.BytesIO(png.getvalue())
+            if url == stalled:
+                response.raw = MagicMock(spec=["read"], read=MagicMock(side_effect=TimeoutError("read timed out")))
             return response
 
         mock_get.side_effect = respond
@@ -667,13 +675,13 @@ class TestWorkflowImportAPI(APIBaseTest):
                 "body": f'<img src="{hero}"><img src="{gone}"><img src="https://cdn.example.com/logo.png">'
                 f'<img src="{hero_webp}"><img src="{sized}"><div style="background: url({logo})"></div>'
                 f'<img src="{templated}"><img src="{smuggled}"><img src="{lookalike}">'
-                f'<a href="{guide}">Guide</a><img src="{hero}?w=1&h=2">',
+                f'<a href="{guide}">Guide</a><img src="{hero}?w=1&h=2"><img src="{stalled}">',
             },
         }
         campaigns = [{"campaign": source.campaign, "actions": source.actions, "templates": list(templates.values())}]
 
         preview = self._import(campaigns=campaigns, dry_run=True)
-        assert any("5 email images on Customer.io's servers will be copied" in n["message"] for n in preview["notes"])
+        assert any("6 email images on Customer.io's servers will be copied" in n["message"] for n in preview["notes"])
         assert not mock_get.called
 
         first = self._import(campaigns=campaigns)
@@ -687,13 +695,19 @@ class TestWorkflowImportAPI(APIBaseTest):
             f'<img src="{urls[0]}"><img src="{gone}"><img src="https://cdn.example.com/logo.png">'
             f'<img src="{urls[1]}"><img src="{urls[2]}"><div style="background: url({urls[3]})"></div>'
             f'<img src="{templated}"><img src="{smuggled}"><img src="{lookalike}">'
-            f'<a href="{guide}">Guide</a><img src="{urls[2]}">'
+            f'<a href="{guide}">Guide</a><img src="{urls[2]}"><img src="{stalled}">'
         )
         requested = [call.args[0] for call in mock_get.call_args_list]
         assert "evil.example.com" not in " ".join(requested)
         assert guide not in requested
         assert requested.count(f"{hero}?w=1&h=2") == 1
         assert any(n["step_id"] == "cio_1" and gone in n["message"] for n in first["notes"])
+        design = json.dumps(
+            next(a for a in HogFlow.objects.get(pk=first["workflow_id"]).actions if a["id"] == "cio_1")["config"][
+                "inputs"
+            ]["email"]["value"]["design"]
+        )
+        assert hero_webp not in design and urls[1] in design
 
         self._import(campaigns=campaigns)
         assert UploadedMedia.objects.filter(team=self.team, purpose="email").count() == 4

@@ -36,13 +36,19 @@ def import_content(
     sender_identities: list[dict[str, Any]],
     segments: list[dict[str, Any]],
     deadline: float,
+    left_alone: frozenset[str] = frozenset(),
 ) -> ImportContent:
     sender_addresses = {**_identity_addresses(sender_identities), **options.sender_addresses}
     segment_info = {**_segment_info(segments), **options.segments}
     fetch_notes: dict[str, tuple[ImportNote, ...]] = {}
     fetched = False
 
-    missing = {id(source) for source in sources if _misses_templates(source)}
+    # An automation the import will leave unchanged needs no content, so it costs no reads.
+    missing = {
+        id(source)
+        for source in sources
+        if _misses_templates(source) and str(source.campaign.get("id")) not in left_alone
+    }
     api_key = _stored_app_api_key(team_id) if missing else None
     if api_key:
         api = CustomerioAppApi(api_key, deadline=deadline)
