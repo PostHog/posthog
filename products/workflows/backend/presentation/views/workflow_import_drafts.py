@@ -18,6 +18,7 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.workflows.backend.facade.activity import log_workflow_activity
 from products.workflows.backend.facade.contracts import (
     CampaignSource,
+    ImageBudget,
     ImportNote,
     ImportOptions,
     PreviousImport,
@@ -26,7 +27,6 @@ from products.workflows.backend.facade.contracts import (
 )
 from products.workflows.backend.facade.enums import HogFlowState, WorkflowImportNoteLevel
 from products.workflows.backend.facade.workflow_imports import (
-    ImageBudget,
     import_content,
     previous_import,
     record_import,

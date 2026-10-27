@@ -1080,6 +1080,13 @@ class RehostedWorkflow:
     notes: tuple[ImportNote, ...]
 
 
+@dataclass(frozen=False)
+class ImageBudget:
+    """How many more email images one import request may copy, shared by every automation in it."""
+
+    remaining: int = 100
+
+
 @frozen
 class PreviousImport:
     """The earlier import of a source object, when there is one."""

@@ -18,29 +18,16 @@ import structlog
 from posthog.models import Team, User
 from posthog.models.uploaded_media import MEDIA_PURPOSE_EMAIL, ObjectStorageUnavailable, UploadedMedia, sniff_image
 
-from products.workflows.backend.facade.contracts import ImportNote, RehostedWorkflow
+from products.workflows.backend.facade.contracts import ImageBudget, ImportNote, RehostedWorkflow
 from products.workflows.backend.facade.enums import WorkflowImportNoteLevel
 
 logger = structlog.get_logger(__name__)
 
 _ASSET_URL = re.compile(r"https://[a-z0-9-]+\.customeriomail\.com/[^\s\"'()<>]+", re.IGNORECASE)
 _MAX_BYTES = 4 * 1024 * 1024
-_MAX_IMAGES_PER_IMPORT = 100
 _TIMEOUT_SECONDS = 10
 _DOWNLOAD_DEADLINE_SECONDS = 30
 _DOWNLOAD_THREADS = 4
-
-
-class ImageBudget:
-    """How many more images one import request may download, shared by every automation in it."""
-
-    def __init__(self, remaining: int = _MAX_IMAGES_PER_IMPORT) -> None:
-        self.remaining = remaining
-
-    def take(self, urls: list[str]) -> list[str]:
-        taken = urls[: self.remaining]
-        self.remaining -= len(taken)
-        return taken
 
 
 def rehost_images(
@@ -108,7 +95,8 @@ def _copy_images(team: Team, user: User, urls: list[str], budget: ImageBudget) -
             copied[url] = existing.get_absolute_url()
         else:
             to_download.append(url)
-    to_download = budget.take(to_download)
+    to_download = to_download[: max(budget.remaining, 0)]
+    budget.remaining -= len(to_download)
     with ThreadPoolExecutor(max_workers=_DOWNLOAD_THREADS) as pool:
         # A few at a time, so at most that many images sit in memory before they are saved.
         for start in range(0, len(to_download), _DOWNLOAD_THREADS):
