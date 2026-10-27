@@ -134,6 +134,7 @@ class MonoSource(ResumableSource[MonoSourceConfig, MonoResumeConfig]):
                     ),
                     SourceFieldInputConfig(
                         name="start_date",
+                        sync_setting=True,
                         label="Transaction start date",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
