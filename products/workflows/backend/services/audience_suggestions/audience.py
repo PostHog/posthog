@@ -80,12 +80,14 @@ def reachable_count(
                 HAVING countIf(event = {event}) > 0 AND countIf(event = {missing}) = 0
             """
         case "regulars":
-            # The cohort counts repeat events over a rolling window, not from the start of the day.
+            # The cohort counts repeat events over a rolling window that ends 5 seconds from now, not by the day.
             placeholders["min_count"] = ast.Constant(value=min_count or 1)
             inner = """
                 SELECT person_id
                 FROM events
-                WHERE timestamp >= now() - toIntervalDay({window}) AND event = {event}
+                WHERE timestamp >= now() - toIntervalDay({window})
+                    AND timestamp < now() + toIntervalSecond(5)
+                    AND event = {event}
                 GROUP BY person_id
                 HAVING count() >= {min_count}
             """
