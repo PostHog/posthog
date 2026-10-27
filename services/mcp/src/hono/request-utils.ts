@@ -2,6 +2,7 @@ import { z } from 'zod'
 
 import { classifyAuthFailure, mapErrorToAuthResponse, validateBearerToken } from '@/lib/auth-errors'
 import { getPostHogClient } from '@/lib/posthog'
+import { MAX_BODY_BYTES, readBodyWithinLimit } from '@/lib/request-body'
 import {
     type ClientInfo,
     parseRequestProperties,
@@ -16,7 +17,7 @@ import { trackAuthFailure } from './analytics'
 import { resolveClientIp } from './client-ip'
 import { getEdgeClientIpSigningKeys } from './constants'
 import { authFailuresTotal, clientIpResolutionsTotal } from './metrics'
-import { MAX_BODY_BYTES, readBodyWithinLimit, rejectBodyTooLarge } from './request-body'
+import { rejectBodyTooLarge } from './request-body'
 import type { HonoCtx } from './types'
 
 const InitializeParamsSchema = z.object({

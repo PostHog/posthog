@@ -135,4 +135,17 @@ describe('MCP HTTP entry point (Cloudflare Workers)', () => {
             expect(location).toContain('/oauth/register')
         })
     })
+
+    describe('Request body limit', () => {
+        it('rejects a body above the size cap', async () => {
+            const response = await SELF.fetch('https://mcp.posthog.com/mcp', {
+                method: 'POST',
+                headers: { Authorization: 'Bearer phx_body_limit_test', 'Content-Type': 'application/json' },
+                body: 'a'.repeat(1_572_864),
+            })
+
+            expect(response.status).toBe(200)
+            expect(await response.json()).toMatchObject({ error: { code: -32600 } })
+        })
+    })
 })

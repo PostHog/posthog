@@ -5,6 +5,7 @@ import { isIdJagAccessToken } from '@/lib/id-jag'
 import { RequestLogger, withLogging } from '@/lib/logging'
 import { extractClientInfoFromBody } from '@/lib/mcp-client-info'
 import { corsHeadersForOAuthMetadata, oauthMetadataPreflightResponse } from '@/lib/oauth-metadata-cors'
+import { bodyTooLargeResponse, MAX_BODY_BYTES, withBodyWithinLimit } from '@/lib/request-body'
 import { RequestProperties } from '@/lib/request-properties'
 import { buildRedirectUrl, getPublicUrl, getRegionFromRequest, matchAuthServerRedirect } from '@/lib/routing'
 import { extractBearerToken, hash, parseMcpMode, sanitizeHeaderValue } from '@/lib/utils'
@@ -168,6 +169,13 @@ const handleRequest = async (
         )
     }
 
+    // The client info parse and the proxy below both read the whole body, so the size cap applies here first.
+    const boundedRequest = await withBodyWithinLimit(request, MAX_BODY_BYTES)
+    if (!boundedRequest) {
+        log.extend({ requestError: 'body_too_large' })
+        return bodyTooLargeResponse()
+    }
+
     // Organization and project IDs can be provided via headers or query params.
     // When set, they pin the MCP session to a specific org/project and remove the switch tools.
     const organizationId =
@@ -192,7 +200,7 @@ const handleRequest = async (
     // written after `onStart`/`init()` runs, so on the first connect `init()` has
     // no client info to read. Parsing the body here gives `init()` the values
     // synchronously via `RequestProperties`.
-    const clientInfo = await extractClientInfoFromBody(request)
+    const clientInfo = await extractClientInfoFromBody(boundedRequest)
 
     // Streamable-HTTP transport session id, minted by the MCP server on
     // initialize and echoed back on every subsequent request. Absent on the
@@ -274,7 +282,7 @@ const handleRequest = async (
     if (url.pathname.startsWith('/mcp')) {
         const region = await resolveProxyRegion(token, ctx.props.userHash, env.MCP_KV)
         log.extend({ proxy: 'hono', region })
-        const response = await proxyToHono(request, region)
+        const response = await proxyToHono(boundedRequest, region)
         if (isRejectedTokenChallenge(response)) {
             log.extend({ authError: 'rejected_token' })
             return withResourceMetadata(response, request, effectiveRegion)
