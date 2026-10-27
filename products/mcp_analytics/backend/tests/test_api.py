@@ -812,6 +812,14 @@ class TestActivityOverview(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin
             timestamp=datetime.now(tz=UTC) - timedelta(hours=1),
             properties={},
         )
+        for feedback_type in ("missing_capability", "issue"):
+            _create_event(
+                team=self.team,
+                event="$mcp_feedback",
+                distinct_id="agent-1",
+                timestamp=datetime.now(tz=UTC) - timedelta(hours=1),
+                properties={"$mcp_feedback_type": feedback_type},
+            )
         # Outside the 30-day window: must not count anywhere.
         _create_event(
             team=self.team,
@@ -830,7 +838,7 @@ class TestActivityOverview(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin
             distinct_clients=1,
             calls_with_intent=1,
             error_calls=1,
-            missing_capability_reports=1,
+            missing_capability_reports=2,
         )
         assert {(row.tool, row.calls, row.errors) for row in overview.top_tools} == {
             ("query_run", 1, 0),

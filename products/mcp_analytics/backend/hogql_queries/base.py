@@ -20,6 +20,7 @@ from posthog.hogql.property import property_to_expr
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.mcp_analytics.backend.constants import MCP_FEEDBACK_EVENT, MCP_MISSING_CAPABILITY_EVENT
 
 if TYPE_CHECKING:
     from posthog.schema import AnyPropertyFilterDiscriminated, DateRange, IntervalType
@@ -49,6 +50,22 @@ EFFECTIVE_DESCRIPTION_SQL = (
 CONVERSATION_ID_SQL = "coalesce(nullIf(toString(properties.$mcp_session_id), ''), toString(properties.$session_id))"
 # Marker the posthog-node MCP analytics SDK stamps on the events it sends.
 NEW_SDK_SOURCE = "posthog_mcp_analytics"
+
+
+def missing_capability_report_expr() -> ast.Expr:
+    """Events that report a capability an agent needed and could not find.
+
+    `reportMissing` emits `$mcp_missing_capability` from `get_more_tools`. `collectFeedback`
+    emits `$mcp_feedback` from `send_feedback`, and only its `missing_capability` type is such a
+    report. Both SDKs put the report text in `$mcp_intent`.
+    """
+    return parse_expr(
+        "event = {missing_capability_event} OR (event = {feedback_event} AND properties.$mcp_feedback_type = 'missing_capability')",
+        placeholders={
+            "missing_capability_event": ast.Constant(value=MCP_MISSING_CAPABILITY_EVENT),
+            "feedback_event": ast.Constant(value=MCP_FEEDBACK_EVENT),
+        },
+    )
 
 
 def mcp_source_expr() -> ast.Expr:

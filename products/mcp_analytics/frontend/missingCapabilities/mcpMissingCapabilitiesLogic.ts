@@ -118,8 +118,8 @@ export type mcpMissingCapabilitiesLogicType = MakeLogicType<
 >
 
 /**
- * The Missing capabilities tab: every `$mcp_missing_capability` report an agent filed, newest
- * first. The feed stays chronological because exact-text grouping would split similar
+ * The Missing capabilities tab: every missing-capability report an agent filed, from either
+ * `get_more_tools` or `send_feedback`, newest first. The feed stays chronological because exact-text grouping would split similar
  * free-form requests.
  */
 export const mcpMissingCapabilitiesLogic = kea<mcpMissingCapabilitiesLogicType>([
