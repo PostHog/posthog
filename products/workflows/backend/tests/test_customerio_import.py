@@ -714,6 +714,20 @@ class TestWorkflowImportAPI(APIBaseTest):
         assert [call.args[0] for call in mock_get.call_args_list].count(hero) == 1
         assert all(call.kwargs["allow_redirects"] is False for call in mock_get.call_args_list)
 
+    @patch("products.workflows.backend.presentation.views.workflow_import_drafts._REQUEST_SECONDS", 0)
+    @patch("products.workflows.backend.services.customerio_import.images.requests.get")
+    def test_no_image_downloads_start_after_the_deadline(self, mock_get: MagicMock) -> None:
+        source = _onboarding_campaign()
+        image = "https://userimg-assets.customeriomail.com/images/client-env-1/late.png"
+        templates = {**source.templates, "11": {**source.templates["11"], "body": f'<img src="{image}">'}}
+        result = self._import(
+            campaigns=[{"campaign": source.campaign, "actions": source.actions, "templates": list(templates.values())}]
+        )
+
+        assert result["status"] == "created"
+        assert any(image in note["message"] for note in result["notes"])
+        assert not mock_get.called
+
     @patch("products.workflows.backend.services.customerio_import.images.requests.get")
     def test_a_key_without_media_access_copies_no_images(self, mock_get: MagicMock) -> None:
         key = generate_random_token_personal()

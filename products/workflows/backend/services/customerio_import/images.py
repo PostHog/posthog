@@ -127,6 +127,8 @@ def _copy_images(team: Team, user: User, urls: list[str], budget: ImageBudget) -
     try:
         # A few at a time, so at most that many images sit in memory before they are saved.
         for start in range(0, len(to_download), _DOWNLOAD_THREADS):
+            if time.monotonic() >= budget.deadline:
+                break
             futures = {
                 pool.submit(_download, url, budget.deadline): url
                 for url in to_download[start : start + _DOWNLOAD_THREADS]
