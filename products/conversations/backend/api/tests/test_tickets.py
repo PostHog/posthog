@@ -3,6 +3,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from decimal import Decimal
 from threading import Barrier, Event
+from typing import Any
 from uuid import UUID
 
 import time_machine
@@ -96,8 +97,8 @@ class TestComposeTicketSerializer(SimpleTestCase):
 
 
 class TestTicketBriefSerializer(SimpleTestCase):
-    def _brief(self, **overrides):
-        data = {
+    def _brief(self, **overrides: Any) -> dict[str, Any]:
+        data: dict[str, Any] = {
             "ask": "Explain why the flag returns false at 100% rollout.",
             "area": "Feature flags",
             "questions": ["Why does it return false?"],
@@ -123,12 +124,26 @@ class TestTicketBriefSerializer(SimpleTestCase):
                 {"affected_items": [{"kind": "insight", "url": f"https://e.com/{i}", "label": "I"} for i in range(6)]},
                 "affected_items",
             ),
+            (
+                "item_label_over_cap",
+                {"affected_items": [{"kind": "insight", "url": "https://e.com", "label": "x" * 121}]},
+                "affected_items",
+            ),
             ("replay_url_not_a_url", {"replay_url": "not-a-url"}, "replay_url"),
             ("purpose_over_cap", {"purpose": "x" * 301}, "purpose"),
             ("error_message_over_cap", {"error_message": "x" * 601}, "error_message"),
+            ("too_many_tried", {"tried": [f"t{i}" for i in range(6)]}, "tried"),
+            ("too_many_facts", {"facts": [f"f{i}" for i in range(6)]}, "facts"),
+            (
+                "too_many_screenshots",
+                {"screenshot_urls": [f"https://e.com/{i}.png" for i in range(6)]},
+                "screenshot_urls",
+            ),
         ]
     )
-    def test_rejects_brief_the_panel_cannot_render(self, _name, overrides, expected_error_field):
+    def test_rejects_brief_the_panel_cannot_render(
+        self, _name: str, overrides: dict[str, Any], expected_error_field: str
+    ) -> None:
         # The writer is an agent, so an uncapped or unknown-shaped field reaches the sidebar as
         # a wall of text or an undefined label. Every cap here is what keeps the brief readable.
         brief = self._brief(**overrides)
@@ -145,7 +160,9 @@ class TestTicketBriefSerializer(SimpleTestCase):
             ("empty_object", {}, ["area", "ask", "questions"]),
         ]
     )
-    def test_patch_rejects_a_brief_missing_a_required_field(self, _name, brief, expected_missing):
+    def test_patch_rejects_a_brief_missing_a_required_field(
+        self, _name: str, brief: dict[str, Any], expected_missing: list[str]
+    ) -> None:
         # A PATCH makes the parent serializer partial, and DRF propagates that into the nested
         # brief, so `required` alone stops being enforced. A brief with no ask then reaches the
         # sidebar, where rendering it throws and takes the whole ticket scene down.
@@ -153,20 +170,31 @@ class TestTicketBriefSerializer(SimpleTestCase):
         assert not serializer.is_valid()
         assert sorted(serializer.errors["ticket_brief"]) == expected_missing
 
-    def test_accepts_a_brief_with_no_purpose(self):
+    @parameterized.expand([("no_url", {"kind": "insight", "label": "Conversion"}), ("only_kind", {"kind": "insight"})])
+    def test_patch_rejects_an_affected_item_missing_a_required_field(self, _name: str, item: dict[str, Any]) -> None:
+        # The partial flag reaches the item through the ListField as well, so an item needs the
+        # same check as the brief around it. Without one, a PATCH stores an item with no url and
+        # the panel renders it as a link that goes nowhere.
+        serializer = TicketUpdateRequestSerializer(
+            data={"ticket_brief": self._brief(affected_items=[item])}, partial=True
+        )
+        assert not serializer.is_valid()
+        assert "affected_items" in serializer.errors["ticket_brief"]
+
+    def test_accepts_a_brief_with_no_purpose(self) -> None:
         # The common shape: the customer said what they want, not why. Requiring purpose
         # would make the agent invent one, and the engineer would answer that instead.
         serializer = TicketBriefSerializer(data=self._brief())
         assert serializer.is_valid(), serializer.errors
         assert "purpose" not in serializer.validated_data
 
-    def test_patch_clears_the_brief_with_an_explicit_null(self):
+    def test_patch_clears_the_brief_with_an_explicit_null(self) -> None:
         # Rejecting an incomplete brief would otherwise leave no way to remove a wrong one.
         serializer = TicketUpdateRequestSerializer(data={"ticket_brief": None}, partial=True)
         assert serializer.is_valid(), serializer.errors
         assert serializer.validated_data["ticket_brief"] == {}
 
-    def test_accepts_a_full_brief(self):
+    def test_accepts_a_full_brief(self) -> None:
         serializer = TicketBriefSerializer(
             data=self._brief(
                 affected_items=[
@@ -378,6 +406,9 @@ class TestTicketAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["id"], str(self.ticket.id))
         self.assertEqual(response.json()["status"], Status.NEW)
+        # The column defaults to {}, and a client that cannot tell an unrouted ticket from one
+        # with an empty ask reads the panel wrong, so the read path has to report null.
+        self.assertIsNone(response.json()["ticket_brief"])
 
     def test_retrieve_ticket_by_ticket_number(self, mock_on_commit):
         """Test retrieving a ticket by ticket_number instead of UUID."""
@@ -1118,7 +1149,9 @@ class TestWriteBriefEndpoint(APIBaseTest):
             response = self.client.post(self.url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), {"written": True, "reason": ""})
-        self.assertEqual(helper.call_args.kwargs["ticket_id"], str(self.ticket.id))
+        # The whole call, because passing respect_opt_in=True here would reinstate the wait the
+        # button exists to skip, and a wrong team_id would brief someone else's ticket.
+        self.assertEqual(helper.call_args.kwargs, {"team_id": self.team.id, "ticket_id": str(self.ticket.id)})
 
 
 class TestBulkUpdateStatus(APIBaseTest):

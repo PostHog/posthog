@@ -275,7 +275,10 @@ class WriteTicketBriefResponseSerializer(serializers.Serializer):
     written = serializers.BooleanField(help_text="Whether a brief was stored on the ticket.")
     reason = serializers.CharField(
         allow_blank=True,
-        help_text="Why no brief was stored. Empty when one was. One of: llm_failed, not_an_object, invalid, ticket_gone.",
+        help_text=(
+            "Why no brief was stored. Empty when one was. One of: gate_failed, llm_failed, "
+            "not_an_object, invalid, store_failed, ticket_gone."
+        ),
     )
 
 

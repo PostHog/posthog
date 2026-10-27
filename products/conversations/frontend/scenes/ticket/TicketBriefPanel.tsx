@@ -90,10 +90,14 @@ function BriefError({ error }: { error: string | null | undefined }): JSX.Elemen
 
 function briefLinks(brief: TicketBriefApi): { key: string; label: string; url: string }[] {
     const links = [
-        ...(brief.affected_items ?? []).map((item) => ({
-            label: `${ITEM_KIND_LABELS[item.kind] ?? FALLBACK_ITEM_KIND_LABEL}: ${item.label}`,
-            url: item.url,
-        })),
+        // An item with no url is dropped rather than rendered, because a Link with no target
+        // looks like the rest of the list and leads nowhere.
+        ...(brief.affected_items ?? [])
+            .filter((item) => !!item.url)
+            .map((item) => ({
+                label: `${ITEM_KIND_LABELS[item.kind] ?? FALLBACK_ITEM_KIND_LABEL}: ${item.label || 'Untitled'}`,
+                url: item.url,
+            })),
         ...(brief.replay_url ? [{ label: 'Session replay', url: brief.replay_url }] : []),
         ...(brief.screenshot_urls ?? []).map((url, index) => ({ label: `Screenshot ${index + 1}`, url })),
     ]
@@ -113,7 +117,9 @@ function BriefLinks({ brief }: { brief: TicketBriefApi }): JSX.Element | null {
             <ul className="m-0 mt-0.5 pl-0 list-none space-y-0.5">
                 {links.map((link) => (
                     <li key={link.key} className="min-w-0">
-                        <Link to={link.url} target="_blank" className="truncate">
+                        {/* `block` so the ellipsis applies: truncate does nothing on the
+                            inline anchor Link renders by default. */}
+                        <Link to={link.url} target="_blank" className="block truncate">
                             {link.label}
                         </Link>
                     </li>

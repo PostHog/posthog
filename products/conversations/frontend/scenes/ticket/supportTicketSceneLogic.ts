@@ -147,6 +147,18 @@ function regionFromUrl(url?: string): Region | undefined {
 // login in distinct_id, which matches no PostHog user.
 const ATTESTED_LOOKUP_CHANNELS: TicketChannel[] = ['widget', 'email', 'slack', 'teams']
 
+// The brief endpoint reports why it wrote nothing as a code for the run's own logs. These are
+// the same outcomes said in words, because the engineer who pressed the button reads the toast.
+const BRIEF_FAILURE_MESSAGES: Record<string, string> = {
+    disabled: 'Briefs are turned off for this team.',
+    gate_failed: "Couldn't check whether briefs are on for this team. Try again.",
+    llm_failed: "Couldn't reach the model. Try again in a moment.",
+    not_an_object: "The model didn't return a brief. Try again.",
+    invalid: "The model's brief didn't fit the required format. Try again.",
+    store_failed: "Couldn't save the brief. Try again.",
+    ticket_gone: 'This ticket no longer exists.',
+}
+
 export function getImpersonationTicketContext(
     ticket: Pick<
         Ticket,
@@ -1805,7 +1817,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                     actions.loadTicket()
                     lemonToast.success('Wrote the brief')
                 } else {
-                    lemonToast.error(`No brief written: ${result.reason || 'unknown reason'}`)
+                    lemonToast.error(BRIEF_FAILURE_MESSAGES[result.reason] ?? "Couldn't write the brief. Try again.")
                 }
             } catch {
                 lemonToast.error("Couldn't write the brief")
