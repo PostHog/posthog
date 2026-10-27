@@ -80,6 +80,7 @@ SLACK_INSTALLATION_GITHUB = "products.commands.backend.logic.subjects.Installati
 SLACK_POST = "products.commands.backend.channels.slack.mentions.post_message"
 KNOWLEDGE_WRITER_LAUNCH_FLAG = "products.knowledge_writer.backend.feature_flags.posthoganalytics.feature_enabled"
 START_TASK_WORKFLOW = "products.tasks.backend.logic.services.workflow_dispatch.enqueue_or_start_workflow"
+KNOWLEDGE_WRITER_OPEN_PULL_REQUESTS = "products.knowledge_writer.backend.logic.intake.open_writer_pull_requests"
 
 # Each test gets its own commenter, so the per-commenter rate limit in Redis never carries over.
 _github_ids = count(10_000)
@@ -361,6 +362,7 @@ class TestDispatchCommentCommand(BaseTest):
         with (
             patch.dict(os.environ, self._knowledge_writer_env()),
             patch(KNOWLEDGE_WRITER_LAUNCH_FLAG, return_value=True),
+            patch(KNOWLEDGE_WRITER_OPEN_PULL_REQUESTS, return_value=[]),
             patch(START_TASK_WORKFLOW),
         ):
             outcome = dispatch_comment_command(

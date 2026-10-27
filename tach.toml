@@ -1880,7 +1880,7 @@ from = [
 
 [[modules]]
 path = "products.knowledge_writer"
-depends_on = ["posthog", "products.tasks"]
+depends_on = ["posthog", "products.business_knowledge", "products.tasks"]
 layer = "modules"
 
 [[interfaces]]
