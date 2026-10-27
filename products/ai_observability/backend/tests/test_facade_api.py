@@ -108,8 +108,12 @@ def test_feedback_maps_scores_texts_and_survey_responses_oldest_first() -> None:
         patch.object(api, "get_survey_responses_linked_to", return_value=linked),
     ):
         feedback = api.get_trace_feedback(
-            team=None, user=None, trace_id="trace-1", timestamp_hint=None, include_surveys=True
-        )  # type: ignore[arg-type]
+            team=None,  # type: ignore[arg-type]
+            user=None,
+            trace_id="trace-1",
+            timestamp_hint=None,
+            include_surveys=True,
+        )
 
     assert [(score.name, score.value, score.node_id) for score in feedback.scores] == [("helpfulness", "0", "gen-uuid")]
     assert [(response.kind, response.id) for response in feedback.responses] == [("survey", "sub-1"), ("text", "text")]
