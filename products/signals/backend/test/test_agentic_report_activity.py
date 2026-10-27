@@ -15,6 +15,7 @@ import pytest_asyncio
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
 from pydantic import ValidationError
+from temporalio.exceptions import ApplicationError
 
 from posthog.models import Organization, Team, User
 from posthog.models.organization import OrganizationMembership
@@ -63,6 +64,7 @@ from products.signals.backend.report_metrics import REPORT_METRIC_GOAL_FIELDS, R
 from products.signals.backend.supersession import ImplementationResearchContext
 from products.signals.backend.temporal.agentic.report import (
     RESEARCH_MCP_SCOPES,
+    RESEARCH_SANDBOX_UNAVAILABLE_ERROR_TYPE,
     RunAgenticReportInput,
     _load_linked_report_context,
     _load_previous_research,
@@ -84,6 +86,7 @@ from products.signals.backend.temporal.summary import (
     mark_report_ready_activity,
 )
 from products.signals.backend.temporal.types import SignalData
+from products.tasks.backend.facade.agents import SandboxRunFailed
 from products.tasks.backend.models import Task  # tach-ignore
 
 
@@ -739,6 +742,48 @@ async def test_select_repository_activity_does_not_raise_with_only_user_integrat
 
     assert result.repository == "posthog/posthog"
     assert captured_user_id == [user.id], "user_id should come from the UserIntegration owner"
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "sandbox_error_type,expected_transient",
+    [("RepositoryCloneError", True), ("RepositoryAccessError", False)],
+)
+async def test_run_agentic_report_activity_flags_transient_sandbox_failures(
+    monkeypatch, ateam, sandbox_error_type, expected_transient
+):
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam,
+        status=SignalReport.Status.IN_PROGRESS,
+        signal_count=2,
+        total_weight=1.3,
+    )
+    monkeypatch.setattr("products.signals.backend.temporal.agentic.report.resolve_user_id_for_team", lambda team_id: 1)
+
+    async def fake_run_multi_turn_research(*args, **kwargs):
+        raise SandboxRunFailed("TaskRun reached terminal status=failed", error_type=sandbox_error_type)
+
+    monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.report.run_multi_turn_research", fake_run_multi_turn_research
+    )
+
+    with patch("products.signals.backend.temporal.agentic.report.Heartbeater"):
+        with pytest.raises((ApplicationError, SandboxRunFailed)) as error:
+            await run_agentic_report_activity(
+                RunAgenticReportInput(
+                    team_id=ateam.id,
+                    report_id=str(report.id),
+                    signals=_build_signals(),
+                    repo_selection=RepoSelectionResult(repository="posthog/posthog", reason="single repository"),
+                )
+            )
+
+    if expected_transient:
+        assert isinstance(error.value, ApplicationError)
+        assert error.value.type == RESEARCH_SANDBOX_UNAVAILABLE_ERROR_TYPE
+    else:
+        assert isinstance(error.value, SandboxRunFailed)
 
 
 @pytest.mark.asyncio
