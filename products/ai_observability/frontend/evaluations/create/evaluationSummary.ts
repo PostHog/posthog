@@ -34,7 +34,7 @@ export function triggerText(evaluation: EvaluationConfig): string {
     }${filterCount ? ` (${pluralize(filterCount, 'filter')})` : ''}`
 }
 
-/** When reports arrive, such as "weekly reports", or "no reports". */
+/** How often a report arrives, such as "weekly" or "every 100 results", or "never" when reports are off. */
 export function reportText(report: {
     enabled: boolean
     frequency: string
@@ -42,12 +42,12 @@ export function reportText(report: {
     triggerThreshold: number
 }): string {
     if (!report.enabled) {
-        return 'no reports'
+        return 'never'
     }
     if (report.frequency === 'scheduled') {
-        return `${report.scheduleCadence} reports`
+        return report.scheduleCadence
     }
-    return `a report every ${report.triggerThreshold} results`
+    return `every ${report.triggerThreshold} results`
 }
 
 /** Who does the checking, such as "an LLM judge (gpt-4o-mini)". */

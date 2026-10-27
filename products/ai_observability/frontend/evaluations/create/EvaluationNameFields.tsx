@@ -19,8 +19,6 @@ export function EvaluationNameFields(): JSX.Element | null {
     if (!evaluation) {
         return null
     }
-    // A template's description shows straight away. Otherwise the field waits behind a button, so it takes no room.
-    const showDescription = descriptionOpen || !!evaluation.description
 
     return (
         <div className="grid grid-cols-1 gap-4 @min-[40rem]/evaluation:grid-cols-[minmax(0,1fr)_14rem]">
@@ -29,7 +27,8 @@ export function EvaluationNameFields(): JSX.Element | null {
                     <label className="font-semibold text-sm" htmlFor="llma-evaluation-create-name">
                         Name
                     </label>
-                    {!showDescription && (
+                    {/* The field waits behind this button, even when a template filled it in, so it takes no room. */}
+                    {!descriptionOpen && (
                         <LemonButton
                             type="tertiary"
                             size="xsmall"
@@ -37,7 +36,7 @@ export function EvaluationNameFields(): JSX.Element | null {
                             onClick={() => setDescriptionOpen(true)}
                             data-attr="llma-evaluation-create-add-description"
                         >
-                            Add description
+                            {evaluation.description ? 'Edit description' : 'Add description'}
                         </LemonButton>
                     )}
                 </div>
@@ -50,7 +49,7 @@ export function EvaluationNameFields(): JSX.Element | null {
                     autoFocus={!evaluation.name}
                     data-attr="llma-evaluation-create-name"
                 />
-                {showDescription && (
+                {descriptionOpen && (
                     <div className="flex flex-col gap-1 mt-1">
                         <label className="font-semibold text-sm" htmlFor="llma-evaluation-create-description">
                             Description <span className="font-normal text-secondary">(optional)</span>
@@ -58,14 +57,10 @@ export function EvaluationNameFields(): JSX.Element | null {
                         <LemonInput
                             id="llma-evaluation-create-description"
                             value={evaluation.description || ''}
-                            onChange={(description) => {
-                                // Keeps the field open when someone clears a description a template filled in.
-                                setDescriptionOpen(true)
-                                setEvaluationDescription(description)
-                            }}
+                            onChange={setEvaluationDescription}
                             placeholder="What it checks and when to use it, for your teammates"
                             maxLength={500}
-                            autoFocus={descriptionOpen && !evaluation.description}
+                            autoFocus
                             data-attr="llma-evaluation-create-description"
                         />
                     </div>

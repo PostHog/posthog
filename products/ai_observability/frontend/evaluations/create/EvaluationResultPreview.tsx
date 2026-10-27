@@ -86,7 +86,7 @@ export function EvaluationResultPreview({
                 </div>
                 <ul className="m-0 p-0 list-none flex flex-col gap-1 text-sm" data-attr="llma-evaluation-create-scope">
                     {volume && <li>{`Runs ${runRate(volume.runs)}, from last week's traffic`}</li>}
-                    <li>{reports.charAt(0).toUpperCase() + reports.slice(1)}</li>
+                    <li>{reports === 'never' ? 'No reports' : `Reports ${reports}`}</li>
                 </ul>
             </div>
             {todo.length > 0 && (

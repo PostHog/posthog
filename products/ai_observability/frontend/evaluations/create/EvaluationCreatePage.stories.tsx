@@ -60,7 +60,7 @@ const meta: Meta = {
         testOptions: {
             waitForSelector: [
                 '[data-attr="llma-evaluation-create-volume"]',
-                '[data-attr="llma-evaluation-create-sample"] header',
+                '[data-attr="llma-evaluation-create-sample"] dl',
             ],
         },
     },

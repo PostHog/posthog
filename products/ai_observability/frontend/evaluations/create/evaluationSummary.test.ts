@@ -42,12 +42,12 @@ describe('evaluation sentence parts', () => {
     })
 
     test.each([
-        { name: 'off', input: { enabled: false, frequency: 'scheduled' }, expected: 'no reports' },
-        { name: 'scheduled', input: { enabled: true, frequency: 'scheduled' }, expected: 'weekly reports' },
+        { name: 'off', input: { enabled: false, frequency: 'scheduled' }, expected: 'never' },
+        { name: 'scheduled', input: { enabled: true, frequency: 'scheduled' }, expected: 'weekly' },
         {
             name: 'by result count',
             input: { enabled: true, frequency: 'every_n' },
-            expected: 'a report every 100 results',
+            expected: 'every 100 results',
         },
     ])('reports: $name', ({ input, expected }) => {
         expect(reportText({ scheduleCadence: 'weekly', triggerThreshold: 100, ...input })).toEqual(expected)

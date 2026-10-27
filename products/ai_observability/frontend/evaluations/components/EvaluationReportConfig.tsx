@@ -27,7 +27,7 @@ import {
 } from '../evaluationReportLogic'
 import type { ReportDestination, ReportScheduleCadence, ReportScheduleWeekday } from '../evaluationReportLogic'
 
-const GUIDANCE_PLACEHOLDER =
+export const GUIDANCE_PLACEHOLDER =
     "Optional guidance for the report agent. e.g. 'Focus on cost regressions across models', 'Compare latency between gpt-4o-mini and claude-sonnet', 'Keep it to 2 sections max'"
 
 const FREQUENCY_OPTIONS = [
@@ -178,7 +178,7 @@ function DestinationRow({
 }
 
 /** Where reports go besides the Reports tab. Each destination is added from a menu, so unused ones take no room. */
-function DeliveryTargetsConfig({
+export function DeliveryTargetsConfig({
     emailValue,
     onEmailChange,
     slackIntegrationId,

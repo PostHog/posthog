@@ -6,7 +6,6 @@ import { useMemo, useRef } from 'react'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { cn } from 'lib/utils/css-classes'
 
 import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
 import { SceneStickyBar, useSceneStickyBarBottom } from '~/layout/scenes/components/SceneStickyBar'
@@ -28,7 +27,7 @@ import { EvaluationResultPreview } from './EvaluationResultPreview'
 import { EvaluationSamplePanel } from './EvaluationSamplePanel'
 import { EvaluationSentence } from './EvaluationSentence'
 
-/** The new evaluation form: its name, one sentence for the whole setup, and the instructions next to a real example. */
+/** The new evaluation form: its name, one sentence for the whole setup, the instructions, and a real example beside them. */
 export function EvaluationCreatePage({ templateKey }: { templateKey?: string }): JSX.Element | null {
     const {
         evaluation,
@@ -129,27 +128,15 @@ export function EvaluationCreatePage({ templateKey }: { templateKey?: string }):
                         <div className="bg-bg-light border rounded p-4 @min-[40rem]/evaluation:p-6 min-w-0 flex flex-col gap-6">
                             <EvaluationNameFields />
                             <EvaluationSentence />
-                            <div className="@container/instructions">
-                                <div
-                                    className={cn(
-                                        'grid grid-cols-1 gap-6 items-start',
-                                        // Sentiment has no instructions to write, so the example takes the whole row.
-                                        evaluation.evaluation_type !== 'sentiment' &&
-                                            '@min-[48rem]/instructions:grid-cols-2'
-                                    )}
-                                >
-                                    <div className="flex flex-col gap-4 min-w-0">
-                                        {evaluation.evaluation_type === 'llm_judge' && <EvaluationPromptEditor />}
-                                        {evaluation.evaluation_type === 'hog' && <EvaluationCodeEditor />}
-                                        <EvaluationOutputFields />
-                                    </div>
-                                    <EvaluationSamplePanel />
-                                </div>
+                            <div className="flex flex-col gap-4 min-w-0">
+                                {evaluation.evaluation_type === 'llm_judge' && <EvaluationPromptEditor />}
+                                {evaluation.evaluation_type === 'hog' && <EvaluationCodeEditor />}
+                                <EvaluationOutputFields />
                             </div>
                         </div>
                         {/* Pinned just under the sticky header, so scrolling never hides the checklist behind it. */}
                         <div
-                            className="@min-[64rem]/evaluation:sticky"
+                            className="flex flex-col gap-4 @min-[64rem]/evaluation:sticky"
                             // eslint-disable-next-line react/forbid-dom-props
                             style={{ top: headerBottom + 16 }}
                         >
@@ -158,6 +145,7 @@ export function EvaluationCreatePage({ templateKey }: { templateKey?: string }):
                                 onCreate={handleCreate}
                                 onCancel={handleCancel}
                             />
+                            <EvaluationSamplePanel />
                         </div>
                     </div>
                 </div>

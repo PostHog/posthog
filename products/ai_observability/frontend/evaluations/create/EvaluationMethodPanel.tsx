@@ -5,7 +5,6 @@ import { LemonSegmentedButton, Link } from '@posthog/lemon-ui'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-import { EvaluationJudgeModelPicker } from '../components/EvaluationJudgeModelPicker'
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
 
 type Method = 'llm_judge' | 'decision' | 'hog' | 'sentiment'
@@ -53,8 +52,7 @@ export function EvaluationMethodPanel(): JSX.Element | null {
 
     return (
         <div className="flex flex-col gap-2">
-            {/* Top-aligned, so notices under the model picker do not push the method buttons down. */}
-            <div className="flex flex-wrap items-start gap-2 text-sm">
+            <div>
                 <LemonSegmentedButton
                     value={method}
                     onChange={setMethod}
@@ -68,14 +66,6 @@ export function EvaluationMethodPanel(): JSX.Element | null {
                     ]}
                     data-attr="llma-evaluation-create-method"
                 />
-                {isJudge && (
-                    <>
-                        <span className="font-semibold h-10 flex items-center">with</span>
-                        <div className="w-72 max-w-full">
-                            <EvaluationJudgeModelPicker />
-                        </div>
-                    </>
-                )}
             </div>
             <p className="mb-0 text-sm text-secondary">{METHOD_HINTS[method]}</p>
         </div>
