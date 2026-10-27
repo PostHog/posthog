@@ -237,11 +237,17 @@ describe('PersonMergeService store-owned merges', () => {
             jest.useRealTimers()
         })
 
-        it('is re-sent past the bounded retries and merges once capacity returns', async () => {
+        it('is re-sent past the bounded retries and keeps them once capacity returns', async () => {
             const finalBefore = await counterTotal(mergeFinalFailuresCounter)
             for (let i = 0; i < 5; i++) {
                 store.mergePersons.mockRejectedValueOnce(refused())
             }
+            // The first accepted call answers unsettled: without its own bounded
+            // retries the merge would drop with the race warning instead of settling.
+            store.mergePersons.mockResolvedValueOnce({
+                survivor,
+                results: [{ sourceDistinctId: 'anon-1', outcome: 'skipped_conflict' as const, settled: false }],
+            })
             const service = makeService('$identify', undefined, false, 5_000)
 
             const merging = service.handleIdentifyOrAlias()
@@ -249,8 +255,8 @@ describe('PersonMergeService store-owned merges', () => {
             const mergeResult = await merging
 
             expect(mergeResult).toMatchObject({ success: true, person: survivor })
-            expect(store.mergePersons).toHaveBeenCalledTimes(6)
-            expect(warningTypes()).not.toContain('merge_settled_failure')
+            expect(store.mergePersons).toHaveBeenCalledTimes(7)
+            expect(warningTypes()).toEqual([])
             expect(await counterTotal(mergeFinalFailuresCounter)).toBe(finalBefore)
             expect(await outcomes()).toEqual({ recovered: 1 })
         })

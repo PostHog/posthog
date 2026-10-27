@@ -355,16 +355,20 @@ export class PersonMergeService {
     }
 
     private async mergeWithRetries(attempt: () => Promise<PersonMergeResult>): Promise<PersonMergeResult> {
+        const bounded = (nonRetriable: (new (...args: any[]) => Error)[]): Promise<PersonMergeResult> =>
+            promiseRetry(attempt, 'merge_distinct_ids', undefined, undefined, undefined, nonRetriable)
         try {
-            return await promiseRetry(attempt, 'merge_distinct_ids', undefined, undefined, undefined, [
-                ConnectError,
-                PersonMergeResponseMismatchError,
-            ])
+            return await bounded([ConnectError, PersonMergeResponseMismatchError])
         } catch (error) {
             if (!(error instanceof PersonMergeNotAppliedError)) {
                 throw error
             }
-            return await this.waitOutNotApplied(attempt, error)
+            // Each re-send is a full bounded run, so a verdict the accepted
+            // call answers keeps the retries it would have had without the wait.
+            return await this.waitOutNotApplied(
+                () => bounded([ConnectError, PersonMergeResponseMismatchError, PersonMergeNotAppliedError]),
+                error
+            )
         }
     }
 
