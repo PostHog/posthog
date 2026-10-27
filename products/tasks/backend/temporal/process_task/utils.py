@@ -1638,16 +1638,26 @@ def run_gateway_env_vars(ctx: TaskProcessingContext, task: Task) -> dict[str, st
             "AI_GATEWAY_PRODUCT": "signals_scout",
             "AI_GATEWAY_AI_STAGE": (ctx.state or {}).get("ai_stage") or "scout",
         }
+    requires_pi_scout = (
+        ctx.task_runtime == "pi"
+        and ctx.origin_product == "signals_scout"
+        and (ctx.state or {}).get("billing_product") != "posthog_ai"
+    )
     if "own-subscription" in (ctx.claude_model_access, ctx.codex_model_access):
-        if ctx.task_runtime == "pi" and ctx.origin_product == "signals_scout":
+        if requires_pi_scout:
             raise GatewayNotConfiguredError("Pi scouts require the AI gateway")
         record_gateway_routing(run_id=ctx.run_id, team_id=ctx.team_id, uses_gateway=False)
         return {}
     ai_stage = (ctx.state or {}).get("ai_stage")
-    requires_go = resolve_sandbox_ai_product(ctx.origin_product, ai_stage, internal=task.internal) == (
-        POSTHOG_CODE_PRODUCT
+    requires_go = (
+        resolve_sandbox_ai_product(
+            ctx.origin_product,
+            ai_stage,
+            internal=task.internal,
+            billing_product=(ctx.state or {}).get("billing_product"),
+        )
+        == POSTHOG_CODE_PRODUCT
     )
-    requires_pi_scout = ctx.task_runtime == "pi" and ctx.origin_product == "signals_scout"
     try:
         env_vars = ai_gateway_env_vars(
             team_id=ctx.team_id,
@@ -1694,7 +1704,7 @@ def run_gateway_env_vars(ctx: TaskProcessingContext, task: Task) -> dict[str, st
             exc_info=True,
         )
         env_vars = {}
-    if ctx.task_runtime == "pi" and ctx.origin_product == "signals_scout" and not env_vars.get("AI_GATEWAY_TOKEN"):
+    if requires_pi_scout and not env_vars.get("AI_GATEWAY_TOKEN"):
         raise GatewayTokenUnavailableError(
             "Pi scouts require a scoped AI gateway token", {"team_id": ctx.team_id, "run_id": ctx.run_id}
         )
@@ -1780,10 +1790,16 @@ def ai_gateway_env_vars(
     also raises, because the Python gateway refuses it too.
     """
     ai_product = (
-        resolve_sandbox_ai_product(origin_product, ai_stage, internal=internal) if team_id is not None else None
+        resolve_sandbox_ai_product(
+            origin_product, ai_stage, internal=internal, billing_product=(state or {}).get("billing_product")
+        )
+        if team_id is not None
+        else None
     )
     requires_go = ai_product == POSTHOG_CODE_PRODUCT
-    requires_pi_scout = runtime == "pi" and origin_product == "signals_scout"
+    requires_pi_scout = (
+        runtime == "pi" and origin_product == "signals_scout" and (state or {}).get("billing_product") != "posthog_ai"
+    )
     if requires_pi_scout and not (
         ai_product == "signals_scout"
         and settings.SANDBOX_AI_GATEWAY_URL
