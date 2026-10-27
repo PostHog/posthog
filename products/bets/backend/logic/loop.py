@@ -317,14 +317,16 @@ def replan(team: Team, user: User, bet: Bet, work: WorkItem, data: dict) -> dict
     exposed = sum((results.get("exposures") or {}).values())
     if elapsed < MIN_DAYS or baselines[0].get("number_of_samples", 0) < MIN_OBSERVATIONS or exposed <= 0:
         return planned
+    audience = round(exposed / elapsed)
     fresh = make_plan(
         spread,
         mde=float(planned["mde"]),
-        audience=round(exposed / elapsed),
+        audience=audience,
         weekly=bool(planned.get("weekly")),
         floor_days=math.ceil(settings.min_run_hours / 24),
     )
     planned["replanned"] = True
+    planned["audience"] = audience
     if fresh.days > planned["days"] * DRIFT:
         planned["proposed_days"] = fresh.days
     else:
