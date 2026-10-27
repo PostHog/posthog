@@ -8944,10 +8944,10 @@ Today (7): `Coupons`, `CreditNotes`, `Customers`, `Invoices`, `Items`, `Plans`, 
 
 Diffed against: <https://raw.githubusercontent.com/orbcorp/orb-node/main/api.md>
 
-- [ ] `GET /prices` — lookup resolving the price IDs carried on every synced plan, subscription and invoice line item (high)
-- [ ] `GET /metrics (billable metrics)` — lookup resolving the billable-metric IDs that prices reference; without it usage-based charges are unexplainable (high)
-- [ ] `GET /customers/{customer_id}/credits/ledger` — credit grant/decrement transaction log — the ledger a warehouse user needs for prepaid-balance analysis (high)
-- [ ] `GET /customers/{customer_id}/balance_transactions` — customer account balance movements over time, joined to synced customers and invoices (high)
+- [x] `GET /prices` — lookup resolving the price IDs carried on every synced plan, subscription and invoice line item (high)
+- [x] `GET /metrics (billable metrics)` — lookup resolving the billable-metric IDs that prices reference; without it usage-based charges are unexplainable (high)
+- [x] `GET /customers/{customer_id}/credits/ledger` — credit grant/decrement transaction log — the ledger a warehouse user needs for prepaid-balance analysis (high)
+- [x] `GET /customers/{customer_id}/balance_transactions` — customer account balance movements over time, joined to synced customers and invoices (high)
 - [ ] `GET /customers/{customer_id}/costs` — per-customer cost breakdown by price/metric over a timeframe — Orb's headline revenue metric (high)
 - [ ] `GET /subscriptions/{subscription_id}/usage` — usage quantities per billable metric per subscription, the raw driver of every invoice line (medium)
 - [ ] `GET /subscription_changes` — state-transition history for the subscriptions table already synced (upgrades, downgrades, cancellations) (medium)
