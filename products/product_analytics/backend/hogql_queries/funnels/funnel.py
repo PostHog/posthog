@@ -407,12 +407,18 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
                 # actor completed, because those events are the closest to the drop-off.
                 target_step_index = abs(funnelStep) - 1
                 prior_required_step_index = self._prior_required_step_index(target_step_index)
-                step_events = [f"matched_events_array[{prior_required_step_index + 1}]"] + [
-                    f"if(bitTest(steps_bitfield, {i}), matched_events_array[{i + 1}], [])"
+                step_events: list[ast.Expr] = [parse_expr(f"matched_events_array[{prior_required_step_index + 1}]")]
+                step_events.extend(
+                    parse_expr(f"if(bitTest(steps_bitfield, {i}), matched_events_array[{i + 1}], [])")
                     for i in self._optional_step_indexes_between(prior_required_step_index, target_step_index)
-                ]
+                )
                 if len(step_events) > 1:
-                    return [parse_expr(f"arrayDistinct(arrayConcat({', '.join(step_events)})) as matching_events")]
+                    return [
+                        ast.Alias(
+                            alias="matching_events",
+                            expr=ast.Call(name="arrayDistinct", args=[ast.Call(name="arrayConcat", args=step_events)]),
+                        )
+                    ]
                 absolute_actors_step = prior_required_step_index
             return [parse_expr(f"matched_events_array[{absolute_actors_step + 1}] as matching_events")]
         return []
