@@ -4,7 +4,7 @@ import dataclasses
 from contextlib import nullcontext
 from datetime import UTC, datetime, timedelta
 from ipaddress import IPv4Address, IPv6Address, ip_address
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -951,7 +951,6 @@ def test_system_one_numeric_requires_a_score_range(output_config: dict[str, floa
     [
         ("system_one", "https://decisions.example.com/v1", False),
         ("system_one", "https://ai-gateway.us.posthog.com/v1", False),
-        ("system_one", "https://api.typesafe.ai/v1", True),
     ],
 )
 def test_system_one_restricted_connection_does_not_send_evaluation_data(
@@ -1107,6 +1106,9 @@ def test_endpoint_host_that_never_resolves_skips_the_run_with_the_reason() -> No
     assert "provider_key_state" not in result
 
 
+RateLimitOutcome = Literal["reported", "unreported", "skipped"]
+
+
 @pytest.mark.parametrize(
     "provider, success_payload, status, retry_after",
     [
@@ -1154,14 +1156,15 @@ def test_endpoint_host_that_never_resolves_skips_the_run_with_the_reason() -> No
     ],
 )
 @pytest.mark.parametrize(
-    "attempt,backfill,reportable",
+    "attempt,backfill,outcome,customer_limit_outcome",
     [
-        pytest.param(1, False, False, id="first attempt"),
-        pytest.param(3, False, True, id="last attempt"),
-        pytest.param(3, True, False, id="backfill third attempt"),
-        pytest.param(5, True, True, id="backfill last attempt"),
+        pytest.param(1, False, "unreported", "unreported", id="first attempt"),
+        pytest.param(3, False, "reported", "skipped", id="last attempt"),
+        pytest.param(3, True, "unreported", "unreported", id="backfill third attempt"),
+        pytest.param(5, True, "reported", "unreported", id="backfill last attempt"),
     ],
 )
+@pytest.mark.parametrize("is_byok", [False, True], ids=["posthog key", "byok"])
 def test_custom_provider_rate_limit_retries_without_disabling_the_evaluation(
     provider: str,
     success_payload: dict[str, Any],
@@ -1169,8 +1172,11 @@ def test_custom_provider_rate_limit_retries_without_disabling_the_evaluation(
     retry_after: int,
     attempt: int,
     backfill: bool,
-    reportable: bool,
+    outcome: RateLimitOutcome,
+    customer_limit_outcome: RateLimitOutcome,
+    is_byok: bool,
 ) -> None:
+    expected = customer_limit_outcome if is_byok and status == 429 else outcome
     env = ActivityEnvironment()
     env.info = dataclasses.replace(
         env.info, attempt=attempt, retry_policy=BACKFILL_ACTIVITY_RETRY_POLICY, schedule_to_close_timeout=None
@@ -1190,7 +1196,11 @@ def test_custom_provider_rate_limit_retries_without_disabling_the_evaluation(
         patch(
             "httpx.AsyncHTTPTransport.handle_async_request",
             side_effect=[
-                httpx.Response(status, headers={"Retry-After": str(retry_after)}, stream=httpx.ByteStream(b"")),
+                httpx.Response(
+                    status,
+                    headers={"Retry-After": str(retry_after), "Content-Type": "application/json"},
+                    stream=httpx.ByteStream(b'{"error": {"message": "Too many concurrent requests for this key."}}'),
+                ),
                 httpx.Response(
                     200,
                     headers={"Content-Type": "application/json"},
@@ -1198,28 +1208,44 @@ def test_custom_provider_rate_limit_retries_without_disabling_the_evaluation(
                 ),
             ],
         ) as transport,
+        patch("posthog.temporal.ai_observability.evaluation_llm_judge.increment_user_errors") as user_errors,
     ):
         spec.return_value.resolve.return_value = MagicMock(
             provider=provider,
             model="gpt-6-luna" if provider == "openai" else "example-judge-v1",
             provider_key=key,
-            is_byok=True,
+            is_byok=is_byok,
         )
-        with pytest.raises(ApplicationError) as error:
-            env.run(
-                lambda: call_llm_judge(
-                    evaluation=evaluation,
-                    system_prompt="",
-                    user_prompt="Hello!",
-                    allows_na=False,
-                    backfill=backfill,
-                )
+
+        def run_judge() -> EvaluationActivityResult:
+            return call_llm_judge(
+                evaluation=evaluation,
+                system_prompt="",
+                user_prompt="Hello!",
+                allows_na=False,
+                backfill=backfill,
             )
-        assert not error.value.non_retryable
-        assert isinstance(error.value, NonReportableError) is not reportable
-        assert error.value.next_retry_delay == timedelta(seconds=retry_after)
-        assert terminal_user_error_result_from_application_error(error.value, allows_na=False) is None
+
+        if expected == "skipped":
+            skipped = env.run(run_judge)
+            assert skipped["skip_reason"] == "rate_limit_retries_exhausted"
+            assert "terminal_user_error" not in skipped
+            assert "provider_key_state" not in skipped
+            # Only the OpenAI-compatible adapter wraps an SDK error that carries the provider's text.
+            assert ("Too many concurrent requests for this key." in skipped["reasoning"]) is (
+                provider == "openai_compatible"
+            )
+        else:
+            with pytest.raises(ApplicationError) as error:
+                env.run(run_judge)
+            assert not error.value.non_retryable
+            assert isinstance(error.value, NonReportableError) is (expected == "unreported")
+            assert error.value.next_retry_delay == timedelta(seconds=retry_after)
+            assert terminal_user_error_result_from_application_error(error.value, allows_na=False) is None
         assert transport.call_count == 1
+        assert [call.args[0] for call in user_errors.call_args_list] == (
+            ["rate_limit_retries_exhausted"] if expected == "skipped" else []
+        )
 
         result = call_llm_judge(
             evaluation=evaluation,

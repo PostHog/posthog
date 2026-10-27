@@ -106,6 +106,7 @@ class ExperimentHealthFindingCode(LabeledStrEnum):
     MULTIPLE_VARIANTS_SHARE = "multiple_variants_share"
     NO_METRIC = "no_metric"
     METRIC_EVENT_NOT_INGESTED = "metric_event_not_ingested"
+    METRIC_CANNOT_COMPILE = "metric_cannot_compile"
     EXPOSURE_CRITERIA_CANNOT_MATCH = "exposure_criteria_cannot_match"
     SRM = "srm", "Sample Ratio Mismatch"
     ZERO_EXPOSURES = "zero_exposures"
@@ -116,6 +117,17 @@ class ExperimentHealthFindingCode(LabeledStrEnum):
     RELEASE_CONDITIONS_CHANGED_MID_RUN = "release_conditions_changed_mid_run"
     NEW_FLAG_NO_TRAFFIC = "new_flag_no_traffic"
     EARLY_SIGNIFICANCE = "early_significance"
+
+
+class ExperimentHealthMetricCompileErrorKind(LabeledStrEnum):
+    # A validation error of the query builder, written for the user.
+    REJECTED = "rejected"
+    # HogQL can't parse an expression of the metric.
+    SYNTAX = "syntax"
+    # HogQL can't compile the query.
+    QUERY = "query"
+    # The stored definition doesn't parse into a metric.
+    DEFINITION = "definition"
 
 
 class HealthExposureInputsStatus(LabeledStrEnum):
@@ -197,6 +209,7 @@ class ExperimentHealthCheckKey(LabeledStrEnum):
     NEW_FLAG_NO_TRAFFIC = "new_flag_no_traffic"
     NO_METRIC = "no_metric"
     METRIC_EVENT_NOT_INGESTED = "metric_event_not_ingested"
+    METRIC_CANNOT_COMPILE = "metric_cannot_compile"
     EXPOSURE_CRITERIA_CANNOT_MATCH = "exposure_criteria_cannot_match"
     EARLY_SIGNIFICANCE = "early_significance"
     ZERO_EXPOSURES = "zero_exposures"
@@ -351,3 +364,64 @@ class DailyMetricCalculation:
     metric_uuid: str
     # The key that files the metric's daily result.
     calculation_key: str
+
+
+class RunningTimeMode(LabeledStrEnum):
+    # pinned: the page's `ConversionRateInputType` values in frontend/src/types.ts, stored in
+    # `running_time_calculation.exposure_estimate_config.conversionRateInputType`.
+    AUTOMATIC = "automatic", "Sized from the results"
+    MANUAL = "manual", "Saved from a baseline the user entered"
+
+
+@frozen
+class ExperimentDetectableEffectCheckpoint:
+    weeks_since_launch: int
+    # The smallest relative effect, as a percentage, that the exposures by then detect.
+    detectable_effect: float
+
+
+@frozen
+class ExperimentRunningTimeOutlook:
+    """What the experiment can detect over time, at its exposure rate so far."""
+
+    days_since_launch: float
+    # The exposures that count toward the target, per day from launch to the end of the window the results cover.
+    exposures_per_day: float
+    # The smallest relative effect, as a percentage, that the exposures so far detect.
+    detectable_effect_now: float
+    # The next week marks after today.
+    upcoming_checkpoints: tuple[ExperimentDetectableEffectCheckpoint, ...]
+    # The smallest effect the experiment detects within four weeks from today. A target for a smaller one is out of
+    # reach.
+    reachable_effect: float
+
+
+@frozen
+class ExperimentRunningTimeTarget:
+    """The target sample of an experiment's running time estimate."""
+
+    # The relative effect, as a percentage, that the target sizes the experiment to detect.
+    minimum_detectable_effect: float
+    # The exposures across the analyzed variants that the experiment needs. None when no stored result can size it.
+    recommended_sample_size: int | None
+    # The exposures so far that count toward the target: the control's and those of the variants that get traffic.
+    # None in manual mode, and when no stored result can size the target.
+    current_sample_size: int | None
+    # None in manual mode, before the experiment has run long enough to project, and when no stored result can size the
+    # target.
+    outlook: ExperimentRunningTimeOutlook | None
+
+
+@frozen
+class EndedExperiment:
+    id: int
+    name: str
+    ended_at: datetime
+
+
+@frozen
+class RunningExperiment:
+    id: int
+    name: str
+    started_at: datetime
+    flag_key: str

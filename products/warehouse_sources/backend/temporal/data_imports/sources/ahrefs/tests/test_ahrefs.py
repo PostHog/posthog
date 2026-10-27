@@ -298,18 +298,18 @@ def test_page_sample_cap(count: int) -> None:
 
 
 @pytest.mark.parametrize(
-    ("status", "body", "message"),
+    ("status", "body", "message", "sync_message"),
     [
-        (400, {"error": "API units limit exceeded"}, "API units are exhausted"),
-        (402, {"error": "Payment required"}, "API units are exhausted"),
+        (400, {"error": "API units limit exceeded"}, "API units are exhausted", "then re-enable the sync"),
+        (402, {"error": "Payment required"}, "API units are exhausted", "then re-enable the sync"),
     ],
 )
-def test_credential_and_sync_error_mapping(status: int, body: object, message: str) -> None:
+def test_credential_and_sync_error_mapping(status: int, body: object, message: str, sync_message: str) -> None:
     answer = ScriptedResponse(status=status, json=body)
     with scripted_network([answer]) as network:
         valid, error = validate_credentials("test-key")
     assert valid is False
-    assert error is not None and message in error
+    assert error is not None and message in error and sync_message not in error
     assert len(network.requests_log) == 1
 
     source = AhrefsSource()
@@ -318,7 +318,7 @@ def test_credential_and_sync_error_mapping(status: int, body: object, message: s
     )
     assert isinstance(result.raised, ValueError)
     mapped = source.get_non_retryable_errors()[str(result.raised)]
-    assert mapped is not None and message in mapped
+    assert mapped is not None and sync_message in mapped
     assert len(result.requests) == 1
 
 

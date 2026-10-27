@@ -6,17 +6,25 @@ import { TZLabel } from 'lib/components/TZLabel'
 
 import type { OfflineHistoryPageApi, OfflineHistoryPointApi } from '../generated/api.schemas'
 import { offlineExperimentUrl } from './offlineExperimentPresentation'
+import {
+    OFFLINE_HISTORY_BREAKDOWN_LABELS,
+    offlineBreakdownValueLabel,
+    offlineHistoryPointKey,
+    type OfflineHistoryBreakdown,
+} from './offlineHistoryBreakdown'
 import { OfflineScorerHistoryRunDetails } from './OfflineScorerHistoryRunDetails'
 import { OfflineScoreSummaryDisplay } from './OfflineScoreSummaryDisplay'
 
 export function OfflineScorerHistoryTable({
     periodKey,
+    breakdown,
     page,
     loading,
     expandedRuns,
     onToggleRun,
 }: {
     periodKey: string
+    breakdown?: OfflineHistoryBreakdown
     page: OfflineHistoryPageApi | null
     loading: boolean
     expandedRuns: ReadonlySet<string>
@@ -25,7 +33,7 @@ export function OfflineScorerHistoryTable({
     return (
         <LemonTable<OfflineHistoryPointApi>
             className="@max-[50rem]/scorer-history:[&_colgroup]:hidden @max-[50rem]/scorer-history:[&_table]:table-auto"
-            rowKey={(point) => `${point.experiment.id}:${point.summary.scorer.id}`}
+            rowKey={offlineHistoryPointKey}
             dataSource={page?.results || []}
             loading={loading || !page}
             size="small"
@@ -35,9 +43,10 @@ export function OfflineScorerHistoryTable({
                 {
                     title: 'Experiment',
                     key: 'name',
-                    width: '28%',
+                    className: '@max-[50rem]/scorer-history:w-2/5 @max-[50rem]/scorer-history:max-w-0',
+                    width: breakdown ? '24%' : '28%',
                     render: (_, point) => {
-                        const key = `${periodKey}:${point.experiment.id}:${point.summary.scorer.id}`
+                        const key = `${periodKey}:${offlineHistoryPointKey(point)}`
                         return (
                             <div className="flex items-center gap-1 min-w-0">
                                 <LemonButton
@@ -60,10 +69,27 @@ export function OfflineScorerHistoryTable({
                         )
                     },
                 },
+                ...(breakdown
+                    ? [
+                          {
+                              title: OFFLINE_HISTORY_BREAKDOWN_LABELS[breakdown],
+                              key: 'breakdown',
+                              className: '@max-[50rem]/scorer-history:w-1/5 @max-[50rem]/scorer-history:max-w-0',
+                              width: '16%',
+                              render: (_: unknown, point: OfflineHistoryPointApi) => (
+                                  <Tooltip title={offlineBreakdownValueLabel(point.breakdown_value, breakdown)}>
+                                      <div className="truncate">
+                                          {offlineBreakdownValueLabel(point.breakdown_value, breakdown)}
+                                      </div>
+                                  </Tooltip>
+                              ),
+                          },
+                      ]
+                    : []),
                 {
                     title: 'Tags',
                     key: 'tags',
-                    width: '24%',
+                    width: breakdown ? '18%' : '24%',
                     render: (_, point) => (
                         <div className="min-w-0 max-w-64">
                             <ObjectTags tags={point.experiment.tags} staticOnly maxVisibleTags={2} wrap />
@@ -74,7 +100,7 @@ export function OfflineScorerHistoryTable({
                     title: 'Execution',
                     key: 'execution',
                     className: '@max-[50rem]/scorer-history:hidden',
-                    width: '16%',
+                    width: breakdown ? '14%' : '16%',
                     render: (_, point) => (
                         <div className="truncate text-xs">
                             <TZLabel time={point.experiment.started_at} />
@@ -84,14 +110,14 @@ export function OfflineScorerHistoryTable({
                 {
                     title: 'Score',
                     key: 'score',
-                    width: '12%',
+                    width: breakdown ? '14%' : '12%',
                     render: (_, point) => <OfflineScoreSummaryDisplay summary={point.summary} />,
                 },
                 {
                     title: 'Coverage',
                     key: 'coverage',
                     className: '@max-[40rem]/scorer-history:hidden',
-                    width: '20%',
+                    width: breakdown ? '14%' : '20%',
                     render: (_, { summary }) => (
                         <Tooltip
                             title={`${summary.status_counts.ok} / ${summary.observed_item_count} scored items · ${summary.status_counts.error} errors · ${summary.status_counts.skipped} skipped · ${summary.status_counts.not_applicable} not applicable · ${summary.missing_result_count} missing`}
@@ -110,8 +136,7 @@ export function OfflineScorerHistoryTable({
             expandable={{
                 noIndent: true,
                 showRowExpansionToggle: false,
-                isRowExpanded: (point) =>
-                    expandedRuns.has(`${periodKey}:${point.experiment.id}:${point.summary.scorer.id}`),
+                isRowExpanded: (point) => expandedRuns.has(`${periodKey}:${offlineHistoryPointKey(point)}`),
                 expandedRowRender: (point) => <OfflineScorerHistoryRunDetails point={point} />,
             }}
         />

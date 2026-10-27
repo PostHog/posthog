@@ -1873,6 +1873,13 @@ def create_webhook(
             error=error_str,
         )
 
+        # The SDK's network-error text names the underlying exception and asks the reader to email Stripe support.
+        if isinstance(e, stripe_lib.APIConnectionError):
+            return WebhookCreationResult(
+                success=False,
+                error="PostHog couldn't reach Stripe to create the webhook. Select Try again, or set up the webhook manually below.",
+            )
+
         # Check account access before the permission branch — an account-access rejection can carry a
         # 403 and would otherwise be misclassified as a missing webhook scope.
         if _is_stripe_account_access_error(e, error_str):

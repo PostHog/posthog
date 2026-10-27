@@ -808,12 +808,20 @@ class TestSignalReportListAPI(APIBaseTest):
     def test_plan_shows_on_the_detail_of_a_step_and_not_in_the_list(self):
         plan = self._create_report(title="feat(x): the plan")
         step = self._create_report(title="feat(x): a step")
-        SignalReportArtefact.add_log(
-            team_id=self.team.id,
-            report_id=str(step.id),
-            content=ReportLink(kind=ReportLinkKind.PART_OF, report_id=str(plan.id)),
-            attribution=ArtefactAttribution.system(),
+        held_back_step = self._create_report(title="feat(x): a held back step", status=SignalReport.Status.SUPPRESSED)
+        SignalReportArtefact.objects.create(
+            team=self.team,
+            report=held_back_step,
+            type=SignalReportArtefact.ArtefactType.SAFETY_JUDGMENT,
+            content=json.dumps({"choice": False, "explanation": "Asks to disable a safety control."}),
         )
+        for step_report in (step, held_back_step):
+            SignalReportArtefact.add_log(
+                team_id=self.team.id,
+                report_id=str(step_report.id),
+                content=ReportLink(kind=ReportLinkKind.PART_OF, report_id=str(plan.id)),
+                attribution=ArtefactAttribution.system(),
+            )
 
         detail = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{step.id}/").json()
         assert detail["plan"] == {
@@ -828,7 +836,17 @@ class TestSignalReportListAPI(APIBaseTest):
                     "depends_on": [],
                     "implementation_pr_url": None,
                     "implementation_pr_state": None,
-                }
+                    "suppression_source": None,
+                },
+                {
+                    "id": str(held_back_step.id),
+                    "title": "feat(x): a held back step",
+                    "status": "suppressed",
+                    "depends_on": [],
+                    "implementation_pr_url": None,
+                    "implementation_pr_state": None,
+                    "suppression_source": "safety_judge",
+                },
             ],
         }
         row = next(r for r in self.client.get(self._list_url()).json()["results"] if r["id"] == str(step.id))
@@ -1093,6 +1111,49 @@ class TestSignalReportListAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert sorted(row["title"] for row in response.json()["results"]) == sorted(expected)
 
+    @parameterized.expand(
+        [
+            (
+                "mcp_public_ordering_and_lift",
+                True,
+                "",
+                {"ordering": "-ranking_fix", "ranking_min_lift": "fix:2"},
+                {"surface": "mcp", "ordering_outcomes": ["fix"], "min_lift": {"fix": 2.0}, "result_count": 1},
+            ),
+            (
+                "api_alias_and_internal_head",
+                False,
+                "",
+                {"ordering": "-ranking_fixed,ranking_pr_merged"},
+                {"surface": "api", "ordering_outcomes": ["fix", "internal"], "min_lift": {}, "result_count": 2},
+            ),
+            ("no_ranking_parameters", False, "", {"ordering": "-updated_at"}, None),
+            ("web_inbox_load", False, "Mozilla/5.0", {"ordering": "-ranking_fix"}, None),
+        ]
+    )
+    def test_list_captures_ranking_usage(self, _name, via_mcp, user_agent, query, expected):
+        self.user.is_staff = True
+        self.user.save()
+        high = self._create_report(title="High")
+        self._create_report(title="Low")
+        self._ranking_score_artefact(high, scores={"fixed": 0.6}, lifts={"fixed": 3.0})
+
+        with (
+            patch("products.signals.backend.views.is_mcp_request", return_value=via_mcp),
+            patch("products.signals.backend.views.report_user_action") as report_action,
+        ):
+            response = self.client.get(self._list_url(status="ready", **query), headers={"user-agent": user_agent})
+
+        assert response.status_code == status.HTTP_200_OK
+        events = [call for call in report_action.call_args_list if call.args[1] == "signals_inbox_ranking_used"]
+        if expected is None:
+            assert events == []
+            return
+        assert len(events) == 1
+        properties = events[0].kwargs["properties"]
+        assert {key: properties[key] for key in expected} == expected
+        assert properties["endpoint"] == "list"
+
     def test_ranking_filter_match_shows_as_scored_despite_bad_readable_metadata(self):
         self.user.is_staff = True
         self.user.save()
@@ -1168,10 +1229,15 @@ class TestSignalReportListAPI(APIBaseTest):
     def test_ranking_outcomes_without_a_readable_model(self, _name, is_staff, expected_status):
         self.user.is_staff = is_staff
         self.user.save()
-        with patch("products.signals.backend.ranking.access.feature_enabled_or_false", return_value=False):
+        with (
+            patch("products.signals.backend.ranking.access.feature_enabled_or_false", return_value=False),
+            patch("products.signals.backend.views.report_user_action") as report_action,
+        ):
             response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/ranking_outcomes/")
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {"status": expected_status, "model": None, "outcomes": []}
+        report_action.assert_called_once()
+        assert report_action.call_args.kwargs["properties"]["ranking_status"] == expected_status
 
     @parameterized.expand(
         [
