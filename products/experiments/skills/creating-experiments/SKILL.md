@@ -24,7 +24,11 @@ Read that before configuring anything.
    For a page, read `event_property_values` for `$host` and `$pathname` on the target event as well.
    The response samples the values rather than listing them all, so read it for the shape the project records (a trailing slash, a `www.` prefix, the casing) rather than as proof that a value is absent.
    An exact filter has to carry that shape: `/pricing` matches nothing where every pageview says `/pricing/`, and `example.com` matches nothing where the host is `www.example.com`.
-2. If the `experiment-setup-context` tool is available, call it once with `target_event` and `metric_event`.
+2. Before you write any SQL to find a metric, search what the project already has for the goal, for example "activation" or "signup".
+   Pass the goal as `search` to `insights-list`, `actions-get-all`, `metric-list` (catalog metrics) and `experiment-saved-metrics-list` (shared metrics).
+   For shared metrics, also pass the candidate event as `event`. It finds the metrics that count that event under any name.
+   Reuse what fits, and say in the report what you reused. Match a shared metric by its definition, not its name, as Step 1 of `configuring-experiment-analytics` describes.
+3. If the `experiment-setup-context` tool is available, call it once with `target_event` and `metric_event`.
    For a web surface, add `target_properties` with an exact `$host`.
    Add an exact `$pathname` as well when the surface is one page.
    `target_url_contains` is a substring match on `$current_url`.
@@ -51,8 +55,8 @@ Read that before configuring anything.
    }
    ```
 
-3. Apply [references/setup-decisions.md](references/setup-decisions.md) to the result. It maps each fact to a choice (bucketing, where the flag is evaluated, exposure, primary metric, running time, precedent) and to a tier for the summary.
-4. Carry those choices into steps 1 to 3.
+4. Apply [references/setup-decisions.md](references/setup-decisions.md) to the result. It maps each fact to a choice (bucketing, where the flag is evaluated, exposure, primary metric, running time, precedent) and to a tier for the summary.
+5. Carry those choices into steps 1 to 3.
 
 Ask the user only when a choice is "not decided" and the user is in the conversation.
 If the user said they are away, or asked for a draft without questions, decide with the defaults and list the open points in the report.
