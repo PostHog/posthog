@@ -1350,6 +1350,7 @@ Do not select a person based only on broad directory activity, commit counts, jo
 Use broader paths to find candidates, then inspect their relevant changes. Directory depth alone is not evidence.
 If an ownership rule names a team, check individual evidence; do not select the first members in the roster.
 First read `recent_reviewer_corrections` from `scout-project-profile-get`. It lists recent human reviewer edits on every plan.
+A removal can carry `removal_reason`, which applies only to the identities in `removal_reason_reviewers`. `wrong_area` moves that work and similar work away from the person, and their older history in that area no longer counts as evidence, but unrelated areas still route to them. `already_covered` and `unavailable` are not ownership evidence. `other` comes with a note that says why.
 Read relevant reviewer corrections with `scout-notes-list`, using `text` searches for the affected area and candidate identities.
 For older history, read `suggested_reviewers_changed` entries with `advanced-activity-logs-list`, scoped to `SignalReport`.
 Match reviewer UUIDs in corrections, including reviewers without GitHub accounts.
@@ -1605,6 +1606,7 @@ async def run_multi_turn_research(
     verbose: bool = False,
     output_fn: OutputFn = None,
     signal_report_id: str | None = None,
+    spend_signal_id: str | None = None,
     has_business_knowledge: bool = False,
     resolved_report_title: str | None = None,
     resolved_report_summary: str | None = None,
@@ -1668,6 +1670,7 @@ async def run_multi_turn_research(
         output_fn=output_fn,
         origin_product=tasks_facade.TaskOriginProduct.SIGNAL_REPORT,
         signal_report_id=signal_report_id,
+        spend_signal_id=spend_signal_id,
         ai_stage=AI_STAGE_RESEARCH,
         internal=True,
         analytics_query_context=(
