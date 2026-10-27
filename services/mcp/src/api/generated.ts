@@ -78064,16 +78064,16 @@ export namespace Schemas {
     }
 
     /**
-     * * `self_driving` - SELF_DRIVING
-     * * `renovate` - RENOVATE
-     * * `manual` - MANUAL
-     * * `label` - LABEL
-     * * `all` - ALL
+     * * `self_driving` - Self-driving
+     * * `renovate` - Renovate
+     * * `manual` - Requested
+     * * `label` - Label
+     * * `all` - Every PR
      */
-    export type ReviewRunTriggerEnum = typeof ReviewRunTriggerEnum[keyof typeof ReviewRunTriggerEnum];
+    export type ReviewTriggerEnum = typeof ReviewTriggerEnum[keyof typeof ReviewTriggerEnum];
 
 
-    export const ReviewRunTriggerEnum = {
+    export const ReviewTriggerEnum = {
       SelfDriving: 'self_driving',
       Renovate: 'renovate',
       Manual: 'manual',
@@ -78201,12 +78201,12 @@ export namespace Schemas {
       readonly delivery_id: string | null;
       /** What caused this run to exist: self-driving inbox provenance, a Renovate dependency update in a repo that opted in, a manual request through the API, the repo's trigger label, or the repo reviewing every PR event.
        *
-       * * `self_driving` - SELF_DRIVING
-       * * `renovate` - RENOVATE
-       * * `manual` - MANUAL
-       * * `label` - LABEL
-       * * `all` - ALL */
-      readonly trigger: ReviewRunTriggerEnum;
+       * * `self_driving` - Self-driving
+       * * `renovate` - Renovate
+       * * `manual` - Requested
+       * * `label` - Label
+       * * `all` - Every PR */
+      readonly trigger: ReviewTriggerEnum;
       /** Current stage of the review run's lifecycle.
        *
        * * `queued` - QUEUED

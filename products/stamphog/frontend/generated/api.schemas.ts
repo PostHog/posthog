@@ -339,15 +339,15 @@ export interface StamphogSyncInstallationResponseApi {
 }
 
 /**
- * * `self_driving` - SELF_DRIVING
- * * `renovate` - RENOVATE
- * * `manual` - MANUAL
- * * `label` - LABEL
- * * `all` - ALL
+ * * `self_driving` - Self-driving
+ * * `renovate` - Renovate
+ * * `manual` - Requested
+ * * `label` - Label
+ * * `all` - Every PR
  */
-export type ReviewRunTriggerEnumApi = (typeof ReviewRunTriggerEnumApi)[keyof typeof ReviewRunTriggerEnumApi]
+export type ReviewTriggerEnumApi = (typeof ReviewTriggerEnumApi)[keyof typeof ReviewTriggerEnumApi]
 
-export const ReviewRunTriggerEnumApi = {
+export const ReviewTriggerEnumApi = {
     SelfDriving: 'self_driving',
     Renovate: 'renovate',
     Manual: 'manual',
@@ -473,12 +473,12 @@ export interface ReviewRunApi {
     readonly delivery_id: string | null
     /** What caused this run to exist: self-driving inbox provenance, a Renovate dependency update in a repo that opted in, a manual request through the API, the repo's trigger label, or the repo reviewing every PR event.
      *
-     * * `self_driving` - SELF_DRIVING
-     * * `renovate` - RENOVATE
-     * * `manual` - MANUAL
-     * * `label` - LABEL
-     * * `all` - ALL */
-    readonly trigger: ReviewRunTriggerEnumApi
+     * * `self_driving` - Self-driving
+     * * `renovate` - Renovate
+     * * `manual` - Requested
+     * * `label` - Label
+     * * `all` - Every PR */
+    readonly trigger: ReviewTriggerEnumApi
     /** Current stage of the review run's lifecycle.
      *
      * * `queued` - QUEUED

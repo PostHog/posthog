@@ -450,7 +450,7 @@ class ReviewRunSerializer(DataclassSerializer):
         help_text="Branch name of the PR head.",
     )
     trigger = serializers.ChoiceField(
-        choices=[(t.value, t.name) for t in ReviewTrigger],
+        choices=ReviewTrigger.choices,
         read_only=True,
         help_text="What caused this run to exist: self-driving inbox provenance, a Renovate dependency update in a repo that opted in, a manual request through the API, the repo's trigger label, or the repo reviewing every PR event.",
     )

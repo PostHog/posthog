@@ -5,8 +5,8 @@ import { humanFriendlyDuration } from 'lib/utils/durations'
 import {
     ReviewRunApi,
     ReviewRunStatusEnumApi,
-    ReviewRunTriggerEnumApi,
     ReviewRunVerdictEnumApi,
+    ReviewTriggerEnumApi,
     StamphogReviewRunsListTrigger,
 } from '../../generated/api.schemas'
 
@@ -31,12 +31,12 @@ const STATUS_DISPLAY: Record<ReviewRunStatusEnumApi, OutcomeDisplay> = {
     [ReviewRunStatusEnumApi.Superseded]: { type: 'muted', label: 'Superseded' },
 }
 
-const TRIGGER_LABEL: Record<ReviewRunTriggerEnumApi, string> = {
-    [ReviewRunTriggerEnumApi.SelfDriving]: 'Self-driving',
-    [ReviewRunTriggerEnumApi.Renovate]: 'Renovate',
-    [ReviewRunTriggerEnumApi.Manual]: 'Requested',
-    [ReviewRunTriggerEnumApi.Label]: 'Label',
-    [ReviewRunTriggerEnumApi.All]: 'Every PR',
+const TRIGGER_LABEL: Record<ReviewTriggerEnumApi, string> = {
+    [ReviewTriggerEnumApi.SelfDriving]: 'Self-driving',
+    [ReviewTriggerEnumApi.Renovate]: 'Renovate',
+    [ReviewTriggerEnumApi.Manual]: 'Requested',
+    [ReviewTriggerEnumApi.Label]: 'Label',
+    [ReviewTriggerEnumApi.All]: 'Every PR',
 }
 
 export function verdictDisplay(verdict: ReviewRunVerdictEnumApi): OutcomeDisplay {
@@ -47,7 +47,7 @@ export function statusDisplay(status: ReviewRunStatusEnumApi): OutcomeDisplay {
     return STATUS_DISPLAY[status] ?? { type: 'muted', label: status }
 }
 
-export function triggerLabel(trigger: ReviewRunTriggerEnumApi): string {
+export function triggerLabel(trigger: ReviewTriggerEnumApi): string {
     return TRIGGER_LABEL[trigger] ?? trigger
 }
 

@@ -1249,8 +1249,12 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
             _clear_trigger_label_from_bot_pr(installation_id, repo, pr, action)
         if carve_out_error is not None:
             # The dismissal above already ran, so the stale-approval invariant holds however many
-            # retries fail. Retry so the carve-out re-review is re-attempted once the failure clears.
-            raise cast(Any, process_pull_request_event).retry(exc=carve_out_error)
+            # retries fail. Retry so the carve-out re-review is re-attempted once the failure clears,
+            # after GitHub's own backoff when it rate limited the lookup.
+            countdown = (
+                max(carve_out_error.retry_after or 0, 60) if isinstance(carve_out_error, GitHubRateLimitError) else None
+            )
+            raise cast(Any, process_pull_request_event).retry(exc=carve_out_error, countdown=countdown)
         logger.info(
             "stamphog_pr_event_skipped",
             repo=repo,
