@@ -540,9 +540,10 @@ def _json_subcolumn_value_expr(
         return ast.PropertyAccess(expr=document, keys=list(keys[index_position:]), type=ast.StringType(nullable=True))
 
     value = _json_subcolumn_access(field_type, keys, source=source, is_nullable=True)
-    declared = bool(_declared_json_path_type(field_type, keys, source))
+    # A declared column stores a missing key as '', and an index into a declared array reads '' past its end, so both
+    # map '' back to NULL. A Dynamic path is NULL for a missing key and keeps '' as a value.
+    declared = index_position is not None or bool(_declared_json_path_type(field_type, keys, source))
     scalar_value = _dynamic_json_scalar_string_expr(value, as_json=as_json, declared=declared)
-    # Only a declared column stores a missing key as ''; a Dynamic path is NULL for a missing key.
     missing: ast.Expr = ast.Call(name="isNull", args=[clone_expr(value)])
     if declared:
         missing = ast.Call(

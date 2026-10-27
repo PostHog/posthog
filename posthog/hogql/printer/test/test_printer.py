@@ -1786,10 +1786,6 @@ class TestPrinter(BaseTest):
             else:
                 assert "properties_group_custom" in enabled_response.clickhouse
                 assert "properties_group_custom" in optimized_response.clickhouse
-            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-                labels = labels - {"empty_string"}
-                if "null" in labels:
-                    labels = labels | {"empty_string"}
             assert {row[0] for row in disabled_response.results} == labels
             assert {row[0] for row in enabled_response.results} == labels
             assert {row[0] for row in optimized_response.results} == labels
@@ -6239,7 +6235,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
 
         Expected behavior:
         - with_email: is_not_set=0 - property has a value
-        - test_with_empty_string: is_not_set=1 for native String paths and materialized columns, otherwise 0
+        - test_with_empty_string: is_not_set=1 for legacy materialized columns, otherwise 0
         - with_null: is_not_set=1 - null is treated as "not set"
         - without: is_not_set=1 - property doesn't exist
 
@@ -6339,8 +6335,8 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
         )
         assert result.clickhouse
 
-        # Native String paths and materialized string columns use empty strings for missing values.
-        materialized_column_nullifies_empty_string = is_materialized or (
+        # A legacy materialized column reads '' as NULL; the native table has none, so a read on events keeps ''.
+        materialized_column_nullifies_empty_string = is_materialized and not (
             settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
             and poe_mode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
         )

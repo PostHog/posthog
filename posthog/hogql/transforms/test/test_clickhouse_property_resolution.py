@@ -317,8 +317,9 @@ class TestNativeJSONPropertyComparisons(SimpleTestCase):
         for (_, read_value, fallback_result, has_key_result), (document, _, _) in zip(rows, cases):
             assert fallback_result == tuple(int(read_value == value) for value in fallback_values)
             sent = document.get(key)
-            # A declared String column stores a sent "" the same as a missing key.
-            if sent is None or (declared and sent == ""):
+            # A declared String column stores a sent "" the same as a missing key, and ClickHouse's JSON type keeps
+            # no path for an empty object, so both read as missing.
+            if sent is None or sent == {} or (declared and sent == ""):
                 assert read_value is None
             elif isinstance(sent, (list, dict)):
                 assert json.loads(read_value) == sent
