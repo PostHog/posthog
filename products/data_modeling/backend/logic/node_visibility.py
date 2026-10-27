@@ -20,8 +20,7 @@ _ORIGIN_POSTHOG = "posthog"
 def hidden_node_ids(team_id: int, user_access_control: "UserAccessControl") -> frozenset[str]:
     """Nodes whose backing view or table this caller may not read, and the metrics those nodes feed.
 
-    A view node follows its saved query, and a cross-DAG placeholder follows the view it stands for.
-    A table node follows its warehouse table, so a rule on the table's source also hides it. A table
+    A view node follows its saved query. A table node follows its warehouse table, so a rule on the table's source also hides it. A table
     node that carries no table id is matched by name. A name that matches no warehouse table belongs
     to a PostHog table, which every project member reads.
     """
@@ -42,7 +41,6 @@ def hidden_node_ids(team_id: int, user_access_control: "UserAccessControl") -> f
         "saved_query_id",
         "properties__origin",
         "properties__warehouse_table_id",
-        "properties__saved_query_id",
     )
 
     hidden: set[str] = set()
@@ -50,15 +48,14 @@ def hidden_node_ids(team_id: int, user_access_control: "UserAccessControl") -> f
     unresolved_table_names: dict[str, str] = {}
     has_metric_nodes = False
 
-    for node_id, node_type, name, saved_query_id, origin, table_id, referenced_saved_query_id in rows:
+    for node_id, node_type, name, saved_query_id, origin, table_id in rows:
         key = str(node_id)
         if node_type == NodeType.METRIC:
             has_metric_nodes = True
             continue
-        backing_saved_query = saved_query_id if saved_query_id is not None else referenced_saved_query_id
-        if backing_saved_query is not None:
+        if saved_query_id is not None:
             if views_may_be_denied:
-                _record_or_hide(backing_saved_query, key, saved_query_by_node, hidden)
+                saved_query_by_node[key] = saved_query_id
             continue
         if table_id is not None:
             table_uuid = _as_uuid(table_id)
@@ -90,23 +87,14 @@ def _as_uuid(value: object) -> UUID | None:
         return None
 
 
-def _record_or_hide(value: object, node_id: str, by_node: dict[str, UUID], hidden: set[str]) -> None:
-    # A reference that does not parse names no object anyone can be granted, so it fails closed.
-    resolved = _as_uuid(value)
-    if resolved is None:
-        hidden.add(node_id)
-        return
-    by_node[node_id] = resolved
-
-
 def _readable_saved_query_ids(
     team_id: int, user_access_control: "UserAccessControl", saved_query_ids: set[UUID]
 ) -> set[UUID]:
     # One grouped pass over the access rules. A per-view check rescans them for every view.
-    rows = (
-        DataWarehouseSavedQuery.objects.filter(team_id=team_id, id__in=saved_query_ids)
-        .exclude(deleted=True)
-        .values_list("id", "created_by_id")
+    # Soft-deleted views are resolved too: the views list hides their nodes for every reader, and
+    # treating them as denied here would also hide the metrics they feed, for restricted readers only.
+    rows = DataWarehouseSavedQuery.objects.filter(team_id=team_id, id__in=saved_query_ids).values_list(
+        "id", "created_by_id"
     )
     levels = user_access_control.bulk_object_access_levels(
         "warehouse_view", [(str(saved_query_id), created_by_id) for saved_query_id, created_by_id in rows]

@@ -1011,12 +1011,6 @@ class TestNodeObjectVisibility(WarehouseAccessControlTestMixin):
         self.charges_by_key_node = table_node(self.team, self.dag, "stripe.charges", {"origin": "warehouse"})
         self.customers_by_row_name_node = table_node(self.team, self.dag, "customers", {"origin": "warehouse"})
         self.events_node = table_node(self.team, self.dag, "events", {"origin": "posthog"})
-        self.accounts_placeholder_node = table_node(
-            self.team,
-            self.dag,
-            "accounts_ref",
-            {"origin": "cross_dag_view", "saved_query_id": str(self.accounts_query.id)},
-        )
 
         self.accounts_to_metric = Edge.objects.create(
             team=self.team, dag=self.dag, source=self.view_node, target=self.metric_node
@@ -1053,7 +1047,6 @@ class TestNodeObjectVisibility(WarehouseAccessControlTestMixin):
     @parameterized.expand(
         [
             ("view_denied_directly", "warehouse_view", "accounts_query", "view_node"),
-            ("cross_dag_placeholder_follows_its_view", "warehouse_view", "accounts_query", "accounts_placeholder_node"),
             ("view_denied_hides_the_metric_it_feeds", "warehouse_view", "accounts_query", "metric_node"),
             ("table_denied_directly", "warehouse_table", "charges_table", "charges_node"),
             ("table_denied_through_its_source", "external_data_source", "stripe_source", "charges_node"),
@@ -1113,18 +1106,45 @@ class TestNodeObjectVisibility(WarehouseAccessControlTestMixin):
         self.assertNotIn(str(self.view_node.id), node_ids)
         self.assertEqual({edge["id"] for edge in payload["edges"]}, {str(self.charges_to_orders.id)})
 
-    @parameterized.expand(
-        [
-            ("retrieve", "get", "", None),
-            ("materialize", "post", "materialize/", None),
-            ("resume", "post", "resume/", None),
-            ("run", "post", "run/", {"direction": "downstream"}),
-        ]
-    )
-    def test_a_hidden_node_is_not_found(self, _name, method, suffix, body):
+    def test_the_creator_of_a_denied_view_still_sees_its_node(self):
+        self.accounts_query.created_by = self.viewer_user
+        self.accounts_query.save()
         self._deny("warehouse_view", self.accounts_query.id)
 
-        response = getattr(self.client, method)(f"{self._node_url()}{self.view_node.id}/{suffix}", data=body)
+        self.assertIn(str(self.view_node.id), self._listed_nodes())
+
+    @parameterized.expand(
+        [
+            ("ancestors", "warehouse_table", "charges_table"),
+            ("descendants", "warehouse_view", "accounts_query"),
+        ]
+    )
+    def test_saved_query_lineage_leaves_out_a_denied_neighbour(self, action, resource, denied_attr):
+        self._deny(resource, getattr(self, denied_attr).id)
+        url = f"/api/environments/{self.team.id}/warehouse_saved_queries/{self.orders_node.saved_query_id}/"
+
+        related = self.client.post(f"{url}{action}").json()[action]
+        dependencies = self.client.get(f"{url}dependencies").json()
+
+        denied_object_id = str(getattr(self, denied_attr).id)
+        self.assertNotIn(denied_object_id, related)
+        self.assertEqual(dependencies["upstream_count" if action == "ancestors" else "downstream_count"], 0)
+
+    @parameterized.expand(
+        [
+            ("retrieve", "get", "", None, "view_node"),
+            ("retrieve_by_saved_query", "get", "?lookup=saved_query", None, "accounts_query"),
+            ("materialize", "post", "materialize/", None, "view_node"),
+            ("resume", "post", "resume/", None, "view_node"),
+            ("run", "post", "run/", {"direction": "downstream"}, "view_node"),
+        ]
+    )
+    def test_a_hidden_node_is_not_found(self, _name, method, suffix, body, target_attr):
+        self._deny("warehouse_view", self.accounts_query.id)
+
+        response = getattr(self.client, method)(
+            f"{self._node_url()}{getattr(self, target_attr).id}/{suffix}", data=body
+        )
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 

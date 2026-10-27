@@ -48,7 +48,13 @@ def _parse_level(request: request.Request) -> int | None:
     return serializer.validated_data.get("level")
 
 
-def _related_saved_queries(saved_query: DataWarehouseSavedQuery, *, upstream: bool, max_depth: int | None) -> set[str]:
+def _related_saved_queries(
+    saved_query: DataWarehouseSavedQuery,
+    *,
+    upstream: bool,
+    max_depth: int | None,
+    hidden_ids: frozenset[str] = frozenset(),
+) -> set[str]:
     """Walk the data modeling graph from a saved query and identify what it reaches.
 
     The walk starts from every node that stands for the query and unions what they reach.
@@ -62,7 +68,9 @@ def _related_saved_queries(saved_query: DataWarehouseSavedQuery, *, upstream: bo
     if not start_node_ids:
         return set()
 
-    reached = reachable_node_ids(saved_query.team_id, start_node_ids, upstream=upstream, max_depth=max_depth)
+    reached = reachable_node_ids(
+        saved_query.team_id, start_node_ids, upstream=upstream, max_depth=max_depth, hidden_ids=hidden_ids
+    )
 
     identifiers: set[str] = set()
     for node_type, saved_query_id, name, properties in Node.objects.filter(

@@ -21,6 +21,7 @@ from posthog.helpers.impersonation import is_impersonated
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response, parse_activity_page_params
+from posthog.permissions import is_service_auth
 from posthog.rate_limit import MaterializationRateThrottle, RunSavedQueryRateThrottle
 from posthog.temporal.common.client import sync_connect
 
@@ -33,6 +34,7 @@ from products.data_modeling.backend.facade.api import (
     SavedQueryNotFoundError,
     disable_saved_query_materialization,
     enable_saved_query_materialization,
+    hidden_node_ids,
     run_related_node_materializations,
 )
 from products.data_modeling.backend.facade.flags import is_managed_viewset_enabled
@@ -331,6 +333,9 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
                     user=cast(User, request.user),
                     hidden_types=hidden_types,
                 )
+                # The run still refuses a view the user can't edit; this only keeps hidden node ids out of the reply.
+                hidden_ids = self._hidden_lineage_node_ids()
+                node_ids = [node_id for node_id in node_ids if node_id not in hidden_ids]
             else:
                 node_id = materialize_saved_query(saved_query, triggered_by_id=request.user.pk)
                 node_ids = [str(node_id)]
@@ -518,6 +523,12 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
                 unsuspend_saved_query(saved_query)
         return response.Response(status=status.HTTP_202_ACCEPTED)
 
+    def _hidden_lineage_node_ids(self) -> frozenset[str]:
+        # Service credentials hold project-wide scopes and no RBAC identity to resolve objects against.
+        if is_service_auth(self.request):
+            return frozenset()
+        return hidden_node_ids(self.team_id, self.user_access_control)
+
     @extend_schema(
         request=lineage.SavedQueryLineageRequestSerializer, responses={200: lineage.SavedQueryAncestorsSerializer}
     )
@@ -529,7 +540,12 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         to walk, so 1 gives the immediate parents.
         """
         saved_query = self.get_object()
-        ancestors = lineage._related_saved_queries(saved_query, upstream=True, max_depth=lineage._parse_level(request))
+        ancestors = lineage._related_saved_queries(
+            saved_query,
+            upstream=True,
+            max_depth=lineage._parse_level(request),
+            hidden_ids=self._hidden_lineage_node_ids(),
+        )
         return response.Response({"ancestors": ancestors})
 
     @extend_schema(
@@ -544,7 +560,10 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         """
         saved_query = self.get_object()
         descendants = lineage._related_saved_queries(
-            saved_query, upstream=False, max_depth=lineage._parse_level(request)
+            saved_query,
+            upstream=False,
+            max_depth=lineage._parse_level(request),
+            hidden_ids=self._hidden_lineage_node_ids(),
         )
         return response.Response({"descendants": descendants})
 
@@ -627,10 +646,15 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
     def dependencies(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Return the count of immediate upstream and downstream dependencies for this saved query."""
         saved_query = self.get_object()
+        hidden_ids = self._hidden_lineage_node_ids()
         return response.Response(
             {
-                "upstream_count": len(lineage._related_saved_queries(saved_query, upstream=True, max_depth=1)),
-                "downstream_count": len(lineage._related_saved_queries(saved_query, upstream=False, max_depth=1)),
+                "upstream_count": len(
+                    lineage._related_saved_queries(saved_query, upstream=True, max_depth=1, hidden_ids=hidden_ids)
+                ),
+                "downstream_count": len(
+                    lineage._related_saved_queries(saved_query, upstream=False, max_depth=1, hidden_ids=hidden_ids)
+                ),
             }
         )
 

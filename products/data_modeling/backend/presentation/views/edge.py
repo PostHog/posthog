@@ -7,7 +7,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from products.data_modeling.backend.facade.api import delete_orphaned_table_nodes
 from products.data_modeling.backend.facade.models import Edge, NodeType
-from products.data_modeling.backend.presentation.views.metric_visibility import DELETE_DENIED, NodeVisibilityMixin
+from products.data_modeling.backend.presentation.views.visibility import DELETE_DENIED, NodeVisibilityMixin
 
 _METRIC_EDGE_REFUSAL = "Edges that connect a metric are maintained by the data catalog."
 

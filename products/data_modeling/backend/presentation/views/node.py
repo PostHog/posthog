@@ -35,7 +35,7 @@ from products.data_modeling.backend.facade.models import (
     NodeType,
 )
 from products.data_modeling.backend.presentation.views.edge import EdgeSerializer
-from products.data_modeling.backend.presentation.views.metric_visibility import DELETE_DENIED, NodeVisibilityMixin
+from products.data_modeling.backend.presentation.views.visibility import DELETE_DENIED, NodeVisibilityMixin
 from products.warehouse_sources.backend.facade.models import sync_frequency_interval_to_sync_frequency
 
 
@@ -490,6 +490,8 @@ class NodeViewSet(
             )
         except MaterializationForbiddenError as error:
             raise PermissionDenied(str(error))
+        # The run still refuses a view the user can't edit; this only keeps hidden node ids out of the reply.
+        node_ids = [node_id for node_id in node_ids if node_id not in self._hidden_node_ids]
         return response.Response({"node_ids": node_ids}, status=status.HTTP_200_OK)
 
     def _lineage_lookup(self, req: request.Request) -> dict[str, UUID]:
