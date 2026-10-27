@@ -43,6 +43,7 @@ import type {
     ExperimentsListParams,
     ExperimentsMatchingIdsRetrieveParams,
     ExperimentsPromptTemplatesRetrieve200Item,
+    ExperimentsRunningTimeTargetRetrieveParams,
     ExperimentsSessionContextRetrieveParams,
     ExperimentsTimeseriesResultsRetrieveParams,
     PaginatedExperimentBasicListApi,
@@ -54,6 +55,7 @@ import type {
     RecalculateMetricsRequestApi,
     RunningTimeCalculationInputApi,
     RunningTimeCalculationResultApi,
+    RunningTimeTargetApi,
     ShipVariantApi,
 } from './api.schemas'
 
@@ -1073,6 +1075,46 @@ export const experimentsResumeCreate = async (
     return apiMutator<ExperimentApi>(getExperimentsResumeCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getExperimentsRunningTimeTargetRetrieveUrl = (
+    projectId: string,
+    id: number,
+    params?: ExperimentsRunningTimeTargetRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/experiments/${id}/running_time_target/?${stringifiedParams}`
+        : `/api/projects/${projectId}/experiments/${id}/running_time_target/`
+}
+
+/**
+ * The target sample of the experiment's running time estimate, which the experiment page's header compares
+ * with the exposures so far, and what the experiment can detect over time.
+ *
+ * In manual running time mode it is the saved target. Otherwise it is sized from the first primary metric's
+ * current result: the variance the analysis uses (with CUPED when the analysis applied it) and the flag's
+ * traffic split, so that the comparison of each variant with the control reaches the minimum detectable effect.
+ */
+export const experimentsRunningTimeTargetRetrieve = async (
+    projectId: string,
+    id: number,
+    params?: ExperimentsRunningTimeTargetRetrieveParams,
+    options?: RequestInit
+): Promise<RunningTimeTargetApi> => {
+    return apiMutator<RunningTimeTargetApi>(getExperimentsRunningTimeTargetRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

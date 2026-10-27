@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceConfig,
 )
 from products.warehouse_sources.backend.file_uploads import InvalidUploadError, UploadLocation
+from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common import config
@@ -129,6 +130,7 @@ class FileUploadSource(SimpleSource[FileUploadInputs]):
     listed_in_catalog = False
     # A file someone uploads leaves no trace in a codebase.
     codebase_detection = NOT_DETECTABLE
+    runtime_job_input_keys = frozenset(SERVER_MANAGED_FIELDS)
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -233,7 +235,7 @@ class FileUploadSource(SimpleSource[FileUploadInputs]):
     def manual_sync_refusal(self, source_model: ExternalDataSource) -> str | None:
         # A source the self-managed migration made reads no file until the next upload for its table.
         try:
-            upload_from_job_inputs(source_model.team_id, source_model.job_inputs)
+            upload_from_job_inputs(source_model.team_id, SourceInputsStore.load_settings(source_model))
         except InvalidUploadError:
             return "This table syncs when you upload a new file for it. Upload the file to import it."
         return None
