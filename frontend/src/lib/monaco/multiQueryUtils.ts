@@ -56,9 +56,7 @@ function findSeparatorOffsets(input: string, hogql: boolean): number[] {
 
         const isLineComment =
             (ch === '-' && input[i + 1] === '-') ||
-            (hogql &&
-                ((ch === '/' && input[i + 1] === '/') ||
-                    (ch === '#' && !/[0-9]/.test(input[i + 1] ?? ''))))
+            (hogql && ((ch === '/' && input[i + 1] === '/') || (ch === '#' && !/[0-9]/.test(input[i + 1] ?? ''))))
         if (isLineComment) {
             while (i < input.length && input[i] !== '\n') {
                 i++
@@ -161,7 +159,9 @@ export function findStatementAtOffset(
     cursorOffset: number,
     { hogql = false }: SplitQueryOptions = {}
 ): QueryRange | null {
-    const segment = statementSegments(input, hogql).find(({ start, end }) => cursorOffset >= start && cursorOffset <= end)
+    const segment = statementSegments(input, hogql).find(
+        ({ start, end }) => cursorOffset >= start && cursorOffset <= end
+    )
     if (!segment || !input.slice(segment.start, segment.end).trim()) {
         return null
     }

@@ -122,7 +122,9 @@ export const hogQLAutocompleteProvider = (type: HogLanguage): languages.Completi
         // Single-statement documents are still sent whole so a trailing `;` behaves as before.
         const statements = type === HogLanguage.hogQL ? splitQueries(queryText, { hogql: true }) : []
         const statement =
-            statements.length > 1 ? findStatementAtOffset(queryText, model.getOffsetAt(position), { hogql: true }) : null
+            statements.length > 1
+                ? findStatementAtOffset(queryText, model.getOffsetAt(position), { hogql: true })
+                : null
         const statementOffset = statement?.start ?? 0
 
         const query: HogQLAutocomplete = setLatestVersionsOnQuery(
