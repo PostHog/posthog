@@ -72,6 +72,21 @@ describe('addUtmTagsToEmail', () => {
             html: '<a href="https://example.com/{{ person.id }}">x</a>',
             expected: '<a href="https://example.com/{{ person.id }}">x</a>',
         },
+        {
+            case: 'an unquoted href',
+            html: '<a href=https://example.com/pricing>x</a>',
+            expected: `<a href="https://example.com/pricing?${QUERY}">x</a>`,
+        },
+        {
+            case: 'an href with a trailing space',
+            html: '<a href="https://example.com/pricing ">x</a>',
+            expected: `<a href="https://example.com/pricing?${QUERY}">x</a>`,
+        },
+        {
+            case: 'an opted out link after text that grows when lowercased',
+            html: '<p>İstanbul, İzmir, İzmit</p><a data-ph-no-utm href="https://example.com/pricing">x</a>',
+            expected: '<p>İstanbul, İzmir, İzmit</p><a data-ph-no-utm href="https://example.com/pricing">x</a>',
+        },
     ])('tags $case', ({ html, expected }) => {
         expect(addUtmTagsToEmail(html, TAGS, SITE_URL)).toEqual(expected)
     })

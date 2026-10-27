@@ -70,7 +70,9 @@ const hostOf = (url: string): string | null => {
  * not an absolute http(s) URL, a link to PostHog itself (unsubscribe and preference pages), an
  * unrendered template tag, or a link that already has every tag.
  */
-export const addUtmTagsToUrl = (url: string, tags: UtmTags, siteHost: string | null): string | null => {
+export const addUtmTagsToUrl = (href: string, tags: UtmTags, siteHost: string | null): string | null => {
+    // Browsers drop the whitespace around an href, so a tag appended after it would land inside the path.
+    const url = href.trim()
     if (url.includes('{{') || url.includes('{%')) {
         return null
     }
@@ -120,7 +122,7 @@ const tagAnchor = (anchor: string, tags: UtmTags, siteHost: string | null): stri
         return anchor
     }
     const href = attributes.find((attribute) => attribute[1].toLowerCase() === 'href')
-    const value = href ? (href[2] ?? href[3]) : undefined
+    const value = href ? (href[2] ?? href[3] ?? href[4]) : undefined
     if (!href || value === undefined) {
         return anchor
     }
@@ -128,7 +130,7 @@ const tagAnchor = (anchor: string, tags: UtmTags, siteHost: string | null): stri
     if (tagged === null) {
         return anchor
     }
-    const quote = href[2] !== undefined ? '"' : "'"
+    const quote = href[3] !== undefined ? "'" : '"'
     const encoded = tagged
         .replace(/&/g, '&amp;')
         .replace(quote === '"' ? /"/g : /'/g, quote === '"' ? '&quot;' : '&#39;')
@@ -136,19 +138,26 @@ const tagAnchor = (anchor: string, tags: UtmTags, siteHost: string | null): stri
     return anchor.slice(0, start) + `=${quote}${encoded}${quote}` + anchor.slice(href.index! + href[0].length)
 }
 
+const findAnchorStart = (html: string, from: number): number => {
+    // A case-insensitive search rather than lowercasing the email, because lowercasing can change its
+    // length (`İ` becomes two characters) and every offset after it would point at the wrong tag.
+    const anchorStart = /<a/gi
+    anchorStart.lastIndex = from
+    return anchorStart.exec(html)?.index ?? -1
+}
+
 // One forward pass rather than a regex, so a body full of unclosed `<a` tags costs linear time instead
 // of rescanning the rest of the email for each one and stalling the worker.
 export const addUtmTagsToEmail = (html: string, tags: UtmTags, siteUrl: string): string => {
     const siteHost = hostOf(siteUrl)
-    const lower = html.toLowerCase()
     let output = ''
     let cursor = 0
     while (cursor < html.length) {
-        const start = lower.indexOf('<a', cursor)
+        const start = findAnchorStart(html, cursor)
         if (start === -1) {
             break
         }
-        const after = lower[start + 2]
+        const after = html[start + 2]
         if (after !== undefined && !/[\s>/]/.test(after)) {
             // `<abbr>`, `<area>` and other tags that only start with "a".
             output += html.slice(cursor, start + 2)
