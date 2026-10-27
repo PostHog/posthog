@@ -17,6 +17,7 @@ from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
 import structlog
+from django_filters import rest_framework as filters
 from django_filters.rest_framework import DjangoFilterBackend
 from django_redis.cache import RedisCache
 from django_redis.exceptions import ConnectionInterrupted
@@ -78,6 +79,7 @@ from posthog.models.integration import (
     POSTHOG_CONNECT_GRANTABLE_SCOPES,
     POSTHOG_CONNECT_KIND,
     POSTHOG_SLACK_SCOPE,
+    PUBLIC_INTEGRATION_KIND_CHOICES,
     SLACK_INTEGRATION_KINDS,
     AnthropicIntegration,
     ApplePushIntegration,
@@ -141,6 +143,7 @@ from products.cdp.backend.services.integration_usage import get_enabled_hog_func
 from products.slack_app.backend.services.slack_auth import SLACK_AUTH_FAILURE_CODES
 from products.tasks.backend.facade.api import get_in_progress_runs_for_github_integration
 from products.tasks.backend.facade.contracts import InProgressGithubRunsDTO
+from products.warehouse_sources.backend.facade.integration_references import list_sources_using_integration
 from products.workflows.backend.facade.api import get_active_workflows_using_integration, lookup_existing_email_tools
 from products.workflows.backend.facade.contracts import EmailProviderUnavailableError
 from products.workflows.backend.facade.enums import EmailDomainSetupMethod
@@ -727,7 +730,7 @@ class SlackUsersResponseSerializer(serializers.Serializer):
 
 class IntegrationAccessRequestSerializer(serializers.Serializer):
     kind = serializers.ChoiceField(
-        choices=Integration.IntegrationKind.choices,
+        choices=PUBLIC_INTEGRATION_KIND_CHOICES,
         help_text="The kind of integration the member is requesting be connected (e.g. 'slack', 'github').",
     )
     reason = serializers.CharField(
@@ -748,6 +751,7 @@ class IntegrationAccessRequestResponseSerializer(serializers.Serializer):
 class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     """Standard Integration serializer."""
 
+    kind = serializers.ChoiceField(choices=PUBLIC_INTEGRATION_KIND_CHOICES)
     created_by = UserBasicSerializer(read_only=True)
     files_write_requestable = serializers.SerializerMethodField(
         help_text="Slack only: whether reconnecting can request the files:write scope."
@@ -820,6 +824,8 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
     def validate_kind(self, value: str) -> str:
         if value == Integration.IntegrationKind.SLACK_POSTHOG_CODE.value:
             raise ValidationError("This integration kind is deprecated and can no longer be created.")
+        if value == Integration.IntegrationKind.WAREHOUSE_SOURCE.value:
+            raise ValidationError("This integration kind is managed by PostHog and cannot be created here.")
         return value
 
     def create(self, validated_data: Any) -> Any:
@@ -1486,6 +1492,14 @@ class PersonalConnectionRecentAuthPermission(BasePermission):
         return True
 
 
+class IntegrationFilterSet(filters.FilterSet):
+    kind = filters.ChoiceFilter(choices=PUBLIC_INTEGRATION_KIND_CHOICES)
+
+    class Meta:
+        model = Integration
+        fields = ["kind"]
+
+
 @extend_schema(extensions={"x-product": "integrations"})
 class IntegrationViewSet(
     TeamAndOrgViewSetMixin,
@@ -1538,7 +1552,7 @@ class IntegrationViewSet(
     queryset = defer_repository_cache_fields(Integration.objects.all()).order_by("created_at", "id")
     serializer_class = IntegrationSerializer
     filter_backends = [DjangoFilterBackend]
-    filterset_fields = ["kind"]
+    filterset_class = IntegrationFilterSet
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         # A `posthog` connection holds the creator's delegated grant into another project plus personal
@@ -1546,7 +1560,9 @@ class IntegrationViewSet(
         # creator. Unlike team-shared integrations, don't expose other members' connections in
         # list/retrieve — scope `posthog` rows to the requesting user. Other kinds stay team-visible.
         user_id = getattr(self.request.user, "id", None)
-        return queryset.exclude(Q(kind=POSTHOG_CONNECT_KIND) & ~Q(created_by_id=user_id))
+        return queryset.exclude(kind=Integration.IntegrationKind.WAREHOUSE_SOURCE).exclude(
+            Q(kind=POSTHOG_CONNECT_KIND) & ~Q(created_by_id=user_id)
+        )
 
     def handle_exception(self, exc: Exception) -> Response:
         # GitHub rate limits surface from any GitHub-backed action (teams, repos, branches, refresh);
@@ -1587,7 +1603,18 @@ class IntegrationViewSet(
             team_id=instance.team_id, integration_id=instance.id
         )
 
+        sources_using_integration = list_sources_using_integration(team_id=instance.team_id, integration_pk=instance.pk)
+
         used_by = []
+
+        if sources_using_integration:
+            source_names = ", ".join(
+                sorted(
+                    f"{source.source_type} ({source.prefix})" if source.prefix else source.source_type
+                    for source in sources_using_integration
+                )
+            )
+            used_by.append(f"data warehouse sources: {source_names}")
 
         if flows_using_integration:
             flow_names = _concat_names_or_ids(flows_using_integration)

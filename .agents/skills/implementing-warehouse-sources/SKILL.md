@@ -416,6 +416,15 @@ Read and write a source's `job_inputs` only through `SourceInputsStore` (`produc
 
 The semgrep rule `warehouse-source-inputs-go-through-store` blocks `source.job_inputs` and `job_inputs=` on `ExternalDataSource` outside the store. Tests and migrations can still set the field directly.
 
+#### Connection fields in an Integration row
+
+PostHog stores the connection fields of one source in one `Integration` row of the hidden kind `warehouse-source`. The row key is the team, the kind, and the source id. `WarehouseSourceCredentialsStore` (`products/warehouse_sources/backend/logic/source_credentials.py`) is the only code that reads or writes these rows.
+
+- Never query `Integration` rows of this kind in source code. Do not call the credentials store from source code either. Use `SourceInputsStore`, which will use the credentials store internally.
+- The integrations API hides this kind. A user cannot list, create, or delete it.
+- The credentials store deletes the row when the source is soft deleted.
+- The integrations API refuses to delete an `Integration` that a source still points to with a `*_integration_id` field.
+
 ## Implementing `source_for_pipeline`
 
 Return a `SourceResponse` directly. **Do not** use `dlt_source_to_source_response` for new sources — DLT is being removed.

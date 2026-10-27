@@ -177,6 +177,9 @@ class Integration(models.Model):
         TIKTOK_ADS = "tiktok-ads"
         TWILIO = "twilio"
         VERCEL = "vercel"
+        # Hidden kind: one row per warehouse source, owned by `WarehouseSourceCredentialsStore`.
+        # The integrations API never lists, creates or deletes it.
+        WAREHOUSE_SOURCE = "warehouse-source"
         YOUTUBE_ANALYTICS = "youtube-analytics"
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
@@ -319,3 +322,11 @@ def defer_repository_cache_fields(queryset: models.QuerySet[Integration]) -> mod
 @database_sync_to_async
 def aget_integration_by_id(integration_id: str, team_id: int) -> Integration | None:
     return Integration.objects.get(id=integration_id, team_id=team_id)
+
+
+# The warehouse source kind stays out of the public API surface, so it is absent from the generated schema.
+PUBLIC_INTEGRATION_KIND_CHOICES = [
+    choice
+    for choice in Integration.IntegrationKind.choices
+    if choice[0] != Integration.IntegrationKind.WAREHOUSE_SOURCE
+]

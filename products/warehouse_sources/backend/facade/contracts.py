@@ -349,3 +349,10 @@ class UploadReadSettings:
 
     columns: dict[str, Any]
     allow_double_quotes: bool | None = None
+
+
+@dataclass(frozen=True)
+class SourceReferencingIntegration:
+    id: UUID
+    source_type: str
+    prefix: str | None

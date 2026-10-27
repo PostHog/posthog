@@ -98,6 +98,8 @@ from products.batch_exports.backend.facade.enums import BatchExportDestinationTy
 from products.cdp.backend.models import HogFunction
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.tasks.backend.facade.contracts import InProgressGithubRunsDTO
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 from products.workflows.backend.facade.contracts import EmailDomainVerification, WorkflowSummary
 from products.workflows.backend.facade.testing import create_workflow_for_test
 
@@ -8121,3 +8123,77 @@ class TestGitHubDiscoveryAudit(APIBaseTest):
         response = self.client.post(f"/api/projects/{self.team.id}/integrations/github/link_existing/", payload)
         assert response.status_code == 200
         assert link.call_args.kwargs["installation_id_param"] is None
+
+
+class TestWarehouseSourceIntegrationKind(APIBaseTest):
+    def _credentials_row(self) -> Integration:
+        return Integration.objects.create(
+            team=self.team,
+            kind=Integration.IntegrationKind.WAREHOUSE_SOURCE,
+            integration_id=str(uuid4()),
+            config={"source_type": "Postgres", "source_id": "x"},
+            sensitive_config={"fields": {"password": "fake-password"}},
+        )
+
+    def _source_pointing_at(self, integration: Integration, team=None, deleted: bool = False) -> ExternalDataSource:
+        return ExternalDataSource.objects.create(
+            team=team or self.team,
+            source_id=str(uuid4()),
+            connection_id=str(uuid4()),
+            status="Completed",
+            source_type=ExternalDataSourceType.LINEAR,
+            job_inputs={"linear_integration_id": integration.id},
+            deleted=deleted,
+        )
+
+    def test_hidden_kind_is_absent_from_list_retrieve_and_filter(self) -> None:
+        hidden = self._credentials_row()
+        visible = Integration.objects.create(team=self.team, kind="slack", integration_id="T1")
+
+        listed = self.client.get(f"/api/projects/{self.team.id}/integrations/").json()["results"]
+        assert [row["id"] for row in listed] == [visible.id]
+        assert self.client.get(f"/api/projects/{self.team.id}/integrations/{hidden.id}/").status_code == 404
+        filtered = self.client.get(f"/api/projects/{self.team.id}/integrations/?kind=warehouse-source")
+        assert filtered.status_code == 400
+
+    def test_hidden_kind_cannot_be_created(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/integrations/",
+            {"kind": "warehouse-source", "config": {}},
+            format="json",
+        )
+        assert response.status_code == 400
+        assert not Integration.objects.filter(kind="warehouse-source").exists()
+
+    def test_hidden_kind_cannot_be_destroyed(self) -> None:
+        hidden = self._credentials_row()
+        response = self.client.delete(f"/api/projects/{self.team.id}/integrations/{hidden.id}/")
+        assert response.status_code == 404
+        assert Integration.objects.filter(id=hidden.id).exists()
+
+    @parameterized.expand(
+        [
+            ("referenced", False, False, 400),
+            ("referenced_by_deleted_source", True, False, 204),
+            ("referenced_by_other_team", False, True, 204),
+            ("unreferenced", None, False, 204),
+        ]
+    )
+    def test_destroy_is_blocked_by_a_source_pointer(
+        self, _name: str, source_deleted: bool | None, other_team: bool, expected_status: int
+    ) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        integration = Integration.objects.create(team=self.team, kind="linear", integration_id="L1")
+        if source_deleted is not None:
+            source_team = Team.objects.create(organization=self.organization, name="Other") if other_team else self.team
+            self._source_pointing_at(integration, team=source_team, deleted=source_deleted)
+
+        with patch("posthog.api.integration.OauthIntegration") as oauth:
+            oauth.supported_kinds = []
+            response = self.client.delete(f"/api/projects/{self.team.id}/integrations/{integration.id}/")
+
+        assert response.status_code == expected_status
+        assert Integration.objects.filter(id=integration.id).exists() == (expected_status == 400)
+        if expected_status == 400:
+            assert "data warehouse sources" in json.dumps(response.json())
