@@ -100,7 +100,7 @@ describe('formatMailbox', () => {
         [
             'a non-ASCII name as an RFC 2047 encoded word',
             'Café Müller',
-            '=?UTF-8?B?Q2Fmw6kgTcO8bGxlcg==?= <a@example.com>',
+            '=?UTF-8?Q?Caf=C3=A9_M=C3=BCller?= <a@example.com>',
         ],
     ])('formats %s', (_name, name, expected) => {
         expect(formatMailbox(name, 'a@example.com')).toEqual(expected)
@@ -112,16 +112,27 @@ describe('formatMailbox', () => {
     ])('keeps a long %s intact across encoded words', (_desc, name) => {
         const [displayName, address] = formatMailbox(name, 'a@example.com').split(' <')
         const encodedWords = displayName.split(' ')
-        const decoded = Buffer.concat(
-            encodedWords.map((word) => Buffer.from(word.match(/^=\?UTF-8\?B\?(.+)\?=$/)![1], 'base64'))
-        ).toString('utf8')
 
-        expect(decoded).toEqual(name.trim())
+        expect(encodedWords.map(decodeEncodedWord).join('')).toEqual(name.trim())
         expect(address).toEqual('a@example.com>')
         expect(encodedWords.length).toBeGreaterThan(1)
         expect(Math.max(...encodedWords.map((word) => word.length))).toBeLessThanOrEqual(75)
     })
 })
+
+function decodeEncodedWord(word: string): string {
+    const [, encoding, text] = word.match(/^=\?UTF-8\?([BQ])\?(.*)\?=$/i)!
+    const bytes =
+        encoding.toUpperCase() === 'B'
+            ? Buffer.from(text, 'base64')
+            : Buffer.from(
+                  text
+                      .replace(/_/g, ' ')
+                      .replace(/=([0-9A-F]{2})/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16))),
+                  'latin1'
+              )
+    return bytes.toString('utf8')
+}
 
 describe('parseAddressList', () => {
     it.each([
@@ -403,7 +414,7 @@ describe('EmailService', () => {
                 [
                     'non-ASCII name with quotes as an RFC 2047 encoded word',
                     { name: 'Café "Müller"' },
-                    '=?UTF-8?B?Q2Fmw6kgIk3DvGxsZXIi?= <test@posthog.com>',
+                    '=?UTF-8?Q?Caf=C3=A9_=22M=C3=BCller=22?= <test@posthog.com>',
                     'test@posthog.com',
                 ],
             ])('applies the %s', async (_desc, fromOverride, expectedFrom, expectedFeedback) => {
