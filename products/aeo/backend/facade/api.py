@@ -15,7 +15,7 @@ from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, connection, transaction
 from django.db.models import Aggregate, Count, Max, Min, Q, QuerySet
 from django.db.models.functions import TruncDate
 from django.utils import timezone
@@ -292,14 +292,26 @@ def _set_counts(row: dict[str, Any]) -> dict[str, int]:
     return {key: row[key] for key in ("checks", "failed", "cited", "mentioned", "prompts", "prompts_cited")}
 
 
-def _top_domains(answered: QuerySet[AEOCitationCheck], target_domains: list[str]) -> tuple[PromptSetDomain, ...]:
-    """Domains ranked by how many answers cited them. A domain cited twice in one answer counts once."""
-    answers = 0
-    domain_answers: Counter[str] = Counter()
-    for row in answered.values_list("cited_urls", flat=True).iterator(chunk_size=1000):
-        answers += 1
-        domain_answers.update(top_domains(list(_strings(row))))
-    ranked = sorted(domain_answers.items(), key=lambda item: (-item[1], item[0]))[:MAX_OVERVIEW_DOMAINS]
+def _top_domains(
+    team_id: int, *, since: dt.datetime, answers: int, target_domains: list[str]
+) -> tuple[PromptSetDomain, ...]:
+    """Domains ranked by how many answered checks in the window cited them, counted in Postgres from
+    each check's distinct hosts. `answers` is the number of answered checks the shares are over."""
+    if answers == 0:
+        return ()
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT host, count(*) AS checks_citing
+            FROM posthog_aeo_citation_check, jsonb_array_elements_text(top_cited_domains) AS host
+            WHERE team_id = %s AND created_at >= %s AND check_failed = false
+            GROUP BY host
+            ORDER BY checks_citing DESC, host
+            LIMIT %s
+            """,
+            [team_id, since, MAX_OVERVIEW_DOMAINS],
+        )
+        rows = cursor.fetchall()
     return tuple(
         PromptSetDomain(
             domain=domain,
@@ -307,7 +319,7 @@ def _top_domains(answered: QuerySet[AEOCitationCheck], target_domains: list[str]
             share_of_answers=count / answers,
             is_target=is_target_host(domain, target_domains),
         )
-        for domain, count in ranked
+        for domain, count in rows
     )
 
 
@@ -352,6 +364,7 @@ def get_prompt_set_overview(team_id: int, *, timezone_name: str, days: int) -> P
         for topic in sorted(active_prompts.keys() | topic_checks.keys())
     )
 
+    current_counts = PromptSetCounts(**_set_counts(current.aggregate(**counts)))
     return PromptSetOverview(
         days=days,
         window_from=window_from,
@@ -359,11 +372,16 @@ def get_prompt_set_overview(team_id: int, *, timezone_name: str, days: int) -> P
         prompts_tracked=sum(active_prompts.values()),
         target_domains=tuple(target_domains),
         brand_names=brand_names(target_domains),
-        current=PromptSetCounts(**_set_counts(current.aggregate(**counts))),
+        current=current_counts,
         previous=PromptSetCounts(**_set_counts(previous.aggregate(**counts))),
         engines=engines,
         topics=topics,
-        top_domains=_top_domains(current.filter(check_failed=False), target_domains),
+        top_domains=_top_domains(
+            team_id,
+            since=window_start,
+            answers=current_counts.checks - current_counts.failed,
+            target_domains=target_domains,
+        ),
     )
 
 

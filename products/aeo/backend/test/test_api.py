@@ -18,6 +18,7 @@ from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal
 
+from products.aeo.backend.engines import top_domains
 from products.aeo.backend.models import AEOCitationCheck, AEOPrompt, AEOPromptVersion
 from products.aeo.backend.test.factories import create_citation_check
 
@@ -62,6 +63,7 @@ class TestAEOPromptAPI(APIBaseTest):
                 check_failed=check_failed,
                 answer_text=answer_text,
                 cited_urls=cited_urls or [],
+                top_cited_domains=top_domains(cited_urls or []),
                 search_queries=search_queries or [],
             )
             AEOCitationCheck.objects.filter(id=check.id).update(
