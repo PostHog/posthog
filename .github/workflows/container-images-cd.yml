@@ -521,6 +521,7 @@ jobs:
                         - 'products/business_knowledge/backend/**'
                         - 'products/customer_analytics/backend/**'
                         - 'products/knowledge_writer/backend/**'
+                        - 'products/knowledge_writer/merge_check/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
                         - pyproject.toml

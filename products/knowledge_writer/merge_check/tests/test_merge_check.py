@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from types import SimpleNamespace
 from typing import cast
 
@@ -33,9 +34,21 @@ def fake_github_and_sitemap(commit_sha: str) -> httpx.Client:
     return httpx.Client(transport=httpx.MockTransport(respond), base_url="https://api.github.com")
 
 
+def judge_with_parse(parse: Callable[..., object]) -> Anthropic:
+    client = SimpleNamespace(messages=SimpleNamespace(parse=parse))
+    client.with_options = lambda **_options: client
+    return cast(Anthropic, client)
+
+
 def judge_returning(verdict: JudgeVerdict) -> Anthropic:
-    parse = lambda **_request: SimpleNamespace(stop_reason="end_turn", parsed_output=verdict)
-    return cast(Anthropic, SimpleNamespace(messages=SimpleNamespace(parse=parse)))
+    return judge_with_parse(lambda **_request: SimpleNamespace(stop_reason="end_turn", parsed_output=verdict))
+
+
+def judge_returning_malformed_output() -> Anthropic:
+    def parse(**_request: object) -> object:
+        return JudgeVerdict.model_validate({"needs_docs": "maybe"})
+
+    return judge_with_parse(parse)
 
 
 def test_mapped_merge_flagged_by_judge_yields_kind_and_at_most_three_listed_pages() -> None:
@@ -56,3 +69,16 @@ def test_mapped_merge_flagged_by_judge_yields_kind_and_at_most_three_listed_page
 
     assert (report.needs_docs, report.change_kind) == (True, DocsChangeKind.UPDATE)
     assert report.page_urls == tuple(FLAGS_PAGES[:3])
+
+
+def test_malformed_judge_output_declines_instead_of_raising() -> None:
+    commit_sha = "b" * 40
+
+    report = run_merge_check(
+        commit_sha,
+        github=fake_github_and_sitemap(commit_sha),
+        http=fake_github_and_sitemap(commit_sha),
+        anthropic_client=judge_returning_malformed_output(),
+    )
+
+    assert (report.needs_docs, report.reason) == (False, "judge_declined")
