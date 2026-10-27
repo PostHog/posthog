@@ -107,3 +107,9 @@ export interface LabeledLink {
     label: string
     href: string
 }
+
+export interface GitPullRequestLink {
+    number: number
+    title: string | null
+    href: string
+}

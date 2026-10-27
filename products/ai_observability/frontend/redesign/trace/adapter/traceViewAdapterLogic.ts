@@ -12,14 +12,17 @@ import type {
     TraceApi,
     TraceEvaluationResultApi,
     TraceNodeApi,
+    TracePullRequestApi,
     TraceTimelineRowApi,
 } from '../../../generated/api.schemas'
 import { GitBranchChipProps } from '../components/GitBranchChip'
 import { TraceHeaderProps } from '../components/TraceHeader'
 import { TraceSummaryBarProps } from '../components/TraceSummaryBar'
+import { traceGitPullRequestLogic } from '../traceGitPullRequestLogic'
 import { TraceViewStatus, traceViewLogic } from '../traceViewLogic'
 import { ConversationState, LabeledLink, NodeDetailTab, NodeLoad, TraceMode } from '../types'
 import { toDatasetItemSource } from './toDatasetItemSource'
+import { toGitPullRequestLink } from './toGitPullRequestLink'
 import { toBackLink, toHeader } from './toHeader'
 import { NodeDetailData, toNodeDetail } from './toNodeDetail'
 import { toThread } from './toThread'
@@ -41,6 +44,7 @@ export interface traceViewAdapterLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     searchParams: Record<string, any> // router
     currentTeamId: number | null // teamLogic
+    pullRequest: TracePullRequestApi | null // traceGitPullRequestLogic
     createdAt: string | null // traceViewLogic
     defaultNodeId: string // traceViewLogic
     errorMessage: string // traceViewLogic
@@ -172,7 +176,7 @@ export interface traceViewAdapterLogicMeta {
             currentTeamId: number | null,
             traceId: string
         ) => ConversationState
-        gitBranch: (trace: TraceApi | null) => GitBranchChipProps | null
+        gitBranch: (trace: TraceApi | null, pullRequest: TracePullRequestApi | null) => GitBranchChipProps | null
         canViewInThread: (selectedNodeId: string, threadNodeIds: string[], traceId: string) => boolean
     }
 }
@@ -222,6 +226,8 @@ export const traceViewAdapterLogic = kea<traceViewAdapterLogicType>([
             ['searchParams'],
             featureFlagLogic,
             ['featureFlags'],
+            traceGitPullRequestLogic({ traceId: props.traceId, timestampHint: props.timestampHint }),
+            ['pullRequest'],
         ],
         actions: [
             aiObservabilityTraceLogic,
@@ -380,7 +386,13 @@ export const traceViewAdapterLogic = kea<traceViewAdapterLogicType>([
                 return toThread({ traceId, createdAt, load, teamId })
             },
         ],
-        gitBranch: [(s) => [s.trace], (trace: TraceApi | null): GitBranchChipProps | null => trace?.git ?? null],
+        gitBranch: [
+            (s) => [s.trace, s.pullRequest],
+            (trace: TraceApi | null, pullRequest: TracePullRequestApi | null): GitBranchChipProps | null =>
+                trace?.git
+                    ? { ...trace.git, pullRequest: pullRequest ? toGitPullRequestLink(pullRequest) : null }
+                    : null,
+        ],
         canViewInThread: [
             (s, p) => [s.selectedNodeId, s.threadNodeIds, p.traceId],
             (selectedNodeId: string, threadNodeIds: string[], traceId: string): boolean =>

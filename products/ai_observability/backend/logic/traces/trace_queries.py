@@ -166,15 +166,21 @@ def _filter_conditions() -> ast.Placeholder:
     return ast.Placeholder(expr=ast.Field(chain=["filter_conditions"]))
 
 
-def _trace_rows_query() -> ast.SelectQuery:
+def _trace_rows_query(*conditions: ast.Expr) -> ast.SelectQuery:
     return ast.SelectQuery(
         select=_select(),
         select_from=_ai_events(),
-        where=ast.And(exprs=[_event_in(TRACE_EVENT_NAMES), _filter_conditions()]),
+        where=ast.And(exprs=[_event_in(TRACE_EVENT_NAMES), *conditions, _filter_conditions()]),
         order_by=[ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="ASC")],
         limit_by=ast.LimitByExpr(n=ast.Constant(value=1), exprs=[ast.Field(chain=["uuid"])]),
         limit=ast.Constant(value=MAX_TRACE_EVENTS),
     )
+
+
+def _has_git_branch() -> ast.Expr:
+    # HogQL makes `!=` true for NULL, so a missing property is folded into the empty string first.
+    branch = ast.Call(name="ifNull", args=[ast.Field(chain=["properties", "$ai_git_branch"]), ast.Constant(value="")])
+    return ast.Call(name="notEmpty", args=[branch])
 
 
 def _node_query(selection: ast.Expr) -> ast.SelectQuery:
@@ -424,3 +430,20 @@ def load_trace_root(team: Team, user: User | None, trace_id: str, timestamp_hint
         return TraceRootLookup(trace_event=_trace_node_row(results[0]), trace_found=True)
     # Most traces have no $ai_trace event, so the existence check reads light columns instead of a step's payload.
     return TraceRootLookup(trace_event=None, trace_found=bool(read("ai_trace_exists", _trace_exists_query)))
+
+
+def load_trace_git_rows(
+    team: Team, user: User | None, trace_id: str, timestamp_hint: datetime | None
+) -> tuple[TraceEventRow, ...]:
+    return tuple(
+        _trace_event_row(values)
+        for values in _read_trace(
+            "ai_trace_git",
+            lambda: _trace_rows_query(_has_git_branch()),
+            team,
+            user,
+            trace_id,
+            timestamp_hint,
+            widen_unhinted=False,
+        )
+    )

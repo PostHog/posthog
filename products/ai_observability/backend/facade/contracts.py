@@ -147,6 +147,20 @@ class TraceEvaluationResults(Contract):
     results: list[TraceEvaluationResult]
 
 
+class TracePullRequest(Contract):
+    repo_owner: str = Field(description="The owner of the pull request's repository.")
+    repo_name: str = Field(description="The name of the pull request's repository.")
+    number: int = Field(description="The pull request number.")
+    title: str | None = Field(description="The pull request title, or null when the synced data has none.")
+
+
+class TracePullRequestLookup(Contract):
+    pull_request: TracePullRequest | None = Field(
+        description="The pull request the trace's git branch belongs to, ranked by engineering analytics, or null "
+        "when the trace has no branch, the project has no GitHub source, or no pull request matches."
+    )
+
+
 AttentionReason = Literal["errored", "silent", "worse"]
 BucketStatus = Literal["none", "dip", "normal"]
 Interval = Literal["hour", "day"]

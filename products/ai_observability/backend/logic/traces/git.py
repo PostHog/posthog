@@ -22,6 +22,10 @@ class GitRef:
     repo: str | None
     seen_at: datetime
 
+    @property
+    def is_default_branch(self) -> bool:
+        return self.branch in _DEFAULT_BRANCHES
+
     @classmethod
     def from_rows(cls, rows: Iterable["TraceEventRow"]) -> Self | None:
         """The branch the trace's work ran on. A coding agent often starts on the default branch and creates the

@@ -1,9 +1,13 @@
 from collections.abc import Sequence
 from datetime import date, datetime
+from typing import TYPE_CHECKING
 
 from posthog.schema import HogQLPropertyFilter
 
 from posthog.models import Team, User
+
+from products.engineering_analytics.backend.facade import api as engineering_analytics_api
+from products.engineering_analytics.backend.facade.contracts import BranchPRMatch, GitHubSourceNotConnectedError
 
 from ..logic.evaluations.evaluation_metas import load_evaluation_meta, load_evaluation_metas
 from ..logic.evaluations.overview import evaluation_result, group_by_evaluation, overview_totals, pass_rate_overview
@@ -23,10 +27,13 @@ from ..logic.traces.git import GitRef
 from ..logic.traces.node import NodeEvent
 from ..logic.traces.timeline import TimelineRow
 from ..logic.traces.trace import Trace
-from ..logic.traces.trace_queries import load_trace, load_trace_node, load_trace_root
+from ..logic.traces.trace_queries import load_trace, load_trace_git_rows, load_trace_node, load_trace_root
 from ..logic.traces.tree import TreeNode
 from ..logic.traces.usage import Usage
 from . import contracts
+
+if TYPE_CHECKING:
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 
 class TraceNotFoundError(Exception):
@@ -228,6 +235,36 @@ def _to_evaluation_result(result: EvaluationResult) -> contracts.TraceEvaluation
         timestamp=result.timestamp,
         is_backfill=result.is_backfill,
     )
+
+
+def get_trace_pull_request(
+    team: Team,
+    user: User | None,
+    user_access_control: "UserAccessControl | None",
+    trace_id: str,
+    timestamp_hint: datetime | None,
+) -> contracts.TracePullRequestLookup:
+    ref = GitRef.from_rows(load_trace_git_rows(team, user, trace_id, timestamp_hint))
+    # A default branch is the head of unrelated pull requests, such as fork and release ones, so it links to none.
+    if ref is None or ref.is_default_branch:
+        return contracts.TracePullRequestLookup(pull_request=None)
+    try:
+        matches = engineering_analytics_api.resolve_branch(
+            team=team,
+            branch=ref.branch,
+            repo=ref.repo,
+            timestamp=ref.seen_at,
+            user_access_control=user_access_control,
+        )
+    # The repo stamp comes from an SDK, so a value that is not owner/name reads as no match, not a failure.
+    except (GitHubSourceNotConnectedError, ValueError):
+        return contracts.TracePullRequestLookup(pull_request=None)
+    return contracts.TracePullRequestLookup(pull_request=_to_pull_request(matches[0]) if matches else None)
+
+
+def _to_pull_request(match: BranchPRMatch) -> contracts.TracePullRequest:
+    owner, _, name = match.repo.partition("/")
+    return contracts.TracePullRequest(repo_owner=owner, repo_name=name, number=match.number, title=match.title)
 
 
 def evaluations_period(team: Team, date_from: date | datetime | None, date_to: date | datetime | None) -> PeriodBounds:

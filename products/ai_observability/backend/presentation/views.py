@@ -13,6 +13,9 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.models.user import User
+from posthog.permissions import PostHogFeatureFlagPermission
+
+from products.engineering_analytics.backend.facade.contracts import ENGINEERING_ANALYTICS_FEATURE_FLAG
 
 from ..facade import api, contracts
 from .query_concurrency import query_concurrency_slots
@@ -52,6 +55,9 @@ class TraceViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     # Traces are project-wide data, so a grant on a single llm_analytics object must not open them.
     requires_resource_level_access = True
     serializer_class = _FallbackSerializer
+    permission_classes = [PostHogFeatureFlagPermission]
+    # Other actions are absent from the map, so the permission lets them through.
+    posthog_feature_flag = {ENGINEERING_ANALYTICS_FEATURE_FLAG: ["pull_request"]}
 
     def _read[T](self, request: ValidatedRequest, read: Callable[[User | None, datetime | None], T]) -> T:
         tag_queries(feature=Feature.QUERY)
@@ -127,3 +133,34 @@ class TraceViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             return Response({"detail": "Malformed encoded trace id."}, status=status.HTTP_400_BAD_REQUEST)
         results = self._read(request, lambda user, _hint: api.get_trace_evaluation_results(self.team, user, trace_id))
         return Response(results.model_dump(mode="json", by_alias=True))
+
+    @validated_request(
+        query_serializer=TraceQuerySerializer,
+        parameters=[TRACE_ID_PARAMETER],
+        responses={
+            200: OpenApiResponse(response=contracts.TracePullRequestLookup),
+            400: OpenApiResponse(description="The timestamp hint or the encoded trace id is malformed."),
+            403: OpenApiResponse(
+                description="The engineering-analytics feature flag is off for the project, or the API key lacks a scope."
+            ),
+            429: THROTTLED_RESPONSE,
+        },
+        operation_id="ai_observability_traces_pull_request_retrieve",
+    )
+    @action(
+        detail=True,
+        methods=["GET"],
+        # The read opens engineering analytics data, so a key needs that product's scope as well.
+        required_scopes=["llm_analytics:read", "engineering_analytics:read"],
+    )
+    def pull_request(self, request: ValidatedRequest, pk: str, **kwargs: Any) -> Response:
+        """The pull request the trace's git branch belongs to, from engineering analytics."""
+        try:
+            trace_id = decode_trace_id_segment(pk)
+        except MalformedTraceIdSegmentError:
+            return Response({"detail": "Malformed encoded trace id."}, status=status.HTTP_400_BAD_REQUEST)
+        lookup = self._read(
+            request,
+            lambda user, hint: api.get_trace_pull_request(self.team, user, self.user_access_control, trace_id, hint),
+        )
+        return Response(lookup.model_dump(mode="json", by_alias=True))

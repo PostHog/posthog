@@ -15,6 +15,7 @@ from products.ai_observability.backend.logic.traces.trace_queries import (
     TraceRootLookup,
     is_truthy_json,
     load_trace,
+    load_trace_git_rows,
     load_trace_node,
     load_trace_root,
 )
@@ -219,6 +220,23 @@ class TestLoadTraceNode(TraceEventsMixin, ClickhouseTestMixin, BaseTest):
         assert row is not None and row.uuid == NODE
 
 
+class TestLoadTraceGitRows(TraceEventsMixin, ClickhouseTestMixin, BaseTest):
+    def test_reads_only_this_traces_stamped_events(self) -> None:
+        stamped = "00000000-0000-0000-0000-000000000001"
+        bulk_create_ai_events(
+            [
+                self._event(stamped, properties={"$ai_git_branch": "feat/rag"}),
+                self._event("00000000-0000-0000-0000-000000000002"),
+                self._event("00000000-0000-0000-0000-000000000003", properties={"$ai_git_branch": ""}),
+                self._event(
+                    "00000000-0000-0000-0000-000000000004", trace_id="other", properties={"$ai_git_branch": "feat/x"}
+                ),
+            ]
+        )
+
+        assert [row.uuid for row in load_trace_git_rows(self.team, None, "trace-1", T0)] == [stamped]
+
+
 class TestEventsFallback(TraceEventsMixin, ClickhouseTestMixin, BaseTest):
     @parameterized.expand([("with a hint", T0), ("without a hint", None)])
     def test_falls_back_to_events(self, _name: str, timestamp_hint: datetime | None) -> None:
@@ -256,22 +274,30 @@ class TestEventsFallback(TraceEventsMixin, ClickhouseTestMixin, BaseTest):
 
         assert load_trace(self.team, None, "trace-1", None).rows == ()
 
-    def test_node_and_root_fall_back_to_events(self) -> None:
+    def test_point_reads_fall_back_to_events(self) -> None:
         bulk_create_events(
             [
-                self._event(NODE, properties={"$ai_span_name": "old"}),
+                self._event(NODE, properties={"$ai_span_name": "old", "$ai_git_branch": "feat/rag"}),
                 self._event(TRACE_EVENT, event="$ai_trace", timestamp=T0 + timedelta(seconds=1)),
             ]
         )
 
         row = load_trace_node(self.team, None, "trace-1", NODE, T0)
         root = load_trace_root(self.team, None, "trace-1", T0)
+        git_rows = load_trace_git_rows(self.team, None, "trace-1", T0)
 
         assert row is not None and row.properties["$ai_span_name"] == "old"
         assert root.trace_event is not None and root.trace_event.uuid == TRACE_EVENT
+        assert [(git_row.uuid, git_row.git_branch) for git_row in git_rows] == [(NODE, "feat/rag")]
 
-    def test_node_and_root_without_a_hint_never_scan_events(self) -> None:
-        bulk_create_events([self._event(NODE), self._event(TRACE_EVENT, event="$ai_trace")])
+    def test_point_reads_without_a_hint_never_scan_events(self) -> None:
+        bulk_create_events(
+            [
+                self._event(NODE, properties={"$ai_git_branch": "feat/rag"}),
+                self._event(TRACE_EVENT, event="$ai_trace"),
+            ]
+        )
 
         assert load_trace_node(self.team, None, "trace-1", NODE, None) is None
         assert load_trace_root(self.team, None, "trace-1", None) == TraceRootLookup(trace_event=None, trace_found=False)
+        assert load_trace_git_rows(self.team, None, "trace-1", None) == ()

@@ -3,7 +3,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
@@ -12,14 +12,21 @@ from posthog.models import Team
 from posthog.models.event.util import bulk_create_events
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.ai_observability.backend.facade import api
-from products.ai_observability.backend.logic.traces.trace_queries import LoadedTrace
+from products.ai_observability.backend.facade import api, contracts
+from products.ai_observability.backend.logic.traces.trace_queries import LoadedTrace, TraceEventRow
 from products.ai_observability.backend.models.evaluations import Evaluation
+from products.engineering_analytics.backend.facade import api as engineering_analytics_api
+from products.engineering_analytics.backend.facade.contracts import BranchPRMatch, GitHubSourceNotConnectedError
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
 
 from .logic.traces.rows import make_evaluation_result_event, make_row
 
 T0 = datetime(2026, 9, 1, 10, 0, tzinfo=UTC)
+TEAM = object()
+ACCESS = object()
+T1 = T0 + timedelta(seconds=30)
+STAMPED = (make_row(uuid="gen-uuid", git_branch="feat/rag", git_repo="acme/app", timestamp=T1),)
+ANSWER_BILLING = BranchPRMatch(repo="acme/app", number=42, title="Answer billing questions", state="open")
 
 
 def test_root_node_is_the_trace_and_nodes_keep_event_uuids() -> None:
@@ -145,3 +152,65 @@ class TestGetTraceEvaluationResults(ClickhouseTestMixin, BaseTest):
         results = api.get_trace_evaluation_results(self.team, None, "trace-1").results
 
         assert [(result.id, result.is_backfill) for result in results] == [(live, False), (backfill, True)]
+
+
+class TestGetTracePullRequest:
+    def _lookup(
+        self, rows: tuple[TraceEventRow, ...], **resolve: object
+    ) -> tuple[contracts.TracePullRequestLookup, MagicMock]:
+        resolve_branch = MagicMock(**resolve)
+        with (
+            patch.object(api, "load_trace_git_rows", return_value=rows),
+            patch.object(engineering_analytics_api, "resolve_branch", resolve_branch),
+        ):
+            lookup = api.get_trace_pull_request(
+                team=TEAM,  # type: ignore[arg-type]
+                user=None,
+                user_access_control=ACCESS,  # type: ignore[arg-type]
+                trace_id="trace-1",
+                timestamp_hint=T0,
+            )
+        return lookup, resolve_branch
+
+    def test_resolves_the_latest_branch_with_its_repo_time_and_the_viewers_access(self) -> None:
+        rows = (make_row(uuid="span-uuid", git_branch="main", timestamp=T0), *STAMPED)
+        other = BranchPRMatch(repo="acme/app", number=7, title=None, state="closed")
+
+        lookup, resolve = self._lookup(rows, return_value=[ANSWER_BILLING, other])
+
+        assert resolve.call_args.kwargs == {
+            "team": TEAM,
+            "branch": "feat/rag",
+            "repo": "acme/app",
+            "timestamp": T1,
+            "user_access_control": ACCESS,
+        }
+        assert lookup.pull_request == contracts.TracePullRequest(
+            repo_owner="acme", repo_name="app", number=42, title="Answer billing questions"
+        )
+
+    @parameterized.expand(
+        [
+            ("the trace has no branch", (), {"return_value": [ANSWER_BILLING]}, False),
+            ("the project has no GitHub source", STAMPED, {"side_effect": GitHubSourceNotConnectedError()}, True),
+            (
+                "the repo stamp is malformed",
+                STAMPED,
+                {"side_effect": ValueError("repo must be in 'owner/name' format")},
+                True,
+            ),
+            ("no pull request matches", STAMPED, {"return_value": []}, True),
+            (
+                "the trace never left the default branch",
+                (make_row(uuid="span-uuid", git_branch="main", git_repo="acme/app", timestamp=T0),),
+                {"return_value": [ANSWER_BILLING]},
+                False,
+            ),
+        ]
+    )
+    def test_no_pull_request_when(
+        self, _name: str, rows: tuple[TraceEventRow, ...], resolve: dict[str, object], resolves: bool
+    ) -> None:
+        lookup, resolve_branch = self._lookup(rows, **resolve)
+
+        assert (lookup.pull_request, resolve_branch.called) == (None, resolves)
