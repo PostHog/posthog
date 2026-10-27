@@ -14,8 +14,10 @@ from typing import TYPE_CHECKING, Any
 
 from posthog.utils import str_to_bool
 
+from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore, UnreadableSourceInputsError
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import (
     CDCConfig,
+    CDCJobInputsUnreadableError,
     ManagementMode,
     decode_job_inputs,
 )
@@ -56,4 +58,8 @@ class PostgresCDCConfig(CDCConfig):
 
     @classmethod
     def from_source(cls, source: ExternalDataSource) -> PostgresCDCConfig:
-        return cls.from_dict(source.job_inputs)
+        try:
+            inputs = SourceInputsStore.load_settings(source)
+        except UnreadableSourceInputsError as e:
+            raise CDCJobInputsUnreadableError(str(e)) from e
+        return cls.from_dict(inputs)

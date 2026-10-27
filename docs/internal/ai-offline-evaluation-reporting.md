@@ -248,6 +248,9 @@ Numeric scores can use the domain of their configured scorer version. The API va
 
 `OfflineEvalSuite.experiment_options` accepts the SDK's `ExperimentOptions` for external dataset identifiers, `prompt_version`, model/application versions, and `run_source`.
 The harness owns the experiment ID, start time, suite key, and expected counts.
+Each case's `output["model"]` becomes the item's `model_version`, so one-shot suites can report the model they actually used and compare different models within one experiment.
+Cases without a model, or with `model=None`, inherit the experiment's model version.
+Invalid model identifiers are omitted and recorded in the item's `omitted_fields`; the case's scores still upload.
 For external datasets, case metadata can supply `dataset_item_identifier` and `dataset_item_version_identifier`.
 The harness publisher does not support hosted datasets. A non-null `dataset_revision_id` stops preparation with a local error before any upload request.
 
@@ -397,6 +400,23 @@ Local and external datasets do not require hosted links; they can use the `*_ide
 Large payloads have separate storage and 30-day deadlines anchored to first acceptance.
 Retries neither extend deadlines nor restore deleted payloads.
 Automatic payload deletion and usage billing are not enabled by these endpoints.
+
+### Durable usage recording
+
+Newly accepted Postgres results produce durable `OfflineEvaluationUsageLedger` entries.
+Each upload transaction that inserts new results writes one entry with a quantity equal to the number of new results, including error, skipped, and not-applicable outcomes.
+Results, payloads, and usage commit together; a ledger write failure rolls back the upload.
+Exact retries add no usage, including retries split or regrouped into different requests.
+Mixed uploads count only new results, and changed content still returns a conflict.
+
+Each entry stores the environment's team ID, the owning organization's ID at acceptance, the experiment ID, and the same server acceptance timestamp as its new results.
+These identifiers are stored independently of the product records, so deleting results, experiments, or their owners does not remove usage.
+Moving a project to another organization does not rewrite historical attribution.
+The ownership snapshots and timestamp preserve the information needed for future aggregation by organization, team, and UTC day.
+
+Recording begins with newly accepted results after deployment; there is no historical backfill, compaction, or ledger cleanup.
+The ledger has no editing API or editable admin interface.
+Organization usage reporting, billing, actual charging, and quota enforcement remain unchanged and do not consume this ledger.
 
 ## Resource tags
 

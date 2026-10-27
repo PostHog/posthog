@@ -77,6 +77,7 @@ class SemanticScholarSource(ResumableSource[SemanticScholarSourceConfig, Semanti
                     ),
                     SourceFieldInputConfig(
                         name="query",
+                        sync_setting=True,
                         label="Paper search query",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,

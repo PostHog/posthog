@@ -516,6 +516,32 @@ SHRINK_EXHAUSTED_ERROR_MESSAGE = "Meta could not return this data even at the sm
 ENTITY_PAGE_REFUSED_ERROR_MESSAGE = "Meta could not return this page even at the smallest page size (retryable)"
 SMALLEST_PAGE_LIMIT_MAX_RETRIES = 3
 
+INCONSISTENT_INSIGHTS_ERROR_MESSAGE = (
+    "Meta returned 0 impressions together with a nonzero CPM or CTR, which can't be correct. "
+    "The sync stopped so it doesn't overwrite your stored metrics. Run the sync again later"
+)
+
+
+def _float_metric(row: dict, field: str) -> float | None:
+    try:
+        return float(row[field])
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def _is_inconsistent_insights_row(row: dict) -> bool:
+    """Return True for an Insights row whose base metrics contradict its own ratios.
+
+    Meta derives ``cpm`` from spend and impressions, and ``ctr`` from clicks and impressions, so
+    zero impressions with a positive ``cpm`` or ``ctr`` is impossible. Meta has been observed to
+    return such rows for multi-day ``time_range`` requests: ``spend``, ``impressions`` and
+    ``clicks`` come back as ``"0"`` and the reach fields are missing, while the ratios keep their
+    real values. A row with real zero delivery has no ratios, so it does not match.
+    """
+    if _float_metric(row, "impressions") != 0:
+        return False
+    return any((_float_metric(row, field) or 0) > 0 for field in ("cpm", "ctr"))
+
 
 def _parse_json_leniently(response: Response) -> dict | None:
     """Parse a Meta API response body as JSON, tolerating trailing garbage after it.
@@ -1011,6 +1037,9 @@ def _iter_time_range_pagination(
       those pages alone, so we exhaust this ladder before restarting the chunk
       at a smaller size and re-yielding them.
 
+    A page with rows that contradict their own ratios (see ``_is_inconsistent_insights_row``)
+    also drops the chunk size to one day, and raises if a single day still returns one.
+
     Resume state captures both levels: ``chunk_since`` + ``chunk_size_days``
     for the outer loop, ``chunk_next_url`` when the crash happened mid-chunk,
     and ``chunk_limit`` so a reduced limit persists across resumes.
@@ -1143,7 +1172,26 @@ def _iter_time_range_pagination(
                 continue
             malformed_json_attempts = 0
 
-            yield response_payload.get("data", [])
+            rows = response_payload.get("data", [])
+            inconsistent_row = next((row for row in rows if _is_inconsistent_insights_row(row)), None)
+            if inconsistent_row is not None:
+                logger.warning(
+                    "meta_ads_inconsistent_insights_rows",
+                    chunk_since=current_start.strftime("%Y-%m-%d"),
+                    chunk_until=current_end.strftime("%Y-%m-%d"),
+                    date_start=inconsistent_row.get("date_start"),
+                )
+                # Single-day requests have returned correct values for the same days, so re-read
+                # the window one day at a time. The page is not yielded: its rows would overwrite
+                # correct stored metrics with zeros.
+                if current_end > current_start:
+                    chunk_size_days = 1
+                    _save(current_start, chunk_size_days, None)
+                    restart_chunk = True
+                    break
+                raise Exception(f"{INCONSISTENT_INSIGHTS_ERROR_MESSAGE} (date: {inconsistent_row.get('date_start')})")
+
+            yield rows
 
             next_url = response_payload.get("paging", {}).get("next")
             if not next_url:

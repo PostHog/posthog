@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://posthog.com/contracts/feature_flag_rules_v2/flags_response_v3.schema.json",
-  "title": "POST /flags?v=3 response (producer contract)",
+  "$id": "https://posthog.com/contracts/feature_flag_rules_v2/flags_response_v4.schema.json",
+  "title": "POST /flags?v=4 response (producer contract)",
   "type": "object",
   "required": ["errorsWhileComputingFlags", "flags", "requestId", "evaluatedAt"],
   "properties": {

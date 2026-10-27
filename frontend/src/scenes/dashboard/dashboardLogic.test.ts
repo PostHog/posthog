@@ -848,6 +848,55 @@ describe('dashboardLogic', () => {
 
             it.each([
                 {
+                    name: 'open groups',
+                    groups: { target: { collapsed: false }, other: { collapsed: false } },
+                    groupDisplay: undefined,
+                    expected: { group_display: 'sections', group_count: 2, collapsed_group_count: 0 },
+                },
+                {
+                    name: 'a closed group',
+                    groups: { target: { collapsed: true }, other: { collapsed: false } },
+                    groupDisplay: undefined,
+                    expected: { group_display: 'sections', group_count: 2, collapsed_group_count: 1 },
+                },
+                {
+                    name: 'tabs',
+                    groups: { target: { collapsed: false }, other: { collapsed: false } },
+                    groupDisplay: 'tabs',
+                    expected: { group_display: 'tabs', group_count: 2, collapsed_group_count: 1 },
+                },
+            ])(
+                'reports $name on dashboard refreshed and time to see data',
+                async ({ groups, groupDisplay, expected }) => {
+                    groupTiles(groups)
+                    if (groupDisplay) {
+                        dashboards[5] = {
+                            ...dashboards[5],
+                            customization: { ...dashboards[5].customization, group_display: groupDisplay as 'tabs' },
+                        }
+                    }
+                    const capture = jest.spyOn(posthog, 'capture').mockClear()
+
+                    await mountDashboard()
+
+                    await waitFor(
+                        () =>
+                            expect(capture).toHaveBeenCalledWith(
+                                'dashboard refreshed',
+                                expect.objectContaining(expected)
+                            ),
+                        { timeout: 5000 }
+                    )
+                    // Only an initial load sends this event, and which mount counts as one depends on test order.
+                    const timeToSeeData = capture.mock.calls.filter(([event]) => event === 'time to see data')
+                    for (const [, properties] of timeToSeeData) {
+                        expect(properties).toEqual(expect.objectContaining(expected))
+                    }
+                }
+            )
+
+            it.each([
+                {
                     name: 'a manual refresh',
                     refresh: () => logic.actions.triggerDashboardRefresh(),
                     mode: 'force_blocking',
@@ -969,42 +1018,52 @@ describe('dashboardLogic', () => {
                     open: () => logic.actions.selectTileGroupTab('group-target'),
                     beforeMount: () => {},
                     ungroupedLoads: 1,
+                    tabSelections: 1,
                 },
                 {
                     name: 'a link names it',
                     open: () => {},
                     beforeMount: () => router.actions.push('/dashboard/5', { tab: 'group-target' }),
                     ungroupedLoads: 0,
+                    tabSelections: 0,
                 },
                 {
                     name: 'the viewer follows a link to it',
                     open: () => router.actions.push('/dashboard/5', { tab: 'group-target' }),
                     beforeMount: () => {},
                     ungroupedLoads: 1,
+                    tabSelections: 0,
                 },
-            ])('shows tabs one at a time and loads a tab when $name', async ({ open, beforeMount, ungroupedLoads }) => {
-                groupTiles({ target: { collapsed: false } })
-                dashboards[5] = {
-                    ...dashboards[5],
-                    customization: { group_display: 'tabs' },
-                    tiles: dashboards[5].tiles.map((tile, index) =>
-                        index === 1 ? { ...tile, group_key: null } : tile
-                    ),
-                }
-                const ungrouped = dashboards[5].tiles[1].insight!.short_id
-                beforeMount()
-                await mountDashboard()
-                await expectLogic(logic, open).toFinishAllListeners()
+            ])(
+                'shows tabs one at a time and loads a tab when $name',
+                async ({ open, beforeMount, ungroupedLoads, tabSelections }) => {
+                    groupTiles({ target: { collapsed: false } })
+                    dashboards[5] = {
+                        ...dashboards[5],
+                        customization: { group_display: 'tabs' },
+                        tiles: dashboards[5].tiles.map((tile, index) =>
+                            index === 1 ? { ...tile, group_key: null } : tile
+                        ),
+                    }
+                    const ungrouped = dashboards[5].tiles[1].insight!.short_id
+                    beforeMount()
+                    await mountDashboard()
+                    const capture = jest.spyOn(posthog, 'capture').mockClear()
+                    await expectLogic(logic, open).toFinishAllListeners()
 
-                expect(logic.values.tileGroupSections.map((section) => section.key)).toEqual([
-                    'tiles-ungrouped',
-                    'group-target',
-                ])
-                expect(logic.values.activeTileGroupTab).toEqual('target')
-                expect(router.values.searchParams.tab).toEqual('group-target')
-                expect(loads(target)).toHaveLength(1)
-                expect(loads(ungrouped)).toHaveLength(ungroupedLoads)
-            })
+                    expect(logic.values.tileGroupSections.map((section) => section.key)).toEqual([
+                        'tiles-ungrouped',
+                        'group-target',
+                    ])
+                    expect(logic.values.activeTileGroupTab).toEqual('target')
+                    expect(router.values.searchParams.tab).toEqual('group-target')
+                    expect(loads(target)).toHaveLength(1)
+                    expect(loads(ungrouped)).toHaveLength(ungroupedLoads)
+                    expect(
+                        capture.mock.calls.filter(([event]) => event === 'dashboard tile group tab selected')
+                    ).toHaveLength(tabSelections)
+                }
+            )
 
             it.each([
                 { leftTabTiles: 5, cancelled: true, returnBeforeAbortsSettle: false, stop: false },
@@ -1545,10 +1604,7 @@ describe('dashboardLogic', () => {
         it('previews tile spacing immediately and persists only the final choice', async () => {
             await expectLogic(logic).toFinishAllListeners()
             ;(api.update as jest.Mock).mockClear()
-            const reportTileDensityConfigured = jest.spyOn(
-                eventUsageLogic.actions,
-                'reportDashboardTileDensityConfigured'
-            )
+            const capture = jest.spyOn(posthog, 'capture').mockClear()
             jest.useFakeTimers()
 
             try {
@@ -1568,7 +1624,7 @@ describe('dashboardLogic', () => {
                     layout_compaction: DashboardGridCompaction.Vertical,
                     grid_spacing: 'relaxed',
                 })
-                expect(reportTileDensityConfigured).toHaveBeenCalledWith('relaxed')
+                expect(capture).toHaveBeenCalledWith('dashboard tile density configured', { tile_density: 'relaxed' })
             } finally {
                 jest.useRealTimers()
             }
@@ -1576,10 +1632,7 @@ describe('dashboardLogic', () => {
 
         it('reports the tile density when reset to standard', async () => {
             await expectLogic(logic).toFinishAllListeners()
-            const reportTileDensityConfigured = jest.spyOn(
-                eventUsageLogic.actions,
-                'reportDashboardTileDensityConfigured'
-            )
+            const capture = jest.spyOn(posthog, 'capture').mockClear()
             jest.useFakeTimers()
 
             try {
@@ -1588,7 +1641,7 @@ describe('dashboardLogic', () => {
                 await jest.advanceTimersByTimeAsync(750)
                 await expectLogic(logic).toFinishAllListeners()
 
-                expect(reportTileDensityConfigured).toHaveBeenCalledWith('standard')
+                expect(capture).toHaveBeenCalledWith('dashboard tile density configured', { tile_density: 'standard' })
             } finally {
                 jest.useRealTimers()
             }
@@ -2933,12 +2986,8 @@ describe('dashboardLogic', () => {
             })
 
             it('reports filter changes separately from layout edit mode entry', async () => {
-                const reportFiltersChanged = jest.spyOn(eventUsageLogic.actions, 'reportDashboardFiltersChanged')
-                const reportLayoutEditEntered = jest.spyOn(
-                    eventUsageLogic.actions,
-                    'reportDashboardLayoutEditModeEntered'
-                )
-                const reportModeToggled = jest.spyOn(eventUsageLogic.actions, 'reportDashboardModeToggled')
+                const capture = jest.spyOn(posthog, 'capture').mockClear()
+                const capturedEvents = (): string[] => capture.mock.calls.map(([event]) => event)
 
                 await expectLogic(logic).toFinishAllListeners()
 
@@ -2949,22 +2998,19 @@ describe('dashboardLogic', () => {
                     )
                 }).toFinishAllListeners()
 
-                expect(reportLayoutEditEntered).not.toHaveBeenCalled()
-                expect(reportModeToggled).not.toHaveBeenCalled()
+                expect(capturedEvents()).not.toContain('dashboard layout edit mode entered')
+                expect(capturedEvents()).not.toContain('dashboard mode toggled')
 
                 await expectLogic(logic, () => {
                     logic.actions.setDates('-7d', null)
                 }).toFinishAllListeners()
 
-                expect(reportFiltersChanged).toHaveBeenCalledWith(
-                    expect.objectContaining({ id: 5 }),
-                    'date',
-                    expect.objectContaining({ date_from: '-7d', date_to: null })
+                expect(capture).toHaveBeenCalledWith(
+                    'dashboard filters changed',
+                    expect.objectContaining({ dashboard_id: 5, change_type: 'date', date_from: '-7d', date_to: null })
                 )
 
-                reportFiltersChanged.mockClear()
-                reportLayoutEditEntered.mockClear()
-                reportModeToggled.mockClear()
+                capture.mockClear()
 
                 await expectLogic(logic, () => {
                     logic.actions.setDashboardEditing(
@@ -2973,17 +3019,18 @@ describe('dashboardLogic', () => {
                     )
                 }).toFinishAllListeners()
 
-                expect(reportLayoutEditEntered).toHaveBeenCalledWith(
-                    expect.objectContaining({ id: 5 }),
-                    DashboardEventSource.SceneCommonButtons,
-                    1
+                expect(capture).toHaveBeenCalledWith(
+                    'dashboard layout edit mode entered',
+                    expect.objectContaining({
+                        dashboard_id: 5,
+                        source: DashboardEventSource.SceneCommonButtons,
+                        layout_zoom: 1,
+                    })
                 )
-                expect(reportModeToggled).not.toHaveBeenCalled()
-                expect(reportFiltersChanged).not.toHaveBeenCalled()
+                expect(capturedEvents()).not.toContain('dashboard mode toggled')
+                expect(capturedEvents()).not.toContain('dashboard filters changed')
 
-                reportFiltersChanged.mockRestore()
-                reportLayoutEditEntered.mockRestore()
-                reportModeToggled.mockRestore()
+                capture.mockRestore()
             })
 
             it('filter edits preserve layout editing', async () => {
@@ -5877,10 +5924,7 @@ describe('dashboardLogic', () => {
 
         it('offers to delete a removed insight and explains its other dashboard usage', async () => {
             const { fireEvent, render } = await import('@testing-library/react')
-            const reportDeleteClicked = jest.spyOn(
-                eventUsageLogic.actions,
-                'reportDashboardInsightDeleteAfterRemovalClicked'
-            )
+            const capture = jest.spyOn(posthog, 'capture').mockClear()
             const insightTile = logic.values.insightTiles[0]
             const insight = insightTile.insight!
 
@@ -5900,7 +5944,9 @@ describe('dashboardLogic', () => {
             const toastContent = lemonToastInfoSpy.mock.calls.at(-1)?.[0]
             const { getByText } = render(toastContent)
             fireEvent.click(getByText('Delete insight everywhere'))
-            expect(reportDeleteClicked).toHaveBeenCalledWith(1)
+            expect(capture).toHaveBeenCalledWith('dashboard insight delete after removal clicked', {
+                other_dashboard_count: 1,
+            })
             expect(lemonToastDismissSpy).not.toHaveBeenCalled()
 
             const dialogProps = lemonDialogOpenSpy.mock.calls.at(-1)?.[0]
@@ -5918,7 +5964,7 @@ describe('dashboardLogic', () => {
                 getDialogText('This deletes the insight and removes it from every dashboard. You can undo this action.')
             ).not.toBeNull()
 
-            reportDeleteClicked.mockRestore()
+            capture.mockRestore()
         })
     })
 

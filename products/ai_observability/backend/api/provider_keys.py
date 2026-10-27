@@ -1,4 +1,5 @@
 import logging
+from urllib.parse import urlsplit
 from uuid import UUID
 
 from django.core.cache import cache
@@ -121,6 +122,14 @@ _ALL_PROVIDER_CONFIG_FIELDS: tuple[str, ...] = tuple(
 )
 
 
+def _is_typesafe_host(url: str) -> bool:
+    try:
+        host = (urlsplit(url).hostname or "").encode("idna").decode("ascii").lower().rstrip(".")
+    except (ValueError, UnicodeError):
+        return False
+    return host == "typesafe.ai" or host.endswith(".typesafe.ai")
+
+
 class LLMProviderKeySerializer(serializers.ModelSerializer):
     api_key = serializers.CharField(write_only=True, required=False, allow_blank=True)
     system_one_model = serializers.CharField(
@@ -208,6 +217,11 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
                 return DecisionClient.normalize_base_url(value)
             except ValueError as error:
                 raise serializers.ValidationError(str(error)) from error
+        # TypeSafe is not a subprocessor. Only a team's own System One connection may send data there.
+        if _is_typesafe_host(value):
+            raise serializers.ValidationError(
+                "TypeSafe is not an approved subprocessor. Use a System One connection to send data to it."
+            )
         # `base_url_display` is readable by any project member while the API key is masked, and the
         # URL also reaches exception messages and log lines. A credential typed into this field
         # would leak through all three, so drop it before anything stores or echoes the value.
