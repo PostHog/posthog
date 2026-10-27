@@ -4682,9 +4682,25 @@ export const workflowLogic = kea<workflowLogicType>([
             if (!workflowId || workflowId === 'new') {
                 return
             }
+            // setSchedules rebaselines the picker from the saved schedules, so unsaved edits to a
+            // schedule that is not the one being removed have to be put back afterwards.
+            const editedScheduleId = values.currentSchedule?.id
+            const stagedEdits: ScheduleEdits | null =
+                values.pendingSchedule !== false && editedScheduleId !== scheduleId
+                    ? {
+                          scheduleState: values.scheduleState,
+                          scheduleStartsAt: values.scheduleStartsAt,
+                          scheduleTimezone: values.scheduleTimezone,
+                          isScheduleRepeating: values.isScheduleRepeating,
+                          scheduleConfigSources: values.scheduleConfigSources,
+                      }
+                    : null
             try {
                 await hogFlowsSchedulesDestroy(String(values.currentProjectId), workflowId, scheduleId)
                 actions.setSchedules(values.schedules.filter((schedule) => schedule.id !== scheduleId))
+                if (stagedEdits) {
+                    actions.restoreScheduleEdits(stagedEdits)
+                }
                 lemonToast.success('Schedule removed')
             } catch (e) {
                 console.error('Failed to remove schedule', e)

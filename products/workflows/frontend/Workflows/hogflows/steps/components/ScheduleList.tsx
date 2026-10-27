@@ -7,14 +7,7 @@ import { dayjs } from 'lib/dayjs'
 
 import { workflowLogic } from '../../../workflowLogic'
 import { HogFlowSchedule } from '../../types'
-import { buildSummary, isOneTimeSchedule, parseRRuleToState } from './rrule-helpers'
-
-function scheduleSummary(schedule: HogFlowSchedule): string {
-    if (isOneTimeSchedule(schedule.rrule)) {
-        return 'Runs once'
-    }
-    return buildSummary(parseRRuleToState(schedule.rrule), schedule.starts_at, schedule.timezone)
-}
+import { summarizeSchedule } from './rrule-helpers'
 
 function ScheduleStateTag({ status }: { status?: string }): JSX.Element | null {
     if (status === 'completed') {
@@ -47,7 +40,9 @@ function ScheduleRow({ schedule, editing }: { schedule: HogFlowSchedule; editing
         >
             <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
-                    <span className="truncate">{scheduleSummary(schedule)}</span>
+                    <span className="truncate">
+                        {summarizeSchedule(schedule.rrule, schedule.starts_at, schedule.timezone)}
+                    </span>
                     <ScheduleStateTag status={schedule.status} />
                     {editing && (
                         <LemonTag type="highlight" size="small">
@@ -74,7 +69,7 @@ function ScheduleRow({ schedule, editing }: { schedule: HogFlowSchedule; editing
                     event.stopPropagation()
                     LemonDialog.open({
                         title: 'Remove this schedule?',
-                        description: `${scheduleSummary(schedule)}. The workflow stops running on it. Any other schedules keep going.`,
+                        description: `${summarizeSchedule(schedule.rrule, schedule.starts_at, schedule.timezone)}. The workflow stops running on it. Any other schedules keep going.`,
                         primaryButton: {
                             children: 'Remove',
                             status: 'danger',

@@ -430,6 +430,18 @@ describe('workflowLogic schedule reducers', () => {
             expect(logic.values.currentSchedule?.id).toBe('schedule-new')
         })
 
+        it('keeps unsaved picker edits when a different schedule is removed', async () => {
+            logic.actions.setSchedules([makeSchedule(), makeSchedule({ id: 'schedule-2' })])
+            logic.actions.setScheduleState({ ...DEFAULT_STATE, frequency: 'daily', interval: 4 })
+
+            await expectLogic(logic, () => {
+                logic.actions.deleteSchedule('schedule-2')
+            }).toFinishAllListeners()
+
+            expect(logic.values.scheduleState).toEqual(expect.objectContaining({ frequency: 'daily', interval: 4 }))
+            expect(logic.values.pendingSchedule).not.toBe(false)
+        })
+
         it('keeps the schedule listed when the delete fails', async () => {
             useMocks({
                 delete: { '/api/projects/:project_id/hog_flows/:id/schedules/:schedule_id/': () => [500, {}] },
