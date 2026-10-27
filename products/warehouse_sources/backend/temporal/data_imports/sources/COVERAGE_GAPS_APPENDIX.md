@@ -8917,10 +8917,10 @@ Today (6): `audiences`, `campaigns`, `events`, `experiments`, `pages`, `projects
 
 Diffed against: <https://api.optimizely.com/v2/swagger.json>
 
-- [ ] `GET /experiments/{experiment_id}/results` — the experiment results payload (variation conversions, lift, significance) — the product's headline metric, entirely absent today (high)
-- [ ] `GET /experiments/{experiment_id}/timeseries` — day-by-day results series, required to plot experiment progression rather than a single snapshot (high)
-- [ ] `GET /campaigns/{campaign_id}/results` — same headline metric for the campaigns table already synced (high)
-- [ ] `GET /attributes` — lookup resolving the visitor attribute IDs referenced by synced audiences and experiment targeting (high)
+- [x] `GET /experiments/{experiment_id}/results` — the experiment results payload (variation conversions, lift, significance) — the product's headline metric, entirely absent today (high)
+- [x] `GET /experiments/{experiment_id}/timeseries` — day-by-day results series, required to plot experiment progression rather than a single snapshot (high)
+- [x] `GET /campaigns/{campaign_id}/results` — same headline metric for the campaigns table already synced (high)
+- [x] `GET /attributes` — lookup resolving the visitor attribute IDs referenced by synced audiences and experiment targeting (high)
 - [ ] `GET /environments` — lookup resolving the environment IDs carried on experiments and features (medium)
 - [ ] `GET /features` — feature (flag) definitions are a first-class experimentation object here, not vendor plumbing — needed to join rollout results (medium)
 - [ ] `GET /changes` — change history across experiments and pages — audit/transition table for who changed what and when (medium)

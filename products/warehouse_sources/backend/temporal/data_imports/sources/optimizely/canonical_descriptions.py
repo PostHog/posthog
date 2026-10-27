@@ -19,6 +19,15 @@ _COMMON_COLUMNS = {
 }
 
 
+# Fields shared by the experiment and campaign results payloads.
+_RESULTS_COLUMNS = {
+    "start_time": "Start of the time interval (inclusive) the results cover.",
+    "end_time": "End of the time interval (exclusive) the results cover.",
+    "confidence_threshold": "Significance level at which variations are declared winning or losing.",
+    "is_stale": "Whether the results came from an out-of-date cache.",
+}
+
+
 def _columns(**overrides: str) -> dict[str, str]:
     return {**_COMMON_COLUMNS, **overrides}
 
@@ -104,5 +113,49 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             earliest="Earliest time the campaign started serving.",
             latest="Latest time the campaign served.",
         ),
+    },
+    "attributes": {
+        "description": "A custom visitor attribute that audiences and experiment targeting conditions can reference.",
+        "docs_url": "https://library.optimizely.com/docs/api/app/v2/index.html#tag/Attributes",
+        "columns": {
+            "id": "Unique numeric identifier for the attribute.",
+            "name": "The attribute's name. For Full Stack projects, this is set to the attribute's key.",
+            "last_modified": "Time at which the attribute was last modified.",
+            "project_id": "ID of the project the attribute belongs to.",
+            "key": "Unique string identifier for the attribute within the project.",
+            "description": "Description of the attribute.",
+            "condition_type": "Whether the attribute is a custom attribute or a read-only custom dimension from an Optimizely Classic experiment.",
+            "archived": "Whether the attribute has been archived.",
+        },
+    },
+    "experiment_results": {
+        "description": "Current results snapshot for an experiment: reach and per-metric, per-variation conversions, lift, and statistical significance.",
+        "docs_url": "https://library.optimizely.com/docs/api/app/v2/index.html#tag/Experiments",
+        "columns": {
+            **_RESULTS_COLUMNS,
+            "experiment_id": "ID of the experiment the results are for.",
+            "metrics": "Results per metric, keyed by variation. Index 0 is the primary metric.",
+            "reach": "Number of visitors exposed to each variation and in total.",
+            "stats_config": "Stats Engine configuration used to compute the results.",
+        },
+    },
+    "experiment_timeseries": {
+        "description": "Results for an experiment as a time series, so a metric's progression over the experiment's run can be plotted.",
+        "docs_url": "https://library.optimizely.com/docs/api/app/v2/index.html#tag/Experiments",
+        "columns": {
+            **_RESULTS_COLUMNS,
+            "experiment_id": "ID of the experiment the results are for.",
+            "metrics": "Per-metric results, each holding a list of time series data points per variation.",
+            "stats_config": "Stats Engine configuration used to compute the results.",
+        },
+    },
+    "campaign_results": {
+        "description": "Current results snapshot for a personalization campaign: per-metric conversions and lift for the campaign against its holdback.",
+        "docs_url": "https://library.optimizely.com/docs/api/app/v2/index.html#tag/Campaigns",
+        "columns": {
+            **_RESULTS_COLUMNS,
+            "campaign_id": "ID of the campaign the results are for.",
+            "metrics": "Results per metric. Index 0 is the primary metric.",
+        },
     },
 }
