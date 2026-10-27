@@ -2060,3 +2060,26 @@ class TestUserIntegrationClaudeEndpoints(APIBaseTest):
             assert response.status_code == status.HTTP_403_FORBIDDEN, (method, response.json())
         assert not UserIntegration.objects.filter(user=self.user, kind="claude").exists()
         self.flag_enabled.assert_not_called()
+
+    @parameterized.expand([(method, verified) for method in ("get", "post", "delete") for verified in (False, True)])
+    def test_staff_can_access_only_their_own_claude_token(self, method: str, verified: bool) -> None:
+        owner = User.objects.create_user(
+            email="token-owner@posthog.com", password=None, first_name="Owner", is_staff=True, is_email_verified=True
+        )
+        integration = UserIntegration.objects.create(
+            user=owner,
+            kind="claude",
+            integration_id="setup_token",
+            config={"status": "connected"},
+            sensitive_config={"token": self.token},
+        )
+        self.user.is_email_verified = verified
+        self.user.save(update_fields=["is_email_verified"])
+
+        response = getattr(self.client, method)(
+            f"/api/users/{owner.uuid}/integrations/claude/", {"token": "sk-ant-oat01-" + "y" * 40}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        integration.refresh_from_db()
+        assert integration.sensitive_config == {"token": self.token}

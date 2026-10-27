@@ -5,6 +5,7 @@ import {
 } from "../posthog-api";
 import type { Logger } from "../utils/logger";
 import { accessTokenFingerprint } from "./codex-subscription-token";
+import { retry } from "./utils/retry";
 
 export const CLAUDE_TOKEN_REQUEST_TIMEOUT_MS = 15_000;
 
@@ -49,7 +50,19 @@ export class ClaudeSubscriptionTokenClient {
   }
 
   reportRejected(token: string): Promise<void> {
-    this.rejectionReport ??= this.request(accessTokenFingerprint(token)).then(
+    this.rejectionReport ??= retry(
+      () => this.request(accessTokenFingerprint(token)),
+      {
+        maxAttempts: 3,
+        shouldRetry: (error) =>
+          !(error instanceof ClaudeSubscriptionTokenError) ||
+          (error.code === "request_failed" &&
+            (error.status === 0 ||
+              error.status === 408 ||
+              error.status === 429 ||
+              error.status >= 500)),
+      },
+    ).then(
       () => {
         this.options.logger?.warn(
           "Claude rejected the token, but PostHog holds a different one",

@@ -29,6 +29,7 @@ export function claudeCloudAccountQueryKey(
 }
 
 export interface ClaudeCloudConnectResult {
+  accountKey: string | null;
   integration: UserClaudeIntegration | null;
   localSaveError: Error | null;
 }
@@ -75,6 +76,9 @@ export function useConnectClaudeCloudAccount(
   return useMutation({
     mutationFn: async (token) => {
       if (!client) throw new Error("Log in to PostHog first.");
+      const accountKey = (await tokenStore?.getAccountKey()) ?? null;
+      if (tokenStore && !accountKey)
+        throw new Error("Log in to PostHog first.");
       let integration: UserClaudeIntegration | null = null;
       try {
         integration = await client.connectClaudeUserIntegration(token);
@@ -86,21 +90,28 @@ export function useConnectClaudeCloudAccount(
           throw error;
       }
       if (!integration) {
-        await tokenStore?.save(token);
-        return { integration: null, localSaveError: null };
+        await tokenStore?.save(token, accountKey ?? undefined);
+        return { integration: null, localSaveError: null, accountKey };
       }
       let localSaveError: Error | null = null;
       if (tokenStore) {
         try {
-          await tokenStore.save(token);
+          await tokenStore.save(token, accountKey ?? undefined);
         } catch (error) {
           localSaveError =
             error instanceof Error ? error : new Error(String(error));
         }
       }
-      return { integration, localSaveError };
+      return { integration, localSaveError, accountKey };
     },
-    onSuccess: ({ integration, localSaveError }) => {
+    onSuccess: async ({ integration, localSaveError, accountKey }) => {
+      if (tokenStore) {
+        try {
+          if ((await tokenStore.getAccountKey()) !== accountKey) return;
+        } catch {
+          return;
+        }
+      }
       queryClient.setQueryData(
         claudeCloudAccountQueryKey(authIdentity),
         integration,
@@ -121,8 +132,11 @@ export function useDisconnectClaudeCloudAccount(
   return useMutation({
     mutationFn: async () => {
       if (!client) throw new Error("Log in to PostHog first.");
+      const accountKey = (await tokenStore?.getAccountKey()) ?? null;
+      if (tokenStore && !accountKey)
+        throw new Error("Log in to PostHog first.");
       await client.disconnectClaudeUserIntegration();
-      await tokenStore?.clear();
+      await tokenStore?.clear(accountKey ?? undefined);
     },
     onSettled: () => {
       void queryClient.invalidateQueries({

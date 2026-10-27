@@ -15,7 +15,7 @@ export class ElectronClaudeSubscriptionTokenStore
 {
   constructor(
     private readonly directory: string,
-    private readonly getAccountKey: () => Promise<string | null>,
+    readonly getAccountKey: () => Promise<string | null>,
   ) {}
 
   private requireEncryption(): void {
@@ -63,8 +63,8 @@ export class ElectronClaudeSubscriptionTokenStore
     }
   }
 
-  async save(token: string): Promise<void> {
-    const file = await this.tokenPath();
+  async save(token: string, expectedAccountKey?: string): Promise<void> {
+    const file = await this.tokenPath(expectedAccountKey);
     this.requireEncryption();
     const temporary = `${file}.${randomUUID()}.tmp`;
     try {
@@ -81,8 +81,8 @@ export class ElectronClaudeSubscriptionTokenStore
     }
   }
 
-  async clear(): Promise<void> {
-    rmSync(await this.tokenPath(), { force: true });
+  async clear(expectedAccountKey?: string): Promise<void> {
+    rmSync(await this.tokenPath(expectedAccountKey), { force: true });
   }
 
   async clearAll(): Promise<void> {

@@ -425,10 +425,16 @@ container.bind<UserNameProvider>(SPEECH_USER_NAME_PROVIDER).toConstantValue({
 });
 
 container.bind(CLAUDE_SUBSCRIPTION_TOKEN_SETTINGS).toConstantValue({
+  getAccountKey: () =>
+    hostTrpcClient.claudeSubscriptionToken.accountKey.query(),
   has: () => hostTrpcClient.claudeSubscriptionToken.has.query(),
-  save: (token: string) =>
-    hostTrpcClient.claudeSubscriptionToken.save.mutate({ token }),
-  clear: () => hostTrpcClient.claudeSubscriptionToken.clear.mutate(),
+  save: (token: string, expectedAccountKey?: string) =>
+    hostTrpcClient.claudeSubscriptionToken.save.mutate({
+      token,
+      expectedAccountKey,
+    }),
+  clear: (expectedAccountKey?: string) =>
+    hostTrpcClient.claudeSubscriptionToken.clear.mutate({ expectedAccountKey }),
 });
 
 container.bind<ISpeechKeyStore>(SPEECH_KEY_STORE).toConstantValue({

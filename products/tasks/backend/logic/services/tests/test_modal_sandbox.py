@@ -1009,12 +1009,18 @@ class TestModalSandboxAgentServer:
             (AGENT_SERVER_PREFLIGHT_CREDENTIAL_EXIT_CODE, None),
         ],
     )
+    @pytest.mark.parametrize("watchdog_missing", [False, True])
     def test_start_agent_server_replaces_a_server_that_failed_on_its_credential(
-        self, mock_sandbox: Any, preflight_exit_code, run_token
+        self, mock_sandbox: Any, preflight_exit_code, run_token, watchdog_missing
     ):
         def execute(command: str, timeout_seconds: int | None = None) -> ExecutionResult:
             if _is_preflight_command(command):
-                return ExecutionResult(stdout=_preflight_stdout(), stderr="", exit_code=preflight_exit_code, error=None)
+                return ExecutionResult(
+                    stdout=_preflight_stdout() + ("\n" + MEMORY_WATCHDOG_MISSING_MARKER if watchdog_missing else ""),
+                    stderr="",
+                    exit_code=preflight_exit_code,
+                    error=None,
+                )
             return ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None)
 
         mock_sandbox.execute = MagicMock(side_effect=execute)
@@ -1029,15 +1035,24 @@ class TestModalSandboxAgentServer:
                 subscription_run_token=run_token,
             )
 
-        with patch.object(mock_sandbox, "_free_agent_server_port") as free_port:
+        mock_sandbox.write_file = MagicMock(return_value=ExecutionResult(stdout="", stderr="", exit_code=0))
+        with (
+            patch.object(mock_sandbox, "_free_agent_server_port") as free_port,
+            patch.object(mock_sandbox, "_prepare_agent_server_launch") as prepare,
+            override_settings(TASKS_SANDBOX_MEMORY_WATCHDOG_ENABLED=True),
+        ):
             if run_token is None:
                 with pytest.raises(ProcessTaskFatalError):
                     start()
                 free_port.assert_not_called()
+                prepare.assert_not_called()
                 return
             start()
 
         free_port.assert_called_once()
+        prepare.assert_called_once_with(None)
+        written_paths = [call.args[0] for call in mock_sandbox.write_file.call_args_list]
+        assert (MEMORY_WATCHDOG_PATH in written_paths) is watchdog_missing
         assert " --claudeSubscriptionServer" in _agent_server_launch_command(mock_sandbox.execute)
 
     @pytest.mark.parametrize(

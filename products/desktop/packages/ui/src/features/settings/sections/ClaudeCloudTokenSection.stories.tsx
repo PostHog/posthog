@@ -24,6 +24,7 @@ const meta: Meta<typeof ClaudeCloudTokenSection> = {
       const { container, queryClient } = useMemo(() => {
         let saved = localToken;
         const tokenSettings: ClaudeSubscriptionTokenSettings = {
+          getAccountKey: async () => "story-account",
           has: async () => saved,
           save: async () => {
             saved = true;

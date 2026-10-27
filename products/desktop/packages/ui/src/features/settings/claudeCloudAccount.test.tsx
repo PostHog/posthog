@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 const { auth, client } = vi.hoisted(() => ({
   auth: { identity: "us:1" as string | null },
   client: {
+    connectClaudeUserIntegration: vi.fn(),
     getClaudeUserIntegration: vi.fn(async () => ({
       status: "connected",
       connected_at: null,
@@ -30,7 +31,12 @@ vi.mock("@posthog/ui/features/auth/authClient", () => ({
   useOptionalAuthenticatedClient: () => client,
 }));
 
-import { useClaudeCloudAccount } from "./claudeCloudAccount";
+import { ClaudeIntegrationUnavailableError } from "@posthog/api-client/posthog-client";
+import {
+  useClaudeCloudAccount,
+  useConnectClaudeCloudAccount,
+} from "./claudeCloudAccount";
+import { claudeSubscriptionTokenQueryKey } from "./claudeSubscriptionTokenSettings";
 import { useCodexCloudAccount } from "./codexCloudAccount";
 
 describe("cloud account status queries", () => {
@@ -67,6 +73,68 @@ describe("cloud account status queries", () => {
       expect(
         queryClient.getQueryCache().findAll({ queryKey: [prefix] }),
       ).toEqual([]);
+    },
+  );
+});
+
+describe("Claude token account changes", () => {
+  it.each([false, true])(
+    "keeps a delayed save out of the next account (legacy=%s)",
+    async (legacy) => {
+      let accountKey = "account-a";
+      const saved = new Map<string, string>();
+      const tokenStore = {
+        getAccountKey: async () => accountKey,
+        has: async () => false,
+        clear: vi.fn(async () => {}),
+        save: vi.fn(async (token: string, expectedAccountKey?: string) => {
+          if (expectedAccountKey !== accountKey)
+            throw new Error("Account changed");
+          saved.set(accountKey, token);
+        }),
+      };
+      let finish: () => void = () => {};
+      client.connectClaudeUserIntegration.mockImplementation(
+        () =>
+          new Promise((resolve, reject) => {
+            finish = () =>
+              legacy
+                ? reject(new ClaudeIntegrationUnavailableError())
+                : resolve({
+                    status: "connected",
+                    connected_at: null,
+                    expires_at: null,
+                  });
+          }),
+      );
+      const queryClient = new QueryClient();
+      const wrapper = ({ children }: { children: ReactNode }) => (
+        <QueryClientProvider client={queryClient}>
+          {children}
+        </QueryClientProvider>
+      );
+      const { result } = renderHook(
+        () => useConnectClaudeCloudAccount(tokenStore),
+        { wrapper },
+      );
+      const operation = result.current
+        .mutateAsync("fake-claude-token")
+        .catch((error: unknown) => error);
+      await waitFor(() =>
+        expect(client.connectClaudeUserIntegration).toHaveBeenCalled(),
+      );
+      accountKey = "account-b";
+      finish();
+      await operation;
+      expect(tokenStore.save).toHaveBeenCalledWith(
+        "fake-claude-token",
+        "account-a",
+      );
+      expect(saved.size).toBe(0);
+      expect(
+        queryClient.getQueryData(claudeSubscriptionTokenQueryKey),
+      ).toBeUndefined();
+      client.connectClaudeUserIntegration.mockReset();
     },
   );
 });

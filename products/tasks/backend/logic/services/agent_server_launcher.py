@@ -630,7 +630,9 @@ class AgentServerLaunchMixin(SandboxBase):
         ):
             logger.info(f"Agent-server in sandbox {self.id} failed on its credential; relaunching with a new run token")
             self._free_agent_server_port()
-            return AgentServerPreflight(reused=False, capabilities=capabilities)
+            return AgentServerPreflight(
+                reused=False, capabilities=capabilities, memory_watchdog_missing=MEMORY_WATCHDOG_MISSING_MARKER in lines
+            )
         if result.exit_code == AGENT_SERVER_PREFLIGHT_REJECTED_CREDENTIAL_EXIT_CODE:
             raise ProcessTaskFatalError(
                 CLAUDE_REJECTED_TOKEN_MESSAGE,

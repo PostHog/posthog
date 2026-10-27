@@ -936,13 +936,19 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         user = self._get_user()
         return disconnect_codex_integration(user)
 
+    def _get_claude_user(self) -> User:
+        user = self._get_user()
+        if user.id != self.request.user.id:
+            raise exceptions.PermissionDenied("Only the owning user can access this Claude token.")
+        return user
+
     @extend_schema(
         summary="Show the Claude token status for Claude cloud tasks",
         responses={200: UserClaudeIntegrationSerializer},
     )
     @action(methods=["GET"], detail=False, url_path="claude")
     def claude(self, request: Request, **_kwargs) -> Response:
-        user = self._get_user()
+        user = self._get_claude_user()
         return Response(get_claude_integration(user))
 
     @validated_request(
@@ -963,7 +969,7 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
     @claude.mapping.post
     def claude_connect(self, request: ValidatedRequest, **_kwargs) -> Response:
         ensure_not_sandbox_claude_request(request)
-        user = self._get_user()
+        user = self._get_claude_user()
         ensure_claude_connect_enabled(user)
         return connect_claude_integration(user, request.validated_data)
 
@@ -978,7 +984,7 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
     @claude.mapping.delete
     def claude_destroy(self, request: Request, **_kwargs) -> Response:
         ensure_not_sandbox_claude_request(request)
-        user = self._get_user()
+        user = self._get_claude_user()
         return disconnect_claude_integration(user)
 
 

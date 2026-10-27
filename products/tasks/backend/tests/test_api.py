@@ -15518,7 +15518,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
                     "requestId": "cred-1",
                     "credential": "claude_subscription_token",
                     "error": "no_token",
-                    "reason": "reauth_required" if caller == "rejected_token" else "unavailable",
+                    **({"reason": "reauth_required"} if caller == "rejected_token" else {}),
                 },
             )
         else:

@@ -933,7 +933,10 @@ class ModalSandbox(AgentServerLaunchMixin):
         preflight = self._read_agent_server_preflight(
             result, (), allowed_domains, has_replacement_credential=has_replacement_credential
         )
-        if AGENT_SERVER_PREFLIGHT_REUSE_MARKER in result.stdout.splitlines():
+        if AGENT_SERVER_PREFLIGHT_REUSE_MARKER in result.stdout.splitlines() or result.exit_code in (
+            AGENT_SERVER_PREFLIGHT_CREDENTIAL_EXIT_CODE,
+            AGENT_SERVER_PREFLIGHT_REJECTED_CREDENTIAL_EXIT_CODE,
+        ):
             return preflight
         return dataclasses.replace(preflight, launch_prepared=True)
 

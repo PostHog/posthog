@@ -4295,7 +4295,6 @@ def claude_relay_params(owner_id: int | None, params: dict[str, Any] | None) -> 
         return {
             **{key: value for key, value in params.items() if key != "token"},
             "error": "no_token",
-            "reason": "unavailable",
         }, True
     if owner_id is None:
         return params, False

@@ -18,6 +18,7 @@ const {
 } = vi.hoisted(() => ({
   VALID_TOKEN: "sk-ant-oat01-fake-test-token-00000000000000",
   tokenStore: {
+    getAccountKey: vi.fn(async () => "test-account"),
     save: vi.fn(),
     clear: vi.fn(),
     has: vi.fn(),
@@ -193,7 +194,10 @@ describe("ClaudeCloudTokenSection", () => {
       expect(
         client.connectClaudeUserIntegration,
       ).toHaveBeenCalledExactlyOnceWith(VALID_TOKEN);
-      expect(tokenStore.save).toHaveBeenCalledExactlyOnceWith(VALID_TOKEN);
+      expect(tokenStore.save).toHaveBeenCalledExactlyOnceWith(
+        VALID_TOKEN,
+        "test-account",
+      );
       expect(tokenStore.clear).not.toHaveBeenCalled();
       expect(
         client.connectClaudeUserIntegration.mock.invocationCallOrder[0],
@@ -223,7 +227,10 @@ describe("ClaudeCloudTokenSection", () => {
     await user.click(screen.getByRole("button", { name: "Save token" }));
 
     expect(await screen.findByText("Token saved")).toBeInTheDocument();
-    expect(tokenStore.save).toHaveBeenCalledExactlyOnceWith(VALID_TOKEN);
+    expect(tokenStore.save).toHaveBeenCalledExactlyOnceWith(
+      VALID_TOKEN,
+      "test-account",
+    );
     expect(tokenStore.clear).not.toHaveBeenCalled();
     expect(toast.error).not.toHaveBeenCalled();
   });
