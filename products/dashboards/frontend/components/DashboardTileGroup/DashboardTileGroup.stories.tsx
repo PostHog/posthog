@@ -37,6 +37,7 @@ export const LongTitleInNarrowScene: StoryObj = {
                 onToggle={() => {}}
                 copyToDestinations={[{ dashboard: { id: 42, name: 'Example dashboard' } as DashboardBasicType }]}
                 onCopyToDashboard={() => {}}
+                onChangeGroupDisplay={() => {}}
             >
                 <FakeTile />
             </DashboardTileGroup>

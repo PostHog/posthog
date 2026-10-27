@@ -1,8 +1,10 @@
 import type { DashboardWidgetPlacementDestination } from 'lib/components/Cards/InsightCard/DashboardWidgetPlacementMenu'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 
+import type { TileGroupDisplay } from '~/types'
+
 import { type DashboardSection, getTileGroupLabel } from '../../dashboardTileSections'
-import { DashboardTileGroupCopyMenu } from './DashboardTileGroupCopyMenu'
+import { DashboardTileGroupMenu } from './DashboardTileGroupMenu'
 import { TileGroupColorDot } from './TileGroupColorDot'
 
 interface DashboardTileGroupTabsProps {
@@ -12,6 +14,7 @@ interface DashboardTileGroupTabsProps {
     copyToDestinations?: DashboardWidgetPlacementDestination[]
     onCopyGroupToDashboard?: (groupKey: string, dashboardId: number, dashboardName: string) => void
     copyLoading?: boolean
+    onChangeGroupDisplay?: (groupDisplay: TileGroupDisplay) => void
     children: React.ReactNode
 }
 
@@ -22,6 +25,7 @@ export function DashboardTileGroupTabs({
     copyToDestinations,
     onCopyGroupToDashboard,
     copyLoading,
+    onChangeGroupDisplay,
     children,
 }: DashboardTileGroupTabsProps): JSX.Element {
     const activeSection = sections.find((section) => section.key === activeSectionKey)
@@ -44,15 +48,18 @@ export function DashboardTileGroupTabs({
                         ),
                 }))}
                 rightSlot={
-                    activeSection?.kind === 'group' &&
-                    onCopyGroupToDashboard && (
-                        <DashboardTileGroupCopyMenu
-                            label="Copy tab to dashboard"
-                            destinations={copyToDestinations ?? []}
-                            onCopyToDashboard={(dashboardId, dashboardName) =>
-                                onCopyGroupToDashboard(activeSection.groupKey, dashboardId, dashboardName)
+                    onChangeGroupDisplay && (
+                        <DashboardTileGroupMenu
+                            groupDisplay="tabs"
+                            onChangeGroupDisplay={onChangeGroupDisplay}
+                            copyToDestinations={copyToDestinations}
+                            onCopyToDashboard={
+                                activeSection?.kind === 'group' && onCopyGroupToDashboard
+                                    ? (dashboardId, dashboardName) =>
+                                          onCopyGroupToDashboard(activeSection.groupKey, dashboardId, dashboardName)
+                                    : undefined
                             }
-                            loading={copyLoading}
+                            copyLoading={copyLoading}
                         />
                     )
                 }

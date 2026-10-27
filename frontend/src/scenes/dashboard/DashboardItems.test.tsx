@@ -221,6 +221,7 @@ const mockTriggerDashboardRefresh = jest.fn()
 const mockInsightCard = jest.fn()
 const mockUpdateContainerWidth = jest.fn()
 const mockMoveTileToSection = jest.fn()
+const mockChangeTileGroupDisplay = jest.fn()
 const mockPositionStrategies = new Map<Element, unknown>()
 let mockGridWidth = 1200
 let mockGridMounts = 0
@@ -293,6 +294,7 @@ describe('DashboardItems', () => {
                     setTileOverride: jest.fn(),
                     setDashboardMode: jest.fn(),
                     moveTileToSection: mockMoveTileToSection,
+                    changeTileGroupDisplay: mockChangeTileGroupDisplay,
                 }
             }
 
@@ -763,6 +765,32 @@ describe('DashboardItems', () => {
             canEditDashboard = false
             rerender(<DashboardItems />)
             expect(container.querySelector('[data-attr="dashboard-tile-group-menu"]')).not.toBeInTheDocument()
+        })
+
+        it.each([
+            { layout: 'bands', overrides: {}, item: 'Show all groups as tabs', display: 'tabs' },
+            {
+                layout: 'tabs',
+                overrides: { activeTileGroupTab: 'plans' },
+                item: 'Show groups as sections',
+                display: 'sections',
+            },
+        ])('switches how groups show from the group menu in $layout', async ({ overrides, item, display }) => {
+            showBands(overrides)
+            const bandValues = mockedUseValues.getMockImplementation()!
+            mockedUseValues.mockImplementation((logic) =>
+                logic === dashboardsModel ? { dashboardsLoading: false } : bandValues(logic)
+            )
+            const defaultActions = mockedUseActions.getMockImplementation()!
+            mockedUseActions.mockImplementation((logic) =>
+                logic === dashboardsModel ? { loadDashboardsIfNeeded: jest.fn() } : defaultActions(logic)
+            )
+
+            const { container, findByText } = render(<DashboardItems />)
+            fireEvent.click(container.querySelector('[data-attr="dashboard-tile-group-menu"]')!)
+            fireEvent.click(await findByText(item))
+
+            expect(mockChangeTileGroupDisplay).toHaveBeenCalledWith(display)
         })
 
         it('keeps a band grid mounted when a tile streams into the band', () => {
