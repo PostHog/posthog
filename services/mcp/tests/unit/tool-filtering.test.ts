@@ -1103,6 +1103,7 @@ describe('Tool Filtering - Feature Flags', () => {
             'cross-project-dashboards',
             'warehouse-suggestions',
             'scouts-tool-access',
+            'workflows-sending-tier-requests',
             'replay-vision-scanner-dashboard',
             'metrics-dashboard-import',
             'managed-warehouse-trino-query',

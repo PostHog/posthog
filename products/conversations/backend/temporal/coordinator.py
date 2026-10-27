@@ -208,6 +208,7 @@ def _collect_eligible(lookback_minutes: int = TICKET_LOOKBACK_MINUTES) -> list[E
             team_id=team_id,
             scope="conversations_ticket",
             item_id__in=ticket_ids,
+            item_context__automated_update_key__isnull=True,
         ).values_list("item_id", "item_context__author_type", "created_at"):
             if author_type == "customer":
                 prev = latest_customer_msg.get(item_id)

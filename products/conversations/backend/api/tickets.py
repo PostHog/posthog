@@ -1933,6 +1933,22 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
+        try:
+            message_id = uuid.UUID(data["message_id"])
+        except ValueError:
+            message_id = None
+        if (
+            message_id
+            and Comment.objects.filter(
+                id=message_id,
+                team_id=self.team_id,
+                scope="conversations_ticket",
+                item_id=str(ticket.id),
+                item_context__automated_update_key__isnull=False,
+            ).exists()
+        ):
+            raise ValidationError({"message_id": "Automated updates cannot receive AI feedback."})
+
         ai_triage = ticket.ai_triage or {}
         trace_id = ai_triage.get("ai_trace_id")
         distinct_id = f"reviewer:{request.user.distinct_id}"

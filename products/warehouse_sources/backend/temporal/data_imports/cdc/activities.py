@@ -30,6 +30,7 @@ from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.common.shutdown import ShutdownMonitor, WorkerShuttingDownError
 from posthog.utils import get_machine_id
 
+from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
     CDC_SNAPSHOT_LANE_KEY,
@@ -640,7 +641,7 @@ class CDCExtractActivity:
     def _catalog_names(self, table_names: list[str]) -> dict[str, dict[str, str]]:
         """Group schema names by source namespace, mapping each bare relation name back to its schema name."""
         assert self.source is not None
-        default_namespace = (self.source.job_inputs or {}).get("schema", "public")
+        default_namespace = SourceInputsStore.load_settings(self.source).get("schema", "public")
         names_by_namespace: dict[str, dict[str, str]] = {}
         for name in table_names:
             namespace, dot, relation = name.partition(".")
@@ -696,7 +697,7 @@ class CDCExtractActivity:
         return (removed, dataclasses.replace(current, operation="I"))
 
     def _qualified_table_name(self, schema: ExternalDataSchema) -> str:
-        default_schema = (self.source.job_inputs or {}).get("schema") if self.source else None
+        default_schema = SourceInputsStore.load_settings(self.source).get("schema") if self.source else None
         return cdc_qualified_table_name(schema, default_schema)
 
     def _build_event_name_map(self) -> dict[str, str]:
@@ -1229,8 +1230,7 @@ class CDCExtractActivity:
             self.source, tables=[self._qualified_table_name(s) for s in self.cdc_schemas]
         )
 
-        self.source.job_inputs = {**(self.source.job_inputs or {}), **resource_fields}
-        self.source.save(update_fields=["job_inputs", "updated_at"])
+        SourceInputsStore.update_runtime(self.source, resource_fields)
 
         # Unpause only after the new slot exists, so no snapshot can run before change
         # capture has a consistent point to resume from. Same for the resets still pending: the

@@ -3513,14 +3513,15 @@ class TestSignupPrecheckPendingInvite(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("aliased_account", "dupe+old@acme.com", "dupe@acme.com"),
-            ("dotted_gmail_account", "dupe@gmail.com", "d.u.p.e@gmail.com"),
+            ("aliased_account", "dupe+old@acme.com", "dupe@acme.com", True),
+            ("dotted_gmail_account", "dupe@gmail.com", "d.u.p.e@gmail.com", True),
+            ("deactivated_account", "dupe@acme.com", "Dupe@acme.com", False),
         ]
     )
     def test_precheck_reports_collision_with_the_same_mailbox(
-        self, _name: str, stored_email: str, looked_up_email: str
+        self, _name: str, stored_email: str, looked_up_email: str, is_active: bool
     ) -> None:
-        User.objects.create_user(email=stored_email, password=None, first_name="Dupe")
+        User.objects.create_user(email=stored_email, password=None, first_name="Dupe", is_active=is_active)
         response = self.client.post("/api/signup/precheck", {"email": looked_up_email})
         self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
         self.assertTrue(response.json()["email_exists"])
