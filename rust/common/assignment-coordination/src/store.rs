@@ -137,11 +137,19 @@ impl EtcdStore {
         }
     }
 
-    /// Records a call that got no answer in time, such as a lease renewal.
-    /// One is enough to start a switch attempt.
-    pub fn observe_member_unresponsive(&self) {
+    /// Records a call that got no answer within `waited`, such as a lease
+    /// renewal. A long enough wait starts a switch attempt at once.
+    pub fn observe_member_unanswered(&self, waited: Duration) {
         if let Some(failover) = &self.failover {
-            failover.note_unresponsive();
+            failover.note_unanswered(waited);
+        }
+    }
+
+    /// Records a call outside this store that failed without an etcd error,
+    /// such as a keepalive stream that closed.
+    pub fn observe_member_failure(&self) {
+        if let Some(failover) = &self.failover {
+            failover.note_failure();
         }
     }
 
@@ -518,6 +526,45 @@ mod member_failover_tests {
             store.failover.as_ref().unwrap().current_for_test(),
             vec![LIVE_ETCD.to_string()]
         );
+    }
+
+    #[tokio::test]
+    async fn a_store_without_a_member_list_reads_one_after_a_call_succeeds() {
+        let store = EtcdStore::connect_with_member_failover(StoreConfig {
+            endpoints: vec![LIVE_ETCD.to_string()],
+            prefix: "/test-member-failover-refresh/".to_string(),
+        })
+        .await
+        .unwrap();
+        let failover = store.failover.as_ref().unwrap();
+        failover.set_members_for_test(Vec::new());
+
+        store.get_raw("/probe").await.unwrap();
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while failover.members_for_test().is_empty() {
+            assert!(Instant::now() < deadline, "member list never refreshed");
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    }
+
+    #[tokio::test]
+    async fn only_a_long_unanswered_call_switches_at_once() {
+        let store = store_on_dead_member(vec![LIVE_ETCD.to_string()]).await;
+        let failover = store.failover.as_ref().unwrap();
+
+        store.observe_member_unanswered(Duration::from_secs(1));
+        assert!(!failover.switching_for_test());
+
+        store.observe_member_unanswered(Duration::from_secs(2));
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while failover.current_for_test() != vec![LIVE_ETCD.to_string()] {
+            assert!(
+                Instant::now() < deadline,
+                "store never left the dead member"
+            );
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
     }
 
     #[tokio::test]
