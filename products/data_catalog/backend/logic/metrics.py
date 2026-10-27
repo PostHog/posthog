@@ -9,6 +9,7 @@ measurement.
 """
 
 import re
+from datetime import datetime
 from functools import partial
 from typing import TYPE_CHECKING, Optional
 from uuid import UUID
@@ -23,12 +24,14 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.database.schema.information_schema import references_denied_table
 
 from posthog.dataclasses import frozen
+from posthog.event_usage import AnalyticsProps
 from posthog.models import Team, User
 from posthog.models.scoping import team_scope
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.product_analytics.backend.facade.models import Insight
 
+from ..facade.contracts import MetricBulkOwnerChange
 from ..facade.enums import CreatedSource, MetricStatus
 from ..models import METRIC_NAME_REGEX, Metric
 from ..tasks.tasks import sync_metric_lineage_task
@@ -42,7 +45,7 @@ from .analytics import (
     capture_metric_event,
 )
 from .drift import canonical_query_hash, compute_drift, fetch_insight
-from .exceptions import MetricDrifted, MetricNameTaken, SourceInsightUnavailable
+from .exceptions import MetricChanged, MetricDrifted, MetricNameTaken, SourceInsightUnavailable
 from .lineage import remove_metric_lineage
 from .validation import validate_description, validate_metric_definition
 
@@ -421,7 +424,10 @@ def update_metric(
         team=team,
         user=user,
         request=request,
-        extra={"renamed_from": renamed_from} if renamed_from else None,
+        extra={
+            "updated_fields": sorted(fields),
+            **({"renamed_from": renamed_from} if renamed_from else {}),
+        },
     )
     return metric
 
@@ -433,10 +439,17 @@ def _apply_approval(metric: Metric, user: Optional[User]) -> None:
     metric.save(update_fields=[*_APPROVAL_FIELDS, "updated_at"])
 
 
-def approve_metric(metric: Metric, user: Optional[User], request: "Request | None" = None) -> Metric:
+def approve_metric(
+    metric: Metric,
+    user: Optional[User],
+    request: "Request | None" = None,
+    expected_updated_at: datetime | None = None,
+) -> Metric:
     """Bless a metric as canonical. Blocked (409) while drifted. Idempotent on an already-approved metric."""
     with team_scope(metric.team_id), transaction.atomic():
         metric = Metric.objects.for_team(metric.team_id).select_for_update().get(pk=metric.pk)
+        if expected_updated_at is not None and metric.updated_at != expected_updated_at:
+            raise MetricChanged()
         if compute_drift([metric])[metric.id]:
             capture_metric_event(
                 METRIC_APPROVAL_BLOCKED_EVENT,
@@ -508,7 +521,7 @@ def _batch_team(metrics: list[Metric]) -> Team:
     return Team.objects.get(pk=team_ids.pop())
 
 
-def _lock_batch(team_id: int, metrics: list[Metric]) -> dict[UUID, Metric]:
+def _lock_batch(team_id: int, metric_ids: list[UUID]) -> dict[UUID, Metric]:
     """Re-read and row-lock the batch, keyed by id.
 
     Locks in ``pk`` order so two concurrent bulk operations over overlapping rows queue behind each
@@ -517,7 +530,7 @@ def _lock_batch(team_id: int, metrics: list[Metric]) -> dict[UUID, Metric]:
     """
     locked = (
         Metric.objects.for_team(team_id)
-        .filter(pk__in=[metric.pk for metric in metrics], deleted=False)
+        .filter(pk__in=metric_ids, deleted=False)
         # Cache owner and created_by so serializing the approve response reads them off the row
         # instead of one posthog_user lookup per metric. Both FKs are nullable, so select_related
         # is a LEFT OUTER JOIN; Postgres rejects FOR UPDATE on the nullable side of an outer join,
@@ -544,10 +557,28 @@ def _locked_match(locked: dict[UUID, Metric], requested: Metric) -> Optional[Met
 
 
 def _capture_after_commit(
-    event: str, metrics: list[Metric], *, team: Team, user: Optional[User], request: "Request | None"
+    event: str,
+    metrics: list[Metric],
+    *,
+    team: Team,
+    user: Optional[User],
+    request: "Request | None",
+    extra: Optional[dict[str, object]] = None,
+    analytics_props: Optional[AnalyticsProps] = None,
 ) -> None:
     for metric in metrics:
-        transaction.on_commit(partial(capture_metric_event, event, metric, team=team, user=user, request=request))
+        transaction.on_commit(
+            partial(
+                capture_metric_event,
+                event,
+                metric,
+                team=team,
+                user=user,
+                request=request,
+                extra=extra,
+                analytics_props=analytics_props,
+            )
+        )
 
 
 def bulk_approve_metrics(
@@ -566,7 +597,7 @@ def bulk_approve_metrics(
     skipped: list[MetricBulkSkip] = []
 
     with team_scope(team.id), transaction.atomic():
-        locked = _lock_batch(team.id, metrics)
+        locked = _lock_batch(team.id, [metric.pk for metric in metrics])
         drifted = compute_drift(locked.values())
         for requested in metrics:
             metric = _locked_match(locked, requested)
@@ -597,7 +628,7 @@ def bulk_soft_delete_metrics(
 
     with team_scope(team.id), transaction.atomic():
         # Same pk lock order as bulk_approve_metrics, so a mixed approve/delete pair can't deadlock.
-        locked = _lock_batch(team.id, metrics)
+        locked = _lock_batch(team.id, [metric.pk for metric in metrics])
         for requested in metrics:
             metric = _locked_match(locked, requested)
             if metric is None:
@@ -611,6 +642,47 @@ def bulk_soft_delete_metrics(
         remove_metric_lineage(metric)
 
     return deleted, skipped
+
+
+def bulk_change_metric_owner(
+    *,
+    team_id: int,
+    names_by_id: dict[UUID, str],
+    owner_id: Optional[int],
+    user_id: int,
+    analytics_props: Optional[AnalyticsProps] = None,
+) -> MetricBulkOwnerChange:
+    """Set one owner on a batch of metrics in one transaction."""
+    if not names_by_id:
+        return MetricBulkOwnerChange(updated_ids=[], skipped_ids=[])
+    team = Team.objects.get(id=team_id)
+    user = User.objects.get(id=user_id)
+    owner = User.objects.get(id=owner_id) if owner_id is not None else None
+    updated: list[Metric] = []
+
+    with team_scope(team_id), transaction.atomic():
+        locked = _lock_batch(team_id, list(names_by_id))
+        for metric_id, name in names_by_id.items():
+            metric = locked.get(metric_id)
+            if metric is None or metric.name != name:
+                continue
+            metric.owner = owner
+            metric.save(update_fields=["owner", "updated_at"])
+            updated.append(metric)
+        _capture_after_commit(
+            METRIC_UPDATED_EVENT,
+            updated,
+            team=team,
+            user=user,
+            request=None,
+            extra={"updated_fields": ["owner"]},
+            analytics_props=analytics_props,
+        )
+
+    updated_ids = [metric.id for metric in updated]
+    return MetricBulkOwnerChange(
+        updated_ids=updated_ids, skipped_ids=[metric_id for metric_id in names_by_id if metric_id not in updated_ids]
+    )
 
 
 def _reset_to_proposed(metric: Metric) -> None:

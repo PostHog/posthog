@@ -64,6 +64,28 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "LostReasonName": "Name of the recorded lost reason.",
         },
     },
+    "opportunity_products": {
+        "description": "Products added to opportunities (Sales Projects), one row per product line on an opportunity.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            **_AUDIT_COLUMNS,
+            "Id": "Unique identifier (GUID) of the opportunity product line.",
+            "OpportunityId": "GUID of the opportunity (Sales Project) this product line belongs to.",
+            "ProductId": "GUID of the product. Matches Id on products.",
+            "Name": "Product name.",
+            "Description": "Product description.",
+            "Price": "Product price, in PriceCurrency.",
+            "PriceCurrency": "Currency of the price. Matches Id on currencies.",
+            "PriceType": "Pricing model: Recurring or Fixed.",
+            "PriceInterval": "How often a recurring price repeats (for example 1M or 12M). Only applies when PriceType is Recurring.",
+            "Quantity": "Quantity of the product.",
+            "TermLength": "Length of the term. Only applies when PriceType is Recurring.",
+            "TermStartDate": "Timestamp when the recurrence starts. Only applies when PriceType is Recurring.",
+            "Discount": "Discount, as a percentage or an absolute amount in PriceCurrency.",
+            "DiscountType": "Discount type: Absolute or Percentage.",
+            "Cost": "Cost of the product, in PriceCurrency.",
+        },
+    },
     "account_growth_items": {
         "description": "Account growth projects. An account growth project's human-readable key has the form AGP-{n}.",
         "docs_url": _DOCS_URL,
@@ -169,6 +191,35 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "columns": {
             "Id": "Unique identifier (GUID). Matches ActivityTypeId on activities.",
             "Name": "Activity type name.",
+        },
+    },
+    "labels": {
+        "description": "Labels used to tag companies and contacts.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "Id": "Unique identifier (GUID) of the label.",
+            "Name": "Label name.",
+            "UseFor": "Entity the label applies to: Company or Contact.",
+        },
+    },
+    "sales_processes": {
+        "description": "Active sales process definitions for opportunities (Sales Projects), including their stages, steps and custom fields.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "Id": "Unique identifier (GUID) of the sales process.",
+            "Name": "Name of the sales process.",
+            "Stages": "Stages in the process, as a list of {Id, Name, Steps} objects. Each Steps entry is a list of {Id, Name} objects.",
+            "CustomFields": "Custom fields referenced in the process, with the same properties as the custom_fields table.",
+        },
+    },
+    "prospecting_processes": {
+        "description": "Active prospecting process definitions for prospects, including their stages, steps and custom fields.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "Id": "Unique identifier (GUID) of the prospecting process.",
+            "Name": "Name of the prospecting process.",
+            "Stages": "Stages in the process, as a list of {Id, Name, Steps} objects. Each Steps entry is a list of {Id, Name} objects.",
+            "CustomFields": "Custom fields referenced in the process, with the same properties as the custom_fields table.",
         },
     },
     "ticket_processes": {

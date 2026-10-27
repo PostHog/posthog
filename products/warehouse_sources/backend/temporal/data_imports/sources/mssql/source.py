@@ -10,6 +10,9 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
+    SourceFieldSelectConfig,
+    SourceFieldSelectConfigConverter,
+    SourceFieldSelectConfigOption,
     SourceFieldSSHTunnelConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
@@ -355,6 +358,21 @@ class MSSQLSource(
                         required=False,
                         placeholder="Leave blank to import all schemas",
                         secret=False,
+                    ),
+                    SourceFieldSelectConfig(
+                        name="require_encryption",
+                        label="Require encryption?",
+                        required=True,
+                        defaultValue="false",
+                        converter=SourceFieldSelectConfigConverter.STR_TO_BOOL,
+                        caption=(
+                            "Refuse to connect unless the connection to your database is encrypted. "
+                            "PostHog does not verify the SQL Server certificate."
+                        ),
+                        options=[
+                            SourceFieldSelectConfigOption(label="Yes", value="true"),
+                            SourceFieldSelectConfigOption(label="No", value="false"),
+                        ],
                     ),
                     SourceFieldSSHTunnelConfig(name="ssh_tunnel", label="Use SSH tunnel?"),
                 ],

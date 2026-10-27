@@ -1629,7 +1629,7 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
         query_serializer=EvaluationsOverviewQuerySerializer,
         responses={
             200: OpenApiResponse(response=contracts.EvaluationsOverview),
-            400: OpenApiResponse(description="The period is malformed, empty, longer than 90 days or out of range."),
+            400: OpenApiResponse(description="The period is malformed, empty, longer than 91 days or out of range."),
             429: OpenApiResponse(description="Too many queries are running for the project or organization."),
         },
     )

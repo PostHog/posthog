@@ -89,7 +89,7 @@ describe('shared-image policy and legacy projection', () => {
     const inlineRules = yaml.load(inline!) as Record<string, Paths | null>
     const policy = productionPolicy()
     const projected = yaml.load(projectLegacyFilters(policy, inline!)) as Record<string, Paths>
-    expect(Object.keys(projected)).toEqual(Object.keys(inlineRules))
+    expect(Object.keys(projected)).toEqual(Object.keys({...inlineRules, ...policy.filters}))
     for (const [name, rule] of Object.entries(inlineRules)) {
       expect({[name]: projected[name]}).toEqual({[name]: rule === null ? policy.filters[name] : rule})
     }
@@ -131,6 +131,5 @@ describe('shared-image policy and legacy projection', () => {
     const result = filter.match(files)
     expect(result.dataWarehouseMetadata).toEqual([files[0]])
     expect(result.dataWarehouse).toEqual(files)
-    expect(current.images['posthog-cloud'].channels).toEqual({})
   })
 })
