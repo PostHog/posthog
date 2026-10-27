@@ -56,7 +56,7 @@ class MyHoursSource(SimpleSource[MyHoursSourceConfig]):
             releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your My Hours API key to pull your time-tracking data into the PostHog Data warehouse.
 
-API keys are available on paid plans. Create one under **Settings → Integrations → API keys** in your [My Hours account](https://app.myhours.com/). The key is tied to the user who created it, so it stops working if that user is archived or removed. The key grants read access to your clients, projects, project tasks and members, tags, users, and time logs.
+API keys are available on paid plans. Create one under **Settings → Integrations → API keys** in your [My Hours account](https://app.myhours.com/). The key is tied to the user who created it, so it stops working if that user is archived or removed. The key grants read access to your clients, projects, project tasks and members, tags, users, teams, and time logs. Teams are available on the Pro plan.
 """,
             iconPath="/static/services/my_hours.png",
             docsUrl="https://posthog.com/docs/cdp/sources/my-hours",

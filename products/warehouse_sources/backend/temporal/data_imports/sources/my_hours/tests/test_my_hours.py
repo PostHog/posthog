@@ -35,7 +35,14 @@ def _driver() -> SourceDriver:
 
 
 class TestSync:
-    @parameterized.expand([("clients", "/Clients"), ("projects", "/Projects/getAll"), ("users", "/Users/getAll")])
+    @parameterized.expand(
+        [
+            ("clients", "/Clients"),
+            ("projects", "/Projects/getAll"),
+            ("users", "/Users/getAll"),
+            ("teams", "/Teams/getall"),
+        ]
+    )
     def test_request_targets_the_expected_url(self, endpoint: str, path: str) -> None:
         result = _driver().run(endpoint, [ScriptedResponse(json=[])])
 
@@ -190,16 +197,60 @@ class TestProjectFanout:
             {"id": task_id, "projectId": 11, "taskListName": "Task list", "taskListNo": 0} for task_id in (1, 2, 3)
         ]
 
-    def test_project_members_carry_project_id_and_skip_deleted_projects(self) -> None:
+    @parameterized.expand(
+        [
+            (
+                "project_members",
+                "/Projects/getAll",
+                "/Projects/11/userlist",
+                [{"id": 5, "userId": 5, "userName": "A"}],
+                [{"id": 5, "userId": 5, "userName": "A", "projectId": 11}],
+            ),
+            (
+                "project_overviews",
+                "/Projects/getAll",
+                "/Projects/11/overview",
+                {"id": 11, "name": "Website", "budgetRemaining": 9.5, "projectUsers": [{"id": 5, "name": "A"}]},
+                [
+                    {
+                        "id": 11,
+                        "name": "Website",
+                        "budgetRemaining": 9.5,
+                        "projectUsers": [{"id": 5, "name": "A"}],
+                        "projectId": 11,
+                    }
+                ],
+            ),
+            (
+                "team_members",
+                "/Teams/getall",
+                "/Teams/11/teammembers",
+                [{"id": 7, "userId": 5, "userName": "A", "userCustomId": None}],
+                [{"id": 7, "userId": 5, "userName": "A", "userCustomId": None, "teamId": 11}],
+            ),
+        ]
+    )
+    def test_child_rows_carry_parent_id_and_skip_deleted_parents(
+        self,
+        endpoint: str,
+        parent_path: str,
+        child_path: str,
+        child_body: object,
+        expected_rows: list[dict[str, object]],
+    ) -> None:
         result = _driver().run(
-            "project_members",
+            endpoint,
             [
-                ScriptedResponse(json=[{"id": 11}, {"id": 12}]),
-                ScriptedResponse(json=[{"id": 5, "userId": 5, "userName": "A"}]),
+                ScriptedResponse(json=[{"id": 11, "users": [], "managers": []}, {"id": 12}]),
+                ScriptedResponse(json=child_body),
                 ScriptedResponse(status=404, json={"error": "not found"}),
             ],
         )
 
         assert result.raised is None
-        assert result.urls[1] == f"{MY_HOURS_BASE_URL}/Projects/11/userlist"
-        assert result.rows == [{"id": 5, "userId": 5, "userName": "A", "projectId": 11}]
+        assert result.urls == [
+            f"{MY_HOURS_BASE_URL}{parent_path}",
+            f"{MY_HOURS_BASE_URL}{child_path}",
+            f"{MY_HOURS_BASE_URL}{child_path.replace('11', '12')}",
+        ]
+        assert result.rows == expected_rows
