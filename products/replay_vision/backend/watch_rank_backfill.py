@@ -14,6 +14,7 @@ from itertools import batched
 from typing import Any
 from uuid import UUID
 
+from django.db import transaction
 from django.db.models import Count
 
 import numpy as np
@@ -151,20 +152,23 @@ def backfill_team_watch_ranks(team_id: int, since: datetime, *, dry_run: bool = 
             written = _rank_scanner(list(batch), vectors, anchors)
             ranked += len(written)
             if not dry_run and written:
-                # Only rows still without a current rank, so a rank the consumer wrote meanwhile, with its group, stays.
-                still_unranked = set(
-                    ReplayObservation.objects.filter(team_id=team_id, id__in=list(written))
-                    .exclude(watch_rank__anchor_version=ANCHOR_VERSION)
-                    .values_list("id", flat=True)
-                )
-                ReplayObservation.objects.bulk_update(
-                    [
-                        ReplayObservation(id=observation_id, watch_rank=rank)
-                        for observation_id, rank in written.items()
-                        if UUID(observation_id) in still_unranked
-                    ],
-                    ["watch_rank"],
-                )
+                # Only rows still without a current rank, locked until the write, so a rank the consumer writes meanwhile
+                # waits for this one and a rank it already wrote, with its group, stays.
+                with transaction.atomic():
+                    still_unranked = set(
+                        ReplayObservation.objects.select_for_update()
+                        .filter(team_id=team_id, id__in=list(written))
+                        .exclude(watch_rank__anchor_version=ANCHOR_VERSION)
+                        .values_list("id", flat=True)
+                    )
+                    ReplayObservation.objects.bulk_update(
+                        [
+                            ReplayObservation(id=observation_id, watch_rank=rank)
+                            for observation_id, rank in written.items()
+                            if UUID(observation_id) in still_unranked
+                        ],
+                        ["watch_rank"],
+                    )
     without_embedding = len(rows) - embedded
     logger.info(
         "replay_vision.watch_rank_backfill.team_done",
