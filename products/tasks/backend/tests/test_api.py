@@ -15102,7 +15102,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         owner.is_email_verified = True
         owner.save(update_fields=["email", "is_staff", "is_email_verified"])
         task, run = self._create_claude_subscription_run(owner)
-        access_changes = {
+        access_changes: dict[str, dict[str, bool | str]] = {
             "non_employee": {"is_staff": False},
             "inactive_employee": {"is_active": False},
             "unverified_employee": {"is_email_verified": False},
