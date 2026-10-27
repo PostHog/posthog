@@ -44,11 +44,14 @@ jobs:
         # every other job needs this one, and the gates treat skipped as success.
         # The merge queue's trunk-merge/** run is the gate, so skipping a draft
         # never weakens what protects master.
+        # Push and schedule runs only belong in this repo. Mirrors run CI on their own PRs only.
         if: >-
+            (github.repository == 'PostHog/posthog' || (github.event_name != 'push' && github.event_name != 'schedule')) && (
             github.event_name != 'pull_request'
             || github.event.pull_request.draft != true
             || startsWith(github.head_ref, 'trunk-merge/')
             || !contains(github.event.pull_request.labels.*.name, 'no-ci')
+            )
         name: Determine need to run MCP checks
         outputs:
             mcp: ${{ steps.filter.outputs.mcp || 'true' }}

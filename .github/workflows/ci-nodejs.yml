@@ -56,6 +56,8 @@ jobs:
     # Job to decide if we should run nodejs services ci
     # See .github/actions/paths-filter/README.md for filter semantics
     changes:
+        # Push and schedule runs only belong in this repo. Mirrors run CI on their own PRs only.
+        if: github.repository == 'PostHog/posthog' || (github.event_name != 'push' && github.event_name != 'schedule')
         runs-on: ubuntu-24.04
         timeout-minutes: 10
         name: Determine need to run Node.js checks
