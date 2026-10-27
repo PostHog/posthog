@@ -291,6 +291,10 @@ export const DashboardsPartialUpdateQueryParams = () => zod.object({
 
 export const dashboardsPartialUpdateBodyNameMax = 400
 
+export const dashboardsPartialUpdateBodyFiltersOneBreakdownFilterOneBreakdownTypeDefault = `event`
+export const dashboardsPartialUpdateBodyFiltersOneBreakdownFilterOneBreakdownsOneMax = 3
+
+export const dashboardsPartialUpdateBodyFiltersOneCompareFilterOneCompareDefault = false
 export const dashboardsPartialUpdateBodyBreakdownColorsItemColorTokenRegExp = new RegExp('^preset-[1-9][0-9]\*$')
 export const dashboardsPartialUpdateBodyGroupsTitleMax = 200
 
@@ -335,13 +339,127 @@ export const DashboardsPartialUpdateBody = () => zod
                     .describe(
                         'Dashboard-level property filters applied to every tile (PostHog property filter group).'
                     ),
+                breakdown_filter: zod
+                    .union([
+                        zod.object({
+                            breakdown: zod
+                                .union([
+                                    zod.string(),
+                                    zod.array(zod.union([zod.string(), zod.number()])),
+                                    zod.number(),
+                                    zod.null(),
+                                ])
+                                .optional(),
+                            breakdown_group_type_index: zod.union([zod.number(), zod.null()]).optional(),
+                            breakdown_hide_other_aggregation: zod.union([zod.boolean(), zod.null()]).optional(),
+                            breakdown_histogram_bin_count: zod.union([zod.number(), zod.null()]).optional(),
+                            breakdown_limit: zod.union([zod.number(), zod.null()]).optional(),
+                            breakdown_normalize_url: zod.union([zod.boolean(), zod.null()]).optional(),
+                            breakdown_path_cleaning: zod.union([zod.boolean(), zod.null()]).optional(),
+                            breakdown_type: zod
+                                .union([
+                                    zod.enum([
+                                        'cohort',
+                                        'person',
+                                        'event',
+                                        'event_metadata',
+                                        'element',
+                                        'group',
+                                        'session',
+                                        'hogql',
+                                        'data_warehouse',
+                                        'data_warehouse_person_property',
+                                        'revenue_analytics',
+                                    ]),
+                                    zod.null(),
+                                ])
+                                .default(dashboardsPartialUpdateBodyFiltersOneBreakdownFilterOneBreakdownTypeDefault),
+                            breakdowns: zod
+                                .union([
+                                    zod
+                                        .array(
+                                            zod.object({
+                                                group_type_index: zod.union([zod.number(), zod.null()]).optional(),
+                                                histogram_bin_count: zod.union([zod.number(), zod.null()]).optional(),
+                                                normalize_url: zod.union([zod.boolean(), zod.null()]).optional(),
+                                                property: zod.union([zod.string(), zod.number()]),
+                                                type: zod
+                                                    .union([
+                                                        zod.enum([
+                                                            'person',
+                                                            'event',
+                                                            'event_metadata',
+                                                            'element',
+                                                            'group',
+                                                            'session',
+                                                            'hogql',
+                                                            'cohort',
+                                                            'revenue_analytics',
+                                                            'data_warehouse',
+                                                            'data_warehouse_person_property',
+                                                        ]),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            })
+                                        )
+                                        .max(dashboardsPartialUpdateBodyFiltersOneBreakdownFilterOneBreakdownsOneMax),
+                                    zod.null(),
+                                ])
+                                .optional(),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe(
+                        'Dashboard-level breakdown applied to every tile that supports one, replacing the tile\'s own breakdown. Example: {\"breakdown_type\": \"event\", \"breakdown\": \"$browser\"}. Null clears it.'
+                    ),
+                interval: zod
+                    .union([
+                        zod
+                            .enum(['second', 'minute', 'hour', 'day', 'week', 'month', 'quarter', 'year'])
+                            .describe(
+                                '\* `second` - second\n\* `minute` - minute\n\* `hour` - hour\n\* `day` - day\n\* `week` - week\n\* `month` - month\n\* `quarter` - quarter\n\* `year` - year'
+                            ),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe(
+                        'Time granularity forced onto every tile that supports one. Null means each tile keeps its own.\n\n\* `second` - second\n\* `minute` - minute\n\* `hour` - hour\n\* `day` - day\n\* `week` - week\n\* `month` - month\n\* `quarter` - quarter\n\* `year` - year'
+                    ),
+                compareFilter: zod
+                    .union([
+                        zod.object({
+                            compare: zod
+                                .union([zod.boolean(), zod.null()])
+                                .default(dashboardsPartialUpdateBodyFiltersOneCompareFilterOneCompareDefault)
+                                .describe('Whether to compare the current date range to a previous date range.'),
+                            compare_to: zod
+                                .union([zod.string(), zod.null()])
+                                .optional()
+                                .describe(
+                                    'The date range to compare to. The value is a relative date. Examples of relative dates are: `-1y` for 1 year ago, `-14m` for 14 months ago, `-100w` for 100 weeks ago, `-14d` for 14 days ago, `-30h` for 30 hours ago.'
+                                ),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe(
+                        'Period comparison forced onto every tile that supports one. Null means each tile keeps its own.'
+                    ),
+                filterTestAccounts: zod
+                    .boolean()
+                    .nullish()
+                    .describe(
+                        "True forces test accounts out of every tile, false forces them in, null keeps each tile's setting."
+                    ),
             })
             .describe(
                 "OpenAPI-only shape for a dashboard's filters object (agents\/MCP).\n\nDocuments the dashboard-level filters that act as the single source of truth for the\ndashboard's tiles. Runtime persistence reads the raw ``filters`` dict from the request body, so\nextra keys are accepted, but these are the ones agents should set."
             )
             .optional()
             .describe(
-                'Dashboard-level filters (date range and properties) applied across all tiles as the source of truth.'
+                'Dashboard-level filters (date range, properties, breakdown, interval, comparison) applied across all tiles as the source of truth.'
             ),
         breakdown_colors: zod
             .array(

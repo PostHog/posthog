@@ -587,6 +587,88 @@ export type PatchedPatchedDashboardOpenApiApiGroups = { [key: string]: Dashboard
  */
 export type PatchedPatchedDashboardOpenApiApiGroupTitles = { [key: string]: string } | null
 
+export type BreakdownTypeApi = (typeof BreakdownTypeApi)[keyof typeof BreakdownTypeApi]
+
+export const BreakdownTypeApi = {
+    Cohort: 'cohort',
+    Person: 'person',
+    Event: 'event',
+    EventMetadata: 'event_metadata',
+    Element: 'element',
+    Group: 'group',
+    Session: 'session',
+    Hogql: 'hogql',
+    DataWarehouse: 'data_warehouse',
+    DataWarehousePersonProperty: 'data_warehouse_person_property',
+    RevenueAnalytics: 'revenue_analytics',
+} as const
+
+export type MultipleBreakdownTypeApi = (typeof MultipleBreakdownTypeApi)[keyof typeof MultipleBreakdownTypeApi]
+
+export const MultipleBreakdownTypeApi = {
+    Person: 'person',
+    Event: 'event',
+    EventMetadata: 'event_metadata',
+    Element: 'element',
+    Group: 'group',
+    Session: 'session',
+    Hogql: 'hogql',
+    Cohort: 'cohort',
+    RevenueAnalytics: 'revenue_analytics',
+    DataWarehouse: 'data_warehouse',
+    DataWarehousePersonProperty: 'data_warehouse_person_property',
+} as const
+
+export interface BreakdownApi {
+    group_type_index?: number | null
+    histogram_bin_count?: number | null
+    normalize_url?: boolean | null
+    property: string | number
+    type?: MultipleBreakdownTypeApi | null
+}
+
+export interface BreakdownFilterApi {
+    breakdown?: string | (string | number)[] | number | null
+    breakdown_group_type_index?: number | null
+    breakdown_hide_other_aggregation?: boolean | null
+    breakdown_histogram_bin_count?: number | null
+    breakdown_limit?: number | null
+    breakdown_normalize_url?: boolean | null
+    breakdown_path_cleaning?: boolean | null
+    breakdown_type?: BreakdownTypeApi | null
+    breakdowns?: BreakdownApi[] | null
+}
+
+/**
+ * * `second` - second
+ * * `minute` - minute
+ * * `hour` - hour
+ * * `day` - day
+ * * `week` - week
+ * * `month` - month
+ * * `quarter` - quarter
+ * * `year` - year
+ */
+export type IntervalTypeEnumApi = (typeof IntervalTypeEnumApi)[keyof typeof IntervalTypeEnumApi]
+
+export const IntervalTypeEnumApi = {
+    Second: 'second',
+    Minute: 'minute',
+    Hour: 'hour',
+    Day: 'day',
+    Week: 'week',
+    Month: 'month',
+    Quarter: 'quarter',
+    Year: 'year',
+} as const
+
+export interface CompareFilterApi {
+    /** Whether to compare the current date range to a previous date range. */
+    compare?: boolean | null
+    /** The date range to compare to. The value is a relative date. Examples of relative dates are: `-1y` for 1 year ago, `-14m` for 14 months ago, `-100w` for 100 weeks ago, `-14d` for 14 days ago, `-30h` for 30 hours ago. */
+    compare_to?: string | null
+}
+
 /**
  * OpenAPI-only shape for a dashboard's filters object (agents/MCP).
  *
@@ -607,6 +689,26 @@ export interface DashboardFiltersOpenApiApi {
     date_to?: string | null
     /** Dashboard-level property filters applied to every tile (PostHog property filter group). */
     properties?: unknown
+    /** Dashboard-level breakdown applied to every tile that supports one, replacing the tile's own breakdown. Example: {"breakdown_type": "event", "breakdown": "$browser"}. Null clears it. */
+    breakdown_filter?: BreakdownFilterApi | null
+    /** Time granularity forced onto every tile that supports one. Null means each tile keeps its own.
+     *
+     * * `second` - second
+     * * `minute` - minute
+     * * `hour` - hour
+     * * `day` - day
+     * * `week` - week
+     * * `month` - month
+     * * `quarter` - quarter
+     * * `year` - year */
+    interval?: IntervalTypeEnumApi | null
+    /** Period comparison forced onto every tile that supports one. Null means each tile keeps its own. */
+    compareFilter?: CompareFilterApi | null
+    /**
+     * True forces test accounts out of every tile, false forces them in, null keeps each tile's setting.
+     * @nullable
+     */
+    filterTestAccounts?: boolean | null
 }
 
 export interface _DashboardPatchTileLayoutBoxOpenApiApi {
@@ -1319,7 +1421,7 @@ export interface PatchedPatchedDashboardOpenApiApi {
     name?: string | null
     description?: string
     pinned?: boolean
-    /** Dashboard-level filters (date range and properties) applied across all tiles as the source of truth. */
+    /** Dashboard-level filters (date range, properties, breakdown, interval, comparison) applied across all tiles as the source of truth. */
     filters?: DashboardFiltersOpenApiApi
     /**
      * Colors pinned to specific breakdown values across the dashboard's tiles. A list of entries, not an object keyed by breakdown value. Send an empty list to clear them.
@@ -1450,68 +1552,9 @@ export const InsightVizNodeApiKind = {
     InsightVizNode: 'InsightVizNode',
 } as const
 
-export type BreakdownTypeApi = (typeof BreakdownTypeApi)[keyof typeof BreakdownTypeApi]
-
-export const BreakdownTypeApi = {
-    Cohort: 'cohort',
-    Person: 'person',
-    Event: 'event',
-    EventMetadata: 'event_metadata',
-    Element: 'element',
-    Group: 'group',
-    Session: 'session',
-    Hogql: 'hogql',
-    DataWarehouse: 'data_warehouse',
-    DataWarehousePersonProperty: 'data_warehouse_person_property',
-    RevenueAnalytics: 'revenue_analytics',
-} as const
-
-export type MultipleBreakdownTypeApi = (typeof MultipleBreakdownTypeApi)[keyof typeof MultipleBreakdownTypeApi]
-
-export const MultipleBreakdownTypeApi = {
-    Person: 'person',
-    Event: 'event',
-    EventMetadata: 'event_metadata',
-    Element: 'element',
-    Group: 'group',
-    Session: 'session',
-    Hogql: 'hogql',
-    Cohort: 'cohort',
-    RevenueAnalytics: 'revenue_analytics',
-    DataWarehouse: 'data_warehouse',
-    DataWarehousePersonProperty: 'data_warehouse_person_property',
-} as const
-
-export interface BreakdownApi {
-    group_type_index?: number | null
-    histogram_bin_count?: number | null
-    normalize_url?: boolean | null
-    property: string | number
-    type?: MultipleBreakdownTypeApi | null
-}
-
-export interface BreakdownFilterApi {
-    breakdown?: string | (string | number)[] | number | null
-    breakdown_group_type_index?: number | null
-    breakdown_hide_other_aggregation?: boolean | null
-    breakdown_histogram_bin_count?: number | null
-    breakdown_limit?: number | null
-    breakdown_normalize_url?: boolean | null
-    breakdown_path_cleaning?: boolean | null
-    breakdown_type?: BreakdownTypeApi | null
-    breakdowns?: BreakdownApi[] | null
-}
-
 export interface CalendarHeatmapFilterApi {
     /** When true and the series math is `dau`/`unique_users`, each user contributes to the (day-of-week, hour) bucket of their session's first event only — matching the web overview session-start attribution. When false (default), the user contributes to every bucket they have any event in. No effect on `total` math (event counts are unchanged either way). */
     bucketBySessionStart?: boolean | null
-}
-
-export interface CompareFilterApi {
-    /** Whether to compare the current date range to a previous date range. */
-    compare?: boolean | null
-    /** The date range to compare to. The value is a relative date. Examples of relative dates are: `-1y` for 1 year ago, `-14m` for 14 months ago, `-100w` for 100 weeks ago, `-14d` for 14 days ago, `-30h` for 30 hours ago. */
-    compare_to?: string | null
 }
 
 export interface EventPropertyFilterApi {

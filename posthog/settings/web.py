@@ -651,6 +651,9 @@ SPECTACULAR_SETTINGS = {
             # Matches the shared alerts skeleton's PlatformAlert.State.
             "BillingAlertConfigurationStateEnum": "products.billing_alerts.backend.models.BillingAlertConfiguration.State",
             "LogsPatternsSourceEnum": ["stored_patterns", "body_mining"],
+            # Dashboard filters and data catalog metric runs both take the query schema's IntervalType,
+            # a plain enum no class can carry.
+            "IntervalTypeEnum": ["second", "minute", "hour", "day", "week", "month", "quarter", "year"],
             # The anomaly and explain bodies keep this name; the metrics query clause's own
             # aggregation adds 'none' and is named by its MetricQueryAggregation class.
             "AggregationEnum": ["sum", "avg", "count", "min", "max", "p95", "rate", "increase", "histogram_quantile"],

@@ -1,10 +1,21 @@
 from drf_spectacular.generators import SchemaGenerator
 from rest_framework import serializers
 
+from posthog.schema import DashboardFilter
+
 from products.dashboards.backend.api.test.dashboard_openapi_test_helpers import (
     dashboard_patch_runtime_openapi_field_names,
 )
 from products.dashboards.backend.widget_specs.openapi import PatchedDashboardOpenApiSerializer
+
+# DashboardFilter keys that agents do not set through the dashboard-update MCP tool.
+DASHBOARD_FILTERS_OPENAPI_EXCLUDED_FIELDS: frozenset[str] = frozenset(
+    {
+        "explicitDate",  # date picker display flag, not a filter
+        "metricFilters",  # metrics tiles only
+        "metricVariables",  # metrics tiles only
+    }
+)
 
 
 def _patched_dashboard_openapi_component_properties(schema: dict) -> frozenset[str]:
@@ -100,6 +111,9 @@ class TestDashboardPatchOpenApiContract:
         filters_field = openapi_fields["filters"]
         assert isinstance(filters_field, serializers.Serializer)
         filters_fields = frozenset(filters_field.fields.keys())
-        assert {"date_from", "date_to", "properties"}.issubset(filters_fields), (
-            f"Dashboard filters schema must expose date_from/date_to/properties. Got: {sorted(filters_fields)}."
+        missing = frozenset(DashboardFilter.model_fields) - DASHBOARD_FILTERS_OPENAPI_EXCLUDED_FIELDS - filters_fields
+        assert not missing, (
+            "The MCP schema strips filter keys it does not declare, so an undocumented DashboardFilter key is "
+            f"silently dropped. Missing: {sorted(missing)}. Add it to DashboardFiltersOpenApiSerializer or to "
+            "DASHBOARD_FILTERS_OPENAPI_EXCLUDED_FIELDS with a reason."
         )

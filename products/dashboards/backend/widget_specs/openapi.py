@@ -8,6 +8,8 @@ from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_fiel
 from pydantic import BaseModel
 from rest_framework import serializers
 
+from posthog.schema import BreakdownFilter, CompareFilter, IntervalType
+
 from products.dashboards.backend.constants import (
     DASHBOARD_GRID_COLUMN_COUNT,
     MAX_GROUP_KEY_LENGTH,
@@ -378,6 +380,16 @@ class DashboardPatchTileOpenApiSerializer(serializers.Serializer):
     widget = DashboardPatchWidgetOpenApiSerializer(required=False, help_text="Nested widget row updates.")
 
 
+@extend_schema_field(BreakdownFilter)  # type: ignore[arg-type]
+class DashboardBreakdownFilterField(serializers.JSONField):
+    pass
+
+
+@extend_schema_field(CompareFilter)  # type: ignore[arg-type]
+class DashboardCompareFilterField(serializers.JSONField):
+    pass
+
+
 class DashboardFiltersOpenApiSerializer(serializers.Serializer):
     """OpenAPI-only shape for a dashboard's filters object (agents/MCP).
 
@@ -399,6 +411,30 @@ class DashboardFiltersOpenApiSerializer(serializers.Serializer):
     properties = serializers.JSONField(
         required=False,
         help_text="Dashboard-level property filters applied to every tile (PostHog property filter group).",
+    )
+    breakdown_filter = DashboardBreakdownFilterField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Dashboard-level breakdown applied to every tile that supports one, replacing the tile's own breakdown. "
+            'Example: {"breakdown_type": "event", "breakdown": "$browser"}. Null clears it.'
+        ),
+    )
+    interval = serializers.ChoiceField(
+        choices=[interval.value for interval in IntervalType],
+        required=False,
+        allow_null=True,
+        help_text="Time granularity forced onto every tile that supports one. Null means each tile keeps its own.",
+    )
+    compareFilter = DashboardCompareFilterField(
+        required=False,
+        allow_null=True,
+        help_text="Period comparison forced onto every tile that supports one. Null means each tile keeps its own.",
+    )
+    filterTestAccounts = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        help_text="True forces test accounts out of every tile, false forces them in, null keeps each tile's setting.",
     )
 
 
@@ -463,7 +499,7 @@ class PatchedDashboardOpenApiSerializer(serializers.Serializer):
     pinned = serializers.BooleanField(required=False)
     filters = DashboardFiltersOpenApiSerializer(
         required=False,
-        help_text="Dashboard-level filters (date range and properties) applied across all tiles as the source of truth.",
+        help_text="Dashboard-level filters (date range, properties, breakdown, interval, comparison) applied across all tiles as the source of truth.",
     )
     breakdown_colors = serializers.ListField(
         child=BreakdownColorConfigSerializer(),

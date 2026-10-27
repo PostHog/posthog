@@ -29323,6 +29323,30 @@ export namespace Schemas {
     }
 
     /**
+     * * `second` - second
+     * * `minute` - minute
+     * * `hour` - hour
+     * * `day` - day
+     * * `week` - week
+     * * `month` - month
+     * * `quarter` - quarter
+     * * `year` - year
+     */
+    export type IntervalTypeEnum = typeof IntervalTypeEnum[keyof typeof IntervalTypeEnum];
+
+
+    export const IntervalTypeEnum = {
+      Second: 'second',
+      Minute: 'minute',
+      Hour: 'hour',
+      Day: 'day',
+      Week: 'week',
+      Month: 'month',
+      Quarter: 'quarter',
+      Year: 'year',
+    } as const;
+
+    /**
      * OpenAPI-only shape for a dashboard's filters object (agents/MCP).
      *
      * Documents the dashboard-level filters that act as the single source of truth for the
@@ -29342,6 +29366,26 @@ export namespace Schemas {
       date_to?: string | null;
       /** Dashboard-level property filters applied to every tile (PostHog property filter group). */
       properties?: unknown;
+      /** Dashboard-level breakdown applied to every tile that supports one, replacing the tile's own breakdown. Example: {"breakdown_type": "event", "breakdown": "$browser"}. Null clears it. */
+      breakdown_filter?: BreakdownFilter | null;
+      /** Time granularity forced onto every tile that supports one. Null means each tile keeps its own.
+       *
+       * * `second` - second
+       * * `minute` - minute
+       * * `hour` - hour
+       * * `day` - day
+       * * `week` - week
+       * * `month` - month
+       * * `quarter` - quarter
+       * * `year` - year */
+      interval?: IntervalTypeEnum | null;
+      /** Period comparison forced onto every tile that supports one. Null means each tile keeps its own. */
+      compareFilter?: CompareFilter | null;
+      /**
+         * True forces test accounts out of every tile, false forces them in, null keeps each tile's setting.
+         * @nullable
+         */
+      filterTestAccounts?: boolean | null;
     }
 
     /**
@@ -30138,30 +30182,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `second` - second
-     * * `minute` - minute
-     * * `hour` - hour
-     * * `day` - day
-     * * `week` - week
-     * * `month` - month
-     * * `quarter` - quarter
-     * * `year` - year
-     */
-    export type DataCatalogMetricRunRequestIntervalEnum = typeof DataCatalogMetricRunRequestIntervalEnum[keyof typeof DataCatalogMetricRunRequestIntervalEnum];
-
-
-    export const DataCatalogMetricRunRequestIntervalEnum = {
-      Second: 'second',
-      Minute: 'minute',
-      Hour: 'hour',
-      Day: 'day',
-      Week: 'week',
-      Month: 'month',
-      Quarter: 'quarter',
-      Year: 'year',
-    } as const;
-
-    /**
      * Optional run-time overrides. The whole body may be omitted; a metric runs by its URL name.
      */
     export interface DataCatalogMetricRunRequest {
@@ -30179,7 +30199,7 @@ export namespace Schemas {
        * * `month` - month
        * * `quarter` - quarter
        * * `year` - year */
-      interval?: DataCatalogMetricRunRequestIntervalEnum;
+      interval?: IntervalTypeEnum;
       /** Client-supplied id to correlate or cancel the run. */
       query_id?: string;
     }
@@ -88886,7 +88906,7 @@ export namespace Schemas {
       name?: string | null;
       description?: string;
       pinned?: boolean;
-      /** Dashboard-level filters (date range and properties) applied across all tiles as the source of truth. */
+      /** Dashboard-level filters (date range, properties, breakdown, interval, comparison) applied across all tiles as the source of truth. */
       filters?: DashboardFiltersOpenApi;
       /**
          * Colors pinned to specific breakdown values across the dashboard's tiles. A list of entries, not an object keyed by breakdown value. Send an empty list to clear them.
