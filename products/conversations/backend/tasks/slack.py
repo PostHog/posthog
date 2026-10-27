@@ -946,13 +946,24 @@ def _deliver_slack_body(claim: DeliveryClaim, runtime: SlackDeliveryRuntime) -> 
             error="The Slack channel is not approved for automated updates",
         )
         return
-    if runtime.payload.get("internal_channel_only") is True and not _is_internal_channel(runtime.client, channel):
-        _fail_claimed_delivery_part(
-            claim,
-            error_code="channel_not_internal",
-            error="The Slack channel is not confirmed as internal",
-        )
-        return
+    if runtime.payload.get("internal_channel_only") is True:
+        try:
+            is_internal = _is_internal_channel(runtime.client, channel, raise_on_error=True)
+        except Exception as exc:
+            _retry_delivery_claim(
+                claim,
+                error_code="channel_lookup_failed",
+                error="Could not check whether the Slack channel is internal",
+                retry_after_seconds=_retry_after_seconds(exc),
+            )
+            return
+        if not is_internal:
+            _fail_claimed_delivery_part(
+                claim,
+                error_code="channel_not_internal",
+                error="The Slack channel is not confirmed as internal",
+            )
+            return
     ts = _post_slack_body(
         client=runtime.client,
         team=runtime.team,
