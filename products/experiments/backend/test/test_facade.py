@@ -23,8 +23,12 @@ from posthog.models.user import User
 from posthog.test.persons import create_person
 
 from products.experiments.backend.facade import api, count_running_experiments_on_feature_flag_called, create_experiment
-from products.experiments.backend.facade.contracts import CreateExperimentInput, EndedExperiment
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.facade.contracts import (
+    CreateExperimentInput,
+    EndedExperiment,
+    ExperimentValidationError,
+)
+from products.experiments.backend.models.experiment import Experiment, ExperimentHoldout
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
@@ -153,6 +157,18 @@ class TestCreateExperiment(APIBaseTest):
 
         assert result.name == "Comprehensive Test"
         assert result.description == "Full feature test"
+
+    def test_create_experiment_refuses_a_holdout_of_another_team(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        holdout = ExperimentHoldout.objects.create(team=other_team, created_by=self.user, name="Other team holdout")
+        input_dto = CreateExperimentInput(name="Test Experiment", feature_flag_key="test-flag-9", holdout_id=holdout.id)
+
+        with self.assertRaisesMessage(
+            ExperimentValidationError, f"Holdout with id {holdout.id} does not exist for this team"
+        ):
+            create_experiment(team=self.team, user=self.user, input_dto=input_dto)
+
+        assert not Experiment.objects.filter(team=self.team, name="Test Experiment").exists()
 
 
 class TestCountRunningExperimentsOnFeatureFlagCalled(BaseTest):

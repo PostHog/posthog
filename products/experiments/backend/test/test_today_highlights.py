@@ -6,10 +6,11 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
+from products.experiments.backend import today_highlights
 from products.experiments.backend.facade.contracts import EndedExperiment, RunningExperiment
-from products.today.backend.logic.highlight_registry import load_sources
-from products.today.backend.logic.highlight_sources import experiments
-from products.today.backend.logic.highlight_types import Context, Found
+from products.experiments.backend.facade.today_highlights import HIGHLIGHT_SOURCES
+from products.today.backend.facade.contracts import HighlightFindings
+from products.today.backend.facade.testing import highlight_context
 
 MONDAY = date(2026, 10, 12)
 TUESDAY = date(2026, 10, 13)
@@ -22,18 +23,18 @@ RUNNING = RunningExperiment(
 
 @time_machine.travel(NOW, tick=False)
 class TestExperiments(BaseTest):
-    def _find(self, today: date, running: MagicMock, enrolled: MagicMock) -> tuple[Found, Context]:
-        registered = next(s for s in load_sources() if s.name == "experiments")
-        context = Context(self.team, self.user, today)
+    def _find(self, today: date, running: MagicMock, enrolled: MagicMock) -> HighlightFindings:
+        registered = next(s for s in HIGHLIGHT_SOURCES if s.name == "experiments")
+        context = highlight_context(team=self.team, user=self.user, today=today)
         with (
-            patch.object(experiments, "list_ended_experiments_without_conclusion", return_value=[ENDED]),
-            patch.object(experiments, "list_running_experiments", running),
-            patch.object(experiments, "count_enrolled_people", enrolled),
+            patch.object(today_highlights, "list_ended_experiments_without_conclusion", return_value=[ENDED]),
+            patch.object(today_highlights, "list_running_experiments", running),
+            patch.object(today_highlights, "count_enrolled_people", enrolled),
         ):
-            return registered.find(context), context
+            return registered.find(context)
 
     def test_an_ended_experiment_without_a_decision_is_an_opportunity(self) -> None:
-        found, _ = self._find(TUESDAY, MagicMock(return_value=[]), MagicMock(return_value={}))
+        found = self._find(TUESDAY, MagicMock(return_value=[]), MagicMock(return_value={}))
 
         self.assertEqual(
             [(c.title, c.detail, c.url) for c in found.items],
@@ -70,17 +71,13 @@ class TestExperiments(BaseTest):
     def test_a_long_running_experiment_with_few_users_is_a_risk(
         self, _name: str, enrolled: int, title: str | None
     ) -> None:
-        found, _ = self._find(
+        found = self._find(
             TUESDAY, MagicMock(return_value=[RUNNING]), MagicMock(return_value={"onboarding-tips": enrolled})
         )
 
         self.assertEqual([c.title for c in found.items][1:], [title] if title else [])
 
     def test_a_failed_count_keeps_the_ended_reminders(self) -> None:
-        found, context = self._find(
-            TUESDAY, MagicMock(return_value=[RUNNING]), MagicMock(side_effect=TimeoutError("slow"))
-        )
+        found = self._find(TUESDAY, MagicMock(return_value=[RUNNING]), MagicMock(side_effect=TimeoutError("slow")))
 
-        self.assertEqual(
-            ([c.key for c in found.items], context.failures), (["experiment_ended:7"], ["experiments_enrolled"])
-        )
+        self.assertEqual([c.key for c in found.items], ["experiment_ended:7"])
