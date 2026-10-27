@@ -78,14 +78,24 @@ describe('addUtmTagsToEmail', () => {
             expected: `<a href="https://example.com/pricing?${QUERY}">x</a>`,
         },
         {
+            case: 'an unquoted href with a query',
+            html: '<a href=https://example.com/pricing?plan=pro>x</a>',
+            expected: `<a href="https://example.com/pricing?plan=pro&amp;${QUERY}">x</a>`,
+        },
+        {
             case: 'an href with a trailing space',
             html: '<a href="https://example.com/pricing ">x</a>',
             expected: `<a href="https://example.com/pricing?${QUERY}">x</a>`,
         },
         {
-            case: 'an opted out link after text that grows when lowercased',
-            html: '<p>İstanbul, İzmir, İzmit</p><a data-ph-no-utm href="https://example.com/pricing">x</a>',
-            expected: '<p>İstanbul, İzmir, İzmit</p><a data-ph-no-utm href="https://example.com/pricing">x</a>',
+            case: 'an href ending in a non-breaking space, which is part of the URL',
+            html: '<a href="https://example.com/pricing&#160;">x</a>',
+            expected: `<a href="https://example.com/pricing\u00a0?${QUERY}">x</a>`,
+        },
+        {
+            case: 'links after text that grows when lowercased',
+            html: '<p>İstanbul, İzmir, İzmit</p><a data-ph-no-utm href="https://example.com/a">x</a><a href="https://example.com/b">y</a>',
+            expected: `<p>İstanbul, İzmir, İzmit</p><a data-ph-no-utm href="https://example.com/a">x</a><a href="https://example.com/b?${QUERY}">y</a>`,
         },
     ])('tags $case', ({ html, expected }) => {
         expect(addUtmTagsToEmail(html, TAGS, SITE_URL)).toEqual(expected)

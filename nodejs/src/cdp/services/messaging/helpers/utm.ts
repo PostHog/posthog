@@ -14,7 +14,7 @@ const UTM_KEYS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content'] as 
 
 // One attribute per match, so `href` and `data-ph-no-utm` count only as attribute names, never as text
 // inside another attribute's value or as part of a longer name like `data-href`.
-const ATTRIBUTE_REGEX = /\s([^\s"'<>/=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g
+const ATTRIBUTE_REGEX = /\s([^\s"'<>/=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+)))?/g
 
 /**
  * Renders each custom value as Liquid with the recipient's data. A value that fails to render is
@@ -65,14 +65,29 @@ const hostOf = (url: string): string | null => {
     }
 }
 
+// The URL parser drops leading and trailing C0 controls and spaces, and only those, so a tag appended
+// after them would land inside the path. Other whitespace, such as a non-breaking space, is part of the URL.
+const isStrippedByUrlParser = (char: string): boolean => char <= ' '
+
+const trimUrlWhitespace = (href: string): string => {
+    let start = 0
+    let end = href.length
+    while (start < end && isStrippedByUrlParser(href[start])) {
+        start++
+    }
+    while (end > start && isStrippedByUrlParser(href[end - 1])) {
+        end--
+    }
+    return href.slice(start, end)
+}
+
 /**
  * Appends each UTM tag the link does not already carry. Returns null when the link stays as is:
  * not an absolute http(s) URL, a link to PostHog itself (unsubscribe and preference pages), an
  * unrendered template tag, or a link that already has every tag.
  */
 export const addUtmTagsToUrl = (href: string, tags: UtmTags, siteHost: string | null): string | null => {
-    // Browsers drop the whitespace around an href, so a tag appended after it would land inside the path.
-    const url = href.trim()
+    const url = trimUrlWhitespace(href)
     if (url.includes('{{') || url.includes('{%')) {
         return null
     }
