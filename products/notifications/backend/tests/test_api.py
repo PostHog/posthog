@@ -386,6 +386,7 @@ class TestNotificationsAPI(BaseTest):
             ("unknown_target", "target_type=everyone"),
             ("unknown_priority", "priority=urgent"),
             ("bad_cursor", "before=yesterday"),
+            ("empty_type_list", "notification_type=,"),
         ]
     )
     def test_list_rejects_unknown_filter_values(self, _name: str, query: str) -> None:
@@ -713,6 +714,7 @@ class TestNotificationsAPI(BaseTest):
             for index in range(25)
         ]
         other = self._create_notification("Other export", resource_type="batch_export", resource_id="be-2")
+        NotificationReadState.objects.create(notification_event=group[0], user=self.user)
         base = f"/api/environments/{self.team.id}/notifications"
 
         resp = self.client.post(
@@ -721,6 +723,7 @@ class TestNotificationsAPI(BaseTest):
 
         assert resp.json()["updated"] == 25
         assert set(resp.json()["notification_ids"]) == {str(event.id) for event in group}
+        assert set(resp.json()["unread_notification_ids"]) == {str(event.id) for event in group[1:]}
         assert not NotificationArchiveState.objects.filter(notification_event=other).exists()
 
         undo = self.client.post(

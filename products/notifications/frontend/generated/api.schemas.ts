@@ -123,6 +123,8 @@ export interface ArchiveAllResponseApi {
     updated: number
     /** IDs of the notifications this call archived, for an undo. */
     notification_ids: string[]
+    /** The archived notifications that were unread, so an undo can mark them unread again. */
+    unread_notification_ids: string[]
 }
 
 export interface BulkNotificationIdsRequestApi {

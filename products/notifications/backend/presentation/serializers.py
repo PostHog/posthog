@@ -58,6 +58,8 @@ class NotificationEventSerializer(serializers.Serializer):
 
 def _parse_enum_list(raw: str, enum: type[Enum], field: str) -> list[str]:
     values = [value.strip() for value in raw.split(LIST_SEPARATOR) if value.strip()]
+    if not values:
+        raise serializers.ValidationError(f"Give at least one {field}")
     allowed = {member.value for member in enum}
     unknown = sorted(set(values) - allowed)
     if unknown:
@@ -163,6 +165,10 @@ class UpdatedCountSerializer(serializers.Serializer):
 class ArchiveAllResponseSerializer(UpdatedCountSerializer):
     notification_ids = serializers.ListField(
         child=serializers.UUIDField(), help_text="IDs of the notifications this call archived, for an undo."
+    )
+    unread_notification_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        help_text="The archived notifications that were unread, so an undo can mark them unread again.",
     )
 
 
