@@ -127,8 +127,10 @@ export interface inboxTriageLogicActions {
     } // reportListLogic
     unassignMe: (
         reportId: string,
-        surface: import('../inboxAnalytics').InboxReportActionSurface
+        surface: import('../inboxAnalytics').InboxReportActionSurface,
+        reason?: import('../../generated/api.schemas').ReviewerRemovalReasonEnumApi | undefined
     ) => {
+        reason: import('../../generated/api.schemas').ReviewerRemovalReasonEnumApi | undefined
         reportId: string
         surface: import('../inboxAnalytics').InboxReportActionSurface
     } // reportListLogic

@@ -6,6 +6,7 @@ import { LemonButton, LemonMenu, LemonMenuItem } from '@posthog/lemon-ui'
 import { userLogic } from 'scenes/userLogic'
 
 import { EnrichedReviewer, ReviewerRemoval } from '../../types'
+import { reviewerRemovalReasonOptions } from '../../utils/reviewerRemovalReasons'
 
 /**
  * Makes a reviewer's name the trigger for the actions on that reviewer, so the row shows no buttons
@@ -42,14 +43,7 @@ export function ReviewerRowMenu({
             items={[
                 {
                     title,
-                    items: [
-                        reason('Someone else is on it', 'already_covered'),
-                        reason(isSelf ? 'Not my area' : 'Not their area', 'wrong_area'),
-                        reason(
-                            isSelf ? "I don't have bandwidth right now" : "They don't have bandwidth right now",
-                            'unavailable'
-                        ),
-                    ],
+                    items: reviewerRemovalReasonOptions(isSelf).map((option) => reason(option.label, option.value)),
                 },
                 { items: [{ label: 'Without a reason', disabledReason, onClick: () => onRemove() }] },
             ]}

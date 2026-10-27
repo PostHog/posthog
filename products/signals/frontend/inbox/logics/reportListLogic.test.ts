@@ -523,4 +523,59 @@ describe('reportListLogic', () => {
             expect(requestedIds).toEqual([['stale']])
         })
     })
+    describe('unassignMe', () => {
+        let requests: { method: string; body: unknown }[]
+        let logic: ReturnType<typeof reportListLogic.build>
+
+        beforeEach(async () => {
+            requests = []
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/signals/reports/available_reviewers': {},
+                    [REPORTS_URL]: { count: 1, next: null, previous: null, results: [makeReport('r1')] },
+                },
+                put: {
+                    '/api/projects/:team_id/signals/reports/:id/reviewers/': async ({ request }) => {
+                        requests.push({ method: 'PUT', body: await request.json() })
+                        return [200, { id: 'artefact', type: 'suggested_reviewers', content: [] }]
+                    },
+                },
+                delete: {
+                    '/api/projects/:team_id/signals/reports/:id/reviewers/me/': () => {
+                        requests.push({ method: 'DELETE', body: null })
+                        return [204, null]
+                    },
+                },
+            })
+            initKeaTests()
+            logic = reportListLogic({
+                sectionKey: 'needs-decision',
+                listParams: INBOX_REPORT_SECTION_LIST_PARAMS['needs-decision'],
+            })
+            logic.mount()
+            logic.actions.ensureLoaded()
+            await expectLogic(logic).toFinishAllListeners()
+        })
+
+        afterEach(() => logic.unmount())
+
+        // A reason only reaches research through the reviewers edit, because the step-off endpoint takes no body.
+        test.each([
+            ['with a reason', 'wrong_area' as const, 'PUT'],
+            ['without a reason', undefined, 'DELETE'],
+        ])('%s', async (_case, reason, method) => {
+            logic.actions.unassignMe('r1', 'context_menu', reason)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(requests).toHaveLength(1)
+            expect(requests[0].method).toEqual(method)
+            if (reason) {
+                expect(requests[0].body).toMatchObject({
+                    action: 'remove',
+                    targets: [{ user_uuid: MOCK_USER_UUID }],
+                    removal_reason: reason,
+                })
+            }
+        })
+    })
 })
