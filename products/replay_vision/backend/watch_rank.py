@@ -113,7 +113,7 @@ class WatchRank:
     category: WatchCategory
     contrast: float
     # The closest anchor's similarity per category, so a viewer's choice of categories can be scored from the row.
-    scores: dict[str, float]
+    scores: dict[WatchCategory, float]
     anchor_version: int = ANCHOR_VERSION
 
     def to_json(self) -> dict[str, Any]:
