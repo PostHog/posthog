@@ -118,6 +118,7 @@ class ArcadeSource(ResumableSource[ArcadeSourceConfig, ArcadeResumeConfig]):
                     ),
                     SourceFieldInputConfig(
                         name="start_date",
+                        sync_setting=True,
                         label="Engagement start date",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,

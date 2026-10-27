@@ -132,12 +132,12 @@ export function StickinessBarChart({ context }: StickinessBarChartProps): JSX.El
                 yAxisScaleType,
                 isGrouped,
                 valueLabels: showValuesOnSeries ? { formatter: stickinessPercentFormatter } : false,
-                tooltip: { ...tooltipConfig, resolveClickToNearestSeries: context?.dashboardResultMenu },
+                tooltip: tooltipConfig,
             }),
             // Interactive legend is a component concern, kept out of the pure transform.
             legend: legendConfig,
         }),
-        [context?.dashboardResultMenu, yAxisScaleType, isGrouped, showValuesOnSeries, legendConfig, tooltipConfig]
+        [yAxisScaleType, isGrouped, showValuesOnSeries, legendConfig, tooltipConfig]
     )
 
     // Close over the primitives so the click memos don't invalidate when unrelated
@@ -223,6 +223,7 @@ export function StickinessBarChart({ context }: StickinessBarChartProps): JSX.El
             config={chartConfig}
             tooltip={renderTooltip}
             onPointClick={hasClickHandler ? onPointClick : undefined}
+            onPointContextMenu={context?.dashboardResultMenu && hasClickHandler ? onPointClick : undefined}
             className="BarGraph"
             dataAttr="stickiness-bar-graph"
             onError={handleChartError}
