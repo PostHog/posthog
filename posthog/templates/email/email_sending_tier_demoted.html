@@ -3,7 +3,7 @@
 {% block section %}
     <!-- prettier-ignore -->
     <p>
-        Recent workflow emails from project <b>{{ team }}</b> caused deliverability problems, such as spam complaints or bounced addresses. To protect your sending reputation, we lowered the project's sending limit to <b>{{ per_day }} emails per day</b> ({{ per_hour }} per hour).
+        {{ cause }} To protect your sending reputation, we lowered the sending limit for project <b>{{ team }}</b> to <b>{{ per_day }} emails per day</b> ({{ per_hour }} per hour).
     </p>
     <p>Your workflows keep running. Emails over the limit are delayed and sent when capacity frees up, not dropped.</p>
     <p><b>How to get the limit back up</b></p>

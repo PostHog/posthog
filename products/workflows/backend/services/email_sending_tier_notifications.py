@@ -2,7 +2,7 @@ from django.utils import timezone
 
 import structlog
 
-from posthog.tasks.email import send_email_sending_tier_demoted
+from posthog.tasks.email import DEFAULT_TIER_DEMOTION_CAUSE, send_email_sending_tier_demoted
 
 from products.notifications.backend.facade.api import (
     NotificationData,
@@ -44,8 +44,36 @@ def notify_email_sending_tier_changes(decisions: list[TierDecision]) -> None:
             logger.exception("workflows_email_tier_change_notification_failed", team_id=decision.team_id)
 
 
+def _plural(count: int, noun: str) -> str:
+    return f"{count:,} {noun}" if count == 1 else f"{count:,} {noun}s"
+
+
+def _demotion_cause(decision: TierDecision) -> str:
+    """One sentence that tells the team why its limit went down.
+
+    It names the team's own counts and nothing about the thresholds or the cooldown, so a sender
+    cannot use the notice to tune its sending to stay just under the line.
+    """
+    if decision.reason == "ses_reputation_high":
+        return "Our email provider flagged this project's sending reputation."
+    if decision.reason == "workflow_auto_paused":
+        return "A workflow in this project was paused automatically because of spam complaints or bounces."
+    evidence = decision.evidence
+    if evidence is None:
+        return DEFAULT_TIER_DEMOTION_CAUSE
+    since = f"{evidence.since:%B} {evidence.since.day}"
+    feedback = f"{_plural(evidence.complained, 'spam complaint')} and {_plural(evidence.hard_bounced, 'hard bounce')}"
+    # Complaints arrive hours or days after the send, so a window can hold complaints with no sends.
+    if evidence.sent == 0:
+        counts = f"Since {since}, this project got {feedback} about workflow emails it sent before then."
+    else:
+        counts = f"Since {since}, this project sent {_plural(evidence.sent, 'workflow email')} and got {feedback}."
+    return f"{counts} Some mailbox providers, such as Gmail, don't report spam complaints, so the real number can be higher."
+
+
 def _notify_demotion(decision: TierDecision) -> None:
     limits = get_email_sending_tier_limits(decision.new_tier)
+    cause = _demotion_cause(decision)
     # The email goes first and each channel gets its own guard: the email reaches the admins who
     # can act on the demotion, so an in-app publish failure must not take it down with it.
     try:
@@ -54,6 +82,7 @@ def _notify_demotion(decision: TierDecision) -> None:
             per_day=limits.per_day,
             per_hour=limits.per_hour,
             demoted_at=timezone.now().isoformat(),
+            cause=cause,
         )
     except Exception:
         logger.exception("workflows_email_tier_demotion_email_dispatch_failed", team_id=decision.team_id)
@@ -64,8 +93,7 @@ def _notify_demotion(decision: TierDecision) -> None:
             priority=Priority.NORMAL,
             title="Workflow email sending limit lowered",
             body=(
-                f"Recent sends caused deliverability problems, such as spam complaints or bounces, "
-                f"so this project's limit is now {limits.per_day:,} emails per day. "
+                f"{cause} This project's limit is now {limits.per_day:,} emails per day. "
                 f"Clean sending raises it again. Check the Reputation tab for details."
             ),
             target_type=TargetType.TEAM,

@@ -8,6 +8,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from products.workflows.backend.facade.contracts import TierDemotionEvidence
 from products.workflows.backend.management.commands.backfill_workflows_email_sending_tiers import (
     Command as BackfillCommand,
 )
@@ -208,15 +209,29 @@ class TestEmailSendingTierDecision(SimpleTestCase):
         self, _name: str, recent_complaints: int, older_complaints: int, expected_tier: int, expected_reason: str
     ) -> None:
         used = clean_days(5, TIER_DAILY_CAPS[2])
+        now = timezone.now()
         decision = decide_tier(
             history=history(sent=100_000, complained=recent_complaints + older_complaints, daily_sends=used),
             recent_history=history(sent=10_000, complained=recent_complaints),
             current_tier=2,
-            tier_updated_at=timezone.now() - timedelta(days=30),
+            tier_updated_at=now - timedelta(days=30),
             suspended=False,
+            now=now,
         )
         assert decision.new_tier == expected_tier
         assert decision.reason == expected_reason
+        # The notice must show the window the demotion read, not the longer promotion window.
+        expected_evidence = (
+            TierDemotionEvidence(
+                since=(now - timedelta(days=7)).date(),
+                sent=10_000,
+                complained=recent_complaints,
+                hard_bounced=0,
+            )
+            if expected_reason == "rates_above_threshold"
+            else None
+        )
+        assert decision.evidence == expected_evidence
 
     # AWS measures the complaint rate against FBL-domain sends only, while our rate divides by all
     # sends and reads lower. The tenant verdict must therefore override a clean internal history:

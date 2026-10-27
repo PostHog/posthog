@@ -11,7 +11,7 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.dataclasses import frozen
 
-from products.workflows.backend.facade.contracts import TierDecision
+from products.workflows.backend.facade.contracts import TierDecision, TierDemotionEvidence
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 from products.workflows.backend.utils.email_sending_tiers import (
     MIN_EMAIL_SENDING_TIER,
@@ -209,6 +209,12 @@ def decide_tier(
             previous_tier=current_tier,
             new_tier=max(MIN_EMAIL_SENDING_TIER, current_tier - 1),
             reason=demotion_reason,
+            evidence=TierDemotionEvidence(
+                since=(now - timedelta(days=settings.WORKFLOWS_EMAIL_TIER_DEMOTION_WINDOW_DAYS)).date(),
+                sent=recent.sent,
+                complained=recent.complained,
+                hard_bounced=recent.hard_bounced,
+            ),
         )
 
     decay_days = settings.WORKFLOWS_EMAIL_TIER_INACTIVITY_DECAY_DAYS
