@@ -183,6 +183,8 @@ from products.tasks.backend.models import (
     TaskThreadMessage,
     TaskThreadMessageMention,
     TaskWorkflowDispatch,
+    execute_after_commit,
+    log_run_started_beside_live_run,
 )
 from products.tasks.backend.pr_urls import (
     canonical_github_pull_request_url,
@@ -6959,12 +6961,16 @@ def resume_task_run_in_cloud(
                     ),
                 }
 
+        live_run_ids = task.live_cloud_run_ids()
         prior_status = run.status
         prior_environment = run.environment
         prior_completed_at = run.completed_at
         prior_queued_at = run.queued_at
         prior_state = dict(run.state or {})
         run.prepare_for_cloud_resume()
+        if live_run_ids:
+            resumed_run = run
+            execute_after_commit(lambda: log_run_started_beside_live_run(resumed_run, live_run_ids))
 
         if restart_dispatch_enabled:
             snapshot = RestartSnapshot(

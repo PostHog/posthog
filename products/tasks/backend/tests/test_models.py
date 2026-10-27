@@ -2,7 +2,7 @@ import json
 import uuid
 from contextlib import nullcontext
 from datetime import UTC, datetime, timedelta
-from typing import ClassVar
+from typing import Any, ClassVar
 
 from unittest.mock import AsyncMock, patch
 
@@ -1119,6 +1119,61 @@ class TestTaskRun(TestCase):
         self.assertEqual(call_args.args[1]["type"], "task_run_state")
         self.assertEqual(call_args.args[1]["status"], TaskRun.Status.QUEUED)
         self.assertEqual(call_args.args[1]["branch"], "main")
+
+    @parameterized.expand(
+        [
+            ("no_runs", [], "cloud", False),
+            (
+                "terminal_cloud_runs",
+                [
+                    (TaskRun.Status.COMPLETED, TaskRun.Environment.CLOUD, {}),
+                    (TaskRun.Status.FAILED, TaskRun.Environment.CLOUD, {}),
+                    (TaskRun.Status.CANCELLED, TaskRun.Environment.CLOUD, {}),
+                ],
+                "cloud",
+                False,
+            ),
+            ("queued_cloud_run", [(TaskRun.Status.QUEUED, TaskRun.Environment.CLOUD, {})], "cloud", True),
+            ("in_progress_cloud_run", [(TaskRun.Status.IN_PROGRESS, TaskRun.Environment.CLOUD, {})], "cloud", True),
+            (
+                "idle_warm_run",
+                [(TaskRun.Status.IN_PROGRESS, TaskRun.Environment.CLOUD, {"await_user_message": True})],
+                "cloud",
+                False,
+            ),
+            (
+                "cancelling_run",
+                [(TaskRun.Status.IN_PROGRESS, TaskRun.Environment.CLOUD, {"cancel_requested_at": "2026-01-01"})],
+                "cloud",
+                False,
+            ),
+            ("scheduled_cloud_run", [(TaskRun.Status.NOT_STARTED, TaskRun.Environment.CLOUD, {})], "cloud", False),
+            ("queued_local_run", [(TaskRun.Status.QUEUED, TaskRun.Environment.LOCAL, {})], "cloud", False),
+            ("new_local_run", [(TaskRun.Status.IN_PROGRESS, TaskRun.Environment.CLOUD, {})], "local", False),
+            ("new_scheduled_run", [(TaskRun.Status.IN_PROGRESS, TaskRun.Environment.CLOUD, {})], "scheduled", False),
+        ]
+    )
+    def test_create_run_logs_a_run_started_beside_a_live_cloud_run(
+        self, _name: str, existing_runs: list[tuple[str, str, dict]], new_run: str, flagged: bool
+    ) -> None:
+        existing = [
+            TaskRun.objects.create(task=self.task, team=self.team, status=status, environment=environment, state=state)
+            for status, environment, state in existing_runs
+        ]
+        create_kwargs: dict[str, dict[str, Any]] = {
+            "cloud": {},
+            "local": {"environment": TaskRun.Environment.LOCAL},
+            "scheduled": {"scheduled_at": django_timezone.now() + timedelta(days=1)},
+        }
+
+        with patch("products.tasks.backend.models.log_run_started_beside_live_run") as log_started:
+            run = self.task.create_run(**create_kwargs[new_run])
+
+        self.assertEqual(TaskRun.objects.filter(task=self.task).count(), len(existing_runs) + 1)
+        if flagged:
+            log_started.assert_called_once_with(run, [existing[0].id])
+        else:
+            log_started.assert_not_called()
 
     def test_create_run_does_not_inject_permission_mode_by_default(self):
         run = self.task.create_run(mode="interactive")
