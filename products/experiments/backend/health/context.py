@@ -24,7 +24,7 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFlagChangeKind,
     ExperimentHealthMetricCompileErrorKind,
 )
-from products.experiments.backend.health.delays import LAST_CALLED_AT_LAG_DURATION
+from products.experiments.backend.health.delays import ENDED_FLAG_QUIET_PERIOD, LAST_CALLED_AT_LAG_DURATION
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     DEFAULT_EXPOSURE_EVENT,
     EXPERIMENT_EXPOSURE_EVENT,
@@ -178,6 +178,8 @@ class ConditionSetTraffic:
 
     # The latest of launch, the flag's last save and the start of the window.
     since: datetime
+    # The end of the window, which is the time of the scan.
+    until: datetime
     team_timezone: str
     # People by the condition set that served their latest call of the flag's current version.
     people_by_set: Mapping[int, int]
@@ -319,10 +321,10 @@ class HealthContext:
     # answer this. None before launch, when the experiment has no flag, when the flag's latest call came after the
     # end, or when PostHog can't record the calls of this organization's flags.
     flag_called_during_run: bool | None
-    # Whether the flag's latest recorded call came after the end. False also for a flag without a recorded call. None
-    # before the end, when the experiment has no flag, while a call after the end can still be missing from
-    # `last_called_at` (LAST_CALLED_AT_LAG_DURATION), or when PostHog can't record the calls of this organization's
-    # flags.
+    # Whether the flag's latest recorded call came after the end. False only when no call is recorded in the
+    # ENDED_FLAG_QUIET_PERIOD after the end, also for a flag without a recorded call. None before the end, when the
+    # experiment has no flag, before that period is over, or when PostHog can't record the calls of this
+    # organization's flags.
     flag_called_after_end: bool | None
     # Whether the team has an active flag, which posthog-js needs to request flags on page load. None when not read:
     # it is read only for a draft whose flag has no recorded call.
@@ -481,7 +483,7 @@ def _flag_called_after_end(experiment: Experiment) -> bool | None:
     last_called_at = experiment.feature_flag.last_called_at
     if last_called_at is not None and last_called_at > end_date:
         return True
-    if timezone.now() - end_date < LAST_CALLED_AT_LAG_DURATION:
+    if timezone.now() - end_date < ENDED_FLAG_QUIET_PERIOD + LAST_CALLED_AT_LAG_DURATION:
         return None
     return None if _flag_calls_unrecorded(experiment) else False
 

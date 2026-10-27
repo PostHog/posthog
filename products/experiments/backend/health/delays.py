@@ -10,3 +10,8 @@ ZERO_EXPOSURES_GRACE_HOURS = 24
 # keep them equal: the findings say the text, and the context waits the duration.
 LAST_CALLED_AT_LAG = "an hour"
 LAST_CALLED_AT_LAG_DURATION = timedelta(hours=1)
+
+# An ended experiment's flag counts as unread only after this long without a recorded call after the end. Many
+# products get no traffic at night or over a weekend, so a shorter wait reads a quiet weekend as a flag that nothing
+# reads.
+ENDED_FLAG_QUIET_PERIOD = timedelta(days=3)

@@ -1,5 +1,5 @@
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from unittest import TestCase
@@ -53,9 +53,11 @@ SHIPPED_TO_SOME = {
 }
 
 
-def _traffic(people_assigned_outside: int) -> ConditionSetTraffic:
+def _traffic(people_assigned_outside: int, *, window: timedelta = timedelta(days=7)) -> ConditionSetTraffic:
+    since = datetime(2026, 10, 12, 13, 4, tzinfo=UTC)
     return ConditionSetTraffic(
-        since=datetime(2026, 10, 12, 13, 4, tzinfo=UTC),
+        since=since,
+        until=since + window,
         team_timezone="Europe/Berlin",
         people_by_set={},
         calls=3 * people_assigned_outside,
@@ -283,8 +285,8 @@ class TestFlagState(TestCase):
                 ),
             ),
             (
-                "ended_flag_calls_after_the_end_unknown",
-                _context(ENDED, active=True, filters=MULTIVARIANT),
+                "ended_flag_called_after_the_end",
+                _context(ENDED, active=True, filters=MULTIVARIANT, flag_called_after_end=True),
                 (
                     "ended_but_multiple_variants_rolled_out",
                     ExperimentHealthFindingSeverity.WARNING,
@@ -292,8 +294,26 @@ class TestFlagState(TestCase):
                 ),
             ),
             (
+                "ended_flag_calls_after_the_end_unknown",
+                _context(ENDED, active=True, filters=MULTIVARIANT),
+                (
+                    "ended_but_multiple_variants_rolled_out",
+                    ExperimentHealthFindingSeverity.WARNING,
+                    "The experiment has ended, but its feature flag is still active with multiple variants",
+                ),
+            ),
+            (
                 "running_zero_rollout_traffic_unknown",
                 _context(RUNNING, active=True, filters=ZERO_ROLLOUT),
+                (
+                    "running_but_no_rollout",
+                    ExperimentHealthFindingSeverity.WARNING,
+                    "The experiment is running, but its feature flag has a 0% rollout",
+                ),
+            ),
+            (
+                "running_zero_rollout_young_window",
+                _context(RUNNING, active=True, filters=ZERO_ROLLOUT, traffic=_traffic(0, window=timedelta(hours=2))),
                 (
                     "running_but_no_rollout",
                     ExperimentHealthFindingSeverity.WARNING,
@@ -339,9 +359,10 @@ class TestFlagState(TestCase):
                 "flag_not_called_since_the_end",
                 _context(ENDED, active=True, filters=MULTIVARIANT, flag_called_after_end=False),
                 "The experiment ended on October 14, 2026 at 10:30 AM CEST, and the linked feature flag is still "
-                'active with multiple variants. PostHog hasn\'t recorded a "$feature_flag_called" event for it since '
-                "then. Reading only a payload or a list of all flags sends no such event, so your code may still read "
-                "the flag that way. If nothing reads the flag any more, disable or archive it to clean up.",
+                "active with multiple variants. PostHog hasn't recorded a call of the flag since then. Reading only a "
+                "payload or a list of all flags records no call, and neither does a call with send_event set to "
+                "false, so your code may still read the flag that way. If nothing reads the flag anymore, disable or "
+                "archive it to clean up.",
                 {"ended_at": "2026-10-14T08:30:00+00:00"},
             ),
         ]

@@ -115,7 +115,7 @@ class TestZeroExposures(TestCase):
                 {**ENDED, "flag_called_during_run": True},
                 CALLS_NOT_COUNTED,
                 (Action.OPEN_FEATURE_FLAG, Action.EDIT_EXPOSURE_CRITERIA),
-                INFO,
+                WARNING,
             ),
             (
                 "ended_calls_unknown",
@@ -129,7 +129,7 @@ class TestZeroExposures(TestCase):
                 {**ENDED, "exposure_events": CUSTOM_EVENT, "flag_called_during_run": False},
                 CUSTOM_EXPOSURE_NOT_MATCHED,
                 (Action.EDIT_EXPOSURE_CRITERIA,),
-                INFO,
+                WARNING,
             ),
         ]
     )
@@ -283,18 +283,18 @@ class TestFlagCalledDuringRun(BaseTest):
                 None,
             ),
             (
-                "ended_inside_the_lag_of_last_called_at",
+                "ended_inside_the_quiet_period",
                 LAUNCHED_AT,
-                NOW - timedelta(minutes=59),
+                NOW - timedelta(days=3, minutes=59),
                 datetime(2026, 10, 5, tzinfo=UTC),
                 FlagEvaluationsMode.EVENTS,
                 True,
                 None,
             ),
             (
-                "ended_past_the_lag_of_last_called_at",
+                "ended_past_the_quiet_period",
                 LAUNCHED_AT,
-                NOW - timedelta(minutes=61),
+                NOW - timedelta(days=3, minutes=61),
                 datetime(2026, 10, 5, tzinfo=UTC),
                 FlagEvaluationsMode.EVENTS,
                 True,

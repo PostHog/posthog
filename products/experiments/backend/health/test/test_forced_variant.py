@@ -92,6 +92,7 @@ def _traffic(people_by_set: dict[int, int], *, remotely_evaluated: float = 1.0) 
     calls = 2 * sum(people_by_set.values())
     return ConditionSetTraffic(
         since=datetime(2026, 10, 12, 13, 4, tzinfo=UTC),
+        until=datetime(2026, 10, 19, 13, 4, tzinfo=UTC),
         team_timezone="Europe/Berlin",
         people_by_set=people_by_set,
         calls=calls,
@@ -122,7 +123,7 @@ class TestForcedVariantReleaseCondition(TestCase):
             (
                 "draft_catch_all_override",
                 _context([{**EVERYONE, "variant": "control"}], status=DRAFT),
-                ("all_conditions_pinned", ExperimentHealthFindingSeverity.INFO, "1", "control", None),
+                ("all_conditions_pinned", ExperimentHealthFindingSeverity.WARNING, "1", "control", None),
             ),
             (
                 "cohorts_forced_into_both_variants",
