@@ -22,11 +22,7 @@ export function NotificationPreferencesGroup(): ReactElement {
     const webSwitchProps = Platform.OS === 'web' ? { activeThumbColor: colors.white } : {}
     const state = useNotificationPreferences()
     return (
-        <SettingsGroup
-            title="Notification preferences"
-            footer="Chat and task updates are for work you start or continue in this mobile app. Continuing a chat here enables mobile updates and stops direct Slack alerts for its agent updates. Opening a chat alone does not enable updates. Report updates include progress and PRs ready to review. Preferences apply to your account on all devices. Enable notifications on this device to receive them. Snooze reminders are separate."
-            testID="settings-notification-preferences"
-        >
+        <SettingsGroup title="Notification preferences" testID="settings-notification-preferences">
             {state.loading ? (
                 <SettingsRow label="Loading preferences" accessory={<ActivityIndicator color={colors.tertiary} />} />
             ) : null}
