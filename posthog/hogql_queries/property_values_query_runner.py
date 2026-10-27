@@ -108,7 +108,11 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
     @cached_property
     def _feature_flag_property_values(self) -> list[bool | str] | None:
         key = self.query.property_key
-        if self.query.is_column or not key.startswith(FEATURE_FLAG_PROPERTY_PREFIX):
+        if (
+            self.query.property_type != PropertyType.EVENT
+            or self.query.is_column
+            or not key.startswith(FEATURE_FLAG_PROPERTY_PREFIX)
+        ):
             return None
         return get_flag_property_values(self.team, key.removeprefix(FEATURE_FLAG_PROPERTY_PREFIX))
 
@@ -202,6 +206,9 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
         # Person values cached before the HogQL port were computed without property
         # masking; the version marker keeps them from being served.
         payload["property_values_version"] = 2
+        # A cached answer must not outlive a flag edit or a new access rule on the flag.
+        if self._feature_flag_property_values is not None:
+            payload["feature_flag_property_values"] = self._feature_flag_property_values
         return payload
 
     def _person_query(self) -> ast.SelectQuery:

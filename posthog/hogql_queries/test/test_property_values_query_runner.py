@@ -260,16 +260,20 @@ class TestPropertyValuesQueryRunner(ClickhouseTestMixin, APIBaseTest):
         flag = FeatureFlag.objects.create(
             team=self.team, key="beta", created_by=self.user, filters=MULTIVARIATE_FILTERS
         )
+        _create_event(event="$pageview", distinct_id="u1", team=self.team, properties={"$feature/beta": "retired"})
+        query = PropertyValuesQuery(property_type=PropertyType.EVENT, property_key="$feature/beta")
+        PropertyValuesQueryRunner(team=self.team, query=query).run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
         create_access_control(
             team_id=self.team.id,
             resource="feature_flag",
             access_level="none",
             resource_id=str(flag.id) if rule_on_the_flag else None,
         )
-        _create_event(event="$pageview", distinct_id="u1", team=self.team, properties={"$feature/beta": "retired"})
 
-        results = self._run(PropertyValuesQuery(property_type=PropertyType.EVENT, property_key="$feature/beta"))
-        assert [r.name for r in results] == ["retired"]
+        response = PropertyValuesQueryRunner(team=self.team, query=query).run(
+            ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
+        )
+        assert [r.name for r in response.results] == ["retired"]
 
     def test_restricted_feature_flag_property_is_not_served(self):
         FeatureFlag.objects.create(team=self.team, key="beta", created_by=self.user, filters=MULTIVARIATE_FILTERS)
