@@ -111,7 +111,14 @@ export function createRenderUiTool(
             const distinctId = await context.getDistinctId()
 
             const payload: ToolResultPayload = {
-                content: [{ type: 'text', text: `Rendering the ${tool.name} visualization for the user.` }],
+                content: [
+                    {
+                        type: 'text',
+                        text: [`Rendering the ${tool.name} visualization for the user.`, tool.renderedNote]
+                            .filter(Boolean)
+                            .join(' '),
+                    },
+                ],
                 structuredContent: {
                     tool_name: tool.name,
                     tool_input: toolInput,
