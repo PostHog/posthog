@@ -323,6 +323,7 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
         suggestedFiltersLabel,
         excludedProperties,
         includeHiddenEvents,
+        allowNonCapturedEvents,
         propertyAllowList,
         showNumericalPropsOnly,
         selectedProperties,

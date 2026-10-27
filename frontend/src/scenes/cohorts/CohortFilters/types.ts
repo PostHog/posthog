@@ -163,4 +163,5 @@ export enum CohortClientErrors {
     BetweenMinGreaterThanMax = 'Minimum value must be less than maximum value',
     EmptyBetweenValues = 'Both minimum and maximum values are required',
     InvalidNumericPersonPropertyValue = 'Please enter valid numeric values only',
+    InvalidSemverValue = 'Enter a valid version, like 1.2.3.',
 }

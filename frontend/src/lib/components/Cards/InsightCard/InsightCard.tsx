@@ -32,7 +32,7 @@ import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { extractValidationError, extractValidationErrorCode } from '~/queries/nodes/InsightViz/utils'
 import { Query } from '~/queries/Query/Query'
 import { DashboardFilter, HogQLVariable } from '~/queries/schema/schema-general'
-import { queryVizDefinitelyRendersToCanvas } from '~/queries/utils'
+import { isBIVisualizationNode, queryVizDefinitelyRendersToCanvas } from '~/queries/utils'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -47,6 +47,7 @@ import {
 } from '~/types'
 
 import type { AlertType } from 'products/alerts/frontend/types'
+import { DashboardInsightResultMenu } from 'products/dashboards/frontend/components/DashboardInsightResultMenu'
 import type { TileGroupMoveOptions } from 'products/dashboards/frontend/dashboardTileSections'
 
 import { DashboardResizeHandles } from '../handles'
@@ -91,6 +92,7 @@ type AlertModalState = {
 }
 
 export interface InsightCardProps extends Resizeable {
+    resultMenuEnabled?: boolean
     /** Insight to display. */
     insight: InsightModel
     /** id of the dashboard the card is on (when the card is being displayed on a dashboard) **/
@@ -210,6 +212,7 @@ function InsightCardInternal(
         onOverlayVisibilityChange,
         filtersOverride,
         variablesOverride,
+        resultMenuEnabled,
         children,
         projectId,
         projectTimezone,
@@ -405,6 +408,7 @@ function InsightCardInternal(
                 cachedResults={insight}
                 context={{
                     insightProps: insightLogicProps,
+                    dashboardResultMenu: resultMenuEnabled,
                     dataVisualizationTableVirtualized:
                         renderVizWhenMounted && placement === DashboardPlacement.Dashboard,
                     // Small tables keep natural column widths because their full row count is cheap to render.
@@ -417,11 +421,25 @@ function InsightCardInternal(
                 editMode={false}
             />
         )
-    }, [BlockingEmptyState, insight, insightLogicProps, variablesOverride, placement, renderVizWhenMounted])
+    }, [
+        BlockingEmptyState,
+        insight,
+        insightLogicProps,
+        variablesOverride,
+        placement,
+        renderVizWhenMounted,
+        resultMenuEnabled,
+    ])
 
     const vizContent = shouldRenderViz ? (
         <div className="InsightCard__viz">
-            <div className="InsightCard__vizInner">{vizInner}</div>
+            <div className="InsightCard__vizInner">
+                {resultMenuEnabled && (!isBIVisualizationNode(insight.query) || insight.query.config.querySnapshot) ? (
+                    <DashboardInsightResultMenu insight={insight}>{vizInner}</DashboardInsightResultMenu>
+                ) : (
+                    vizInner
+                )}
+            </div>
         </div>
     ) : (
         <InsightVisualizationSkeleton query={insight.query} />

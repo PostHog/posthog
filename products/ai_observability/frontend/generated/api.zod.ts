@@ -141,6 +141,8 @@ export const AiObservabilityOfflineExperimentsPartialUpdateBody = /* @__PURE__ *
         .describe('Tag names. Replaces existing tags; send [] to remove all tags. Names are trimmed and lowercased.'),
 })
 
+export const aiObservabilityOfflineExperimentsUploadCreateBodyItemsItemModelVersionMax = 255
+
 export const aiObservabilityOfflineExperimentsUploadCreateBodyItemsItemCaseKeyMax = 255
 
 export const aiObservabilityOfflineExperimentsUploadCreateBodyItemsItemTrialMax = 255
@@ -168,6 +170,11 @@ export const AiObservabilityOfflineExperimentsUploadCreateBody = /* @__PURE__ */
                 id: zod
                     .uuid()
                     .describe('Caller-generated UUID for one input\/output execution. Reuse for exact retries.'),
+                model_version: zod
+                    .string()
+                    .max(aiObservabilityOfflineExperimentsUploadCreateBodyItemsItemModelVersionMax)
+                    .nullish()
+                    .describe("Model used for this item. Omitted or null values inherit the experiment's model."),
                 case_key: zod
                     .string()
                     .max(aiObservabilityOfflineExperimentsUploadCreateBodyItemsItemCaseKeyMax)

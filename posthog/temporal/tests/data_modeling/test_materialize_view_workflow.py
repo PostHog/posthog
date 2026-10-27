@@ -412,10 +412,14 @@ class TestStagedAudit:
 
 
 class TestFinalizeOrphanedManagedWarehouseJob:
-    async def test_marks_orphaned_job_failed_without_touching_node(self):
+    @pytest.mark.parametrize(
+        "error,cancelled",
+        [(RuntimeError("activity died"), False), (CancelledError("activity died"), True)],
+    )
+    async def test_marks_orphaned_job_failed_without_touching_node(self, error, cancelled):
         workflow = MaterializeViewWorkflow()
         with patch.object(temporalio.workflow, "execute_activity", new=AsyncMock()) as execute_activity:
-            await workflow._finalize_orphaned_managed_warehouse_job("job-123", _inputs(), "activity died")
+            await workflow._finalize_orphaned_managed_warehouse_job("job-123", _inputs(), error)
 
         execute_activity.assert_awaited_once()
         assert execute_activity.await_args is not None
@@ -426,11 +430,13 @@ class TestFinalizeOrphanedManagedWarehouseJob:
         # shadow job has no node properties to update — only finalize the job row
         assert payload.update_node is False
         assert "activity died" in payload.error
+        # a cancelled shadow never got to fail on its own merits, so it must not count toward suspension
+        assert payload.cancelled is cancelled
 
     async def test_noop_when_no_managed_warehouse_job(self):
         workflow = MaterializeViewWorkflow()
         with patch.object(temporalio.workflow, "execute_activity", new=AsyncMock()) as execute_activity:
-            await workflow._finalize_orphaned_managed_warehouse_job(None, _inputs(), "activity died")
+            await workflow._finalize_orphaned_managed_warehouse_job(None, _inputs(), RuntimeError("activity died"))
         execute_activity.assert_not_awaited()
 
     async def test_finalization_is_best_effort(self):
@@ -440,7 +446,7 @@ class TestFinalizeOrphanedManagedWarehouseJob:
             patch.object(temporalio.workflow, "logger"),
         ):
             # a failure to finalize must never propagate out of the shadow path
-            await workflow._finalize_orphaned_managed_warehouse_job("job-123", _inputs(), "activity died")
+            await workflow._finalize_orphaned_managed_warehouse_job("job-123", _inputs(), RuntimeError("activity died"))
 
 
 class TestMaybeStageAccountProperties:

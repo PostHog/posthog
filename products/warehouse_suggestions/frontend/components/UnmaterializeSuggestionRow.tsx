@@ -1,19 +1,14 @@
 import { useActions, useValues } from 'kea'
 
+import { IconCheck } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 
 import type { WarehouseSuggestionApi } from '../generated/api.schemas'
-import {
-    isUnmaterializePayload,
-    readSummary,
-    readTimeLabel,
-    savingHighlight,
-    unmaterializeSaving,
-} from '../suggestionCopy'
+import { isUnmaterializePayload, readSummary, savingHighlight, unmaterializeSaving } from '../suggestionCopy'
 import { warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'
-import { DismissSuggestionMenu } from './DismissSuggestionMenu'
+import { DismissSuggestionButtons } from './DismissSuggestionButtons'
 import { SuggestionRow } from './SuggestionRow'
 import { SuggestionSubjectLink } from './SuggestionSubjectLink'
 import { WhyThisSuggestion } from './WhyThisSuggestion'
@@ -55,7 +50,6 @@ export function UnmaterializeSuggestionRow({
                     windowDays={windowDays}
                     label={readSummary(suggestion.evidence)}
                 />,
-                <span key="read-time">{readTimeLabel(payload.read_seconds)}</span>,
             ]}
             highlight={savingHighlight(unmaterializeSaving(payload))}
             actions={
@@ -63,13 +57,13 @@ export function UnmaterializeSuggestionRow({
                     <LemonButton
                         size="small"
                         type="secondary"
+                        icon={<IconCheck />}
+                        tooltip="Stop materializing"
                         disabledReason={blockedReason}
                         onClick={() => openAcceptConfirm(suggestion.id)}
                         data-attr="warehouse-suggestions-unmaterialize"
-                    >
-                        Stop materializing
-                    </LemonButton>
-                    <DismissSuggestionMenu
+                    />
+                    <DismissSuggestionButtons
                         suggestionId={suggestion.id}
                         kind={suggestion.kind}
                         disabledReason={blockedReason}

@@ -492,10 +492,10 @@ describe('warehouseSuggestionsLogic', () => {
                 unmaterialize('unread-mid', 3000, 1500),
                 materialize('time-big', 2400),
             ],
-            ['time-big', 'unread-mid', 'time-small', 'bytes-big'],
+            ['time-big', 'time-small', 'bytes-big', 'unread-mid'],
         ],
         ['catalog', [certification('old', 'deprecate'), certification('used', 'certify')], ['used', 'old']],
-    ])('orders %s suggestions by what they are worth', async (surface, results, expectedOrder) => {
+    ])('orders %s suggestions by kind, then by what they are worth', async (surface, results, expectedOrder) => {
         mockList.mockResolvedValue(page(results))
 
         await mountLogic(surface)

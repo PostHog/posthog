@@ -51,8 +51,8 @@ def _paginator(config: SmartleadEndpointConfig) -> BasePaginator:
     return SinglePagePaginator()
 
 
-def _client_config(api_key: str, paginator: BasePaginator) -> ClientConfig:
-    return {
+def _client_config(api_key: str, paginator: BasePaginator, config: SmartleadEndpointConfig) -> ClientConfig:
+    client_config: ClientConfig = {
         "base_url": BASE_URL,
         "headers": {"Accept": "application/json"},
         # Smartlead's only auth method is the `api_key` query param. The framework auth config
@@ -60,6 +60,9 @@ def _client_config(api_key: str, paginator: BasePaginator) -> ClientConfig:
         "auth": {"type": "api_key", "name": "api_key", "api_key": api_key, "location": "query"},
         "paginator": paginator,
     }
+    if config.max_retries is not None:
+        client_config["max_retries"] = config.max_retries
+    return client_config
 
 
 def _endpoint_extra(config: SmartleadEndpointConfig) -> Endpoint:
@@ -115,7 +118,7 @@ def _top_level_source(
         resource["data_map"] = _redact_fields_mapper(config.redact_fields)
 
     rest_config: RESTAPIConfig = {
-        "client": _client_config(api_key, _paginator(config)),
+        "client": _client_config(api_key, _paginator(config), config),
         "resource_defaults": {},
         "resources": [cast(Any, resource)],
     }
@@ -184,19 +187,19 @@ def _fanout_source(
             endpoint_configs=SMARTLEAD_ENDPOINTS,
             child_endpoint=endpoint,
             fanout=config.fanout,
-            client_config=_client_config(api_key, _paginator(config)),
+            client_config=_client_config(api_key, _paginator(config), config),
             path_format_values={},
             team_id=team_id,
             job_id=job_id,
             db_incremental_field_last_value=db_incremental_field_last_value,
             should_use_incremental_field=should_use_incremental_field,
             incremental_field=incremental_field,
-            # The campaign parent list is unpaginated while children page with offset/limit, so
-            # each side carries its own paginator instead of sharing the client's.
+            # Parents and children paginate differently (the campaign list is unpaginated, email
+            # accounts page with offset/limit, warmup stats is one object), so each side carries
+            # its own paginator instead of sharing the client's.
             parent_endpoint_extra=_endpoint_extra(parent_config),
             child_endpoint_extra=_endpoint_extra(config),
-            # The parent takes no page-size param (unpaginated); the children's OffsetPaginator
-            # injects `offset` and `limit` itself.
+            # Every OffsetPaginator injects `offset` and `limit` itself.
             page_size_param=None,
             resume_hook=save_checkpoint,
             initial_paginator_state=initial_state,

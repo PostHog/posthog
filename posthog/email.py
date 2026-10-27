@@ -218,6 +218,10 @@ WORKFLOWS_TRANSACTIONAL_EMAIL_FLAG = "transactional-emails-via-workflows"
 # Matches how long the send API keeps an idempotency key, which outlasts every Celery retry.
 WORKFLOWS_PIN_TTL_SECONDS = 24 * 60 * 60
 
+# 422 codes for an email the send API refused before queueing it: sending is suspended for the project or paused for
+# the workflow, or the recipient is on the suppression list. Customer.io sends these emails instead.
+WORKFLOWS_NOT_QUEUED_422_CODES = frozenset({"sending_suspended", "sending_paused", "recipient_suppressed"})
+
 EMAIL_WORKFLOWS_FALLBACK_COUNTER = Counter(
     "posthog_email_workflows_fallback_total",
     "Emails that Workflows refused and Customer.io sent instead, by template.",
@@ -283,10 +287,13 @@ def _workflows_error_allows_fallback(err: WorkflowsEmailError) -> bool:
         # A connection that was never made and a client that queued nothing sent nothing. Any other network
         # failure can come after Workflows queued the email.
         return err.code in ("connection_error", "not_queued")
-    # Redirects and 4xx answers come before anything is queued, apart from 408 and the two idempotency answers:
-    # 409 (an attempt with this key is in flight) and 422 (this key already queued an email). A 5xx can follow a
-    # queued email, because the send API also returns 503 when the workflow service queued it but failed to answer.
-    return 300 <= err.status_code < 500 and err.status_code not in (408, 409, 422)
+    if err.status_code == 422:
+        # The send API refuses these before it queues anything. Any other 422 means this key already queued an email.
+        return err.code in WORKFLOWS_NOT_QUEUED_422_CODES
+    # Redirects and 4xx answers come before anything is queued, apart from 408 and 409 (an attempt with this key is
+    # in flight). A 5xx can follow a queued email, because the send API also returns 503 when the workflow service
+    # queued it but failed to answer.
+    return 300 <= err.status_code < 500 and err.status_code not in (408, 409)
 
 
 def _never_connected(err: requests.ConnectionError) -> bool:
