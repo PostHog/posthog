@@ -112,6 +112,8 @@ orchestrates these activities:
 The activities live in
 `products/tasks/backend/temporal/process_task/activities/`.
 
+Repository clones retry up to three times for transient failures, including repository-not-found responses. Explicit authentication failures stop immediately. The `repository_clone_failed` worker log records the run, repository, sandbox, clone mode, exit code, and whether a GitHub token was supplied. Its stdout, stderr, and execution error fields redact the supplied token and sandbox command credentials before truncation to 500 characters each; the same diagnostics are attached to the Temporal error.
+
 The agent's `finish` tool marks a TaskRun terminal and triggers sandbox cleanup.
 ReviewHog and scout suggestion tasks do not expose it because their callers own session completion.
 ReviewHog receives and validates each turn's JSON before ending the session, and validation can use multiple turns in the same sandbox.

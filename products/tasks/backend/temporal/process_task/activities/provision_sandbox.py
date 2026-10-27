@@ -64,6 +64,7 @@ from products.tasks.backend.logic.services.sandbox import (
     needs_full_history,
     parse_requested_sandbox_template,
     pinned_agent_version,
+    redact_sandbox_command,
     sandbox_repo_path,
     workload_for_origin_product,
 )
@@ -1149,6 +1150,12 @@ async def create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) 
     raise cancellation
 
 
+def _redact_clone_output(output: str, github_token: str | None) -> str:
+    if github_token:
+        output = output.replace(github_token, "<redacted>")
+    return redact_sandbox_command(output)[:500]
+
+
 @activity.defn
 @asyncify
 @posthoganalytics.scoped(fresh=True, capture_exceptions=False)
@@ -1196,30 +1203,41 @@ def clone_repository_in_sandbox(input: CloneRepositoryInSandboxInput) -> CloneRe
                     blobless=blobless_clone,
                 )
 
-            if _is_repository_access_denied_clone_error(clone_result):
-                raise RepositoryAccessError(
-                    f"Could not clone {input.repository}: GitHub denied access. Check that the PostHog "
-                    "GitHub app is installed on this repository's account and can read this repository.",
-                    {
-                        "repository": input.repository,
-                        "sandbox_id": input.sandbox_id,
-                        "exit_code": clone_result.exit_code,
-                        "has_github_token": bool(input.github_token),
+            if clone_result.exit_code != 0:
+                stderr = _redact_clone_output(clone_result.stderr, input.github_token)
+                stdout = _redact_clone_output(clone_result.stdout, input.github_token)
+                execution_error = (
+                    _redact_clone_output(clone_result.error, input.github_token) if clone_result.error else None
+                )
+                error_context = {
+                    "repository": input.repository,
+                    "sandbox_id": input.sandbox_id,
+                    "exit_code": clone_result.exit_code,
+                    "has_github_token": bool(input.github_token),
+                    "stderr": stderr,
+                    "stdout": stdout,
+                    "error": execution_error,
+                }
+                logger.warning(
+                    "repository_clone_failed",
+                    extra={
+                        **ctx.to_log_context(),
+                        **error_context,
+                        "blobless_clone": blobless_clone,
+                        "shallow_clone": input.shallow_clone,
                     },
                 )
+                if _is_repository_access_denied_clone_error(clone_result):
+                    raise RepositoryAccessError(
+                        f"Could not clone {input.repository}: GitHub denied access. Check that the PostHog "
+                        "GitHub app is installed on this repository's account and can read this repository.",
+                        error_context,
+                    )
 
-            if clone_result.exit_code != 0:
-                error_output = clone_result.stderr or clone_result.stdout or clone_result.error or "No output captured"
+                error_output = stderr or stdout or execution_error or "No output captured"
                 raise RepositoryCloneError(
                     f"Could not clone {input.repository} (git exited with code {clone_result.exit_code})",
-                    {
-                        "repository": input.repository,
-                        "sandbox_id": input.sandbox_id,
-                        "exit_code": clone_result.exit_code,
-                        "stderr": clone_result.stderr[:500],
-                        "stdout": clone_result.stdout[:500],
-                        "error": clone_result.error,
-                    },
+                    error_context,
                     cause=RuntimeError(error_output[:200]),
                 )
 
@@ -1240,11 +1258,8 @@ def _is_repository_access_denied_clone_error(result: ExecutionResult) -> bool:
     # Git asks for a username when GitHub answers 401, which is how GitHub hides a private
     # repository from a request without a usable token.
     output = f"{result.stdout}\n{result.stderr}".casefold()
-    return (
-        "could not read username" in output
-        or "authentication failed for" in output
-        or "remote: repository not found" in output
-    )
+    # A repository-not-found response can be transient, so leave it to the bounded clone retry policy.
+    return "could not read username" in output or "authentication failed for" in output
 
 
 def _is_missing_remote_branch_clone_error(result: ExecutionResult) -> bool:
