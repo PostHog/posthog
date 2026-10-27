@@ -3968,6 +3968,10 @@ snapshots:
         hash: v1.k794b7964.77db5fd39abf5b41db372ff16af2044f3c03b303aabe0d592f6c25de1898339a.3VJBqA15CtN76iDMdubH40FmnriyLRFCW_mGRXdYrsM
     insights-funnellinechart--with-legend--light:
         hash: v1.k794b7964.d3d505f78dc4785055c98a602b0edd9c39549001dab1a3f1c3bf753f1cff60be.Lu6z04Zq2foZ5axwQK8Hg4ys33BYX2OIMjQkpYBycKM
+    insights-funnelstepsbarchart--alert-thresholds--dark:
+        hash: v1.k794b7964.f07a01625198eb67f2bf3709a2b562abf1e5c9fb6e0ad50d32bc3c0455810e4c.kcHPaKTNWm1MsjfK7ZXC-YOSHARImNlxhU63hmrI9zk
+    insights-funnelstepsbarchart--alert-thresholds--light:
+        hash: v1.k794b7964.1615420c253f38e627b2d08757e17d1bd748369b520353077fb7cb69b60ce73d.fckv-4nelywj6ArxmnSQa8Xt5h6ZySRMvXTpCuoTF-A
     insights-funnelstepsbarchart--bar-labels--dark:
         hash: v1.k794b7964.5de2ee4fdd7ba021e1af1363b1e7977b10a245ce3ae6486008b83552cc41296d.tMGnyCUxbncHrGz42VrPrOAdXqsv6oqpZP2N6hjMW48
     insights-funnelstepsbarchart--bar-labels--light:
@@ -9849,9 +9853,9 @@ snapshots:
     scenes-app-analytics--list-filtered--light:
         hash: v1.k794b7964.75b7eca92b8ad7e321f78513f4fb33383f517cde5e4ae7bcac160b1259543c4f.tYcmIIkK_KR_C5Iov8CLAP-v9k65O6Ys8I8apAfmG1U
     scenes-app-analytics--list-new-insight-dialog--dark:
-        hash: v1.k794b7964.8bb4f99b24efa5b9994523183bdef79395eec49e611dda3e492bf8963fa47d2a.FfWXOjJiZaSBrxAIW3LdEo-evs8rrvFT1XOTzWdGzLo
+        hash: v1.k794b7964.45c16754a22f5cd764ec0bbe81c5408e0ef66afecb667585b18f761d3041bdb9.guaW1CUKOZ-Jy9OWDyCDLhOyCzPArrUSB0dEiEBwD20
     scenes-app-analytics--list-new-insight-dialog--light:
-        hash: v1.k794b7964.0bbeed5a6a582d9f2094469a88ef59f275a335a78d32aaadde32d9e5fa1f4cd2.rckZpT1Cxw_n14V4wg7P2BSOth4Tu2H8pztKFyrHIqA
+        hash: v1.k794b7964.590d2207f39d9035ac2bf84d91e113ef618a4802635aab5740ff2a1b1ad3e27f.z3HMfF_fcbYYLF8vFl2PRijsWb-_6-FaW9Hqxg8p19s
     scenes-app-analytics--list-no-matches--dark:
         hash: v1.k794b7964.ceb8e53319e50984dd11887fca87d887b42c7e1a659ce40ac2986d792f0904d7.vYLLOu-3-RNpVNuDhoB1Mw1HicAzpsua4A9-PnawtVc
     scenes-app-analytics--list-no-matches--light:
