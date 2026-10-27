@@ -83,7 +83,17 @@ export function AnalyticsMetricCard({
                         </span>
                     </>
                 ) : (
-                    <MetricCard {...metricProps} title={label} className="h-full [&>div:first-child]:flex-1" />
+                    <MetricCard
+                        {...metricProps}
+                        title={label}
+                        className={clsx(
+                            'h-full',
+                            // The subtitle takes the spare height, so a wrapped inline pill does not move the headline.
+                            metricProps.changeInline
+                                ? '[&>[data-attr=metric-card-subtitle]]:flex-1'
+                                : '[&>div:first-child]:flex-1'
+                        )}
+                    />
                 )}
                 {onClick && selected === undefined && (
                     <IconChevronRight className="absolute bottom-3 right-3 size-3 text-secondary" aria-hidden />
