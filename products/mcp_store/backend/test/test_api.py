@@ -212,15 +212,20 @@ class TestMCPServerAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     @parameterized.expand(
         [
-            ("allowed_and_flagged", True, True, True),
-            ("allowed_without_flag", True, False, False),
-            ("flagged_outside_allowed_project", False, True, False),
+            ("allowed_and_flagged", "team", True, True),
+            ("allowed_without_flag", "team", False, False),
+            ("flagged_outside_allowed_project", "none", True, False),
+            ("wildcard_and_flagged", "wildcard", True, True),
         ]
     )
-    def test_slack_dev_template_visibility(self, _name: str, allowed: bool, flag_enabled: bool, expected: bool) -> None:
+    def test_slack_dev_template_visibility(
+        self, _name: str, allowlist: str, flag_enabled: bool, expected: bool
+    ) -> None:
         template = self._create_active_template(oauth_credentials_source="slack_dev_app")
+        allowed = allowlist != "none"
+        allowed_team_ids = {"team": [str(self.team.id)], "wildcard": ["*"], "none": []}[allowlist]
         with (
-            self.settings(MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS=[str(self.team.id)] if allowed else []),
+            self.settings(MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS=allowed_team_ids),
             patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=flag_enabled) as feature_enabled,
         ):
             response = self.client.get(f"/api/environments/{self.team.id}/mcp_servers/")

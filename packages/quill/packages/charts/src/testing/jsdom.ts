@@ -1,6 +1,9 @@
+import { cleanup } from '@testing-library/react'
+
 import { buildDimensions } from '../core/canvas-size'
 import { DEFAULT_MARGINS } from '../core/hooks/useChartMargins'
 import type { ChartDimensions, ResolvedSeries, Series } from '../core/types'
+import { TOOLTIP_SELECTOR } from './tooltip'
 
 export const mockRect: DOMRect = {
     x: 0,
@@ -94,4 +97,18 @@ export function ensureJsdom(): void {
     jsdomReady = true
     setupJsdom()
     setupSyncRaf()
+}
+
+/** Registers hooks for the jsdom mocks, synchronous animation frames and cleanup. Call once per file or `describe`. */
+export function setupChartTests(): void {
+    let restore: (() => void)[] = []
+    beforeEach(() => {
+        restore = [setupJsdom(), setupSyncRaf()]
+    })
+    afterEach(() => {
+        cleanup()
+        // `cleanup` doesn't always reach the tooltip's FloatingPortal.
+        document.querySelectorAll(TOOLTIP_SELECTOR).forEach((el) => el.remove())
+        restore.forEach((fn) => fn())
+    })
 }
