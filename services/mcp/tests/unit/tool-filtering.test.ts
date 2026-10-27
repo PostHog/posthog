@@ -1108,6 +1108,7 @@ describe('Tool Filtering - Feature Flags', () => {
             'managed-warehouse-trino-query',
             'llm-analytics-tags',
             'marketing-analytics-conversion-setup-ai',
+            'marketing-analytics-recommendations',
             'insight-data-checks',
             'logs-agent-tools',
             'workflows-transactional-email-api',
