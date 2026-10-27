@@ -2563,6 +2563,11 @@ def accept_desktop_beta_terms(organization_id: UUID, user_id: int) -> contracts.
     return contracts.DesktopBetaTermsAcceptanceDTO(is_desktop_beta_terms_accepted=True)
 
 
+def revoke_desktop_beta_terms(organization_id: UUID) -> bool:
+    deleted_count, _ = DesktopBetaTermsAcceptance.objects.filter(organization_id=organization_id).delete()
+    return deleted_count > 0
+
+
 # --- Sandbox environments (presentation CRUD) ---
 # Visibility: an environment is reachable by a team member if it is non-private, or it is
 # theirs (``created_by``). ``list`` additionally hides ``internal`` environments.

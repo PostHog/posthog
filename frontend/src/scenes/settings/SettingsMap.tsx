@@ -2302,7 +2302,8 @@ export const SETTINGS_MAP: SettingSection[] = [
                 ),
                 component: <OrganizationDesktopBetaTerms />,
                 keywords: ['desktop', 'beta', 'terms', 'consent', 'opt-in', 'data processing'],
-                searchDescription: 'Accept the additional data-processing terms for the PostHog Desktop beta.',
+                searchDescription:
+                    'Accept or withdraw the additional data-processing terms for the PostHog Desktop beta.',
             },
             {
                 id: 'organization-ai-training-opt-out',
