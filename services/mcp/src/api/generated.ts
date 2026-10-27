@@ -13667,7 +13667,7 @@ export namespace Schemas {
     export interface AnomalySearchResponse {
       /** Whether anomaly scoring covers this project. */
       scoring_enabled: boolean;
-      /** Insights that scoring watches: saved trends insights on a dashboard or viewed in the last 30 days. */
+      /** Active insights that scoring checks: saved trends insights that a person viewed, that sit on a dashboard someone opened, or that were edited in the active window (90 days by default), or that have an enabled alert or subscription. */
       watched_insights: number;
       /** Insights with at least one scored bucket in the range. Results cover only these insights. */
       insights_scored_in_range: number;
