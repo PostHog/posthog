@@ -1000,6 +1000,9 @@ tools:
     tool:hoge:
         bin_script: hoge
         description: Compile HogQL source to bytecode or JavaScript
+    tool:hoglang:
+        bin_script: hoglang
+        description: Run HogLang source or bytecode, or compile source to bytecode or JavaScript
     tool:ruff:
         bin_script: ruff.sh
         description: Python linter and formatter with virtualenv auto-activation
