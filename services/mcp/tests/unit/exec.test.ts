@@ -2555,6 +2555,16 @@ describe('exec tool', () => {
             expect(message).not.toContain('secret-value')
         })
 
+        it('lists the first problems and counts the rest', () => {
+            const schema = z.object({ items: z.array(z.string()) })
+            const result = schema.safeParse({ items: Array.from({ length: 100 }, () => 1) }, { reportInput: true })
+
+            const message = formatInputValidationError('insight-create', result.error!)
+
+            expect(message.match(/parameter "items\.\d+"/g)).toHaveLength(20)
+            expect(message).toMatch(/; and 80 more$/)
+        })
+
         it('falls back to the zod default for a non-string too_big instead of a bogus length', () => {
             const schema = z.object({ tags: z.array(z.string()).max(2) })
             const result = schema.safeParse({ tags: ['a', 'b', 'c'] }, { reportInput: true })

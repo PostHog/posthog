@@ -221,12 +221,12 @@ class McpDispatcher {
             return jsonRpcErrorResponse(null, ErrorCode.InvalidRequest, 'Request body too large')
         }
 
-        const text = await readBodyWithinLimit(req, MAX_BODY_BYTES)
-        if (text === undefined) {
-            return jsonRpcErrorResponse(null, ErrorCode.InvalidRequest, 'Request body too large')
-        }
         let body: unknown
         try {
+            const text = await readBodyWithinLimit(req, MAX_BODY_BYTES)
+            if (text === undefined) {
+                return jsonRpcErrorResponse(null, ErrorCode.InvalidRequest, 'Request body too large')
+            }
             body = JSON.parse(text)
         } catch {
             return jsonRpcErrorResponse(null, ErrorCode.ParseError, 'Parse error: Invalid JSON')

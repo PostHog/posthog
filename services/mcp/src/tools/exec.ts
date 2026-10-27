@@ -1076,6 +1076,7 @@ export function repairToolArguments(
 
 // zod keeps an issue for every value it rejects, and its own size cap stops early only on an array
 // that declares a `.max()`. So a large invalid call costs memory in proportion to its size.
+// The 1 MiB body limit in the dispatcher bounds the cost of counting the values.
 export const MAX_TOOL_ARGUMENT_VALUES = 50_000
 
 export interface ToolArgumentValidation<S extends ZodObjectAny> {
@@ -1497,7 +1498,7 @@ export function formatInputValidationError(
         wrapper ??= { key: overWrappedPayloadKey(input, schema) }
         return wrapper.key
     }
-    const parts = error.issues.map((issue) => {
+    const describeIssue = (issue: (typeof error.issues)[number]): string => {
         const path = issue.path.map(String).join('.')
         if (issue.code === 'invalid_type') {
             if ('input' in issue && issue.input === undefined) {
@@ -1543,9 +1544,24 @@ export function formatInputValidationError(
             return `parameter "${path}" is too long: ${issue.input.length} characters (max ${issue.maximum})`
         }
         return path ? `parameter "${path}": ${issue.message}` : issue.message
-    })
-    return `Invalid input for "${toolName}": ${[...new Set(parts)].join('; ')}`
+    }
+    const parts = new Set<string>()
+    let described = 0
+    for (const issue of error.issues) {
+        if (parts.size === MAX_REPORTED_INPUT_PROBLEMS) {
+            break
+        }
+        parts.add(describeIssue(issue))
+        described += 1
+    }
+    const unreported = error.issues.length - described
+    const more = unreported > 0 ? `; and ${unreported} more` : ''
+    return `Invalid input for "${toolName}": ${[...parts].join('; ')}${more}`
 }
+
+// A call can carry one rejected value per array element, and the message goes back to the agent
+// and into analytics, so it lists only the first problems.
+const MAX_REPORTED_INPUT_PROBLEMS = 20
 
 /** Caps on what we record so a single failure can't blow up analytics cardinality. */
 const MAX_VALIDATION_DESCRIPTORS = 20
