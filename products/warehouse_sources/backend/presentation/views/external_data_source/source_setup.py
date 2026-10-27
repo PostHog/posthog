@@ -75,6 +75,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     history_column_collisions,
     is_history_table_mode,
     is_team_allowlisted_for_internal_hosts,
+    keep_flat_branch_copies,
     nest_flat_select_containers,
     new_source_requires_ssl,
     sql_schema_metadata,
@@ -314,7 +315,11 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         job_inputs = nest_flat_select_containers(
             job_inputs, source.get_source_config.fields, source.flat_stored_selects
         )
-        stripped = helpers.strip_sensitive_from_dict(job_inputs, nonsensitive, split.sensitive)
+        stripped = keep_flat_branch_copies(
+            helpers.strip_sensitive_from_dict(job_inputs, nonsensitive, split.sensitive),
+            source.get_source_config.fields,
+            source.flat_stored_selects,
+        )
         declared = helpers.get_declared_field_names(source.get_source_config.fields)
         representation["job_inputs"] = helpers.restore_declared_field_names(stripped, declared.hyphenated)
         return representation

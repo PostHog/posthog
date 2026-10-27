@@ -3365,6 +3365,7 @@ class TestExternalDataSource(APIBaseTest):
         assert get_response.status_code == 200
         assert get_response.json()["job_inputs"] == {
             "aws_auth": {"selection": "access_keys", "aws_access_key_id": "AKIAEXAMPLE"},
+            "aws_access_key_id": "AKIAEXAMPLE",
             "region": "eu-west-1",
         }
 
@@ -3382,6 +3383,11 @@ class TestExternalDataSource(APIBaseTest):
             "aws_session_token": "example-session",
             "aws_integration_id": None,
         }
+        # Workers deployed before `aws_auth` read the keys at the top level only.
+        assert (source.job_inputs["aws_access_key_id"], source.job_inputs["aws_secret_access_key"]) == (
+            expected_key_id,
+            expected_secret,
+        )
         assert mock_validate.called is expect_probe
 
     @patch(
@@ -3407,6 +3413,7 @@ class TestExternalDataSource(APIBaseTest):
         source = ExternalDataSource.objects.get(id=response.json()["id"])
         assert source.job_inputs["aws_auth"]["selection"] == "access_keys"
         assert source.job_inputs["aws_auth"]["aws_secret_access_key"] == "example-secret"
+        assert source.job_inputs["aws_secret_access_key"] == "example-secret"
 
     def test_update_with_malformed_auth_method_returns_400(self):
         source = self._create_external_data_source()

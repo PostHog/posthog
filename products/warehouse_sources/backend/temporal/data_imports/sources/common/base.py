@@ -2,7 +2,7 @@ import datetime
 import functools
 import dataclasses
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from typing import TYPE_CHECKING, Any, Generic, Optional, TypeVar, Union, cast
 
 import structlog
@@ -111,35 +111,56 @@ UNVERSIONED_API_VERSION = "v1"
 FAST_RETURN_PROBE_TIMEOUT = datetime.timedelta(minutes=2)
 
 
+def _flat_stored_select_fields(
+    fields: list[FieldType], flat_stored_selects: Iterable[str]
+) -> Iterator[tuple[SourceFieldSelectConfig, set[str]]]:
+    """Each select in `flat_stored_selects`, with the names its branches used to store at the top level."""
+    top_level_names = {field.name for field in fields}
+    for field in fields:
+        if isinstance(field, SourceFieldSelectConfig) and field.name in flat_stored_selects:
+            # A name that is also a top-level field belongs to that field, as it does in config parsing.
+            branch_names = {
+                option_field.name for option in field.options for option_field in option.fields or []
+            } - top_level_names
+            yield field, branch_names
+
+
 def nest_flat_select_containers(
     job_inputs: dict[str, Any], fields: list[FieldType], flat_stored_selects: Iterable[str]
 ) -> dict[str, Any]:
-    """Return a copy of job_inputs with the fields of a select branch moved into the select's container.
+    """Return a copy of job_inputs with the fields of a select branch held only in the select's container.
 
     Configs saved before a select in the source's `flat_stored_selects` existed, and API clients
     that still send the old shape, keep that select's fields at the top level. Config parsing
     already reads them as the select's default branch. Validation, the settings form and the update
     merge read the container instead. Without this, a create with the old shape fails validation,
     the form shows the fields empty, and an update either drops the stored secrets or ignores the
-    new ones.
+    new ones. When the container exists, the top-level fields are the copies `serialize_config`
+    keeps for older workers, so they are dropped here and the update logic sees one copy of a secret.
     """
-    top_level_names = {field.name for field in fields}
     nested = dict(job_inputs)
-    for field in fields:
-        if (
-            not isinstance(field, SourceFieldSelectConfig)
-            or field.name not in flat_stored_selects
-            or field.name in job_inputs
-        ):
-            continue
-        # A name that is also a top-level field belongs to that field, as it does in config parsing.
-        branch_names = {
-            option_field.name for option in field.options for option_field in option.fields or []
-        } - top_level_names
+    for field, branch_names in _flat_stored_select_fields(fields, flat_stored_selects):
         flat = {name: nested.pop(name) for name in sorted(branch_names) if name in nested}
-        if flat:
+        if flat and field.name not in job_inputs:
             nested[field.name] = {"selection": field.defaultValue, **flat}
     return nested
+
+
+def keep_flat_branch_copies(
+    job_inputs: dict[str, Any], fields: list[FieldType], flat_stored_selects: Iterable[str]
+) -> dict[str, Any]:
+    """Return a copy of job_inputs with the default branch of each `flat_stored_selects` select also at the top level.
+
+    Workers and API clients from before the select existed read those fields at the top level only.
+    Remove this once no such worker can run and the API response no longer promises the flat fields.
+    """
+    flattened = dict(job_inputs)
+    for field, branch_names in _flat_stored_select_fields(fields, flat_stored_selects):
+        container = job_inputs.get(field.name)
+        if not isinstance(container, dict) or container.get("selection") != field.defaultValue:
+            continue
+        flattened.update({name: container[name] for name in branch_names if container.get(name) is not None})
+    return flattened
 
 
 def error_message_matches(error_msg: str, patterns: Iterable[str]) -> bool:
@@ -488,7 +509,7 @@ class _BaseSource(ABC, Generic[ConfigType]):
 
     def serialize_config(self, config: ConfigType) -> dict[str, Any]:
         """Serialize parsed config for storage. Sources may retain rollout-compatible fields."""
-        return config.to_dict()
+        return keep_flat_branch_copies(config.to_dict(), self.get_source_config.fields, self.flat_stored_selects)
 
     @property
     def webhook_template(self) -> Optional["HogFunctionTemplateDC"]:

@@ -47,6 +47,7 @@ _LAZY = {
     "WebhookDeletionResult": "sources.common.base",
     "WebhookSource": "sources.common.base",
     "WebhookSyncResult": "sources.common.base",
+    "keep_flat_branch_copies": "sources.common.base",
     "nest_flat_select_containers": "sources.common.base",
     "Config": "sources.common.config",
     "IntegrationAccountListingError": "sources.common.integration_accounts",
