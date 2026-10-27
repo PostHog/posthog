@@ -4248,7 +4248,7 @@ class ExperimentService:
         if exposure_filter_data:
             exposure_entities = parse_entities(exposure_filter_data)
 
-        target_entity: int | str = "$feature_flag_called"
+        target_entity: int | str = resolve_default_exposure_event(self.team, experiment.start_date)
         target_entity_type = "events"
         target_filters = [
             {
@@ -4276,6 +4276,13 @@ class ExperimentService:
                     if prop.type in ("event", "feature", "element", "hogql")
                 ]
 
+        # Ingestion writes only the $experiment_exposure copy of a flag call to events for an organization
+        # on FLAG_EVALUATIONS_ONLY. The cohort reads the copy next to $feature_flag_called, as the results
+        # do (exposure_event_name_filter).
+        target_entities: list[int | str] = [target_entity]
+        if target_entity_type == "events" and target_entity == DEFAULT_EXPOSURE_EVENT:
+            target_entities.append(EXPERIMENT_EXPOSURE_EVENT)
+
         context = serializer_context or self._build_serializer_context()
         # CohortSerializer expects "team" directly in context
         cohort_context = {**context, "team": self.team, ALLOW_HIDDEN_EVENT_CRITERIA_CONTEXT_KEY: True}
@@ -4295,12 +4302,13 @@ class ExperimentService:
                                     {
                                         "type": "behavioral",
                                         "value": "performed_event",
-                                        "key": target_entity,
+                                        "key": entity,
                                         "negation": False,
                                         "event_type": target_entity_type,
                                         "event_filters": target_filters,
                                         "explicit_datetime": experiment.start_date.isoformat(),
                                     }
+                                    for entity in target_entities
                                 ],
                             }
                         ],

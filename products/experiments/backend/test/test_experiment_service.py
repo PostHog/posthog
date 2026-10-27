@@ -49,6 +49,10 @@ from products.experiments.backend.experiment_service import (
     _merge_saved_metric_links,
     _resolve_scalar_updates,
 )
+from products.experiments.backend.hogql_queries.exposure_query_logic import (
+    EXPERIMENT_EXPOSURE_EVENT_CUTOFF,
+    EXPERIMENT_EXPOSURE_EVENT_FLAG,
+)
 from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
 from products.experiments.backend.metric_calculation.results import _recalc_fingerprint
 from products.experiments.backend.metric_resolution import METRIC_BUILDERS
@@ -5343,6 +5347,41 @@ class TestExperimentService(APIBaseTest):
         assert cohort.is_static is False
         experiment.refresh_from_db()
         assert experiment.exposure_cohort_id == cohort.id
+
+    @parameterized.expand(
+        [
+            # (name, flag enabled for team, start_date offset from cutoff in days, expected events)
+            ("before_cutoff", True, -7, ["$feature_flag_called", "$experiment_exposure"]),
+            ("after_cutoff", True, 7, ["$experiment_exposure"]),
+            ("after_cutoff_flag_disabled", False, 7, ["$feature_flag_called", "$experiment_exposure"]),
+        ]
+    )
+    def test_create_exposure_cohort_uses_resolved_exposure_event(
+        self, name: str, flag_enabled: bool, start_offset_days: int, expected_events: list[str]
+    ) -> None:
+        flag_key = f"cohort-resolved-{name}"
+        self._create_flag(key=flag_key)
+        service = self._service()
+        experiment = service.create_experiment(
+            name=f"Resolved {name}",
+            feature_flag_key=flag_key,
+            start_date=EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=start_offset_days),
+        )
+
+        def fake_feature_enabled(key: str, *args: Any, **kwargs: Any) -> bool:
+            return flag_enabled if key == EXPERIMENT_EXPOSURE_EVENT_FLAG else False
+
+        with patch("posthoganalytics.feature_enabled", side_effect=fake_feature_enabled):
+            cohort = service.create_exposure_cohort(experiment)
+
+        assert cohort.filters is not None
+        criteria = cohort.filters["properties"]["values"][0]["values"]
+        assert [criterion["key"] for criterion in criteria] == expected_events
+        for criterion in criteria:
+            assert criterion["event_type"] == "events"
+            assert criterion["event_filters"] == [
+                {"key": "$feature_flag", "value": [flag_key], "operator": "exact", "type": "event"}
+            ]
 
     def test_create_exposure_cohort_without_start_date_raises(self):
         self._create_flag(key="cohort-no-start")

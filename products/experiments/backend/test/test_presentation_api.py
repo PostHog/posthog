@@ -7348,6 +7348,75 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
         self.assertEqual(response.status_code, 200, response.content)
         self.assertEqual(["person1", "person2"], sorted([res["name"] for res in response.json()["results"]]))
 
+    @parameterized.expand(
+        [
+            # (name, start_date, experiment-exposure-event flag enabled)
+            ("before_cutoff", "2026-08-20T10:00", True),
+            ("after_cutoff", "2026-09-10T10:00", True),
+            ("after_cutoff_flag_disabled", "2026-09-10T10:00", False),
+        ]
+    )
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    def test_create_exposure_cohort_for_flag_evaluations_only_org(
+        self, _name: str, start_date: str, flag_enabled: bool, patch_on_commit: MagicMock
+    ):
+        # Ingestion writes no $feature_flag_called rows to events for this org. Only the $experiment_exposure copies reach events.
+        OrganizationFeatureFlagsConfig.objects.update_or_create(
+            organization=self.organization,
+            defaults={"flag_evaluations_mode": FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY},
+        )
+        response = self._generate_experiment(start_date)
+        created_experiment = response.json()["id"]
+        start = datetime.fromisoformat(start_date)
+
+        journeys_for(
+            {
+                "exposed": [
+                    {
+                        "event": "$experiment_exposure",
+                        "timestamp": (start + timedelta(days=2)).isoformat(),
+                        "properties": {"$feature_flag": "a-b-test", "$feature_flag_response": "control"},
+                    },
+                ],
+                "other_flag": [
+                    {
+                        "event": "$experiment_exposure",
+                        "timestamp": (start + timedelta(days=2)).isoformat(),
+                        "properties": {"$feature_flag": "a-b-test2", "$feature_flag_response": "control"},
+                    },
+                ],
+                "before_start": [
+                    {
+                        "event": "$experiment_exposure",
+                        "timestamp": (start - timedelta(days=2)).isoformat(),
+                        "properties": {"$feature_flag": "a-b-test", "$feature_flag_response": "control"},
+                    },
+                ],
+            },
+            self.team,
+        )
+        flush_persons_and_events()
+
+        def fake_feature_enabled(flag_key: str, *args: Any, **kwargs: Any) -> bool:
+            return flag_enabled if flag_key == EXPERIMENT_EXPOSURE_EVENT_FLAG else False
+
+        with patch("posthoganalytics.feature_enabled", side_effect=fake_feature_enabled):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/experiments/{created_experiment}/create_exposure_cohort_for_experiment/",
+                {},
+            )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        cohort = response.json()["cohort"]
+        cohort_id = cohort["id"]
+
+        while cohort["is_calculating"]:
+            response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}")
+            cohort = response.json()
+
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}/persons/?cohort={cohort_id}")
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(["exposed"], [res["name"] for res in response.json()["results"]])
+
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     def test_create_exposure_cohort_for_experiment_with_custom_event_exposure(self, patch_on_commit: MagicMock):
         self.maxDiff = None
