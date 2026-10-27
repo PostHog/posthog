@@ -9,22 +9,8 @@ from typing import cast
 from uuid import UUID, uuid5
 
 from django.db import transaction
-from django.db.models import (
-    Case,
-    Count,
-    DateTimeField,
-    Exists,
-    ExpressionWrapper,
-    F,
-    Func,
-    OuterRef,
-    Subquery,
-    TextField,
-    Value,
-    When,
-    Window,
-)
-from django.db.models.functions import Cast, Coalesce, RowNumber
+from django.db.models import Case, Count, DateTimeField, Exists, F, OuterRef, Subquery, Value, When, Window
+from django.db.models.functions import Coalesce, RowNumber
 from django.utils import timezone
 
 import structlog
@@ -32,6 +18,7 @@ import structlog
 from posthog.dataclasses import frozen
 
 from products.signals.backend.models import SignalReport, SignalReportCheck, SignalReportMonitoringResult
+from products.signals.backend.report_check_final_candidates import due_final_checks
 from products.signals.backend.report_check_metric_evaluation import FinalMetricCheck, evaluate_final_metric
 from products.signals.backend.report_check_telemetry import capture_report_monitoring_evaluated
 from products.signals.backend.report_content_gates import team_report_monitoring_enabled
@@ -68,30 +55,7 @@ class FinalMetricSummary:
 def collect_due_final_metrics(now: datetime, *, limit: int, deadline: float = math.inf) -> list[DueFinalMetric]:
     if limit <= 0:
         return []
-    candidates = (
-        SignalReportCheck.all_teams.filter(
-            kind=SignalReportCheck.Kind.METRIC_THRESHOLD,
-            status__in=MONITORING_RESULT_ELIGIBLE_STATUSES,
-            soak_minutes__isnull=False,
-            report__status=SignalReport.Status.MONITORING,
-            report__monitoring_attempts__team_id=F("team_id"),
-            report__monitoring_attempts__monitoring_started_at=F("report__monitoring_started_at"),
-        )
-        .annotate(
-            _attempt_id=F("report__monitoring_attempts__id"),
-            _member_version=Func(
-                F("report__monitoring_attempts__check_versions"),
-                Cast(F("id"), output_field=TextField()),
-                function="jsonb_extract_path_text",
-                output_field=TextField(),
-            ),
-            _window_end=ExpressionWrapper(
-                F("report__monitoring_started_at") + F("soak_minutes") * Value(timedelta(minutes=1)),
-                output_field=DateTimeField(),
-            ),
-        )
-        .filter(_member_version__isnull=False, _window_end__lte=now)
-    )
+    candidates = due_final_checks(SignalReportCheck.Kind.METRIC_THRESHOLD, now)
     results = SignalReportMonitoringResult.objects.unscoped().filter(
         team_id=OuterRef("team_id"), attempt_id=OuterRef("_attempt_id"), report_check_id=OuterRef("id")
     )

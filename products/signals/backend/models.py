@@ -2649,6 +2649,24 @@ class SignalReportAgentEvaluation(UUIDModel):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
+        indexes = [
+            models.Index(
+                fields=["created_at", "id"],
+                condition=models.Q(
+                    state__in=["abandoned", "errored", "running"],
+                    task_run_id__isnull=False,
+                    drained_at__isnull=True,
+                ),
+                name="signals_agent_eval_drain_idx",
+            ),
+            models.Index(
+                models.F("last_dispatch_at").asc(nulls_first=True),
+                "created_at",
+                "id",
+                condition=models.Q(state__in=["pending", "running"]),
+                name="signals_agent_eval_recover_idx",
+            ),
+        ]
         constraints = [
             models.UniqueConstraint(fields=["attempt", "report_check", "sequence"], name="signals_agent_eval_sequence"),
             models.UniqueConstraint(

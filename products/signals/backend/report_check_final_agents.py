@@ -8,20 +8,8 @@ from typing import Literal
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import (
-    Count,
-    DateTimeField,
-    Exists,
-    ExpressionWrapper,
-    F,
-    Func,
-    OuterRef,
-    Q,
-    Subquery,
-    TextField,
-    Value,
-)
-from django.db.models.functions import Cast, Coalesce
+from django.db.models import Count, Exists, F, OuterRef, Q, Subquery, Value
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 import structlog
@@ -40,6 +28,7 @@ from products.signals.backend.models import (
 )
 from products.signals.backend.report_check_agent import AGENT_CHECK_RESULT_WINDOW
 from products.signals.backend.report_check_execution import CHECK_ERROR_RETRY_AFTER, resolve_check_query
+from products.signals.backend.report_check_final_candidates import due_final_checks
 from products.signals.backend.report_checks import (
     MAX_CONSECUTIVE_CHECK_ERRORS,
     AgentCheckConfig,
@@ -390,6 +379,7 @@ def run_due_agent_evaluations(*, deadline: float | None = None) -> int:
             Q(state__in=["abandoned", "errored"]) | Q(state="running", created_at__lte=now - AGENT_CHECK_RESULT_WINDOW),
             task_run_id__isnull=False,
             drained_at__isnull=True,
+            state__in=["abandoned", "errored", "running"],
         )
         .order_by("created_at", "id")[:MAX_AGENT_RECOVERIES_PER_TICK]
     ):
@@ -409,6 +399,7 @@ def run_due_agent_evaluations(*, deadline: float | None = None) -> int:
             | Q(state="running", created_at__lte=now - AGENT_CHECK_RESULT_WINDOW),
             report__status=SignalReport.Status.MONITORING,
             attempt__monitoring_started_at=F("report__monitoring_started_at"),
+            state__in=["pending", "running"],
         )
         .filter(Q(last_dispatch_at__isnull=True) | Q(last_dispatch_at__lte=now - AGENT_DISPATCH_RETRY_AFTER))
         .order_by(F("last_dispatch_at").asc(nulls_first=True), "created_at", "id")[:MAX_AGENT_RECOVERIES_PER_TICK]
@@ -440,30 +431,7 @@ def run_due_agent_evaluations(*, deadline: float | None = None) -> int:
 
     if started >= MAX_AGENT_DISPATCHES_PER_TICK or time.monotonic() >= deadline:
         return started + recovered
-    candidates = (
-        SignalReportCheck.all_teams.filter(
-            kind=SignalReportCheck.Kind.AGENT,
-            status__in=MONITORING_RESULT_ELIGIBLE_STATUSES,
-            soak_minutes__isnull=False,
-            report__status=SignalReport.Status.MONITORING,
-            report__monitoring_attempts__team_id=F("team_id"),
-            report__monitoring_attempts__monitoring_started_at=F("report__monitoring_started_at"),
-        )
-        .annotate(
-            _attempt_id=F("report__monitoring_attempts__id"),
-            _member_version=Func(
-                F("report__monitoring_attempts__check_versions"),
-                Cast(F("id"), output_field=TextField()),
-                function="jsonb_extract_path_text",
-                output_field=TextField(),
-            ),
-            _window_end=ExpressionWrapper(
-                F("report__monitoring_started_at") + F("soak_minutes") * Value(timedelta(minutes=1)),
-                output_field=DateTimeField(),
-            ),
-        )
-        .filter(_member_version__isnull=False, _window_end__lte=now)
-    )
+    candidates = due_final_checks(SignalReportCheck.Kind.AGENT, now)
     evaluations = SignalReportAgentEvaluation.objects.unscoped().filter(
         team_id=OuterRef("team_id"), attempt_id=OuterRef("_attempt_id"), report_check_id=OuterRef("id")
     )
