@@ -13,7 +13,7 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
-import type { MockResolverInfo } from '~/mocks/utils'
+import type { MockResolverInfo, Mocks } from '~/mocks/utils'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { IMAGE_QUERY, IMAGE_RESULTS } from '~/queries/nodes/HogQLX/image.fixtures'
 import { BIConfig, BIField } from '~/queries/schema/schema-business-intelligence'
@@ -614,6 +614,22 @@ export const SidebarMaterializationStatus: Story = {
     },
 }
 
+const BI_MODE_WORKSHEET_MOCKS = {
+    get: {
+        '/api/projects/:team_id/warehouse_expressions/': { results: [] },
+        '/api/environments/:team_id/warehouse_expressions/': { results: [] },
+    },
+    post: {
+        // The specific path wins over the catch-all query mock on the meta
+        '/api/environments/:team_id/query/DatabaseSchemaQuery/': {
+            tables: {
+                events: { id: 'events', name: 'events', type: 'posthog', fields: BI_EVENTS_FIELDS },
+            },
+        },
+        '/api/environments/:team_id/query/HogQLQuery/': BI_WORKSHEET_RESULTS,
+    },
+} satisfies Mocks
+
 export const BIModeWorksheet: Story = {
     beforeEach: pinQueryTimer,
     parameters: {
@@ -629,21 +645,7 @@ export const BIModeWorksheet: Story = {
             viewport: { width: 1600, height: 900 },
         },
         msw: {
-            mocks: {
-                get: {
-                    '/api/projects/:team_id/warehouse_expressions/': { results: [] },
-                    '/api/environments/:team_id/warehouse_expressions/': { results: [] },
-                },
-                post: {
-                    // The specific path wins over the catch-all query mock on the meta
-                    '/api/environments/:team_id/query/DatabaseSchemaQuery/': {
-                        tables: {
-                            events: { id: 'events', name: 'events', type: 'posthog', fields: BI_EVENTS_FIELDS },
-                        },
-                    },
-                    '/api/environments/:team_id/query/HogQLQuery/': BI_WORKSHEET_RESULTS,
-                },
-            },
+            mocks: BI_MODE_WORKSHEET_MOCKS,
         },
     },
 }
@@ -694,9 +696,9 @@ export const BISavedInsight: Story = {
         testOptions: { waitForSelector: '[data-attr="insight-edit-button"]', viewport: { width: 1600, height: 900 } },
         msw: {
             mocks: {
-                ...BIModeWorksheet.parameters?.msw.mocks,
+                ...BI_MODE_WORKSHEET_MOCKS,
                 get: {
-                    ...BIModeWorksheet.parameters?.msw.mocks.get,
+                    ...BI_MODE_WORKSHEET_MOCKS.get,
                     '/api/:scope/:team_id/insights/': [200, { results: [BI_SAVED_INSIGHT] }],
                     '/api/environments/:team_id/insights/:id/': [200, BI_SAVED_INSIGHT],
                     '/api/projects/:team_id/events_retention/': [200, { retention_months: null, retained_from: null }],
@@ -733,9 +735,9 @@ export const BICalculatedMeasureEditor: Story = {
         },
         msw: {
             mocks: {
-                ...BIModeWorksheet.parameters?.msw.mocks,
+                ...BI_MODE_WORKSHEET_MOCKS,
                 post: {
-                    ...BIModeWorksheet.parameters?.msw.mocks.post,
+                    ...BI_MODE_WORKSHEET_MOCKS.post,
                     '/api/projects/:team_id/query/HogQLAutocomplete/': {
                         suggestions: [{ kind: 'Variable', label: 'event', insertText: 'event', detail: 'String' }],
                         incomplete_list: false,
@@ -804,9 +806,9 @@ export const BIQuickFilters: Story = {
         pageUrl: `${urls.businessIntelligence()}#${new URLSearchParams({ q: buildBIQuery(BI_QUICK_FILTERS_CONFIG)?.query ?? '', mode: 'bi', bi: JSON.stringify(BI_QUICK_FILTERS_CONFIG) })}`,
         msw: {
             mocks: {
-                ...BIModeWorksheet.parameters?.msw.mocks,
+                ...BI_MODE_WORKSHEET_MOCKS,
                 post: {
-                    ...BIModeWorksheet.parameters?.msw.mocks.post,
+                    ...BI_MODE_WORKSHEET_MOCKS.post,
                     '/api/environments/:team_id/query/HogQLQuery/': async ({ request }: { request: Request }) => {
                         const { query } = await request.json()
                         return [
@@ -1032,9 +1034,9 @@ export const BIDataSourcePicker: Story = {
         },
         msw: {
             mocks: {
-                ...BIModeWorksheet.parameters?.msw.mocks,
+                ...BI_MODE_WORKSHEET_MOCKS,
                 post: {
-                    ...BIModeWorksheet.parameters?.msw.mocks.post,
+                    ...BI_MODE_WORKSHEET_MOCKS.post,
                     '/api/environments/:team_id/query/DatabaseSchemaQuery/': {
                         tables: {
                             events: { id: 'events', name: 'events', type: 'posthog', fields: BI_EVENTS_FIELDS },
@@ -1227,9 +1229,9 @@ export const BIConnections: Story = {
         },
         msw: {
             mocks: {
-                ...BIModeWorksheet.parameters?.msw.mocks,
+                ...BI_MODE_WORKSHEET_MOCKS,
                 post: {
-                    ...BIModeWorksheet.parameters?.msw.mocks.post,
+                    ...BI_MODE_WORKSHEET_MOCKS.post,
                     '/api/environments/:team_id/query/DatabaseSchemaQuery/': {
                         tables: {
                             events: {
@@ -1327,6 +1329,29 @@ async function stabilizeQueryElapsedTime(): Promise<void> {
     logic!.actions.setElapsedTime(180)
 }
 
+const BI_TABLE_ANALYSIS_MOCKS = {
+    ...BI_MODE_WORKSHEET_MOCKS,
+    post: {
+        ...BI_MODE_WORKSHEET_MOCKS.post,
+        '/api/environments/:team_id/query/HogQLQuery/': {
+            columns: ['bi_row_timestamp', 'bi_column_event', 'sum_revenue', 'average_revenue_2'],
+            types: [
+                ['bi_row_timestamp', 'String'],
+                ['bi_column_event', 'String'],
+                ['sum_revenue', 'Nullable(Float64)'],
+                ['average_revenue_2', 'Float64'],
+            ],
+            results: [
+                ['Total', 'Total', null, 14.2],
+                ['2026-06-01', 'purchase', 120, 12],
+                ['2026-06-02', 'purchase', 300, 15],
+                ['2026-06-01', 'Other', 40, 10],
+            ],
+            hasMore: false,
+        },
+    },
+} satisfies Mocks
+
 export const BITableAnalysis: Story = {
     ...BIModeWorksheet,
     parameters: {
@@ -1337,28 +1362,7 @@ export const BITableAnalysis: Story = {
             bi: JSON.stringify(BI_ANALYSIS_CONFIG),
         })}`,
         msw: {
-            mocks: {
-                ...BIModeWorksheet.parameters?.msw.mocks,
-                post: {
-                    ...BIModeWorksheet.parameters?.msw.mocks.post,
-                    '/api/environments/:team_id/query/HogQLQuery/': {
-                        columns: ['bi_row_timestamp', 'bi_column_event', 'sum_revenue', 'average_revenue_2'],
-                        types: [
-                            ['bi_row_timestamp', 'String'],
-                            ['bi_column_event', 'String'],
-                            ['sum_revenue', 'Nullable(Float64)'],
-                            ['average_revenue_2', 'Float64'],
-                        ],
-                        results: [
-                            ['Total', 'Total', null, 14.2],
-                            ['2026-06-01', 'purchase', 120, 12],
-                            ['2026-06-02', 'purchase', 300, 15],
-                            ['2026-06-01', 'Other', 40, 10],
-                        ],
-                        hasMore: false,
-                    },
-                },
-            },
+            mocks: BI_TABLE_ANALYSIS_MOCKS,
         },
     },
     play: async ({ canvasElement }) => {
@@ -1390,33 +1394,35 @@ const BI_COMBO_CONFIG: BIConfig = {
     ],
 }
 
+const BI_COMBINED_MEASURES_MOCKS = {
+    ...BI_MODE_WORKSHEET_MOCKS,
+    post: {
+        ...BI_MODE_WORKSHEET_MOCKS.post,
+        '/api/environments/:team_id/query/HogQLQuery/': {
+            columns: ['toStartOfDay(timestamp)', 'sum_revenue', 'average_revenue_2'],
+            types: [
+                ['toStartOfDay(timestamp)', 'DateTime'],
+                ['sum_revenue', 'Float64'],
+                ['average_revenue_2', 'Float64'],
+            ],
+            results: [
+                ['2026-06-01', 1200, 12.5],
+                ['2026-06-02', 2100, 15.2],
+                ['2026-06-03', 1800, 13.4],
+                ['2026-06-04', 2450, 16.8],
+            ],
+            hasMore: false,
+        },
+    },
+} satisfies Mocks
+
 export const BICombinedMeasures: Story = {
     ...BIModeWorksheet,
     parameters: {
         ...BIModeWorksheet.parameters,
         pageUrl: `${urls.businessIntelligence()}#${new URLSearchParams({ q: buildBIQuery(BI_COMBO_CONFIG)!.query, mode: 'bi', bi: JSON.stringify(BI_COMBO_CONFIG) })}`,
         msw: {
-            mocks: {
-                ...BIModeWorksheet.parameters?.msw.mocks,
-                post: {
-                    ...BIModeWorksheet.parameters?.msw.mocks.post,
-                    '/api/environments/:team_id/query/HogQLQuery/': {
-                        columns: ['toStartOfDay(timestamp)', 'sum_revenue', 'average_revenue_2'],
-                        types: [
-                            ['toStartOfDay(timestamp)', 'DateTime'],
-                            ['sum_revenue', 'Float64'],
-                            ['average_revenue_2', 'Float64'],
-                        ],
-                        results: [
-                            ['2026-06-01', 1200, 12.5],
-                            ['2026-06-02', 2100, 15.2],
-                            ['2026-06-03', 1800, 13.4],
-                            ['2026-06-04', 2450, 16.8],
-                        ],
-                        hasMore: false,
-                    },
-                },
-            },
+            mocks: BI_COMBINED_MEASURES_MOCKS,
         },
     },
     play: async ({ canvasElement }) => {
@@ -1445,9 +1451,9 @@ export const BIDrilldown: Story = {
         testOptions: { ...BITableAnalysis.parameters?.testOptions, includeNavigationInSnapshot: true },
         msw: {
             mocks: {
-                ...BITableAnalysis.parameters?.msw.mocks,
+                ...BI_TABLE_ANALYSIS_MOCKS,
                 post: {
-                    ...BITableAnalysis.parameters?.msw.mocks.post,
+                    ...BI_TABLE_ANALYSIS_MOCKS.post,
                     '/api/environments/:team_id/query/HogQLQuery/': async ({ request }: MockResolverInfo) => {
                         const { query } = (await request.json()) as { query: { query: string } }
                         return query.query.startsWith('SELECT *')
@@ -1464,7 +1470,7 @@ export const BIDrilldown: Story = {
                                   ],
                                   hasMore: false,
                               }
-                            : BITableAnalysis.parameters?.msw.mocks.post['/api/environments/:team_id/query/HogQLQuery/']
+                            : BI_TABLE_ANALYSIS_MOCKS.post['/api/environments/:team_id/query/HogQLQuery/']
                     },
                 },
             },
@@ -1494,9 +1500,9 @@ export const BIOneClickComparison: Story = {
         pageUrl: `${urls.businessIntelligence()}#${new URLSearchParams({ q: buildBIQuery(BI_COMPARISON_CONFIG)!.query, mode: 'bi', bi: JSON.stringify(BI_COMPARISON_CONFIG) })}`,
         msw: {
             mocks: {
-                ...BICombinedMeasures.parameters?.msw.mocks,
+                ...BI_COMBINED_MEASURES_MOCKS,
                 post: {
-                    ...BICombinedMeasures.parameters?.msw.mocks.post,
+                    ...BI_COMBINED_MEASURES_MOCKS.post,
                     '/api/environments/:team_id/query/HogQLQuery/': {
                         columns: ['bi_row_timestamp', 'sum_revenue', 'bi_comparison'],
                         types: [
@@ -1536,9 +1542,9 @@ export const BIPivotTotals: Story = {
         pageUrl: `${urls.businessIntelligence()}#${new URLSearchParams({ q: buildBIQuery(BI_PIVOT_TOTALS_CONFIG)!.query, mode: 'bi', bi: JSON.stringify(BI_PIVOT_TOTALS_CONFIG) })}`,
         msw: {
             mocks: {
-                ...BITableAnalysis.parameters?.msw.mocks,
+                ...BI_TABLE_ANALYSIS_MOCKS,
                 post: {
-                    ...BITableAnalysis.parameters?.msw.mocks.post,
+                    ...BI_TABLE_ANALYSIS_MOCKS.post,
                     '/api/environments/:team_id/query/HogQLQuery/': {
                         columns: ['bi_row_timestamp', 'bi_column_event', 'sum_revenue'],
                         types: [
@@ -1590,9 +1596,9 @@ export const BINamedHierarchy: Story = {
         testOptions: { ...BITableAnalysis.parameters?.testOptions, includeNavigationInSnapshot: true },
         msw: {
             mocks: {
-                ...BIModeWorksheet.parameters?.msw.mocks,
+                ...BI_MODE_WORKSHEET_MOCKS,
                 get: {
-                    ...BIModeWorksheet.parameters?.msw.mocks.get,
+                    ...BI_MODE_WORKSHEET_MOCKS.get,
                     '/api/projects/:team_id/insights/': {
                         results: [
                             {
@@ -1613,7 +1619,7 @@ export const BINamedHierarchy: Story = {
                     },
                 },
                 post: {
-                    ...BIModeWorksheet.parameters?.msw.mocks.post,
+                    ...BI_MODE_WORKSHEET_MOCKS.post,
                     '/api/environments/:team_id/query/DatabaseSchemaQuery/': {
                         tables: {
                             events: {
@@ -1805,9 +1811,9 @@ export const BISourcePreviewLargeSample: Story = {
         ...BIModeWorksheet.parameters,
         msw: {
             mocks: {
-                ...BIModeWorksheet.parameters!.msw.mocks,
+                ...BI_MODE_WORKSHEET_MOCKS,
                 get: {
-                    ...BIModeWorksheet.parameters!.msw.mocks.get,
+                    ...BI_MODE_WORKSHEET_MOCKS.get,
                     '/api/projects/:team_id/data_catalog/relationship_proposals/': {
                         count: 0,
                         next: null,
@@ -1815,7 +1821,7 @@ export const BISourcePreviewLargeSample: Story = {
                     },
                 },
                 post: {
-                    ...BIModeWorksheet.parameters!.msw.mocks.post,
+                    ...BI_MODE_WORKSHEET_MOCKS.post,
                     '/api/projects/:team_id/file_system/home_folder/': { id: 'example-home', path: 'Users/Example' },
                     '/api/environments/:team_id/query/HogQLQuery/': async ({ request }: MockResolverInfo) => {
                         const { query } = (await request.json()) as { query: { query: string } }
@@ -1906,9 +1912,9 @@ export const BIWideTransposedResults: Story = {
         },
         msw: {
             mocks: {
-                ...BIModeWorksheet.parameters!.msw.mocks,
+                ...BI_MODE_WORKSHEET_MOCKS,
                 get: {
-                    ...BIModeWorksheet.parameters!.msw.mocks.get,
+                    ...BI_MODE_WORKSHEET_MOCKS.get,
                     '/api/projects/:team_id/data_catalog/relationship_proposals/': {
                         count: 0,
                         next: null,
@@ -1916,7 +1922,7 @@ export const BIWideTransposedResults: Story = {
                     },
                 },
                 post: {
-                    ...BIModeWorksheet.parameters!.msw.mocks.post,
+                    ...BI_MODE_WORKSHEET_MOCKS.post,
                     '/api/projects/:team_id/file_system/home_folder/': { id: 'example-home', path: 'Users/Example' },
                     '/api/environments/:team_id/query/HogQLQuery/': {
                         columns: [
