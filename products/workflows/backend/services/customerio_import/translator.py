@@ -66,6 +66,7 @@ class _Builder:
         self.actions: dict[str, dict[str, Any]] = {}
         # Outgoing links per source action id: (target source id, edge type, index).
         self.links: dict[str, list[tuple[str, str, int | None]]] = {}
+        self.snippet_room = liquid.SnippetRoom()
 
     def note(self, level: NoteLevel, message: str, action: dict[str, Any] | None = None) -> None:
         self.notes.append(
@@ -422,11 +423,12 @@ class _Builder:
         return template
 
     def _liquid(self, text: str | None, action: dict[str, Any], field: str) -> str:
-        rewritten = liquid.rewrite(text, self.options.snippets)
+        rewritten = liquid.rewrite(text, self.options.snippets, self.snippet_room)
         for name in rewritten.missing_snippets:
             self.note(
                 NoteLevel.NEEDS_INPUT,
-                f"The {field} includes the Customer.io snippet `{name}`, which was not part of the import. "
+                f"The {field} includes the Customer.io snippet `{name}`, which was not part of the import or was too "
+                "large to copy in. "
                 "Replace it with the snippet's content.",
                 action,
             )
