@@ -92,15 +92,33 @@ const STEPS: Step[] = [
     },
 ]
 
-function StepContent({ step }: { step: Step['key'] }): JSX.Element | null {
-    const { evaluation } = useValues(llmEvaluationLogic)
+function StepContent({ step, isNew }: { step: Step['key']; isNew: boolean }): JSX.Element | null {
+    const { evaluation, canEnable, canEnableReason } = useValues(llmEvaluationLogic)
+    const { setEvaluationEnabled } = useActions(llmEvaluationLogic)
 
     if (!evaluation) {
         return null
     }
     switch (step) {
         case 'name':
-            return <EvaluationNameFields />
+            return (
+                <>
+                    <EvaluationNameFields />
+                    {/* A new evaluation sets this on its create step. */}
+                    {!isNew && (
+                        <LemonSwitch
+                            checked={evaluation.enabled}
+                            onChange={setEvaluationEnabled}
+                            disabledReason={
+                                !canEnable && !evaluation.enabled ? (canEnableReason ?? undefined) : undefined
+                            }
+                            label={evaluation.enabled ? 'Running on new traffic' : 'Paused'}
+                            bordered
+                            data-attr="llma-evaluation-configuration-enabled"
+                        />
+                    )}
+                </>
+            )
         case 'check':
             return (
                 <>
@@ -123,24 +141,26 @@ function StepContent({ step }: { step: Step['key'] }): JSX.Element | null {
                 </>
             )
         case 'reports':
-            return <EvaluationReportsPanel switchInHeader />
+            return <EvaluationReportsPanel />
         case 'create':
             return null
     }
 }
 
 /**
- * The new evaluation form as steps, with the setup sentence above them as the overview of every choice so far.
- * Clicking a part of the sentence or a step goes straight there, so steps can be visited in any order.
+ * An evaluation's settings as steps, with the setup sentence above them as the overview of every choice so far.
+ * Clicking a part of the sentence or a step goes straight there, so steps can be visited in any order. A new
+ * evaluation ends on a create step. A saved one has no such step, because the page header saves it.
  */
-export function EvaluationCreateSteps({
+export function EvaluationFormSteps({
     checklist,
     onCreate,
     onCancel,
 }: {
     checklist: ChecklistItem[]
-    onCreate: () => void
-    onCancel: () => void
+    /** Set for a new evaluation. Without it the steps edit a saved one. */
+    onCreate?: () => void
+    onCancel?: () => void
 }): JSX.Element | null {
     const [index, setIndex] = useState(0)
     const { evaluation, canEnable, canEnableReason } = useValues(llmEvaluationLogic)
@@ -149,14 +169,16 @@ export function EvaluationCreateSteps({
     if (!evaluation) {
         return null
     }
-    const step = STEPS[index]
-    const isLast = index === STEPS.length - 1
+    const steps = onCreate ? STEPS : STEPS.filter((candidate) => candidate.key !== 'create')
+    const step = steps[index]
+    const isLast = index === steps.length - 1
+    const isCreateStep = step.key === 'create'
     const todo = checklist.filter((item) => !item.done)
     const stepDone = (candidate: Step): boolean =>
         candidate.checks.every((key) => checklist.find((item) => item.key === key)?.done ?? true)
     const goTo = (next: number, via: 'next' | 'back' | 'sentence' | 'stepper'): void => {
         // pinned: analytics event name and properties, because the creation funnel reads them
-        posthog.capture('llma evaluation create step viewed', { step: STEPS[next].key, via })
+        posthog.capture('llma evaluation create step viewed', { step: steps[next].key, via, is_new: !!onCreate })
         setIndex(next)
     }
     const Hoggie = step.hoggie
@@ -173,7 +195,7 @@ export function EvaluationCreateSteps({
                 }
             />
             <nav className="flex flex-wrap items-center justify-center gap-2" aria-label="Steps">
-                {STEPS.map((candidate, candidateIndex) => {
+                {steps.map((candidate, candidateIndex) => {
                     const current = candidateIndex === index
                     // A step counts as done once you have moved past it and nothing in it is missing.
                     const done = !current && candidateIndex < index && stepDone(candidate)
@@ -220,18 +242,18 @@ export function EvaluationCreateSteps({
                     <Hoggie className="w-16 shrink-0" />
                     <div className="flex flex-col gap-1 min-w-0 flex-1">
                         <h2 className="mb-0 text-lg font-semibold">
-                            {isLast && todo.length > 0 ? 'Before you create' : step.heading}
+                            {isCreateStep && todo.length > 0 ? 'Before you create' : step.heading}
                         </h2>
                         <p className="mb-0 text-sm text-secondary">{step.description}</p>
                     </div>
                     {step.key === 'reports' && <EvaluationReportsSwitch />}
                 </div>
-                {!isLast && (
+                {!isCreateStep && (
                     <div className="flex flex-col gap-4 min-w-0">
-                        <StepContent step={step.key} />
+                        <StepContent step={step.key} isNew={!!onCreate} />
                     </div>
                 )}
-                {isLast && (
+                {isCreateStep && (
                     <div className="flex flex-col gap-3">
                         {todo.length === 0 && <p className="mb-0 text-sm text-success">Everything it needs is set.</p>}
                         {todo.length > 0 && (
@@ -240,7 +262,7 @@ export function EvaluationCreateSteps({
                                 data-attr="llma-evaluation-create-checklist"
                             >
                                 {todo.map((item) => {
-                                    const owner = STEPS.findIndex((candidate) => candidate.checks.includes(item.key))
+                                    const owner = steps.findIndex((candidate) => candidate.checks.includes(item.key))
                                     return (
                                         <li key={item.key}>
                                             <span className="font-semibold">{item.label}: </span>
@@ -280,23 +302,27 @@ export function EvaluationCreateSteps({
                         <span />
                     )}
                     <div className="flex items-center gap-2">
-                        <LemonButton type="tertiary" onClick={onCancel}>
-                            Cancel
-                        </LemonButton>
-                        {isLast ? (
+                        {onCancel && (
+                            <LemonButton type="tertiary" onClick={onCancel}>
+                                Cancel
+                            </LemonButton>
+                        )}
+                        {isCreateStep && onCreate ? (
                             <EvaluationCreateButton
                                 onCreate={onCreate}
                                 disabledReason={todo[0]?.todo}
                                 data-attr="llma-evaluation-create-submit"
                             />
                         ) : (
-                            <LemonButton
-                                type="primary"
-                                onClick={() => goTo(index + 1, 'next')}
-                                data-attr="llma-evaluation-create-next-step"
-                            >
-                                {`Next: ${STEPS[index + 1].title}`}
-                            </LemonButton>
+                            !isLast && (
+                                <LemonButton
+                                    type="primary"
+                                    onClick={() => goTo(index + 1, 'next')}
+                                    data-attr="llma-evaluation-create-next-step"
+                                >
+                                    {`Next: ${steps[index + 1].title}`}
+                                </LemonButton>
+                            )
                         )}
                     </div>
                 </div>

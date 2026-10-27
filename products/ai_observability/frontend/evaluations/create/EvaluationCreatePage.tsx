@@ -17,7 +17,7 @@ import { evaluationVolumeLogic } from '../evaluationVolumeLogic'
 import { hasUnsetConditionRollout, llmEvaluationLogic } from '../llmEvaluationLogic'
 import { defaultEvaluationTemplates } from '../templates'
 import { categoryResultError, creationChecklist } from './creationChecklist'
-import { EvaluationCreateSteps } from './EvaluationCreateSteps'
+import { EvaluationFormSteps } from './EvaluationFormSteps'
 
 /** The new evaluation form: centered steps under a sentence that sums up the setup. */
 export function EvaluationCreatePage({ templateKey }: { templateKey?: string }): JSX.Element | null {
@@ -110,7 +110,7 @@ export function EvaluationCreatePage({ templateKey }: { templateKey?: string }):
                     </div>
                 </SceneStickyBar>
                 <div className="w-full max-w-4xl mx-auto">
-                    <EvaluationCreateSteps checklist={checklist} onCreate={handleCreate} onCancel={handleCancel} />
+                    <EvaluationFormSteps checklist={checklist} onCreate={handleCreate} onCancel={handleCancel} />
                 </div>
             </div>
         </BindLogic>

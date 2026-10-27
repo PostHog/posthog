@@ -7,18 +7,12 @@ import { LemonButton, LemonInput, LemonSelect, LemonSkeleton, LemonTextArea } fr
 import { DeliveryTargetsConfig, GUIDANCE_PLACEHOLDER } from '../components/EvaluationReportConfig'
 import { WEEKDAY_OPTIONS, evaluationReportLogic } from '../evaluationReportLogic'
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
-import { EvaluationReportsSwitch } from './EvaluationReportsSwitch'
 import { reportsUnavailableReason } from './evaluationSummary'
 
 type Cadence = 'every_n' | 'daily' | 'weekly'
 
-/** Scheduled reports in a few lines: when they arrive, where they go, and optional guidance for the agent. */
-export function EvaluationReportsPanel({
-    switchInHeader = false,
-}: {
-    /** Set when the surrounding card already shows the reports switch and what reports do. */
-    switchInHeader?: boolean
-}): JSX.Element | null {
+/** Scheduled reports in a few lines: when they arrive, where they go, and optional guidance for the agent. The step heading holds the on and off switch. */
+export function EvaluationReportsPanel(): JSX.Element | null {
     const { props } = useMountedLogic(llmEvaluationLogic)
     const [guidanceOpen, setGuidanceOpen] = useState(false)
     const { evaluation, isReportableEvaluation } = useValues(llmEvaluationLogic)
@@ -66,16 +60,7 @@ export function EvaluationReportsPanel({
 
     return (
         <div className="flex flex-col gap-4">
-            {switchInHeader ? (
-                unavailableReason && <p className="mb-0 text-sm text-secondary">{unavailableReason}</p>
-            ) : (
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                    <p className="mb-0 text-sm text-secondary">
-                        {unavailableReason ?? 'An agent reads the results and writes up what changed, with examples.'}
-                    </p>
-                    <EvaluationReportsSwitch />
-                </div>
-            )}
+            {unavailableReason && <p className="mb-0 text-sm text-secondary">{unavailableReason}</p>}
             {enabled && (
                 <>
                     <div className="flex flex-col gap-1">

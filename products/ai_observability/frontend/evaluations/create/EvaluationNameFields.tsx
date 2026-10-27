@@ -21,39 +21,23 @@ export function EvaluationNameFields(): JSX.Element | null {
     }
 
     return (
-        <div className="grid grid-cols-1 gap-4 @min-[40rem]/evaluation:grid-cols-[minmax(0,1fr)_14rem]">
+        // Both fields share the same label style, so the name input and the folder picker line up.
+        <div className="grid grid-cols-1 gap-x-4 gap-y-2 items-start @min-[40rem]/evaluation:grid-cols-[minmax(0,1fr)_14rem]">
             <div className="flex flex-col gap-2 min-w-0">
-                <div className="flex items-center justify-between gap-2">
-                    <label className="font-semibold text-sm" htmlFor="llma-evaluation-create-name">
-                        Name
-                    </label>
-                    {/* The field waits behind this button, even when a template filled it in, so it takes no room. */}
-                    {!descriptionOpen && (
-                        <LemonButton
-                            type="tertiary"
-                            size="xsmall"
-                            icon={<IconPlus />}
-                            onClick={() => setDescriptionOpen(true)}
-                            data-attr="llma-evaluation-create-add-description"
-                        >
-                            {evaluation.description ? 'Edit description' : 'Add description'}
-                        </LemonButton>
-                    )}
-                </div>
-                <LemonInput
-                    id="llma-evaluation-create-name"
-                    value={evaluation.name}
-                    onChange={setEvaluationName}
-                    placeholder="For example, Answer is grounded in the docs"
-                    maxLength={100}
-                    autoFocus={!evaluation.name}
-                    data-attr="llma-evaluation-create-name"
-                />
-                {descriptionOpen && (
-                    <div className="flex flex-col gap-1 mt-1">
-                        <label className="font-semibold text-sm" htmlFor="llma-evaluation-create-description">
-                            Description <span className="font-normal text-secondary">(optional)</span>
-                        </label>
+                <LemonField.Pure label="Name" htmlFor="llma-evaluation-create-name">
+                    <LemonInput
+                        id="llma-evaluation-create-name"
+                        value={evaluation.name}
+                        onChange={setEvaluationName}
+                        placeholder="For example, Answer is grounded in the docs"
+                        maxLength={100}
+                        autoFocus={!evaluation.name}
+                        data-attr="llma-evaluation-create-name"
+                    />
+                </LemonField.Pure>
+                {/* The field waits behind this button, even when a template filled it in, so it takes no room. */}
+                {descriptionOpen ? (
+                    <LemonField.Pure label="Description (optional)" htmlFor="llma-evaluation-create-description">
                         <LemonInput
                             id="llma-evaluation-create-description"
                             value={evaluation.description || ''}
@@ -63,6 +47,18 @@ export function EvaluationNameFields(): JSX.Element | null {
                             autoFocus
                             data-attr="llma-evaluation-create-description"
                         />
+                    </LemonField.Pure>
+                ) : (
+                    <div>
+                        <LemonButton
+                            type="tertiary"
+                            size="xsmall"
+                            icon={<IconPlus />}
+                            onClick={() => setDescriptionOpen(true)}
+                            data-attr="llma-evaluation-create-add-description"
+                        >
+                            {evaluation.description ? 'Edit description' : 'Add description'}
+                        </LemonButton>
                     </div>
                 )}
             </div>
