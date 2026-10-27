@@ -120267,6 +120267,12 @@ export namespace Schemas {
       nodeIdsByAlias: TraceNodeIdsByAlias;
     }
 
+    export interface TraceChoiceAnswer {
+      kind: 'choice';
+      question: string;
+      choices: string[];
+    }
+
     export type TraceEvaluationResultOutcomeEnum = typeof TraceEvaluationResultOutcomeEnum[keyof typeof TraceEvaluationResultOutcomeEnum];
 
 
@@ -120314,16 +120320,78 @@ export namespace Schemas {
       timestamp: string;
     }
 
+    export interface TraceSurvey {
+      id: string;
+      /** Null when the survey no longer exists. */
+      name: string | null;
+    }
+
+    export interface TraceThumbsAnswer {
+      kind: 'thumbs';
+      question: string;
+      up: boolean;
+    }
+
+    export interface TraceRatingAnswer {
+      kind: 'rating';
+      question: string;
+      value: string;
+      scale: number | null;
+      lowerLabel: string | null;
+      upperLabel: string | null;
+    }
+
+    export interface TraceTextAnswer {
+      kind: 'text';
+      question: string;
+      text: string;
+    }
+
+    /**
+     * Why the answers cannot be shown: the survey was deleted, or it has no questions.
+     */
+    export type TraceSurveyResponseUnavailable = typeof TraceSurveyResponseUnavailable[keyof typeof TraceSurveyResponseUnavailable] | null;
+
+
+    export const TraceSurveyResponseUnavailable = {
+      SurveyNotFound: 'survey_not_found',
+      NoQuestions: 'no_questions',
+    } as const;
+
+    export interface TraceSurveyResponse {
+      kind: 'survey';
+      id: string;
+      timestamp: string;
+      survey: TraceSurvey;
+      answers: (TraceThumbsAnswer | TraceRatingAnswer | TraceChoiceAnswer | TraceTextAnswer)[];
+      /** False when the user left the survey before its end. */
+      complete: boolean;
+      /** Why the answers cannot be shown: the survey was deleted, or it has no questions. */
+      unavailable: TraceSurveyResponseUnavailable;
+    }
+
+    export interface TraceUnansweredSurvey {
+      survey: TraceSurvey;
+      /** When the survey was first shown. */
+      timestamp: string;
+    }
+
     export interface TraceFeedbackSummary {
       /** Scores plus responses. */
       total: number;
+      /** Thumbs up answers to 2-point survey rating questions. */
+      thumbsUp: number;
+      /** Thumbs down answers to 2-point survey rating questions. */
+      thumbsDown: number;
     }
 
     export interface TraceFeedback {
       /** Oldest first. */
       scores: TraceFeedbackScore[];
       /** What users said, oldest first. */
-      responses: TraceFeedbackText[];
+      responses: (TraceFeedbackText | TraceSurveyResponse)[];
+      /** Surveys shown with the trace and not answered, oldest first. */
+      unanswered: TraceUnansweredSurvey[];
       summary: TraceFeedbackSummary;
     }
 

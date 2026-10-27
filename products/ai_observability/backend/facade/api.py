@@ -5,6 +5,13 @@ from posthog.schema import HogQLPropertyFilter
 
 from posthog.models import Team, User
 
+from products.surveys.backend.facade.api import (
+    LinkedSurveyAnswer,
+    LinkedSurveyResponse,
+    SurveyRef,
+    get_survey_responses_linked_to,
+)
+
 from ..logic.evaluations.evaluation_metas import load_evaluation_meta, load_evaluation_metas
 from ..logic.evaluations.overview import evaluation_result, group_by_evaluation, overview_totals, pass_rate_overview
 from ..logic.evaluations.overview_queries import load_bucket_counts, load_category_counts
@@ -21,6 +28,7 @@ from ..logic.traces.evaluation_result_queries import load_evaluation_results, lo
 from ..logic.traces.events_fallback import fallback_window
 from ..logic.traces.feedback import FeedbackText, Score, TraceFeedback
 from ..logic.traces.node import NodeEvent
+from ..logic.traces.survey_feedback import THUMBS_UP, answer_kind, count_thumbs, survey_window
 from ..logic.traces.timeline import TimelineRow
 from ..logic.traces.trace import Trace
 from ..logic.traces.trace_queries import load_trace, load_trace_feedback_rows, load_trace_node, load_trace_root
@@ -228,14 +236,38 @@ def _to_evaluation_result(result: EvaluationResult) -> contracts.TraceEvaluation
 def get_trace_feedback(
     team: Team, user: User | None, trace_id: str, timestamp_hint: datetime | None
 ) -> contracts.TraceFeedback:
-    """End-user feedback on a trace. An unknown trace has none."""
-    feedback = TraceFeedback(trace_id, load_trace_feedback_rows(team, user, trace_id, timestamp_hint))
+    """End-user feedback on a trace, from its feedback events and the survey responses linked to it. An unknown trace
+    has none."""
+    rows = load_trace_feedback_rows(team, user, trace_id, timestamp_hint)
+    feedback = TraceFeedback(trace_id, rows)
+    window = survey_window(rows, timestamp_hint)
+    linked = (
+        get_survey_responses_linked_to(
+            team, user, property_name="$ai_trace_id", property_value=trace_id, since=window.start, until=window.end
+        )
+        if window is not None
+        else None
+    )
+    survey_responses = linked.responses if linked is not None else ()
+    thumbs = count_thumbs(survey_responses)
     scores = [_to_feedback_score(score) for score in feedback.scores]
-    responses = [_to_feedback_text(text) for text in feedback.texts]
+    responses: list[contracts.TraceFeedbackText | contracts.TraceSurveyResponse] = sorted(
+        [
+            *(_to_feedback_text(text) for text in feedback.texts),
+            *(_to_survey_response(response) for response in survey_responses),
+        ],
+        key=lambda response: response.timestamp,
+    )
     return contracts.TraceFeedback(
         scores=scores,
         responses=responses,
-        summary=contracts.TraceFeedbackSummary(total=len(scores) + len(responses)),
+        unanswered=[
+            contracts.TraceUnansweredSurvey(survey=_to_survey(survey.survey), timestamp=survey.shown_at)
+            for survey in (linked.unanswered if linked is not None else ())
+        ],
+        summary=contracts.TraceFeedbackSummary(
+            total=len(scores) + len(responses), thumbs_up=thumbs.up, thumbs_down=thumbs.down
+        ),
     )
 
 
@@ -249,6 +281,44 @@ def _to_feedback_text(text: FeedbackText) -> contracts.TraceFeedbackText:
     return contracts.TraceFeedbackText(
         kind="text", id=text.id, text=text.text, node_id=text.node_id, timestamp=text.timestamp
     )
+
+
+def _to_survey(survey: SurveyRef) -> contracts.TraceSurvey:
+    return contracts.TraceSurvey(id=survey.id, name=survey.name)
+
+
+def _to_survey_response(response: LinkedSurveyResponse) -> contracts.TraceSurveyResponse:
+    return contracts.TraceSurveyResponse(
+        kind="survey",
+        id=response.submission_id,
+        timestamp=response.submitted_at,
+        survey=_to_survey(response.survey),
+        answers=[_to_survey_answer(answer) for answer in response.answers],
+        complete=response.complete,
+        unavailable=response.unavailable,
+    )
+
+
+def _to_survey_answer(answer: LinkedSurveyAnswer) -> contracts.TraceSurveyAnswer:
+    question = answer.question_text
+    values = list(answer.value) if isinstance(answer.value, tuple) else [answer.value]
+    match answer_kind(answer):
+        case "thumbs":
+            return contracts.TraceThumbsAnswer(kind="thumbs", question=question, up=answer.value == THUMBS_UP)
+        case "rating":
+            rating = answer.rating
+            return contracts.TraceRatingAnswer(
+                kind="rating",
+                question=question,
+                value=", ".join(values),
+                scale=rating.scale if rating else None,
+                lower_label=rating.lower_bound_label if rating else None,
+                upper_label=rating.upper_bound_label if rating else None,
+            )
+        case "choice":
+            return contracts.TraceChoiceAnswer(kind="choice", question=question, choices=values)
+        case "text":
+            return contracts.TraceTextAnswer(kind="text", question=question, text=", ".join(values))
 
 
 def evaluations_period(team: Team, date_from: date | datetime | None, date_to: date | datetime | None) -> PeriodBounds:

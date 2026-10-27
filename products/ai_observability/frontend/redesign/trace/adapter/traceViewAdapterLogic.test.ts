@@ -236,13 +236,14 @@ describe('traceViewAdapterLogic', () => {
         await expectLogic(logic, () => logic.actions.showFeedback('gen-1', 'step')).toMatchValues({
             mode: 'feedback',
             feedbackFocusNodeId: 'gen-1',
-            feedbackChip: { total: 2 },
+            feedbackChip: { total: 2, thumbsUp: 0, thumbsDown: 0 },
             feedbackCountByNodeId: { 'gen-1': 1, 'trace-1': 1 },
         })
         expect(capture).toHaveBeenCalledWith('llma trace view feedback viewed', {
             entry: 'step',
             scores: 1,
             responses: 1,
+            unanswered: 0,
         })
     })
 

@@ -156,13 +156,75 @@ class TraceFeedbackText(Contract):
     timestamp: datetime
 
 
+class TraceSurvey(Contract):
+    id: str
+    name: str | None = Field(description="Null when the survey no longer exists.")
+
+
+class TraceThumbsAnswer(Contract):
+    kind: Literal["thumbs"]
+    question: str
+    up: bool
+
+
+class TraceRatingAnswer(Contract):
+    kind: Literal["rating"]
+    question: str
+    value: str
+    scale: int | None
+    lower_label: str | None
+    upper_label: str | None
+
+
+class TraceChoiceAnswer(Contract):
+    kind: Literal["choice"]
+    question: str
+    choices: list[str]
+
+
+class TraceTextAnswer(Contract):
+    kind: Literal["text"]
+    question: str
+    text: str
+
+
+TraceSurveyAnswer = Annotated[
+    TraceThumbsAnswer | TraceRatingAnswer | TraceChoiceAnswer | TraceTextAnswer, Field(discriminator="kind")
+]
+
+
+class TraceSurveyResponse(Contract):
+    kind: Literal["survey"]
+    id: str
+    timestamp: datetime
+    survey: TraceSurvey
+    answers: list[TraceSurveyAnswer]
+    complete: bool = Field(description="False when the user left the survey before its end.")
+    unavailable: Literal["survey_not_found", "no_questions"] | None = Field(
+        description="Why the answers cannot be shown: the survey was deleted, or it has no questions."
+    )
+
+
+class TraceUnansweredSurvey(Contract):
+    survey: TraceSurvey
+    timestamp: datetime = Field(description="When the survey was first shown.")
+
+
+TraceFeedbackResponse = Annotated[TraceFeedbackText | TraceSurveyResponse, Field(discriminator="kind")]
+
+
 class TraceFeedbackSummary(Contract):
     total: int = Field(description="Scores plus responses.")
+    thumbs_up: int = Field(description="Thumbs up answers to 2-point survey rating questions.")
+    thumbs_down: int = Field(description="Thumbs down answers to 2-point survey rating questions.")
 
 
 class TraceFeedback(Contract):
     scores: list[TraceFeedbackScore] = Field(description="Oldest first.")
-    responses: list[TraceFeedbackText] = Field(description="What users said, oldest first.")
+    responses: list[TraceFeedbackResponse] = Field(description="What users said, oldest first.")
+    unanswered: list[TraceUnansweredSurvey] = Field(
+        description="Surveys shown with the trace and not answered, oldest first."
+    )
     summary: TraceFeedbackSummary
 
 

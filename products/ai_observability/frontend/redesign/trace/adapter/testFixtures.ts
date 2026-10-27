@@ -11,6 +11,7 @@ import type {
     TraceNodeIOKeysApi,
     TraceNodeMetadataApi,
     TraceNodeStatsApi,
+    TraceSurveyResponseApi,
 } from '../../../generated/api.schemas'
 
 export function makeEvent(overrides: Partial<LLMTraceEvent> & { id: string }): LLMTraceEvent {
@@ -165,8 +166,27 @@ export function makeFeedbackText(overrides: Partial<TraceFeedbackTextApi> = {}):
     }
 }
 
+export function makeSurveyResponse(overrides: Partial<TraceSurveyResponseApi> = {}): TraceSurveyResponseApi {
+    return {
+        kind: 'survey',
+        id: 'submission-1',
+        timestamp: '2026-09-01T10:18:00Z',
+        survey: { id: 'survey-1', name: 'Answer quality' },
+        answers: [{ kind: 'thumbs', question: 'Was this answer useful?', up: true }],
+        complete: true,
+        unavailable: null,
+        ...overrides,
+    }
+}
+
 export function makeFeedback(overrides: Partial<TraceFeedbackApi> = {}): TraceFeedbackApi {
     const scores = overrides.scores ?? [makeFeedbackScore()]
     const responses = overrides.responses ?? [makeFeedbackText()]
-    return { scores, responses, summary: { total: scores.length + responses.length }, ...overrides }
+    return {
+        scores,
+        responses,
+        unanswered: [],
+        summary: { total: scores.length + responses.length, thumbsUp: 0, thumbsDown: 0 },
+        ...overrides,
+    }
 }

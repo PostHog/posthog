@@ -3,7 +3,13 @@ import { FeedbackChipData, FeedbackModeState, FeedbackPlacement, StepFeedback } 
 import { nodeLabels } from './toEvalResults'
 
 export function toFeedbackChip(summary: TraceFeedbackSummaryApi): FeedbackChipData | null {
-    return summary.total > 0 ? { total: summary.total } : null
+    return summary.total > 0
+        ? { total: summary.total, thumbsUp: summary.thumbsUp, thumbsDown: summary.thumbsDown }
+        : null
+}
+
+function nodeIdOf(response: TraceFeedbackApi['responses'][number]): string | null {
+    return response.kind === 'text' ? response.nodeId : null
 }
 
 /** The step an entry belongs to in this tree. Entries on the whole trace, or on a step the tree lacks, are null. */
@@ -20,12 +26,12 @@ export function toStepFeedback(
     const labels = nodeLabels(tree)
     const byStep: Record<string, StepFeedback> = {}
     const entry = (nodeId: string | null): StepFeedback =>
-        (byStep[treeStepId(nodeId, labels) ?? traceId] ??= { scores: [], textCount: 0 })
+        (byStep[treeStepId(nodeId, labels) ?? traceId] ??= { scores: [], responseCount: 0 })
     for (const score of feedback.scores) {
         entry(score.nodeId).scores.push(score)
     }
     for (const response of feedback.responses) {
-        entry(response.nodeId).textCount += 1
+        entry(nodeIdOf(response)).responseCount += 1
     }
     return byStep
 }
@@ -55,6 +61,7 @@ export function toFeedbackMode({
     return {
         status: 'ready',
         scores: feedback.scores.map((score) => ({ ...score, ...placement(score.nodeId) })),
-        responses: feedback.responses.map((response) => ({ ...response, ...placement(response.nodeId) })),
+        responses: feedback.responses.map((response) => ({ ...response, ...placement(nodeIdOf(response)) })),
+        unanswered: feedback.unanswered,
     }
 }

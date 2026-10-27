@@ -4,7 +4,9 @@ import { FeedbackModeState } from '../types'
 import { ErrorCallout } from './ErrorCallout'
 import { FeedbackEmptyState } from './FeedbackEmptyState'
 import { FeedbackScoresTable } from './FeedbackScoresTable'
+import { FeedbackSurveyCard } from './FeedbackSurveyCard'
 import { FeedbackTextCard } from './FeedbackTextCard'
+import { UnansweredSurveyRow } from './UnansweredSurveyRow'
 
 export interface TraceFeedbackViewProps {
     state: FeedbackModeState
@@ -26,7 +28,7 @@ export function TraceFeedbackView({ state, onSelectStep }: TraceFeedbackViewProp
     if (state.status === 'error') {
         return <ErrorCallout message="Feedback couldn't load. Try again in a moment." />
     }
-    if (state.scores.length === 0 && state.responses.length === 0) {
+    if (state.scores.length === 0 && state.responses.length === 0 && state.unanswered.length === 0) {
         return <FeedbackEmptyState />
     }
     return (
@@ -45,13 +47,31 @@ export function TraceFeedbackView({ state, onSelectStep }: TraceFeedbackViewProp
                 <section className="flex flex-col gap-2">
                     <h3 className="m-0 text-sm font-semibold">What users said</h3>
                     <ul className="m-0 list-none divide-y divide-primary rounded border border-primary bg-surface-primary p-0">
-                        {state.responses.map((item) => (
-                            <FeedbackTextCard
-                                key={item.id}
-                                item={item}
-                                onSelectStep={onSelectStep}
-                                isScrollTarget={item.id === scrollTargetId}
-                            />
+                        {state.responses.map((item) =>
+                            item.kind === 'text' ? (
+                                <FeedbackTextCard
+                                    key={`text-${item.id}`}
+                                    item={item}
+                                    onSelectStep={onSelectStep}
+                                    isScrollTarget={item.id === scrollTargetId}
+                                />
+                            ) : (
+                                <FeedbackSurveyCard
+                                    key={`survey-${item.id}`}
+                                    response={item}
+                                    isScrollTarget={item.id === scrollTargetId}
+                                />
+                            )
+                        )}
+                    </ul>
+                </section>
+            ) : null}
+            {state.unanswered.length > 0 ? (
+                <section className="flex flex-col gap-2">
+                    <h3 className="m-0 text-sm font-semibold">Shown, not answered</h3>
+                    <ul className="m-0 list-none divide-y divide-primary rounded border border-primary p-0">
+                        {state.unanswered.map((item) => (
+                            <UnansweredSurveyRow key={item.survey.id} item={item} />
                         ))}
                     </ul>
                 </section>

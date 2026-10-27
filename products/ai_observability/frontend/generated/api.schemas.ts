@@ -1469,16 +1469,85 @@ export interface TraceFeedbackTextApi {
     timestamp: string
 }
 
+export interface TraceSurveyApi {
+    id: string
+    /** Null when the survey no longer exists. */
+    name: string | null
+}
+
+export interface TraceThumbsAnswerApi {
+    kind: 'thumbs'
+    question: string
+    up: boolean
+}
+
+export interface TraceRatingAnswerApi {
+    kind: 'rating'
+    question: string
+    value: string
+    scale: number | null
+    lowerLabel: string | null
+    upperLabel: string | null
+}
+
+export interface TraceChoiceAnswerApi {
+    kind: 'choice'
+    question: string
+    choices: string[]
+}
+
+export interface TraceTextAnswerApi {
+    kind: 'text'
+    question: string
+    text: string
+}
+
+/**
+ * Why the answers cannot be shown: the survey was deleted, or it has no questions.
+ */
+export type TraceSurveyResponseApiUnavailable =
+    | (typeof TraceSurveyResponseApiUnavailable)[keyof typeof TraceSurveyResponseApiUnavailable]
+    | null
+
+export const TraceSurveyResponseApiUnavailable = {
+    SurveyNotFound: 'survey_not_found',
+    NoQuestions: 'no_questions',
+} as const
+
+export interface TraceSurveyResponseApi {
+    kind: 'survey'
+    id: string
+    timestamp: string
+    survey: TraceSurveyApi
+    answers: (TraceThumbsAnswerApi | TraceRatingAnswerApi | TraceChoiceAnswerApi | TraceTextAnswerApi)[]
+    /** False when the user left the survey before its end. */
+    complete: boolean
+    /** Why the answers cannot be shown: the survey was deleted, or it has no questions. */
+    unavailable: TraceSurveyResponseApiUnavailable
+}
+
+export interface TraceUnansweredSurveyApi {
+    survey: TraceSurveyApi
+    /** When the survey was first shown. */
+    timestamp: string
+}
+
 export interface TraceFeedbackSummaryApi {
     /** Scores plus responses. */
     total: number
+    /** Thumbs up answers to 2-point survey rating questions. */
+    thumbsUp: number
+    /** Thumbs down answers to 2-point survey rating questions. */
+    thumbsDown: number
 }
 
 export interface TraceFeedbackApi {
     /** Oldest first. */
     scores: TraceFeedbackScoreApi[]
     /** What users said, oldest first. */
-    responses: TraceFeedbackTextApi[]
+    responses: (TraceFeedbackTextApi | TraceSurveyResponseApi)[]
+    /** Surveys shown with the trace and not answered, oldest first. */
+    unanswered: TraceUnansweredSurveyApi[]
     summary: TraceFeedbackSummaryApi
 }
 

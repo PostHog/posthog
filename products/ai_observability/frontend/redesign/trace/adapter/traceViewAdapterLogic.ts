@@ -457,7 +457,10 @@ export const traceViewAdapterLogic = kea<traceViewAdapterLogicType>([
             (s) => [s.stepFeedback],
             (stepFeedback: Record<string, StepFeedback>): Record<string, number> =>
                 Object.fromEntries(
-                    Object.entries(stepFeedback).map(([nodeId, step]) => [nodeId, step.scores.length + step.textCount])
+                    Object.entries(stepFeedback).map(([nodeId, step]) => [
+                        nodeId,
+                        step.scores.length + step.responseCount,
+                    ])
                 ),
         ],
         selectedStepFeedback: [
@@ -494,6 +497,7 @@ export const traceViewAdapterLogic = kea<traceViewAdapterLogicType>([
                 entry,
                 scores: values.traceFeedback?.scores.length ?? null,
                 responses: values.traceFeedback?.responses.length ?? null,
+                unanswered: values.traceFeedback?.unanswered.length ?? null,
             })
         }
         return {

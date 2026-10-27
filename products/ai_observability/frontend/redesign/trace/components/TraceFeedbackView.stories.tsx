@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
-import { FIXTURE_FEEDBACK_MODE, withWidth } from '../storyFixtures'
+import { FIXTURE_FEEDBACK_MODE, FIXTURE_FEEDBACK_MODE_WITH_SURVEYS, withWidth } from '../storyFixtures'
 import { TraceFeedbackView } from './TraceFeedbackView'
 
 const unfocused = {
@@ -22,8 +22,9 @@ type Story = StoryObj<typeof TraceFeedbackView>
 export const ScoresAndText: Story = { args: { state: unfocused } }
 export const FocusedOnAStep: Story = { args: { state: FIXTURE_FEEDBACK_MODE } }
 export const ScoresOnly: Story = { args: { state: { ...unfocused, responses: [] } } }
-export const Narrow: Story = { args: { state: FIXTURE_FEEDBACK_MODE }, decorators: [withWidth(520)] }
-export const Empty: Story = { args: { state: { status: 'ready', scores: [], responses: [] } } }
+export const WithSurveys: Story = { args: { state: FIXTURE_FEEDBACK_MODE_WITH_SURVEYS } }
+export const Narrow: Story = { args: { state: FIXTURE_FEEDBACK_MODE_WITH_SURVEYS }, decorators: [withWidth(520)] }
+export const Empty: Story = { args: { state: { status: 'ready', scores: [], responses: [], unanswered: [] } } }
 export const Loading: Story = {
     args: { state: { status: 'loading' } },
     parameters: { testOptions: { waitForLoadersToDisappear: false } },

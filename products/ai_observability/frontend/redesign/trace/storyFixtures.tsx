@@ -416,7 +416,7 @@ export const FIXTURE_STEP_FEEDBACK: StepFeedback = {
         feedbackScore('score-latency', 'latency_ok', 'true', 19),
         feedbackScore('score-unnamed', null, '{"stars":3}', 20),
     ],
-    textCount: 1,
+    responseCount: 1,
 }
 
 const answerStep = { id: 'gen-answer', name: 'draft-answer' }
@@ -448,6 +448,80 @@ export const FIXTURE_FEEDBACK_MODE: Extract<FeedbackModeState, { status: 'ready'
             step: answerStep,
             focused: true,
         },
+    ],
+    unanswered: [],
+}
+
+const answerQuality = { id: '0192f2a4-5c1e-7000-8000-00000000a001', name: 'Answer quality' }
+
+export const FIXTURE_FEEDBACK_MODE_WITH_SURVEYS: Extract<FeedbackModeState, { status: 'ready' }> = {
+    status: 'ready',
+    scores: FIXTURE_FEEDBACK_MODE.scores.map((row) => ({ ...row, focused: false })),
+    responses: [
+        { ...FIXTURE_FEEDBACK_MODE.responses[0], focused: false },
+        {
+            kind: 'survey',
+            id: 'submission-full',
+            timestamp: '2026-09-01T10:25:00Z',
+            survey: answerQuality,
+            answers: [
+                { kind: 'thumbs', question: 'Was this answer useful?', up: true },
+                {
+                    kind: 'rating',
+                    question: 'How good was it?',
+                    value: '4',
+                    scale: 5,
+                    lowerLabel: 'Bad',
+                    upperLabel: 'Great',
+                },
+                { kind: 'choice', question: 'What could be better?', choices: ['Accuracy', 'Tone'] },
+                { kind: 'text', question: 'Anything else?', text: 'Shorter answers, please.' },
+            ],
+            complete: true,
+            unavailable: null,
+            step: null,
+            focused: false,
+        },
+        {
+            kind: 'survey',
+            id: 'submission-partial',
+            timestamp: '2026-09-01T10:26:00Z',
+            survey: answerQuality,
+            answers: [{ kind: 'thumbs', question: 'Was this answer useful?', up: false }],
+            complete: false,
+            unavailable: null,
+            step: null,
+            focused: false,
+        },
+        {
+            kind: 'survey',
+            id: 'submission-deleted',
+            timestamp: '2026-09-01T10:27:00Z',
+            survey: { id: '0192f2a4-5c1e-7000-8000-00000000a002', name: null },
+            answers: [],
+            complete: true,
+            unavailable: 'survey_not_found',
+            step: null,
+            focused: false,
+        },
+        {
+            kind: 'survey',
+            id: 'submission-empty',
+            timestamp: '2026-09-01T10:28:00Z',
+            survey: { id: '0192f2a4-5c1e-7000-8000-00000000a003', name: 'Draft survey' },
+            answers: [],
+            complete: true,
+            unavailable: 'no_questions',
+            step: null,
+            focused: false,
+        },
+    ],
+    unanswered: [
+        {
+            survey: { id: '0192f2a4-5c1e-7000-8000-00000000a004', name: 'Follow-up' },
+            timestamp: '2026-09-01T10:29:00Z',
+        },
+        { survey: { id: '0192f2a4-5c1e-7000-8000-00000000a005', name: null }, timestamp: '2026-09-01T10:30:00Z' },
     ],
 }
 

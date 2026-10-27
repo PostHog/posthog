@@ -26,6 +26,10 @@ export const ShortId: Story = { ...wide, args: { traceId: 'notes-run-42' } }
 export const LongSlugId: Story = { ...wide, args: { traceId: 'support-chat-session-2026-09-01-weekly-billing-review' } }
 export const Narrow: Story = { decorators: [withWidth(420)] }
 export const WithFeedback: Story = {
-    args: { feedback: { chip: { total: 6 }, onClick: () => {} } },
+    args: { feedback: { chip: { total: 6, thumbsUp: 0, thumbsDown: 0 }, onClick: () => {} } },
+    decorators: [withWidth(420)],
+}
+export const WithThumbsFeedback: Story = {
+    args: { feedback: { chip: { total: 6, thumbsUp: 3, thumbsDown: 1 }, onClick: () => {} } },
     decorators: [withWidth(420)],
 }

@@ -7,7 +7,7 @@ import { claudeCodePluginSession } from '../sampleFixtures/claudeCodePluginSessi
 import { langchainCerebrasImageError } from '../sampleFixtures/langchainCerebrasImageError'
 import { openaiAgentsWithEvals } from '../sampleFixtures/openaiAgentsWithEvals'
 import { SampleTraceFixture } from '../sampleFixtures/sampleTraceFixture'
-import { FIXTURE_FEEDBACK_MODE, FIXTURE_TRACE, withWidth } from '../storyFixtures'
+import { FIXTURE_FEEDBACK_MODE_WITH_SURVEYS, FIXTURE_TRACE, withWidth } from '../storyFixtures'
 import { NodeDetailTab, TraceMode } from '../types'
 import { TraceView } from './TraceView'
 
@@ -80,9 +80,11 @@ function Playground({ fixture, initialMode, initialNodeId }: PlaygroundProps): J
             }}
             thread={fixture.thread}
             timeline={fixture.timeline}
-            feedbackMode={FIXTURE_FEEDBACK_MODE}
-            feedbackCount={FIXTURE_FEEDBACK_MODE.scores.length + FIXTURE_FEEDBACK_MODE.responses.length}
-            feedbackCountByNodeId={{ 'trace-1': 3, 'gen-answer': 3 }}
+            feedbackMode={FIXTURE_FEEDBACK_MODE_WITH_SURVEYS}
+            feedbackCount={
+                FIXTURE_FEEDBACK_MODE_WITH_SURVEYS.scores.length + FIXTURE_FEEDBACK_MODE_WITH_SURVEYS.responses.length
+            }
+            feedbackCountByNodeId={{ 'trace-1': 7, 'gen-answer': 2 }}
         />
     )
 }

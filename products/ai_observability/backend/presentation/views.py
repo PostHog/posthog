@@ -140,7 +140,7 @@ class TraceViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     )
     @action(detail=True, methods=["GET"], url_path="feedback")
     def feedback(self, request: ValidatedRequest, pk: str, **kwargs: Any) -> Response:
-        """End-user feedback on a trace: the scores and the comments its feedback events carry, each with the step it targets."""
+        """End-user feedback on a trace: scores and comments from its feedback events, survey responses linked to it, and surveys shown but not answered."""
         try:
             trace_id = decode_trace_id_segment(pk)
         except MalformedTraceIdSegmentError:

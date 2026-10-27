@@ -18,6 +18,7 @@ import {
     makeFeedbackScore,
     makeFeedbackText,
     makeNodeDetail,
+    makeSurveyResponse,
     makeTrace,
     makeTraceResource,
 } from './testFixtures'
@@ -152,6 +153,27 @@ describe('TraceScene', () => {
 
             fireEvent.click(await findByText('helpfulness 0'))
             expect(await findByText('What users said')).toBeTruthy()
+        })
+
+        it('shows thumbs in the header chip and the survey answers in the feedback', async () => {
+            useMocks({
+                get: {
+                    [FEEDBACK_URL]: () => [
+                        200,
+                        makeFeedback({
+                            scores: [],
+                            responses: [makeSurveyResponse()],
+                            summary: { total: 1, thumbsUp: 1, thumbsDown: 0 },
+                        }),
+                    ],
+                },
+            })
+            const { findByLabelText, findByText } = renderNewView()
+
+            fireEvent.click(await findByLabelText('1 thumbs up, 0 thumbs down, 1 feedback in total'))
+
+            expect(await findByText('Answer quality')).toBeTruthy()
+            expect(await findByText('Thumbs up')).toBeTruthy()
         })
     })
 

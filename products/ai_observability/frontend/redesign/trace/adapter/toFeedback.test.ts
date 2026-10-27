@@ -1,39 +1,54 @@
-import { makeFeedback, makeFeedbackScore, makeFeedbackText, makeTraceResource } from './testFixtures'
+import {
+    makeFeedback,
+    makeFeedbackScore,
+    makeFeedbackText,
+    makeSurveyResponse,
+    makeTraceResource,
+} from './testFixtures'
 import { toFeedbackChip, toFeedbackMode, toStepFeedback } from './toFeedback'
 
 describe('toFeedback', () => {
     test.each([
-        ['some', 3, { total: 3 }],
-        ['none', 0, null],
-    ])('toFeedbackChip with %s feedback', (_name, total, expected) => {
-        expect(toFeedbackChip({ total })).toEqual(expected)
+        ['thumbs', { total: 4, thumbsUp: 1, thumbsDown: 1 }, { total: 4, thumbsUp: 1, thumbsDown: 1 }],
+        ['nothing', { total: 0, thumbsUp: 0, thumbsDown: 0 }, null],
+    ])('toFeedbackChip with %s', (_name, summary, expected) => {
+        expect(toFeedbackChip(summary)).toEqual(expected)
     })
 
-    test('toStepFeedback puts trace-level entries and entries on a step the tree lacks on the root', () => {
+    test('toStepFeedback puts trace-level entries, entries on a step the tree lacks and survey responses on the root', () => {
         const score = makeFeedbackScore({ nodeId: 'gen-1' })
         const traceScore = makeFeedbackScore({ id: 'score-2', nodeId: null })
         const orphanScore = makeFeedbackScore({ id: 'score-3', nodeId: 'gone' })
         const feedback = makeFeedback({
             scores: [score, traceScore, orphanScore],
-            responses: [makeFeedbackText({ nodeId: 'gen-1' }), makeFeedbackText({ id: 'text-2', nodeId: null })],
+            responses: [
+                makeFeedbackText({ nodeId: 'gen-1' }),
+                makeFeedbackText({ id: 'text-2', nodeId: null }),
+                makeSurveyResponse(),
+            ],
         })
 
         expect(toStepFeedback(feedback, makeTraceResource().tree, 'trace-1')).toEqual({
-            'gen-1': { scores: [score], textCount: 1 },
-            'trace-1': { scores: [traceScore, orphanScore], textCount: 1 },
+            'gen-1': { scores: [score], responseCount: 1 },
+            'trace-1': { scores: [traceScore, orphanScore], responseCount: 2 },
         })
     })
 
-    test('toFeedbackMode names each step and keeps an unknown step as trace-level', () => {
+    test('toFeedbackMode names each step, keeps an unknown step as trace-level and survey responses as they come', () => {
+        const survey = makeSurveyResponse()
+        const unanswered = [{ survey: { id: 'survey-2', name: 'Follow-up' }, timestamp: '2026-09-01T10:19:00Z' }]
         const feedback = makeFeedback({
             scores: [makeFeedbackScore({ nodeId: 'gen-1' }), makeFeedbackScore({ id: 'score-2', nodeId: 'gone' })],
-            responses: [makeFeedbackText({ nodeId: null })],
+            responses: [makeFeedbackText({ nodeId: 'gen-1' }), survey],
+            unanswered,
         })
 
         const mode = toFeedbackMode({ feedback, tree: makeTraceResource().tree, traceId: 'trace-1', focusNodeId: null })
 
         expect(mode.scores.map((row) => row.step)).toEqual([{ id: 'gen-1', name: 'gen-1' }, null])
-        expect(mode.responses.map((item) => item.step)).toEqual([null])
+        expect(mode.responses.map((item) => item.step)).toEqual([{ id: 'gen-1', name: 'gen-1' }, null])
+        expect(mode.responses[1]).toEqual({ ...survey, step: null, focused: false })
+        expect(mode.unanswered).toEqual(unanswered)
     })
 
     test.each([

@@ -723,7 +723,7 @@ export const getAiObservabilityTracesFeedbackRetrieveUrl = (
 }
 
 /**
- * End-user feedback on a trace: the scores and the comments its feedback events carry, each with the step it targets.
+ * End-user feedback on a trace: scores and comments from its feedback events, survey responses linked to it, and surveys shown but not answered.
  */
 export const aiObservabilityTracesFeedbackRetrieve = async (
     projectId: string,
