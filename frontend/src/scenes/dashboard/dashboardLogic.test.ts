@@ -23,7 +23,12 @@ import { pluralize } from 'lib/utils/strings'
 import { addInsightToDashboardLogic } from 'scenes/dashboard/addInsightToDashboardModalLogic'
 import { parseDashboardId } from 'scenes/dashboard/Dashboard'
 import { dashboardInsightColorsModalLogic } from 'scenes/dashboard/dashboardInsightColorsModalLogic'
-import { DashboardLoadAction, dashboardLogic, RefreshDashboardItemsAction } from 'scenes/dashboard/dashboardLogic'
+import {
+    DashboardLoadAction,
+    dashboardLogic,
+    RefreshDashboardItemsAction,
+    type TilePlacement,
+} from 'scenes/dashboard/dashboardLogic'
 import * as dashboardUtils from 'scenes/dashboard/dashboardUtils'
 import { liveDashboardIds } from 'scenes/dashboard/liveDashboardIds'
 import * as widgetFetchUtils from 'scenes/dashboard/widgetFetchUtils'
@@ -3412,6 +3417,53 @@ describe('dashboardLogic', () => {
                 ])
 
                 expect(dialogOpenSpy).not.toHaveBeenCalled()
+            })
+
+            it('changes the movement mode without a prompt after the grid re-reports the same tile cells', async () => {
+                await expectLogic(logic).toFinishAllListeners()
+                const currentLayouts = logic.values.layouts
+                logic.actions.tilePlacementsSaved(
+                    Object.fromEntries(
+                        (currentLayouts.sm ?? []).map(({ i, x, y, w, h }): [number, TilePlacement] => [
+                            Number(i),
+                            { layouts: { sm: { x, y, w, h } } as TilePlacement['layouts'], group_key: null },
+                        ])
+                    )
+                )
+                logic.actions.stageLayouts({
+                    ...currentLayouts,
+                    sm: currentLayouts.sm?.map((layout) => ({
+                        ...layout,
+                        minW: 2,
+                        minH: 2,
+                        moved: false,
+                        static: false,
+                    })),
+                })
+
+                expect(logic.values.hasUnsavedLayoutChanges).toBe(false)
+
+                logic.actions.changeDashboardGridCompaction(DashboardGridCompaction.Horizontal)
+
+                expect(dialogOpenSpy).not.toHaveBeenCalled()
+            })
+
+            it('keeps the chosen mode when another dashboard update lands before the mode save', async () => {
+                await expectLogic(logic).toFinishAllListeners()
+                const staleDashboard = {
+                    ...logic.values.dashboard!,
+                    customization: {
+                        ...logic.values.dashboard!.customization,
+                        layout_compaction: DashboardGridCompaction.Vertical,
+                    },
+                }
+
+                logic.actions.changeDashboardGridCompaction(DashboardGridCompaction.Horizontal)
+                dashboardsModel.actions.updateDashboardSuccess(staleDashboard)
+
+                expect(logic.values.dashboard?.customization?.layout_compaction).toBe(
+                    DashboardGridCompaction.Horizontal
+                )
             })
 
             it('prompts before changing the movement mode when the layout is unsaved', async () => {

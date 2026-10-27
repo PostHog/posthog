@@ -3647,8 +3647,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 const draftByTile = draftLayouts ? layoutsByTile(draftLayouts) : null
                 return (dashboard.tiles || []).some((tile: DashboardTile) => {
                     const saved = savedTilePlacements[tile.id]
+                    const savedSm = saved?.layouts?.sm
                     const currentSm = draftByTile?.[tile.id]?.sm ?? tile.layouts?.sm
-                    return !equal(saved?.layouts?.sm || {}, currentSm || {}) || tileGroupChanged(tile, saved)
+                    // The grid adds its own fields (moved, static, min sizes) when it re-lays out, so compare the cell only.
+                    const cellChanged =
+                        savedSm && currentSm
+                            ? !sameGridCell(savedSm, currentSm)
+                            : Boolean(savedSm) !== Boolean(currentSm)
+                    return cellChanged || tileGroupChanged(tile, saved)
                 })
             },
         ],
@@ -4618,7 +4624,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 })
             })
 
-            actions.applyDashboardUpdate({ ...dashboard, tiles }, savedPlacements)
+            // An update that lands while a mode save waits, such as the previous mode save's response, has an older mode.
+            const unsavedLayoutCompaction = cache.unsavedLayoutCompaction as DashboardGridCompaction | undefined
+            const customization = unsavedLayoutCompaction
+                ? { ...dashboard.customization, layout_compaction: unsavedLayoutCompaction }
+                : dashboard.customization
+
+            actions.applyDashboardUpdate({ ...dashboard, customization, tiles }, savedPlacements)
         },
         scheduleRefreshDashboardWidgets: ({ tileId }: { tileId: number }) => {
             if (!cache.widgetTileRefreshScheduler) {
@@ -5175,6 +5187,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             } catch (error) {
                 posthog.captureException(error)
                 if (!cache.pendingDashboardGridCompaction) {
+                    cache.unsavedLayoutCompaction = undefined
                     actions.setDashboardGridCompaction(persistedLayoutCompaction)
                     actions.loadDashboard({ action: DashboardLoadAction.Update })
                 }
@@ -5188,6 +5201,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 if (pendingLayoutCompaction) {
                     actions.setDashboardGridCompaction(pendingLayoutCompaction)
                     actions.saveDashboardGridCompaction(pendingLayoutCompaction)
+                } else if (cache.unsavedLayoutCompaction === layoutCompaction) {
+                    cache.unsavedLayoutCompaction = undefined
                 }
             }
         },
@@ -5968,6 +5983,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     )
                     actions.clearDraftLayouts()
                 }
+                cache.unsavedLayoutCompaction = layoutCompaction
                 actions.setDashboardGridCompaction(layoutCompaction)
                 actions.saveDashboardGridCompaction(layoutCompaction)
             }
