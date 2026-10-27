@@ -57,7 +57,6 @@ export function ConversionGoalEditor({ conversion, onChange, pageKey }: Conversi
             <div className="flex flex-col gap-1 items-start w-full">
                 <LemonLabel>Detect conversion from events</LemonLabel>
                 <HogFlowEventEntriesFilters
-                    filtersKey={`${pageKey}-events`}
                     entries={eventEntries}
                     onChange={(nextEventEntries) =>
                         onChange({

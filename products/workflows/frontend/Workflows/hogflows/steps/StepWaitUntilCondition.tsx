@@ -47,7 +47,6 @@ export function StepWaitUntilConditionConfiguration({
                     The workflow continues on the matched path when any of these events fire.
                 </span>
                 <HogFlowEventEntriesFilters
-                    filtersKey={`wait-until-events-${action.id}`}
                     entries={eventEntries}
                     onChange={(nextEventEntries) =>
                         partialSetWorkflowActionConfig(action.id, {
