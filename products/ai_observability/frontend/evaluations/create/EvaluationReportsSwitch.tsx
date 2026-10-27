@@ -10,7 +10,9 @@ import { reportsUnavailableReason } from './evaluationSummary'
 export function EvaluationReportsSwitch(): JSX.Element | null {
     const { props } = useMountedLogic(llmEvaluationLogic)
     const { evaluation, isReportableEvaluation } = useValues(llmEvaluationLogic)
-    const { configDraft } = useValues(evaluationReportLogic({ evaluationId: props.evaluationId }))
+    const { configDraft, reportsLoading, activeReport } = useValues(
+        evaluationReportLogic({ evaluationId: props.evaluationId })
+    )
     const { setDraftEnabled } = useActions(evaluationReportLogic({ evaluationId: props.evaluationId }))
 
     if (!evaluation) {
@@ -22,7 +24,13 @@ export function EvaluationReportsSwitch(): JSX.Element | null {
         <LemonSwitch
             checked={enabled}
             onChange={setDraftEnabled}
-            disabledReason={unavailableReason ?? undefined}
+            // Loading the saved settings replaces the draft, so a toggle before then would be lost.
+            disabledReason={
+                unavailableReason ??
+                (props.evaluationId !== 'new' && reportsLoading && !activeReport
+                    ? 'Loading the saved report settings'
+                    : undefined)
+            }
             bordered
             label={enabled ? 'Enabled' : 'Disabled'}
             data-attr="llma-evaluation-create-reports-switch"

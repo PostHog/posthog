@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { Fragment, useState } from 'react'
 
@@ -17,6 +17,7 @@ import { EvaluationCodeEditor } from '../components/EvaluationCodeEditor'
 import { EvaluationPromptEditor } from '../components/EvaluationPromptEditor'
 import { EvaluationTriggersPanel } from '../components/EvaluationTriggersPanel'
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
+import { llmEvaluationsLogic } from '../llmEvaluationsLogic'
 import type { ChecklistItem, ChecklistKey } from './creationChecklist'
 import { EvaluationCreateButton } from './EvaluationCreateButton'
 import { EvaluationCreateReview } from './EvaluationCreateReview'
@@ -167,6 +168,8 @@ export function EvaluationFormSteps({
 }): JSX.Element | null {
     const [index, setIndex] = useState(0)
     const { evaluation } = useValues(llmEvaluationLogic)
+    // Mounted here, not only in the name step, so moving between steps does not refetch the folders.
+    useMountedLogic(llmEvaluationsLogic())
 
     if (!evaluation) {
         return null
