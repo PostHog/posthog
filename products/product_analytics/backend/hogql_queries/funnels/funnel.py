@@ -427,10 +427,10 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
         prior_required_step_index = self._prior_required_step_index(target_step_index)
         # The slot of a skipped optional step is empty or holds events from another attempt, so check the path bitfield
         # and fall back through the optional steps to the prior required step
-        branches = [
-            f"bitTest(steps_bitfield, {i}), {i + 1}"
-            for i in range(target_step_index - 1, prior_required_step_index, -1)
+        optional_step_indexes = [
+            i for i in range(len(self.context.query.series)) if prior_required_step_index < i < target_step_index
         ]
+        branches = [f"bitTest(steps_bitfield, {i}), {i + 1}" for i in reversed(optional_step_indexes)]
         if not branches:
             return str(prior_required_step_index + 1)
         return f"multiIf({', '.join(branches)}, {prior_required_step_index + 1})"
