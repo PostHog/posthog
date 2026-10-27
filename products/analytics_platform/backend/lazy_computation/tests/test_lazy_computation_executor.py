@@ -3513,6 +3513,25 @@ class TestIsNonRetryableError(BaseTest):
         assert is_non_retryable_error(error) is False
 
 
+_INSERT_LOAD_BALANCING_CASES = [
+    (LazyComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED, "in_order"),
+    (LazyComputationTable.EXPERIMENT_METRIC_EVENTS_PREAGGREGATED, None),
+    (LazyComputationTable.PREAGGREGATION_RESULTS, "in_order"),
+    (LazyComputationTable.MARKETING_TOUCHPOINTS_PREAGGREGATED, "in_order"),
+    (LazyComputationTable.MARKETING_CONVERSIONS_PREAGGREGATED, "in_order"),
+    (LazyComputationTable.MARKETING_COSTS_PREAGGREGATED, "in_order"),
+    (LazyComputationTable.WEB_OVERVIEW_PREAGGREGATED, "in_order"),
+    (LazyComputationTable.WEB_STATS_PREAGGREGATED, "in_order"),
+    (LazyComputationTable.WEB_STATS_PATHS_PREAGGREGATED, "in_order"),
+    (LazyComputationTable.WEB_VITALS_PATHS_PREAGGREGATED, "in_order"),
+    (LazyComputationTable.WEB_STATS_FRUSTRATION_PREAGGREGATED, "in_order"),
+    (LazyComputationTable.WEB_GOALS_PREAGGREGATED, "in_order"),
+    (LazyComputationTable.WEB_SESSIONS_DIMENSIONAL_PREAGGREGATED, "in_order"),
+    (LazyComputationTable.WEB_STATS_DIMENSIONAL_PREAGGREGATED, None),
+    (LazyComputationTable.WEB_BOUNCES_DIMENSIONAL_PREAGGREGATED, None),
+]
+
+
 class TestInsertSettings(BaseTest):
     def test_insert_settings_guarantee_read_your_writes(self):
         settings = _get_insert_settings(self.team.pk, LazyComputationTable.PREAGGREGATION_RESULTS)
@@ -3541,27 +3560,12 @@ class TestInsertSettings(BaseTest):
             assert _get_insert_settings(self.team.pk, table)["insert_quorum"] == "auto"
             assert _get_insert_settings(self.team.pk, table, read_after_write=False)["insert_quorum"] == 0
 
-    @parameterized.expand(
-        [
-            (LazyComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED, None),
-            (LazyComputationTable.EXPERIMENT_METRIC_EVENTS_PREAGGREGATED, None),
-            (LazyComputationTable.PREAGGREGATION_RESULTS, "in_order"),
-            (LazyComputationTable.MARKETING_TOUCHPOINTS_PREAGGREGATED, "in_order"),
-            (LazyComputationTable.MARKETING_CONVERSIONS_PREAGGREGATED, "in_order"),
-            (LazyComputationTable.MARKETING_COSTS_PREAGGREGATED, "in_order"),
-            (LazyComputationTable.WEB_OVERVIEW_PREAGGREGATED, "in_order"),
-            (LazyComputationTable.WEB_STATS_PREAGGREGATED, "in_order"),
-            (LazyComputationTable.WEB_STATS_PATHS_PREAGGREGATED, "in_order"),
-            (LazyComputationTable.WEB_VITALS_PATHS_PREAGGREGATED, "in_order"),
-            (LazyComputationTable.WEB_STATS_FRUSTRATION_PREAGGREGATED, "in_order"),
-            (LazyComputationTable.WEB_GOALS_PREAGGREGATED, "in_order"),
-            (LazyComputationTable.WEB_SESSIONS_DIMENSIONAL_PREAGGREGATED, "in_order"),
-            (LazyComputationTable.WEB_STATS_DIMENSIONAL_PREAGGREGATED, None),
-            (LazyComputationTable.WEB_BOUNCES_DIMENSIONAL_PREAGGREGATED, None),
-        ]
-    )
+    @parameterized.expand(_INSERT_LOAD_BALANCING_CASES)
     def test_insert_load_balancing_follows_the_read_table(self, table, expected_load_balancing):
         assert _get_insert_settings(self.team.pk, table).get("load_balancing") == expected_load_balancing
+
+    def test_insert_load_balancing_cases_cover_every_table(self):
+        assert {table for table, _ in _INSERT_LOAD_BALANCING_CASES} == set(LazyComputationTable)
 
 
 class TestInsertSettingsAppliedToInserts(BaseTest):

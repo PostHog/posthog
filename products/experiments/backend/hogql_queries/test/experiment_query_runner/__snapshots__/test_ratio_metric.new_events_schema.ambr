@@ -164,7 +164,8 @@
          sum(multiply(entity_metrics.numerator_value, entity_metrics.denominator_value)) AS numerator_denominator_sum_product
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS load_balancing='in_order',
+                       readonly=2,
                        max_execution_time=600,
                        allow_experimental_object_type=1,
                        max_ast_elements=4000000,
