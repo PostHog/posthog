@@ -220,7 +220,7 @@ class Pipeline:
         dry_run: bool = False,
         verbose: bool = False,
         self_driving: bool = False,
-        renovate_review: dict | None = None,
+        renovate_verification: dict | None = None,
         review_trigger: str = "",
         head_checkout: bool = False,
         checkout: bool = True,
@@ -236,7 +236,7 @@ class Pipeline:
         # Set only by the hosted runtime, for a Renovate PR to a repo that opted in: the server's
         # proof of what the lockfiles install. A verified proof relaxes the bot-author refusal and
         # the deps_toolchain deny of the lockfiles it covers. Anything else refuses the PR.
-        self.renovate_review = renovate_review
+        self.renovate_verification = renovate_verification
         # Why the hosted runtime is reviewing this PR: "label", "all" or "self_driving". Descriptive
         # only. It reaches the prompt as one line and gates nothing, unlike self_driving above.
         # Empty for a local run, which has no trigger to report.
@@ -327,12 +327,18 @@ class Pipeline:
         return migration_check_pending(self.pr.check_runs, self.pr.file_paths)
 
     @property
+    def _renovate_proof(self) -> dict:
+        """The server's Renovate proof when it verified this bot-authored PR, else an empty mapping."""
+        proof = self.renovate_verification or {}
+        return proof if self.pr.author_is_bot and proof.get("verified") else {}
+
+    @property
     def renovate_verified(self) -> bool:
-        return self.pr.author_is_bot and bool((self.renovate_review or {}).get("verified"))
+        return bool(self._renovate_proof)
 
     @property
     def renovate_cleared_paths(self) -> set[str]:
-        return set((self.renovate_review or {}).get("cleared_paths") or []) if self.renovate_verified else set()
+        return set(self._renovate_proof.get("cleared_paths") or [])
 
     @property
     def sized_files(self) -> list[dict]:
@@ -344,14 +350,14 @@ class Pipeline:
         """Refuse a bot-authored PR that no carve-out admits, and say whether it refused."""
         if not self.pr.author_is_bot or self.self_driving or self.renovate_verified:
             return False
-        if self.renovate_review is None:
+        if self.renovate_verification is None:
             self._refuse_bot_author()
         else:
             self._refuse_unverified_renovate()
         return True
 
     def _refuse_unverified_renovate(self) -> None:
-        problems = [str(problem) for problem in (self.renovate_review or {}).get("problems") or []]
+        problems = [str(problem) for problem in (self.renovate_verification or {}).get("problems") or []]
         listed = "\n".join(f"- {problem}" for problem in problems) or "- It changes no locked version."
         self.final_verdict = "REFUSED"
         self.reviewer_output = {
@@ -480,15 +486,15 @@ class Pipeline:
         breadth = scope_breadth(top_dirs)
         cc = parse_conventional_commit(pr.title)
         safe_migrations = safe_migration_files(pr.check_runs, file_paths)
-        deny = detect_deny_categories(pr.deny_paths, ignored_files=safe_migrations)
         # A verified Renovate proof covers what its lockfiles install, so it lifts deps_toolchain for
         # them and no other category: a lockfile under stamphog's own engine still needs a human.
-        if "deps_toolchain" in deny and "deps_toolchain" not in detect_deny_categories(
-            pr.deny_paths, ignored_files=safe_migrations | self.renovate_cleared_paths
-        ):
-            deny.remove("deps_toolchain")
+        renovate_lift = {"deps_toolchain": self.renovate_cleared_paths}
+        deny = detect_deny_categories(pr.deny_paths, ignored_files=safe_migrations, ignored_by_category=renovate_lift)
         exception_lifted = bool(POLICY.deny_exceptions) and (
-            detect_deny_categories(pr.deny_paths, ignored_files=safe_migrations, apply_exceptions=False) != deny
+            detect_deny_categories(
+                pr.deny_paths, ignored_files=safe_migrations, ignored_by_category=renovate_lift, apply_exceptions=False
+            )
+            != deny
         )
         dep_manifests = dependency_manifests_without_lockfile(file_paths)
         # Deterministic first line for the manifest scripts risk: an edit to
@@ -583,7 +589,8 @@ class Pipeline:
             "self_driving": self.self_driving,
             # Empty renders the Renovate block empty. The server checked every name and version
             # against a strict pattern, so the block can quote them as trusted facts.
-            "renovate_changes": ((self.renovate_review or {}).get("changes") or []) if self.renovate_verified else [],
+            "renovate_changes": self._renovate_proof.get("changes") or [],
+            "renovate_minimum_release_age_days": self._renovate_proof.get("minimum_release_age_days"),
             "review_trigger": self.review_trigger,
         }
 

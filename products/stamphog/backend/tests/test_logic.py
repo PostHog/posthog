@@ -553,7 +553,7 @@ class DigestConfigFetchTests(SimpleTestCase):
         # instead of the declared channel. Only confirmed absence (404 -> None inside the client) may
         # yield None; a blip must raise so the merge-record Celery task retries the delivery.
         config = StamphogRepoConfig(repository="o/r", installation_id="1")
-        with patch("products.stamphog.backend.logic.digest_config.StamphogGitHubClient") as client_cls:
+        with patch("products.stamphog.backend.logic.default_branch_policy.StamphogGitHubClient") as client_cls:
             client_cls.return_value.get_file_text.side_effect = StamphogGitHubError("503 from GitHub")
             with pytest.raises(StamphogGitHubError):
                 load_repo_digest_config(config)

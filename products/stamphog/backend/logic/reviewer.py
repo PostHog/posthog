@@ -179,7 +179,7 @@ def build_reviewer_invocation(
         "familiarity_facts": familiarity_facts,
         "commit_messages": commit_messages,
         "self_driving_review": self_driving_review,
-        "renovate_review": renovate_verification,
+        "renovate_verification": renovate_verification,
         "review_trigger": review_trigger,
     }
     command = ["uv", "run", f"{engine_dir}/review_local.py", "--context", context_path]

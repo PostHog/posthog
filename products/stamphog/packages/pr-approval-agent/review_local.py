@@ -538,12 +538,12 @@ def _gate_refusal_reasoning(pipeline: Pipeline) -> str:
     )
 
 
-def _renovate_review(context: dict) -> dict | None:
+def _renovate_verification(context: dict) -> dict | None:
     """The server's Renovate proof, or None. A value that is not a mapping refuses the PR as unverified."""
-    review = context.get("renovate_review")
-    if review is None:
+    verification = context.get("renovate_verification")
+    if verification is None:
         return None
-    return review if isinstance(review, dict) else {"verified": False}
+    return verification if isinstance(verification, dict) else {"verified": False}
 
 
 def pregate(context: dict) -> dict:
@@ -569,7 +569,7 @@ def pregate(context: dict) -> dict:
         0,
         context.get("repo") or "",
         self_driving=bool(context.get("self_driving_review")),
-        renovate_review=_renovate_review(context),
+        renovate_verification=_renovate_verification(context),
         review_trigger=str(context.get("review_trigger") or ""),
         head_checkout=True,
         checkout=False,
@@ -619,7 +619,7 @@ def run(context: dict) -> dict:
         0,
         context.get("repo") or "",
         self_driving=bool(context.get("self_driving_review")),
-        renovate_review=_renovate_review(context),
+        renovate_verification=_renovate_verification(context),
         review_trigger=str(context.get("review_trigger") or ""),
         head_checkout=True,
     )

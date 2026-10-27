@@ -39,6 +39,7 @@ from products.stamphog.backend.logic.channel_resolution import (
 )
 from products.stamphog.backend.logic.engine_pregate import EnginePregateError, pregate_skip_reason
 from products.stamphog.backend.logic.github_client import STICKY_COMMENT_MARKER, StamphogGitHubClient
+from products.stamphog.backend.logic.renovate_verification import RENOVATE_BOT_LOGIN, RENOVATE_BOT_USER_ID
 from products.stamphog.backend.logic.slack_digest import _THREAD_LEAD
 from products.stamphog.backend.models import DigestRun, PullRequest, PullRequestAudience, ReviewRun, StamphogRepoConfig
 from products.stamphog.backend.tasks.digest import send_daily_digests
@@ -2025,6 +2026,46 @@ def test_rereview_after_external_review_restarts_a_rerun_left_queued(team, stamp
 
     assert start.call_args_list == [call(review_run_id=str(stranded.id), team_id=team.id)]
     assert ReviewRun.objects.for_team(team.id).filter(pull_request=pull_request).count() == 2
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+@pytest.mark.parametrize(
+    "opted_in, expected_new_runs",
+    [pytest.param(True, 1, id="opted-in-reruns"), pytest.param(False, 0, id="opt-in-withdrawn")],
+)
+def test_rereview_after_external_review_reruns_a_waiting_renovate_run(
+    team, stamphog_chain: StamphogChain, opted_in: bool, expected_new_runs: int
+) -> None:
+    # A Renovate PR is bot-authored, so the re-run must carry the carve-out that its first run earned.
+    repo_config = _repo_config(team.id)
+    renovate = {"login": RENOVATE_BOT_LOGIN, "id": RENOVATE_BOT_USER_ID, "type": "Bot"}
+    live_pr = _pr_object(127, RENOVATE_BOT_LOGIN, "sha127b") | {
+        "state": "open",
+        "user": renovate,
+        "head": {"sha": "sha127b", "ref": "renovate/left-pad-1.x", "repo": {"full_name": REPO}},
+    }
+    stamphog_chain.recorder.register_pr(REPO, 127, live_pr, _pr_files())
+    pull_request = PullRequest.objects.for_team(team.id).create(
+        team_id=team.id, repo_config=repo_config, pr_number=127, author_login=RENOVATE_BOT_LOGIN
+    )
+    provenance = {"trigger": "webhook", "action": "opened"}
+    waiting = ReviewRun.objects.for_team(team.id).create(
+        team_id=team.id,
+        pull_request=pull_request,
+        head_sha="sha127b",
+        status=ReviewRunStatus.COMPLETED,
+        verdict=ReviewVerdict.WAIT,
+        output={"renovate_review": provenance},
+    )
+
+    with (
+        patch("products.stamphog.backend.tasks.tasks.renovate_reviews_enabled", return_value=opted_in),
+        patch("products.stamphog.backend.tasks.tasks.execute_stamphog_review_workflow"),
+    ):
+        rereview_after_external_review(REPO, 127, "sha127b")
+
+    new_runs = ReviewRun.objects.for_team(team.id).filter(pull_request=pull_request).exclude(id=waiting.id)
+    assert [run.output.get("renovate_review") for run in new_runs] == [provenance] * expected_new_runs
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)

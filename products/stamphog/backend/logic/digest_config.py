@@ -14,18 +14,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-import yaml
 import structlog
 
-from .github_client import StamphogGitHubClient
+from .default_branch_policy import load_default_branch_policy
 
 if TYPE_CHECKING:
     from ..models import StamphogRepoConfig
 
 logger = structlog.get_logger(__name__)
-
-# Same file the gate policy lives in — the repo-facing config surface is one file.
-DIGEST_CONFIG_PATH = ".stamphog/policy.yml"
 
 
 @dataclass(frozen=True)
@@ -54,22 +50,8 @@ def load_repo_digest_config(repo_config: StamphogRepoConfig) -> RepoDigestConfig
     merge to the author/team fallback instead of the declared channel. The merge-record Celery task
     retries on the raised error.
     """
-    raw_text = StamphogGitHubClient(repo_config.installation_id).get_file_text(
-        repo_config.repository, DIGEST_CONFIG_PATH
-    )
-    if raw_text is None:
-        return None
-
-    try:
-        parsed = yaml.safe_load(raw_text)
-    except yaml.YAMLError:
-        logger.warning("stamphog_digest_config_invalid_yaml", repository=repo_config.repository, exc_info=True)
-        return None
-
-    if not isinstance(parsed, dict):
-        logger.warning("stamphog_digest_config_root_not_a_mapping", repository=repo_config.repository)
-        return None
-    if "digest" not in parsed:
+    parsed = load_default_branch_policy(repo_config)
+    if parsed is None or "digest" not in parsed:
         return None
 
     channel = _parse_channel(parsed["digest"], repo_config.repository)

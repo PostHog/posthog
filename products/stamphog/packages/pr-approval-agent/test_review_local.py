@@ -600,7 +600,7 @@ def test_renovate_review_needs_a_verified_proof_for_its_lockfile(
         "base_sha": "def456",
         "pr": {"number": 12, "title": "fix(deps): update left-pad", "state": "OPEN", "draft": False},
         "files": [{"filename": lockfile, "status": "modified", "additions": 2400, "deletions": 2400}],
-        "renovate_review": renovate_review,
+        "renovate_verification": renovate_review,
     }
     context["pr"]["user"] = {"login": "renovate[bot]", "type": "Bot"}
 

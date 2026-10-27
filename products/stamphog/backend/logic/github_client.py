@@ -730,17 +730,6 @@ class StamphogGitHubClient:
                 break
         return files
 
-    def get_pr_commit_messages(self, repo: str, number: int, head_sha: str) -> list[str] | None:
-        """The messages of the PR's commits, or None when the list does not end at ``head_sha``.
-
-        Newest first, the order `git log` lists them, so the engine collects trailer values in the
-        same order on both paths.
-        """
-        commits = self.get_pr_commits(repo, number)
-        if not commits or commits[-1].get("sha") != head_sha:
-            return None
-        return [str((commit.get("commit") or {}).get("message") or "") for commit in reversed(commits)]
-
     def get_pr_commits(self, repo: str, number: int) -> list[dict[str, Any]]:
         """The PR's commits as GitHub lists them, oldest first.
 
@@ -1318,7 +1307,7 @@ class StamphogGitHubClient:
         """
         response = self._request(
             "GET",
-            f"/repos/{repo}/contents/{path}",
+            f"/repos/{repo}/contents/{quote(path, safe='/')}",
             endpoint="/repos/{owner}/{repo}/contents/{path}",
             params={"ref": ref} if ref else None,
             headers={"Accept": "application/vnd.github.raw+json"},

@@ -470,7 +470,7 @@ def test_merge_capture_gates_on_review_enabled(team, repo_config, enabled, diges
     payload["pull_request"]["merged_at"] = "2026-07-14T00:00:00Z"
     # Digest-eligible merges resolve their audience, which fetches the repo's declared digest
     # config from GitHub; stub the fetch as "file absent" (a transient error would now retry).
-    with patch("products.stamphog.backend.logic.digest_config.StamphogGitHubClient") as digest_client_cls:
+    with patch("products.stamphog.backend.logic.default_branch_policy.StamphogGitHubClient") as digest_client_cls:
         digest_client_cls.return_value.get_file_text.return_value = None
         _run_task(payload, f"delivery-merged-{enabled}-{digest_enabled}", team.id)
 
@@ -1050,13 +1050,23 @@ def _renovate_payload(*, sender_id: int = RENOVATE_BOT_USER_ID, **overrides: Any
     [
         ({}, True, True),
         ({"action": "synchronize", "head_sha": "sha-2"}, True, True),
+        ({"action": "ready_for_review"}, True, True),
         ({}, False, False),
         ({"sender_id": 42}, True, False),
         ({"action": "labeled", "added_label": "dependencies"}, True, False),
         ({"head_repo": "someone/fork"}, True, False),
         ({"draft": True}, True, False),
     ],
-    ids=["opened", "synchronize", "not_opted_in", "pushed_by_someone_else", "labeled", "fork", "draft"],
+    ids=[
+        "opened",
+        "synchronize",
+        "ready_for_review",
+        "not_opted_in",
+        "pushed_by_someone_else",
+        "labeled",
+        "fork",
+        "draft",
+    ],
 )
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_renovate_carve_out_reviews_only_renovate_pushes_to_an_opted_in_repo(

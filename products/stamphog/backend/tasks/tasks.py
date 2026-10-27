@@ -86,7 +86,7 @@ _HEAD_CHANGING_ACTIONS = frozenset({"synchronize", "reopened"})
 
 # The deliveries that review a Renovate PR. Renovate labels its PRs as it opens them, so a `labeled`
 # delivery would review the same head twice. A base retarget is somebody else's edit.
-_RENOVATE_REVIEW_ACTIONS = frozenset({"opened", "synchronize", "reopened"})
+_RENOVATE_REVIEW_ACTIONS = frozenset({"opened", "synchronize", "reopened", "ready_for_review"})
 
 # Approval dismissal message for the LABEL-mode skip path. Unlike the workflow's dismissal, no re-review
 # follows here (the trigger label is absent), so the copy tells the author how to re-request one.
@@ -262,13 +262,8 @@ def _inbox_rereview_carve_out(
     # repo-native head ref is GitHub's word rather than an attacker-controlled fork branch name.
     if not _is_self_driving_pr(pr, repo):
         return _InboxCarveOut()
-    repo_config = _resolve_repo_config(installation_id, repo)
-    if (
-        repo_config is None
-        or not repo_config.enabled
-        or not repo_config.installation_id
-        or repo_config.connected_by_user_id is None
-    ):
+    repo_config = _bound_repo_config(installation_id, repo)
+    if repo_config is None:
         return _InboxCarveOut()
     run = find_signal_implementation_run(
         team_id=repo_config.team_id,
@@ -301,21 +296,30 @@ def _renovate_carve_out(installation_id: str, repo: str, payload: dict[str, Any]
     opt in with ``renovate: {enabled: true}``. The run still proves every locked version before the
     reviewer sees it, and an unproven update is refused.
     """
-    pr = payload.get("pull_request") or {}
-    if action not in _RENOVATE_REVIEW_ACTIONS or not is_renovate_pr(pr, repo):
+    if action not in _RENOVATE_REVIEW_ACTIONS or (payload.get("sender") or {}).get("id") != RENOVATE_BOT_USER_ID:
         return None
-    if (payload.get("sender") or {}).get("id") != RENOVATE_BOT_USER_ID:
+    repo_config = _bound_repo_config(installation_id, repo)
+    if repo_config is None or not _renovate_review_admitted(repo_config, payload.get("pull_request") or {}):
         return None
+    return {"trigger": "webhook", "action": action}
+
+
+def _renovate_review_admitted(repo_config: StamphogRepoConfig, pr: dict[str, Any]) -> bool:
+    """Whether GitHub attests the PR as Renovate's and the repo's default-branch policy opts in."""
+    return is_renovate_pr(pr, repo_config.repository) and renovate_reviews_enabled(repo_config)
+
+
+def _bound_repo_config(installation_id: str, repo: str) -> StamphogRepoConfig | None:
+    """The repo's config when it is enabled and bound to an installation and a connecting user."""
     repo_config = _resolve_repo_config(installation_id, repo)
     if (
         repo_config is None
         or not repo_config.enabled
         or not repo_config.installation_id
         or repo_config.connected_by_user_id is None
-        or not renovate_reviews_enabled(repo_config)
     ):
         return None
-    return {"trigger": "webhook", "action": action}
+    return repo_config
 
 
 def _review_skip_reason(pr: dict[str, Any]) -> str | None:
@@ -1214,7 +1218,7 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
             if carve_out.provenance is None and skip_reason == "bot_author":
                 renovate_review = _renovate_carve_out(installation_id, repo, payload, action)
         except Exception as e:
-            logger.exception("stamphog_pr_event_inbox_carve_out_failed", delivery_id=delivery_id, error=str(e))
+            logger.exception("stamphog_pr_event_carve_out_failed", delivery_id=delivery_id, error=str(e))
             carve_out_error = e
     inbox_review = carve_out.provenance
     carved_out = inbox_review is not None or renovate_review is not None
@@ -1874,16 +1878,25 @@ def _rereview_waiting_run(repo_config: StamphogRepoConfig, pr_number: int, head_
     pr = StamphogGitHubClient(repo_config.installation_id).get_pr(repo, pr_number)
     if (pr.get("state") or "") != "open" or (pr.get("head") or {}).get("sha") != head_sha:
         return
-    if _review_skip_reason(pr) is not None:
+    # A Renovate run reviewed this same head on a delivery that Renovate sent, so the sender check
+    # still holds. The PR identity and the repo's opt-in are read again.
+    is_renovate = bool(previous_output.get("renovate_review"))
+    skip_reason = _review_skip_reason(pr)
+    renovate_admitted = is_renovate and skip_reason == "bot_author" and _renovate_review_admitted(repo_config, pr)
+    if skip_reason is not None and not renovate_admitted:
         return
     is_manual = bool(previous_output.get("manual_review"))
     label_names = {(label or {}).get("name") for label in pr.get("labels") or []}
-    if repo_config.review_mode == ReviewMode.LABEL and not is_manual and repo_config.trigger_label not in label_names:
+    if (
+        repo_config.review_mode == ReviewMode.LABEL
+        and not (is_manual or is_renovate)
+        and repo_config.trigger_label not in label_names
+    ):
         return
-    if _author_lacks_write_permission(repo_config, repo, pr):
+    if not is_renovate and _author_lacks_write_permission(repo_config, repo, pr):
         return
     output: dict[str, Any] = {"rereview_after_external_review": True}
-    for key in ("manual_review", "review_trigger"):
+    for key in ("manual_review", "renovate_review", "review_trigger"):
         if key in previous_output:
             output[key] = previous_output[key]
     queued = _queue_review_at_head(repo_config, pr, head_sha, output=output, revisit_wait=True)

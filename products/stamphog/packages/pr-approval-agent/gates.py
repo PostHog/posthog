@@ -11,7 +11,7 @@ than a private parser — one semantics, many consumers.
 import re
 import sys
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from fnmatch import fnmatch
 from pathlib import Path
@@ -536,9 +536,17 @@ def category_fully_exempt(category: str, files: list[str]) -> bool:
 
 
 def detect_deny_categories(
-    files: list[str], ignored_files: set[str] | None = None, *, apply_exceptions: bool = True
+    files: list[str],
+    ignored_files: set[str] | None = None,
+    *,
+    ignored_by_category: Mapping[str, set[str]] | None = None,
+    apply_exceptions: bool = True,
 ) -> list[str]:
-    """Categories hard-denied by the changed file paths. Titles never deny."""
+    """Categories hard-denied by the changed file paths. Titles never deny.
+
+    ``ignored_files`` deny nothing. ``ignored_by_category`` lifts one category for some files and
+    leaves every other category to deny them.
+    """
     hits: set[str] = set()
     ignored_files_lower = {f.lower() for f in ignored_files or set()}
     paths_lower = [fl for f in files if (fl := f.lower()) not in ignored_files_lower]
@@ -546,6 +554,7 @@ def detect_deny_categories(
     for category, scopes in DENY_PATTERNS.items():
         path_regexes = scopes.get("paths", []) + [path_rx for path_rx, _title_rx in scopes.get("any", [])]
         exceptions = DENY_EXCEPTIONS.get(category, {}) if apply_exceptions else {}
+        category_ignored = {f.lower() for f in (ignored_by_category or {}).get(category, set())}
         if any(
             rx.search(p)
             and not any(
@@ -554,6 +563,7 @@ def detect_deny_categories(
             )
             for rx in path_regexes
             for p in paths_lower
+            if p not in category_ignored
         ):
             hits.add(category)
     return sorted(hits)
