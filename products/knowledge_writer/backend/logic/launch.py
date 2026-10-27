@@ -47,6 +47,7 @@ def start_writer(request: DocsRequest, *, team: Team, writer: WriterSettings) ->
             repository=writer.docs_repository,
             create_pr=False,
             internal=True,
+            posthog_mcp_scopes="read_only",
             origin_key=request.dedupe_id,
         )
         tasks_facade.update_task_state_entry(
