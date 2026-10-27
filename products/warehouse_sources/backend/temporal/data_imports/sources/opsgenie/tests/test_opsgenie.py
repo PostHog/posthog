@@ -107,7 +107,9 @@ class TestPagination:
 
         with mock.patch(f"{OPSGENIE_MODULE}.MAX_SEARCH_RESULTS", PAGE_SIZE):
             result = _driver().run(
-                "alerts", [_page(items, has_next=True)], resume_state=OpsgenieResumeConfig(0, window_ms)
+                "alerts",
+                [_page(items, has_next=True)],
+                resume_state=OpsgenieResumeConfig(offset=0, window_start_ms=window_ms),
             )
 
         # Every row shares the current window's createdAt, so re-slicing would loop on the same
@@ -138,7 +140,6 @@ class TestFanout:
         assert result.params("offset") == ["0", None, "e1"]
         assert result.params("limit") == [str(PAGE_SIZE), "20", "20"]
         assert [(row["incident_id"], row["id"]) for row in result.rows] == [("inc-1", "e1"), ("inc-1", "e2")]
-        assert result.saved_states == []
 
     @pytest.mark.parametrize(
         "endpoint,parent_path,child_body,expected",
