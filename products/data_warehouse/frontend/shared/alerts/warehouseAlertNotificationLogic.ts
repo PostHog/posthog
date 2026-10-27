@@ -140,16 +140,16 @@ export interface warehouseAlertNotificationLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         selectedSlackIntegration: (
-            slackIntegrations: any,
-            selectedSlackIntegrationId: any
+            slackIntegrations: IntegrationType[] | undefined,
+            selectedSlackIntegrationId: number | null
         ) => IntegrationType | undefined
         addDisabledReason: (
-            selectedType: any,
-            selectedSlackIntegration: any,
-            slackChannelValue: any,
-            webhookUrl: any,
-            pagerDutyRoutingKey: any,
-            creatingNotifications: any
+            selectedType: WarehouseAlertDestinationTypeEnumApi,
+            selectedSlackIntegration: IntegrationType | undefined,
+            slackChannelValue: string | null,
+            webhookUrl: string,
+            pagerDutyRoutingKey: string,
+            creatingNotifications: boolean
         ) => string | undefined
     }
 }

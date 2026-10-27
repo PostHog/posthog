@@ -59,7 +59,7 @@ export interface warehouseAlertsLogicActions {
     deleteAlert: (alert: PlatformAlertConfigurationApi) => {
         alert: PlatformAlertConfigurationApi
     }
-    loadAlerts: (_: any) => any
+    loadAlerts: (_?: any) => any
     loadAlertsFailure: (
         error: string,
         errorObject?: any
@@ -83,8 +83,12 @@ export interface warehouseAlertsLogicActions {
 export interface warehouseAlertsLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        targetOptions: (dataWarehouseSources: any, destinations: any, arg: any) => WarehouseAlertTargetOption[]
-        targetLabels: (targetOptions: any) => Record<string, string>
+        targetOptions: (
+            dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null,
+            destinations: ExternalDataDestinationApi[],
+            arg: any
+        ) => WarehouseAlertTargetOption[]
+        targetLabels: (targetOptions: WarehouseAlertTargetOption[]) => Record<string, string>
     }
 }
 
@@ -118,7 +122,7 @@ export const warehouseAlertsLogic = kea<warehouseAlertsLogicType>([
         alerts: [
             null as PlatformAlertConfigurationApi[] | null,
             {
-                loadAlerts: async (_, breakpoint) => {
+                loadAlerts: async (_ = null, breakpoint) => {
                     const projectId = String(values.currentTeamId)
                     const results: PlatformAlertConfigurationApi[] = []
                     let offset = 0

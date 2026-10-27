@@ -69,7 +69,9 @@ describe('warehouse alert logics', () => {
             .mockResolvedValueOnce({ count: 2, next: null, results: [destinationAlert('on-page-2')] })
         const logic = warehouseAlertsLogic(PROPS)
 
-        await expectLogic(logic, () => logic.mount()).toFinishAllListeners()
+        await expectLogic(logic, () => {
+            logic.mount()
+        }).toFinishAllListeners()
 
         expect(logic.values.alerts?.map((alert) => alert.id)).toEqual(['on-page-2'])
     })
