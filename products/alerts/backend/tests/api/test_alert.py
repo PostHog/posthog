@@ -2876,7 +2876,12 @@ class TestAlertDestinations(APIBaseTest):
             {"key": "alert_id", "value": str(self.alert.id), "operator": "exact", "type": "event"}
         ]
         # The Slack snooze handler finds its alert through these two ids.
-        actions = next(block for block in (hog_function.inputs or {})["blocks"]["value"] if _is_actions_block(block))
+        attachment_blocks = [
+            block
+            for attachment in (hog_function.inputs or {})["attachments"]["value"]
+            for block in attachment["blocks"]
+        ]
+        actions = next(block for block in attachment_blocks if _is_actions_block(block))
         assert actions["block_id"] == "insight_alert_snooze:{event.properties.alert_id}"
         assert any(element.get("action_id") == "insight_alert_snooze" for element in actions["elements"])
 
