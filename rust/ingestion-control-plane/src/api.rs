@@ -15,7 +15,7 @@ use uuid::Uuid;
 
 use k8s_awareness::DiscoveredPod;
 
-use crate::changelog;
+use crate::changelog::{self, RestoreError};
 use crate::etcd;
 use crate::jobs::{AnalysisRequest, JobView};
 use crate::kafka::browse::{self, BrowseParams, BrowseStop, MessageFilter, MessageRecord};
@@ -515,7 +515,13 @@ async fn personhog_restore_changelog(
         version_id,
     )
     .await
-    .map_err(|e| ApiError::bad_request(format!("restore failed: {e:#}")))?;
+    .map_err(|e| match e {
+        RestoreError::NotFound(message) => ApiError::not_found(message),
+        RestoreError::Refused(message) => {
+            ApiError::bad_request(format!("restore refused: {message}"))
+        }
+        RestoreError::Upstream(e) => ApiError::upstream(format!("restore failed: {e:#}")),
+    })?;
     Ok(Json(restored))
 }
 

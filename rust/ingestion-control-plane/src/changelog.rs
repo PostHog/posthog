@@ -81,6 +81,23 @@ pub async fn backups(
     backups.versions(&backup::object_key(prefix)).await
 }
 
+/// Why a restore did not happen.
+#[derive(Debug)]
+pub enum RestoreError {
+    /// There is no backup, or no such version of it.
+    NotFound(String),
+    /// The backup cannot be restored into this etcd.
+    Refused(String),
+    /// S3, Kafka or etcd failed.
+    Upstream(anyhow::Error),
+}
+
+impl From<anyhow::Error> for RestoreError {
+    fn from(error: anyhow::Error) -> Self {
+        Self::Upstream(error)
+    }
+}
+
 /// Writes a backed-up config back into an empty etcd: the current backup, or
 /// the named version.
 pub async fn restore(
@@ -89,17 +106,18 @@ pub async fn restore(
     prefix: &str,
     backups: &dyn BackupStore,
     version_id: Option<&str>,
-) -> anyhow::Result<ChangelogConfig> {
+) -> Result<ChangelogConfig, RestoreError> {
     let key = backup::object_key(prefix);
-    let value = backups
-        .get(&key, version_id)
-        .await?
-        .with_context(|| match version_id {
+    let object = backups.get(&key, version_id).await?.ok_or_else(|| {
+        RestoreError::NotFound(match version_id {
             Some(version) => format!("no backup version {version} of {key}"),
             None => format!("no backup at {key}"),
-        })?;
-    let restored: ChangelogConfig =
-        serde_json::from_slice(&value).context("the backup is not a changelog config")?;
+        })
+    })?;
+    let value =
+        backup::unwrap_config(&object.body).map_err(|e| RestoreError::Refused(format!("{e:#}")))?;
+    let restored: ChangelogConfig = serde_json::from_slice(&value)
+        .map_err(|e| RestoreError::Refused(format!("the backup is not a changelog config: {e}")))?;
     let live_partitions = topic_partition_count(&config.personhog_kafka(), &restored.topic).await?;
     apply_restore(&store(client, prefix), &value, restored, live_partitions).await
 }
@@ -109,16 +127,21 @@ async fn apply_restore(
     value: &[u8],
     restored: ChangelogConfig,
     live_partitions: u32,
-) -> anyhow::Result<ChangelogConfig> {
+) -> Result<ChangelogConfig, RestoreError> {
     if live_partitions != restored.partitions {
-        bail!(
+        return Err(RestoreError::Refused(format!(
             "topic {} has {live_partitions} partitions but the backup records {}; the backup may be from another environment",
-            restored.topic,
-            restored.partitions
-        );
+            restored.topic, restored.partitions
+        )));
     }
-    if !store.restore_changelog_config_raw(value).await? {
-        bail!("config/changelog already exists; restore only rebuilds an empty etcd");
+    let created = store
+        .restore_changelog_config_raw(value)
+        .await
+        .map_err(|e| RestoreError::Upstream(e.into()))?;
+    if !created {
+        return Err(RestoreError::Refused(
+            "config/changelog already exists; restore only rebuilds an empty etcd".to_string(),
+        ));
     }
     Ok(restored)
 }
@@ -503,7 +526,10 @@ mod tests {
 
         let refused = apply_restore(&store, &value, parsed, 64).await;
 
-        assert!(refused.unwrap_err().to_string().contains("already exists"));
+        assert!(
+            matches!(refused, Err(RestoreError::Refused(ref m)) if m.contains("already exists")),
+            "{refused:?}"
+        );
         let current = store.get_changelog_config().await.unwrap().unwrap();
         assert_eq!(current.epoch, 1, "the seeded config is untouched");
     }
@@ -515,10 +541,10 @@ mod tests {
 
         let refused = apply_restore(&store, &value, parsed, 64).await;
 
-        assert!(refused
-            .unwrap_err()
-            .to_string()
-            .contains("another environment"));
+        assert!(
+            matches!(refused, Err(RestoreError::Refused(ref m)) if m.contains("another environment")),
+            "{refused:?}"
+        );
         let (stored, _) = store
             .get_changelog_config_raw_with_revision()
             .await

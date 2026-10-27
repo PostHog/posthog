@@ -27,7 +27,9 @@ Protocol-aware view of personhog's etcd coordination state (`PERSONHOG_ETCD_PREF
 
 #### Changelog backups
 
-With `CHANGELOG_BACKUP_BUCKET` set, the service keeps a copy of `config/changelog` in that versioned bucket at `<prefix>/config-changelog.json`. It writes the stored bytes once at startup and again after every change, from whichever writer made it, and skips a write when the bytes match the current copy. A deletion is never written, so a wiped etcd still has its last good config in the bucket. The bucket's versions are the history.
+With `CHANGELOG_BACKUP_BUCKET` set, the service keeps a copy of `config/changelog` in that versioned bucket at `<prefix>/config-changelog.json`, as `{"nonce", "config"}` with the stored bytes in `config`. It copies the config once at startup and again after every change, from whichever writer made it, and skips a write when the current copy already holds it. A deletion is never written, so a wiped etcd still has its last good config in the bucket. The bucket's versions are the history.
+
+Every replica runs the copy. Each one reads the backup, then etcd, and uploads only if the backup it read is still current. When it is not, S3 refuses the upload and the replica tries again after a backoff, from a fresh read. So an upload never replaces a copy of a newer config. The nonce gives each upload its own ETag, because the config alone can return to bytes it held before.
 
 When etcd holds no config, the changelog panel offers a restore from the current backup or an earlier version. A restore writes the stored bytes back unchanged, only while the key is absent, and only after checking the topic's live partition count matches the backup. Running services ignore a config whose epoch is older than the one they adopted, so a rebuilt etcd is restored with personhog scaled to zero.
 
