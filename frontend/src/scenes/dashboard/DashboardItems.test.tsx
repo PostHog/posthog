@@ -11,6 +11,8 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { DashboardPlacement } from '~/types'
 
+import { UNGROUPED_TILES_TAB_KEY } from 'products/dashboards/frontend/dashboardTileSections'
+
 import { DashboardItems } from './DashboardItems'
 
 jest.mock('kea', () => ({
@@ -768,30 +770,52 @@ describe('DashboardItems', () => {
         })
 
         it.each([
-            { layout: 'bands', overrides: {}, item: 'Show all groups as tabs', display: 'tabs' },
+            { layout: 'bands', overrides: {}, item: 'Show all groups as tabs', display: 'tabs', copyItemHidden: false },
             {
                 layout: 'tabs',
                 overrides: { activeTileGroupTab: 'plans' },
                 item: 'Show groups as sections',
                 display: 'sections',
+                copyItemHidden: false,
             },
-        ])('switches how groups show from the group menu in $layout', async ({ overrides, item, display }) => {
-            showBands(overrides)
-            const bandValues = mockedUseValues.getMockImplementation()!
-            mockedUseValues.mockImplementation((logic) =>
-                logic === dashboardsModel ? { dashboardsLoading: false } : bandValues(logic)
-            )
-            const defaultActions = mockedUseActions.getMockImplementation()!
-            mockedUseActions.mockImplementation((logic) =>
-                logic === dashboardsModel ? { loadDashboardsIfNeeded: jest.fn() } : defaultActions(logic)
-            )
+            {
+                layout: 'tabs (overview tab)',
+                overrides: {
+                    activeTileGroupTab: UNGROUPED_TILES_TAB_KEY,
+                    tileGroupSections: [{ kind: 'tiles', key: UNGROUPED_TILES_TAB_KEY, tiles: [] }],
+                },
+                item: 'Show groups as sections',
+                display: 'sections',
+                copyItemHidden: true,
+            },
+        ])(
+            'switches how groups show from the group menu in $layout',
+            async ({ overrides, item, display, copyItemHidden }) => {
+                showBands(overrides)
+                const bandValues = mockedUseValues.getMockImplementation()!
+                mockedUseValues.mockImplementation((logic) =>
+                    logic === dashboardsModel ? { dashboardsLoading: false } : bandValues(logic)
+                )
+                const defaultActions = mockedUseActions.getMockImplementation()!
+                mockedUseActions.mockImplementation((logic) =>
+                    logic === dashboardsModel ? { loadDashboardsIfNeeded: jest.fn() } : defaultActions(logic)
+                )
 
-            const { container, findByText } = render(<DashboardItems />)
-            fireEvent.click(container.querySelector('[data-attr="dashboard-tile-group-menu"]')!)
-            fireEvent.click(await findByText(item))
+                const { container, findByText, queryByText, unmount } = render(<DashboardItems />)
+                fireEvent.click(container.querySelector('[data-attr="dashboard-tile-group-menu"]')!)
+                await findByText(item)
 
-            expect(mockChangeTileGroupDisplay).toHaveBeenCalledWith(display)
-        })
+                expect(Boolean(queryByText(/Copy .* to dashboard/))).toBe(!copyItemHidden)
+
+                fireEvent.click(await findByText(item))
+
+                expect(mockChangeTileGroupDisplay).toHaveBeenCalledWith(display)
+
+                // The menu's dropdown portals to document.body and stays open after a mocked
+                // selection, so unmount before the next case to stop its content leaking into it.
+                unmount()
+            }
+        )
 
         it('keeps a band grid mounted when a tile streams into the band', () => {
             const defaultValues = mockedUseValues.getMockImplementation()!

@@ -9,14 +9,29 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import type { TileGroupDisplay } from '~/types'
 
-const MENU_ITEMS: Record<TileGroupDisplay, { copyLabel: string; switchTo: TileGroupDisplay; switchLabel: string }> = {
-    sections: { copyLabel: 'Copy group to dashboard', switchTo: 'tabs', switchLabel: 'Show all groups as tabs' },
-    tabs: { copyLabel: 'Copy tab to dashboard', switchTo: 'sections', switchLabel: 'Show groups as sections' },
+const MENU_ITEMS: Record<
+    TileGroupDisplay,
+    { copyLabel: string; copyNoun: string; switchTo: TileGroupDisplay; switchLabel: string }
+> = {
+    sections: {
+        copyLabel: 'Copy group to dashboard',
+        copyNoun: 'group',
+        switchTo: 'tabs',
+        switchLabel: 'Show all groups as tabs',
+    },
+    tabs: {
+        copyLabel: 'Copy tab to dashboard',
+        copyNoun: 'tab',
+        switchTo: 'sections',
+        switchLabel: 'Show groups as sections',
+    },
 }
 
 interface DashboardTileGroupMenuProps {
+    // Set by the caller to match where this menu renders: "sections" in the group header,
+    // "tabs" in the tab bar. Not read from the dashboard's actual display mode.
     groupDisplay: TileGroupDisplay
-    onChangeGroupDisplay: (groupDisplay: TileGroupDisplay) => void
+    onChangeGroupDisplay?: (groupDisplay: TileGroupDisplay) => void
     copyToDestinations?: DashboardWidgetPlacementDestination[]
     onCopyToDashboard?: (dashboardId: number, dashboardName: string) => void
     copyLoading?: boolean
@@ -30,14 +45,14 @@ export function DashboardTileGroupMenu({
     copyLoading,
 }: DashboardTileGroupMenuProps): JSX.Element {
     const { loadDashboardsIfNeeded } = useActions(dashboardsModel)
-    const { copyLabel, switchTo, switchLabel } = MENU_ITEMS[groupDisplay]
+    const { copyLabel, copyNoun, switchTo, switchLabel } = MENU_ITEMS[groupDisplay]
 
     return (
         <More
             data-attr="dashboard-tile-group-menu"
             tooltip="Group actions"
             loading={copyLoading}
-            disabledReason={copyLoading ? 'Copying group' : undefined}
+            disabledReason={copyLoading ? `Copying ${copyNoun}` : undefined}
             dropdown={{ onVisibilityChange: (visible) => visible && onCopyToDashboard && loadDashboardsIfNeeded() }}
             overlay={
                 <div className="min-w-48 p-1">
@@ -48,16 +63,18 @@ export function DashboardTileGroupMenu({
                                 destinations={copyToDestinations ?? []}
                                 onSelect={({ id, name }) => onCopyToDashboard(id, name || 'Untitled')}
                             />
-                            <LemonDivider />
+                            {onChangeGroupDisplay && <LemonDivider />}
                         </>
                     )}
-                    <LemonButton
-                        fullWidth
-                        onClick={() => onChangeGroupDisplay(switchTo)}
-                        data-attr={`dashboard-tile-group-menu-group-display-${switchTo}`}
-                    >
-                        {switchLabel}
-                    </LemonButton>
+                    {onChangeGroupDisplay && (
+                        <LemonButton
+                            fullWidth
+                            onClick={() => onChangeGroupDisplay(switchTo)}
+                            data-attr={`dashboard-tile-group-menu-group-display-${switchTo}`}
+                        >
+                            {switchLabel}
+                        </LemonButton>
+                    )}
                 </div>
             }
         />

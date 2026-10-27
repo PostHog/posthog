@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { waitFor } from '@testing-library/react'
 
+import { useStorybookMocks } from '~/mocks/browser'
 import type { DashboardBasicType } from '~/types'
 
 import type { DashboardTileGroupApi } from '../../generated/api.schemas'
@@ -47,21 +48,24 @@ export const LongTitleInNarrowScene: StoryObj = {
 }
 
 export const MenuOpen: StoryObj = {
-    render: () => (
-        <div className="h-60 w-[640px] bg-primary p-4">
-            <DashboardTileGroup
-                group={{ title: 'Activation', color: 'blue' }}
-                tileCount={2}
-                collapsed={false}
-                onToggle={() => {}}
-                copyToDestinations={[{ dashboard: { id: 42, name: 'Example dashboard' } as DashboardBasicType }]}
-                onCopyToDashboard={() => {}}
-                onChangeGroupDisplay={() => {}}
-            >
-                <FakeTile />
-            </DashboardTileGroup>
-        </div>
-    ),
+    render: () => {
+        useStorybookMocks({ get: { '/api/projects/:team_id/dashboards/': { count: 0, results: [] } } })
+        return (
+            <div className="h-60 w-[640px] bg-primary p-4">
+                <DashboardTileGroup
+                    group={{ title: 'Activation', color: 'blue' }}
+                    tileCount={2}
+                    collapsed={false}
+                    onToggle={() => {}}
+                    copyToDestinations={[{ dashboard: { id: 42, name: 'Example dashboard' } as DashboardBasicType }]}
+                    onCopyToDashboard={() => {}}
+                    onChangeGroupDisplay={() => {}}
+                >
+                    <FakeTile />
+                </DashboardTileGroup>
+            </div>
+        )
+    },
     play: async () => {
         const trigger = await waitFor(() => {
             const element = document.querySelector<HTMLElement>('[data-attr="dashboard-tile-group-menu"]')

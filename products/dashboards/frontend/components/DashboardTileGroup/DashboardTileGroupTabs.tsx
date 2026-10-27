@@ -49,7 +49,7 @@ export function DashboardTileGroupTabs({
                 }))}
                 rightSlotClassName="pr-0"
                 rightSlot={
-                    onChangeGroupDisplay && (
+                    (onChangeGroupDisplay || onCopyGroupToDashboard) && (
                         <DashboardTileGroupMenu
                             groupDisplay="tabs"
                             onChangeGroupDisplay={onChangeGroupDisplay}

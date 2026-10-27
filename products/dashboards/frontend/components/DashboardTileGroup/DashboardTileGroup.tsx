@@ -63,7 +63,7 @@ export function DashboardTileGroup({
                 </LemonButton>
                 {group.title && collapsed && <span className="shrink-0 text-secondary text-xs">{tileCountLabel}</span>}
                 <div className="min-w-4 flex-1 border-t border-primary" />
-                {onChangeGroupDisplay && (
+                {(onChangeGroupDisplay || onCopyToDashboard) && (
                     <DashboardTileGroupMenu
                         groupDisplay="sections"
                         onChangeGroupDisplay={onChangeGroupDisplay}

@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { waitFor } from '@testing-library/react'
 
+import { useStorybookMocks } from '~/mocks/browser'
 import type { DashboardBasicType } from '~/types'
 
 import { type DashboardSection, UNGROUPED_TILES_TAB_KEY } from '../../dashboardTileSections'
@@ -26,6 +27,7 @@ const SECTIONS: DashboardSection[] = [
 ]
 
 function TabsWithMenu({ activeSectionKey }: { activeSectionKey: string }): JSX.Element {
+    useStorybookMocks({ get: { '/api/projects/:team_id/dashboards/': { count: 0, results: [] } } })
     return (
         <div className="h-60 w-[640px] bg-primary p-4">
             <DashboardTileGroupTabs
