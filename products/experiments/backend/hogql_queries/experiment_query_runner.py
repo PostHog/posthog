@@ -422,13 +422,14 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             modifiers.sessionIdPushdown = True
         return modifiers
 
-    def create_database(self, modifiers: HogQLQueryModifiers) -> Database:
+    def create_database(self, modifiers: HogQLQueryModifiers, *, use_cached_sources: bool = False) -> Database:
         return Database.create_for(
             team=self.team,
             user=self.user,
             modifiers=modifiers,
             timings=self.timings,
             bypass_warehouse_access_control=self.bypass_warehouse_access_control,
+            use_cached_sources=use_cached_sources,
         )
 
     def compile_query(self, database: Database) -> None:

@@ -187,7 +187,9 @@ class _MetricCompiler:
             team_experiments_config=self._team_config,
         )
         if self._database is None:
-            self._database = runner.create_database(runner.query_modifiers())
+            # A compile only validates the query, as editor assist does, so it can read the team's catalog from HogQL's
+            # short-lived cache. HogQL applies the reader's current access on every read.
+            self._database = runner.create_database(runner.query_modifiers(), use_cached_sources=True)
         try:
             runner.compile_query(self._database)
         except TableAccessDeniedError:
