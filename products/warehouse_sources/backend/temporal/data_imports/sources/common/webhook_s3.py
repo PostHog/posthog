@@ -66,8 +66,8 @@ class WebhookSourceManager:
     async def webhook_unregistered(self) -> bool:
         """Whether a webhook schema is past its initial sync but its source has no enabled webhook.
 
-        A webhook schema stores no incremental field, so a poll fallback re-reads the whole table on
-        every run. The caller must skip the poll and tell the user instead.
+        Such a schema falls back to a poll. A schema created with webhook sync has no stored cursor,
+        so that poll re-reads the whole table on every run. The caller decides whether to skip it.
         """
         from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 

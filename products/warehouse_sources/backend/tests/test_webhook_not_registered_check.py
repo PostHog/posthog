@@ -5,9 +5,9 @@ from posthog.test.base import BaseTest
 from parameterized import parameterized
 
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
-from products.data_warehouse.backend.temporal.health_checks.webhook_not_registered import WebhookNotRegisteredCheck
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.temporal.health_checks.webhook_not_registered import WebhookNotRegisteredCheck
 
 
 class TestWebhookNotRegisteredCheck(BaseTest):

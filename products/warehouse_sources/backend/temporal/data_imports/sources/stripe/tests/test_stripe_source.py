@@ -236,6 +236,44 @@ class TestStripeGetRowsIncrementalCursor:
         assert [row["id"] for row in rows] == [f"ch_{i}" for i in range(5)]
         assert len(tables) > 1
 
+    @pytest.mark.parametrize(
+        "skip_full_listing,last_value,expected_ids",
+        [
+            (True, None, []),
+            (True, "1700000050", ["ch_2"]),
+            (False, None, ["ch_2", "ch_1"]),
+        ],
+    )
+    def test_skip_full_listing_keeps_the_incremental_poll(self, skip_full_listing, last_value, expected_ids):
+        objects = [
+            {"id": "ch_2", "created": 1700000100},
+            {"id": "ch_1", "created": 1700000040},
+        ]
+        method = MagicMock(side_effect=lambda params: _FakeStripeList(objects))
+        resumable_source_manager = mock.MagicMock()
+        resumable_source_manager.can_resume.return_value = False
+
+        with mock.patch.object(
+            stripe_module, "_build_resources", return_value={"charge": StripeResource(method=method)}
+        ):
+            tables = list(
+                get_rows(
+                    api_key="sk_test_123",
+                    endpoint="charge",
+                    account_id=None,
+                    db_incremental_field_last_value=last_value,
+                    db_incremental_field_earliest_value=None,
+                    logger=mock.MagicMock(),
+                    resumable_source_manager=resumable_source_manager,
+                    api_version=STRIPE_API_VERSION_ACACIA,
+                    should_use_incremental_field=True,
+                    skip_full_listing=skip_full_listing,
+                )
+            )
+
+        assert [row["id"] for table in tables for row in table.to_pylist()] == expected_ids
+        assert method.called is bool(expected_ids)
+
 
 NOW = 1_800_000_000
 
@@ -1474,15 +1512,17 @@ class TestWebhookOnlyResponseWiring:
         assert response.webhook_only is False
         manager.webhook_enabled.assert_awaited_once_with(webhook_only=False)
 
-    @parameterized.expand([("unregistered_webhook_skips_poll", True, 0), ("no_webhook_schema_polls", False, 1)])
-    def test_unregistered_webhook_poll(self, _name: str, unregistered: bool, expected_get_rows_calls: int) -> None:
+    @parameterized.expand(
+        [("unregistered_webhook_skips_full_poll", True, []), ("no_webhook_schema_polls", False, ["cus_1"])]
+    )
+    def test_unregistered_webhook_poll(self, _name: str, unregistered: bool, expected_ids: list[str]) -> None:
         manager = self._make_manager(enabled=False)
         manager.webhook_unregistered = mock.AsyncMock(return_value=unregistered)
-        with mock.patch.object(stripe_module, "get_rows", return_value=iter([{"id": "cus_1"}])) as get_rows:
+        resource = StripeResource(method=lambda params: cast(ListObject[Any], _FakeStripeList([{"id": "cus_1"}])))
+        with mock.patch.object(stripe_module, "_build_resources", return_value={CUSTOMER_RESOURCE_NAME: resource}):
             response = self._source(CUSTOMER_RESOURCE_NAME, manager)
-            rows = list(response.items())
-        assert get_rows.call_count == expected_get_rows_calls
-        assert rows == ([] if unregistered else [{"id": "cus_1"}])
+            tables = list(response.items())
+        assert [row["id"] for table in tables for row in table.to_pylist()] == expected_ids
 
     def test_discount_partitions_on_start_not_created(self) -> None:
         # Discount objects carry `start`/`end`, not `created`. If the incremental-field entry is

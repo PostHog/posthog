@@ -4,7 +4,9 @@ from posthog.temporal.health_checks.detectors import HealthExecutionPolicy
 from posthog.temporal.health_checks.framework import AlertContent, HealthCheck, Remediation
 from posthog.temporal.health_checks.models import HealthCheckResult
 
-from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
+from products.cdp.backend.facade.models import HogFunction
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 _MAX_LISTED = 20
 
@@ -12,14 +14,14 @@ _MAX_LISTED = 20
 class WebhookNotRegisteredCheck(HealthCheck):
     """Flag a source whose tables use webhook sync but that has no active webhook.
 
-    These tables receive no webhook data. A webhook schema stores no incremental field, so a poll
-    would re-read the whole table on every run, and the sync skips it instead. The tables stop
-    updating until the user sets up the webhook or picks a different sync method.
+    These tables receive no webhook data. What the sync does instead depends on the source: a
+    webhook-only table gets no data, Stripe skips a poll that would list the whole table, and other
+    sources poll the vendor API, often reading the whole table on every run.
     """
 
     name = "webhook_not_registered"
     kind = "webhook_not_registered"
-    owner = JobOwners.TEAM_DATA_STACK
+    owner = JobOwners.TEAM_WAREHOUSE_SOURCES
     policy = HealthExecutionPolicy(batch_size=50, max_concurrent=3)
     schedule = "50 7 * * *"
     active_since_days = 30
@@ -27,9 +29,11 @@ class WebhookNotRegisteredCheck(HealthCheck):
     remediation = Remediation(
         human="""
             Some tables on this source use webhook sync, but the source has no active webhook, so
-            these tables don't update. Open the source (Data pipeline / Data warehouse → Sources), go
-            to the Webhook tab, and create the webhook. If you can't create a webhook for this
-            account, change the affected tables to incremental or full refresh sync instead.
+            these tables get no webhook updates. Depending on the table, the sync either skips it or
+            reads it from the source API instead, which can be slow and can read the whole table on
+            every sync. Open the source (Data pipeline / Data warehouse → Sources), go to the Webhook
+            tab, and create the webhook. If you can't create a webhook for this account, change the
+            affected tables to incremental or full refresh sync instead.
         """,
         agent="""
             Confirm with `external-data-sources-retrieve` that the listed schemas use webhook sync.
@@ -45,13 +49,11 @@ class WebhookNotRegisteredCheck(HealthCheck):
         name = issue.payload.get("pipeline_name") or issue.payload.get("source_type", "a webhook source")
         return AlertContent(
             title="Webhook isn't set up for webhook-synced tables",
-            summary=f"{name} has tables set to webhook sync that don't update because the source has no active webhook",
+            summary=f"{name} has tables set to webhook sync, but the source has no active webhook",
             link="/health/pipeline-status",
         )
 
     def detect(self, team_ids: list[int]) -> dict[int, list[HealthCheckResult]]:
-        from products.cdp.backend.facade.models import HogFunction
-
         schemas = ExternalDataSchema.objects.filter(
             team_id__in=team_ids,
             deleted=False,
