@@ -3,11 +3,13 @@ import csv
 import json
 import time
 import logging
+from datetime import UTC, datetime
 from typing import Any, Optional
 
 from django.db import transaction
 from django.utils import timezone
 
+from posthog.dataclasses import frozen
 from posthog.models.scoping.manager import resolve_effective_team_id
 
 from products.messaging.backend.models.message_category import MessageCategory, MessageCategoryType
@@ -33,6 +35,14 @@ CUSTOMERIO_SUPPRESSION_TYPES: dict[str, tuple[SuppressionSource, str]] = {
 SUPPRESSION_PAGE_SIZE = 1000
 # Customer.io allows 10 App API requests per second.
 SUPPRESSION_PAGE_DELAY_SECONDS = 0.2
+
+
+@frozen
+class _ImportedSuppression:
+    # When Customer.io suppressed the address, or None when the entry has no time.
+    suppressed_at: datetime | None
+    # The bounce status code and diagnostic, for example "5.1.1 550 user unknown". None for spam reports.
+    diagnostic: str | None
 
 
 class CustomerIOImportService:
@@ -436,29 +446,31 @@ class CustomerIOImportService:
                     self.progress["errors"].append(f"Error importing Customer.io {suppression_type}: {str(e)[:200]}")
                     break
 
-                emails = sorted(
-                    {
-                        email.strip().lower()
-                        for entry in page
-                        if isinstance(entry, dict) and isinstance(email := entry.get("email"), str) and "@" in email
-                    }
-                )
-                if emails:
-                    self.progress["suppressions_imported"] += self._add_suppressions(team_id, emails, source, reason)
+                imported = {
+                    email.strip().lower(): _imported_suppression(entry)
+                    for entry in page
+                    if isinstance(entry, dict) and isinstance(email := entry.get("email"), str) and "@" in email
+                }
+                if imported:
+                    self.progress["suppressions_imported"] += self._add_suppressions(team_id, imported, source, reason)
                 if len(page) < SUPPRESSION_PAGE_SIZE:
                     break
                 offset += len(page)
                 time.sleep(SUPPRESSION_PAGE_DELAY_SECONDS)
 
-    def _add_suppressions(self, team_id: int, emails: list[str], source: SuppressionSource, reason: str) -> int:
+    def _add_suppressions(
+        self, team_id: int, imported: dict[str, _ImportedSuppression], source: SuppressionSource, reason: str
+    ) -> int:
         """Suppress the addresses that have no suppression row yet, and return how many it added.
 
         An existing row is left alone. It can be a manual entry, an address someone removed from the list on
-        purpose, or a row the bounce feedback already manages.
+        purpose, or a row the bounce feedback already manages. The one exception is a row an earlier import of
+        this list created without Customer.io's date and diagnostic, which gets them filled in.
         """
         suppressions = MessageSuppression.objects.for_team(team_id, canonical=True)
-        existing = set(suppressions.filter(identifier__in=emails).values_list("identifier", flat=True))
+        existing = {row.identifier: row for row in suppressions.filter(identifier__in=list(imported))}
         now = timezone.now()
+        is_bounce = source == SuppressionSource.BOUNCE
         new_rows = [
             MessageSuppression(
                 team_id=team_id,
@@ -466,14 +478,29 @@ class CustomerIOImportService:
                 source=source,
                 reason=reason,
                 suppressed=True,
-                suppressed_at=now,
+                suppressed_at=details.suppressed_at or now,
+                last_bounce_at=details.suppressed_at if is_bounce else None,
+                last_bounce_diagnostic=details.diagnostic,
                 created_by_id=self.created_by_id,
             )
-            for email in emails
+            for email, details in sorted(imported.items())
             if email not in existing
         ]
         # ignore_conflicts covers an address the bounce feedback inserts between the read above and this write.
         suppressions.bulk_create(new_rows, batch_size=500, ignore_conflicts=True)
+
+        backfilled = []
+        for email, row in existing.items():
+            details = imported[email]
+            if row.reason != reason or row.deleted or row.last_bounce_diagnostic or not details.suppressed_at:
+                continue
+            row.suppressed_at = details.suppressed_at
+            row.last_bounce_at = details.suppressed_at if is_bounce else row.last_bounce_at
+            row.last_bounce_diagnostic = details.diagnostic
+            backfilled.append(row)
+        suppressions.bulk_update(
+            backfilled, ["suppressed_at", "last_bounce_at", "last_bounce_diagnostic"], batch_size=500
+        )
         return len(new_rows)
 
     def _bulk_update_all_preferences(self, emails: list[str], category_ids: list[str]) -> None:
@@ -541,3 +568,15 @@ class CustomerIOImportService:
 
     def get_progress(self) -> dict[str, Any]:
         return self.progress
+
+
+def _imported_suppression(entry: dict[str, Any]) -> _ImportedSuppression:
+    """The date and bounce diagnostic Customer.io returns for one suppressed address."""
+    created = entry.get("created")
+    suppressed_at = (
+        datetime.fromtimestamp(created, tz=UTC) if isinstance(created, int | float) and created > 0 else None
+    )
+    parts = [
+        part.strip() for part in (entry.get("status"), entry.get("reason")) if isinstance(part, str) and part.strip()
+    ]
+    return _ImportedSuppression(suppressed_at=suppressed_at, diagnostic=" ".join(parts)[:1000] or None)

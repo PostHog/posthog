@@ -307,10 +307,24 @@ user4@example.com,cio_6,"{""topics"": {""topic_1"": true, ""topic_2"": true}}"
         MessageSuppression.objects.for_team(self.team.id).create(
             team=self.team, identifier="removed@example.com", suppressed=False, deleted=True
         )
+        MessageSuppression.objects.for_team(self.team.id).create(
+            team=self.team,
+            identifier="earlier@example.com",
+            source=SuppressionSource.BOUNCE,
+            reason="Imported from Customer.io (bounced)",
+            suppressed=True,
+        )
+        bounced_at, earlier_at, spam_at = 1700000000, 1700100000, 1700200000
         pages = {
-            ("bounces", 0): [{"email": " Bounced@Example.com "}, {"email": "manual@example.com"}],
-            ("bounces", 2): [{"email": "removed@example.com"}],
-            ("spam_reports", 0): [{"email": "spam@example.com"}],
+            ("bounces", 0): [
+                {"email": " Bounced@Example.com ", "created": bounced_at, "status": "5.1.1", "reason": "user unknown"},
+                {"email": "manual@example.com", "created": bounced_at, "status": "5.1.1", "reason": "user unknown"},
+            ],
+            ("bounces", 2): [
+                {"email": "removed@example.com", "created": bounced_at, "status": "5.1.1", "reason": "user unknown"},
+                {"email": "earlier@example.com", "created": earlier_at, "status": "5.2.2", "reason": "mailbox full"},
+            ],
+            ("spam_reports", 0): [{"email": "spam@example.com", "created": spam_at, "status": "", "reason": ""}],
         }
 
         def get_suppressions(suppression_type: str, limit: int, offset: int) -> list[dict]:
@@ -338,7 +352,22 @@ user4@example.com,cio_6,"{""topics"": {""topic_1"": true, ""topic_2"": true}}"
             "spam@example.com": (SuppressionSource.COMPLAINT, True, False),
             "manual@example.com": (SuppressionSource.MANUAL, True, False),
             "removed@example.com": (SuppressionSource.BOUNCE, False, True),
+            "earlier@example.com": (SuppressionSource.BOUNCE, True, False),
         }
+        details = {
+            row.identifier: (
+                row.suppressed_at and int(row.suppressed_at.timestamp()),
+                row.last_bounce_at and int(row.last_bounce_at.timestamp()),
+                row.last_bounce_diagnostic,
+            )
+            for row in MessageSuppression.objects.for_team(self.team.id).filter(
+                identifier__in=["bounced@example.com", "spam@example.com", "earlier@example.com", "manual@example.com"]
+            )
+        }
+        assert details["bounced@example.com"] == (bounced_at, bounced_at, "5.1.1 user unknown")
+        assert details["spam@example.com"] == (spam_at, None, None)
+        assert details["earlier@example.com"] == (earlier_at, earlier_at, "5.2.2 mailbox full")
+        assert details["manual@example.com"][2] is None
 
     @patch("products.messaging.backend.services.customerio_import_service.SUPPRESSION_PAGE_DELAY_SECONDS", 0)
     @patch("products.messaging.backend.services.customerio_import_service.CustomerIOClient")
