@@ -97,8 +97,8 @@ export function formatTooltipDate(dateStr: string): string {
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
-export function getSeriesLabel(item: { label?: string; action?: { name?: string } }, index: number): string {
-    return item.label || item.action?.name || `Series ${index + 1}`
+export function getSeriesLabel(item: { label?: string }, index: number): string {
+    return item.label || `Series ${index + 1}`
 }
 
 export function buildProportionBarSeries(results: TrendsResultItem[], getColor: (index: number) => string): Series[] {

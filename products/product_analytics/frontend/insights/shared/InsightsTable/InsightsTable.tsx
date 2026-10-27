@@ -102,6 +102,7 @@ export function InsightsTable({
         getTrendsHidden,
         insightData,
         querySource,
+        actionsById,
     } = useValues(trendsDataLogic(insightProps))
     const { toggleResultHidden, toggleAllResultsHidden } = useActions(trendsDataLogic(insightProps))
     const { aggregation, allowAggregation, pinnedColumns, isColumnPinned, getPreviousResult, displayResults } =
@@ -207,7 +208,7 @@ export function InsightsTable({
             ) : (
                 <SeriesColumnItem
                     item={item}
-                    series={getResultSeries(querySource, item)}
+                    series={getResultSeries(querySource, item, actionsById)}
                     showCountedByTag={showCountedByTag}
                     canEditSeriesNameInline={canEditSeriesNameInline}
                     seriesNameTooltip={seriesNameTooltip}
@@ -242,8 +243,8 @@ export function InsightsTable({
                 return compareFn()(formatItemBreakdownLabel!(a), formatItemBreakdownLabel!(b))
             }
 
-            const labelA = getResultSeriesName(getResultSeries(querySource, a)) || a.label || ''
-            const labelB = getResultSeriesName(getResultSeries(querySource, b)) || b.label || ''
+            const labelA = getResultSeriesName(getResultSeries(querySource, a, actionsById)) || a.label || ''
+            const labelB = getResultSeriesName(getResultSeries(querySource, b, actionsById)) || b.label || ''
             return labelA.localeCompare(labelB)
         },
     })

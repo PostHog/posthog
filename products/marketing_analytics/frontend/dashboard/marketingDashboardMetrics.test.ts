@@ -8,7 +8,6 @@ const result = (
     aggregated_value: number,
     compare_label?: TrendResult['compare_label']
 ): TrendResult => ({
-    action: null,
     count: aggregated_value,
     data: [aggregated_value],
     days: ['2026-01-01'],

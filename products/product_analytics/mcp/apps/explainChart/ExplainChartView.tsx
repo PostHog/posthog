@@ -57,7 +57,7 @@ function seriesNoteOf(data: ExplainChartData): string | null {
         return null
     }
     const series = data.results[data.seriesIndex]
-    const label = series?.label || series?.action?.name || `series ${data.seriesIndex + 1}`
+    const label = series?.label || `series ${data.seriesIndex + 1}`
     return `This follows ${label}, one of the ${data.results.length} series on the chart.`
 }
 

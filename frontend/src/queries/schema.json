@@ -59659,9 +59659,13 @@
                         "type": "string"
                     },
                     "type": "array"
+                },
+                "order": {
+                    "$ref": "#/definitions/integer",
+                    "description": "The index of the row's series in the query."
                 }
             },
-            "required": ["data", "days", "action"],
+            "required": ["data", "days", "order", "action"],
             "type": "object"
         },
         "WebVitalsItemAction": {

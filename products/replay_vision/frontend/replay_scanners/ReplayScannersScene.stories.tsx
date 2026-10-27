@@ -636,7 +636,7 @@ const trendDays = [
 const observationsTrend = {
     results: [
         {
-            action: { id: '$recording_observed', type: 'events', order: 0, name: '$recording_observed' },
+            order: 0,
             label: 'Observations',
             count: 142,
             data: [8, 11, 9, 14, 10, 12, 7, 13, 9, 11, 10, 8, 12, 8],

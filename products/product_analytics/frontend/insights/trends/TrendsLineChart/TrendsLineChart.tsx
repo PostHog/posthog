@@ -104,6 +104,7 @@ export function TrendsLineChart({
         isStickiness,
         labelGroupType,
         hasPersonsModal,
+        actionsById,
         querySource,
         incompletenessOffsetFromEnd,
         showMovingAverage,
@@ -120,8 +121,8 @@ export function TrendsLineChart({
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
     const buildMeta = useCallback(
-        (r: IndexedTrendResult): TrendsSeriesMeta => buildTrendsSeriesMeta(r, querySource),
-        [querySource]
+        (r: IndexedTrendResult): TrendsSeriesMeta => buildTrendsSeriesMeta(r, querySource, actionsById),
+        [querySource, actionsById]
     )
 
     const seriesIdentification = useMemo(
@@ -133,6 +134,7 @@ export function TrendsLineChart({
         (r: IndexedTrendResult): string =>
             getTrendsSeriesDisplayLabel(r, {
                 querySource,
+                actionsById,
                 breakdownFilter,
                 cohorts: allCohorts?.results,
                 formatPropertyValueForDisplay,
@@ -141,6 +143,7 @@ export function TrendsLineChart({
             }),
         [
             querySource,
+            actionsById,
             breakdownFilter,
             allCohorts?.results,
             formatPropertyValueForDisplay,

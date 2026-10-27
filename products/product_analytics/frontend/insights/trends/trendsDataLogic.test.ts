@@ -6,6 +6,8 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { getTrendResultCustomizationKey } from 'scenes/insights/utils'
 
 import { ExportType } from '~/exporter/types'
+import { useMocks } from '~/mocks/jest'
+import { actionsModel } from '~/models/actionsModel'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { DataNode, LifecycleQuery, NodeKind, ResultCustomizationBy, TrendsQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -262,6 +264,20 @@ describe('trendsDataLogic', () => {
                     labelGroupType: 1,
                 })
             })
+        })
+    })
+
+    describe('actionsById', () => {
+        it('loads the name of an action series saved without a name', async () => {
+            useMocks({ get: { '/api/projects/:team_id/actions/': { results: [{ id: 7, name: 'Signed up' }] } } })
+            const query: TrendsQuery = { kind: NodeKind.TrendsQuery, series: [{ kind: NodeKind.ActionsNode, id: 7 }] }
+
+            await expectLogic(logic, () => {
+                insightVizDataLogic.findMounted(insightProps)?.actions.updateQuerySource(query)
+            }).toFinishAllListeners()
+            await expectLogic(actionsModel).toDispatchActions(['loadActionsSuccess'])
+
+            expect(logic.values.actionsById[7]?.name).toEqual('Signed up')
         })
     })
 

@@ -4384,6 +4384,8 @@ export interface WebVitalsItemAction {
 export interface WebVitalsItem {
     data: number[]
     days: string[]
+    /** The index of the row's series in the query. */
+    order: integer
     action: WebVitalsItemAction
 }
 

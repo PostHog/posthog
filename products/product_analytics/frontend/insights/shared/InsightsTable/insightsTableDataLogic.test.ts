@@ -206,17 +206,6 @@ describe('insightsTableDataLogic', () => {
         let builtDataNodeLogic: ReturnType<typeof dataNodeLogic.build>
 
         const makeCompareResult = (overrides: Partial<IndexedTrendResult>): Partial<IndexedTrendResult> => ({
-            action: {
-                id: '$pageview',
-                type: 'events',
-                order: 0,
-                name: '$pageview',
-                custom_name: null,
-                math: null,
-                math_property: null,
-                math_group_type_index: null,
-                properties: {},
-            } as any,
             order: 0,
             label: '$pageview',
             count: 100,
@@ -305,14 +294,12 @@ describe('insightsTableDataLogic', () => {
                     makeCompareResult({
                         compare_label: CompareLabelType.Current,
                         compare: true,
-                        action: { order: 1, id: '$autocapture', name: '$autocapture' } as any,
                         order: 1,
                         label: '$autocapture',
                     }),
                     makeCompareResult({
                         compare_label: CompareLabelType.Previous,
                         compare: true,
-                        action: { order: 1, id: '$autocapture', name: '$autocapture' } as any,
                         order: 1,
                         label: '$autocapture',
                         count: 60,

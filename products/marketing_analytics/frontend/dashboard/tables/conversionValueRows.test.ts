@@ -11,7 +11,7 @@ const result = (
     compareLabel?: 'current' | 'previous'
 ): TrendResult =>
     ({
-        action: { order },
+        order,
         breakdown_value: breakdownValue,
         aggregated_value: aggregatedValue,
         compare_label: compareLabel ?? 'current',

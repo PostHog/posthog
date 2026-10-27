@@ -26895,6 +26895,7 @@ class WebVitalsItem(BaseModel):
     action: WebVitalsItemAction
     data: list[float]
     days: list[str]
+    order: int = Field(..., description="The index of the row's series in the query.")
 
 
 class WebVitalsPathBreakdownQueryResponse(BaseModel):

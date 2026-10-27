@@ -64,6 +64,7 @@ export function StickinessBarChart({ context }: StickinessBarChartProps): JSX.El
         trendsFilter,
         labelGroupType,
         hasPersonsModal,
+        actionsById,
         querySource,
         showValuesOnSeries,
         isSingleSeriesDefinition,
@@ -74,8 +75,8 @@ export function StickinessBarChart({ context }: StickinessBarChartProps): JSX.El
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
     const buildMeta = useCallback(
-        (r: IndexedTrendResult): TrendsSeriesMeta => buildTrendsSeriesMeta(r, querySource),
-        [querySource]
+        (r: IndexedTrendResult): TrendsSeriesMeta => buildTrendsSeriesMeta(r, querySource, actionsById),
+        [querySource, actionsById]
     )
 
     const seriesIdentification = useMemo(
@@ -87,6 +88,7 @@ export function StickinessBarChart({ context }: StickinessBarChartProps): JSX.El
         (r: IndexedTrendResult): string =>
             getTrendsSeriesDisplayLabel(r, {
                 querySource,
+                actionsById,
                 breakdownFilter,
                 cohorts: allCohorts?.results,
                 formatPropertyValueForDisplay,
@@ -95,6 +97,7 @@ export function StickinessBarChart({ context }: StickinessBarChartProps): JSX.El
             }),
         [
             querySource,
+            actionsById,
             breakdownFilter,
             allCohorts?.results,
             formatPropertyValueForDisplay,

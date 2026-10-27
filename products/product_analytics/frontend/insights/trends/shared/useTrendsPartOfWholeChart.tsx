@@ -69,6 +69,7 @@ export function useTrendsPartOfWholeChart({
         formula,
         pieChartVizOptions,
         hasDataWarehouseSeries,
+        actionsById,
         querySource,
         breakdownFilter,
         labelGroupType,
@@ -78,8 +79,8 @@ export function useTrendsPartOfWholeChart({
     } = useValues(trendsDataLogic(insightProps))
 
     const buildMeta = useCallback(
-        (r: IndexedTrendResult): TrendsSeriesMeta => buildTrendsSeriesMeta(r, querySource),
-        [querySource]
+        (r: IndexedTrendResult): TrendsSeriesMeta => buildTrendsSeriesMeta(r, querySource, actionsById),
+        [querySource, actionsById]
     )
 
     const seriesIdentification = useMemo(
@@ -103,6 +104,7 @@ export function useTrendsPartOfWholeChart({
         (r: IndexedTrendResult): string =>
             getTrendsSeriesDisplayLabel(r, {
                 querySource,
+                actionsById,
                 breakdownFilter,
                 cohorts: allCohorts.results,
                 formatPropertyValueForDisplay,
@@ -111,6 +113,7 @@ export function useTrendsPartOfWholeChart({
             }),
         [
             querySource,
+            actionsById,
             breakdownFilter,
             allCohorts.results,
             formatPropertyValueForDisplay,
@@ -123,13 +126,14 @@ export function useTrendsPartOfWholeChart({
         () =>
             buildTrendsPieSeries(indexedResults ?? [], {
                 querySource,
+                actionsById,
                 getColor: getTrendsColor,
                 // Hidden series are listed (dimmed) and excluded via config.legend.hiddenKeys instead
                 // of being dropped here, so the legend can restore them.
                 getHidden: undefined,
                 getLabel,
             }),
-        [indexedResults, querySource, getTrendsColor, getLabel]
+        [indexedResults, querySource, actionsById, getTrendsColor, getLabel]
     )
 
     const visibleResults = useMemo(

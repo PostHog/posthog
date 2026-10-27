@@ -3579,9 +3579,6 @@ export interface TrendAPIResponse<ResultType = TrendResult[]> {
 }
 
 export interface TrendResult {
-    /** Series entity. `null` for formula results, which aren't backed by a single entity. */
-    action: ActionFilter | null
-    actions?: ActionFilter[]
     count: number
     data: number[]
     days: string[]
@@ -3595,10 +3592,8 @@ export interface TrendResult {
     compare?: boolean
     persons_urls?: { url: string }[]
     persons?: Person
-    filter?: TrendsFilterType
-    /** Series order set by the query runner: the action order for plain series, or the
-     * formula index for formula results (uniform across a formula's breakdown rows).
-     * Unlike `action.order`, this is always populated — formula results carry `action: null`. */
+    /** Series order set by the query runner: the series index for plain series, or the
+     * formula index for formula results (uniform across a formula's breakdown rows). */
     order?: number
     /** Slope graph only: whether the last bucket is the current, still-accumulating period. Set by
      * SlopeGraphTrendsQueryRunner so the insight and MCP dash the provisional end identically. */
@@ -5474,7 +5469,6 @@ export type GraphDataset = Partial<
         | 'breakdown_value'
         | 'persons_urls'
         | 'persons'
-        | 'filter'
     >
 > & {
     /** Used in filtering out visibility of datasets. Set internally by chart.js */
