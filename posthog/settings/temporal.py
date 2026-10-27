@@ -411,6 +411,16 @@ if ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS <= 0:
     raise ImproperlyConfigured(
         "ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS must be a positive integer, or no platform insight check starts"
     )
+# Insight batch keys the platform starts per tick, across every team. A key is one team's checks due
+# in one slot. With a tick a minute, 60 times this must cover the keys due per hour, or hourly alerts
+# fall behind their cadence. The pool above bounds concurrent queries, not this. A key that finds the
+# pool full returns at once and a later tick finds its checks again, so a high value costs empty runs
+# rather than load.
+ALERTS_PLATFORM_INSIGHT_KEYS_PER_TICK: int = get_from_env("ALERTS_PLATFORM_INSIGHT_KEYS_PER_TICK", 200, type_cast=int)
+if ALERTS_PLATFORM_INSIGHT_KEYS_PER_TICK <= 0:
+    raise ImproperlyConfigured(
+        "ALERTS_PLATFORM_INSIGHT_KEYS_PER_TICK must be a positive integer, or no platform insight check starts"
+    )
 # Chart renders for platform insight firings allowed to run at once, across every worker. A render
 # blocks a worker thread for up to 90 seconds, so this keeps renders from taking the slots that
 # planning and recording need.
