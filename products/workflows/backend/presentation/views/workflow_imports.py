@@ -163,7 +163,10 @@ class WorkflowImportResultSerializer(serializers.Serializer):
             "import of it is no longer a draft, `failed` when the draft does not pass the workflow checks."
         ),
     )
-    workflow_id = serializers.CharField(allow_null=True, help_text="The draft workflow's id, when one was saved.")
+    workflow_id = serializers.CharField(
+        allow_null=True,
+        help_text="The draft workflow's id, when one was saved. In a preview, the draft an import would replace.",
+    )
     notes = WorkflowImportNoteSerializer(many=True, help_text="What the import changed or left out.")
     validation_errors = serializers.ListField(
         child=serializers.CharField(), help_text="Why the draft failed the workflow checks, for `failed`."
@@ -223,6 +226,7 @@ class WorkflowImportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             data["dry_run"],
             sender_identities=list(data["sender_identities"]),
             segments=list(data["segments"]),
+            request=request,
         )
         results = run.results
         report_user_action(

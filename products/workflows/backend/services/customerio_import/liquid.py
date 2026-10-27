@@ -4,12 +4,14 @@ import re
 
 from posthog.dataclasses import frozen
 
-_TAG = re.compile(r"\{\{.*?\}\}|\{%.*?%\}", re.DOTALL)
+# Tag bodies are capped, so text full of unclosed `{{` scans in linear time.
+_TAG = re.compile(r"\{\{.{0,1000}?\}\}|\{%.{0,1000}?%\}", re.DOTALL)
 _UNSUBSCRIBE_TAG = re.compile(r"\{%-?\s*(?:unsubscribe_url|manage_subscription_preferences_url)\s*-?%\}")
 _SNIPPET_TAG = re.compile(r"\{%-?\s*snippet\s+[\"']([^\"']+)[\"']\s*-?%\}")
 _CAPTURE_TAG = re.compile(r"\{%-?\s*capture\s+(\w+)\s*-?%\}")
 _QUOTED = re.compile(r"(\"[^\"]*\"|'[^']*')")
-_OUTPUT_TAG = re.compile(r"\{\{(-?)(\s*)(\w+)(.*?)(\s*)(-?)\}\}", re.DOTALL)
+_OUTPUT_TAG = re.compile(r"\{\{(.{0,1000}?)\}\}", re.DOTALL)
+_RAW_FILTER = re.compile(r"\|\s*raw\s*$")
 # Customer.io's `customer.id` is the id the team identifies people with, which is the distinct id in PostHog.
 _RENAMES = (
     (re.compile(r"(?<![\w.])customer\.id\b"), "event.distinct_id"),
@@ -86,9 +88,14 @@ def _print_captures_raw(text: str) -> str:
         return text
 
     def add_raw(match: re.Match[str]) -> str:
-        open_trim, lead, name, rest, trail, close_trim = match.groups()
-        if name not in captured or re.search(r"\|\s*raw\s*$", rest):
+        inner = match.group(1)
+        open_trim = "-" if inner.startswith("-") else ""
+        close_trim = "-" if inner.endswith("-") and len(inner) > len(open_trim) else ""
+        body = inner[len(open_trim) : len(inner) - len(close_trim)]
+        expression = body.rstrip()
+        name = re.match(r"\s*(\w+)", expression)
+        if name is None or name.group(1) not in captured or _RAW_FILTER.search(expression):
             return match.group(0)
-        return "{{" + open_trim + lead + name + rest + " | raw" + trail + close_trim + "}}"
+        return "{{" + open_trim + expression + " | raw" + body[len(expression) :] + close_trim + "}}"
 
     return _OUTPUT_TAG.sub(add_raw, text)

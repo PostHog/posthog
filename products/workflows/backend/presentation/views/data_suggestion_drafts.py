@@ -5,6 +5,7 @@ from uuid import UUID
 
 import structlog
 from rest_framework.exceptions import ValidationError
+from rest_framework.request import Request
 
 from posthog.event_usage import EventSource
 from posthog.models import Team, User
@@ -18,13 +19,22 @@ from products.workflows.backend.presentation.views.hog_flow import HogFlowSerial
 logger = structlog.get_logger(__name__)
 
 
-def checked_draft(team: Team, workflow: dict[str, Any], event_source: EventSource) -> dict[str, Any]:
+def checked_draft(
+    team: Team, workflow: dict[str, Any], event_source: EventSource, request: Request | None = None
+) -> dict[str, Any]:
     """The draft as the create endpoint would store it. Raises the `ValidationError` the create endpoint would."""
     # Checked the way the caller's own create request will be: the web editor saves drafts with blank inputs, an API
     # client's draft must be complete. The graph wiring is checked in full either way.
     serializer = HogFlowSerializer(
         data={**workflow, "status": "draft"},
-        context={"team_id": team.id, "get_team": lambda: team, "is_draft": True, "event_source": event_source},
+        context={
+            "team_id": team.id,
+            "get_team": lambda: team,
+            "is_draft": True,
+            "event_source": event_source,
+            # Checks gated on the user, like cohort conditions, need the caller's request.
+            "request": request,
+        },
     )
     validate_graph(workflow["actions"], workflow["edges"])
     serializer.is_valid(raise_exception=True)
