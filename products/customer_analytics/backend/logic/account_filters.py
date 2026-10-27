@@ -15,6 +15,7 @@ from django.utils.dateparse import parse_date, parse_datetime
 from posthog.models.tagged_item import TaggedItem
 from posthog.utils import relative_date_parse
 
+from products.customer_analytics.backend.domain import parse_company_domain
 from products.customer_analytics.backend.facade import contracts
 from products.customer_analytics.backend.models import Account, AccountRelationship, CustomPropertyValue, DisplayType
 from products.customer_analytics.backend.models.custom_property_definition import DATA_TYPE_BY_DISPLAY_TYPE, DataType
@@ -44,6 +45,9 @@ ACCOUNT_DATETIME_FIELDS = frozenset(
     }
 )
 RELATIVE_DATE_VALUE_RE = re.compile(r"[+-]?\d+[hdwmqysHDWMQY](?:Start|End)?")
+# A top-level domain has two or more characters and starts with a letter. Partial input such as
+# `acme.c` and numbers such as `1.5` therefore cause no member lookup while a person types.
+TOP_LEVEL_DOMAIN_RE = re.compile(r"[a-z][a-z0-9-]*[a-z0-9]")
 UTC_TIMEZONE = ZoneInfo("UTC")
 
 ACCOUNT_DIRECT_FIELDS = {
@@ -68,15 +72,29 @@ def parse_email_search(query: str) -> str | None:
     return normalized
 
 
+def parse_domain_search(query: str) -> str | None:
+    normalized = query.strip().lower()
+    if "@" in normalized.removeprefix("@"):
+        return None
+    domain = parse_company_domain(normalized)
+    if domain is None or not TOP_LEVEL_DOMAIN_RE.fullmatch(domain.rpartition(".")[2]):
+        return None
+    return domain
+
+
+def is_member_search(query: str) -> bool:
+    return parse_email_search(query) is not None or parse_domain_search(query) is not None
+
+
 def account_search_q(query: str, *, member_external_ids: Collection[str] = ()) -> Q:
     """Free-text account search over account identity and matching properties."""
     predicate = Q(name__icontains=query) | Q(external_id__icontains=query)
+    if member_external_ids:
+        predicate |= Q(external_id__in=member_external_ids)
     normalized = query.strip().lower()
     email = parse_email_search(normalized)
     if email is not None:
         predicate |= Q(_properties__known_emails__contains=[email])
-        if member_external_ids:
-            predicate |= Q(external_id__in=member_external_ids)
         domain = email.rsplit("@", 1)[-1]
     else:
         domain = normalized if "@" not in normalized else ""

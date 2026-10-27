@@ -65,6 +65,7 @@ import { sortAccountRows } from './accountsSort'
 import {
     AccountsTableQueryPlan,
     BuildAccountsTableQueryPlanInput,
+    accountSearchQueryKind,
     accountsTableCell,
     accountsTableDatasetKey,
     buildAccountsTableQueryPlan,
@@ -1626,6 +1627,7 @@ export const accountsLogic = kea<accountsLogicType>([
             posthog.capture(AccountsEvents.Searched, {
                 query_length: trimmed.length,
                 has_query: !!trimmed,
+                query_kind: trimmed ? accountSearchQueryKind(trimmed) : null,
                 active_filter_count: values.activeFilterCount,
             })
         },

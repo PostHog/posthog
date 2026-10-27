@@ -1,9 +1,10 @@
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 
 import pytest
 import time_machine
 from posthog.test.base import APIBaseTest, BaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
 
@@ -467,11 +468,23 @@ class TestAccountsTableQueryRunner(BaseTest):
         assert [row.id for row in response.results] == [str(active_account.id)]
         assert str(untagged_account.id) not in {row.id for row in response.results}
 
+    @parameterized.expand(
+        [
+            ("exact email", lambda email: email.upper()),
+            ("email domain", lambda email: "@" + email.rpartition("@")[2].upper()),
+        ]
+    )
+    @patch(
+        "products.customer_analytics.backend.logic.account_member_search.execute_hogql_query",
+        return_value=MagicMock(results=[]),
+    )
     @patch(
         "products.customer_analytics.backend.logic.account_member_search.posthog_feature_flag_enabled",
         return_value=True,
     )
-    def test_searches_staff_account_members_by_exact_email(self, _mock_feature_enabled) -> None:
+    def test_searches_staff_account_members(
+        self, _name: str, query_from_email: Callable[[str], str], _mock_feature_enabled, _mock_execute_hogql_query
+    ) -> None:
         self.user.is_staff = True
         self.user.save(update_fields=["is_staff"])
         account = create_account(
@@ -491,7 +504,7 @@ class TestAccountsTableQueryRunner(BaseTest):
             AccountsTableQuery(
                 columns=[],
                 filters=[
-                    AccountsTableSearchFilter(query=self.user.email.upper()),
+                    AccountsTableSearchFilter(query=query_from_email(self.user.email)),
                     AccountsTableAssignedFilter(),
                 ],
             )
@@ -508,14 +521,15 @@ class TestAccountsTableQueryRunner(BaseTest):
     @parameterized.expand(
         [
             ("name", "acme", False),
-            ("domain", "acme.example", False),
             ("partial email", "member@acme", False),
+            ("partial domain", "acme.e", False),
+            ("mailbox provider domain", "gmail.com", False),
+            ("domain", "acme.example", True),
+            ("domain with a leading @", "@acme.example", True),
             ("complete email", "member@acme.example", True),
         ]
     )
-    def test_only_complete_email_search_requires_fresh_calculation(
-        self, _name: str, query: str, expected: bool
-    ) -> None:
+    def test_only_member_search_requires_fresh_calculation(self, _name: str, query: str, expected: bool) -> None:
         runner = AccountsTableQueryRunner(
             query=AccountsTableQuery(columns=[], filters=[AccountsTableSearchFilter(query=query)]),
             team=self.team,
@@ -524,10 +538,11 @@ class TestAccountsTableQueryRunner(BaseTest):
 
         assert runner.requires_fresh_calculation() is expected
 
-    def test_complete_email_search_cache_is_partitioned_by_principal(self) -> None:
+    @parameterized.expand([("complete email", "member@acme.example"), ("domain", "acme.example")])
+    def test_member_search_cache_is_partitioned_by_principal(self, _name: str, search: str) -> None:
         query = AccountsTableQuery(
             columns=[],
-            filters=[AccountsTableSearchFilter(query="member@acme.example")],
+            filters=[AccountsTableSearchFilter(query=search)],
         )
         self.user.is_staff = False
         viewer_runner = AccountsTableQueryRunner(query=query, team=self.team, user=self.user)
@@ -543,8 +558,8 @@ class TestAccountsTableQueryRunner(BaseTest):
             "is_staff": True,
         }
 
-    @patch("products.customer_analytics.backend.logic.account_member_search.list_account_external_ids_by_member_email")
-    def test_non_email_search_skips_account_member_lookup(self, mock_member_lookup) -> None:
+    @patch("products.customer_analytics.backend.facade.api.list_account_external_ids_by_member_search")
+    def test_non_member_search_skips_account_member_lookup(self, mock_member_lookup) -> None:
         account = create_account(team_id=self.team.id, name="Acme")
 
         response = self._run(AccountsTableQuery(columns=[], filters=[AccountsTableSearchFilter(query="acme")]))

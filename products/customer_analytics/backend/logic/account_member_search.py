@@ -12,6 +12,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.api.organization_member import organization_members_base_queryset
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.constants import INTERNAL_BOT_EMAIL_SUFFIX
+from posthog.helpers.email_utils import EMAIL_DOMAIN_EXPRESSION
 from posthog.models import OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -19,6 +20,7 @@ from posthog.permissions import posthog_feature_flag_enabled
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
 from products.customer_analytics.backend.constants import CUSTOMER_ANALYTICS_CSP_FLAG
+from products.customer_analytics.backend.logic.account_filters import parse_domain_search, parse_email_search
 from products.customer_analytics.backend.models.account import Account
 
 logger = structlog.get_logger(__name__)
@@ -110,6 +112,56 @@ def list_account_external_ids_by_member_email(*, team: Team, user: User, email: 
     if organization_ids:
         return organization_ids
     return _list_eu_organization_ids(team, user, email)
+
+
+def _list_us_organization_ids_by_domain(domain: str) -> tuple[str, ...]:
+    members = User.objects.alias(_email_domain=EMAIL_DOMAIN_EXPRESSION).filter(_email_domain=domain, is_active=True)
+    organization_ids = (
+        OrganizationMembership.objects.filter(user__in=members)
+        .order_by("organization_id")
+        .values_list("organization_id", flat=True)
+        .distinct()[:ACCOUNT_MEMBER_SEARCH_MAX_ORGANIZATIONS]
+    )
+    return tuple(str(organization_id) for organization_id in organization_ids)
+
+
+def _list_eu_organization_ids_by_domain(team: Team, user: User, domain: str) -> tuple[str, ...]:
+    return _query_eu_organization_members(
+        team,
+        user,
+        query=f"""
+            SELECT DISTINCT organization_id
+            FROM {EU_ORGANIZATION_MEMBERS_VIEW}
+            WHERE endsWith(lower(email), {{email_suffix}})
+            ORDER BY organization_id
+            LIMIT {ACCOUNT_MEMBER_SEARCH_MAX_ORGANIZATIONS}
+        """,
+        placeholders={"email_suffix": ast.Constant(value=f"@{domain}")},
+        query_type="customer_analytics_account_member_domain_lookup",
+        log_event="account_member_domain_lookup",
+    )
+
+
+def list_account_external_ids_by_member_domain(*, team: Team, user: User, domain: str) -> tuple[str, ...]:
+    if f"@{domain}" == INTERNAL_BOT_EMAIL_SUFFIX or not is_account_member_search_enabled(team, user):
+        return ()
+
+    organization_ids = _list_us_organization_ids_by_domain(domain)
+    # A company can have organizations in both regions, so a domain also reads EU members while US
+    # leaves room under the cap. An exact email stops at the first region that has the address.
+    if len(organization_ids) < ACCOUNT_MEMBER_SEARCH_MAX_ORGANIZATIONS:
+        organization_ids += _list_eu_organization_ids_by_domain(team, user, domain)
+    return organization_ids[:ACCOUNT_MEMBER_SEARCH_MAX_ORGANIZATIONS]
+
+
+def list_account_external_ids_by_member_search(*, team: Team, user: User, query: str) -> tuple[str, ...]:
+    email = parse_email_search(query)
+    if email is not None:
+        return list_account_external_ids_by_member_email(team=team, user=user, email=email)
+    domain = parse_domain_search(query)
+    if domain is not None:
+        return list_account_external_ids_by_member_domain(team=team, user=user, domain=domain)
+    return ()
 
 
 def list_organization_member_distinct_ids(*, team: Team, user: User, organization_id: str) -> tuple[str, ...]:

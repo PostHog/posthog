@@ -37,7 +37,7 @@ from posthog.models import User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
 from products.customer_analytics.backend.facade import api, contracts
-from products.customer_analytics.backend.logic.account_filters import parse_email_search
+from products.customer_analytics.backend.logic.account_filters import is_member_search
 
 ACCOUNTS_TABLE_MAX_COLUMNS = 100
 ACCOUNTS_TABLE_MAX_FILTERS = 50
@@ -64,18 +64,18 @@ class AccountsTableQueryRunner(AnalyticsQueryRunner[AccountsTableQueryResponse])
     query: AccountsTableQuery
     cached_response: CachedAccountsTableQueryResponse
 
-    def _has_complete_email_search(self) -> bool:
+    def _has_member_search(self) -> bool:
         return any(
-            isinstance(filter_, AccountsTableSearchFilter) and parse_email_search(filter_.query) is not None
+            isinstance(filter_, AccountsTableSearchFilter) and is_member_search(filter_.query)
             for filter_ in self.query.filters or []
         )
 
     def requires_fresh_calculation(self) -> bool:
-        return self._has_complete_email_search()
+        return self._has_member_search()
 
     def get_cache_payload(self) -> dict:
         payload = super().get_cache_payload()
-        if self._has_complete_email_search():
+        if self._has_member_search():
             user = self.user
             payload["account_member_search_principal"] = {
                 "user_id": user.id if isinstance(user, User) else None,

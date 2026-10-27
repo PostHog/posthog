@@ -39,7 +39,7 @@ export function AccountsTabFilters(): JSX.Element {
                 <div className="flex flex-wrap gap-2 items-center">
                     <LemonInput
                         type="search"
-                        placeholder="Search by name, ID, or email..."
+                        placeholder="Search by name, ID, email, or domain..."
                         value={searchInput}
                         onChange={setSearchInput}
                         size="small"

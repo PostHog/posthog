@@ -165,13 +165,14 @@ class TestCustomerAnalyticsFacade(BaseTest):
         assert [r.name for r in rows] == expected_names
         assert all(isinstance(row, contracts.AccountRef) and isinstance(row.id, str) for row in rows)
 
+    @parameterized.expand([("complete email", "member@eu.example"), ("email domain", "eu.example")])
     @patch(
         "products.customer_analytics.backend.logic.account_member_search.posthog_feature_flag_enabled",
         return_value=True,
     )
     @patch("products.customer_analytics.backend.logic.account_member_search.execute_hogql_query")
-    def test_search_accounts_matches_eu_organization_member_email(
-        self, mock_execute_hogql_query: MagicMock, _mock_feature_enabled: MagicMock
+    def test_search_accounts_matches_eu_organization_member(
+        self, _name: str, query: str, mock_execute_hogql_query: MagicMock, _mock_feature_enabled: MagicMock
     ) -> None:
         self.user.is_staff = True
         self.user.save(update_fields=["is_staff"])
@@ -185,7 +186,7 @@ class TestCustomerAnalyticsFacade(BaseTest):
 
         rows, count = facade.search_accounts(
             self.team.id,
-            "member@eu.example",
+            query,
             self._uac(),
             limit=10,
         )

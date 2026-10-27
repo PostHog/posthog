@@ -366,6 +366,19 @@ function queryFilters(
     return filters
 }
 
+export type AccountSearchQueryKind = 'email' | 'domain' | 'text'
+
+const EMAIL_SEARCH_PATTERN = /^[^\s@]+@(?:[^\s@.]+\.)+[^\s@.]+$/
+const DOMAIN_SEARCH_PATTERN = /^@?(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z][a-z0-9-]*[a-z0-9]$/
+
+export function accountSearchQueryKind(query: string): AccountSearchQueryKind {
+    const normalized = query.trim().toLowerCase()
+    if (EMAIL_SEARCH_PATTERN.test(normalized)) {
+        return 'email'
+    }
+    return DOMAIN_SEARCH_PATTERN.test(normalized) ? 'domain' : 'text'
+}
+
 export function accountsTableDatasetKey(input: AccountsTableDatasetInput): string {
     const includeHiddenAccounts = input.accountIdFilter !== null
     const propertyGroups = includeHiddenAccounts ? [] : queryPropertyFilterGroups(input)

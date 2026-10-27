@@ -124,10 +124,13 @@ from products.customer_analytics.backend.logic.account_filters import (
     InvalidAccountFilter,
     account_search_q,
     apply_account_filters,
-    parse_email_search,
+    is_member_search,
 )
 from products.customer_analytics.backend.logic.account_logo import resolve_logo_domain
-from products.customer_analytics.backend.logic.account_member_search import get_account_users_organization_id
+from products.customer_analytics.backend.logic.account_member_search import (
+    get_account_users_organization_id,
+    list_account_external_ids_by_member_search,
+)
 from products.customer_analytics.backend.logic.custom_property_definitions import (
     apply_option_side_effects,
     coerce_is_big_number,
@@ -238,20 +241,15 @@ def _to_account_ref(row: dict) -> contracts.AccountRef:
 def _list_account_search_member_external_ids(
     team_id: int, query: str, user_access_control: "UserAccessControl"
 ) -> tuple[str, ...]:
-    email = parse_email_search(query)
     user = user_access_control.user
-    if email is None or not user.is_staff:
+    if not is_member_search(query) or not user.is_staff:
         return ()
 
     team = user_access_control.team
     if team is None or team.id != team_id:
         team = Team.objects.get(id=team_id)
 
-    from products.customer_analytics.backend.logic.account_member_search import (  # noqa: PLC0415  # Keeps HogQL off non-email account search imports.
-        list_account_external_ids_by_member_email,
-    )
-
-    return list_account_external_ids_by_member_email(team=team, user=user, email=email)
+    return list_account_external_ids_by_member_search(team=team, user=user, query=query)
 
 
 def _get_account_search_q(team_id: int, query: str, user_access_control: "UserAccessControl") -> Q:
@@ -3298,7 +3296,7 @@ def _apply_account_table_filters(
     for filter_ in filters:
         if isinstance(filter_, contracts.AccountTableSearchFilter):
             query = filter_.query.strip()
-            if parse_email_search(query) is not None:
+            if is_member_search(query):
                 member_external_ids_by_query[query] = _list_account_search_member_external_ids(
                     team_id, query, user_access_control
                 )

@@ -17,6 +17,7 @@ import type { AccountPropertyFilter, AccountRelationshipFilter } from './account
 import {
     AccountsTableQueryPlan,
     BuildAccountsTableQueryPlanInput,
+    accountSearchQueryKind,
     accountsTableCell,
     accountsTableDatasetKey,
     buildAccountsTableQueryPlan,
@@ -406,5 +407,17 @@ describe('accountsTableQuery', () => {
             2,
             [42],
         ])
+    })
+
+    it.each([
+        ['Member@Acme.example', 'email'],
+        ['acme.example', 'domain'],
+        ['@acme.example', 'domain'],
+        ['acme', 'text'],
+        ['acme.e', 'text'],
+        ['1.5', 'text'],
+        ['member@acme', 'text'],
+    ])('classifies the search %s as %s', (query, expected) => {
+        expect(accountSearchQueryKind(query)).toBe(expected)
     })
 })
