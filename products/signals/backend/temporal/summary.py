@@ -56,6 +56,7 @@ from products.signals.backend.spend import publish_report_spend
 from products.signals.backend.stack_plan import create_layer_reports, start_unblocked_layers_of_plan
 from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.agentic.report import (
+    RESEARCH_SANDBOX_UNAVAILABLE_ERROR_TYPE,
     RunAgenticReportInput,
     RunAgenticReportOutput,
     run_agentic_report_activity,
@@ -195,6 +196,18 @@ class ReportDecision:
     pending_reason: str | None = None
 
 
+RESEARCH_SANDBOX_RETRY_DELAYS = (timedelta(minutes=10), timedelta(minutes=20), timedelta(minutes=40))
+RESEARCH_SANDBOX_RETRY_BUDGET = sum(RESEARCH_SANDBOX_RETRY_DELAYS, timedelta())
+
+
+def _is_research_sandbox_unavailable(error: BaseException) -> bool:
+    cause = error.cause if isinstance(error, temporalio.exceptions.ActivityError) else error
+    return (
+        isinstance(cause, temporalio.exceptions.ApplicationError)
+        and cause.type == RESEARCH_SANDBOX_UNAVAILABLE_ERROR_TYPE
+    )
+
+
 @temporalio.workflow.defn(name="signal-report-summary")
 class SignalReportSummaryWorkflow:
     """
@@ -270,6 +283,36 @@ class SignalReportSummaryWorkflow:
             start_to_close_timeout=timedelta(minutes=1),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
+
+    async def _run_research(
+        self, log: FilteringBoundLogger, research_input: RunAgenticReportInput
+    ) -> RunAgenticReportOutput:
+        retries = 0
+        while True:
+            try:
+                return await workflow.execute_activity(
+                    run_agentic_report_activity,
+                    research_input,
+                    start_to_close_timeout=timedelta(hours=4),
+                    heartbeat_timeout=timedelta(minutes=5),
+                    # Retry once: the sandbox agent turn can time out (poll_for_turn) or hit a transient LLM 429.
+                    retry_policy=RetryPolicy(maximum_attempts=2),
+                )
+            except temporalio.exceptions.ActivityError as error:
+                if (
+                    not workflow.patched("signals-research-sandbox-retry")
+                    or not _is_research_sandbox_unavailable(error)
+                    or retries >= len(RESEARCH_SANDBOX_RETRY_DELAYS)
+                ):
+                    raise
+            delay = RESEARCH_SANDBOX_RETRY_DELAYS[retries]
+            retries += 1
+            log.warning(
+                "Research sandbox unavailable, retrying after delay",
+                attempt=retries,
+                delay_seconds=int(delay.total_seconds()),
+            )
+            await workflow.sleep(delay)
 
     async def _revert_report_to_candidate(self, inputs: SignalReportSummaryWorkflowInputs) -> None:
         await workflow.execute_activity(
@@ -480,8 +523,8 @@ class SignalReportSummaryWorkflow:
                     await self._revert_report_to_candidate(inputs)
                     return False
                 # 5. Run the agentic report research flow with the selected repository to use code/MCP data to assess signals
-                agentic_result: RunAgenticReportOutput = await workflow.execute_activity(
-                    run_agentic_report_activity,
+                agentic_result = await self._run_research(
+                    log,
                     RunAgenticReportInput(
                         team_id=inputs.team_id,
                         report_id=inputs.report_id,
@@ -489,10 +532,6 @@ class SignalReportSummaryWorkflow:
                         repo_selection=repo_result,
                         repo_selection_as_of=repo_selection_as_of,
                     ),
-                    start_to_close_timeout=timedelta(hours=4),
-                    heartbeat_timeout=timedelta(minutes=5),
-                    # Retry once: the sandbox agent turn can time out (poll_for_turn) or hit a transient LLM 429.
-                    retry_policy=RetryPolicy(maximum_attempts=2),
                 )
                 decision = ReportDecision(
                     title=agentic_result.title,
@@ -699,7 +738,11 @@ class SignalReportSummaryWorkflow:
                     team_id=inputs.team_id,
                     report_id=inputs.report_id,
                     error=str(e),
-                    failure_reason="agentic_activity_error",
+                    failure_reason=(
+                        "research_sandbox_unavailable"
+                        if _is_research_sandbox_unavailable(e)
+                        else "agentic_activity_error"
+                    ),
                     signal_count=signal_count,
                     source_products=source_products,
                 ),

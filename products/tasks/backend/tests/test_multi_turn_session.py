@@ -26,6 +26,7 @@ from products.tasks.backend.logic.services.custom_prompt_internals import (
     AgentTurnFailed,
     CustomPromptSandboxContext,
     EmptyAgentTurnError,
+    SandboxRunFailed,
     TurnPollResult,
     TurnPollTimeout,
     _create_task_and_trigger,
@@ -1227,11 +1228,21 @@ class TestPollForTurnSurfacesAgentError:
         assert exc_info.value.retryable_upstream is False
 
     @pytest.mark.asyncio
-    async def test_missing_structured_error_keeps_generic_behavior(self):
+    @pytest.mark.parametrize(
+        "state,expected_error_type,expected_transient",
+        [
+            (None, None, False),
+            ({"failure_error_type": "RepositoryCloneError"}, "RepositoryCloneError", True),
+            ({"failure_error_type": "RepositoryAccessError"}, "RepositoryAccessError", False),
+        ],
+    )
+    async def test_missing_structured_error_keeps_generic_behavior(
+        self, state, expected_error_type, expected_transient
+    ):
         # No _posthog/error line: the drain must keep today's generic message and
         # must not touch TaskRun.error_message.
         turn = [_user_message_line("summarize"), _usage_update_line(0)]
-        fake_task_run = FakeTaskRun(status="failed", error_message="Activity task failed")
+        fake_task_run = FakeTaskRun(status="failed", error_message="Activity task failed", state=state)
 
         persist = AsyncMock()
         with (
@@ -1250,6 +1261,9 @@ class TestPollForTurnSurfacesAgentError:
         assert "Activity task failed" in str(exc_info.value)
         # No agent classification to carry, so the generic failure stays untyped.
         assert not isinstance(exc_info.value, AgentTurnFailed)
+        assert isinstance(exc_info.value, SandboxRunFailed)
+        assert exc_info.value.error_type == expected_error_type
+        assert exc_info.value.transient is expected_transient
         persist.assert_not_awaited()
         assert fake_task_run.error_message == "Activity task failed"
 

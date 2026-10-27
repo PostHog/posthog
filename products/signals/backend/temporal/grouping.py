@@ -66,7 +66,7 @@ from products.signals.backend.temporal.signal_queries import (
     soft_delete_report_signals,
     wait_for_signal_in_clickhouse_activity,
 )
-from products.signals.backend.temporal.summary import SignalReportSummaryWorkflow
+from products.signals.backend.temporal.summary import RESEARCH_SANDBOX_RETRY_BUDGET, SignalReportSummaryWorkflow
 from products.signals.backend.temporal.types import (
     IMPLEMENTATION_DEBOUNCE_SECONDS,
     RESEARCH_DEBOUNCE_SECONDS,
@@ -1716,7 +1716,8 @@ async def _process_signal_batch(
                 # outlive this; it's a backstop, and the report stays READY and re-promotes.
                 execution_timeout=timedelta(
                     hours=1, seconds=report_input.debounce_seconds + IMPLEMENTATION_DEBOUNCE_SECONDS
-                ),
+                )
+                + RESEARCH_SANDBOX_RETRY_BUDGET,
             )
         except temporalio.exceptions.WorkflowAlreadyStartedError:
             metrics.increment_research_run_collapsed()

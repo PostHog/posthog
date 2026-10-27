@@ -167,3 +167,4 @@ class FakeTaskRun:
     log_url: str = "s3://fake/log"
     status: str = "running"
     error_message: str | None = None
+    state: dict[str, object] | None = None

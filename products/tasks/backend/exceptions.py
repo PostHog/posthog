@@ -12,6 +12,7 @@ from products.tasks.backend.facade.compute_quota import ComputeBillingLimitExcee
 
 SANDBOX_RATE_LIMIT_BASE_DELAY_SECONDS = 45
 SANDBOX_RATE_LIMIT_MAX_DELAY_SECONDS = 300
+TEMPORAL_TIMEOUT_ERROR_TYPES = frozenset({"start_to_close", "schedule_to_start", "schedule_to_close", "heartbeat"})
 
 
 def sandbox_rate_limit_retry_delay(attempt: int) -> float:
@@ -52,6 +53,18 @@ class ProcessTaskTransientError(ProcessTaskError):
 
     def __init__(self, message: str, context: dict[str, Any], cause: BaseException, **kwargs):
         super().__init__(message, context, cause, non_retryable=False, **kwargs)
+
+
+def is_transient_failure_error_type(error_type: str | None) -> bool:
+    if error_type in TEMPORAL_TIMEOUT_ERROR_TYPES:
+        return True
+    pending = [ProcessTaskTransientError]
+    while pending:
+        error_class = pending.pop()
+        if error_class.__name__ == error_type:
+            return True
+        pending.extend(error_class.__subclasses__())
+    return False
 
 
 class TaskNotFoundError(ProcessTaskFatalError):
