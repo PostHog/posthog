@@ -277,13 +277,7 @@ def readmit_retried_check(
     would run beside it. The retry then moves the slot to its own token, so the pool never counts
     the two attempts as one check that either can release.
     """
-    # Imported here: at module level it changes how many queries the access-control tests count.
-    from posthog.clickhouse.cancel import cancel_query_on_cluster  # noqa: PLC0415
-
-    try:
-        cancel_query_on_cluster(team_id, f"{QUERY_ID_PREFIX}{previous_query_id}")
-    except Exception:
-        logger.exception("Could not stop a timed-out platform insight check", configuration_id=configuration_id)
+    _stop_query(team_id, configuration_id, previous_query_id)
     release_evaluation_slot(configuration_id, held_until=attempt_slot_token(held_until, attempt - 1), key=INFLIGHT_KEY)
     token = attempt_slot_token(held_until, attempt)
     admitted = admit_evaluation_slots(
@@ -293,6 +287,16 @@ def readmit_retried_check(
         key=INFLIGHT_KEY,
     )
     return token if admitted else None
+
+
+def _stop_query(team_id: int, configuration_id: str, query_id: str) -> None:
+    # Imported here: at module level it changes how many queries the access-control tests count.
+    from posthog.clickhouse.cancel import cancel_query_on_cluster  # noqa: PLC0415
+
+    try:
+        cancel_query_on_cluster(team_id, f"{QUERY_ID_PREFIX}{query_id}")
+    except Exception:
+        logger.exception("Could not stop a timed-out platform insight check", configuration_id=configuration_id)
 
 
 def legacy_alerts_of(
@@ -361,14 +365,63 @@ def evaluate_insight_check(
             raise
         if outcome is None:
             return None
-        if checks[0].legacy_configuration_id is not None:
-            # Production times each check by its own alert's id, so the copy checks at that minute.
-            outcome = replace(outcome, schedule_key=str(checks[0].legacy_configuration_id))
-        delivery = _delivery(checks[0], outcome)
-        return SourceBatchEvaluation(outcomes=(outcome,), deliveries=(delivery,) if delivery is not None else ())
+        return _evaluation(checks[0], outcome)
     finally:
         if not retrying:
             release_evaluation_slot(configuration_id, held_until=held_until, key=INFLIGHT_KEY)
+
+
+def fail_insight_check(
+    team_id: int,
+    slot: str,
+    cutoff: datetime,
+    configuration_id: str,
+    *,
+    error_message: str,
+    error_type: str | None = None,
+) -> SourceBatchEvaluation | None:
+    """The errored outcome of a check whose every attempt ended without one, such as a query that ran
+    past its time budget, as production records an errored check when its retries run out.
+
+    `error_type` names the class of the last attempt's error, as production reads it to word a
+    judge that could not be reached.
+    Returns None when the check is no longer due, or its production alert is gone or switched off.
+    Writes no state.
+    """
+    checks = due_checks(team_id, SourceKind.INSIGHT.value, slot, cutoff, configuration_ids=[configuration_id])
+    if not checks:
+        return None
+    alert = _legacy_alert(checks[0])
+    # As production: switching an alert off mid-check is not a failure of the alert.
+    if alert is None or not alert.enabled:
+        return None
+    if error_type == LLMDetectorUnavailableError.__name__:
+        # As production: the raw transport error is not the owner's configuration, so it gets its own wording.
+        error_message = LLM_DETECTOR_UNAVAILABLE_MESSAGE
+    outcome = _verdict(
+        checks[0],
+        _snapshot(checks[0]),
+        CheckInput(threshold_breached=False, error_message=error_message),
+        now=cutoff,
+        skip=SkipReason.QUERY_FAILED,
+        context=_context(alert),
+    )
+    return _evaluation(checks[0], outcome)
+
+
+def stop_insight_queries(team_id: int, configuration_id: str, query_ids: Sequence[str]) -> None:
+    """Stops the queries a failed check's attempts may still run. A timed-out attempt's thread
+    keeps its query going, and nothing else stops it."""
+    for query_id in query_ids:
+        _stop_query(team_id, configuration_id, query_id)
+
+
+def _evaluation(check: PlatformAlertCheckInput, outcome: PlatformAlertOutcome) -> SourceBatchEvaluation:
+    if check.legacy_configuration_id is not None:
+        # Production times each check by its own alert's id, so the copy checks at that minute.
+        outcome = replace(outcome, schedule_key=str(check.legacy_configuration_id))
+    delivery = _delivery(check, outcome)
+    return SourceBatchEvaluation(outcomes=(outcome,), deliveries=(delivery,) if delivery is not None else ())
 
 
 def _delivery(check: PlatformAlertCheckInput, outcome: PlatformAlertOutcome) -> AlertDeliveryRequest | None:
