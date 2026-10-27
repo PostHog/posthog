@@ -49,6 +49,7 @@ SLACK_APP_AGENT_DESIGN_FLAG = "slack-app-agent-design"
 SLACK_APP_FORKING_FLAG = "slack-app-forking"
 SLACK_APP_BYOS_FLAG = "slack-app-byos"
 SLACK_APP_UNPROMPTED_ANSWERS_FLAG = "slack-app-unprompted-answers"
+SLACK_APP_UNPROMPTED_THREAD_ANSWERS_FLAG = "slack-app-unprompted-thread-answers"
 SLACK_APP_INTERVIEW_RECRUITMENT_FLAG = "slack-app-interview-recruitment"
 
 
@@ -159,6 +160,19 @@ def is_slack_app_unprompted_answers_enabled(integration: Integration) -> bool:
         SLACK_APP_UNPROMPTED_ANSWERS_FLAG,
         integration,
         failure_log_key="slack_app_unprompted_answers_feature_flag_check_failed",
+    )
+
+
+def is_slack_app_unprompted_thread_answers_enabled(integration: Integration) -> bool:
+    """Gate for answering thread replies nobody tagged the app in, in threads the app is not part of.
+
+    Read only after ``is_slack_app_unprompted_answers_enabled`` passes, so that turning off the
+    top-level gate also turns off thread replies. Keyed on the workspace for the same reason.
+    """
+    return _workspace_flag_enabled(
+        SLACK_APP_UNPROMPTED_THREAD_ANSWERS_FLAG,
+        integration,
+        failure_log_key="slack_app_unprompted_thread_answers_feature_flag_check_failed",
     )
 
 

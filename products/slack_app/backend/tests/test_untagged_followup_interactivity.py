@@ -415,6 +415,7 @@ class TestUntaggedQuestionInteractivity(TestCase):
         slack_user_id: str = "U_BOB",
         *,
         flag_on: bool = True,
+        thread_flag_on: bool = True,
         start_fails: bool = False,
         ext_shared: bool | None = False,
     ) -> Any:
@@ -443,6 +444,10 @@ class TestUntaggedQuestionInteractivity(TestCase):
                 side_effect=RuntimeError("temporal down") if start_fails else None,
             ) as mock_start,
             patch("products.slack_app.backend.api.is_slack_app_unprompted_answers_enabled", return_value=flag_on),
+            patch(
+                "products.slack_app.backend.api.is_slack_app_unprompted_thread_answers_enabled",
+                return_value=thread_flag_on,
+            ),
             patch("products.slack_app.backend.api.channel_ext_shared_state", return_value=ext_shared),
         ):
             self.client.post(
@@ -518,7 +523,22 @@ class TestUntaggedQuestionInteractivity(TestCase):
 
         assert not self._click(UNTAGGED_QUESTION_ACTION_RUN).called
 
-    def test_confirmation_after_the_flag_was_turned_off_answers_nothing(self, mock_slack_cls, mock_post):
+    @parameterized.expand(
+        [
+            ("a top-level post after the flag was turned off", False, True, None, False),
+            ("a reply after the thread flag was turned off", True, False, "1999.0000", False),
+            ("a reply with both flags on", True, True, "1999.0000", True),
+        ]
+    )
+    def test_confirmation_checks_the_flags_again(
+        self, mock_slack_cls, mock_post, _name, flag_on, thread_flag_on, thread_ts, expect_dispatch
+    ):
         mock_slack_cls.slack_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        mock_slack_cls.return_value.missing_scopes.return_value = set()
+        context = cache.get(_picker_context_cache_key(self.context_token))
+        context["event"] = {**self.event, "thread_ts": thread_ts}
+        cache.set(_picker_context_cache_key(self.context_token), context, timeout=900)
 
-        assert not self._click(UNTAGGED_QUESTION_ACTION_RUN, flag_on=False).called
+        mock_start = self._click(UNTAGGED_QUESTION_ACTION_RUN, flag_on=flag_on, thread_flag_on=thread_flag_on)
+
+        assert mock_start.called is expect_dispatch

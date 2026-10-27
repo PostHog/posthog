@@ -51,13 +51,18 @@ from products.slack_app.backend.feature_flags import (
     is_slack_app_assistant_enabled,
     is_slack_app_oauth_enabled,
     is_slack_app_unprompted_answers_enabled,
+    is_slack_app_unprompted_thread_answers_enabled,
 )
 from products.slack_app.backend.helpers import local_dev_slack_email
 from products.slack_app.backend.logic import interview_recruitment, reply_suggestions
 from products.slack_app.backend.logic.feature_tips import interactivity as feature_tip_interactivity
 from products.slack_app.backend.logic.feature_tips.features import SlackFeature
 from products.slack_app.backend.logic.feature_tips.state import record_feature_used
-from products.slack_app.backend.logic.untagged_question import is_untagged_question_candidate
+from products.slack_app.backend.logic.untagged_question import (
+    is_reply,
+    is_untagged_question_candidate,
+    is_untagged_thread_question_candidate,
+)
 from products.slack_app.backend.models import (
     ChannelWelcomeMode,
     SlackChannel,
@@ -75,6 +80,7 @@ from products.slack_app.backend.services import (
 )
 from products.slack_app.backend.services.commands import SLASH_COMMAND_PREFIX, mention_command_redirect
 from products.slack_app.backend.services.integration_resolver import (
+    ResolutionResult,
     UserResolutionFailure,
     load_integrations,
     pick_a_project_message,
@@ -229,6 +235,8 @@ UNTAGGED_QUESTION_ACTION_RUN = "posthog_code_untagged_question_run"
 UNTAGGED_QUESTION_ACTION_DISMISS = "posthog_code_untagged_question_dismiss"
 UNTAGGED_QUESTION_ACTION_TURN_OFF = "posthog_code_untagged_question_turn_off"
 UNTAGGED_QUESTION_CONTEXT_KIND = "untagged_question"
+# How long one offer in a thread holds back the next offer to the same author in that thread.
+UNTAGGED_THREAD_OFFER_TTL_SECONDS = 7 * 24 * 60 * 60
 
 _MAX_GITHUB_REPOS = 500
 # The installation webhook marks snapshots stale without saving rows, so it does not clear this key.
@@ -2578,12 +2586,42 @@ def _route_untagged_question(
     # so the forwarded copy tells the receiver to skip its emit.
     if _us_should_handle_instead(slack_team_id, [SLACK_INTEGRATION_KIND], can_defer, incoming_host):
         return _proxy_event_and_return_route(request, other_domain, {ALREADY_EMITTED_HEADER: "1"})
+    return _start_untagged_question_workflow(event, workspace_result, slack_team_id, event_id)
 
-    # Most top-level posts are chatter, so the flag drops them before the author's mode read and
+
+def _untagged_question_enabled(integration: Integration, event: dict[str, Any]) -> bool:
+    if not is_slack_app_unprompted_answers_enabled(integration):
+        return False
+    return not is_reply(event) or is_slack_app_unprompted_thread_answers_enabled(integration)
+
+
+def _untagged_thread_offer_cache_key(slack_team_id: str, event: dict[str, Any]) -> str:
+    return (
+        f"slack_app:untagged_thread_offer:{slack_team_id}:{event.get('channel')}:"
+        f"{event.get('thread_ts')}:{event.get('user')}"
+    )
+
+
+def _untagged_thread_offer_made(slack_team_id: str, event: dict[str, Any]) -> bool:
+    return cache.get(_untagged_thread_offer_cache_key(slack_team_id, event)) is not None
+
+
+def _start_untagged_question_workflow(
+    event: dict[str, Any],
+    workspace_result: ResolutionResult,
+    slack_team_id: str,
+    event_id: str | None,
+) -> str:
+    """Start the classifier workflow for a message nobody tagged the app in, once this region owns it.
+
+    Every drop here is silent, for the same reason as in ``_route_untagged_question``.
+    """
+    slack_user_id = str(event.get("user") or "")
+    # Most untagged posts are chatter, so the flag drops them before the author's mode read and
     # user resolution. The flag is rolled out per organization, and a workspace can connect
     # projects from several organizations, so each project keeps its own answer.
     enabled_integration_ids = {
-        candidate.id for candidate in workspace_result.candidates if is_slack_app_unprompted_answers_enabled(candidate)
+        candidate.id for candidate in workspace_result.candidates if _untagged_question_enabled(candidate, event)
     }
     if not enabled_integration_ids:
         return ROUTE_HANDLED_LOCALLY
@@ -2616,8 +2654,9 @@ def _route_untagged_question(
         "slack_app_untagged_question_dispatched",
         slack_team_id=slack_team_id,
         integration_id=target.id,
-        channel=channel,
+        channel=event.get("channel"),
         message_ts=event.get("ts"),
+        reply=is_reply(event),
     )
     return _start_mention_workflow(
         event,
@@ -2967,7 +3006,13 @@ def route_posthog_code_event_to_relevant_region(
             )
             if untagged_followup_mapping is None:
                 if not _awaits_request_from_author(event, slack_team_id, workspace_result.candidates[0]):
-                    return ROUTE_HANDLED_LOCALLY
+                    if (
+                        is_ext_shared_channel
+                        or not is_untagged_thread_question_candidate(event)
+                        or _untagged_thread_offer_made(slack_team_id, event)
+                    ):
+                        return ROUTE_HANDLED_LOCALLY
+                    return _start_untagged_question_workflow(event, workspace_result, slack_team_id, event_id)
                 awaited_request_reply = True
             # A tagged reply also arrives as its own ``app_mention`` event, which owns
             # it. Letting this copy through would run the untagged-followup classifier
@@ -3976,8 +4021,8 @@ def _post_untagged_question_prompt(slack: SlackIntegration, integration: Integra
     """Offer the author, privately, to answer the question they posted without tagging the app.
 
     Posted when the author's mode is ``ask``. The whole event is stashed behind a one-off
-    token so a click dispatches the original message. Not threaded: the post has no thread
-    yet, so an ephemeral anchored to one would never be seen.
+    token so a click dispatches the original message. Threaded only for a reply: a top-level
+    post has no thread yet, so an ephemeral anchored to one would never be seen.
     """
     channel = event.get("channel") if isinstance(event.get("channel"), str) else None
     slack_user_id = event.get("user") if isinstance(event.get("user"), str) else None
@@ -4042,12 +4087,14 @@ def _post_untagged_question_prompt(slack: SlackIntegration, integration: Integra
         },
     ]
 
+    reply = is_reply(event)
     try:
         slack.client.chat_postEphemeral(
             channel=channel,
             user=slack_user_id,
             text="PostHog can answer your question. Want a reply?",
             blocks=blocks,
+            **({"thread_ts": event["thread_ts"]} if reply else {}),
         )
     except Exception:
         logger.warning(
@@ -4057,7 +4104,14 @@ def _post_untagged_question_prompt(slack: SlackIntegration, integration: Integra
             exc_info=True,
         )
         return False
-    capture_slack_event(integration, "slack app unprompted answer offered", slack_user_id=slack_user_id)
+    if reply:
+        # One offer per author per thread, whatever they click, so the app does not ask on every reply.
+        cache.set(
+            _untagged_thread_offer_cache_key(integration.integration_id, event),
+            True,
+            timeout=UNTAGGED_THREAD_OFFER_TTL_SECONDS,
+        )
+    capture_slack_event(integration, "slack app unprompted answer offered", slack_user_id=slack_user_id, reply=reply)
     return True
 
 
@@ -4111,7 +4165,7 @@ def _handle_untagged_question_run(payload: dict) -> HttpResponse:
         not isinstance(event, dict)
         or slack.missing_scopes(REQUIRED_SLACK_SCOPES)
         or resolve_untagged_question_mode(integration.integration_id, slack_user_id) == UntaggedFollowupMode.NEVER
-        or not is_slack_app_unprompted_answers_enabled(integration)
+        or not _untagged_question_enabled(integration, event)
         or (posthog_user := _is_org_member(integration, slack_user_id)) is None
         or not _can_access_team(posthog_user, integration)
     ):

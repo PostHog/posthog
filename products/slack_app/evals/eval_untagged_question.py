@@ -1,8 +1,10 @@
-"""Which top-level channel messages, posted without tagging the app, can PostHog answer?
+"""Which channel messages, posted without tagging the app, can PostHog answer?
 
 Every top-level message in a channel the app is in that looks like a question reaches
 `classify_untagged_question`, which asks Jev, a System One decision model, two yes/no
-questions. Both must clear `UNTAGGED_QUESTION_MIN_PROBABILITY`.
+questions. Both must clear `UNTAGGED_QUESTION_MIN_PROBABILITY`. A reply in a thread its
+author started goes through the same call with the earlier thread messages. Thread cases
+carry those messages in `metadata["thread"]`.
 
 Nobody asked PostHog anything, so `no_unasked_answer` is the number to watch: a wrong answer
 interrupts a conversation in public. A missed question costs the author one @PostHog.
@@ -226,6 +228,39 @@ LEAVE_ALONE_CASES = [
     ),
 ]
 
+THREAD_CASES = [
+    BaseEvalCase(
+        name="thread_follow_up_metric",
+        prompt="also, how many of them came back the week after?",
+        metadata={"thread": ["Dana: how many people signed up from the spring campaign?", "Lee: about 1,200 I think"]},
+        expected=_answerable(True),
+    ),
+    BaseEvalCase(
+        name="thread_error_spike",
+        prompt="are there more errors on the checkout page since that deploy?",
+        metadata={"thread": ["Dana: shipped the new checkout this morning", "Lee: nice, looks good on my side"]},
+        expected=_answerable(True),
+    ),
+    BaseEvalCase(
+        name="thread_reply_to_a_person",
+        prompt="thanks, that number looks right to me",
+        metadata={"thread": ["Dana: how many signups did we get last week?", "Lee: 340 according to the dashboard"]},
+        expected=_answerable(False),
+    ),
+    BaseEvalCase(
+        name="thread_question_for_a_teammate",
+        prompt="can you send me the link to that doc when you get a chance?",
+        metadata={"thread": ["Dana: I wrote up the plan for the pricing test", "Lee: great, will read it"]},
+        expected=_answerable(False),
+    ),
+    BaseEvalCase(
+        name="thread_meeting_logistics",
+        prompt="do we still want to talk about this on Thursday?",
+        metadata={"thread": ["Dana: retention for the new plan looks flat", "Lee: let's dig in at the sync"]},
+        expected=_answerable(False),
+    ),
+]
+
 
 async def eval_untagged_question(ctx: EvalContext) -> None:
     async def task(case: BaseEvalCase, task_ctx: EvalContext) -> dict:
@@ -239,6 +274,7 @@ async def eval_untagged_question(ctx: EvalContext) -> None:
                 case.prompt,
                 team_id=task_ctx.demo_data.master_team_id,
                 distinct_id=None,
+                thread=case.metadata.get("thread"),
             )
         except Exception as error:
             return {"decision_model": model, "answerable": None, "error": f"{type(error).__name__}: {error}"}
@@ -262,7 +298,7 @@ async def eval_untagged_question(ctx: EvalContext) -> None:
             metrics=[UNTAGGED_QUESTION_KEY, "no_unasked_answer"],
             suite_kind=SUITE_KIND,
         ),
-        cases=[*ANSWERABLE_CASES, *LEAVE_ALONE_CASES],
+        cases=[*ANSWERABLE_CASES, *LEAVE_ALONE_CASES, *THREAD_CASES],
         scorers=[UntaggedQuestionMatch(), NoUnaskedAnswer()],
         task=task,
         ctx=ctx,
