@@ -44,9 +44,9 @@ interface UseChartInteractionOptions<Meta> {
     pinnable: boolean
     /** See `TooltipConfig.resolveClickToNearestSeries`. */
     resolveClickToNearestSeries?: boolean
-    /** See `TooltipConfig.contextMenuPointClick`. */
-    contextMenuPointClick?: boolean
     onPointClick?: (data: PointClickData<Meta>) => void
+    /** See `ChartProps.onPointContextMenu`. */
+    onPointContextMenu?: (data: PointClickData<Meta>) => void
     /** See `ChartProps.isPointClickable`. */
     isPointClickable?: (dataIndex: number) => boolean
     onDateRangeZoom?: (data: DateRangeZoomData) => void
@@ -128,8 +128,8 @@ export function useChartInteraction<Meta = unknown>({
     showTooltip,
     pinnable,
     resolveClickToNearestSeries = false,
-    contextMenuPointClick = false,
     onPointClick,
+    onPointContextMenu,
     isPointClickable,
     onDateRangeZoom,
     onAreaSelect,
@@ -488,7 +488,7 @@ export function useChartInteraction<Meta = unknown>({
     // freezes the hover state at the pinned point.
     const onContextMenu = useCallback(
         (e: React.MouseEvent<HTMLDivElement>) => {
-            if (!contextMenuPointClick || !onPointClick || originatesInTooltip(e)) {
+            if (!onPointContextMenu || originatesInTooltip(e)) {
                 return
             }
             const rect = e.currentTarget.getBoundingClientRect()
@@ -503,15 +503,11 @@ export function useChartInteraction<Meta = unknown>({
                     ? resolveNearestSeriesClickData(index, series, labels, ctx, interactionAxis, position)
                     : buildPointClickData(index, series, labels, resolveValue, position)
             if (clickData) {
-                onPointClick({
-                    ...(wrapClickData && scales ? wrapClickData(clickData, scales) : clickData),
-                    contextMenu: true,
-                })
+                onPointContextMenu(wrapClickData && scales ? wrapClickData(clickData, scales) : clickData)
             }
         },
         [
-            contextMenuPointClick,
-            onPointClick,
+            onPointContextMenu,
             isPointClickable,
             series,
             labels,

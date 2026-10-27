@@ -135,7 +135,7 @@ export function DashboardInsightResultMenu({
                     return
                 }
                 event.preventDefault()
-                // A chart with `contextMenuPointClick` captures its result before this handler runs.
+                // A chart with `onPointContextMenu` captures its result before this handler runs.
                 if (!captured.current) {
                     replaying.current = true
                     try {
