@@ -5,14 +5,13 @@ import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { dashboardTemplatesLogic } from 'scenes/dashboard/dashboards/templates/dashboardTemplatesLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import type { DashboardTemplateType } from '~/types'
-
-import type { OrganizationType } from '../../../../types'
-import { dashboardTemplatesLogic } from './dashboardTemplatesLogic'
+import type { OrganizationType } from '~/types'
 
 export interface DashboardTemplateCopyLogicProps {
     sourceTemplateId: string
