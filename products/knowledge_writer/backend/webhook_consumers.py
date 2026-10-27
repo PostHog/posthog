@@ -4,7 +4,7 @@ MERGE_REPOSITORY = "posthog/posthog"
 MERGE_REF = "refs/heads/master"
 
 
-def _start_backstop_for_merge(delivery: WebhookDelivery) -> None:
+def _start_merge_check_for_merge(delivery: WebhookDelivery) -> None:
     payload = delivery.payload
     if payload.get("ref") != MERGE_REF:
         return
@@ -17,10 +17,10 @@ def _start_backstop_for_merge(delivery: WebhookDelivery) -> None:
 
 WEBHOOK_CONSUMERS = (
     WebhookConsumer(
-        name="knowledge_writer_merge_backstop",
+        name="knowledge_writer_merge_check",
         provider="github",
         app="posthog",
         event_types=frozenset({"push"}),
-        handler=_start_backstop_for_merge,
+        handler=_start_merge_check_for_merge,
     ),
 )

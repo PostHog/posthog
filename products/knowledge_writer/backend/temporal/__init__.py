@@ -1,4 +1,4 @@
-from .backstop import MergeBackstopWorkflow, run_merge_check_activity
+from .merge_workflow import MergeCheckWorkflow, run_merge_check_activity
 
-WORKFLOWS = [MergeBackstopWorkflow]
+WORKFLOWS = [MergeCheckWorkflow]
 ACTIVITIES = [run_merge_check_activity]
