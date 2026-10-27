@@ -33,13 +33,14 @@ export function EvaluationReportsPanel(): JSX.Element | null {
     if (!evaluation) {
         return null
     }
+    const instructions = evaluation.evaluation_type === 'hog' ? 'code' : 'prompt'
     // Reports read pass rates, so a score or category evaluation needs its passing rule first.
     const unavailableReason = isReportableEvaluation
         ? null
         : evaluation.output_type === 'numeric'
-          ? 'Set a passing score under Return to get reports.'
+          ? `Reports need a pass rate. Below the ${instructions}, set the score a run needs to pass.`
           : evaluation.output_type === 'categorical'
-            ? 'Mark a category as a pass under Return to get reports.'
+            ? `Reports need a pass rate. Below the ${instructions}, pick which categories count as a pass.`
             : 'Reports are not available for this kind of evaluation.'
     const enabled = configDraft.enabled && !unavailableReason
     const cadence: Cadence = configDraft.frequency === 'scheduled' ? configDraft.scheduleCadence : 'every_n'
