@@ -8277,9 +8277,9 @@ Diffed against: <https://documenter.gw.postman.com/api/collections/8879268/TVmV4
 - [x] `PUT /api/Reports/activitydx` — bulk time-log report over a date range with client/project/user filters — the practical backfill path for logs (high). Added as `time_logs` (31-day date windows, incremental on `date`).
 - [x] `GET /api/Projects/{projectId}/tasklist` — project task lookup resolving the task each time log is booked against (high). Added as `project_tasks` (fan-out over `projects`, one row per task across every task list).
 - [x] `GET /api/Projects/{projectId}/userlist` — project-to-team-member assignment join table (medium). Added as `project_members` (fan-out over `projects`).
-- [ ] `GET /api/Teams/{teamId}/teammembers` — team membership for grouping users in reporting (medium)
-- [ ] `GET /api/Projects/{projectId}/overview` — project detail including budget/rate fields not on the list response (low)
-- [ ] `GET /api/Reports/dashboardOptimized` — pre-aggregated dashboard totals by client/project/user (low)
+- [x] `GET /api/Teams/{teamId}/teammembers` — team membership for grouping users in reporting (medium). Added as `team_members` (fan-out over the new `teams` table, read from `GET /api/Teams/getall`; Pro plan only).
+- [x] `GET /api/Projects/{projectId}/overview` — project detail including budget/rate fields not on the list response (low). Added as `project_overviews` (fan-out over `projects`, one row per project).
+- [ ] `GET /api/Reports/dashboardOptimized` — pre-aggregated dashboard totals by client/project/user (low). Not added: it returns totals for one caller-chosen date range and grouping, with no stable row key. The same totals can be computed from `time_logs`.
 
 Note: Doc is a Postman collection (My Hours API v1.1); parsed the raw collection JSON from documenter.gw.postman.com. Source is static (4 tables in settings.py, no dynamic discovery) and omits the time-log endpoints entirely.
 
