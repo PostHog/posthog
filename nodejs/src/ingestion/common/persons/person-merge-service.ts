@@ -82,7 +82,7 @@ export const mergeClaimDroppedCounter = new Counter({
 
 export const mergeNotAppliedRetriesCounter = new Counter({
     name: 'person_merge_not_applied_retries_total',
-    help: 'Merges the backend refused before running, by whether the in-service wait got them accepted or the pipeline retry took over.',
+    help: 'Merges the backend refused before running: recovered once accepted, accepted_failed when the accepted call then failed, escalated when the wait gave up and the pipeline retry took over.',
     labelNames: ['call', 'outcome'],
 })
 
@@ -385,7 +385,9 @@ export class PersonMergeService {
         const deadline = this.batchNotAppliedDeadline()
         let sleepMs = NOT_APPLIED_FIRST_SLEEP_MS
         let last = refusal
+        let waited = false
         for (let remaining = deadline - Date.now(); remaining > 0; remaining = deadline - Date.now()) {
+            waited = true
             // Jittered so a fleet waiting out one burst does not re-herd the backend.
             await sleep(Math.min(remaining, sleepMs * (0.5 + Math.random() * 0.5)))
             sleepMs = Math.min(sleepMs * 2, NOT_APPLIED_MAX_SLEEP_MS)
@@ -395,19 +397,23 @@ export class PersonMergeService {
                 return result
             } catch (error) {
                 if (!(error instanceof PersonMergeNotAppliedError)) {
-                    mergeNotAppliedRetriesCounter.labels({ call, outcome: 'recovered' }).inc()
+                    mergeNotAppliedRetriesCounter.labels({ call, outcome: 'accepted_failed' }).inc()
                     throw error
                 }
                 last = error
             }
         }
-        mergeNotAppliedRetriesCounter.labels({ call, outcome: 'escalated' }).inc()
-        logger.warn('🤔', 'merge refused before it ran through every re-send; escalated to the pipeline retry', {
-            team_id: this.context.team.id,
-            distinctId: this.context.distinctId,
-            event_name: call,
-            reason: last.reason,
-        })
+        // A spent budget is re-entered by every pipeline step retry of the same
+        // event, so counting those would report one escalation as five.
+        if (waited) {
+            mergeNotAppliedRetriesCounter.labels({ call, outcome: 'escalated' }).inc()
+            logger.warn('🤔', 'merge refused before it ran through every re-send; escalated to the pipeline retry', {
+                team_id: this.context.team.id,
+                distinctId: this.context.distinctId,
+                event_name: call,
+                reason: last.reason,
+            })
+        }
         throw Object.assign(last, { isRetriable: true as const })
     }
 

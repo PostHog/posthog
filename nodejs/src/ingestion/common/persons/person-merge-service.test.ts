@@ -298,7 +298,26 @@ describe('PersonMergeService store-owned merges', () => {
             expect(error).toBeInstanceOf(PersonMergeNotAppliedError)
             expect(error.isRetriable).toBe(true)
             expect(store.mergePersons).toHaveBeenCalledTimes(3)
-            expect(await outcomes()).toEqual({ escalated: 2 })
+            // The second merge never waited, so it is not a second escalation.
+            expect(await outcomes()).toEqual({ escalated: 1 })
+        })
+
+        it('an accepted re-send that then fails settles as before, counted apart from recovered', async () => {
+            for (let i = 0; i < 3; i++) {
+                store.mergePersons.mockRejectedValueOnce(refused())
+            }
+            store.mergePersons.mockRejectedValue(
+                new PersonMergeCallFailedError('personhog merge call failed with no verdict', new Error('transport'))
+            )
+            const service = makeService('$identify', undefined, false, 5_000)
+
+            const merging = service.handleIdentifyOrAlias()
+            await jest.advanceTimersByTimeAsync(5_000)
+            const result = await merging
+
+            expect(result.success).toBe(true)
+            expect(warningTypes()).toContain('merge_settled_failure')
+            expect(await outcomes()).toEqual({ accepted_failed: 1 })
         })
     })
 
