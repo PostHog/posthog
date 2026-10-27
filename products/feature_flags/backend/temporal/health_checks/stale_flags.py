@@ -69,6 +69,10 @@ class StaleFeatureFlagsCheck(HealthCheck):
     # Each payload carries one flag's key, name and rollout state.
     access_controlled_resource = "feature_flag"
     access_controlled_object_key = "flag_id"
+    access_controlled_object_model = FeatureFlag
+    # A team's first run writes one issue per stale flag, and alerts would bypass the per-flag gate
+    # above. The feature-flags scout reads these issues through the Health API instead.
+    emits_alerts = False
     # Postgres-heavy and one issue per stale flag rather than per team, so smaller
     # batches than the default policy.
     policy = HealthExecutionPolicy(batch_size=250, max_concurrent=2)

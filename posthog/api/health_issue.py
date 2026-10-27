@@ -34,6 +34,8 @@ from posthog.rate_limit import HealthIssueRefreshThrottle
 from posthog.utils import relative_date_parse
 
 if TYPE_CHECKING:
+    from posthog.temporal.health_checks.framework import ObjectAccessGate
+
     from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 
@@ -295,23 +297,31 @@ def _kinds_hidden_by_access_control(request: Request, user_access_control: "User
 
 def _denied_object_ids_by_kind(
     request: Request, user_access_control: "UserAccessControl"
-) -> dict[str, tuple[str, frozenset[str]]]:
-    """Check kind → (payload key, ids of that kind's objects this user is denied).
+) -> dict[str, tuple["ObjectAccessGate", frozenset[str]]]:
+    """Check kind → (its object gate, ids of that kind's objects this user is denied).
 
     Only kinds with at least one denied id appear. Resource-level denies are
     `_kinds_hidden_by_access_control`'s job; this is the per-object rung under it.
     """
-    from posthog.temporal.health_checks.framework import access_controlled_object_keys_by_kind  # noqa: PLC0415
+    from posthog.temporal.health_checks.framework import object_access_gates_by_kind  # noqa: PLC0415
 
     if is_service_auth(request):
         return {}
 
     denied_by_resource = user_access_control.blocked_resource_ids_by_scope
-    return {
-        kind: (payload_key, denied_ids)
-        for kind, (resource, payload_key) in access_controlled_object_keys_by_kind().items()
-        if (denied_ids := denied_by_resource.get(resource))
-    }
+    denied_by_kind: dict[str, tuple[ObjectAccessGate, frozenset[str]]] = {}
+    for kind, gate in object_access_gates_by_kind().items():
+        denied_ids = denied_by_resource.get(gate.resource)
+        if denied_ids and gate.model is not None and request.user.id is not None:
+            # `blocked_resource_ids_by_scope` has no creator exemption, while the resource's own
+            # endpoints let a creator open what they made, whatever its access level. `_base_manager`
+            # keeps soft-deleted rows that a default manager hides. The ids come from this team's
+            # access controls, so the query needs no team filter.
+            created = gate.model._base_manager.filter(pk__in=denied_ids, created_by_id=request.user.id)
+            denied_ids = denied_ids - {str(pk) for pk in created.values_list("pk", flat=True)}
+        if denied_ids:
+            denied_by_kind[kind] = (gate, denied_ids)
+    return denied_by_kind
 
 
 def _payload_id_values(denied_ids: frozenset[str]) -> list[str | int]:
@@ -322,12 +332,28 @@ def _payload_id_values(denied_ids: frozenset[str]) -> list[str | int]:
     return values
 
 
-def _issue_names_denied_object(issue: HealthIssue, denied_by_kind: dict[str, tuple[str, frozenset[str]]]) -> bool:
+def _denied_object_filter(kind: str, gate: "ObjectAccessGate", denied_ids: frozenset[str]) -> Q:
+    """The SQL form of `_issue_names_denied_object`, for list and summary.
+
+    The `has_key` guard keeps an issue without the key listed. A missing key reads as NULL,
+    and a NULL inside the excluded condition drops the row, while retrieve reads the same
+    missing key as "not denied" and serves it.
+    """
+    return Q(
+        kind=kind,
+        payload__has_key=gate.object_key,
+        **{f"payload__{gate.object_key}__in": _payload_id_values(denied_ids)},
+    )
+
+
+def _issue_names_denied_object(
+    issue: HealthIssue, denied_by_kind: dict[str, tuple["ObjectAccessGate", frozenset[str]]]
+) -> bool:
     entry = denied_by_kind.get(issue.kind)
     if entry is None or not isinstance(issue.payload, dict):
         return False
-    payload_key, denied_ids = entry
-    object_id = issue.payload.get(payload_key)
+    gate, denied_ids = entry
+    object_id = issue.payload.get(gate.object_key)
     return object_id is not None and str(object_id) in denied_ids
 
 
@@ -511,12 +537,8 @@ class HealthIssueViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelMi
             hidden_kinds = _kinds_hidden_by_access_control(self.request, self.user_access_control)
             if hidden_kinds:
                 queryset = queryset.exclude(kind__in=hidden_kinds)
-            for kind, (payload_key, denied_ids) in _denied_object_ids_by_kind(
-                self.request, self.user_access_control
-            ).items():
-                queryset = queryset.exclude(
-                    Q(kind=kind, **{f"payload__{payload_key}__in": _payload_id_values(denied_ids)})
-                )
+            for kind, (gate, denied_ids) in _denied_object_ids_by_kind(self.request, self.user_access_control).items():
+                queryset = queryset.exclude(_denied_object_filter(kind, gate, denied_ids))
 
         return queryset
 

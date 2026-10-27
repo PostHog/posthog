@@ -883,7 +883,7 @@ class TestStaleFlagsDetect(BaseTest):
         assert len(after) == len(before)
 
     @patch("posthog.temporal.health_checks.processing.emit_health_check_alert")
-    def test_issue_lifecycle(self, _mock_alert) -> None:
+    def test_issue_lifecycle(self, mock_alert) -> None:
         flag_a = self._create_flag("lifecycle-a", **stale_by_usage())
         flag_b = self._create_flag("lifecycle-b", **stale_by_usage())
         check = StaleFeatureFlagsCheck()
@@ -931,6 +931,9 @@ class TestStaleFlagsDetect(BaseTest):
         run(gate_answer=False)
         assert active_issues().count() == 2
 
+        # The runs above fired and resolved issues, and none of them reached a destination.
+        mock_alert.assert_not_called()
+
 
 class TestStaleFlagsContract(SimpleTestCase):
     def _issue(self, payload: dict[str, Any]) -> HealthIssue:
@@ -958,6 +961,7 @@ class TestStaleFlagsContract(SimpleTestCase):
         # issue on access to that flag, not only on access to flags as a resource.
         assert registration.access_controlled_resource == "feature_flag"
         assert registration.access_controlled_object_key == "flag_id"
+        assert registration.access_controlled_object_model is FeatureFlag
 
     def test_remediation_orders_code_removal_before_archive(self) -> None:
         remediation = StaleFeatureFlagsCheck.remediation
