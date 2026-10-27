@@ -43,7 +43,14 @@ import { nodeKindToInsightType } from '~/queries/nodes/InsightQuery/defaults'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
 import { getDefaultQuery, queryFromKind } from '~/queries/nodes/InsightViz/utils'
 import { queryExportContext } from '~/queries/query'
-import { VisualizationNode, HogQLVariable, InsightVizNode, Node, NodeKind } from '~/queries/schema/schema-general'
+import {
+    HogQLQuery,
+    HogQLVariable,
+    InsightVizNode,
+    Node,
+    NodeKind,
+    VisualizationNode,
+} from '~/queries/schema/schema-general'
 import {
     isDataTableNode,
     isDataVisualizationNode,
@@ -116,6 +123,16 @@ export const isInsightSceneInstance = (props: InsightLogicProps): boolean => {
     )
 }
 
+// The variables a SQL query uses, by code name. A dashboard tile's query is served with its variables
+// rewritten by the dashboard layer: the serializer re-keys them to the latest variable definition,
+// `apply_dashboard_filters_to_dict` dumps them with `isNull: null`, and a dashboard variable override
+// replaces their values. None of that changes which variables the SQL references, so comparing anything
+// beyond the code names makes a tile on a filtered dashboard look like a different insight.
+const sqlVariableCodeNames = (query: VisualizationNode & { source: HogQLQuery }): string[] =>
+    Object.values(query.source.variables ?? {})
+        .map((variable) => variable.code_name)
+        .sort()
+
 const isMatchingSqlQuery = (
     query: Node | null | undefined,
     reference: Node | null | undefined
@@ -127,7 +144,7 @@ const isMatchingSqlQuery = (
     isDataVisualizationNodeWithHogQLQuery(reference) &&
     reference.kind === NodeKind.DataVisualizationNode &&
     query.source.query === reference.source.query &&
-    objectsEqual(query.source.variables ?? {}, reference.source.variables ?? {})
+    objectsEqual(sqlVariableCodeNames(query), sqlVariableCodeNames(reference))
 
 // A tile's query carries the dashboard's filters in these fields (resolve_effective_dashboard_filters and
 // QueryRunner.apply_dashboard_filters). Saving them back bakes the filters into the insight, nesting

@@ -1212,6 +1212,46 @@ describe('insightDataLogic', () => {
             ])
         })
 
+        it('persists display settings when the dashboard layer rewrote the tile variables', async () => {
+            // The stored insight keeps the variable as saved. The dashboard serves the tile with the
+            // variable re-keyed and dumped with `isNull: null`, plus the dashboard's date filter.
+            savedQuery = {
+                ...latestQuery,
+                source: {
+                    ...latestQuery.source,
+                    variables: { stale: { variableId: 'stale', code_name: 'mult', value: 3 } },
+                },
+            } as DataVisualizationNode
+            const dashboardQuery = {
+                ...cachedQuery,
+                source: {
+                    ...cachedQuery.source,
+                    variables: { latest: { variableId: 'latest', code_name: 'mult', value: 3, isNull: null } },
+                    filters: { dateRange: { date_from: '-30d' } },
+                },
+            } as DataVisualizationNode
+            logic.actions.syncQueryFromProps(dashboardQuery)
+
+            await expectLogic(logic, () => {
+                logic.actions.persistSqlVisualization({
+                    type: 'display-options',
+                    query: {
+                        ...dashboardQuery,
+                        chartSettings: { ...latestQuery.chartSettings, showValuesOnSeries: true },
+                    },
+                })
+            })
+                .toFinishAllListeners()
+                .toDispatchActions(['renameInsightSuccess'])
+
+            expect(patchBodies).toHaveLength(1)
+            expect(patchBodies[0].query).toEqual({
+                ...savedQuery,
+                chartSettings: { ...latestQuery.chartSettings, showValuesOnSeries: true },
+            })
+            expect(capturesOf('dashboard_sql_visualization_failed')).toEqual([])
+        })
+
         it('does not persist display settings from a stale chart type', async () => {
             savedQuery = {
                 ...latestQuery,
