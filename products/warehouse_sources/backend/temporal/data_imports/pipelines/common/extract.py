@@ -894,12 +894,18 @@ async def update_row_tracking_after_batch(
     await decrement_rows(team_id, schema_id, row_count)
 
 
-def is_young_first_attempt() -> bool:
+def is_young_first_attempt(shutdown_grace_seconds: float = 0.0) -> bool:
+    """`shutdown_grace_seconds` is the time the shutdown monitor let the run continue after the signal.
+
+    It does not count toward the age, so the grace never turns a run that was young at the signal into
+    one that keeps the worker until it finishes.
+    """
     if not activity.in_activity():
         return False
 
     info = activity.info()
-    return info.attempt == 1 and datetime.now(UTC) - info.started_time < NON_RESUMABLE_HANDOFF_MAX_ATTEMPT_AGE
+    age = datetime.now(UTC) - info.started_time - timedelta(seconds=shutdown_grace_seconds)
+    return info.attempt == 1 and age < NON_RESUMABLE_HANDOFF_MAX_ATTEMPT_AGE
 
 
 def should_check_shutdown(
@@ -907,6 +913,7 @@ def should_check_shutdown(
     resource: SourceResponse,
     reset_pipeline: bool,
     source_is_resumable: bool,
+    shutdown_grace_seconds: float = 0.0,
 ) -> bool:
     # A descending run does not raise, because each stop restarts it from the old watermark. An ascending
     # incremental run keeps its progress after a stop only through the handoff checkpoint.
@@ -916,7 +923,9 @@ def should_check_shutdown(
     incremental_sync_raise_during_shutdown = (
         schema.should_use_incremental_field and resource.sort_mode != "desc" and not reset_pipeline
     )
-    return incremental_sync_raise_during_shutdown or source_is_resumable or is_young_first_attempt()
+    return (
+        incremental_sync_raise_during_shutdown or source_is_resumable or is_young_first_attempt(shutdown_grace_seconds)
+    )
 
 
 async def finalize_desc_sort_incremental_value(

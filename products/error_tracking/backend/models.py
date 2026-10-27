@@ -1165,3 +1165,24 @@ class ErrorTrackingIssueChange(TeamScopedRootMixin, UUIDModel):
             # Retention cleanup.
             models.Index(fields=["created_at"], name="idx_et_issue_change_created"),
         ]
+
+
+class ErrorTrackingIssueSummary(TeamScopedRootMixin, UUIDModel):
+    """The model-written summary of one issue, generated on first read and served from here after that.
+
+    `input_hash` covers the inputs that make a summary stale, so a read can tell when to regenerate.
+    """
+
+    # db_constraint=False keeps inserts lock-free on posthog_team (a hot table);
+    # team scoping is enforced at the ORM layer via TeamScopedRootMixin.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    issue = models.OneToOneField(ErrorTrackingIssue, on_delete=models.CASCADE, related_name="summary")
+    content = models.JSONField()
+    input_hash = models.CharField(max_length=64)
+    model = models.CharField(max_length=128)
+    generated_at = models.DateTimeField()
+    # When the inputs were last compared with `input_hash`. The regenerate interval runs from here.
+    checked_at = models.DateTimeField()
+
+    class Meta:
+        db_table = "posthog_errortrackingissuesummary"

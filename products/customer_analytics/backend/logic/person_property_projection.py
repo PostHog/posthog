@@ -11,6 +11,8 @@ once a binding is confirmed to have enabled person sources, so unconfigured tabl
 vast majority of runs) never pay a flag-service call.
 """
 
+from collections.abc import Collection
+
 from django.conf import settings
 
 import posthoganalytics
@@ -126,4 +128,14 @@ def _property_descriptions(source: CustomPropertySource) -> dict[str, str]:
         column_property_map[column]: description
         for column, description in column_descriptions.items()
         if column in column_property_map and description
+    }
+
+
+def saved_queries_with_property_sources(team_id: int, saved_query_ids: Collection[str]) -> set[str]:
+    """The given saved queries that an enabled person, group or account property source reads, whatever the rollout flags say."""
+    return {
+        str(saved_query_id)
+        for saved_query_id in CustomPropertySource.objects.for_team(team_id)
+        .filter(is_enabled=True, saved_query_id__in=saved_query_ids)
+        .values_list("saved_query_id", flat=True)
     }

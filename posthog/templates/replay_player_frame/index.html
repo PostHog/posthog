@@ -52,6 +52,13 @@
             position: relative;
         }
 
+        /* rrweb puts the cursor before the iframe, and the clipped iframe paints over
+           positioned siblings that have no z-index. Keep it below the masking overlay. */
+        .PlayerFrame__content .replayer-mouse,
+        .PlayerFrame__content .replayer-mouse-tail {
+            z-index: 1;
+        }
+
         .PlayerFrame__content .replayer-mouse {
             position: absolute;
             width: 20px;

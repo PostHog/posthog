@@ -183,6 +183,11 @@ def has_signal_emitting_scanner(team_id: int) -> bool:
     return ReplayScanner.objects.filter(team_id=team_id, enabled=True, emits_signals=True).exists()
 
 
+def team_ids_with_signal_emitting_scanner() -> set[int]:
+    """Every team that `has_signal_emitting_scanner` is true for, in one query."""
+    return set(ReplayScanner.objects.filter(enabled=True, emits_signals=True).values_list("team_id", flat=True))
+
+
 def start_workflow_observation_request(
     *,
     team_id: int,

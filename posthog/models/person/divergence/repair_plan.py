@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 
 from posthog.dataclasses import frozen
 from posthog.models.person import Person
@@ -158,7 +158,15 @@ def _ch_mapping_states(team_id: int, distinct_ids: list[str]) -> dict[str, _ChMa
     return states
 
 
-def _plan_chunk(team_id: int, person_uuids: Sequence[str], *, only_distinct_id: str | None = None) -> list[_PersonPlan]:
+def _plan_chunk(
+    team_id: int,
+    person_uuids: Sequence[str],
+    *,
+    only_distinct_id: str | None = None,
+    republish_equal: Collection[str] = (),
+) -> list[_PersonPlan]:
+    """`republish_equal` names persons to republish even when ClickHouse holds their Postgres version, because
+    a scan found other content at that version."""
     live = {str(p.uuid): p for p in get_persons_by_uuids(team_id, list(person_uuids), distinct_id_limit=0)}
     person_states = _ch_person_states(team_id, list(live)) if live else {}
     distinct_ids_by_person = (
@@ -225,7 +233,8 @@ def _plan_chunk(team_id: int, person_uuids: Sequence[str], *, only_distinct_id: 
                 team_id=team_id,
                 person_uuid=person_uuid,
                 person=person,
-                kind=_person_kind(pg_version, state),
+                kind=_person_kind(pg_version, state)
+                or ("equal" if person_uuid in republish_equal and state is not None and state.visible_rows else None),
                 ch_max_version=ch_max_version,
                 target_version=_target_version(pg_version, ch_max_version),
                 mappings=mappings,

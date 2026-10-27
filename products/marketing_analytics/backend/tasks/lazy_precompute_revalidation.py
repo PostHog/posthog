@@ -27,6 +27,7 @@ from posthog.hogql.constants import LimitContext
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models import Team
+from posthog.models.event.new_events_schema import events_route_scope
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.tasks.utils import CeleryQueue
 
@@ -93,7 +94,8 @@ def revalidate_marketing_analytics_precompute(team_id: int, query: dict) -> None
         # response into the per-team result cache, which a user without access to some of those warehouse
         # sources could then read. Leaving the result cache alone, the next user read recomputes the
         # response under its own access — now over hot precomputes — and caches it correctly.
-        runner.to_query()
+        with events_route_scope(runner.modifiers):
+            runner.to_query()
     except Exception:
         logger.exception("marketing_analytics_swr_revalidation_failed", team_id=team_id, query_kind=query_kind)
         REVALIDATION_RUN.labels(outcome="failed", query_kind=query_kind).inc()

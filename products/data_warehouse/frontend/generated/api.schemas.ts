@@ -41,7 +41,19 @@ export interface DataModelingJobApi {
     readonly id: string
     /** @nullable */
     readonly saved_query_id: string | null
+    /**
+     * Model name, or null if permanently deleted.
+     * @nullable
+     */
+    readonly saved_query_name: string | null
+    /**
+     * Whether the model is soft-deleted, or null if permanently deleted.
+     * @nullable
+     */
+    readonly saved_query_deleted: boolean | null
     readonly status: DataModelingJobStatusEnumApi
+    /** The engine that ran this materialization job. */
+    readonly engine: string
     /** What this run wrote: full_refresh rebuilt the whole table, so rows_materialized is the table's size; incremental wrote only its window, so rows_materialized counts just the rows synced. Null for runs from before modes were recorded, or that failed before the plan resolved.
      *
      * * `full_refresh` - Full refresh
@@ -68,6 +80,31 @@ export interface DataModelingJobApi {
      * @nullable
      */
     readonly rows_expected: number | null
+    /**
+     * Bytes read by this run, or null if it has not been measured yet.
+     * @nullable
+     */
+    readonly read_bytes: number | null
+    /**
+     * Rows read by this run, including probes and retries.
+     * @nullable
+     */
+    readonly read_rows: number | null
+    /**
+     * ClickHouse CPU time in microseconds.
+     * @nullable
+     */
+    readonly cpu_microseconds: number | null
+    /**
+     * Number of ClickHouse queries measured for this run.
+     * @nullable
+     */
+    readonly query_count: number | null
+    /**
+     * When usage was last measured. Null means unmeasured.
+     * @nullable
+     */
+    readonly usage_updated_at: string | null
 }
 
 export interface PaginatedDataModelingJobListApi {
@@ -2140,11 +2177,33 @@ export interface SavedQueryResumeApi {
 }
 
 /**
+ * * `upstream` - Upstream
+ * * `downstream` - Downstream
+ */
+export type MaterializationRunDirectionEnumApi =
+    (typeof MaterializationRunDirectionEnumApi)[keyof typeof MaterializationRunDirectionEnumApi]
+
+export const MaterializationRunDirectionEnumApi = {
+    Upstream: 'upstream',
+    Downstream: 'downstream',
+} as const
+
+/**
  * Body of the `run` action.
  */
 export interface SavedQueryRunApi {
     /** Rebuild the whole table instead of updating it incrementally. Has no effect on a view that is not incremental. This is how you reprocess history after changing what the query means without changing its text, or after upstream data was corrected. */
     full_refresh?: boolean
+    /** Run this view with all upstream dependencies or all downstream dependents. Omit this field to run only this view. You cannot use it with full_refresh.
+     *
+     * * `upstream` - Upstream
+     * * `downstream` - Downstream */
+    direction?: MaterializationRunDirectionEnumApi
+}
+
+export interface SavedQueryRunResponseApi {
+    /** The data model nodes included in the run. */
+    node_ids: string[]
 }
 
 /**
@@ -2551,6 +2610,7 @@ export interface CredentialApi {
  * * `IncidentIo` - IncidentIo
  * * `Pingdom` - Pingdom
  * * `Cloudflare` - Cloudflare
+ * * `CloudflareD1` - CloudflareD1
  * * `CosmosDB` - CosmosDB
  * * `PlanetScaleMySQL` - PlanetScaleMySQL
  * * `PlanetScalePostgres` - PlanetScalePostgres
@@ -3268,6 +3328,7 @@ export interface CredentialApi {
  * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
  * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
  * * `AwsCostExplorer` - AwsCostExplorer
+ * * `AwsDocumentDB` - AwsDocumentDB
  * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
  * * `AwsGuardduty` - AwsGuardduty
  * * `AwsHealth` - AwsHealth
@@ -3758,6 +3819,10 @@ export interface CredentialApi {
  * * `CloudflareR2` - CloudflareR2
  * * `Particle` - Particle
  * * `FileUpload` - FileUpload
+ * * `Dripify` - Dripify
+ * * `AwsS3Tables` - AwsS3Tables
+ * * `Beacons` - Beacons
+ * * `WooPayments` - WooPayments
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -3961,6 +4026,7 @@ export const ExternalDataSourceTypeEnumApi = {
     IncidentIo: 'IncidentIo',
     Pingdom: 'Pingdom',
     Cloudflare: 'Cloudflare',
+    CloudflareD1: 'CloudflareD1',
     CosmosDB: 'CosmosDB',
     PlanetScaleMySQL: 'PlanetScaleMySQL',
     PlanetScalePostgres: 'PlanetScalePostgres',
@@ -4678,6 +4744,7 @@ export const ExternalDataSourceTypeEnumApi = {
     AwsCostAndUsageReport: 'AwsCostAndUsageReport',
     AwsCostAnomalyDetection: 'AwsCostAnomalyDetection',
     AwsCostExplorer: 'AwsCostExplorer',
+    AwsDocumentDB: 'AwsDocumentDB',
     AwsGlueDataCatalog: 'AwsGlueDataCatalog',
     AwsGuardduty: 'AwsGuardduty',
     AwsHealth: 'AwsHealth',
@@ -5168,6 +5235,10 @@ export const ExternalDataSourceTypeEnumApi = {
     CloudflareR2: 'CloudflareR2',
     Particle: 'Particle',
     FileUpload: 'FileUpload',
+    Dripify: 'Dripify',
+    AwsS3Tables: 'AwsS3Tables',
+    Beacons: 'Beacons',
+    WooPayments: 'WooPayments',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {
@@ -5543,6 +5614,24 @@ export interface ViewLinkValidationErrorApi {
 
 export type DataModelingJobsListParams = {
     /**
+     * Include jobs finished at or after this time.
+     */
+    after?: string
+    /**
+     * Include jobs from every materialization engine. Defaults to ClickHouse jobs only.
+     */
+    all_engines?: boolean
+    /**
+     * Include jobs finished before this time.
+     */
+    before?: string
+    /**
+     * * `clickhouse` - ClickHouse
+     * * `duckgres` - Duckgres
+     * * `managed_warehouse` - Managed warehouse
+     */
+    engine?: DataModelingJobsListEngine
+    /**
      * Number of results to return per page.
      */
     limit?: number
@@ -5552,6 +5641,10 @@ export type DataModelingJobsListParams = {
     offset?: number
     saved_query_id?: string
     /**
+     * Comma-separated materialized view IDs.
+     */
+    saved_query_ids?: string[]
+    /**
      * * `Cancelled` - Cancelled
      * * `Completed` - Completed
      * * `Failed` - Failed
@@ -5560,6 +5653,14 @@ export type DataModelingJobsListParams = {
      */
     status?: DataModelingJobsListStatus
 }
+
+export type DataModelingJobsListEngine = (typeof DataModelingJobsListEngine)[keyof typeof DataModelingJobsListEngine]
+
+export const DataModelingJobsListEngine = {
+    Clickhouse: 'clickhouse',
+    Duckgres: 'duckgres',
+    ManagedWarehouse: 'managed_warehouse',
+} as const
 
 export type DataModelingJobsListStatus = (typeof DataModelingJobsListStatus)[keyof typeof DataModelingJobsListStatus]
 
@@ -5916,6 +6017,10 @@ export type WarehouseSavedQueryDraftsListParams = {
 }
 
 export type WarehouseTablesListParams = {
+    /**
+     * Include table columns. Disable for lightweight table existence or name lookups.
+     */
+    include_columns?: boolean
     /**
      * Number of results to return per page.
      */

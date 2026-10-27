@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render } from '@testing-library/react'
 
-import { dragSelection, getHogChart, hoverAtIndex, setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
+import { dragSelection, getChart, hoverAtIndex, setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
 
 import { initKeaTests } from '~/test/init'
 
@@ -40,7 +40,7 @@ function renderChart(props: Partial<React.ComponentProps<typeof VolumeSparkline>
     const { container } = render(
         <VolumeSparkline sparklineKey={SPARKLINE_KEY} data={buildData()} layout="detailed" xAxis="full" {...props} />
     )
-    return getHogChart(container).element
+    return getChart(container).element
 }
 
 describe('VolumeSparkline', () => {
@@ -113,7 +113,7 @@ describe('VolumeSparkline', () => {
                     onSpikeClick={onSpikeClick}
                 />
             )
-            const wrapper = getHogChart(container).element
+            const wrapper = getChart(container).element
 
             hoverAtIndex(wrapper, 2, data.length)
             // On the outer container, past the chart's own wrapper-level handlers, so the hover
@@ -139,7 +139,7 @@ describe('VolumeSparkline', () => {
                     onSpikeClick={onSpikeClick}
                 />
             )
-            const wrapper = getHogChart(container).element
+            const wrapper = getChart(container).element
 
             hoverAtIndex(wrapper, 2, data.length)
             fireEvent.mouseMove(container.firstElementChild as HTMLElement, { clientX: 123, clientY: 45 })
@@ -242,7 +242,7 @@ describe('VolumeSparkline', () => {
             const { container, unmount } = render(
                 <VolumeSparkline sparklineKey={SPARKLINE_KEY} data={data} layout="detailed" xAxis="full" />
             )
-            hoverAtIndex(getHogChart(container).element, 2, data.length)
+            hoverAtIndex(getChart(container).element, 2, data.length)
             expect(logic.values.hoverSelection).not.toBeNull()
 
             unmount()

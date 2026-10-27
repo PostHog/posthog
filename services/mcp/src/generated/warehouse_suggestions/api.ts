@@ -18,10 +18,10 @@ export const WarehouseSuggestionsListParams = () => zod.object({
 
 export const WarehouseSuggestionsListQueryParams = () => zod.object({
     kind: zod
-        .enum(['certify', 'deprecate', 'materialize'])
+        .enum(['certify', 'deprecate', 'materialize', 'unmaterialize'])
         .optional()
         .describe(
-            'Only return suggestions of this kind.\n\n\* `certify` - Certify\n\* `deprecate` - Deprecate\n\* `materialize` - Materialize'
+            'Only return suggestions of this kind.\n\n\* `certify` - Certify\n\* `deprecate` - Deprecate\n\* `materialize` - Materialize\n\* `unmaterialize` - Unmaterialize'
         ),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
@@ -100,6 +100,12 @@ export const WarehouseSuggestionsAcceptCreateBody = () => zod.object({
         .optional()
         .describe(
             "Materialize only, incremental refresh only: how far before the last refresh's highest incremental_key value each refresh reads again, in seconds, so late rows are picked up. Omit to keep the proposed lookback."
+        ),
+    keep_materialized: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Deprecate only: true to keep a materialized view refreshing after it is deprecated. By default, accepting a deprecate suggestion also stops the view's refreshes and deletes its stored table, unless other views or syncs depend on it."
         ),
 })
 

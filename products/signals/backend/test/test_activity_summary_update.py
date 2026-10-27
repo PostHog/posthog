@@ -17,7 +17,7 @@ from products.signals.backend.activity_summary.inputs import user_activity
 from products.signals.backend.activity_summary.logic import ActivitySummaryUpdate, UpdateStatus, update_activity_summary
 from products.signals.backend.activity_summary.prompt import PROMPT_VERSION
 from products.signals.backend.activity_summary.render import RENDER_VERSION, RenderLimits
-from products.signals.backend.models import UserActivitySummary
+from products.signals.backend.models import UserActivitySummary, UserActivitySummaryVersion
 from products.signals.backend.test.test_activity_summary_render import FakeLLM
 
 NOW = datetime.datetime(2026, 10, 19, 12, tzinfo=datetime.UTC)
@@ -26,8 +26,8 @@ ANSWER = json.dumps(
     {
         "profile": "## Funnels\n- Builds the signup funnel.",
         "headline": "Builds the signup funnel.",
-        "focus_areas": [{"topic": "signup funnel", "strength": "high", "last_seen": "2026-10-18"}],
-        "products": ["product_analytics"],
+        "themes": [{"label": "Signup funnel", "mode": "building", "strength": "high", "refs": ["o1"]}],
+        "modes": ["building"],
         "recent_shift": None,
     }
 )
@@ -62,6 +62,14 @@ class TestUpdateActivitySummary(BaseTest):
     def _stored(self) -> UserActivitySummary | None:
         return UserActivitySummary.objects.for_team(self.team.id).filter(user_id=self.user.id).first()
 
+    def _versions(self) -> list[int]:
+        return list(
+            UserActivitySummaryVersion.objects.for_team(self.team.id)
+            .filter(summary_row__user_id=self.user.id)
+            .order_by("version")
+            .values_list("version", flat=True)
+        )
+
     def test_a_successful_update_stores_the_summary_and_advances_the_watermark(self) -> None:
         self._changes(2, days_ago=2)
         self._change("Signup funnel", days_ago=1, intent=f"Post the funnel to {PATH_SECRET}")
@@ -75,7 +83,7 @@ class TestUpdateActivitySummary(BaseTest):
         stored = self._stored()
         assert stored is not None
         assert stored.status == UserActivitySummary.Status.OK
-        assert stored.summary_text == "Builds the signup funnel.\nFocus areas: signup funnel"
+        assert stored.summary_text == "Builds the signup funnel.\nThemes: Signup funnel"
         assert stored.input_watermark == NOW - datetime.timedelta(days=1)
         assert stored.next_eligible_at == NOW + datetime.timedelta(days=1)
         assert (stored.tokens_in, stored.tokens_out) == (100, 20)
@@ -89,6 +97,21 @@ class TestUpdateActivitySummary(BaseTest):
         next_sent = json.dumps(next_llm.requests[0]["messages"])
         assert "Signup funnel" not in next_sent.split("Recent activity")[1]
         assert "Builds the signup funnel." in next_sent
+        latest = self._stored()
+        assert latest is not None and latest.version == 2
+        assert self._versions() == [1, 2]
+        first = UserActivitySummaryVersion.objects.for_team(self.team.id).get(summary_row=latest, version=1)
+        assert (first.summary_text, first.input_watermark) == (stored.summary_text, stored.input_watermark)
+        # The second update read only the rows after the watermark, but its computed fields cover the full window.
+        assert latest.computed is not None
+        assert {entry["id"] for entry in latest.computed["owned"]} == {
+            "Funnel 0",
+            "Funnel 1",
+            "Funnel 2",
+            "Signup funnel",
+        }
+        second = UserActivitySummaryVersion.objects.for_team(self.team.id).get(summary_row=latest, version=2)
+        assert second.computed == latest.computed
 
     def test_a_person_who_only_reads_gets_a_summary_from_what_they_opened(self) -> None:
         other = User.objects.create_and_join(self.organization, "other@example.com", None)
@@ -189,7 +212,7 @@ class TestUpdateActivitySummary(BaseTest):
         assert (result.status, result.rebuilt) == (UpdateStatus.OK, rebuilt)
         sent = json.dumps(llm.requests[0]["messages"])
         assert ("Old stored summary." not in sent) == rebuilt
-        assert ("Old dashboard" in sent) == rebuilt
+        assert ("Old dashboard" in sent.split("Recent activity")[1]) == rebuilt
         stored = self._stored()
         assert stored is not None
         assert (stored.prompt_version, stored.render_version) == (PROMPT_VERSION, RENDER_VERSION)
@@ -211,6 +234,19 @@ class TestUpdateActivitySummary(BaseTest):
         assert (after.summary, after.input_watermark) == (before.summary, before.input_watermark)
         assert (after.tokens_in, after.tokens_out, after.cost_usd) == (None, None, None)
         assert after.next_eligible_at == NOW + datetime.timedelta(hours=6)
+        assert after.version == before.version == 1
+        assert self._versions() == [1]
+
+    def test_keeps_the_latest_max_versions_and_deletes_them_with_the_summary(self) -> None:
+        for update in range(3):
+            self._changes(3, days_ago=2 - update / 2)
+            assert self._update(FakeLLM([ANSWER]), force=True, max_versions=2).status == UpdateStatus.OK
+
+        assert self._versions() == [2, 3]
+        stored = self._stored()
+        assert stored is not None and stored.version == 3
+        stored.delete()
+        assert self._versions() == []
 
     @parameterized.expand(
         [
@@ -245,8 +281,13 @@ class TestUpdateActivitySummary(BaseTest):
         assert skipped is not None
         assert (skipped.status, skipped.summary) == (UserActivitySummary.Status.SKIPPED, None)
         assert skipped.next_eligible_at == NOW + datetime.timedelta(hours=6)
-
         with time_machine.travel(NOW + datetime.timedelta(hours=7), tick=False):
+            assert self._update(llm).status == UpdateStatus.SKIPPED_TOO_FEW_UNITS
+        skipped_again = self._stored()
+        assert skipped_again is not None
+        assert skipped_again.next_eligible_at == NOW + datetime.timedelta(hours=7 + 12)
+
+        with time_machine.travel(NOW + datetime.timedelta(hours=20), tick=False):
             assert self._update(FakeLLM([ANSWER]), min_units=2).status == UpdateStatus.OK
         before = self._stored()
         assert before is not None

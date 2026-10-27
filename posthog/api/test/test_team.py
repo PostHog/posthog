@@ -1645,38 +1645,26 @@ def team_api_test_factory():
                 {"id": "test", "channel_type": "Direct", "combiner": "AND", "items": []}
             ]
 
-        @parameterized.expand([("useNewEventsSchema",), ("useNewEventsCluster",)])
-        def test_events_routing_modifiers_are_not_client_writable(self, modifier: str) -> None:
+        def test_the_events_schema_modifier_is_not_client_writable(self) -> None:
             response = self.client.patch(
                 f"/api/environments/{self.team.id}",
-                {"modifiers": {modifier: True}},
+                {"modifiers": {"useNewEventsSchema": True}},
             )
             assert response.status_code == status.HTTP_200_OK, response.json()
-            assert modifier not in response.json()["modifiers"]
+            assert "useNewEventsSchema" not in response.json()["modifiers"]
 
-            self.team.modifiers = {modifier: True}
+            self.team.modifiers = {"useNewEventsSchema": True}
             self.team.save()
             response = self.client.patch(
                 f"/api/environments/{self.team.id}",
-                {"modifiers": {modifier: False, "bounceRateDurationSeconds": 30}},
+                {"modifiers": {"useNewEventsSchema": False, "bounceRateDurationSeconds": 30}},
             )
             assert response.status_code == status.HTTP_200_OK, response.json()
-            assert response.json()["modifiers"] == {modifier: True, "bounceRateDurationSeconds": 30}
+            assert response.json()["modifiers"] == {"useNewEventsSchema": True, "bounceRateDurationSeconds": 30}
 
         @parameterized.expand(
             [
-                (
-                    "environments",
-                    {"useNewEventsSchema": True, "bounceRateDurationSeconds": 30},
-                    None,
-                    {"useNewEventsSchema": True},
-                ),
-                (
-                    "projects",
-                    {"useNewEventsSchema": True, "bounceRateDurationSeconds": 30},
-                    None,
-                    {"useNewEventsSchema": True},
-                ),
+                ("environments", {"useNewEventsSchema": True, "bounceRateDurationSeconds": 30}, None, None),
                 ("environments", True, None, None),
                 ("projects", ["useNewEventsSchema"], None, None),
                 ("environments", True, {"bounceRateDurationSeconds": 30}, {"bounceRateDurationSeconds": 30}),

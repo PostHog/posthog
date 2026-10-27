@@ -314,8 +314,8 @@ def _build_params(
         # watermark to checkpoint per batch and for the window to slide forward.
         params["sort"] = f"{window_field}:1"
         if window_start is not None:
-            # Inclusive lower bound: the boundary row is re-read and deduped by the merge on the
-            # primary key, which is cheaper than risking a skipped row on an exclusive bound.
+            # Inclusive lower bound: the boundary rows are re-read and dropped in `_iter_pages`,
+            # which is cheaper than risking a skipped row on an exclusive bound.
             params["q"] = f'{window_field}:["{window_start}" TO *]'
     return params
 
@@ -426,6 +426,10 @@ def _max_window_value(rows: list[dict[str, Any]], window_field: str) -> Optional
     """
     values = [str(row[window_field]) for row in rows if isinstance(row, dict) and row.get(window_field)]
     return max(values) if values else None
+
+
+def _row_key(row: dict[str, Any], config: Auth0EndpointConfig) -> tuple[Any, ...]:
+    return tuple(row.get(key) for key in config.primary_keys)
 
 
 def _probe(session: requests.Session, token: str, url: str, read_body: bool) -> tuple[int, Any]:
@@ -553,6 +557,13 @@ def _iter_pages(
     page = position.page
     window_start = position.window_start
     pages_fetched = 0
+    # Keys of the rows seen at the newest window value so far, and of the rows the previous window
+    # yielded at the current lower bound. The inclusive bound re-reads those rows, and a full
+    # refresh appends batches without a merge, so they are dropped rather than written twice. They
+    # are not saved in the resume state: a restart at a window boundary can write a few rows twice.
+    newest_seen: Optional[str] = None
+    newest_seen_keys: set[tuple[Any, ...]] = set()
+    already_yielded: set[tuple[Any, ...]] = set()
     while True:
         if pages_fetched >= MAX_PAGES:
             raise Auth0PaginationLimitError(
@@ -563,21 +574,39 @@ def _iter_pages(
         data = fetch(_build_url(domain, config, api_version, params))
         pages_fetched += 1
 
-        rows = _extract_rows(data, config)
-        if not rows:
+        fetched_rows = _extract_rows(data, config)
+        if not fetched_rows:
             return
+        # A re-read row whose window value moved past the boundary is a newer version, so it stays.
+        rows = [
+            row
+            for row in fetched_rows
+            if not (
+                window_field and str(row.get(window_field)) == window_start and _row_key(row, config) in already_yielded
+            )
+        ]
 
         next_page = page + 1
         total = data.get("total") if isinstance(data, dict) else None
-        is_last_page = (isinstance(total, int) and next_page * config.page_size >= total) or (
-            len(rows) < config.page_size
-        )
+        # Auth0 reports `total` as the result cap whenever more rows match, so on a windowed
+        # collection only a short page ends the walk.
+        is_last_page = (
+            window_field is None and isinstance(total, int) and next_page * config.page_size >= total
+        ) or len(fetched_rows) < config.page_size
+
+        if window_field:
+            page_newest = _max_window_value(fetched_rows, window_field)
+            if page_newest != newest_seen:
+                newest_seen, newest_seen_keys = page_newest, set()
+            newest_seen_keys.update(
+                _row_key(row, config) for row in fetched_rows if str(row.get(window_field)) == page_newest
+            )
 
         next_window_start = window_start
         if not is_last_page and window_field and next_page * config.page_size >= SEARCH_RESULT_CAP:
             # Auth0 refuses to page past the first 1000 matches, so restart at page 0 with the
             # window's lower bound moved up to the newest row seen.
-            newest = _max_window_value(rows, window_field)
+            newest = newest_seen
             if newest is None:
                 raise Auth0PaginationStalledError(
                     f"{PAGINATION_STALLED_ERROR}: {config.name} rows carry no `{window_field}` value to slide on"
@@ -599,6 +628,8 @@ def _iter_pages(
         if is_last_page:
             return
 
+        if next_window_start != window_start:
+            already_yielded = set(newest_seen_keys)
         page = next_page
         window_start = next_window_start
 
@@ -828,7 +859,8 @@ def get_rows(
             # of silently re-reading (and, for a full refresh, duplicating) this one.
             resumable_source_manager.save_state(page.next_position)
 
-        yield _strip_credential_fields(page.rows, endpoint)
+        if page.rows:
+            yield _strip_credential_fields(page.rows, endpoint)
 
 
 def auth0_source(

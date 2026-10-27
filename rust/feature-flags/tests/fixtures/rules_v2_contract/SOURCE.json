@@ -1,9 +1,9 @@
 {
     "repository": "https://github.com/PostHog/posthog-sdk-test-harness",
-    "release": null,
-    "commit": "6c4182b71d8021fcb10919a6c20825413cbef3dc",
+    "release": "1.20.0",
+    "commit": "aa725c89eec72cb8ac75f4e418662bf2e161feb8",
     "path": "contracts/feature_flag_rules_v2",
-    "contract_version": "3.0.0",
+    "contract_version": "6.0.0",
     "files": {
         "corpus/hash_sha1_60_v1.json": "e9bea9cff58bac0c6c1021e9c8842c53594055b6874a2c58bc4350d0c28a93ca",
         "corpus/legacy_projection.json": "536c8386eefa75721d113bd8718ddeb7fb1aad3b4f2cce1fbcf516a346a16e26",
@@ -55,7 +55,7 @@
         "fixtures/config/valid/version_float_literal.json": "a848ae2e3e0dd2119600bb90ebbcba59040b3bb788586ba127a57eab1848a403",
         "fixtures/wire/definitions.json": "894f37aaf7e6b360ca36e0b5beb5645abd8782dc9a09eb1f76db64285d02fe6d",
         "fixtures/wire/responses.json": "5995db3a23667a58aaefb050779c7b0fe3ff154e821729408d4e6c138a7535b1",
-        "manifest.json": "6a9c0beffc378afafc1fe67f51297ff51252d2f293d59a1c835cbbaa91d80354",
+        "manifest.json": "905674e9eff024a4ea58b8ff12c3c604495c84cb31860457d59e6d56e6748aa0",
         "registries/literals.json": "3e87e6c7c760f0ebac80289faa5412a6ecd17749cb5c79dabe5ed1efaea22578",
         "schemas/config.schema.json": "163507e0db1219329caef034a50516d27eb5759b5e4c250f313ceb53ca3f1e08",
         "schemas/definitions_entry.schema.json": "6d920c77fb7f20c2031dc188d495ed28c3789b3f362334517a2e86021a226e85",

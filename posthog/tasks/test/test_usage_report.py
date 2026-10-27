@@ -70,6 +70,7 @@ from posthog.tasks.usage_report import (
     capture_report,
     get_all_event_metrics_in_period,
     get_instance_metadata,
+    get_self_driving_credits_used_in_period_for_orgs,
     get_teams_with_ai_credits_used_in_period,
     get_teams_with_billable_event_count_in_period,
     get_teams_with_event_count_with_groups_in_period,
@@ -5086,6 +5087,24 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
 
         self.assertEqual(result, [(team.id, 1500)])
 
+    def test_self_driving_credits_for_orgs_sum_each_orgs_teams(self) -> None:
+        org_a = Organization.objects.create(name="Org A")
+        org_b = Organization.objects.create(name="Org B")
+        team_a1 = Team.objects.create(organization=org_a)
+        team_a2 = Team.objects.create(organization=org_a)
+        team_b = Team.objects.create(organization=org_b)
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        org_ids = [str(org_a.id), str(org_b.id)]
+
+        with patch(
+            "posthog.tasks.usage_report.get_signals_billing_credits_by_team",
+            return_value=[(team_a1.id, 1500), (team_a2.id, 1500), (team_b.id, 1500)],
+        ) as signals_credits:
+            totals = get_self_driving_credits_used_in_period_for_orgs(org_ids, period.start, period.end)
+
+        assert totals == {str(org_a.id): 3000, str(org_b.id): 1500}
+        assert signals_credits.call_args.kwargs["organization_ids"] == org_ids
+
     @patch("posthog.tasks.usage_report.get_instance_region")
     def test_ai_credits_counts_billable_generation_with_no_trace(self, mock_region: MagicMock) -> None:
         """A billable generation with no matching $ai_trace bills via the empty-trace fallback.
@@ -7095,7 +7114,7 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         )
 
     def test_events_owned_by_other_products_excluded_from_billable_count(self) -> None:
-        """Test that Conversations widget and prompt management events are excluded from billable event counts."""
+        """Test that Conversations widget, prompt management and anomaly scoring events are excluded from billable event counts."""
         from posthog.tasks.usage_report import get_teams_with_billable_event_count_in_period
 
         billable_result_before = get_teams_with_billable_event_count_in_period(self.begin, self.end)
@@ -7110,6 +7129,8 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
             "$conversations_widget_state_changed",
             "$conversations_back_to_tickets",
             "$llm_prompt_fetched",
+            "$anomaly_score",
+            "$anomaly_score_shadow",
         ):
             _create_event(
                 event=event_name,

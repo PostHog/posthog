@@ -365,6 +365,21 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "segments_date": "The date the metrics are reported for.",
         },
     },
+    "performance_max_search_term_stats": {
+        "description": "Daily performance for the search terms that triggered Performance Max campaigns (campaign_search_term_view).",
+        "docs_url": "https://developers.google.com/google-ads/api/fields/v25/campaign_search_term_view",
+        "columns": {
+            "customer_id": _IDS["customer_id"],
+            "campaign_id": _IDS["campaign_id"],
+            "campaign_search_term_view_search_term": "The search query a user entered that triggered a Performance Max ad.",
+            "metrics_clicks": _METRICS["metrics_clicks"],
+            "metrics_impressions": _METRICS["metrics_impressions"],
+            "metrics_cost_micros": _METRICS["metrics_cost_micros"],
+            "metrics_conversions": _METRICS["metrics_conversions"],
+            "metrics_conversions_value": _METRICS["metrics_conversions_value"],
+            "segments_date": _SEGMENTS["segments_date"],
+        },
+    },
     "geographic_stats": {
         "description": "Daily performance broken out by user geographic location (geographic_view).",
         "docs_url": "https://developers.google.com/google-ads/api/fields/v17/geographic_view",
