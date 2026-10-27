@@ -33,20 +33,10 @@ from posthog.models.user_integration import UserIntegration
 from posthog.user_permissions import UserPermissions
 
 from products.slack_app.backend.analytics import capture_slack_event
-from products.slack_app.backend.feature_flags import (
-    is_slack_app_byos_enabled,
-    is_slack_app_multiplayer_approvals_enabled,
-    is_slack_app_oauth_enabled,
-    is_slack_app_unprompted_answers_enabled,
-)
+from products.slack_app.backend.feature_flags import is_slack_app_byos_enabled, is_slack_app_oauth_enabled
 from products.slack_app.backend.logic.feature_tips.features import SlackFeature
 from products.slack_app.backend.logic.feature_tips.state import record_feature_used
-from products.slack_app.backend.logic.interview_recruitment import (
-    INVITE_MESSAGE,
-    book_button,
-    invite_section,
-    is_recruiting,
-)
+from products.slack_app.backend.logic.interview_recruitment import INVITE_MESSAGE, book_button, invite_section
 from products.slack_app.backend.models import (
     ChannelWelcomeMode,
     SlackSettings,
@@ -551,8 +541,7 @@ def render_home_view(
         blocks.append({"type": "divider"})
         blocks.extend(_linked_accounts_section_blocks(account_state, github_state))
 
-    # Section 6a — interview invitation. `interview_invite` is the section block, present only
-    # for a viewer the recruitment flag selects.
+    # Section 6a — interview invitation. `interview_invite` is the section block.
     if interview_invite is not None:
         blocks.append({"type": "divider"})
         blocks.append(_section_title("💬 Talk to the team"))
@@ -1829,9 +1818,7 @@ def handle_ai_preferences_block_action(payload: dict, action: dict) -> HttpRespo
     if action_id == ACTION_SET_THREAD_JOIN_MODE:
         picked = (action.get("selected_option") or {}).get("value")
         # An unrecognised value is ignored rather than stored.
-        if picked in ThreadJoinMode.values and _thread_join_offered(
-            integration, _resolve_home_user(integration, slack_user_id)
-        ):
+        if picked in ThreadJoinMode.values and _resolve_home_user(integration, slack_user_id) is not None:
             set_thread_join_mode(integration.integration_id, slack_user_id, ThreadJoinMode(picked))
             capture_slack_event(integration, "slack app thread join mode set", slack_user_id=slack_user_id, mode=picked)
         republish()
@@ -1844,7 +1831,7 @@ def handle_ai_preferences_block_action(payload: dict, action: dict) -> HttpRespo
         return HttpResponse(status=200)
 
     if action_id == ACTION_SET_UNTAGGED_QUESTION_MODE:
-        if (mode := _picked_untagged_mode(action)) is not None and is_slack_app_unprompted_answers_enabled(integration):
+        if (mode := _picked_untagged_mode(action)) is not None:
             set_untagged_question_mode(integration.integration_id, slack_user_id, mode)
         republish()
         return HttpResponse(status=200)
@@ -2303,25 +2290,17 @@ def _build_home_view(
         tasks_state=tasks_state,
         stats_state=stats_state,
         untagged_followup_mode=resolve_untagged_followup_mode(integration, slack_user_id),
-        untagged_question_mode=(
-            resolve_untagged_question_mode(integration.integration_id, slack_user_id)
-            if is_slack_app_unprompted_answers_enabled(integration)
-            else None
-        ),
+        untagged_question_mode=resolve_untagged_question_mode(integration.integration_id, slack_user_id),
         channel_welcome_mode=resolve_channel_welcome_mode(integration.integration_id) if is_admin else None,
         auto_model_choice=(
             resolve_auto_model_choice(integration.integration_id, slack_user_id) if home_user is not None else None
         ),
         own_plan=own_plan,
-        thread_join_mode=(
-            resolve_thread_join_mode(integration, slack_user_id)
-            if _thread_join_offered(integration, home_user)
-            else None
-        ),
+        thread_join_mode=(resolve_thread_join_mode(integration, slack_user_id) if home_user is not None else None),
         has_project_access=bool(accessible),
         # The same settings page the GitHub card deep-links to.
         account_settings_url=github_state.settings_url,
-        interview_invite=_resolve_interview_invite(integration, slack_user_id, home_user),
+        interview_invite=invite_section(INVITE_MESSAGE, book_button(integration.id, "home")),
     )
     return _HomeRender(
         view=view,
@@ -2329,17 +2308,6 @@ def _build_home_view(
         account_state=account_state,
         has_project_access=bool(accessible),
     )
-
-
-def _resolve_interview_invite(integration: Integration, slack_user_id: str, home_user: User | None) -> dict | None:
-    """The invitation section for a viewer the recruitment flag selects. Best-effort, like every card."""
-    try:
-        if not is_recruiting(integration, slack_user_id, home_user):
-            return None
-    except Exception:
-        logger.warning("slack_app_home_interview_invite_failed", exc_info=True)
-        return None
-    return invite_section(INVITE_MESSAGE, book_button(integration.id, "home"))
 
 
 def _republish_home(
@@ -2575,10 +2543,6 @@ def _resolve_run_defaults_state(
         source=resolved.source,
         settings_url=settings_url,
     )
-
-
-def _thread_join_offered(integration: Integration, home_user: User | None) -> bool:
-    return home_user is not None and is_slack_app_multiplayer_approvals_enabled(integration, home_user.distinct_id)
 
 
 def _resolve_own_plan_state(
