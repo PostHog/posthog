@@ -256,6 +256,27 @@ describe('metricsLogic', () => {
         expect(logic.values.metrics.map((metric) => metric.name)).toEqual(['b'])
     })
 
+    it('filters to drifted metrics of any status from the stage strip and resets on a second click', async () => {
+        const proposed = buildMetric({ id: 'metric-1', name: 'proposed' })
+        const approvedDrifted = buildMetric({
+            id: 'metric-2',
+            name: 'approved_drifted',
+            status: 'approved',
+            is_drifted: true,
+        })
+        const approved = buildMetric({ id: 'metric-3', name: 'approved', status: 'approved' })
+        logic.actions.loadMetricsSuccess([proposed, approvedDrifted, approved])
+
+        expect(logic.values.stageCounts).toEqual({ proposed: 1, approved: 2, drifted: 1 })
+
+        logic.actions.toggleStage('drifted')
+        expect(logic.values.metrics).toEqual([approvedDrifted])
+
+        logic.actions.toggleStage('drifted')
+        expect(logic.values.filters.status).toEqual('all')
+        expect(logic.values.metrics).toEqual([proposed, approvedDrifted, approved])
+    })
+
     it('patches approved rows and reloads to reconcile skipped ones', async () => {
         logic.actions.loadMetricsSuccess([
             buildMetric({ id: 'metric-1', name: 'first' }),
