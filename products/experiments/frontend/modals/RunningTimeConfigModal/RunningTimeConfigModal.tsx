@@ -208,9 +208,8 @@ export function RunningTimeConfigModal({ experiment: experimentProp }: RunningTi
                                 </LemonBanner>
                             ) : !outlook ? (
                                 <LemonBanner type="info">
-                                    {automaticTargetRequest
-                                        ? "The primary metric's results can't size a running time yet. The estimate updates with the next results."
-                                        : 'Not enough data to estimate the running time yet. The estimate appears once the primary metric has results.'}
+                                    Not enough data to estimate the running time yet. It needs exposures, and some
+                                    activity on the primary metric, in each variant.
                                 </LemonBanner>
                             ) : (
                                 <DetectableEffectTable experiment={experimentProp} />
