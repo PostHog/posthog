@@ -70,6 +70,7 @@ const HEALTH_INPUTS: ExperimentHealthInputsApi = {
     flag_last_called_at: '2025-05-21T09:12:00Z',
     flag_called: true,
     flag_called_during_run: true,
+    flag_called_after_end: null,
     exposure_events: {
         custom_event: null,
         required_flag_key: 'experiment-with-mean-metric',

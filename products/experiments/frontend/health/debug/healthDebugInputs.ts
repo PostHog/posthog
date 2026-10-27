@@ -152,6 +152,11 @@ export function buildFlagFacts(experiment: Experiment, state: HealthInputsState)
             value: serverValue(state, ({ flag_called_during_run }) => yesNoUnknown(flag_called_during_run)),
             help: "The zero-exposures finding says the flag has no recorded calls when this is No. Unknown before launch, when the latest call came after the end, or when the organization's flag calls skip the events table.",
         },
+        {
+            label: 'Called after the end',
+            value: serverValue(state, ({ flag_called_after_end }) => yesNoUnknown(flag_called_after_end)),
+            help: "When this is No, the flag-state finding for an ended experiment is info. No needs 3 days without a recorded call after the end. Unknown before the end, before those 3 days are over, or when the organization's flag calls skip the events table.",
+        },
     ]
 }
 

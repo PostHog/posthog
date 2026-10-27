@@ -237,6 +237,7 @@ def health_inputs_payload(inputs: HealthInputs) -> dict[str, Any]:
         "flag_last_called_at": inputs.flag_last_called_at,
         "flag_called": ctx.flag_called,
         "flag_called_during_run": ctx.flag_called_during_run,
+        "flag_called_after_end": ctx.flag_called_after_end,
         "exposure_events": {
             "custom_event": ctx.exposure_events.custom_event,
             "required_flag_key": ctx.exposure_events.required_flag_key,
