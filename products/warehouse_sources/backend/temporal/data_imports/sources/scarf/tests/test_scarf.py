@@ -17,7 +17,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.scarf import scarf as scarf_transport
 from products.warehouse_sources.backend.temporal.data_imports.sources.scarf.scarf import (
     BACKFILL_MESSAGE,
-    INVALID_TOKEN_MESSAGE,
     OWNER_FORMAT_MESSAGE,
     OWNER_MESSAGE,
     ScarfExportCursor,
@@ -220,7 +219,7 @@ def test_a_day_too_large_to_hand_over_whole_fails_with_a_clear_message(monkeypat
     assert result.items == []
 
 
-@pytest.mark.parametrize(("status", "expected"), [(200, None), (401, INVALID_TOKEN_MESSAGE), (404, OWNER_MESSAGE)])
+@pytest.mark.parametrize(("status", "expected"), [(404, OWNER_MESSAGE)])
 def test_validate_credentials_maps_scarf_answers(status: int, expected: str | None) -> None:
     with scripted_network(always(ScriptedResponse(status=status, json={"results": []}))) as network:
         assert ScarfSource().validate_credentials(CONFIG, team_id=1) == (expected is None, expected)

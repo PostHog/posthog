@@ -7,6 +7,23 @@ feature: autoresearch
 url_prefix: /autoresearch
 ui_apps: {}
 tools:
+    autoresearch-agent-models-retrieve:
+        operation: autoresearch_agent_models_retrieve
+        enabled: false
+        disabled_reason: Feeds the Setup tab model picker. Agents set agent_model on autoresearch-create or
+            autoresearch-partial-update, and an invalid value returns the valid choices, which keeps the family under
+            its tool cap
+        scopes:
+            - autoresearch:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List training agent models
+        description: >
+            List the models a pipeline's training agent may run on, with the reasoning efforts each supports, its
+            relative token cost, and the default a pipeline with blank settings uses.
+        feature_flag: autoresearch
     autoresearch-archive-create:
         operation: autoresearch_archive_create
         enabled: false
@@ -46,8 +63,11 @@ tools:
             write_person_property is true (default false); prediction events, validation and segments work without it.
             iterations_per_run (default 5) sets the experiments in each training run. research_interval_days (7, 14, 30,
             60 or 90, default 7; null means only when asked) sets how often scheduled research runs once the first burst
-            of daily runs ends. After creating, call autoresearch-train-create to start an asynchronous agent training
-            run.
+            of daily runs ends. agent_model and agent_reasoning_effort choose the model and effort the training agent
+            runs on; leave them out to use the autoresearch default (Claude Opus 5.5 at medium effort). A larger model
+            or higher effort costs more per training run, and an unknown model or an effort the model does not support
+            returns 400 with the valid choices. After creating, call autoresearch-train-create to start an asynchronous
+            agent training run.
         exclude_params:
             - id
             - created_by
@@ -83,6 +103,8 @@ tools:
                 - status
                 - iterations_per_run
                 - research_interval_days
+                - effective_agent_model
+                - effective_agent_reasoning_effort
                 - training_phase
                 - next_research_at
                 - last_scored_at
@@ -195,7 +217,9 @@ tools:
             cleanup run that removes the property from the people this pipeline scored (see autoresearch-runs-list).
             Changing write_person_property needs the person:write scope. Prediction events, online validation and
             segments work with it off. Use iterations_per_run and research_interval_days to change the training
-            schedule; null research_interval_days stops scheduled research. target_event, target_definition,
+            schedule; null research_interval_days stops scheduled research. Use agent_model and agent_reasoning_effort
+            to change the model the training agent runs on; null returns a field to the autoresearch default, and
+            effective_agent_model in the response shows what the next run uses. target_event, target_definition,
             horizon_days, training_lookback_days and the two populations cannot change once a model has been trained.
         exclude_params:
             - id
@@ -675,6 +699,8 @@ tools:
                 - pipeline
                 - status
                 - kickoff_reason
+                - agent_model
+                - agent_reasoning_effort
                 - iteration_budget
                 - iteration_count
                 - best_holdout_score

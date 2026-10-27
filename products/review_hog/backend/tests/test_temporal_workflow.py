@@ -161,6 +161,10 @@ async def _run_full_review_pr_workflow(
     fail_main_session: bool = False,
     coordinator: bool = False,
     coordinator_lens_failures: int = 0,
+    run_index: int = 1,
+    zero_change_skip: bool = False,
+    delta_band: bool = False,
+    gate_delta_review: bool = False,
     automatic_reviewed_head_sha: str | None = None,
     skip_agent_review: bool = False,
     gate_skips: bool = False,
@@ -211,6 +215,8 @@ async def _run_full_review_pr_workflow(
     design_calls: dict[str, set[str]] = {}
     single_agent_calls: list[str] = []
     lens_calls: list[tuple[str, int]] = []
+    main_delta_calls: list[str | None] = []
+    lens_delta_calls: list[str | None] = []
     coordinator_calls: list[int] = []
     started_coordinator: list[bool] = []
     lens_timeouts: list[timedelta | None] = []
@@ -230,7 +236,7 @@ async def _run_full_review_pr_workflow(
             head_sha="sha1",
             branch="feat",
             repository="o/r",
-            run_index=1,
+            run_index=run_index,
             snapshotted=not already_published,
             already_published=already_published,
             new_comment_count=0,
@@ -244,19 +250,27 @@ async def _run_full_review_pr_workflow(
             lens_chunk_count=lens_chunk_count,
             lens_chunks_capped=lens_chunks_capped,
             coordinator=coordinator,
+            zero_change_skip=zero_change_skip,
+            delta_band=delta_band,
             automatic_reviewed_head_sha=automatic_reviewed_head_sha,
             skip_agent_review=skip_agent_review,
         )
 
     gate_calls: list[str] = []
+    gate_arms: list[tuple[bool, bool]] = []
 
     @activity.defn(name="gate_push_activity")
     async def gate_push(input: GatePushInput) -> PushGateDecision:
         gate_calls.append(input.previous_head_sha)
+        gate_arms.append((input.zero_change_skip, input.delta_band))
         if fail_gate:
             raise ApplicationError("compare exploded", non_retryable=True)
         return PushGateDecision(
-            skip=gate_skips, would_skip=gate_skips, reason="merge_only" if gate_skips else "system_one_above_threshold"
+            skip=gate_skips,
+            would_skip=gate_skips,
+            reason="merge_only" if gate_skips else "system_one_above_threshold",
+            delta_eligible=gate_delta_review,
+            delta_review=gate_delta_review,
         )
 
     @activity.defn(name="resolve_acting_user_activity")
@@ -336,12 +350,14 @@ async def _run_full_review_pr_workflow(
     @activity.defn(name="single_agent_review_activity")
     async def single_agent_review(input: SandboxStageInput) -> None:
         single_agent_calls.append(input.review_design)
+        main_delta_calls.append(input.delta_since_head_sha)
         if fail_main_session:
             raise ApplicationError("main session died", non_retryable=True)
 
     @activity.defn(name="lens_review_activity")
     async def lens_review(input: LensReviewInput) -> None:
         lens_calls.append((input.lens, input.chunk_id))
+        lens_delta_calls.append(input.delta_since_head_sha)
         lens_timeouts.append(activity.info().schedule_to_close_timeout)
         if (input.lens, input.chunk_id) in fail_lens_units:
             raise ApplicationError("lens session died", non_retryable=True)
@@ -450,6 +466,7 @@ async def _run_full_review_pr_workflow(
     track_failed_calls: list[tuple[int, str | None]] = []
     track_completed_calls: list[tuple[int, str | None]] = []
     track_flash_calls: list[tuple[FlashTurnStats | None, FlashSessionStats | None]] = []
+    track_p1_calls: list[tuple[bool, bool, bool]] = []
     track_started_calls: list[tuple[int, str | None]] = []
 
     @activity.defn(name="track_review_failed_activity")
@@ -463,6 +480,7 @@ async def _run_full_review_pr_workflow(
         _saw_mode("track", input.review_mode)
         track_completed_calls.append((input.run_index, input.turn_trigger_source))
         track_flash_calls.append((input.flash_turn, input.flash_sessions))
+        track_p1_calls.append((input.zero_change_skip_arm, input.delta_band_arm, input.delta_review))
         _saw_design("track", input.review_design)
         marker_calls["track"] = input.marker
         return None
@@ -578,6 +596,10 @@ async def _run_full_review_pr_workflow(
         "track_failed": track_failed_calls,
         "track_completed": track_completed_calls,
         "track_flash": track_flash_calls,
+        "track_p1": track_p1_calls,
+        "gate_arms": gate_arms,
+        "main_delta": main_delta_calls,
+        "lens_delta": lens_delta_calls,
         "track_started": track_started_calls,
         "resolve_dispatches": list(StubResolvePRWorkflow.dispatches),
         "modes": mode_calls,
@@ -899,6 +921,39 @@ async def test_review_pr_workflow_coordinator_replaces_the_separate_sessions_of_
         [(_, sessions)] = recorded["track_flash"]
         assert sessions is not None
         assert (sessions.lens_failures, sessions.coordinator) == (1, True)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "gate_delta_review,fail_gate,expect_delta",
+    [(True, False, True), (False, False, False), (True, True, False)],
+)
+async def test_review_pr_workflow_runs_a_delta_turn_only_when_the_gate_plans_one(
+    gate_delta_review: bool, fail_gate: bool, expect_delta: bool
+) -> None:
+    # Every session of a delta turn must see the same baseline, with one session per lens over the whole change.
+    # A gate that failed must leave the whole PR to review.
+    recorded = await _run_full_review_pr_workflow(
+        publish=True,
+        review_mode="flash",
+        review_design="single_agent",
+        lens_chunk_count=3,
+        trigger_source="automatic",
+        run_index=3,
+        review_authored_prs=True,
+        automatic_reviewed_head_sha="sha0",
+        zero_change_skip=True,
+        delta_band=True,
+        gate_delta_review=gate_delta_review,
+        fail_gate=fail_gate,
+    )
+
+    baseline = "sha0" if expect_delta else None
+    assert recorded["gate_arms"] == [(True, True)]
+    assert recorded["main_delta"] == [baseline]
+    assert set(recorded["lens_delta"]) == {baseline}
+    assert len(recorded["lens"]) == (2 if expect_delta else 6)
+    assert recorded["track_p1"] == [(True, True, expect_delta)]
 
 
 @pytest.mark.asyncio

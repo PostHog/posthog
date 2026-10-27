@@ -10,16 +10,28 @@ export const EVALUATION_RUNS_QUERY_LIMIT = 250
 // JSON bool as the string 'true' (where a numeric literal throws), while Boolean-registered teams
 // still compare correctly against the string form. Reading the property directly rather than via
 // JSONExtractString keeps the lookup on the properties_group_ai column and its bloom filter index.
-// Same reasoning as the predicates in posthog/temporal/ai_observability/eval_reports/output_types.py.
+// Same reasoning as the predicates in products/ai_observability/backend/models/evaluation_outcomes.py.
 export const EVALUATION_RESULT_TRUE_HOGQL = "properties.$ai_evaluation_result = 'true'"
 const EVALUATION_RESULT_FALSE_HOGQL = "properties.$ai_evaluation_result = 'false'"
 
 // A skipped run was never graded, but an evaluation that disallows N/A still emits result=false
 // alongside skipped=true, so any count that doesn't exclude skips reads them as failures. Mirrors
-// _NOT_SKIPPED_PREDICATE in posthog/temporal/ai_observability/eval_reports/output_types.py, which
+// NOT_SKIPPED_PREDICATE in products/ai_observability/backend/models/evaluation_outcomes.py, which
 // the report metrics already apply — without this the two surfaces disagree about the same runs.
 export const EVALUATION_NOT_SKIPPED_HOGQL =
     "(isNull(properties.$ai_evaluation_skipped) OR properties.$ai_evaluation_skipped != 'true')"
+
+export function booleanOutputConfigError(config: EvaluationOutputConfig): string | null {
+    const threshold = config.decision_threshold
+    if (threshold != null && (!Number.isFinite(threshold) || threshold < 0 || threshold > 1)) {
+        return 'Enter a decision threshold between 0% and 100%.'
+    }
+    return null
+}
+
+export function clearInvalidDecisionThreshold(config: EvaluationOutputConfig): EvaluationOutputConfig {
+    return booleanOutputConfigError(config) ? { ...config, decision_threshold: null } : config
+}
 
 export function numericOutputConfigError(config: EvaluationOutputConfig, requiresBounds = false): string | null {
     const { min, max, step } = config
@@ -48,6 +60,14 @@ export function numericOutputConfigError(config: EvaluationOutputConfig, require
 export const EVALUATION_NUMERIC_GRADED_HOGQL = `properties.$ai_evaluation_result_type = 'numeric' AND properties.$ai_evaluation_numeric_result IS NOT NULL AND (isNull(properties.$ai_evaluation_applicable) OR properties.$ai_evaluation_applicable != 'false') AND ${EVALUATION_NOT_SKIPPED_HOGQL}`
 export const EVALUATION_BOOLEAN_GRADED_HOGQL = `(isNull(properties.$ai_evaluation_result_type) OR properties.$ai_evaluation_result_type = 'boolean') AND properties.$ai_evaluation_result IS NOT NULL AND ${EVALUATION_NOT_SKIPPED_HOGQL}`
 export const EVALUATION_NUMERIC_MEAN_HOGQL = `avgIf(toFloat(properties.$ai_evaluation_numeric_result), ${EVALUATION_NUMERIC_GRADED_HOGQL})`
+
+export function evaluationGradedHogQL(outputType: string): string {
+    return outputType === 'categorical'
+        ? EVALUATION_CATEGORICAL_GRADED_HOGQL
+        : outputType === 'numeric'
+          ? EVALUATION_NUMERIC_GRADED_HOGQL
+          : EVALUATION_BOOLEAN_GRADED_HOGQL
+}
 
 export function numericEvaluationPassedHogQL(evaluation: Pick<EvaluationConfig, 'output_config'>): string {
     const rule = evaluation.output_config.passing_rule

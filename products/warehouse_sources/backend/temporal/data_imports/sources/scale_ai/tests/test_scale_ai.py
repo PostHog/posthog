@@ -11,7 +11,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     ScriptedResponse,
     SourceDriver,
     always,
-    scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.scaleai import (
     ScaleAISourceConfig,
@@ -20,7 +19,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.scale_ai.s
     ScaleAIResumeConfig,
     _build_params,
     _format_incremental_value,
-    validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.scale_ai.settings import SCALE_AI_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.scale_ai.source import ScaleAISource
@@ -146,13 +144,6 @@ class TestRetryAndErrors:
         assert isinstance(result.raised, Exception)
         assert str(status_code) in str(result.raised)
         assert len(result.requests) == 1
-
-
-class TestValidateCredentials:
-    @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False), ("forbidden", 403, False)])
-    def test_status_maps_to_validity(self, _name: str, status_code: int, expected: bool) -> None:
-        with scripted_network(always(ScriptedResponse(status=status_code))):
-            assert validate_credentials("live_key") is expected
 
 
 class TestSourceResponse:

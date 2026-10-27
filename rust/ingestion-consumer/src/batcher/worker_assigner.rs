@@ -32,6 +32,10 @@ impl WorkerAssigner {
         })
     }
 
+    pub fn max_requests_per_worker(&self) -> usize {
+        self.max_requests_per_worker
+    }
+
     pub fn in_flight_messages(&self) -> usize {
         self.message_load.values().sum()
     }

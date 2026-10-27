@@ -145,7 +145,7 @@ class OPUSWatchSource(ResumableSource[OPUSWatchSourceConfig, OPUSWatchResumeConf
             caption="Import master data, work registrations, and productivity sessions from OPUSWatch by OPUS Solutions.",
             docsUrl="https://posthog.com/docs/cdp/sources/opuswatch",
             iconPath="/static/services/opuswatch.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

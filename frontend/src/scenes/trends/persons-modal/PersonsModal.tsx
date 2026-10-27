@@ -22,6 +22,7 @@ import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { PropertiesTimeline } from 'lib/components/PropertiesTimeline'
+import { consumePersonsModalClick } from 'lib/components/ResultMenu/personsModalCapture'
 import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
 import { IconPlayCircle } from 'lib/lemon-ui/icons'
@@ -40,13 +41,12 @@ import { isSharedView } from '~/exporter/exporterViewLogic'
 import { Noun } from '~/models/groupsModel'
 import { MAX_SELECT_RETURNED_ROWS } from '~/queries/nodes/DataTable/DataTableExport'
 import { extractValidationErrorCode } from '~/queries/nodes/InsightViz/utils'
-import { FunnelsActorsQuery, NodeKind } from '~/queries/schema/schema-general'
+import { FunnelsActorsQuery, InsightActorsQuery, NodeKind } from '~/queries/schema/schema-general'
 import {
     AccessControlLevel,
     AccessControlResourceType,
     ActorType,
     ExporterFormat,
-    PropertiesTimelineFilterType,
     PropertyDefinitionType,
 } from '~/types'
 
@@ -107,7 +107,7 @@ export function PersonsModal({
         isCohortModalOpen,
         isModalOpen,
         missingActorsCount,
-        propertiesTimelineFilterFromUrl,
+        propertiesTimelineQuery,
         insightEventsQueryUrl,
         exploreUrl,
         actorsQuery,
@@ -325,11 +325,11 @@ export function PersonsModal({
                                         // created_at is null for actors without a PostgreSQL Person record
                                         // (personless mode, merged, or deleted persons) — skip the
                                         // timeline which would 404, and show static properties instead.
-                                        propertiesTimelineFilter={
+                                        propertiesTimelineQuery={
                                             actor.type == 'person' &&
                                             actor.created_at &&
                                             currentTeam?.person_on_events_querying_enabled
-                                                ? propertiesTimelineFilterFromUrl
+                                                ? (propertiesTimelineQuery ?? undefined)
                                                 : undefined
                                         }
                                     />
@@ -437,10 +437,11 @@ export function PersonsModal({
 
 interface ActorRowProps {
     actor: ActorType
-    propertiesTimelineFilter?: PropertiesTimelineFilterType
+    /** The clicked data point's actors query, when the timeline supports it and the actor is a person. */
+    propertiesTimelineQuery?: InsightActorsQuery
 }
 
-export function ActorRow({ actor, propertiesTimelineFilter }: ActorRowProps): JSX.Element {
+export function ActorRow({ actor, propertiesTimelineQuery }: ActorRowProps): JSX.Element {
     const [expanded, setExpanded] = useState(false)
     const [tab, setTab] = useState('properties')
     const isSession = isSessionType(actor)
@@ -557,14 +558,15 @@ export function ActorRow({ actor, propertiesTimelineFilter }: ActorRowProps): JS
                             {
                                 key: 'properties',
                                 label: 'Properties',
-                                content: propertiesTimelineFilter ? (
-                                    <PropertiesTimeline actor={actor} filter={propertiesTimelineFilter} />
-                                ) : (
-                                    <PropertiesTable
-                                        type={actor.type as PropertyDefinitionType}
-                                        properties={actor.properties}
-                                    />
-                                ),
+                                content:
+                                    propertiesTimelineQuery && actor.type === 'person' ? (
+                                        <PropertiesTimeline actor={actor} query={propertiesTimelineQuery} />
+                                    ) : (
+                                        <PropertiesTable
+                                            type={actor.type as PropertyDefinitionType}
+                                            properties={actor.properties}
+                                        />
+                                    ),
                             },
                             ...(isSession && actor.person
                                 ? [
@@ -662,6 +664,10 @@ export const openPersonsModal = (props: OpenPersonsModalProps): void => {
     if (isSharedView()) {
         // Shared/exported views authenticate with a sharing token, which can never run the
         // person-level queries this modal needs — it would only ever render an error state.
+        return
+    }
+
+    if (consumePersonsModalClick(props)) {
         return
     }
 

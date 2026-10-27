@@ -12,7 +12,7 @@ class TestStratoSourceConfig:
         # A finished source must ship with no `unreleasedSource` flag — see
         # implementing-warehouse-sources skill.
         assert config.unreleasedSource is None
-        assert config.releaseStatus == ReleaseStatus.ALPHA
+        assert config.releaseStatus == ReleaseStatus.BETA
 
     def test_lists_tables_without_credentials(self) -> None:
         # get_schemas iterates a static endpoint catalog with no I/O.

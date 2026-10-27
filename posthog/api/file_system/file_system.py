@@ -8,11 +8,25 @@ from typing import Any, Optional, cast
 from uuid import UUID
 
 from django.apps import apps
-from django.db import transaction
-from django.db.models import Case, CharField, Exists, F, Func, IntegerField, Q, QuerySet, Value, When
+from django.db import connection, transaction
+from django.db.models import (
+    Case,
+    CharField,
+    Exists,
+    F,
+    Func,
+    IntegerField,
+    OuterRef,
+    Q,
+    QuerySet,
+    Subquery,
+    Value,
+    When,
+)
 from django.db.models.functions import Concat, Lower
+from django.utils import timezone
 
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import filters, pagination, serializers, status, viewsets
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.request import Request
@@ -32,12 +46,15 @@ from posthog.api.file_system.deletion import (
     undo_delete as undo_delete_object,
 )
 from posthog.api.file_system.file_system_logging import log_api_file_system_view
+from posthog.api.file_system.ranked_search import FileRef, FileSystemRankedSearch, search_session
 from posthog.api.file_system.visibility import apply_file_system_visibility_filters
+from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.decorators import disallow_if_impersonated
 from posthog.exceptions import Conflict
+from posthog.helpers.trigram_search import MAX_SEARCH_LENGTH
 from posthog.models.file_system.constants import RETIRED_FILE_SYSTEM_TYPES
 from posthog.models.file_system.file_system import (
     DEFAULT_SURFACE,
@@ -50,7 +67,11 @@ from posthog.models.file_system.file_system import (
 from posthog.models.file_system.file_system_home_folder import FileSystemHomeFolder
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.file_system.file_system_shortcut import FileSystemShortcut
-from posthog.models.file_system.file_system_view_log import get_recent_file_system_items, recent_view_logs
+from posthog.models.file_system.file_system_view_log import (
+    FileSystemViewLog,
+    get_recent_file_system_items,
+    recent_view_logs,
+)
 from posthog.models.file_system.unfiled_file_saver import save_unfiled_files
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.tagged_item_registry import object_column_for
@@ -236,6 +257,63 @@ class FileSystemViewLogListQuerySerializer(serializers.Serializer):
     limit = serializers.IntegerField(required=False, min_value=1)
 
 
+SEARCH_FILTER_FIELDS = {"path", "name", "user", "author", "type", "ref"}
+
+
+class FileSystemRankedSearchQuerySerializer(serializers.Serializer):
+    search = serializers.CharField(
+        max_length=MAX_SEARCH_LENGTH,
+        help_text="Search text. Supports the same field filters as the list search (type:, user:, path:, name:, negation with - or !). Free words are ranked by relevance.",
+    )
+    limit = serializers.IntegerField(
+        required=False,
+        default=50,
+        min_value=1,
+        max_value=100,
+        help_text="Maximum number of results to return, best first.",
+    )
+    per_type = serializers.IntegerField(
+        required=False,
+        default=0,
+        min_value=0,
+        max_value=10,
+        help_text="Also include the best matches of every type, up to this many per type, so each type can show a preview.",
+    )
+
+
+class FileSystemRankedSearchItemSerializer(serializers.Serializer):
+    entry = FileSystemSerializer(help_text="The matching file system entry.")
+    rank = serializers.ListField(
+        child=serializers.IntegerField(),
+        help_text="Sort key of the match. Lower sorts first. Compare element by element with other results.",
+    )
+
+
+class FileSystemRankedSearchTypeCountSerializer(serializers.Serializer):
+    type = serializers.CharField(help_text="File system type, for example insight or dashboard.")
+    count = serializers.IntegerField(help_text="Number of matches of this type.")
+
+
+class FileSystemRankedSearchResponseSerializer(serializers.Serializer):
+    results = FileSystemRankedSearchItemSerializer(many=True, help_text="Matches, best first.")
+    matched_all_words = serializers.BooleanField(
+        help_text="True when every result contains every search word. False when no entry matched every word and the results match only some words."
+    )
+    matched_words = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Search words that the best result matched. Use it to tell the user which words were dropped when matched_all_words is false.",
+    )
+    type_counts = FileSystemRankedSearchTypeCountSerializer(
+        many=True, help_text="Number of matches for each type, largest first."
+    )
+    matched_with_typos = serializers.BooleanField(
+        help_text="True when no entry matched the words as typed, so every result is a close spelling."
+    )
+    counts_capped = serializers.BooleanField(
+        help_text="True when the search stopped at its candidate limit, so type_counts are lower bounds."
+    )
+
+
 class UndoDeleteItemSerializer(serializers.Serializer):
     type = serializers.CharField()
     ref = serializers.CharField()
@@ -288,6 +366,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object_read_actions = [
         "list",
         "retrieve",
+        "search",
         "unfiled",
         "count",
         "count_by_path",
@@ -566,12 +645,21 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         queryset = self._filter_by_access_control(queryset)
 
+        if type_param or type__startswith_param:
+            views = FileSystemViewLog.objects.filter(
+                team_id=OuterRef("team_id"),
+                user_id=cast(User, self.request.user).id,
+                type=OuterRef("type"),
+                ref=OuterRef("ref"),
+            )
+            queryset = queryset.annotate(last_viewed_at=Subquery(views.values("viewed_at")[:1]))
+
         if ref_param:
             queryset = queryset.filter(ref=ref_param)
             queryset = queryset.order_by("shortcut")  # override order
         elif order_by_param:
             if order_by_param in ["path", "-path", "created_at", "-created_at"]:
-                queryset = queryset.order_by(order_by_param)
+                queryset = queryset.order_by(order_by_param, "id")
             else:
                 # `last_viewed_at` ordering (Recents, with or without a search term) is served
                 # view-log-first in `_list_recents`, so it never reaches this queryset path.
@@ -718,6 +806,60 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 metadata["content_type"] = content_types.get((str(item["type"]), team_id, ref), "application/json")
             item["meta"] = metadata
 
+    def _list_typed_by_views(self, request: Request, *, descending: bool) -> Response:
+        queryset = self.filter_queryset(self.get_queryset()).order_by()
+        paginator = cast(FileSystemsLimitOffsetPagination, self.paginator)
+        paginator.request = request
+        paginator.limit = paginator.get_limit(request)
+        paginator.offset = paginator.get_offset(request)
+        paginator.count = queryset.count()
+        if paginator.offset >= paginator.count:
+            response = paginator.get_paginated_response([])
+            response.data["users"] = []
+            return response
+        limit = paginator.limit or paginator.default_limit
+
+        views = FileSystemViewLog.objects.filter(
+            team_id__in=Team.objects.filter(project_id=self.team.project_id).values("id"),
+            user_id=cast(User, request.user).id,
+        )
+        files_sql, files_params = queryset.values("id", "team_id", "type", "ref", "created_at").query.sql_with_params()
+        views_sql, views_params = views.order_by().values("team_id", "type", "ref", "viewed_at").query.sql_with_params()
+        direction = "DESC" if descending else "ASC"
+        # ORM-compiled SQL retains access filters; OFFSET 0 keeps the lateral join view-log-first.
+        page_sql = f"""
+            SELECT files.id
+            FROM ({views_sql}) AS views
+            CROSS JOIN LATERAL (
+                SELECT eligible.id, eligible.created_at
+                FROM ({files_sql}) AS eligible
+                WHERE eligible.team_id = views.team_id AND eligible.type = views.type AND eligible.ref = views.ref
+                ORDER BY eligible.created_at DESC, eligible.id
+                OFFSET 0
+            ) AS files
+            ORDER BY views.viewed_at {direction}, files.created_at DESC, files.id
+            LIMIT %s OFFSET %s
+        """
+        with connection.cursor() as cursor:
+            cursor.execute(page_sql, [*views_params, *files_params, limit, paginator.offset])
+            page_ids = [row[0] for row in cursor.fetchall()]
+        if len(page_ids) < limit:
+            own_view = views.filter(team_id=OuterRef("team_id"), type=OuterRef("type"), ref=OuterRef("ref"))
+            unseen_offset = 0
+            if not page_ids and paginator.offset:
+                viewed_count = queryset.filter(Exists(own_view)).count()
+                unseen_offset = max(0, paginator.offset - viewed_count)
+            page_ids.extend(
+                queryset.filter(~Exists(own_view))
+                .order_by("-created_at", "id")
+                .values_list("id", flat=True)[unseen_offset : unseen_offset + limit - len(page_ids)]
+            )
+        rows = {row.id: row for row in queryset.filter(id__in=page_ids)}
+        results = self.get_serializer([rows[row_id] for row_id in page_ids if row_id in rows], many=True).data
+        response = paginator.get_paginated_response(results)
+        response.data["users"] = self._created_by_users(results)
+        return response
+
     @extend_schema(parameters=[FileSystemListQuerySerializer])
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         query_serializer = FileSystemListQuerySerializer(data=request.query_params)
@@ -725,8 +867,12 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         order_by_param = request.query_params.get("order_by")
         # Recents (the high-volume, timeout-prone path) is served view-log-first, with or without a
         # search term — one query function, no join, no COUNT(*).
+        typed_list = request.query_params.get("type") or request.query_params.get("type__startswith")
         if order_by_param in ("-last_viewed_at", "last_viewed_at") and request.user.is_authenticated:
-            response = self._list_recents(request, descending=order_by_param == "-last_viewed_at")
+            if typed_list:
+                response = self._list_typed_by_views(request, descending=order_by_param == "-last_viewed_at")
+            else:
+                response = self._list_recents(request, descending=order_by_param == "-last_viewed_at")
         else:
             response = super().list(request, *args, **kwargs)
             response.data["users"] = self._created_by_users(response.data.get("results", []))
@@ -1203,6 +1349,71 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return Response(
             FileSystemSerializer(instance).data,
             status=status.HTTP_200_OK,
+        )
+
+    @validated_request(
+        query_serializer=FileSystemRankedSearchQuerySerializer,
+        responses={200: OpenApiResponse(response=FileSystemRankedSearchResponseSerializer)},
+        summary="Search files by relevance",
+        description="Ranks entries by words matched, typos, word proximity, name before folder, exact words, word position, exactness, the user's recent views, and recency.",
+    )
+    @action(methods=["GET"], detail=False, pagination_class=None)
+    def search(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        params = request.validated_query_data
+        filter_tokens: list[str] = []
+        free_tokens: list[str] = []
+        for token in tokenize_search(params["search"]):
+            bare = token.lstrip("-!")
+            field, has_colon, _ = bare.partition(":")
+            is_filter = bare != token or (has_colon and field.lower() in SEARCH_FILTER_FIELDS)
+            (filter_tokens if is_filter else free_tokens).append(token)
+        project_team_ids = list(Team.objects.filter(project_id=self.team.project_id).values_list("id", flat=True))
+        queryset = self._scope_by_project_and_environment(FileSystem.objects.select_related("created_by"))
+        queryset = queryset.filter(team_id__in=project_team_ids).exclude(
+            type__in=[*RETIRED_FILE_SYSTEM_TYPES, "folder"]
+        )
+        if filter_tokens:
+            queryset = self._apply_search_to_queryset(queryset, " ".join(shlex.quote(t) for t in filter_tokens))
+        queryset = self._filter_by_access_control(queryset)
+        ranker = FileSystemRankedSearch(
+            " ".join(free_tokens),
+            user_id=cast(User, request.user).id,
+            team_id=self.team.id,
+            today=timezone.now().date(),
+        )
+        with search_session(queryset.db):
+            if ranker.tokens:
+                result = ranker.search(queryset)
+                entries = result.top(params["limit"], per_type=params["per_type"])
+                matched_all_words = result.matched_all_words
+                matched_words = list(entries[0].matched_tokens) if entries else []
+                type_counts = sorted(result.type_counts.items(), key=lambda item: -item[1])
+                counts_capped = result.counts_capped
+                matched_with_typos = result.matched_with_typos
+                full_entries = queryset.in_bulk([ranked_entry.entry.id for ranked_entry in entries])
+                items = []
+                for ranked_entry in entries:
+                    entry = full_entries.get(ranked_entry.entry.id)
+                    if entry is None:
+                        continue
+                    entry.last_viewed_at = ranker.last_viewed.get(FileRef(type=entry.type, ref=entry.ref or ""))
+                    items.append((entry, list(ranked_entry.rank)))
+            else:
+                items = [(entry, []) for entry in queryset.order_by("-created_at")[: params["limit"]]]
+                matched_all_words, matched_words = True, []
+                type_counts = []
+                counts_capped = False
+                matched_with_typos = False
+        serialized = self.get_serializer([entry for entry, _ in items], many=True).data
+        return Response(
+            {
+                "results": [{"entry": data, "rank": rank} for data, (_, rank) in zip(serialized, items)],
+                "matched_all_words": matched_all_words,
+                "matched_words": matched_words,
+                "type_counts": [{"type": t, "count": c} for t, c in type_counts],
+                "counts_capped": counts_capped,
+                "matched_with_typos": matched_with_typos,
+            }
         )
 
     @action(methods=["POST"], detail=True)

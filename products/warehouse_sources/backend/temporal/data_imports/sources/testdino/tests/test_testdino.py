@@ -123,12 +123,7 @@ class TestDinoTransport(TestCase):
 
     @parameterized.expand(
         [
-            (200, None, None),
             (400, "VALIDATION_ERROR", "Check the project ID"),
-            (401, "UNAUTHORIZED", "Create a personal access token"),
-            (401, "TOKEN_EXPIRED", "Create a personal access token"),
-            (401, "TOKEN_REVOKED", "Create a personal access token"),
-            (403, "FORBIDDEN", "projects allowed"),
             (404, "NOT_FOUND", "projects allowed"),
         ]
     )

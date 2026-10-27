@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from typing import TYPE_CHECKING, cast
 
 from posthog.schema_enums import InCohortVia, PropertyGroupsMode
@@ -97,6 +98,7 @@ def prepare_and_print_ast(
     stack: list[ast.SelectQuery] | None = None,
     settings: HogQLGlobalSettings | None = None,
     pretty: bool = False,
+    prepared_ast_transform: Callable[[_T_AST], _T_AST] | None = None,
 ) -> tuple[str, _T_AST | None]:
     previous_type_observability = context.type_observability
     context.type_observability = create_hogql_type_observability(
@@ -116,6 +118,8 @@ def prepare_and_print_ast(
             if context.type_observability is not None:
                 context.type_observability.result = "empty"
             return "", None
+        if prepared_ast_transform is not None:
+            prepared_ast = prepared_ast_transform(prepared_ast)
 
         if dialect == "trino":
             from posthog.hogql.transforms.trino.transpiler import (  # noqa: PLC0415 -- load the optional backend only for Trino compilation

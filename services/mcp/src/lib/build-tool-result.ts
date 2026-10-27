@@ -257,7 +257,7 @@ export function buildToolResultPayload(opts: BuildToolResultOptions): ToolResult
         structuredContentOnly,
         footers,
         discoveryHint: discoveryHint?.kind,
-        resultEmpty: isEmptyToolResult(handlerResult),
+        resultEmpty: isEmptyToolResult(handlerResult, toolName),
     })
     if (hasUiResource && !suppressStructuredContent) {
         payload.structuredContent = structuredContent as Record<string, unknown>

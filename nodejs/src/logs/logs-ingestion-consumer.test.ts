@@ -28,6 +28,7 @@ import { Hub, Team } from '~/types'
 import { getDefaultTracesIngestionConsumerConfig } from './config'
 import * as otelMetrics from './ingestion-otel-metrics'
 import { resetLogsIngestionInstrumentsForTests } from './ingestion-otel-metrics'
+import { INTERNAL_LOGS_HEADER, INTERNAL_SOURCE_HEADER, signInternalLogs } from './internal-logs'
 import { logsPatternBodyKindCounter } from './log-pattern-stage'
 import { LogRecord, decodeLogRecords, encodeLogRecords, logsJsonAttributeSniffCounter } from './log-record-avro'
 import {
@@ -38,6 +39,7 @@ import {
     logMessageDlqCounter,
     logMessageDroppedCounter,
     logsBillingBytesCreditedCounter,
+    logsBillingRecordsCreditedCounter,
     logsBytesAllowedCounter,
     logsBytesDroppedCounter,
     logsBytesReceivedCounter,
@@ -75,6 +77,23 @@ jest.mock('~/common/utils/posthog', () => {
 
 let offsetIncrementer = 0
 
+const LOG_RECORD_BASE_FIELDS = [
+    { name: 'uuid', type: ['null', 'string'] },
+    { name: 'trace_id', type: ['null', 'bytes'] },
+    { name: 'span_id', type: ['null', 'bytes'] },
+    { name: 'trace_flags', type: ['null', 'int'] },
+    { name: 'timestamp', type: ['null', 'long'] },
+    { name: 'observed_timestamp', type: ['null', 'long'] },
+    { name: 'body', type: ['null', 'string'] },
+    { name: 'severity_text', type: ['null', 'string'] },
+    { name: 'severity_number', type: ['null', 'int'] },
+    { name: 'service_name', type: ['null', 'string'] },
+    { name: 'resource_attributes', type: ['null', { type: 'map', values: 'string' }] },
+    { name: 'instrumentation_scope', type: ['null', 'string'] },
+    { name: 'event_name', type: ['null', 'string'] },
+    { name: 'attributes', type: ['null', { type: 'map', values: 'string' }] },
+]
+
 const createKafkaMessage = async (
     logData: any,
     headers: Record<string, string> = {},
@@ -104,20 +123,7 @@ const createKafkaMessage = async (
         type: 'record',
         name: 'LogRecord',
         fields: [
-            { name: 'uuid', type: ['null', 'string'] },
-            { name: 'trace_id', type: ['null', 'bytes'] },
-            { name: 'span_id', type: ['null', 'bytes'] },
-            { name: 'trace_flags', type: ['null', 'int'] },
-            { name: 'timestamp', type: ['null', 'long'] },
-            { name: 'observed_timestamp', type: ['null', 'long'] },
-            { name: 'body', type: ['null', 'string'] },
-            { name: 'severity_text', type: ['null', 'string'] },
-            { name: 'severity_number', type: ['null', 'int'] },
-            { name: 'service_name', type: ['null', 'string'] },
-            { name: 'resource_attributes', type: ['null', { type: 'map', values: 'string' }] },
-            { name: 'instrumentation_scope', type: ['null', 'string'] },
-            { name: 'event_name', type: ['null', 'string'] },
-            { name: 'attributes', type: ['null', { type: 'map', values: 'string' }] },
+            ...LOG_RECORD_BASE_FIELDS,
             { name: 'pattern', type: ['null', 'string'], default: null },
             { name: 'pattern_version', type: ['null', 'int'], default: null },
         ],
@@ -153,25 +159,11 @@ const createMultiRecordKafkaMessage = async (
     const logRecordType = avro.Type.forSchema({
         type: 'record',
         name: 'LogRecord',
-        fields: [
-            { name: 'uuid', type: ['null', 'string'] },
-            { name: 'trace_id', type: ['null', 'bytes'] },
-            { name: 'span_id', type: ['null', 'bytes'] },
-            { name: 'trace_flags', type: ['null', 'int'] },
-            { name: 'timestamp', type: ['null', 'long'] },
-            { name: 'observed_timestamp', type: ['null', 'long'] },
-            { name: 'body', type: ['null', 'string'] },
-            { name: 'severity_text', type: ['null', 'string'] },
-            { name: 'severity_number', type: ['null', 'int'] },
-            { name: 'service_name', type: ['null', 'string'] },
-            { name: 'resource_attributes', type: ['null', { type: 'map', values: 'string' }] },
-            { name: 'instrumentation_scope', type: ['null', 'string'] },
-            { name: 'event_name', type: ['null', 'string'] },
-            { name: 'attributes', type: ['null', { type: 'map', values: 'string' }] },
-        ],
+        fields: [...LOG_RECORD_BASE_FIELDS, { name: 'retention_days', type: ['null', 'int'], default: null }],
     })
 
     const records: LogRecord[] = logDataList.map((logData, i) => ({
+        retention_days: logData.retentionDays ?? null,
         uuid: `test-uuid-${offsetIncrementer}-${i}`,
         trace_id: null,
         span_id: null,
@@ -224,6 +216,7 @@ describe('LogsIngestionConsumer', () => {
                 | 'metricsEmitter'
                 | 'logsTransformer'
                 | 'patternMessageKeysCache'
+                | 'internalSourcePolicies'
             >
         > = {}
     ) => {
@@ -512,6 +505,16 @@ describe('LogsIngestionConsumer', () => {
                 source_topic: messages[0].topic,
                 source_partition: messages[0].partition.toString(),
             })
+        })
+
+        it('marks a team that receives its first logs as having ingested data', async () => {
+            const newTeamId = await createTeam(hub.postgres, team.organization_id, undefined, { ingested_event: false })
+            const newTeam = await getTeam(hub.postgres, newTeamId)
+            const messages = await createKafkaMessages([createLogMessage()], { token: newTeam!.api_token })
+
+            await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
+
+            expect((await getTeam(hub.postgres, newTeamId))?.ingested_event).toBe(true)
         })
 
         it('should produce messages with correct headers', async () => {
@@ -1035,6 +1038,178 @@ describe('LogsIngestionConsumer', () => {
                     1
                 )
             }
+        })
+    })
+
+    describe('internal logs', () => {
+        const SIGNING_KEY = 'internal-logs-test-key'
+
+        it.each([
+            {
+                name: "stores a signed batch outside quota, billing and the team's drop rules",
+                signed: true,
+                billed: false,
+            },
+            { name: 'bills a batch whose signature does not verify', signed: false, billed: true },
+            {
+                name: "bills a signed batch from a billed source but skips the team's drop rules",
+                signed: true,
+                billed: true,
+            },
+        ])('$name', async ({ signed, billed }) => {
+            await consumer.stop()
+            const dropEverything: Pick<SamplingRulesCache, 'getCompiledRuleSet'> = {
+                getCompiledRuleSet: () =>
+                    Promise.resolve(
+                        compileRuleSet([
+                            {
+                                id: '00000000-0000-0000-0000-0000000000aa',
+                                rule_type: 'severity_sampling',
+                                scope_service: 'test-service',
+                                scope_path_pattern: null,
+                                scope_attribute_filters: [],
+                                config: { actions: { INFO: { type: 'drop' } } },
+                            },
+                        ])
+                    ),
+            }
+            consumer = await createLogsIngestionConsumer(
+                hub,
+                {
+                    LOGS_INTERNAL_INGESTION_ENABLED_TEAMS: String(team.id),
+                    LOGS_INTERNAL_INGESTION_SIGNING_KEYS: SIGNING_KEY,
+                },
+                {
+                    samplingRulesCache: dropEverything as SamplingRulesCache,
+                    internalSourcePolicies: { hog_flow: { billed, teamRules: false } },
+                }
+            )
+            // A quota limit drops every billed batch, so it applies only to the rows that test the internal bypass.
+            jest.mocked(hub.quotaLimiting.isTeamTokenQuotaLimited).mockResolvedValue(!(signed && billed))
+
+            const [message] = await createKafkaMessages([createLogMessage()], {
+                token: team.api_token,
+                bytes_uncompressed: '100',
+                record_count: '1',
+            })
+            const signature = signed
+                ? signInternalLogs(SIGNING_KEY, 'hog_flow', team.id, message.value!)
+                : 'v1.hog_flow.not-a-signature'
+            message.headers!.push({ [INTERNAL_LOGS_HEADER]: Buffer.from(signature) })
+            const recordLogsReceivedSpy = jest.spyOn(otelMetrics, 'recordLogsReceived')
+            const recordInternalLogsSpy = jest.spyOn(otelMetrics, 'recordInternalLogs')
+
+            await waitForBackgroundTasks(consumer.processKafkaBatch([message]))
+
+            const metricNames = mockProducerObserver
+                .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                .filter((m) => m.value.team_id === team.id)
+                .map((m) => m.value.metric_name)
+            const produced = getProducedKafkaMessages().filter((m) => m.topic === KAFKA_LOGS_CLICKHOUSE)
+            expect({
+                produced: produced.length,
+                forwardsSignature: produced.some((m) => INTERNAL_LOGS_HEADER in (m.headers ?? {})),
+                internalSource: produced[0]?.headers?.[INTERNAL_SOURCE_HEADER],
+                received: recordLogsReceivedSpy.mock.calls,
+                internal: recordInternalLogsSpy.mock.calls,
+                internalMetrics: ['bytes_ingested_internal', 'records_ingested_internal'].every((n) =>
+                    metricNames.includes(n)
+                ),
+                billedMetrics: ['bytes_ingested', 'records_ingested', 'bytes_received'].some((n) =>
+                    metricNames.includes(n)
+                ),
+            }).toEqual({
+                produced: signed ? 1 : 0,
+                forwardsSignature: false,
+                internalSource: signed ? 'hog_flow' : undefined,
+                received: [billed ? [100, 1] : [0, 0]],
+                internal: billed ? [] : [[team.id, 100, 1]],
+                internalMetrics: !billed,
+                billedMetrics: billed,
+            })
+        })
+
+        it('drops a row past its stamped retention without crediting billing', async () => {
+            await consumer.stop()
+            consumer = await createLogsIngestionConsumer(hub, {
+                LOGS_INTERNAL_INGESTION_ENABLED_TEAMS: String(team.id),
+                LOGS_INTERNAL_INGESTION_SIGNING_KEYS: SIGNING_KEY,
+            })
+            const fiveDaysAgoMicros = DateTime.now().minus({ days: 5 }).toMillis() * 1000
+            const message = await createMultiRecordKafkaMessage(
+                [{ level: 'info', timestampMicros: fiveDaysAgoMicros, retentionDays: 1 }, { level: 'info' }],
+                {
+                    token: team.api_token,
+                    bytes_uncompressed: '200',
+                    record_count: '2',
+                    min_timestamp: fiveDaysAgoMicros.toString(),
+                }
+            )
+            message.headers!.push({
+                [INTERNAL_LOGS_HEADER]: Buffer.from(signInternalLogs(SIGNING_KEY, 'hog_flow', team.id, message.value!)),
+            })
+            const bytesCreditSpy = jest.spyOn(logsBillingBytesCreditedCounter, 'inc')
+            const recordsCreditSpy = jest.spyOn(logsBillingRecordsCreditedCounter, 'inc')
+
+            await waitForBackgroundTasks(consumer.processKafkaBatch([message]))
+
+            const expiredMetric = mockProducerObserver
+                .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                .map((m) => m.value)
+                .find((v) => v.metric_name === 'records_dropped_retention_expired' && v.team_id === team.id)
+            expect({
+                expired: expiredMetric?.count,
+                produced: getProducedKafkaMessages().filter((m) => m.topic === KAFKA_LOGS_CLICKHOUSE).length,
+                credits: [...bytesCreditSpy.mock.calls, ...recordsCreditSpy.mock.calls],
+            }).toEqual({ expired: 1, produced: 1, credits: [] })
+        })
+
+        it.each([
+            { name: 'drops a signed backfill without writing to the team usage row', backfill: true },
+            { name: 'keeps the usage of a failed internal batch out of the next flush', backfill: false },
+        ])('$name', async ({ backfill }) => {
+            await consumer.stop()
+            consumer = await createLogsIngestionConsumer(hub, {
+                LOGS_BACKFILL_ENABLED_TEAMS: String(team2.id),
+                LOGS_INTERNAL_INGESTION_ENABLED_TEAMS: String(team.id),
+                LOGS_INTERNAL_INGESTION_SIGNING_KEYS: SIGNING_KEY,
+            })
+            const [internal] = await createKafkaMessages([createLogMessage()], {
+                token: team.api_token,
+                bytes_uncompressed: '100',
+                record_count: '1',
+                ...(backfill ? { backfill_days: '540' } : {}),
+            })
+            internal.headers!.push({
+                [INTERNAL_LOGS_HEADER]: Buffer.from(
+                    signInternalLogs(SIGNING_KEY, 'hog_flow', team.id, internal.value!)
+                ),
+            })
+            const originalQueueMessages = mockProducer.queueMessages
+            const passthrough = originalQueueMessages.bind(mockProducer)
+            mockProducer.queueMessages = jest.fn().mockImplementation((topicMessages) => {
+                if (topicMessages.topic === KAFKA_LOGS_CLICKHOUSE && !backfill) {
+                    throw new DependencyUnavailableError('broker down', 'Kafka', new Error('broker down'))
+                }
+                return passthrough(topicMessages)
+            })
+
+            try {
+                await consumer.processKafkaBatch([internal]).then((r) => r.backgroundTask?.catch(() => undefined))
+                mockProducer.queueMessages = originalQueueMessages
+                // A later batch of another team flushes the shared usage aggregator.
+                const [next] = await createKafkaMessages([createLogMessage()], { token: team2.api_token })
+                await waitForBackgroundTasks(consumer.processKafkaBatch([next]))
+            } finally {
+                mockProducer.queueMessages = originalQueueMessages
+            }
+
+            expect(
+                mockProducerObserver
+                    .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                    .filter((m) => m.value.team_id === team.id)
+                    .map((m) => m.value.metric_name)
+            ).toEqual([])
         })
     })
 
@@ -2346,6 +2521,41 @@ describe('LogsIngestionConsumer', () => {
             ])
         })
 
+        it('emits nothing when a later internal message fails the batch', async () => {
+            const key = 'internal-logs-test-key'
+            await createConsumerWithMetricRules({
+                LOGS_INTERNAL_INGESTION_ENABLED_TEAMS: String(team.id),
+                LOGS_INTERNAL_INGESTION_SIGNING_KEYS: key,
+            })
+            const [billed, internal] = await createKafkaMessages([createLogMessage(), createLogMessage()], {
+                token: team.api_token,
+            })
+            internal.headers!.push({
+                [INTERNAL_LOGS_HEADER]: Buffer.from(signInternalLogs(key, 'hog_flow', team.id, internal.value!)),
+            })
+
+            const originalQueueMessages = mockProducer.queueMessages
+            const passthrough = originalQueueMessages.bind(mockProducer)
+            mockProducer.queueMessages = jest.fn().mockImplementation((topicMessages) => {
+                const isInternal = topicMessages.messages?.some(
+                    (m: { headers?: Record<string, string> }) => m.headers?.[INTERNAL_SOURCE_HEADER]
+                )
+                if (topicMessages.topic === KAFKA_LOGS_CLICKHOUSE && isInternal) {
+                    throw new DependencyUnavailableError('broker down', 'Kafka', new Error('broker down'))
+                }
+                return passthrough(topicMessages)
+            })
+
+            try {
+                await expect(waitForBackgroundTasks(consumer.processKafkaBatch([billed, internal]))).rejects.toThrow(
+                    'broker down'
+                )
+                expect(mockEmitter.emit).not.toHaveBeenCalled()
+            } finally {
+                mockProducer.queueMessages = originalQueueMessages
+            }
+        })
+
         it('produces logs normally when the rules cache fetch throws (fail-open)', async () => {
             // Metric rules are a purely additive side feature: a Postgres blip on the
             // rules fetch must not DLQ or block the log records themselves.
@@ -2470,6 +2680,25 @@ describe('LogsIngestionConsumer', () => {
             return tracesConsumer
         }
 
+        it('bills a signed traces batch, because the internal flag covers logs only', async () => {
+            const key = 'internal-logs-test-key'
+            await consumer.stop()
+            consumer = createTracesIngestionConsumer({
+                LOGS_INTERNAL_INGESTION_SIGNING_KEYS: key,
+                LOGS_INTERNAL_INGESTION_ENABLED_TEAMS: String(team.id),
+            })
+            await consumer.start()
+            jest.mocked(hub.quotaLimiting.isTeamTokenQuotaLimited).mockResolvedValue(true)
+            const message = await createKafkaMessage(createLogMessage(), { token: team.api_token })
+            message.headers!.push({
+                [INTERNAL_LOGS_HEADER]: Buffer.from(signInternalLogs(key, 'hog_flow', team.id, message.value!)),
+            })
+
+            await waitForBackgroundTasks(consumer.processKafkaBatch([message]))
+
+            expect(getProducedKafkaMessages().filter((m) => m.topic === KAFKA_LOGS_CLICKHOUSE)).toHaveLength(0)
+        })
+
         it('leaves pattern masking off even on a wildcard allowlist, because a trace record has no body', () => {
             const tracesConsumer = createTracesIngestionConsumer({ LOGS_PATTERN_MASKING_ENABLED_TEAMS: '*' })
 
@@ -2512,8 +2741,12 @@ describe('LogsIngestionConsumer', () => {
             expect(value?.app_source).toBe('traces')
         })
 
-        it('quota-limits against traces_mb_ingested, not logs_mb_ingested', async () => {
-            jest.mocked(hub.quotaLimiting.isTeamTokenQuotaLimited).mockResolvedValue(false)
+        it('drops traces when the shared logs and traces bucket is limited', async () => {
+            // One product, one free tier, one price: a team over the shared limit on logs volume
+            // alone has to stop ingesting traces too.
+            jest.mocked(hub.quotaLimiting.isTeamTokenQuotaLimited).mockImplementation((_token, resource) =>
+                Promise.resolve(resource === 'logs_mb_ingested')
+            )
             const tracesConsumer = createTracesIngestionConsumer()
 
             const messages = await createKafkaMessages([createLogMessage()], {
@@ -2522,9 +2755,11 @@ describe('LogsIngestionConsumer', () => {
                 record_count: '5',
             })
             const parsed = await tracesConsumer['_parseKafkaBatch'](messages)
-            await tracesConsumer['filterQuotaLimitedMessages'](parsed)
+            const { quotaAllowedMessages, quotaDroppedMessages } =
+                await tracesConsumer['filterQuotaLimitedMessages'](parsed)
 
-            expect(hub.quotaLimiting.isTeamTokenQuotaLimited).toHaveBeenCalledWith(team.api_token, 'traces_mb_ingested')
+            expect(quotaAllowedMessages).toHaveLength(0)
+            expect(quotaDroppedMessages).toHaveLength(1)
         })
 
         it('rate-limits against its own Redis key namespace, not the logs one', () => {

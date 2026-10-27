@@ -90,6 +90,7 @@ describe('transformExperimentResults', () => {
 
     it('reads variants from the linked flag', () => {
         const experiment = makeExperiment({
+            parameters: { variant_screenshot_media_ids: { control: 'legacy-media' } },
             feature_flag: {
                 id: 9,
                 key: 'k',

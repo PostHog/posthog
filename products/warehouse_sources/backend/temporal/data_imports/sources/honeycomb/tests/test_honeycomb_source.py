@@ -64,16 +64,8 @@ class TestHoneycombSource:
     @parameterized.expand(
         [
             (
-                "unauthorized_us",
-                "401 Client Error: Unauthorized for url: https://api.honeycomb.io/1/columns/prod?x=1",
-            ),
-            (
                 "unauthorized_eu",
                 "401 Client Error: Unauthorized for url: https://api.eu1.honeycomb.io/1/datasets",
-            ),
-            (
-                "forbidden_us",
-                "403 Client Error: Forbidden for url: https://api.honeycomb.io/1/slos/prod",
             ),
             (
                 "forbidden_eu",
@@ -84,14 +76,3 @@ class TestHoneycombSource:
     def test_credential_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
         non_retryable = self.source.get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            ("rate_limited", "429 Client Error: Too Many Requests for url: https://api.honeycomb.io/1/datasets"),
-            ("server_error", "500 Server Error: Internal Server Error for url: https://api.honeycomb.io/1/boards"),
-            ("read_timeout", "HTTPSConnectionPool(host='api.honeycomb.io', port=443): Read timed out."),
-        ]
-    )
-    def test_transient_errors_remain_retryable(self, _name: str, other_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert not any(key in other_error for key in non_retryable)

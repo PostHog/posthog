@@ -66,6 +66,32 @@ class QuotaLimited(TransactionalEmailError):
     code = "quota_limited"
 
 
+class InvalidIdempotencyKey(TransactionalEmailError):
+    code = "invalid_idempotency_key"
+
+
+class IdempotencyKeyInFlight(TransactionalEmailError):
+    """The first request with this key is still being queued. Safe to retry shortly."""
+
+    code = "idempotency_key_in_flight"
+
+
+class IdempotencyKeyReused(TransactionalEmailError):
+    code = "idempotency_key_reused"
+
+
+class SendingSuspended(TransactionalEmailError):
+    code = "sending_suspended"
+
+
+class SendingPaused(TransactionalEmailError):
+    code = "sending_paused"
+
+
+class RecipientSuppressed(TransactionalEmailError):
+    code = "recipient_suppressed"
+
+
 class DeliveryUnavailable(Exception):
     """The email pipeline did not accept the send. Safe to retry."""
 
@@ -73,3 +99,5 @@ class DeliveryUnavailable(Exception):
 @frozen
 class QueuedEmail:
     message_id: str
+    # True when an earlier request with the same idempotency key already queued this email.
+    replayed: bool = False

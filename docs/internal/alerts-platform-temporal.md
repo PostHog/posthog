@@ -39,7 +39,7 @@ The schedule starts `alerts-platform-orchestrate` with `{}` on the orchestration
 There is no routing flag: the flow is tick → orchestration → evaluation → delivery.
 It uses SKIP overlap, a one-minute catchup window, a 50-second workflow execution timeout,
 and one workflow attempt. Creation does not trigger an immediate run; the next minute starts it.
-Delivery has no schedule: evaluation starts its delivery child.
+Delivery has no schedule of its own: evaluation starts its delivery child, and the [held-delivery sweep](#held-deliveries) starts the ones it releases.
 New schedules start unpaused. Registration updates existing schedules to this policy while retaining their state from Temporal, including manual pauses.
 To stop future ticks, pause the schedule in Temporal; resume it there when ready. Pausing does not stop workflows already running.
 Reverting the code that registers a schedule does not remove one already registered.
@@ -155,6 +155,9 @@ Registration never deletes a schedule, so the rollout above deletes the old ID b
 One tick is one `alerts-platform-orchestrate` execution. It takes an `OrchestrateInputs`; the schedule passes `{}` and every field defaults.
 The first run records the tick cutoff (the scheduled start time, or the workflow start time for manual runs) and a deadline 45 seconds after the run started.
 Discovery runs once per tick. The loop then starts one `alerts-platform-source-dispatch` child per source with demand, ID `{tick_id}-{source}-p{page}`, on the orchestration queue.
+The tick does not record inventory. A separate schedule, `alerts-platform-record-inventory-schedule`, starts the `alerts-platform-record-inventory` workflow every 5 minutes on the orchestration queue at the lowest Temporal priority.
+It counts configurations and alerts for every source in two queries, each with a 500 ms statement timeout, and pushes the `alerts_platform_configurations` and `alerts_platform_alerts` gauges to the PushGateway under the `alerts_platform_inventory` job.
+The push replaces the job's group, so the region holds one series per label set. A failed count is logged and the next run tries again.
 Dispatchers are part of the tick: the orchestrator awaits each dispatcher's report and keeps the default `TERMINATE` close policy on that edge.
 They run on the tick's own fleet because the tick awaits them. On the evaluation queue, an evaluation fleet with no free slots
 leaves the dispatcher unpicked, and the tick waits on a report that cannot arrive. A dispatcher starts no activities,
@@ -296,6 +299,9 @@ so the machine reads what it read when both shared one field.
 
 A configuration's `snooze_until` mutes every instance, and an instance's own `snooze_until` mutes one group.
 The check input and the read API show each instance the later of the two.
+`POST /api/projects/:id/platform_alerts/:id/snooze_group/` sets or clears an instance's snooze on a grouped alert the platform owns.
+Unlike a snooze of the whole alert, it leaves the group's firing open and the schedule alone, so the group's incident edges still go out.
+`record_outcomes` reads each instance's mute again when it writes a verdict, so a check that was already running when a snooze landed records its fire or resolve as muted instead of announcing it.
 
 A configuration's `grouping` holds `max_instances` (100 by default), the most instance rows it keeps.
 A source calls `check.admit(keys)` with its groups in priority order: a group that already has an instance is always admitted, so it can resolve, and new groups fill the remaining room front first.
@@ -508,7 +514,12 @@ Insight alerts are copied the same way:
 python manage.py backfill_platform_insight_alert_configurations
 ```
 
-It copies threshold alerts on a 15-minute or slower cadence only, and skips detector alerts and the real-time cadence.
+It copies every insight alert, on every cadence.
+A real-time check gets production's real-time budget: a 7-minute evaluation with one retry inside it.
+An AI detector check runs on the AI queue, whose worker holds the model credentials, with production's retries: a check whose model call reaches no verdict is retried, and only its last attempt records the error.
+Every other check gets one 12-minute attempt.
+An AI detector check calls the model on both stacks while both run, and each call is billed to the project, so copy AI detector alerts only for internal projects until the insight cutover.
+The AI queue's worker needs `CLICKHOUSE_ALERTS_PLATFORM_INSIGHT_USER` and its token file too, or those checks query as the worker's own ClickHouse user.
 Run it only after the evaluation worker's chart sets `CLICKHOUSE_ALERTS_PLATFORM_INSIGHT_USER` and its token file.
 Insight checks tag their queries with `ClickHouseUser.ALERTS_PLATFORM_INSIGHT`, a user of their own, so the parallel run never takes from the per-user budget of the user that production insight alerts query as.
 Without that env the tag resolves to the worker's default user, which other workloads on the same servers already push against its concurrent query limit.
@@ -529,6 +540,29 @@ Pass `--ids-file` to either backfill, with one alert id per line, to copy only t
 It switches the copies off and keeps their rows, state and history. Checks already running finish.
 Running the backfill again turns them back on at the production alert's next due time.
 An hourly alert on the platform checks on a UTC grid, while production checks it at the alert's creation minute, so the two stacks check an hourly alert at different minutes.
+
+## Held deliveries
+
+A source can hold an evaluation's delivery instead of starting it, for example while an agent investigates a firing.
+It puts the request on `PlatformAlertOutcome.held_delivery` with a reason and a deadline, and leaves it out of the deliveries it starts.
+`record_outcomes` writes the hold to `PlatformAlertDeliveryHold` in the same transaction as the outcome.
+
+`release_hold` in the facade stamps a hold once, under a row lock.
+It returns the request only for a release with `send`, and only to the releaser that won.
+That releaser starts the delivery with `start_deliveries`, so the delivery keeps its usual id, then calls `record_hold_delivery_started`.
+A retry from the same releaser gets the request back. Another releaser gets nothing.
+`reschedule_hold` moves an unreleased hold's deadline.
+`deliver_evaluation` also refuses an evaluation whose hold is unreleased or released with `suppress`.
+
+`alerts-platform-release-expired-holds-schedule` starts `alerts-platform-release-expired-holds` every minute on the delivery queue, with SKIP overlap and a 5-minute execution timeout.
+The workflow finds up to 200 holds past their deadline, releases each with `send` as the safety net, and starts their deliveries.
+It re-reads each hold's deadline and configuration under the row lock, so a hold rescheduled after the find stays held. It skips a hold another transaction has locked, and a later run finds it again.
+It also starts any released send whose delivery nobody recorded as started 5 minutes after the release, so a releaser that failed between the release and the start still delivers. It starts those with `ALLOW_DUPLICATE_FAILED_ONLY`, so a delivery that completed and lost only its start mark does not run again.
+`alerts_platform_holds_expired_total` counts only holds a run released at their deadline, not recovered starts or retries.
+It stops adding requests once they would outgrow one activity payload, and leaves the rest for the next run.
+It suppresses, rather than sends, the hold of a disabled configuration, so turning the alert back on never sends an old firing. It still sends a hold whose alert went back to its source, because the request records the owner at check time.
+The find step also deletes holds older than 90 days, which is how long the history rows they annotate live.
+A rise in `alerts_platform_holds_expired_total` means a source holds deliveries and does not release them.
 
 ## Postgres connectivity probe
 

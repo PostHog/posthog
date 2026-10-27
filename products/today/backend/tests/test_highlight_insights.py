@@ -400,3 +400,31 @@ class TestRoutineInsights(BaseTest):
             pulse = routine.find(Context(self.team, self.user, TODAY)).pulse
 
         self.assertEqual([m.key for m in pulse], expected)
+
+    @time_machine.travel("2026-10-13T12:00:00Z", tick=False)
+    def test_suggestions_skip_pinned_insights_and_leave_their_places_free(self) -> None:
+        for ref in ("pinned", "first", "second", "third"):
+            FileSystemViewLog.objects.create(
+                team=self.team,
+                user=self.user,
+                type="insight",
+                ref=ref,
+                view_days=[TODAY - timedelta(days=1)],
+                viewed_at=datetime.combine(TODAY - timedelta(days=1), time(12), tzinfo=UTC),
+            )
+        points = [(TODAY - timedelta(days=d), 2.0 if d <= 7 else 1.0) for d in range(14, 0, -1)]
+        queried: list[str] = []
+
+        def series(**kwargs: Any) -> InsightSeries:
+            queried.append(kwargs["short_id"])
+            return insight({"opened": points}, short_id=kwargs["short_id"], name=kwargs["short_id"])
+
+        with (
+            patch.object(routine, "pulse_ranking", return_value="frecency"),
+            patch.object(routine, "get_insight_series", side_effect=series),
+        ):
+            pulse = routine.find(
+                Context(self.team, self.user, TODAY, pinned=frozenset({"insight:pinned", "signup_event"}))
+            ).pulse
+
+        self.assertEqual((len(pulse), "pinned" in queried), (2, False))

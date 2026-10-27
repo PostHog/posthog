@@ -125,14 +125,25 @@ A manual run has no block, so the body must still work without one.
 
 ## Diagnose a tick with no run row
 
-A skipped tick writes nothing. The coordinator still advances `last_run_at` (the dispatch stamp), so a fresh `last_run_at` with no matching run row can be a pre-check skip.
+A skipped tick creates no run row, sandbox, or model call, but stores its pre-check outcome on the config.
 Before you treat missing runs as a failure:
 
-1. Read `effective_precheck_query` and `precheck_query_source` in `scout-config-list`.
-   When the source is `off`, the pre-check does not explain the gap.
-2. Run `scout-config-precheck-test` without a query.
-   `would_run: false` means the next scheduled run skips, so the gap is expected.
-3. Remember that the dry run reads as you, and the scheduled check reads as the acting user.
+1. Read the config in `scout-config-list`:
+   - `last_precheck_at`: the time of the latest scheduled pre-check.
+   - `last_precheck_outcome`: `skip` (the query found nothing new), `run` (the query returned rows that allow a run), or `error` (the query failed, so the gate allows a run).
+   - `last_precheck_row_count`: how many rows it returned. Zero rows or one false value can both skip, so use the outcome to tell them from a run.
+2. Compare `last_precheck_at` with the scout's schedule and the tick you are investigating.
+   A recent recorded `skip` for that tick can explain the missing run row.
+   Stale or absent outcome data leaves the cause unknown. These fields hold only the latest evaluation, not a history of every tick.
+   A recorded `run` or `error` means the pre-check allowed execution; check `scout-runs-list` to confirm a run actually started and read its status.
+3. Read `effective_precheck_query` and `precheck_query_source` to understand the current gate (`config`, `skill_default`, or `off`).
+   An `off` source means the next scheduled run has no pre-check; the current source does not establish what happened on an earlier tick.
+4. Use `scout-config-precheck-test` without a query to test the current gate when needed.
+   Its `would_run` describes a check made now. It cannot establish why an earlier tick has no run row, and it does not update the recorded scheduled outcome.
+   The dry run reads as you, while the scheduled check reads as the scout's acting user.
+   Their access to `system.*` and warehouse tables can differ, so a successful dry run can still fail on schedule (see the access note in [Recipe: test, then save](#recipe-test-then-save)).
+
+The project profile's `scout_fleet` entries also carry `last_precheck_at` and `last_precheck_outcome`, with the current query source in `precheck_source`.
 
 A skip shows that the query found nothing new. It does not show that the scout is healthy.
 A gate that is too strict hides real activity, so check the query against the data the scout must see.

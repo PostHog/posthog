@@ -140,7 +140,7 @@ To get PostHog running in a dev environment:
    brew install flox
    ```
 
-   Use Flox 1.18.2 or newer. To upgrade an existing Homebrew installation, run `brew update && brew upgrade flox`. For other installation methods, follow the [Flox upgrade instructions](https://flox.dev/docs/install-flox/install). Check the installed version with `flox --version`.
+   Use Flox 1.19.1 or newer. To upgrade an existing Homebrew installation, run `brew update && brew upgrade flox`. For other installation methods, follow the [Flox upgrade instructions](https://flox.dev/docs/install-flox/install). Check the installed version with `flox --version`.
 
    The repository's minimum CLI version only warns about older installations. Pulling the repository or running `flox activate` does not upgrade Flox itself or its Nix daemon.
 
@@ -410,6 +410,16 @@ No other personal API key is ever shown in full: the dev key is the only one who
 The PostHog repository includes [VS Code launch options for debugging](https://github.com/PostHog/posthog/blob/master/.vscode/launch.json). Simply go to the `Run and Debug` tab in VS Code, select the desired service you want to debug, and run it. Once it starts up, you can set breakpoints and step through code to see exactly what is happening. There are also debug launch options for frontend and backend tests if you're dealing with a tricky test failure.
 
 > **Note:** You can debug all services using the main "PostHog" launch option. If you are running most services with `hogli start` and only want to debug one (e.g. the backend), use `hogli dev:setup` to exclude that service so it doesn't conflict with the VS Code debugger.
+
+## Extra: Opening a component's source from the browser
+
+You can hold `Option+Shift` (macOS) or `Alt+Shift` (Windows and Linux) and click an element in the app. Your editor then opens the file and line that renders it. [code-inspector-plugin](https://github.com/zh-lx/code-inspector) adds this feature. It runs only with the Vite dev server, so production builds do not include it.
+
+The feature is off by default. To turn it on, add `DEV_CODE_INSPECTOR=1` to your `.env.local` and restart `hogli start`. The Vite dev server and Django both read this value.
+
+The click sends a request to a local server on port 5678. This server has no authentication and accepts requests from all interfaces and all origins. While it runs, another page in your browser or another device on your network can make your editor open a file in the repo. Turn the feature off when you do not use it, and do not turn it on for a devbox.
+
+The plugin finds your editor from the running processes. If the wrong editor opens, set `CODE_EDITOR` in `.env.local`, for example `CODE_EDITOR=cursor`. If another process uses port 5678, the plugin moves to the next free port and the click does nothing.
 
 ## Extra: Debugging the backend in PyCharm
 

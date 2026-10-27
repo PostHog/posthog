@@ -277,11 +277,23 @@ class TestClarifaiCredentials:
             assert network.requests_log[0].param("per_page") == "1"
             assert network.requests_log[0].headers["authorization"] == "Key fake-clarifai-pat"
 
-    @pytest.mark.parametrize("http_status", [400, 429, 500])
-    def test_probe_does_not_disguise_other_errors(self, config: ClarifaiSourceConfig, http_status: int) -> None:
+    @pytest.mark.parametrize(
+        "http_status,expected",
+        [
+            (400, HTTPError),
+            (429, (False, "Couldn't reach Clarifai to check your credentials. Try again in a few minutes.")),
+            (500, (False, "Couldn't reach Clarifai to check your credentials. Try again in a few minutes.")),
+        ],
+    )
+    def test_probe_does_not_disguise_other_errors(
+        self, config: ClarifaiSourceConfig, http_status: int, expected: type[Exception] | tuple[bool, str]
+    ) -> None:
         with scripted_network(always(ScriptedResponse(status=http_status, json={"status": {"code": 10020}}))):
-            with pytest.raises((HTTPError, RESTClientRetryableError)):
-                ClarifaiSource().validate_credentials(config, 42)
+            if isinstance(expected, tuple):
+                assert ClarifaiSource().validate_credentials(config, 42) == expected
+            else:
+                with pytest.raises(expected):
+                    ClarifaiSource().validate_credentials(config, 42)
 
     @pytest.mark.parametrize(
         "host",
