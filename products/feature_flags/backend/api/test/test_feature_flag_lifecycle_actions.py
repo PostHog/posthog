@@ -131,7 +131,7 @@ class TestFeatureFlagLifecycleActions(APIBaseTest):
                 "key": "hijacked",
                 "active": not expected_active,
                 "archived": not expected_archived,
-                "version": flag.version,
+                "version": None,
                 "original_flag": {"active": expected_active, "archived": expected_archived},
             },
         )
@@ -158,13 +158,13 @@ class TestFeatureFlagLifecycleActions(APIBaseTest):
     def test_toggle_refuses_a_version_that_went_stale_after_the_action_checked_it(self, action, active):
         # The action's early check passes, then another write lands before the row lock.
         flag = self._flag(active=active)
-        original = FeatureFlagViewSet._rollout_precondition
+        original = FeatureFlagViewSet._version_precondition
 
         def precondition(view, feature_flag, version):
             original(view, feature_flag, version)
             FeatureFlag.objects.filter(pk=flag.pk).update(version=2)
 
-        with patch.object(FeatureFlagViewSet, "_rollout_precondition", precondition):
+        with patch.object(FeatureFlagViewSet, "_version_precondition", precondition):
             response = self._act(flag, action, {"version": 1})
 
         assert response.status_code == status.HTTP_409_CONFLICT, response.content
@@ -221,10 +221,11 @@ class TestFeatureFlagLifecycleActions(APIBaseTest):
         action = case.split("_")[0]
         flag = self._flag(active=active, archived=archived)
 
-        first = self._act(flag, action)
+        read_version = {"version": flag.version}
+        first = self._act(flag, action, read_version)
         assert first.status_code == status.HTTP_200_OK, first.content
 
-        second = self._act(flag, action)
+        second = self._act(flag, action, read_version)
 
         assert second.status_code == status.HTTP_200_OK, second.content
         assert second.json()["version"] == first.json()["version"]

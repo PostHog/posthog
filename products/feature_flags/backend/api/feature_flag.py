@@ -2098,10 +2098,14 @@ class FeatureFlagSerializer(
         stored_filters = (self.instance.filters or {}) if self.instance is not None else {}
         if filters and detect_config_format(stored_filters).kind == "v2" and detect_config_format(filters).kind == "v1":
             # Writing version 1 filters would silently convert the flag, which nothing may do.
+            hint = (
+                "Send the complete version 2 document with version 2 and its rules, or leave filters out"
+                if self._v2_limits is not None
+                else "Its targeting can't be changed through the API yet. Leave filters out"
+            )
             raise serializers.ValidationError(
                 "This flag uses config version 2, so version 1 filters (groups, multivariate, payloads) "
-                "cannot be written to it. Send the complete version 2 document with version 2 and its rules, "
-                "or leave filters out to change other fields.",
+                f"cannot be written to it. {hint} to change other fields.",
                 code="v1_filters_on_v2_flag",
             )
         reserved_variant_key = _reserved_variant_key(filters, stored=stored_filters)
@@ -4007,7 +4011,7 @@ class FlagLifecycleWriteRequest(ServiceRequest):
         return getattr(self._request, name)
 
 
-class FlagRolloutWriteRequest(FlagLifecycleWriteRequest):
+class FlagVersionCheckedWriteRequest(FlagLifecycleWriteRequest):
     """The request a flag rollout action, or a toggle that sends `version`, hands to the flag facade.
 
     ``strict_version_precondition`` makes ``FeatureFlagSerializer`` refuse the write when the
@@ -4387,10 +4391,10 @@ class FeatureFlagViewSet(
     # rewrites `filters`, so a caller no longer reads the flag, mutates one field, and sends
     # the whole targeting object back.
     #
-    # That shrinks the lost-update window; it does not close it. The serializer saves the
-    # instance get_object() loaded, and Django writes every column, so an edit committed
-    # between that read and the save is still reverted. A version-sending PATCH has the same
-    # hole: the conflict check only fires when the caller's own fields overlap. What these
+    # Without `version`, that shrinks the lost-update window but does not close it. The
+    # serializer saves the instance get_object() loaded, and Django writes every column, so an
+    # edit committed between that read and the save is still reverted. A version-sending PATCH
+    # has the same hole: the conflict check only fires when the caller's own fields overlap. What these
     # endpoints remove is the caller-held read, which spans as long as the caller takes
     # rather than the inside of one request.
     #
@@ -4433,14 +4437,15 @@ class FeatureFlagViewSet(
                 request=FlagLifecycleWriteRequest(request),
             )
         else:
-            # The request carries the version 1 precondition; the data carries the version 2 token.
-            self._rollout_precondition(feature_flag, version)
+            # The serializer reads `version` from the request for a config version 1 flag.
+            # It reads `version` from the written data for a config version 2 flag, so both carry it.
+            self._version_precondition(feature_flag, version)
             feature_flag = update_flag(
                 feature_flag,
                 {"active": active, "version": version},
                 team=self.team,
                 user=request.user,
-                request=FlagRolloutWriteRequest(request, version=version),
+                request=FlagVersionCheckedWriteRequest(request, version=version),
             )
         return self._lifecycle_response(feature_flag)
 
@@ -4557,12 +4562,12 @@ class FeatureFlagViewSet(
         )
         return self._lifecycle_response(updated)
 
-    # Rollout actions. Unlike the state actions above, these carry a value, so they close the
+    # Rollout actions. These require `version`, so, like a toggle that sends it, they close the
     # lost-update window rather than only shrinking it: FeatureFlagSerializer compares the
     # caller's `version` under the row lock it already takes, so no edit can land between the
     # check and the save. A transform that leaves `filters` unchanged writes nothing.
 
-    def _rollout_precondition(self, feature_flag: FeatureFlag, version: int) -> None:
+    def _version_precondition(self, feature_flag: FeatureFlag, version: int) -> None:
         # Repeated by the serializer under its row lock, which is the check that closes the
         # window. This one runs first so a stale caller never reaches the approval gate, which
         # sits ahead of the lock and would leave a change request for a write it then refuses.
@@ -4593,7 +4598,7 @@ class FeatureFlagViewSet(
         # A flag written before versioning reads as null; the precondition normalises the stored
         # side the same way, so a caller can send back exactly what the read returned.
         version = request.validated_data["version"] or 0
-        self._rollout_precondition(feature_flag, version)
+        self._version_precondition(feature_flag, version)
 
         with transaction.atomic():
             # The checks above ran against the instance loaded before the lock, which is a fast
@@ -4611,7 +4616,7 @@ class FeatureFlagViewSet(
             rejection = self._deleted_flag_rejection(locked_flag, deleted_hint)
             if rejection is not None:
                 return rejection
-            self._rollout_precondition(locked_flag, version)
+            self._version_precondition(locked_flag, version)
 
             current_filters = locked_flag.get_filters()
             new_filters = transform(current_filters)
@@ -4637,7 +4642,7 @@ class FeatureFlagViewSet(
             {"filters": filters},
             team=self.team,
             user=request.user,
-            request=FlagRolloutWriteRequest(request, version=version),
+            request=FlagVersionCheckedWriteRequest(request, version=version),
         )
 
     @validated_request(

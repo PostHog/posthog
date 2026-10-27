@@ -205,7 +205,7 @@ class TestV2SafetyWritesNeedNoAdmission(V2UpdateTestCase):
     )
     def test_body_less_lifecycle_actions_reject_v2_rows_explicitly(self, action: str, active: bool, code: str) -> None:
         flag = self.flag(active=active)
-        response = self.post_action(flag, action)
+        response = self.client.post(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/{action}/")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["code"] == code
         flag.refresh_from_db()
@@ -600,6 +600,7 @@ class TestV1FiltersOnAV2Flag(V2UpdateTestCase):
         body = response.json()
         assert (body["attr"], body["code"]) == ("filters", "v1_filters_on_v2_flag")
         assert "config version 2" in body["detail"]
+        assert ("version 2 document" in body["detail"]) is admitted
         flag.refresh_from_db()
         assert (flag.filters, flag.version, flag.active) == (stored, 3, True)
         assert self.activity(flag) == []

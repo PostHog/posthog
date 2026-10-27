@@ -7,11 +7,23 @@ import type { Context } from '@/tools/types'
 
 // The toggles also take `version`: a flag on config version 2 refuses a toggle without it.
 const LIFECYCLE_TOOLS = [
-    { name: 'feature-flag-enable', keys: ['id', 'version'], input: { id: 42, version: 3 }, body: { version: 3 } },
-    { name: 'feature-flag-disable', keys: ['id', 'version'], input: { id: 42, version: 3 }, body: { version: 3 } },
-    { name: 'feature-flag-enable', keys: ['id', 'version'], input: { id: 42 }, body: {} },
-    { name: 'feature-flag-archive', keys: ['id'], input: { id: 42 }, body: undefined },
-    { name: 'feature-flag-unarchive', keys: ['id'], input: { id: 42 }, body: undefined },
+    {
+        name: 'feature-flag-enable',
+        case: 'versioned',
+        keys: ['id', 'version'],
+        input: { id: 42, version: 3 },
+        body: { version: 3 },
+    },
+    {
+        name: 'feature-flag-disable',
+        case: 'versioned',
+        keys: ['id', 'version'],
+        input: { id: 42, version: 3 },
+        body: { version: 3 },
+    },
+    { name: 'feature-flag-enable', case: 'unversioned', keys: ['id', 'version'], input: { id: 42 }, body: {} },
+    { name: 'feature-flag-archive', case: 'no body', keys: ['id'], input: { id: 42 }, body: undefined },
+    { name: 'feature-flag-unarchive', case: 'no body', keys: ['id'], input: { id: 42 }, body: undefined },
 ] as const
 
 const ROLLOUT_TOOLS = [
@@ -37,7 +49,7 @@ describe('feature flag lifecycle tools', () => {
     // The snapshot test would also catch a `filters` param appearing here, but it is
     // silenced by `vitest -u`. These assertions are not: the whole point of the lifecycle
     // tools is that an agent cannot send targeting through them.
-    it.each(LIFECYCLE_TOOLS)('$name takes the flag id and no targeting', ({ name, keys }) => {
+    it.each(LIFECYCLE_TOOLS)('$name takes the flag id and no targeting ($case)', ({ name, keys }) => {
         const tool = GENERATED_TOOL_MAP[name]?.()
         expect(tool, `${name} is missing from the generated tool map`).not.toBeUndefined()
 
@@ -50,20 +62,23 @@ describe('feature flag lifecycle tools', () => {
         expect(schema.required).toEqual(['id'])
     })
 
-    it.each(LIFECYCLE_TOOLS)('$name declares the write scope and a reversible, idempotent action', ({ name }) => {
-        const definition = getToolDefinition(name)
+    it.each(LIFECYCLE_TOOLS)(
+        '$name declares the write scope and a reversible, idempotent action ($case)',
+        ({ name }) => {
+            const definition = getToolDefinition(name)
 
-        expect(definition.description).toContain('never accepts or replaces the `filters` object')
-        expect(definition.required_scopes).toEqual(['feature_flag:write'])
-        expect(definition.annotations?.readOnlyHint).toBe(false)
-        expect(definition.annotations?.destructiveHint).toBe(false)
-        expect(definition.annotations?.idempotentHint).toBe(true)
-    })
+            expect(definition.description).toContain('never accepts or replaces the `filters` object')
+            expect(definition.required_scopes).toEqual(['feature_flag:write'])
+            expect(definition.annotations?.readOnlyHint).toBe(false)
+            expect(definition.annotations?.destructiveHint).toBe(false)
+            expect(definition.annotations?.idempotentHint).toBe(true)
+        }
+    )
 
     // The tool name and the URL it posts to come from separate lines of the same YAML entry,
     // so nothing above notices `feature-flag-enable` wired to `/disable/`. An agent asked to
     // turn a flag on would turn it off.
-    it.each(LIFECYCLE_TOOLS)('$name posts to its own endpoint', async ({ name, input, body }) => {
+    it.each(LIFECYCLE_TOOLS)('$name posts to its own endpoint ($case)', async ({ name, input, body }) => {
         const requestMock = vi.fn().mockResolvedValue({ id: 42 })
         const context = {
             api: {
