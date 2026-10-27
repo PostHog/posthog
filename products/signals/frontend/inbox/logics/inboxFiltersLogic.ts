@@ -116,7 +116,7 @@ export interface InboxFilterState {
 
 function parseScopeParam(raw: unknown): InboxScope {
     if (typeof raw === 'string') {
-        if (raw === 'entire-project') {
+        if (raw === 'entire-project' || raw === 'claimed-by-you') {
             return raw
         }
         // Validate the teammate id so a malformed shared link falls back to the default scope
