@@ -15,6 +15,7 @@ from django.conf import settings
 from django.core import mail
 from django.core.cache import cache
 from django.core.exceptions import ImproperlyConfigured
+from django.db import OperationalError
 from django.test import override_settings
 from django.utils import timezone
 
@@ -308,6 +309,32 @@ class TestEmail(BaseTest):
 
         after = REGISTRY.get_sample_value("posthog_email_send_total", failed_labels) or 0.0
         self.assertEqual(after - before, 2.0)  # b failed + c never attempted; a succeeded
+
+    @patch("posthog.email.ph_scoped_capture")
+    @patch("posthog.email.requests.post")
+    def test_send_via_http_reraises_a_lost_database_connection_so_celery_retries(
+        self, mock_post, mock_scoped_capture
+    ) -> None:
+        mock_capture = mock_scoped_capture.return_value.__enter__.return_value
+        lost_connection = OperationalError("could not translate host name to address")
+
+        with (
+            override_instance_config("EMAIL_HOST", "localhost"),
+            self.settings(CUSTOMER_IO_API_KEY="test-key"),
+            patch("posthog.email.MessagingRecord.objects.get_or_create", side_effect=lost_connection),
+            self.assertRaises(OperationalError),
+        ):
+            _send_via_http(
+                to=[{"raw_email": "a@posthog.com"}], campaign_key="db_blip", template_name="2fa_enabled", properties={}
+            )
+
+        mock_post.assert_not_called()
+        failed = [
+            c.kwargs for c in mock_capture.call_args_list if c.kwargs.get("event") == "transactional email failed"
+        ]
+        self.assertEqual(
+            [(f["properties"]["error_type"], f["properties"]["retrying"]) for f in failed], [("OperationalError", True)]
+        )
 
     @patch("posthog.email.ph_scoped_capture")
     @patch("posthog.email.requests.post")

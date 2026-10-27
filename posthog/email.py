@@ -15,7 +15,7 @@ from django.conf import settings
 from django.core import exceptions, mail
 from django.core.cache import cache
 from django.core.mail.backends.smtp import EmailBackend
-from django.db import transaction
+from django.db import InterfaceError, OperationalError, transaction
 from django.template.loader import get_template
 from django.utils import timezone
 from django.utils.module_loading import import_string
@@ -583,7 +583,9 @@ def _send_via_http_batch(
     except Exception as err:
         capture_exception(err)  # already logs the traceback via logger.exception
         # The exception carries no template name, so this event is what lets a dashboard count failures per template.
-        retrying = isinstance(err, WorkflowsEmailError)
+        # A lost database connection is transient and fails before any provider gets this recipient, so a retry is
+        # safe. Workflows errors retry for the reason below.
+        retrying = isinstance(err, (WorkflowsEmailError, OperationalError, InterfaceError))
         if dest:
             _capture_email_event(
                 capture,
