@@ -88,7 +88,7 @@ export const Events: Story = {
 
 export const WebVitals: Story = {
     args: { mode: 'web-vitals' },
-    parameters: { testOptions: { waitForSelector: 'text=/pricing' } },
+    parameters: { testOptions: { waitForSelector: 'text=1.64s' } },
 }
 
 export const Experiments: Story = {
