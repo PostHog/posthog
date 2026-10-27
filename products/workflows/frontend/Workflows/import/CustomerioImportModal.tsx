@@ -14,8 +14,8 @@ import { customerioImportLogic } from './customerioImportLogic'
 
 const AGENT_PROMPT =
     'Migrate my Customer.io automations to PostHog workflows. Use the migrating-from-customer-io skill: read each ' +
-    'automation and its message templates with the Customer.io MCP, preview the import with ' +
-    'workflows-import-customerio, show me the notes, then import them as drafts.'
+    'automation with the Customer.io MCP, preview the import with workflows-import-customerio, show me the notes, ' +
+    'then import them as drafts.'
 
 const CLI_EXAMPLE = `cio api /v1/environments/$ENV_ID/campaigns/$CAMPAIGN_ID > automation.json
 cio api /v1/environments/$ENV_ID/templates/$TEMPLATE_ID > template.json`
@@ -108,7 +108,9 @@ export function CustomerioImportModal(): JSX.Element {
                 <section className="flex flex-col gap-2">
                     <h4 className="mb-0">Or upload files from the Customer.io CLI</h4>
                     <p className="mb-0 text-secondary">
-                        Save each automation and the templates its messages use, then add the files here.
+                        Save each automation, then add the files here. If you imported opt-outs from Customer.io,
+                        PostHog reads the message content with that API key. Otherwise, save the templates its messages
+                        use too.
                     </p>
                     <CodeSnippet language={Language.Bash}>{CLI_EXAMPLE}</CodeSnippet>
                     <LemonFileInput
@@ -126,6 +128,11 @@ export function CustomerioImportModal(): JSX.Element {
                         </span>
                     ) : null}
                 </section>
+                {results?.contentFetched && (
+                    <span className="text-secondary" data-attr="customerio-import-content-fetched">
+                        PostHog read the message content from Customer.io with your stored API key.
+                    </span>
+                )}
                 {results && (
                     <LemonTable
                         dataSource={results.results}

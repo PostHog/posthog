@@ -17,6 +17,7 @@ export interface customerioImportLogicValues {
     parseError: string | null
     parsed: ParsedCustomerioFile | null
     results: {
+        contentFetched: boolean
         dryRun: boolean
         results: WorkflowImportResultApi[]
     } | null
@@ -58,6 +59,7 @@ export interface customerioImportLogicActions {
     }
     runImportSuccess: (
         results: {
+            contentFetched: boolean
             dryRun: boolean
             results: WorkflowImportResultApi[]
         } | null,
@@ -66,6 +68,7 @@ export interface customerioImportLogicActions {
         }
     ) => {
         results: {
+            contentFetched: boolean
             dryRun: boolean
             results: WorkflowImportResultApi[]
         } | null
@@ -132,7 +135,7 @@ export const customerioImportLogic = kea<customerioImportLogicType>([
     }),
     loaders(({ values }) => ({
         results: [
-            null as { dryRun: boolean; results: WorkflowImportResultApi[] } | null,
+            null as { dryRun: boolean; contentFetched: boolean; results: WorkflowImportResultApi[] } | null,
             {
                 runImport: async ({ dryRun }: { dryRun: boolean }) => {
                     if (!values.parsed?.campaigns.length) {
@@ -144,7 +147,7 @@ export const customerioImportLogic = kea<customerioImportLogicType>([
                         snippets: values.parsed.snippets,
                         dry_run: dryRun,
                     })
-                    return { dryRun, results: response.results }
+                    return { dryRun, contentFetched: response.content_fetched, results: response.results }
                 },
                 resetResults: () => null,
             },
