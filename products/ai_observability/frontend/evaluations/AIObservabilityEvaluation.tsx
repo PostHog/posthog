@@ -516,7 +516,10 @@ export function AIObservabilityEvaluation(): JSX.Element {
                         label: 'Configuration',
                         'data-attr': 'llma-evaluation-configuration-tab',
                         content: (
-                            <div className="max-w-4xl">
+                            // The step layout is centered, like the new evaluation page. The old form stays on the left.
+                            <div
+                                className={resultsCardsEnabled && !isNewEvaluation ? 'max-w-4xl mx-auto' : 'max-w-4xl'}
+                            >
                                 {resultsCardsEnabled && !isNewEvaluation ? (
                                     <EvaluationConfigurationForm />
                                 ) : (
