@@ -64,16 +64,26 @@
      - Public artifact: nothing in this PR — code, fixtures and sample data, comments, commit messages, or this description — carries material from the agent session that isn't already public. If the work drew on a customer conversation, ticket, or log, say so here and state that the committed data is invented. Renaming people, hosts, and identifiers does not clear real material; see AGENTS.md "Public open source repo guidance".
 -->
 
-<!-- Keep this short: 1-3 short paragraphs or a handful of bullets — not an exhaustive log. Include:
-     - link to session and the tool names used, but do not include tool call results.
-     - skills invoked: always explicitly call out any repo-provided or public skills (e.g. /django-migrations, /improving-drf-endpoints) that were invoked while producing this PR. This helps reviewers judge where and how the code was shaped by an agent.
-     - decisions made along the way: what changed across the session. The reason the shipped design beats the obvious alternative goes in Changes instead, where a reviewer will actually see it.
-     - anything else that helps reviewers
-     Write reviewer-facing prose. Do not paste user prompts verbatim — paraphrase the intent in your own words.
-     This is the ONLY section that should contain descriptions of what this PR might have looked like before its present final state.
-     Don't duplicate info already present in preceding sections.
-     DO NOT INCLUDE sensitive data that may have been shared in an agent session — that applies to every part of this PR, not just this section.
--->
+<details>
+<summary>More context for AI agents</summary>
+
+<!-- Agents: this block is collapsed by default and does not count toward the 150 words.
+     Keep it current: on every push, rewrite it to describe the PR at that commit and update "Current as of". Replace stale bullets, never append a log.
+     Keep the fields below in this order. One line per bullet, under 25 words, 10 bullets at most. Delete a field you have nothing for.
+     - Skills: every repo-provided or public skill invoked (e.g. /django-migrations, /improving-drf-endpoints), so reviewers can see where an agent shaped the code.
+     - Decisions: what changed across the session. The reason the shipped design beats the obvious alternative goes in Changes, where a reviewer will see it.
+     This is the ONLY place that may describe what this PR looked like before its present state. Don't repeat facts from the sections above.
+     Paraphrase the intent of user prompts, never paste them. Link the session, name the tools, but leave out tool call results.
+     DO NOT INCLUDE sensitive data that may have been shared in an agent session — that applies to every part of this PR, not just this block. -->
+
+- **Current as of:** `<short sha>`
+- **Session:** link, tools used
+- **Skills:** `/skill`
+- **Decisions:** one bullet per decision
+- **Follow-ups:** work left for a later PR
+- **Read closely:** files or lines that need a careful review
+
+</details>
 
 <!-- Overall PR authoring rules for agents:
 - Title: <type>(<scope>): <description> — type=feat|fix|chore, scope required, lowercase, no period, <72 chars.

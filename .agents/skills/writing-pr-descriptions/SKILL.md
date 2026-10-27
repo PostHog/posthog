@@ -228,7 +228,8 @@ Everything under them is evidence and provenance, and a reviewer reaches it last
 When the lower half outgrows the upper half, cut the lower half.
 
 - Testing: name the regression each new test catches, under the claim rules above. Transcripts go in a `<details>` block.
-- Agent context: autonomy, tool and exact model, skills invoked, and what changed across the session.
+- Agent context: autonomy and the tool with its exact model stay visible. Skills, decisions and the rest go in the collapsed "More context for AI agents" block, in the template's field order.
+- Rewrite that block on every push so it matches the head commit, and update its "Current as of" SHA. A stale block misleads the next agent more than an empty one.
 - The reason your design beats the obvious alternative belongs in Changes. A reviewer needs it to review, and nobody scrolls past the release status section to find it.
 
 The test: **the body must come out shorter than your first draft.** Pass 5 checks it.
@@ -314,7 +315,7 @@ A "no" anywhere means the body is ordered for the writer, not the reader. Go bac
 15. Does prose compare several values across the same dimensions? Replace it with a table.
 16. Does every claim about what you ran, measured or saw link its evidence, or say it went unchecked? Descriptions of behavior need no link.
 17. Did a `<!-- -->` template comment survive anywhere? That section is unfilled. Fill it or delete it.
-18. Is the `## 🤖 Agent context` section filled, naming the exact model and listing the skills invoked?
+18. Is the `## 🤖 Agent context` section filled, naming the exact model, with the skills invoked listed in the collapsed block? Does its "Current as of" SHA match the head commit?
 19. Does the body claim manual testing that did not happen? Delete it.
 20. Does the body name an internal customer, incident, Slack quote, or operational metric? This repo is public. Delete it.
 
