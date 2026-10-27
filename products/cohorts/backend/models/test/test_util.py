@@ -1115,8 +1115,8 @@ class TestCohortUtils(BaseTest):
         )
         context = HogQLContext(team_id=self.team.id, enable_select_queries=True)
         sql = print_cohort_hogql_query(cohort, context, team=self.team)
-        self.assertNotIn("SELECT DISTINCT person_id, event", sql)
-        self.assertIn("SELECT actor_id FROM (SELECT person_id, event", sql)
+        self.assertNotIn("DISTINCT", sql)
+        self.assertIn("SELECT person_id AS actor_id FROM (SELECT", sql)
         insert_cohort_query_actors_into_ch(cohort, team=self.team)
 
     def test_wrap_select_query_preserves_inner_distinct_on_bounded_query(self):
