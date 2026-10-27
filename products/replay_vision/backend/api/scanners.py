@@ -148,6 +148,7 @@ from products.replay_vision.backend.scanner_access import (
     accessible_experiment_ids,
     accessible_observations,
     is_experiment_accessible,
+    readable_experiment_ids,
     readable_observation_scanner_ids,
     scanner_experiment_scope_q,
 )
@@ -1671,8 +1672,10 @@ WATCH_FEED_PER_SCANNER_CAP = 100
 # each id__in list bounded while the walk stops as soon as the page is covered.
 WATCH_FEED_BYPASS_CHUNK = 200
 WATCH_FEED_IMPRESSIONS_MAX_IDS = 100
-# Long enough to cover a reader scrolling one load; a new load gets a new `as_of` and a fresh ranking.
-WATCH_FEED_PICKS_CACHE_TTL_S = 15 * 60
+# Loads in one bucket share their picks, so a reload or tab switch skips the pick query.
+WATCH_FEED_PICKS_BUCKET_S = 10 * 60
+# Outlives the bucket by long enough to cover a reader scrolling one load.
+WATCH_FEED_PICKS_CACHE_TTL_S = WATCH_FEED_PICKS_BUCKET_S + 15 * 60
 
 
 def select_watch_feed_candidates(
@@ -1707,6 +1710,16 @@ def select_watch_feed_candidates(
         if len(rows) >= WATCH_FEED_CANDIDATE_CAP:
             break
     return rows[:WATCH_FEED_CANDIDATE_CAP]
+
+
+def refresh_feed_viewed(rows: list[dict[str, Any]], viewer_id: int, as_of: datetime) -> list[dict[str, Any]]:
+    """Cached rows with `feed_viewed` as of `as_of`."""
+    viewed = set(
+        ReplayObservationView.objects.filter(
+            user_id=viewer_id, created_at__lte=as_of, observation_id__in=[row["id"] for row in rows]
+        ).values_list("observation_id", flat=True)
+    )
+    return [{**row, "feed_viewed": row["id"] in viewed} for row in rows]
 
 
 def attach_scanner_results(team_id: int, rows: list[dict[str, Any]]) -> None:
@@ -2688,11 +2701,12 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         viewer_id = cast(User, request.user).id
         # Before ranking, so a row the viewer marked not useful neither takes a slot nor shifts the window baselines.
         # Views and dismissals after `as_of` wait for the next load, so later pages of this one do not shift.
-        walkable = candidates.exclude(
-            id__in=ReplayObservationFeedDismissal.objects.filter(user_id=viewer_id, created_at__lte=as_of).values(
-                "observation_id"
+        dismissed_ids = sorted(
+            ReplayObservationFeedDismissal.objects.filter(user_id=viewer_id, created_at__lte=as_of).values_list(
+                "observation_id", flat=True
             )
         )
+        walkable = candidates.exclude(id__in=dismissed_ids)
         # Row-gate on each row's snapshot experiment before ranking, so a restricted row can't take a feed slot.
         candidates = accessible_observations(
             self.user_access_control, self.team_id, walkable.filter(scanner_id__in=allowed_ids)
@@ -2711,7 +2725,8 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         mode = ranker_mode(variant)
         ranker = mode if mode in ("jev", "embedding") else "weighted-score"
         if ranker == "embedding":
-            # Every page of one load ranks the same window as of the same `as_of`, so later pages reuse the first's picks.
+            # Keyed on the bucket `as_of` falls in, so loads in one bucket share picks, and on the dismissals and the
+            # readable experiments, so a dismissal or an access change ranks afresh.
             picks_key = (
                 "replay_vision:watch_picks:"
                 + hashlib.sha256(
@@ -2719,9 +2734,11 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                         [
                             self.team_id,
                             viewer_id,
-                            as_of.isoformat(),
-                            str(date_from),
-                            str(window_end),
+                            int(as_of.timestamp()) // WATCH_FEED_PICKS_BUCKET_S,
+                            params["date_from"],
+                            params.get("date_to"),
+                            list(map(str, dismissed_ids)),
+                            sorted(readable_experiment_ids(self.user_access_control, self.team_id)),
                             sorted(map(str, allowed_ids)),
                             params.get("search"),
                             params.get("scanner_type"),
@@ -2729,8 +2746,14 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                     ).encode()
                 ).hexdigest()
             )
-            candidate_rows = cache.get(picks_key)
-            if candidate_rows is None:
+            cached = cache.get(picks_key)
+            # Picks ranked as of a later moment may hold rows this load's first page never saw, so they don't serve it.
+            if cached is not None and cached[0] <= as_of:
+                picked_as_of, candidate_rows = cached
+                # An earlier load in the bucket ranked these, so its views may be older than this one's.
+                if picked_as_of != as_of:
+                    candidate_rows = refresh_feed_viewed(candidate_rows, viewer_id, as_of)
+            else:
                 # The embedding ranker reads only a small stored rank, so it picks over the whole window in SQL.
                 candidate_rows = select_embedding_picks(
                     walkable, allowed_ids, viewed, self.user_access_control, self.team_id, WATCH_FEED_CANDIDATE_CAP
@@ -2741,7 +2764,8 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                     candidate_rows += select_embedding_filler(
                         walkable, allowed_ids, viewed, self.user_access_control, self.team_id, pick_roots
                     )
-                cache.set(picks_key, candidate_rows, WATCH_FEED_PICKS_CACHE_TTL_S)
+                # The first load in the bucket keeps the entry, so concurrent loads never replace it with later picks.
+                cache.add(picks_key, (as_of, candidate_rows), WATCH_FEED_PICKS_CACHE_TTL_S)
         else:
             candidate_rows = select_watch_feed_candidates(
                 walkable, allowed_ids, viewed, self.user_access_control, self.team_id
