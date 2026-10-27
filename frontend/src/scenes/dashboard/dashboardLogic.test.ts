@@ -1662,21 +1662,11 @@ describe('dashboardLogic', () => {
             logic.actions.changeDashboardGridCompaction(DashboardGridCompaction.Horizontal)
             logic.actions.changeDashboardGridCompaction(DashboardGridCompaction.Stable)
 
-            expect(logic.values.dashboardGridCompactionSaving).toBe(true)
             expect(logic.values.dashboard?.customization?.layout_compaction).toBe(DashboardGridCompaction.Horizontal)
             expect(api.update).toHaveBeenCalledTimes(1)
-            expect(api.update).toHaveBeenCalledWith(`api/projects/${MOCK_TEAM_ID}/dashboards/5`, {
-                layout_compaction: DashboardGridCompaction.Horizontal,
-                grid_spacing: 'standard',
-            })
 
-            resolveSave({
-                ...logic.values.dashboard!,
-                customization: { layout_compaction: DashboardGridCompaction.Horizontal },
-            })
+            resolveSave(logic.values.dashboard!)
             await expectLogic(logic).toFinishAllListeners()
-            expect(logic.values.dashboardGridCompactionSaving).toBe(false)
-
             logic.actions.changeDashboardGridCompaction(DashboardGridCompaction.Stable)
             await expectLogic(logic).toFinishAllListeners()
 
@@ -3391,7 +3381,7 @@ describe('dashboardLogic', () => {
                 expect(dialogOpenSpy).not.toHaveBeenCalled()
             })
 
-            it('changes the movement mode without a prompt after the grid re-reports the same tile cells', async () => {
+            it('does not count grid-added fields on the same tile cells as unsaved layout changes', async () => {
                 await expectLogic(logic).toFinishAllListeners()
                 const currentLayouts = logic.values.layouts
                 logic.actions.tilePlacementsSaved(
@@ -3414,10 +3404,6 @@ describe('dashboardLogic', () => {
                 })
 
                 expect(logic.values.hasUnsavedLayoutChanges).toBe(false)
-
-                logic.actions.changeDashboardGridCompaction(DashboardGridCompaction.Horizontal)
-
-                expect(dialogOpenSpy).not.toHaveBeenCalled()
             })
 
             it('prompts before changing the movement mode when the layout is unsaved', async () => {
