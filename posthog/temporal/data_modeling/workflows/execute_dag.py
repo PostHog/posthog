@@ -16,6 +16,7 @@ from posthog.temporal.data_modeling.activities import (
     UPSTREAM_NAMES_IN_SKIP_REASON,
     GetDAGStructureInputs,
     NodesWaitingOnUpstreamReloadsInputs,
+    NodesWaitingOnUpstreamReloadsResult,
     NotifyDAGMaterializationFailuresInputs,
     PreemptDAGRunInputs,
     RecordSkippedDataModelingJobsInputs,
@@ -274,7 +275,19 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
     async def run(self, inputs: ExecuteDAGInputs) -> ExecuteDAGResult:
         temporalio.workflow.logger.info("Starting ExecuteDAGWorkflow", extra=inputs.properties_to_log)
         if inputs.wait_for_upstream_reloads:
-            await self._wait_for_upstream_reloads(inputs)
+            node_ids = await self._wait_for_upstream_reloads(inputs)
+            if not node_ids:
+                # An empty node list means the whole DAG, so a follow-up with nothing left must stop here.
+                return ExecuteDAGResult(
+                    dag_id=inputs.dag_id,
+                    scheduled_nodes=0,
+                    successful_nodes=0,
+                    failed_nodes=0,
+                    skipped_nodes=0,
+                    duration_seconds=0,
+                    node_results=[],
+                )
+            inputs = dataclasses.replace(inputs, node_ids=node_ids)
         # NOTE: this should be handled by temporal's cancellation policy but
         # we leave this in to clean up any jobs left in a dirty state
         await temporalio.workflow.execute_activity(
@@ -662,21 +675,24 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
             node_results=node_results,
         )
 
-    async def _wait_for_upstream_reloads(self, inputs: ExecuteDAGInputs) -> None:
-        """Return once no sync is loading a table these nodes read, or after the longest wait.
+    async def _wait_for_upstream_reloads(self, inputs: ExecuteDAGInputs) -> list[str]:
+        """The nodes left to run once no sync is loading a table they read, or after the longest wait.
 
-        A failed check ends the wait, so a broken check never stops a materialization.
+        A node that another run took meanwhile is dropped, because running it would preempt that
+        run. A failed check ends the wait, so a broken check never stops a materialization.
         """
         wait_started = temporalio.workflow.now()
+        node_ids = list(inputs.node_ids or [])
         while temporalio.workflow.now() - wait_started < MAX_UPSTREAM_RELOAD_WAIT:
             try:
-                waiting = await temporalio.workflow.execute_activity(
+                check: NodesWaitingOnUpstreamReloadsResult = await temporalio.workflow.execute_activity(
                     nodes_waiting_on_upstream_reloads_activity,
                     NodesWaitingOnUpstreamReloadsInputs(
                         team_id=inputs.team_id,
                         dag_id=inputs.dag_id,
-                        node_ids=inputs.node_ids or [],
+                        node_ids=node_ids,
                         engine=_serving_engine(inputs),
+                        taken_after=wait_started,
                     ),
                     start_to_close_timeout=dt.timedelta(minutes=5),
                     retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
@@ -689,13 +705,15 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
                     "Could not check for upstream reloads, running without the check",
                     extra={"error": str(e), **inputs.properties_to_log},
                 )
-                return
-            if not waiting:
-                return
+                return node_ids
+            node_ids = [node_id for node_id in node_ids if node_id not in check.taken]
+            if not check.waiting:
+                return node_ids
             await temporalio.workflow.sleep(UPSTREAM_RELOAD_RECHECK_INTERVAL)
         temporalio.workflow.logger.warning(
             "Upstream tables are still being loaded again, materializing anyway", extra=inputs.properties_to_log
         )
+        return node_ids
 
     async def _start_run_after_upstream_reloads(self, inputs: ExecuteDAGInputs, node_ids: list[str]) -> None:
         """Start the run that materializes these nodes once the upstream reloads end.

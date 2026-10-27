@@ -2,6 +2,8 @@ import dataclasses
 
 import pytest
 
+from django.utils import timezone
+
 import pytest_asyncio
 from temporalio.testing import ActivityEnvironment
 
@@ -140,7 +142,7 @@ class TestRecordSkippedDataModelingJobs:
         assert count == 1
 
 
-def _start_full_refresh_upstream_of(team, dag, node, *, built: bool = True) -> None:
+def _start_full_refresh_upstream_of(team, dag, node, *, previous_build: str = "stored") -> None:
     table = DataWarehouseTable.objects.create(name="stripe_charges", team=team)
     source = ExternalDataSource.objects.create(
         team=team, source_id="source_id", connection_id="connection_id", source_type="Stripe"
@@ -161,13 +163,16 @@ def _start_full_refresh_upstream_of(team, dag, node, *, built: bool = True) -> N
         status=ExternalDataJob.Status.RUNNING,
         schema_snapshot={"sync_type": "full_refresh"},
     )
-    if built:
+    if previous_build in ("stored", "table_deleted"):
         DataModelingJob.objects.create(
             team=team,
             saved_query=node.saved_query,
             status=DataModelingJobStatus.COMPLETED,
             engine=DataModelingJobEngine.CLICKHOUSE,
         )
+    if previous_build == "stored":
+        stored = DataWarehouseTable.objects.create(name=node.saved_query.name, team=team)
+        DataWarehouseSavedQuery.objects.filter(id=node.saved_query_id).update(table=stored)
 
 
 async def _skip_if_reloading(team, dag, node):
@@ -188,10 +193,14 @@ def _status_and_error(saved_query) -> list[tuple[str, str | None]]:
 
 
 class TestCheckUpstreamReloads:
-    @pytest.mark.parametrize("built", [True, False])
-    async def test_a_running_full_refresh_upstream_writes_one_skip_row_naming_the_table(self, ateam, adag_local, built):
+    @pytest.mark.parametrize("previous_build", ["stored", "never_built", "table_deleted"])
+    async def test_a_running_full_refresh_upstream_writes_one_skip_row_naming_the_table(
+        self, ateam, adag_local, previous_build
+    ):
         node, saved_query = await _make_node(ateam, adag_local, "revenue_daily")
-        await database_sync_to_async(_start_full_refresh_upstream_of)(ateam, adag_local, node, built=built)
+        await database_sync_to_async(_start_full_refresh_upstream_of)(
+            ateam, adag_local, node, previous_build=previous_build
+        )
 
         result = await _skip_if_reloading(ateam, adag_local, node)
         # An activity retry runs the same check again.
@@ -202,24 +211,41 @@ class TestCheckUpstreamReloads:
             "The view keeps its previous data and runs again when the sync finishes."
         )
         jobs = await database_sync_to_async(_status_and_error)(saved_query)
-        if built:
+        if previous_build == "stored":
             assert result.reason == reason
             assert jobs == [(DataModelingJobStatus.SKIPPED, reason)]
         else:
             assert result.reason is None
             assert jobs == []
 
-    async def test_lists_only_the_nodes_still_waiting_and_writes_nothing(self, ateam, adag_local):
+    @pytest.mark.parametrize(
+        "later_status,taken",
+        [(None, False), (DataModelingJobStatus.RUNNING, True), (DataModelingJobStatus.FAILED, False)],
+    )
+    async def test_lists_the_nodes_still_waiting_and_the_ones_another_run_took(
+        self, ateam, adag_local, later_status, taken
+    ):
         waiting, waiting_query = await _make_node(ateam, adag_local, "revenue_daily")
         unaffected, _ = await _make_node(ateam, adag_local, "orders_daily")
         await database_sync_to_async(_start_full_refresh_upstream_of)(ateam, adag_local, waiting)
+        wait_started = timezone.now()
+        if later_status is not None:
+            await database_sync_to_async(DataModelingJob.objects.create)(
+                team=ateam, saved_query=waiting_query, status=later_status, engine=DataModelingJobEngine.CLICKHOUSE
+            )
 
         result = await ActivityEnvironment().run(
             nodes_waiting_on_upstream_reloads_activity,
             NodesWaitingOnUpstreamReloadsInputs(
-                team_id=ateam.pk, dag_id=str(adag_local.id), node_ids=[str(waiting.id), str(unaffected.id)]
+                team_id=ateam.pk,
+                dag_id=str(adag_local.id),
+                node_ids=[str(waiting.id), str(unaffected.id)],
+                taken_after=wait_started,
             ),
         )
 
-        assert result == [str(waiting.id)]
-        assert await database_sync_to_async(_status_and_error)(waiting_query) == []
+        assert result.taken == ([str(waiting.id)] if taken else [])
+        assert result.waiting == ([] if taken else [str(waiting.id)])
+        assert await database_sync_to_async(_status_and_error)(waiting_query) == (
+            [(later_status, None)] if later_status else []
+        )

@@ -48,6 +48,16 @@ class NodesWaitingOnUpstreamReloadsInputs:
     dag_id: str
     node_ids: list[str]
     engine: str = DataModelingJobEngine.CLICKHOUSE
+    # When the follow-up started waiting. A node with a newer running or completed job is taken.
+    taken_after: dt.datetime
+
+
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class NodesWaitingOnUpstreamReloadsResult:
+    waiting: list[str]
+    # Nodes another run materialized or started since the wait began. Running them again would
+    # preempt that run.
+    taken: list[str]
 
 
 def _reason(table_names: list[str]) -> str:
@@ -66,9 +76,11 @@ def _reason(table_names: list[str]) -> str:
 
 
 def _tables_being_reloaded(node: Node, engine: str) -> list[str]:
-    if node.saved_query_id is None:
+    if node.saved_query is None:
         return []
     # With no complete data to keep serving, waiting gains nothing over a partial first build.
+    if engine == DataModelingJobEngine.CLICKHOUSE and node.saved_query.table_id is None:
+        return []
     built = DataModelingJob.objects.filter(
         team_id=node.team_id,
         saved_query_id=node.saved_query_id,
@@ -140,13 +152,34 @@ async def check_upstream_reloads_activity(inputs: CheckUpstreamReloadsInputs) ->
 
 
 @database_sync_to_async_pool
-def _nodes_waiting(inputs: NodesWaitingOnUpstreamReloadsInputs) -> list[str]:
-    nodes = Node.objects.filter(team_id=inputs.team_id, dag_id=inputs.dag_id, id__in=inputs.node_ids)
-    return sorted(str(node.id) for node in nodes if _tables_being_reloaded(node, inputs.engine))
+def _nodes_waiting(inputs: NodesWaitingOnUpstreamReloadsInputs) -> NodesWaitingOnUpstreamReloadsResult:
+    nodes = list(
+        Node.objects.filter(team_id=inputs.team_id, dag_id=inputs.dag_id, id__in=inputs.node_ids).select_related(
+            "saved_query"
+        )
+    )
+    taken_saved_query_ids = set(
+        DataModelingJob.objects.filter(
+            team_id=inputs.team_id,
+            saved_query_id__in=[node.saved_query_id for node in nodes if node.saved_query_id is not None],
+            engine=inputs.engine,
+            status__in=[DataModelingJobStatus.RUNNING, DataModelingJobStatus.COMPLETED],
+            created_at__gt=inputs.taken_after,
+        ).values_list("saved_query_id", flat=True)
+    )
+    taken = [node for node in nodes if node.saved_query_id in taken_saved_query_ids]
+    return NodesWaitingOnUpstreamReloadsResult(
+        waiting=sorted(
+            str(node.id) for node in nodes if node not in taken and _tables_being_reloaded(node, inputs.engine)
+        ),
+        taken=sorted(str(node.id) for node in taken),
+    )
 
 
 @activity.defn
-async def nodes_waiting_on_upstream_reloads_activity(inputs: NodesWaitingOnUpstreamReloadsInputs) -> list[str]:
-    """The nodes of these that a sync is still loading an upstream table for. Writes nothing."""
+async def nodes_waiting_on_upstream_reloads_activity(
+    inputs: NodesWaitingOnUpstreamReloadsInputs,
+) -> NodesWaitingOnUpstreamReloadsResult:
+    """Which of these nodes still wait on an upstream reload, and which another run took. Writes nothing."""
     bind_contextvars(team_id=inputs.team_id)
     return await _nodes_waiting(inputs)
