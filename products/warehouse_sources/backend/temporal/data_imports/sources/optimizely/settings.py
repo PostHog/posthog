@@ -1,7 +1,7 @@
-from dataclasses import dataclass
+from posthog.dataclasses import frozen
 
 
-@dataclass
+@frozen
 class OptimizelyEndpointConfig:
     path: str
     # Most v2 list endpoints are project-scoped and need a project_id param,

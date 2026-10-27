@@ -110,7 +110,7 @@ class TestPerParentResults:
             ("campaign_results", "/v2/campaigns", "campaign_id"),
         ]
     )
-    def test_walks_projects_then_parents_and_skips_parents_without_results(
+    def test_walks_projects_then_parents_retrying_pending_results(
         self, endpoint: str, parent_path: str, id_field: str
     ) -> None:
         suffix = endpoint.split("_")[1]
@@ -123,24 +123,29 @@ class TestPerParentResults:
                         _response([{"id": 1}, {"id": 2}]),
                         _response([{"id": 3}]),
                     ],
-                    f"/1/{suffix}": [ScriptedResponse(status=202)],
+                    f"/1/{suffix}": [
+                        ScriptedResponse(status=202),
+                        ScriptedResponse(json={id_field: 1, "metrics": []}),
+                    ],
                     f"/2/{suffix}": [ScriptedResponse(status=204)],
                     f"/3/{suffix}": [ScriptedResponse(json={id_field: 3, "metrics": [{"name": "Clicks"}]})],
                 }
             ),
         )
 
+        # A 202 (still computing) is retried rather than dropped; a 204 (no results yet) is skipped.
         assert result.raised is None
         assert result.paths == [
             "/v2/projects",
             parent_path,
             f"{parent_path}/1/{suffix}",
+            f"{parent_path}/1/{suffix}",
             f"{parent_path}/2/{suffix}",
             parent_path,
             f"{parent_path}/3/{suffix}",
         ]
-        assert result.params("project_id") == [None, "11", None, None, "22", None]
-        assert result.rows == [{id_field: 3, "metrics": [{"name": "Clicks"}]}]
+        assert result.params("project_id") == [None, "11", None, None, None, "22", None]
+        assert result.rows == [{id_field: 1, "metrics": []}, {id_field: 3, "metrics": [{"name": "Clicks"}]}]
 
 
 class TestOptimizelySourceResponse:
