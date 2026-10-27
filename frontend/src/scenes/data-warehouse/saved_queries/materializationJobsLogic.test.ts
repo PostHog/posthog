@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
@@ -12,6 +12,7 @@ import { useMocks } from '~/mocks/jest'
 import { DataWarehouseSavedQueryOrigin } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
+import { DataModelingJobsListEngine } from 'products/data_warehouse/frontend/generated/api.schemas'
 import { MaterializationRunActions } from 'products/data_warehouse/frontend/shared/components/MaterializationRunActions'
 
 import { dataWarehouseViewsLogic } from './dataWarehouseViewsLogic'
@@ -35,6 +36,11 @@ describe('materializationJobsLogic', () => {
             throw new Error(`No button with data-attr="${attr}"`)
         }
         return button as HTMLElement
+    }
+
+    const setDocumentHidden = (hidden: boolean): void => {
+        Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden })
+        document.dispatchEvent(new Event('visibilitychange'))
     }
 
     let logic: ReturnType<typeof materializationJobsLogic.build>
@@ -83,17 +89,13 @@ describe('materializationJobsLogic', () => {
         checkCalls = 0
         savedSyncFrequency = null
         initKeaTests()
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DATA_MODELING_INCREMENTAL_VIEWS], {
-            [FEATURE_FLAGS.DATA_MODELING_INCREMENTAL_VIEWS]: true,
-        })
     })
 
     afterEach(() => {
         cleanup()
         logic?.unmount()
-        featureFlagLogic.unmount()
         jest.useRealTimers()
+        delete (document as { hidden?: boolean }).hidden
     })
 
     it.each([
@@ -151,6 +153,88 @@ describe('materializationJobsLogic', () => {
         }
     })
 
+    it('shows the failed run status without a detached error tag', async () => {
+        const mocks = apiMocks({
+            isMaterialized: true,
+            savedQueryExtras: { status: 'Failed', latest_error: 'Query failed' },
+        })
+        mocks.get!['/api/projects/:team_id/data_modeling_jobs/'] = [
+            200,
+            {
+                count: 1,
+                results: [{ id: 'run-1', status: 'Failed', error: 'Query failed' }],
+            },
+        ]
+        useMocks(mocks)
+        logic = materializationJobsLogic({ viewId: 'view-1' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadSavedQuerySuccess', 'loadDataModelingJobsSuccess'])
+
+        render(createElement(MaterializationStatusPanel, { viewId: 'view-1', showRunActions: false }))
+
+        expect(screen.getByText('Last run')).toBeTruthy()
+        expect(screen.getAllByText('Failed').length).toBeGreaterThan(0)
+        expect(screen.getByLabelText('Failed. Query failed')).toBeTruthy()
+        expect(screen.getByText('Materialization').parentElement?.children).toHaveLength(1)
+    })
+
+    it('loads managed warehouse run history without changing the ClickHouse status data', async () => {
+        const requests: URLSearchParams[] = []
+        const mocks = apiMocks({ isMaterialized: true })
+        mocks.get!['/api/projects/:team_id/data_modeling_jobs/'] = (req) => {
+            const params = new URL(req.request.url).searchParams
+            requests.push(params)
+            return [200, { count: 0, results: [] }]
+        }
+        useMocks(mocks)
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.MANAGED_TRINO_QUERY], {
+            [FEATURE_FLAGS.MANAGED_TRINO_QUERY]: true,
+        })
+        logic = materializationJobsLogic({ viewId: 'view-1' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadDataModelingJobsSuccess'])
+
+        render(createElement(MaterializationStatusPanel, { viewId: 'view-1', showRunActions: false }))
+        expect(document.querySelector('[data-attr="materialization-run-history-engine-filter"]')).toBeTruthy()
+
+        await expectLogic(logic, () =>
+            logic.actions.setSelectedRunHistoryEngine(DataModelingJobsListEngine.ManagedWarehouse)
+        ).toDispatchActions(['loadRunHistoryJobsSuccess'])
+
+        expect(requests.at(-1)?.get('all_engines')).toBe('true')
+        expect(requests.at(-1)?.get('engine')).toBe('managed_warehouse')
+        expect(logic.values.dataModelingJobs).toEqual({ count: 0, results: [] })
+    })
+
+    it('refreshes the selected managed warehouse history during status refreshes and polling', async () => {
+        jest.useFakeTimers()
+        const managedRequests: URLSearchParams[] = []
+        const mocks = apiMocks({ isMaterialized: true })
+        mocks.get!['/api/projects/:team_id/data_modeling_jobs/'] = (req) => {
+            const params = new URL(req.request.url).searchParams
+            if (params.get('engine') === 'managed_warehouse') {
+                managedRequests.push(params)
+            }
+            return [200, { count: 0, results: [] }]
+        }
+        useMocks(mocks)
+        logic = materializationJobsLogic({ viewId: 'view-1' })
+        logic.mount()
+        await jest.advanceTimersByTimeAsync(0)
+
+        logic.actions.setSelectedRunHistoryEngine(DataModelingJobsListEngine.ManagedWarehouse)
+        await jest.advanceTimersByTimeAsync(0)
+        const requestsAfterSelection = managedRequests.length
+
+        logic.actions.refreshMaterialization()
+        await jest.advanceTimersByTimeAsync(0)
+        expect(managedRequests).toHaveLength(requestsAfterSelection + 1)
+
+        logic.actions.scheduleJobsRefresh(100)
+        await jest.advanceTimersByTimeAsync(100)
+        expect(managedRequests).toHaveLength(requestsAfterSelection + 2)
+    })
+
     it('pages through older runs without changing the latest run or growing polling requests', async () => {
         const mocks = apiMocks({ isMaterialized: true })
         const requests: string[] = []
@@ -186,6 +270,56 @@ describe('materializationJobsLogic', () => {
         await expectLogic(logic, () => logic.actions.setJobsPage(1)).toDispatchActions(['loadDataModelingJobsSuccess'])
         expect(logic.values.jobsPageResults?.results.map((job) => job.id)).toEqual(['run-0'])
         expect(requests).toEqual(['10:0', '10:10', '10:0', '10:0'])
+    })
+
+    it('does not show a cached older page for another engine', async () => {
+        const mocks = apiMocks({ isMaterialized: true })
+        mocks.get!['/api/projects/:team_id/data_modeling_jobs/'] = (req) => {
+            const params = new URL(req.request.url).searchParams
+            const engine = params.get('engine') ?? 'clickhouse'
+            const offset = Number(params.get('offset'))
+            return [
+                200,
+                {
+                    count: 20,
+                    next: null,
+                    results: [{ id: `${engine}-${offset}`, status: 'Completed', engine }],
+                },
+            ]
+        }
+        useMocks(mocks)
+        logic = materializationJobsLogic({ viewId: 'view-1' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadDataModelingJobsSuccess'])
+        await expectLogic(logic, () => logic.actions.setJobsPage(2)).toDispatchActions(['loadOlderJobsPageSuccess'])
+        expect(logic.values.jobsPageResults?.results[0].id).toBe('clickhouse-10')
+
+        await expectLogic(logic, () => {
+            logic.actions.setSelectedRunHistoryEngine(DataModelingJobsListEngine.ManagedWarehouse)
+            logic.actions.setJobsPage(2)
+            expect(logic.values.jobsPageResults).toBeNull()
+            expect(logic.values.runHistoryLoading).toBe(true)
+        }).toDispatchActions(['loadOlderJobsPageSuccess'])
+
+        expect(logic.values.jobsPageResults?.results[0].id).toBe('managed_warehouse-10')
+    })
+
+    it('keeps cached page-one history visible after a refresh error', async () => {
+        const mocks = apiMocks({ isMaterialized: true })
+        mocks.get!['/api/projects/:team_id/data_modeling_jobs/'] = [
+            200,
+            { count: 1, results: [{ id: 'run-1', status: 'Completed' }] },
+        ]
+        useMocks(mocks)
+        logic = materializationJobsLogic({ viewId: 'view-1' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadSavedQuerySuccess', 'loadDataModelingJobsSuccess'])
+        render(createElement(MaterializationStatusPanel, { viewId: 'view-1', showRunActions: false }))
+
+        act(() => logic.actions.loadDataModelingJobsFailure('Refresh failed'))
+
+        expect(screen.getByText("Couldn't load runs. Use Refresh runs to try again.")).toBeTruthy()
+        expect(screen.getAllByText('Completed').length).toBeGreaterThan(0)
     })
 
     // Regression: the run history only holds the ten newest runs, so a view whose recent runs all
@@ -250,6 +384,43 @@ describe('materializationJobsLogic', () => {
         expect(router.values.location.pathname).toBe(path)
     })
 
+    it('reloads the view list after a resume so the sidebar clears its paused icon', async () => {
+        const mocks = apiMocks({ isMaterialized: true })
+        mocks.post!['/api/projects/:team_id/warehouse_saved_queries/:id/resume/'] = [200, { resumed: true }]
+        useMocks(mocks)
+        logic = materializationJobsLogic({ viewId: 'view-1' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadSavedQuerySuccess'])
+        await expectLogic(logic, () => logic.actions.resumeMaterialization()).toDispatchActions([
+            'loadDataWarehouseSavedQueries',
+        ])
+    })
+
+    it.each([
+        ['the observed run ends', { id: 'run-1', status: 'Running' }, { id: 'run-1', status: 'Failed' }],
+        ['a run fails between polls', { id: 'run-1', status: 'Completed' }, { id: 'run-2', status: 'Failed' }],
+        ['a run succeeds between polls', { id: 'run-1', status: 'Failed' }, { id: 'run-2', status: 'Completed' }],
+    ])('reloads the view list once when %s, not on every poll', async (_name, before, after) => {
+        let newestJob = before
+        const mocks = apiMocks({ isMaterialized: true })
+        mocks.get!['/api/projects/:team_id/data_modeling_jobs/'] = () => [200, { count: 1, results: [newestJob] }]
+        useMocks(mocks)
+        logic = materializationJobsLogic({ viewId: 'view-1' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadDataModelingJobsSuccess'])
+        await expectLogic(logic, () => logic.actions.loadDataModelingJobs())
+            .toDispatchActions(['loadDataModelingJobsSuccess'])
+            .toNotHaveDispatchedActions(['loadDataWarehouseSavedQueries'])
+        newestJob = after
+        await expectLogic(logic, () => logic.actions.loadDataModelingJobs()).toDispatchActions([
+            'loadDataModelingJobsSuccess',
+            'loadDataWarehouseSavedQueries',
+        ])
+        await expectLogic(logic, () => logic.actions.loadDataModelingJobs())
+            .toDispatchActions(['loadDataModelingJobsSuccess'])
+            .toNotHaveDispatchedActions(['loadDataWarehouseSavedQueries'])
+    })
+
     // Another product owns these views: a managed viewset refuses the delete outright, and deleting
     // an endpoint-origin view breaks the endpoint it serves. The SQL editor renders the actions
     // without the endpoint `kind`, so the saved query has to carry the signal.
@@ -268,8 +439,9 @@ describe('materializationJobsLogic', () => {
 
     // Regression: the run check reads the loaded run list, which is empty both when nothing runs and
     // when the runs have not arrived. The saved query can arrive first, and deleting through that
-    // window leaves a run writing to a view that is gone.
-    it('blocks deletion until the run state is known and re-enables it when runs cannot load', async () => {
+    // window leaves a run writing to a view that is gone. A run started there has no earlier job to
+    // tell its own job apart from, so it would stop waiting on the first job it sees.
+    it('blocks deletion and runs until the run state is known and re-enables them when runs cannot load', async () => {
         let fail = false
         const mocks = apiMocks({ isMaterialized: true })
         let releaseJobs!: () => void
@@ -287,11 +459,13 @@ describe('materializationJobsLogic', () => {
         render(createElement(MaterializationRunActions, { viewId: 'view-1' }))
         fireEvent.click(buttonByAttr('node-detail-materialization-actions'))
         expect(buttonByAttr('node-detail-delete-view').getAttribute('aria-disabled')).toBe('true')
+        expect(buttonByAttr('node-detail-sync-now').getAttribute('aria-disabled')).toBe('true')
 
         fail = true
         releaseJobs()
         await expectLogic(logic).toDispatchActions(['loadDataModelingJobsFailure']).toFinishAllListeners()
         expect(buttonByAttr('node-detail-delete-view').getAttribute('aria-disabled')).not.toBe('true')
+        expect(buttonByAttr('node-detail-sync-now').getAttribute('aria-disabled')).not.toBe('true')
     })
 
     // Regression: the saved query reloads on every jobs poll. Without the once-per-mount guard the
@@ -311,6 +485,37 @@ describe('materializationJobsLogic', () => {
         logic.actions.loadSavedQuery()
         await expectLogic(logic).toDispatchActions(['loadSavedQuerySuccess']).toFinishAllListeners()
         expect(checkCalls).toBe(1)
+    })
+
+    it('shows a refresh mode loading state while the eligibility check runs', async () => {
+        let releaseCheck!: () => void
+        const heldCheck = new Promise<void>((resolve) => {
+            releaseCheck = resolve
+        })
+        const mocks = apiMocks({ isMaterialized: true })
+        mocks.post!['/api/environments/:team_id/warehouse_saved_queries/check_incremental/'] = async () => {
+            await heldCheck
+            return [200, ELIGIBLE_CHECK]
+        }
+        useMocks(mocks)
+        logic = materializationJobsLogic({ viewId: 'view-1' })
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['loadSavedQuerySuccess'])
+        render(
+            createElement(MaterializationStatusPanel, {
+                viewId: 'view-1',
+                showRunActions: false,
+                showStatusSummary: false,
+            })
+        )
+
+        expect(screen.getByText('Refresh mode')).toBeTruthy()
+        expect(document.querySelector('[data-attr="materialization-refresh-mode-loading"]')).toBeTruthy()
+
+        releaseCheck()
+        await expectLogic(logic).toDispatchActions(['loadIncrementalCheckSuccess']).toFinishAllListeners()
+        expect(document.querySelector('[data-attr="materialization-refresh-mode-loading"]')).toBeNull()
     })
 
     // Regression: a rejected eligibility check used to surface as a "Load incremental check failed"
@@ -347,15 +552,9 @@ describe('materializationJobsLogic', () => {
         }
     )
 
-    it.each([
-        ['the surface is an endpoint', { kind: 'endpoint' as const, flag: true }],
-        ['the feature flag is off', { kind: 'view' as const, flag: false }],
-    ])('does not run the eligibility check when %s', async (_name, { kind, flag }) => {
-        featureFlagLogic.actions.setFeatureFlags([], {
-            [FEATURE_FLAGS.DATA_MODELING_INCREMENTAL_VIEWS]: flag,
-        })
+    it('does not run the eligibility check when the surface is an endpoint', async () => {
         useMocks(apiMocks({ isMaterialized: false }))
-        logic = materializationJobsLogic({ viewId: 'view-1', kind })
+        logic = materializationJobsLogic({ viewId: 'view-1', kind: 'endpoint' })
         logic.mount()
 
         await expectLogic(logic).toDispatchActions(['loadSavedQuerySuccess']).toFinishAllListeners()
@@ -363,12 +562,10 @@ describe('materializationJobsLogic', () => {
     })
 
     it.each([
-        ['flag disabled', 'view' as const, false, false],
-        ['endpoint', 'endpoint' as const, true, false],
-        ['untouched draft', 'view' as const, true, false],
-        ['explicit full refresh', 'view' as const, true, true],
-    ])('preserves stored incremental settings unless edited: %s', async (_name, kind, flag, edited) => {
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.DATA_MODELING_INCREMENTAL_VIEWS]: flag })
+        ['endpoint', 'endpoint' as const, false],
+        ['untouched draft', 'view' as const, false],
+        ['explicit full refresh', 'view' as const, true],
+    ])('preserves stored incremental settings unless edited: %s', async (_name, kind, edited) => {
         const incremental = { enabled: true, incremental_key: 'id', unique_key: ['id'], lookback_seconds: 0 }
         const updates: unknown[] = []
         let materializations = 0
@@ -540,7 +737,7 @@ describe('materializationJobsLogic', () => {
             logic = materializationJobsLogic({ viewId: 'view-1' })
             logic.mount()
             await jest.advanceTimersByTimeAsync(0)
-            const interval = status === 'Running' ? 10000 : 60000
+            const interval = status === 'Running' ? 5000 : 60000
             await jest.advanceTimersByTimeAsync(interval - 1)
             expect(jobsCalls).toBe(1)
             fail = true
@@ -591,6 +788,49 @@ describe('materializationJobsLogic', () => {
         expect(logic.values.savedQuery?.is_materialized).toBe(false)
         expect(logic.values.savedQueryError).toBe(false)
     })
+    it('keeps a started run pending until its job appears or the wait times out, and reloads on tab return', async () => {
+        jest.useFakeTimers()
+        let jobs = [{ id: 'run-1', status: 'Completed' }]
+        let jobsCalls = 0
+        const mocks = apiMocks({ isMaterialized: true })
+        mocks.get!['/api/projects/:team_id/data_modeling_jobs/'] = () => {
+            jobsCalls += 1
+            return [200, { count: jobs.length, results: jobs }]
+        }
+        useMocks(mocks)
+        logic = materializationJobsLogic({ viewId: 'view-1' })
+        logic.mount()
+        await jest.advanceTimersByTimeAsync(0)
+
+        logic.actions.setStartingMaterialization(true)
+        dataWarehouseViewsLogic.actions.runDataWarehouseSavedQueryFailure('other-view')
+        logic.actions.loadDataModelingJobs()
+        await jest.advanceTimersByTimeAsync(0)
+        expect(logic.values.startingMaterialization).toBe(true)
+
+        jobs = [{ id: 'run-2', status: 'Running' }, ...jobs]
+        await jest.advanceTimersByTimeAsync(5000)
+        expect(logic.values.startingMaterialization).toBe(false)
+
+        jobs = [
+            { id: 'run-2', status: 'Completed' },
+            { id: 'run-1', status: 'Completed' },
+        ]
+        setDocumentHidden(true)
+        await jest.advanceTimersByTimeAsync(60000)
+        const callsWhileHidden = jobsCalls
+        setDocumentHidden(false)
+        await jest.advanceTimersByTimeAsync(0)
+        expect(jobsCalls).toBe(callsWhileHidden + 1)
+        expect(logic.values.dataModelingJobs?.results[0].status).toBe('Completed')
+
+        logic.actions.setStartingMaterialization(true)
+        await jest.advanceTimersByTimeAsync(119999)
+        expect(logic.values.startingMaterialization).toBe(true)
+        await jest.advanceTimersByTimeAsync(1)
+        expect(logic.values.startingMaterialization).toBe(false)
+    })
+
     it('ignores a saved query response started before a materialization action', async () => {
         useMocks(apiMocks({ isMaterialized: true }))
         logic = materializationJobsLogic({ viewId: 'view-1' })

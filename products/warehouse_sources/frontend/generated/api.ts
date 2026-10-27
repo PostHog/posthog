@@ -9,6 +9,8 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    AddSourcesRequestApi,
+    AddSourcesResponseApi,
     CdcEnableResponseApi,
     CdcPrerequisitesResponseApi,
     CdcStatusApi,
@@ -16,6 +18,7 @@ import type {
     CredentialAccountsRequestApi,
     DatabaseSchemaRequestApi,
     DeleteWebhookResponseApi,
+    DestinationConnectionTestResponseApi,
     DirectConnectionSourceOptionApi,
     DraftCustomManifestRequestApi,
     DraftCustomManifestResponseApi,
@@ -30,6 +33,7 @@ import type {
     ExternalDataSourceConnectionOptionApi,
     ExternalDataSourceCreateApi,
     ExternalDataSourceCreateResponseApi,
+    ExternalDataSourceExistsApi,
     ExternalDataSourceSerializersApi,
     ExternalDataSourcesConnectLinkRetrieveParams,
     ExternalDataSourcesJobsListParams,
@@ -226,6 +230,51 @@ export const externalDataDestinationsDestroy = async (
         ...options,
         method: 'DELETE',
     })
+}
+
+export const getExternalDataDestinationsAddSourcesCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_destinations/${id}/add_sources/`
+}
+
+/**
+ * Manage where warehouse sources write their synced rows.
+ *
+ * A destination can be attached to several sources, or to a single table on a source.
+ * Credentials come from an integration, so one connection can be reused across syncs.
+ */
+export const externalDataDestinationsAddSourcesCreate = async (
+    projectId: string,
+    id: string,
+    addSourcesRequestApi: AddSourcesRequestApi,
+    options?: RequestInit
+): Promise<AddSourcesResponseApi> => {
+    return apiMutator<AddSourcesResponseApi>(getExternalDataDestinationsAddSourcesCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(addSourcesRequestApi),
+    })
+}
+
+export const getExternalDataDestinationsTestConnectionCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_destinations/${id}/test_connection/`
+}
+
+/**
+ * Test the credentials and target of an existing destination, and return the result of each step.
+ */
+export const externalDataDestinationsTestConnectionCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<DestinationConnectionTestResponseApi> => {
+    return apiMutator<DestinationConnectionTestResponseApi>(
+        getExternalDataDestinationsTestConnectionCreateUrl(projectId, id),
+        {
+            ...options,
+            method: 'POST',
+        }
+    )
 }
 
 export const getExternalDataSchemasListUrl = (projectId: string, params?: ExternalDataSchemasListParams) => {
@@ -1209,6 +1258,23 @@ export const externalDataSourcesDraftCustomManifestCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(draftCustomManifestRequestApi),
+    })
+}
+
+export const getExternalDataSourcesExistsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/external_data_sources/exists/`
+}
+
+/**
+ * Create, Read, Update and Delete External data Sources.
+ */
+export const externalDataSourcesExistsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ExternalDataSourceExistsApi> => {
+    return apiMutator<ExternalDataSourceExistsApi>(getExternalDataSourcesExistsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 

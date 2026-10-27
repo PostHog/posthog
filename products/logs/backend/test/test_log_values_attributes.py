@@ -1,5 +1,6 @@
 import os
 import json
+from types import SimpleNamespace
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
@@ -11,6 +12,8 @@ from posthog.hogql.errors import QueryError
 
 from posthog.clickhouse.client import sync_execute
 from posthog.errors import ExposedCHQueryError
+
+from products.logs.backend.presentation.views.api import _LogsValuesQuerySerializer
 
 
 class TestLogValuesAttributesTimezones(ClickhouseTestMixin, APIBaseTest):
@@ -369,6 +372,61 @@ class TestLogValuesAttributesQueryErrors(APIBaseTest):
                 self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
                 self.assertEqual(response.json()["error"], str(error))
 
+    @parameterized.expand(
+        [
+            ("values", "LogValuesQueryRunner", {"key": "service.name", "attribute_type": "resource"}),
+            ("attributes", "LogAttributesQueryRunner", {"attribute_type": "resource"}),
+        ]
+    )
+    def test_filter_group_param_is_optional_and_accepts_a_flat_list(self, endpoint, runner_name, params):
+        flat_filter_group = [{"type": "log", "key": "severity_level", "value": ["error"], "operator": "exact"}]
+        with (
+            patch(f"products.logs.backend.presentation.views.api.{runner_name}") as runner_class,
+            patch("posthog.api.mixins.capture_exception") as capture_exception,
+        ):
+            runner_class.return_value.calculate.return_value = SimpleNamespace(results=[], count=0)
+
+            response = self.client.get(f"/api/projects/{self.team.pk}/logs/{endpoint}", params)
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+            self.assertIsNone(runner_class.call_args.kwargs["query"].filterGroup)
+
+            response = self.client.get(
+                f"/api/projects/{self.team.pk}/logs/{endpoint}",
+                {**params, "filterGroup": json.dumps(flat_filter_group)},
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+            filter_group = runner_class.call_args.kwargs["query"].filterGroup
+            self.assertEqual(filter_group.values[0].values[0].key, "severity_level")
+
+        capture_exception.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("empty_string", ""),
+            ("empty_object", "{}"),
+            ("empty_list", "[]"),
+            ("not_json", "not json"),
+            ("scalar", "5"),
+            ("group_without_values", json.dumps({"type": "AND"})),
+            ("integer_past_the_digit_limit", "[" + "1" * 5000 + "]"),
+        ]
+    )
+    def test_malformed_filter_group_param_means_no_filter(self, _name, filter_group):
+        with (
+            patch("products.logs.backend.presentation.views.api.LogAttributesQueryRunner") as runner_class,
+            patch("posthog.api.mixins.capture_exception") as capture_exception,
+        ):
+            runner_class.return_value.calculate.return_value = SimpleNamespace(results=[], count=0)
+
+            response = self.client.get(
+                f"/api/projects/{self.team.pk}/logs/attributes",
+                {"attribute_type": "resource", "filterGroup": filter_group},
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertIsNone(runner_class.call_args.kwargs["query"].filterGroup)
+        capture_exception.assert_not_called()
+
 
 class TestLogAttributesIlikeEscaping(ClickhouseTestMixin, APIBaseTest):
     CLASS_DATA_LEVEL_SETUP = True
@@ -547,3 +605,11 @@ class TestLogAttributesKeysFilter(ClickhouseTestMixin, APIBaseTest):
     def test_too_many_keys_returns_400(self):
         response = self._get({"keys": ",".join(f"key.{i}" for i in range(101))})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class TestLogValuesQuerySerializer:
+    def test_blank_value_is_accepted(self) -> None:
+        serializer = _LogsValuesQuerySerializer(data={"key": "level", "value": ""})
+
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data.get("value", "") == ""

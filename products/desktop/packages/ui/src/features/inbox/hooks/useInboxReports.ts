@@ -1,3 +1,4 @@
+import type { SuggestedReviewerEdit } from "@posthog/api-client/posthog-client";
 import {
   INBOX_REPORT_DETAIL_STALE_TIME_MS,
   inboxReportKeys,
@@ -225,7 +226,7 @@ export function useInboxReportSignals(
   );
 }
 
-interface UpdateSuggestedReviewersVariables {
+interface UpdateSuggestedReviewersVariables extends SuggestedReviewerEdit {
   /** Reviewer list sent to the server (it appends a new suggested_reviewers status row). */
   content: SuggestedReviewerWriteEntry[];
   /** Read-shape list used to optimistically show the new current reviewers. */
@@ -247,7 +248,8 @@ export function useUpdateSuggestedReviewers(reportId: string) {
     Error,
     UpdateSuggestedReviewersVariables
   >(
-    (client, { content }) => client.setSignalReportReviewers(reportId, content),
+    (client, { content, action, targets }) =>
+      client.setSignalReportReviewers(reportId, content, { action, targets }),
     {
       onMutate: async ({ optimisticReviewers }) => {
         await queryClient.cancelQueries({ queryKey });

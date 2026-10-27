@@ -1,23 +1,14 @@
-"""Product analytics retention eval cases for the sandboxed coding agent.
-
-Intent mirrors ``ee/hogai/eval/ci/eval_retention.py`` — the CI version asserts
-on the exact ``AssistantRetentionQuery`` Max produces, this version exercises
-the same intents end-to-end through the sandboxed agent + PostHog MCP tools
-and judges the retention query the agent ran via the ``query-retention`` MCP
-tool.
-
-To run:
-    flox activate -- bash -c "set -a; source .env; set +a; python -m products.posthog_ai.eval_harness.harness eval_retention"
-"""
+"""Product analytics retention eval cases for the sandbox agent."""
 
 from __future__ import annotations
 
 from posthog.schema import AssistantRetentionEventsNode, AssistantRetentionFilter, AssistantRetentionQuery
 
-from products.posthog_ai.eval_harness.base import SandboxedPublicEval
+from products.posthog_ai.eval_harness.base import SandboxedEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.scorers import AnswerToolCallNot, NoToolCall
+from products.posthog_ai.evals.offline_config import offline_suite
 from products.posthog_ai.evals.product_analytics.scorers import (
     INSIGHT_WRITE_TOOLS,
     RetentionSchemaAlignment,
@@ -124,8 +115,17 @@ async def eval_retention(ctx: EvalContext) -> None:
         ),
     ]
 
-    await SandboxedPublicEval(
+    await SandboxedEval(
         experiment_name="sandboxed-retention-cli",
+        offline_suite=offline_suite(
+            "product_analytics/eval_retention::eval_retention",
+            metrics=[
+                "no_persistent_insight_save",
+                "answer_tool_not_execute_sql",
+                "retention_schema_alignment",
+                "retention_time_range_relevancy",
+            ],
+        ),
         cases=cases,
         scorers=[
             NoToolCall(forbidden=INSIGHT_WRITE_TOOLS, name="no_persistent_insight_save"),

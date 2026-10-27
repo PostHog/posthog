@@ -90,13 +90,6 @@ export interface todaySessionMenuLogicActions {
         sessionId: string
         user: UserBasicType
     }
-    moveSession: (
-        sessionId: string,
-        spaceId: string
-    ) => {
-        sessionId: string
-        spaceId: string
-    }
     openHandoff: (menuId: string) => {
         menuId: string
     }
@@ -178,7 +171,6 @@ export const todaySessionMenuLogic = kea<todaySessionMenuLogicType>([
         setSessionPinned: (sessionId: string, pinned: boolean) => ({ sessionId, pinned }),
         renameSession: (sessionId: string, title: string) => ({ sessionId, title }),
         archiveSession: (sessionId: string, archived: boolean) => ({ sessionId, archived }),
-        moveSession: (sessionId: string, spaceId: string) => ({ sessionId, spaceId }),
         sessionUpdated: (sessionId: string) => ({ sessionId }),
         sessionUpdateFailed: (sessionId: string) => ({ sessionId }),
         startRenaming: (sessionId: string, surface: TodaySessionSurface) => ({ sessionId, surface }),
@@ -237,7 +229,6 @@ export const todaySessionMenuLogic = kea<todaySessionMenuLogicType>([
                 setSessionPinned: (state, { sessionId }) => [...state, sessionId],
                 renameSession: (state, { sessionId }) => [...state, sessionId],
                 archiveSession: (state, { sessionId }) => [...state, sessionId],
-                moveSession: (state, { sessionId }) => [...state, sessionId],
                 handOffSession: (state, { sessionId }) => [...state, sessionId],
                 analyzeSession: (state, { sessionId }) => [...state, sessionId],
                 stopSession: (state, { sessionId }) => [...state, sessionId],
@@ -345,9 +336,6 @@ export const todaySessionMenuLogic = kea<todaySessionMenuLogicType>([
                 } else {
                     toast.error({ title: 'Couldn’t copy the link. Try again.' })
                 }
-            },
-            moveSession: async ({ sessionId, spaceId }) => {
-                await update(sessionId, { channel: spaceId }, 'Couldn’t move this session. Try again.')
             },
             handOffSession: async ({ sessionId, user }) => {
                 try {

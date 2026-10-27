@@ -22,7 +22,7 @@ import { SourceConfigResponseApi } from 'products/warehouse_sources/frontend/gen
 import type { SourceCredentialApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import { availableSourcesLogic } from '../NewSourceScene/availableSourcesLogic'
-import { getErrorsForFields } from '../NewSourceScene/sourceWizardLogic'
+import { getErrorsForFields, resolveConnectErrorMessage } from '../NewSourceScene/sourceWizardLogic'
 
 // Carries the field whose file failed to read/parse so the submit handler can name it in the toast.
 class FileUploadParseError extends Error {
@@ -224,10 +224,21 @@ export const sourceConnectSceneLogic = kea<sourceConnectSceneLogicType>([
                     )
                     return
                 }
-                const credential = await externalDataSourcesStoreCredentialsCreate(
-                    String(ApiConfig.getCurrentTeamId()),
-                    { source_type: values.sourceConfig.name, payload }
-                )
+                let credential: SourceCredentialApi
+                try {
+                    credential = await externalDataSourcesStoreCredentialsCreate(String(ApiConfig.getCurrentTeamId()), {
+                        source_type: values.sourceConfig.name,
+                        payload,
+                    })
+                } catch (e: any) {
+                    // The endpoint tests the credentials against a live connection, so a rejection
+                    // is the common case. kea-forms swallows a thrown submit, leaving the button inert.
+                    if (e?.status >= 500) {
+                        posthog.captureException(e)
+                    }
+                    lemonToast.error(resolveConnectErrorMessage(e))
+                    return
+                }
                 actions.setStoredCredential(credential)
             },
         },

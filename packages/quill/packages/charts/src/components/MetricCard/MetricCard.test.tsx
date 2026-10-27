@@ -1,7 +1,7 @@
 import { act, render } from '@testing-library/react'
 
 import type { ChartTheme } from '../../core/types'
-import { renderHogChart, setupJsdom, setupSyncRaf } from '../../testing'
+import { renderChart, setupJsdom, setupSyncRaf } from '../../testing'
 import { MetricCard, type MetricChange } from './MetricCard'
 
 const THEME: ChartTheme = { colors: ['#22d3ee'], backgroundColor: '#ffffff' }
@@ -25,7 +25,7 @@ describe('MetricCard', () => {
 
     describe('with sparkline (data + theme)', () => {
         it('shows the last data point and label by default', () => {
-            const { container } = renderHogChart(
+            const { container } = renderChart(
                 <MetricCard
                     title="Total"
                     data={[100, 200, 300, 400]}
@@ -39,7 +39,7 @@ describe('MetricCard', () => {
         })
 
         it('renders a positive change pill when the series ends above the first non-zero value', () => {
-            const { container } = renderHogChart(
+            const { container } = renderChart(
                 <MetricCard
                     title="Total"
                     data={[100, 200, 300, 400]}
@@ -52,7 +52,7 @@ describe('MetricCard', () => {
         })
 
         it('renders a negative change pill when the series ends below the first value', () => {
-            const { container } = renderHogChart(
+            const { container } = renderChart(
                 <MetricCard
                     title="Total"
                     data={[400, 300, 200, 100]}
@@ -65,14 +65,14 @@ describe('MetricCard', () => {
         })
 
         it('skips the change pill when showChange is false', () => {
-            const { container } = renderHogChart(
+            const { container } = renderChart(
                 <MetricCard title="Total" data={[100, 200]} labels={['Jan', 'Feb']} theme={THEME} showChange={false} />
             )
             expect(container.textContent).not.toContain('%')
         })
 
         it('omits the change pill when the first non-zero value is undefined', () => {
-            const { container } = renderHogChart(
+            const { container } = renderChart(
                 <MetricCard title="Total" data={[0, 0, 0]} labels={['Jan', 'Feb', 'Mar']} theme={THEME} />
             )
             expect(container.textContent).not.toContain('%')
@@ -84,7 +84,7 @@ describe('MetricCard', () => {
         })
 
         it('uses Math.abs in the denominator so a negative baseline still reads as a rise', () => {
-            const { container } = renderHogChart(
+            const { container } = renderChart(
                 <MetricCard
                     title="Total"
                     data={[-100, 0, 100]}
@@ -99,7 +99,7 @@ describe('MetricCard', () => {
         it('ignores a quick pass-through and only follows the cursor once it settles past the dwell', () => {
             jest.useFakeTimers()
             try {
-                const { container, chart } = renderHogChart(
+                const { container, chart } = renderChart(
                     <MetricCard
                         title="Total"
                         data={[100, 200, 300, 400]}
@@ -127,12 +127,16 @@ describe('MetricCard', () => {
             }
         })
 
-        it('updates the headline value and label when hovering a different point', () => {
-            const { container, chart } = renderHogChart(
+        it.each<[string, ((label: string) => string) | undefined, string]>([
+            ['the raw label', undefined, 'Feb'],
+            ['the label from formatLabel', (label) => `${label} 2026`, 'Feb 2026'],
+        ])('updates the headline value and shows %s when hovering a different point', (_name, formatLabel, label) => {
+            const { container, chart } = renderChart(
                 <MetricCard
                     title="Total"
                     data={[100, 200, 300, 400]}
                     labels={LABELS}
+                    formatLabel={formatLabel}
                     theme={THEME}
                     animationMs={0}
                     hoverIntentMs={0}
@@ -141,11 +145,11 @@ describe('MetricCard', () => {
             )
             chart.hoverAtIndex(1)
             expect(container.textContent).toContain('$200')
-            expect(container.textContent).toContain('Feb')
+            expect(container.textContent).toContain(label)
         })
 
         it('headlines the supplied `value` at rest while the chart still draws from `data`', () => {
-            const { container, chart } = renderHogChart(
+            const { container, chart } = renderChart(
                 <MetricCard
                     title="Revenue"
                     data={[100, 200, 300, 400]}
@@ -164,7 +168,7 @@ describe('MetricCard', () => {
         })
 
         it('renders a supplied `change` pill fixed across hover', () => {
-            const { container, chart } = renderHogChart(
+            const { container, chart } = renderChart(
                 <MetricCard
                     title="Revenue"
                     data={[100, 200, 300, 400]}
@@ -183,7 +187,7 @@ describe('MetricCard', () => {
         })
 
         it('formats a supplied `change` via `formatChange` when no label is provided', () => {
-            const { container } = renderHogChart(
+            const { container } = renderChart(
                 <MetricCard
                     title="Revenue"
                     data={[100, 200, 300, 400]}
@@ -197,7 +201,7 @@ describe('MetricCard', () => {
         })
 
         it('suppresses the pill when change is null', () => {
-            const { container } = renderHogChart(
+            const { container } = renderChart(
                 <MetricCard
                     title="Revenue"
                     data={[100, 200, 300, 400]}
@@ -211,7 +215,7 @@ describe('MetricCard', () => {
         })
 
         it('uses the supplied subtitle in place of the hover-driven label', () => {
-            const { container } = renderHogChart(
+            const { container } = renderChart(
                 <MetricCard
                     title="Revenue"
                     data={[100, 200, 300, 400]}
@@ -226,7 +230,7 @@ describe('MetricCard', () => {
         })
 
         it('shows restingSubtitle at rest and yields to the hovered point label on hover', () => {
-            const { container, chart } = renderHogChart(
+            const { container, chart } = renderChart(
                 <MetricCard
                     title="Revenue"
                     data={[100, 200, 300, 400]}
@@ -245,7 +249,7 @@ describe('MetricCard', () => {
         })
 
         it('lets a supplied subtitle win over restingSubtitle at rest and on hover', () => {
-            const { container, chart } = renderHogChart(
+            const { container, chart } = renderChart(
                 <MetricCard
                     title="Revenue"
                     data={[100, 200, 300, 400]}
@@ -264,7 +268,7 @@ describe('MetricCard', () => {
         })
 
         it('with hoverChangeFromPreviousPoint, keeps the resting change but shows point-vs-previous on hover', () => {
-            const { container, chart } = renderHogChart(
+            const { container, chart } = renderChart(
                 <MetricCard
                     title="Revenue"
                     data={[100, 200, 300, 400]}
@@ -283,7 +287,7 @@ describe('MetricCard', () => {
         })
 
         it('with hoverChangeFromPreviousPoint, keeps the pill suppressed across hover when change is null', () => {
-            const { container, chart } = renderHogChart(
+            const { container, chart } = renderChart(
                 <MetricCard
                     title="Revenue"
                     data={[100, 200, 300, 400]}
@@ -301,7 +305,7 @@ describe('MetricCard', () => {
         })
 
         it('with hoverChangeFromPreviousPoint, hides the pill when hovering the first point', () => {
-            const { container, chart } = renderHogChart(
+            const { container, chart } = renderChart(
                 <MetricCard
                     title="Revenue"
                     data={[100, 200, 300, 400]}
@@ -382,7 +386,7 @@ describe('MetricCard', () => {
 
     describe('inline change pill, fill, and subtitle', () => {
         it('renders the change pill exactly once with changeInline (no header duplicate)', () => {
-            const { container } = renderHogChart(
+            const { container } = renderChart(
                 <MetricCard
                     title="Total"
                     data={[100, 200, 300, 400]}
@@ -398,7 +402,7 @@ describe('MetricCard', () => {
         })
 
         it('drops the fixed sparkline height when sparklineFill is set', () => {
-            const fixed = renderHogChart(
+            const fixed = renderChart(
                 <MetricCard
                     title="Total"
                     data={[100, 200]}
@@ -411,7 +415,7 @@ describe('MetricCard', () => {
                 (fixed.container.querySelector('[data-attr="metric-card-sparkline"]') as HTMLElement).style.height
             ).toBe('120px')
 
-            const filled = renderHogChart(
+            const filled = renderChart(
                 <MetricCard title="Total" data={[100, 200]} labels={['Jan', 'Feb']} theme={THEME} sparklineFill />
             )
             expect(
@@ -420,7 +424,7 @@ describe('MetricCard', () => {
         })
 
         it('renders the subtitle when provided and omits the row when empty', () => {
-            const withSubtitle = renderHogChart(
+            const withSubtitle = renderChart(
                 <MetricCard
                     title="Total"
                     data={[100, 200]}

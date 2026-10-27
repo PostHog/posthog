@@ -80,6 +80,19 @@ const RECOVERABLE_SNAPSHOT_ERRORS = [
     'snapshotSourceLoadExhausted',
 ]
 
+// The frame failure reports show an online browser and a frame that never started to load, and a retry
+// from this card almost always fixes it. So the message leads with the retry, and it mentions extensions
+// only after a retry from this card also failed.
+function playerFrameFailureMessage(restarts: number): string {
+    if (!navigator.onLine) {
+        return "Your browser is offline, so the player couldn't load. Reconnect to the internet and retry."
+    }
+    if (restarts === 0) {
+        return "The player didn't start in your browser. Retry usually fixes this."
+    }
+    return "The player still didn't start. A browser extension or security setting may be blocking it. Turn off extensions for PostHog, or try another browser."
+}
+
 const PlayerFrameOverlayContent = (): JSX.Element | null => {
     const {
         currentPlayerState,
@@ -87,11 +100,12 @@ const PlayerFrameOverlayContent = (): JSX.Element | null => {
         logicProps,
         playerError,
         playerFrameDocumentFailed,
+        playerFrameLoadRestarts,
         isWaitingForIngestion,
         sessionPlayerMetaData,
         matchingEventSkipTarget,
     } = useValues(sessionRecordingPlayerLogic)
-    const { setPlay, retryLoadingSnapshots } = useActions(sessionRecordingPlayerLogic)
+    const { setPlay, retryLoadingSnapshots, restartPlayerFrameLoad } = useActions(sessionRecordingPlayerLogic)
 
     const handlePlay = (e: MouseEvent): void => {
         e.stopPropagation()
@@ -149,7 +163,7 @@ const PlayerFrameOverlayContent = (): JSX.Element | null => {
                 </div>
                 <div className="text-secondary text-sm text-center">
                     {playerFrameDocumentFailed
-                        ? "Your browser couldn't load the player. Check your internet connection and reload the page. If it keeps happening, a browser extension or security setting may be blocking it. Try turning off extensions for PostHog or using another browser."
+                        ? playerFrameFailureMessage(playerFrameLoadRestarts)
                         : isMissingFullSnapshot
                           ? 'This part of the recording is missing the snapshot data needed to render it. The data never reached PostHog, usually because the browser was closed or went offline before the recording finished uploading.'
                           : isUnauthorized
@@ -177,7 +191,21 @@ const PlayerFrameOverlayContent = (): JSX.Element | null => {
                         Retry
                     </LemonButton>
                 )}
-                {!isMissingFullSnapshot && !isUnauthorized && !isRecoverable && (
+                {playerFrameDocumentFailed && (
+                    <LemonButton
+                        data-attr="replay-overlay-retry-player-frame"
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            restartPlayerFrameLoad()
+                        }}
+                        type="primary"
+                        fullWidth
+                        center
+                    >
+                        Retry
+                    </LemonButton>
+                )}
+                {!playerFrameDocumentFailed && !isMissingFullSnapshot && !isUnauthorized && !isRecoverable && (
                     <LemonButton
                         data-attr="replay-overlay-reload"
                         onClick={() => {

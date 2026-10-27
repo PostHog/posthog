@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 from unittest.mock import MagicMock, patch
 
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 
 from parameterized import parameterized
 
@@ -350,7 +350,7 @@ class TestUpdateTeamAuthenticationCache(TestCase):
         mock_sync.assert_called_once_with("sha256$hashed_old_backup")
 
 
-class TestUpdateTeamAuthenticationCacheOnDelete(TestCase):
+class TestUpdateTeamAuthenticationCacheOnDelete(SimpleTestCase):
     @patch("posthog.tasks.team_access_cache_tasks.invalidate_token_sync")
     @patch("posthog.storage.team_access_cache_signal_handlers.hash_key_value")
     def test_invalidates_both_secret_tokens(self, mock_hash, mock_sync):
@@ -618,6 +618,7 @@ class TestPersonalApiKeySavedSignalHandler(TestCase):
             (["scopes"], True, "scopes only"),
             (["scoped_teams"], True, "scoped_teams only"),
             (["scoped_organizations"], True, "scoped_organizations only"),
+            (["expires_at"], True, "expires_at only"),
             (["label", "scopes"], True, "label and scopes"),
         ]
     )

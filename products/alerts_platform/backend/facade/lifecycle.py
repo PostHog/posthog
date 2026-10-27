@@ -25,7 +25,7 @@ from datetime import datetime, timedelta
 from enum import Enum, StrEnum
 from typing import Protocol
 
-from products.alerts_platform.backend.facade.contracts import FiringEpisode, IncidentAction
+from products.alerts_platform.backend.facade.contracts import AlertEventKind, FiringEpisode, IncidentAction
 
 MAX_CONSECUTIVE_FAILURES = 5
 
@@ -46,6 +46,18 @@ class NotificationAction(Enum):
     RESOLVE = "resolve"
     ERROR = "error"
     BROKEN = "broken"
+
+
+# What a source reports as a check's kind. A check that announced nothing is a CHECK even when it
+# moved the alert; the row's two states carry the move. `AlertEventKind`'s other four values are
+# the `EventKind` strings the logs destination config is keyed on.
+NOTIFICATION_EVENT_KINDS: dict[NotificationAction, AlertEventKind] = {
+    NotificationAction.NONE: AlertEventKind.CHECK,
+    NotificationAction.FIRE: AlertEventKind.FIRING,
+    NotificationAction.RESOLVE: AlertEventKind.RESOLVED,
+    NotificationAction.ERROR: AlertEventKind.ERRORED,
+    NotificationAction.BROKEN: AlertEventKind.BROKEN,
+}
 
 
 class InvalidTransition(Exception):
@@ -93,9 +105,12 @@ class AlertPolicy:
 
 LOGS_ALERT_POLICY = AlertPolicy()
 
-# Two constants rather than one changed default, because production logs keeps its own mute
-# semantics until it migrates.
-PLATFORM_LOGS_ALERT_POLICY = replace(LOGS_ALERT_POLICY, mute_gates_notification_only=True)
+# What a source on the platform runs when nothing about its alerts needs a lifecycle of its own.
+# It differs from `LOGS_ALERT_POLICY` because production logs keeps its own mute semantics until it
+# migrates.
+PLATFORM_DEFAULT_ALERT_POLICY = replace(LOGS_ALERT_POLICY, mute_gates_notification_only=True)
+
+PLATFORM_LOGS_ALERT_POLICY = PLATFORM_DEFAULT_ALERT_POLICY
 
 BILLING_ALERT_POLICY = AlertPolicy(
     broken_is_terminal=False,

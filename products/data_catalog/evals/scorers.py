@@ -13,12 +13,14 @@ import json
 from typing import Any
 
 from products.data_catalog.evals.constants import (
+    APPROVED_BADGE_CODE_POINT,
     DEPRECATION_CANONICAL_SOURCE_NAME,
     DEPRECATION_STALE_SOURCE_NAME,
     EVAL_DESCRIPTION_CHAR_LIMIT,
     METRIC_CREATE_TOOL,
     METRIC_UPDATE_TOOL,
     METRICS_CATALOG_MARKER,
+    PROPOSED_BADGE_ICON,
 )
 from products.posthog_ai.eval_harness.log_parser import LogParser, ToolCall
 from products.posthog_ai.eval_harness.scorers import (
@@ -30,6 +32,8 @@ from products.posthog_ai.eval_harness.scorers import (
 from products.posthog_ai.eval_harness.scorers.contract import Score, Scorer
 
 __all__ = [
+    "AnswerTableQueried",
+    "AnswerValueStated",
     "CanonicalMetricRun",
     "DeprecationProposed",
     "SemanticMetadataQueried",
@@ -42,8 +46,9 @@ __all__ = [
     "MetricsCatalogNotQueried",
     "GovernedBehaviorCorrectness",
     "ClarificationAsked",
-    "ProposedMetricNotRun",
     "MetricDescribeBeforeAdaptedSql",
+    "ProposedBadgeShown",
+    "TrustBadgeShown",
 ]
 
 SQL_TOOL = "execute-sql"
@@ -242,6 +247,10 @@ class MetricsCatalogBeforeDataDiscovery(Scorer):
                 },
             )
         return Score(name=self._name(), score=1.0, metadata={"failed_catalog_lookups": failed_catalog_lookups})
+
+
+def _first_line(answer: str) -> str:
+    return next((line for line in answer.splitlines() if line.strip()), "")
 
 
 def _expected_metric_names(metric_name: object) -> list[str]:
@@ -461,10 +470,11 @@ class MetricDescriptionConcise(Scorer):
 METRIC_DESCRIPTION_QUALITY_PROMPT = """\
 You are grading the 'description' an agent wrote when saving a metric to a governed catalog.
 
-A good description states, in 1-3 sentences, what the metric means and what it serves: the
-business meaning plus any load-bearing inclusions/exclusions or grain. It must not narrate or
-restate the query or calculation steps - those live in the metric's definition, and the agent's
-rationale belongs in the separate 'reasoning' field.
+A good description states, in 1-2 short sentences, what the number is: its meaning and grain plus
+any inclusion or exclusion that changes it. It must not narrate or restate the query or calculation
+steps - those live in the metric's definition, and the agent's rationale belongs in the separate
+'reasoning' field. It must not name source tables or views, trace lineage, list columns, or compare
+with or point to other metrics.
 
 The description to grade:
 <description>{{output.description}}</description>
@@ -475,9 +485,10 @@ The metric's definition, for reference, to spot narration:
 The agent's reasoning field:
 <reasoning>{{output.reasoning}}</reasoning>
 
-Answer "yes" only if the description is 1-3 sentences stating meaning and purpose without walking
+Answer "yes" only if the description is 1-2 sentences stating what the number is without walking
 through the query or calculation steps. Answer "no" if it narrates the query, restates SQL or
-step-by-step mechanics, or pads beyond 3 sentences."""
+step-by-step mechanics, names source tables or lineage, lists columns, compares with or points to
+other metrics, or pads beyond 2 sentences."""
 
 
 class MetricDescriptionQuality(JudgedScorer):
@@ -567,35 +578,6 @@ class ClarificationAsked(Scorer):
                 metadata={"reason": "answered from data before asking", "offenders": premature},
             )
         return Score(name=self._name(), score=1.0, metadata={"question_position": first_question})
-
-
-class ProposedMetricNotRun(Scorer):
-    """Binary: the named non-approved metric must not have been run for the answer."""
-
-    def _name(self) -> str:
-        return "proposed_metric_not_run"
-
-    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
-        spec = expected.get(self._name()) if isinstance(expected, dict) else None
-        if spec is None:
-            return Score(name=self._name(), score=None, metadata={"reason": "not requested"})
-        metric_name = spec.get("metric_name") if isinstance(spec, dict) else None
-        if not isinstance(metric_name, str) or not metric_name:
-            return Score(name=self._name(), score=0.0, metadata={"reason": "metric_name is required"})
-        parser = _parser_for(output)
-        if parser is None:
-            return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
-
-        runs = [
-            call
-            for call in parser.get_tool_calls(METRIC_RUN_TOOL)
-            if not call.is_error and call.input.get("name") == metric_name
-        ]
-        return Score(
-            name=self._name(),
-            score=0.0 if runs else 1.0,
-            metadata={"metric_name": metric_name, "runs": len(runs)},
-        )
 
 
 class MetricDescribeBeforeAdaptedSql(Scorer):
@@ -767,6 +749,13 @@ class GovernedBehaviorCorrectness(JudgedScorer):
         }
 
 
+def _selects_star_from(query: str, surface: str) -> bool:
+    # A star projection read directly from the surface returns every column, so it reads the required columns
+    # without naming them. A star over a subquery or another table exposes only what that input selects.
+    pattern = rf"\bselect\s+(?:distinct\s+)?(?:[\w.]+\.)?\*\s+from\s+(?:[\w.]+\.)?{re.escape(surface)}\b"
+    return re.search(pattern, query) is not None
+
+
 class SemanticMetadataQueried(Scorer):
     def _name(self) -> str:
         return "semantic_metadata_queried"
@@ -795,7 +784,7 @@ class SemanticMetadataQueried(Scorer):
             query
             for call in _successful_sql(parser)
             if normalized_surface in (query := _query_text(call))
-            and all(column in query for column in normalized_columns)
+            and (_selects_star_from(query, normalized_surface) or all(column in query for column in normalized_columns))
         ]
         return Score(
             name=self._name(),
@@ -804,6 +793,87 @@ class SemanticMetadataQueried(Scorer):
                 "surface": normalized_surface,
                 "required_columns": normalized_columns,
                 "matching_queries": matching_queries,
+            },
+        )
+
+
+def _is_negated(text: str, start: int) -> bool:
+    # A minus sign directly before the number flips its meaning, so "-437.50" does not state 437.50. A digit before
+    # the sign makes it a range such as "400-437.50", which still states the value.
+    if start == 0 or text[start - 1] not in "-\u2212":
+        return False
+    return start < 2 or not text[start - 2].isdigit()
+
+
+class AnswerValueStated(Scorer):
+    """Binary: does the final answer state the seeded value? Commas and currency signs are ignored."""
+
+    def _name(self) -> str:
+        return "answer_value_stated"
+
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
+        spec = expected.get(self._name()) if isinstance(expected, dict) else None
+        if not isinstance(spec, dict):
+            return Score(name=self._name(), score=None, metadata={"reason": "not requested"})
+        value = spec.get("value")
+        if not isinstance(value, str) or not value:
+            return Score(name=self._name(), score=0.0, metadata={"reason": "invalid expected metadata"})
+
+        answer = (output or {}).get("last_message") or ""
+        if not answer:
+            return Score(name=self._name(), score=0.0, metadata={"reason": "no final answer"})
+
+        normalized = answer.replace(",", "").replace("$", "")
+        # Trailing decimal zeros are optional so that "437.5" matches "437.50". The digit guards stop "1437.50"
+        # or "437.55" from matching. The zeros may only follow the decimal point, so "800.00" does not match "8000".
+        # The trailing guard also rejects a decimal point followed by a digit, so "18050.88" does not state 18050.00.
+        whole, _, fraction = value.partition(".")
+        fraction = fraction.rstrip("0")
+        decimals = rf"\.{re.escape(fraction)}0*" if fraction else r"(?:\.0*)?"
+        pattern = rf"(?<![\d.]){re.escape(whole)}{decimals}(?!\.?\d)"
+        found = any(not _is_negated(normalized, match.start()) for match in re.finditer(pattern, normalized))
+        return Score(name=self._name(), score=1.0 if found else 0.0, metadata={"value": value})
+
+
+# A table name inside a string literal is a catalog filter such as `WHERE table_name = '...'`, not a read.
+_STRING_LITERAL = re.compile(r"'(?:[^'\\]|\\.)*'")
+
+
+def _reads_table(query: str, names: list[str]) -> bool:
+    # The guards stop "postgres_contracts_acv" from matching "postgres_contracts_acv_v2" or a longer dotted name.
+    code = _STRING_LITERAL.sub("''", query)
+    return any(re.search(rf"(?<![\w.]){re.escape(name.lower())}(?![\w])", code) for name in names)
+
+
+class AnswerTableQueried(Scorer):
+    """Binary: did a successful query read the expected table without reading any decoy?
+
+    Every decoy holds different rows, so paired with ``AnswerValueStated`` this shows that the answer came from the
+    expected table. A synced table answers to two names, so ``tables`` lists both.
+    """
+
+    def _name(self) -> str:
+        return "answer_table_queried"
+
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
+        spec = expected.get(self._name()) if isinstance(expected, dict) else None
+        if not isinstance(spec, dict):
+            return Score(name=self._name(), score=None, metadata={"reason": "not requested"})
+        tables, decoys = spec.get("tables"), spec.get("decoys")
+        if not isinstance(tables, list) or not tables or not isinstance(decoys, list):
+            return Score(name=self._name(), score=0.0, metadata={"reason": "invalid expected metadata"})
+        parser = _parser_for(output)
+        if parser is None:
+            return Score(name=self._name(), score=0.0, metadata={"reason": "No raw log"})
+
+        queries = [_query_text(call) for call in _successful_sql(parser)]
+        matching = [query for query in queries if _reads_table(query, tables) and not _reads_table(query, decoys)]
+        return Score(
+            name=self._name(),
+            score=1.0 if matching else 0.0,
+            metadata={
+                "matching_queries": matching,
+                "candidate_queries": [query for query in queries if _reads_table(query, [*tables, *decoys])],
             },
         )
 
@@ -886,3 +956,75 @@ CANARY_ROUTING_SCORERS: list[Scorer] = [
     ClarificationAsked(),
     MetricDescribeBeforeAdaptedSql(),
 ]
+
+
+class TrustBadgeShown(Scorer):
+    """Binary: does the final answer show the approved-metric badge exactly when it should?
+
+    ``expected["trust_badge"]["shown"]`` is true when the answer comes from an approved, non-drifted
+    metric run, and false when no badge may appear (a proposed or drifted metric, or a derived number).
+    """
+
+    def _name(self) -> str:
+        return "trust_badge"
+
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
+        spec = expected.get(self._name()) if isinstance(expected, dict) else None
+        if spec is None:
+            return Score(name=self._name(), score=None, metadata={"reason": "not requested"})
+        should_show = spec.get("shown") if isinstance(spec, dict) else None
+        if not isinstance(should_show, bool):
+            return Score(name=self._name(), score=0.0, metadata={"reason": "invalid expected value"})
+        answer = (output or {}).get("last_message") or ""
+        if not answer:
+            return Score(name=self._name(), score=0.0, metadata={"reason": "no final answer"})
+
+        opens_with_badge = APPROVED_BADGE_CODE_POINT in _first_line(answer)
+        has_badge = APPROVED_BADGE_CODE_POINT in answer
+        passed = opens_with_badge if should_show else not has_badge
+        return Score(
+            name=self._name(),
+            score=1.0 if passed else 0.0,
+            metadata={"expected_shown": should_show, "opens_with_badge": opens_with_badge, "has_badge": has_badge},
+        )
+
+
+class ProposedBadgeShown(Scorer):
+    """Binary: when the agent runs the named proposed metric, does the answer badge it and link to it?
+
+    Using a proposed metric is the agent's call, so a case where it never runs the metric is skipped
+    (``score=None``) and left to the behavior judge.
+    """
+
+    def _name(self) -> str:
+        return "proposed_badge"
+
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
+        spec = expected.get(self._name()) if isinstance(expected, dict) else None
+        if spec is None:
+            return Score(name=self._name(), score=None, metadata={"reason": "not requested"})
+        metric_name = spec.get("metric_name") if isinstance(spec, dict) else None
+        if not isinstance(metric_name, str) or not metric_name:
+            return Score(name=self._name(), score=0.0, metadata={"reason": "metric_name is required"})
+        parser = _parser_for(output)
+        if parser is None:
+            return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
+        ran = any(
+            not call.is_error and call.input.get("name") == metric_name
+            for call in parser.get_tool_calls(METRIC_RUN_TOOL)
+        )
+        if not ran:
+            return Score(name=self._name(), score=None, metadata={"reason": "proposed metric not used"})
+
+        answer = (output or {}).get("last_message") or ""
+        opening = _first_line(answer)
+        # A markdown link whose target ends at this metric's page, so a bare path or a metric whose
+        # name only starts the same way does not count.
+        link = re.compile(rf"\]\([^)\s]*/data-catalog/metrics/{re.escape(metric_name)}(?:[?#][^)\s]*)?\)")
+        has_badge = PROPOSED_BADGE_ICON in opening
+        has_link = bool(link.search(opening))
+        return Score(
+            name=self._name(),
+            score=1.0 if has_badge and has_link else 0.0,
+            metadata={"has_badge": has_badge, "has_link": has_link},
+        )

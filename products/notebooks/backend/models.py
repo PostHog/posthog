@@ -23,6 +23,8 @@ class Notebook(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
     class Visibility(models.TextChoices):
         INTERNAL = "internal", "internal"
         DEFAULT = "default", "default"
+        # Hidden like INTERNAL until someone opens it in the app, then DEFAULT.
+        UNLISTED = "unlisted", "unlisted"
 
     short_id = models.CharField(max_length=12, blank=True, default=generate_short_id)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
@@ -67,7 +69,7 @@ class Notebook(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
             name=self.title or "Untitled",
             href=f"/notebooks/{self.short_id}",
             meta={"created_at": str(self.created_at), "created_by": self.created_by_id},
-            should_delete=self.deleted or self.visibility == self.Visibility.INTERNAL,
+            should_delete=self.deleted or self.visibility != self.Visibility.DEFAULT,
         )
 
 
@@ -342,7 +344,7 @@ class NotebookNodeRun(TeamScopedRootMixin, UUIDModel):
     # Which kernel this run was dispatched to, so the callback can file the run's frame
     # snapshot against the right KernelRuntime. A plain id rather than an FK: runtime rows
     # are transient (starting/stopped/discarded/error) and run history must not be coupled
-    # to their churn — see sql_v2_result_delivery.md, "Related model notes".
+    # to their churn.
     kernel_runtime_id = models.UUIDField(null=True, blank=True)
     error = models.TextField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

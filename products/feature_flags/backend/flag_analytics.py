@@ -5,7 +5,10 @@ from uuid import UUID
 
 from django.conf import settings
 from django.core.cache import cache
+from django.db import transaction
 from django.db.models import Q
+
+import structlog
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.materialized_columns import get_materialized_column_for_property
@@ -23,6 +26,8 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 if TYPE_CHECKING:
     from posthoganalytics import Posthog
+
+logger = structlog.get_logger(__name__)
 
 REDIS_LOCK_TOKEN = "posthog:decide_analytics:lock"
 CACHE_BUCKET_SIZE = 60 * 2  # duration in seconds
@@ -268,18 +273,27 @@ def find_flags_with_enriched_analytics(begin: datetime, end: datetime):
     result = sync_execute(_build_enriched_analytics_query(), {"begin": begin, "end": end})
 
     for row in result:
-        team_id = row[0]
-        flag_key = row[1]
-        team = Team.objects.only("project_id").get(id=team_id)
+        if not isinstance(row, tuple | list) or len(row) < 2:
+            logger.warning(
+                "find_flags_with_enriched_analytics_malformed_row",
+                row_type=type(row).__name__,
+                row_length=len(row) if isinstance(row, tuple | list) else None,
+            )
+            continue
 
+        team_id, flag_key = row[0], row[1]
         try:
+            team = Team.objects.only("project_id").get(id=team_id)
             flag = FeatureFlag.objects.get(team__project_id=team.project_id, key=flag_key)
             if not flag.has_enriched_analytics:
-                flag.has_enriched_analytics = True
-                flag.save()
-                if flag.usage_dashboard and not flag.usage_dashboard_has_enriched_insights:
-                    add_enriched_insights_to_feature_flag_dashboard(flag, flag.usage_dashboard)
-        except FeatureFlag.DoesNotExist:
+                # A failed enrichment rolls back the flag update, so the next run retries this
+                # flag instead of skipping it as already enriched.
+                with transaction.atomic():
+                    flag.has_enriched_analytics = True
+                    flag.save()
+                    if flag.usage_dashboard and not flag.usage_dashboard_has_enriched_insights:
+                        add_enriched_insights_to_feature_flag_dashboard(flag, flag.usage_dashboard)
+        except (Team.DoesNotExist, FeatureFlag.DoesNotExist):
             pass
         except Exception as e:
             capture_exception(e)

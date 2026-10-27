@@ -9,7 +9,7 @@ import { dayjs } from 'lib/dayjs'
 
 import { TRACING_DATE_FORMAT, TRACING_DISPLAY_TIMEZONE, TRACING_TIME_FORMAT } from '../../dateFormats'
 import { deriveSpanSummary } from '../../spanSummary'
-import { formatDuration } from '../../spanTime'
+import { formatDuration } from '../../TraceWaterfallView'
 import type { Span } from '../../types'
 
 // A service indicator (not an error indicator — error state is the status badge's job). Colored
@@ -28,7 +28,7 @@ function ServiceDot({ colorIndex }: { colorIndex: number | undefined }): JSX.Ele
 // A labelled, copyable identifier. Trace/parent IDs live here (not just the span ID) because the
 // summary header replaces the old "Span details" table — they're the only copyable home for the
 // correlation handles a user needs to pivot across distributed-trace tooling.
-function CopyableId({ label, value }: { label: string; value: string }): JSX.Element {
+export function CopyableId({ label, value }: { label: string; value: string }): JSX.Element {
     return (
         <span>
             {label}:{' '}

@@ -5,33 +5,40 @@ import './buffer-polyfill'
 import { Suspense, lazy } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 
+import { markBootPhase } from 'lib/utils/bootTiming'
 import { retryBootImport } from 'lib/utils/retryImport'
 
 import { RootErrorBoundary } from './RootErrorBoundary'
 import { ChunkLoadErrorBoundary } from './scenes/ChunkLoadErrorBoundary'
+
+markBootPhase('entry')
 
 type AppModules = [typeof import('scenes/App'), typeof import('scenes/bootApp')]
 
 let appModulesPromise: Promise<AppModules> | undefined
 
 function loadAppModules(): Promise<AppModules> {
-    return (appModulesPromise ??= retryBootImport(() => import('lib/configureZod')).then(() =>
-        Promise.all([retryBootImport(() => import('scenes/App')), retryBootImport(() => import('scenes/bootApp'))])
-    ))
+    return (appModulesPromise ??= Promise.all([
+        retryBootImport(() => import('scenes/App')),
+        retryBootImport(() => import('scenes/bootApp')),
+    ]).then((modules) => {
+        // Marked here, not in the lazy() factory: React calls the factory only after the CSS gate in boot().
+        markBootPhase('app_modules_loaded')
+        return modules
+    }))
 }
 
 // Lazy-load App so the entry chunk stays minimal: the entire transitive dependency
 // graph (kea, posthog-js, scene logic, UI components) is only fetched when it renders.
-// lib/configureZod is imported on its own before the App chunk, because zod binds its
-// jitless setting when it constructs each object schema and the App graph constructs
-// some at module scope. bootApp() runs the remaining one-time boot side
-// effects (posthog-js, kea) after the chunks load and before <App /> first renders.
+// bootApp() runs the remaining one-time boot side effects (posthog-js, kea) after the
+// chunks load and before <App /> first renders.
 // It lives in its own module so scenes/App keeps component-only exports and stays a
 // React Fast Refresh boundary.
 // boot() also starts the module imports while CSS loads; runtime initialization stays behind the render gate.
 const App = lazy(() =>
     loadAppModules().then(([appModule, bootModule]) => {
         bootModule.bootApp()
+        markBootPhase('app_booted')
         return { default: appModule.App }
     })
 )
@@ -117,6 +124,7 @@ function boot(): void {
         // `null` is the gate expiring on a sheet that is only slow. The loader keeps working on it
         // in the background, so render now rather than hold the app back.
         if (applied !== false) {
+            markBootPhase('css_ready')
             renderApp()
         }
     })

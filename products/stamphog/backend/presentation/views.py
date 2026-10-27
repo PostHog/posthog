@@ -25,6 +25,8 @@ from rest_framework.views import APIView
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
+from posthog.credentials_service.callers import CredentialsCaller
+from posthog.credentials_service.settings_fallback import get_or_settings
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -37,7 +39,7 @@ from products.stamphog.backend.facade import (
     api as facade_api,
     contracts,
 )
-from products.stamphog.backend.facade.enums import ReviewRequestRefusal, ReviewTrigger
+from products.stamphog.backend.facade.enums import ReviewMode, ReviewRequestRefusal, ReviewTrigger
 
 from ..facade import review_requests
 from ..facade.github import (
@@ -47,6 +49,7 @@ from ..facade.github import (
     sync_installation_repositories,
     user_can_access_installation,
 )
+from ..facade.tasks import create_trigger_label
 from .serializers import (
     DigestRunSerializer,
     PullRequestSerializer,
@@ -236,6 +239,15 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.GenericView
             "Only a Stamphog editor can turn reviews on. Ask an organization admin for editor access."
         )
 
+    def _queue_trigger_label_creation(self, config: contracts.RepoConfigDTO) -> None:
+        if not (config.enabled and config.review_mode == ReviewMode.LABEL):
+            return
+        # The write already committed, so an unreachable broker must not turn it into a 500.
+        try:
+            create_trigger_label.delay(team_id=self.canonical_team_id, config_id=str(config.id))
+        except Exception:
+            logger.warning("stamphog_trigger_label_queue_failed", repository=config.repository, exc_info=True)
+
     def _available_count(self) -> int:
         return facade_api.list_available_repositories(self.canonical_team_id, limit=0).total_count
 
@@ -278,6 +290,8 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.GenericView
         serializer.is_valid(raise_exception=True)
         self._require_review_level(request, _required_review_level(serializer.validated_data))
         config = facade_api.update_repo_config(self.canonical_team_id, str(pk), **serializer.validated_data)
+        if any(field in serializer.validated_data for field in ("enabled", *REVIEW_POLICY_FIELDS)):
+            self._queue_trigger_label_creation(config)
         return Response(self.get_serializer(config).data)
 
     @extend_schema(request=StamphogRepoConfigWriteSerializer, responses={200: StamphogRepoConfigSerializer})
@@ -338,6 +352,7 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.GenericView
             raise ValidationError(
                 {"repository": "This repository is already configured under this GitHub installation by another team."}
             )
+        self._queue_trigger_label_creation(result.config)
         return Response(self.get_serializer(result.config).data, status=201 if result.created else 200)
 
     @extend_schema(responses={200: StamphogInstallInfoSerializer})
@@ -349,7 +364,7 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.GenericView
         # current team. Without it, an attacker could send a logged-in member a callback carrying the
         # attacker's own installation and bind it to the victim's team.
         slug = settings.STAMPHOG_GITHUB_APP_SLUG
-        client_id = settings.STAMPHOG_GITHUB_APP_CLIENT_ID
+        client_id = get_or_settings("STAMPHOG_GITHUB_APP_CLIENT_ID", CredentialsCaller.STAMPHOG)
         install_url = ""
         authorize_url = ""
         # One state token backs both URLs — either callback (install Setup URL or authorize Callback URL)

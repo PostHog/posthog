@@ -1,6 +1,7 @@
 import type { _SpanEventApi } from 'products/tracing/frontend/generated/api.schemas'
 
-import { formatDuration, parseTimestampUs } from '../../spanTime'
+import { parseTimestampUs } from '../../spanTree'
+import { formatDuration } from '../../TraceWaterfallView'
 import { SpanAttributes } from './SpanAttributes'
 
 export interface SpanEventsProps {

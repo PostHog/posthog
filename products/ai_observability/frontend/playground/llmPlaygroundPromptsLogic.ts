@@ -22,10 +22,11 @@ import { normalizeMessage } from '../messageNormalization'
 import { llmPromptLogic } from '../prompts/llmPromptLogic'
 import { getApiErrorDetail } from '../prompts/utils'
 import { normalizeLLMProvider } from '../settings/llmProviderKeysLogic'
-import { isOTelPartsMessage, normalizeRole, safeStringify } from '../utils'
+import { isOTelPartsMessage, normalizeRole } from '../utils'
 import { isMessageSendable } from './playgroundMessageMapping'
 import { isTraceLikeSelection } from './playgroundModelMatching'
 import { type PlaygroundModelConfig, parsePlaygroundConfig, serializePlaygroundConfig } from './playgroundPromptConfig'
+import { type RawMessage, appendRawMessage, flattenOutputMessages } from './playgroundTraceImport'
 
 const SOURCE_PARAM_KEYS = ['source_prompt_name', 'source_prompt_version', 'source_evaluation_id'] as const
 
@@ -40,6 +41,16 @@ export function cleanSourceSearchParams(searchParams: Record<string, any>): Reco
 
 export type MessageRole = 'user' | 'assistant' | 'system' | 'tool'
 export type ReasoningLevel = 'minimal' | 'low' | 'medium' | 'high' | null
+
+// The OpenAI `response_format` shape, so an SDK that fetches the prompt can pass it to a provider unchanged.
+export interface PlaygroundResponseFormat {
+    type: 'json_schema'
+    json_schema: {
+        name: string
+        schema: Record<string, unknown>
+        strict: boolean
+    }
+}
 
 export interface MessageToolCall {
     id: string
@@ -70,6 +81,7 @@ export interface PromptConfig {
     thinking: boolean
     reasoningLevel: ReasoningLevel
     tools: Record<string, unknown>[] | null
+    responseFormat: PlaygroundResponseFormat | null
     sourceType: 'prompt' | 'evaluation' | null
     sourcePromptName: string | null
     sourcePromptVersion: number | null
@@ -168,6 +180,7 @@ export function createPromptConfig(partial: Partial<PromptConfig> = {}): PromptC
         thinking: partial.thinking ?? false,
         reasoningLevel: partial.reasoningLevel ?? 'medium',
         tools: partial.tools ?? null,
+        responseFormat: partial.responseFormat ?? null,
         sourceType: partial.sourceType ?? null,
         sourcePromptName: partial.sourcePromptName ?? null,
         sourcePromptVersion: partial.sourcePromptVersion ?? null,
@@ -198,278 +211,6 @@ export function updatePromptConfigs(
     return state.map((prompt) => (prompt.id === targetPromptId ? updater(prompt) : prompt))
 }
 
-// Input processing helpers for setupPlaygroundFromEvent
-
-interface RawMessage {
-    role: string
-    content: unknown
-    tool_calls?: unknown
-    tool_call_id?: unknown
-    type?: string
-}
-
-type ConversationRole = 'user' | 'assistant'
-
-enum InputMessageRole {
-    User = 'user',
-    Assistant = 'assistant',
-    AI = 'ai',
-    Model = 'model',
-}
-
-// Formats a typed content block (one with a `type` field) into readable text.
-// Returns null for unrecognized types so callers can fall through.
-function formatContentBlock(part: Record<string, unknown>): string | null {
-    const type = part.type
-
-    if (type === 'text' || type === 'output_text' || type === 'input_text') {
-        const text = part.text
-        return typeof text === 'string' && text.trim().length > 0 ? text : null
-    }
-
-    // Anthropic: { type: 'tool_use', id, name, input }
-    if (type === 'tool_use') {
-        const name = part.name ?? 'unknown'
-        const input = part.input !== undefined ? safeStringify(part.input) : '{}'
-        return `[Tool call: ${name}]\n${input}`
-    }
-
-    // Anthropic: { type: 'tool_result', tool_use_id, content }
-    if (type === 'tool_result') {
-        const toolId = typeof part.tool_use_id === 'string' ? part.tool_use_id : null
-        const content = typeof part.content === 'string' ? part.content : safeStringify(part.content)
-        const header = toolId ? `[Tool result for ${toolId}]` : '[Tool result]'
-        return `${header}\n${content}`
-    }
-
-    // OpenAI Responses API: { type: 'function_call', name, call_id, arguments }
-    if (type === 'function_call') {
-        const name = part.name ?? 'unknown'
-        const args = typeof part.arguments === 'string' ? part.arguments : safeStringify(part.arguments)
-        return `[Function call: ${name}]\n${args}`
-    }
-
-    // OpenAI Responses API: { type: 'function_call_output', call_id, output }
-    if (type === 'function_call_output') {
-        const callId = typeof part.call_id === 'string' ? part.call_id : null
-        const output = typeof part.output === 'string' ? part.output : safeStringify(part.output)
-        const header = callId ? `[Function output for ${callId}]` : '[Function output]'
-        return `${header}\n${output}`
-    }
-
-    return null
-}
-
-// Formats OpenAI-style top-level tool_calls arrays into readable text
-function formatToolCallsForPlayground(toolCalls: unknown): string {
-    if (!Array.isArray(toolCalls) || toolCalls.length === 0) {
-        return ''
-    }
-    return toolCalls
-        .map((tc) => {
-            if (!isObject(tc)) {
-                return safeStringify(tc)
-            }
-            const fn = isObject(tc.function) ? tc.function : tc
-            const name = fn.name ?? 'unknown'
-            const args = fn.arguments ?? '{}'
-            const argsStr = typeof args === 'string' ? args : safeStringify(args)
-            return `[Tool call: ${name}]\n${argsStr}`
-        })
-        .join('\n\n')
-}
-
-function extractTextFromMessagePart(part: unknown): string | null {
-    if (!isObject(part)) {
-        return null
-    }
-
-    // Typed content blocks are handled by formatContentBlock, which checks
-    // `type` before any generic field extraction — preventing e.g. a
-    // tool_result's `.content` from being misidentified as plain text.
-    if (typeof part.type === 'string') {
-        return formatContentBlock(part)
-    }
-
-    // Untyped objects: try common text field names
-    if (typeof part.text === 'string' && part.text.trim().length > 0) {
-        return part.text
-    }
-
-    if (typeof part.content === 'string' && part.content.trim().length > 0) {
-        return part.content
-    }
-
-    if (typeof part.output_text === 'string' && part.output_text.trim().length > 0) {
-        return part.output_text
-    }
-
-    if (typeof part.value === 'string' && part.value.trim().length > 0) {
-        return part.value
-    }
-
-    return null
-}
-
-function normalizeMessageContent(content: unknown): string {
-    if (content === null || content === undefined) {
-        return ''
-    }
-
-    if (typeof content === 'string') {
-        return content
-    }
-
-    if (Array.isArray(content)) {
-        const extractedTextParts = content
-            .map(extractTextFromMessagePart)
-            .filter((part): part is string => part !== null)
-
-        if (extractedTextParts.length > 0) {
-            return extractedTextParts.join('\n\n')
-        }
-    }
-
-    return safeStringify(content)
-}
-
-// Safety cap on recursion depth in flattenOutputMessages. Trace payloads can't have true cycles
-// (they come from `JSON.parse`), but deeply nested `{ message: { message: … } }` chains or arrays
-// of arrays could run the stack down — bail early and hand back an empty list instead.
-const MAX_OUTPUT_FLATTEN_DEPTH = 100
-
-// Flattens a raw generation output (string, single message, message array, or an
-// OpenAI/LiteLLM-style { choices: [...] } wrapper) into a list of RawMessage entries
-// without splitting structured content blocks — unlike `normalizeMessages` from utils,
-// which fans out tool_use/tool_result blocks into separate display bubbles.
-function flattenOutputMessages(output: unknown, depth: number = 0): RawMessage[] {
-    if (output == null || depth > MAX_OUTPUT_FLATTEN_DEPTH) {
-        return []
-    }
-
-    if (typeof output === 'string') {
-        return [{ role: InputMessageRole.Assistant, content: output }]
-    }
-
-    if (Array.isArray(output)) {
-        return output.flatMap((item) => flattenOutputMessages(item, depth + 1))
-    }
-
-    if (isObject(output)) {
-        if (Array.isArray(output.choices)) {
-            return output.choices.flatMap((item) => flattenOutputMessages(item, depth + 1))
-        }
-        if (isObject(output.message)) {
-            return flattenOutputMessages(output.message, depth + 1)
-        }
-        // OpenAI Responses API top-level function_call / function_call_output items have no role.
-        // Convert them to synthetic RawMessages so extractConversationMessage can format them.
-        // Preserve `type` so isToolResultMessage can still identify function_call_output and fold
-        // it into the preceding assistant turn rather than emitting a standalone user bubble.
-        if (output.type === 'function_call' || output.type === 'function_call_output') {
-            return [
-                {
-                    role: output.type === 'function_call_output' ? InputMessageRole.User : InputMessageRole.Assistant,
-                    content: formatContentBlock(output) ?? '',
-                    tool_call_id: output.call_id,
-                    type: String(output.type),
-                },
-            ]
-        }
-        return [
-            {
-                role: typeof output.role === 'string' ? output.role : InputMessageRole.Assistant,
-                content: output.content,
-                tool_calls: output.tool_calls,
-                tool_call_id: output.tool_call_id,
-            },
-        ]
-    }
-
-    return []
-}
-
-function extractConversationMessage(rawMessage: RawMessage): { role: ConversationRole; content: string } {
-    // OpenAI Responses API sends function_call / function_call_output items at the top level of the
-    // conversation array with no `role`. Route them through formatContentBlock so they get the same
-    // `[Function call: name]` / `[Function output for id]` treatment as typed content blocks.
-    const rawAsBlock = rawMessage as unknown as Record<string, unknown>
-    const topLevelType = rawMessage.type
-    if (
-        typeof rawMessage.role !== 'string' &&
-        (topLevelType === 'function_call' || topLevelType === 'function_call_output')
-    ) {
-        const formatted = formatContentBlock(rawAsBlock) ?? ''
-        const role: ConversationRole =
-            topLevelType === 'function_call_output' ? InputMessageRole.User : InputMessageRole.Assistant
-        return { role, content: formatted }
-    }
-
-    const normalizedMessageRole = normalizeRole(rawMessage.role, InputMessageRole.User)
-    const enumMap: Partial<Record<string, ConversationRole>> = {
-        [InputMessageRole.User]: InputMessageRole.User,
-        [InputMessageRole.Assistant]: InputMessageRole.Assistant,
-    }
-    const enumRole: ConversationRole | undefined = enumMap[normalizedMessageRole]
-
-    let content = normalizeMessageContent(rawMessage.content)
-
-    // Tool-role messages collapse into a user turn since the playground only renders user/assistant.
-    // Prefix with `[Tool result …]` so the origin is preserved — in practice the caller will merge
-    // this into the preceding assistant turn via `appendRawMessage`, but the prefix is kept for the
-    // rare case where a tool result has no preceding assistant (e.g. a broken trace).
-    if (normalizedMessageRole === 'tool') {
-        const toolId = typeof rawMessage.tool_call_id === 'string' ? rawMessage.tool_call_id : null
-        const header = toolId ? `[Tool result for ${toolId}]` : '[Tool result]'
-        content = `${header}\n${content}`
-    }
-
-    // Append top-level tool_calls (OpenAI format) when present
-    const toolCallsText = formatToolCallsForPlayground(rawMessage.tool_calls)
-    if (toolCallsText) {
-        content = content ? `${content}\n\n${toolCallsText}` : toolCallsText
-    }
-
-    return {
-        role: enumRole ?? InputMessageRole.User,
-        content,
-    }
-}
-
-// Detects messages whose entire purpose is carrying a tool response — OpenAI `role: 'tool'` or an
-// Anthropic-style `role: 'user'` message whose content is a pure `tool_result` / `function_call_output`
-// block. Such messages don't represent a real user turn and should be folded into the preceding
-// assistant turn rather than rendered as standalone user bubbles in the playground.
-function isToolResultMessage(raw: RawMessage): boolean {
-    if (normalizeRole(raw.role, '') === 'tool') {
-        return true
-    }
-    // OpenAI Responses API top-level function_call_output item (no role)
-    if (raw.type === 'function_call_output') {
-        return true
-    }
-    if (Array.isArray(raw.content) && raw.content.length > 0) {
-        return raw.content.every((c) => isObject(c) && (c.type === 'tool_result' || c.type === 'function_call_output'))
-    }
-    return false
-}
-
-// Appends a raw message to a running conversation, merging tool-result messages into the previous
-// assistant turn rather than emitting a separate user bubble. This keeps the playground's display
-// in line with how tool calls/results conceptually bind together, without requiring a dedicated
-// tool role in the playground's Message model.
-function appendRawMessage(conversation: Message[], raw: RawMessage): void {
-    const extracted = extractConversationMessage(raw)
-    const prev = conversation[conversation.length - 1]
-
-    if (isToolResultMessage(raw) && prev?.role === InputMessageRole.Assistant) {
-        prev.content = prev.content ? `${prev.content}\n\n${extracted.content}` : extracted.content
-        return
-    }
-
-    conversation.push(extracted)
-}
-
 export type LLMPlaygroundPromptsLogicProps = Record<string, never>
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
@@ -480,7 +221,7 @@ export interface llmPlaygroundPromptsLogicValues {
     editModal: {
         messageIndex?: number
         promptId: string
-        type: 'message' | 'system' | 'tools'
+        type: 'message' | 'response_format' | 'system' | 'tools'
     } | null
     hasRunnablePrompts: boolean
     linkedSource: {
@@ -490,6 +231,7 @@ export interface llmPlaygroundPromptsLogicValues {
         promptVersion: number | null
         type: 'evaluation' | 'prompt' | null
     }
+    localResponseSchemaJsonByPromptId: Record<string, string | null>
     localToolsJsonByPromptId: Record<string, string | null>
     maxTokens: number | null
     messages: Message[]
@@ -500,6 +242,8 @@ export interface llmPlaygroundPromptsLogicValues {
     pendingTargetProviderKeyId: string | null
     promptConfigs: PromptConfig[]
     reasoningLevel: ReasoningLevel
+    responseFormat: PlaygroundResponseFormat | null
+    responseSchemaJsonErrorByPromptId: Record<string, string | null>
     saving: boolean
     selectedProviderKeyId: string | null
     sourceSetupLoading: boolean
@@ -553,6 +297,15 @@ export interface llmPlaygroundPromptsLogicActions {
         index: number,
         promptId?: string
     ) => {
+        index: number
+        promptId: string | undefined
+    }
+    moveMessage: (
+        index: number,
+        direction: 'down' | 'up',
+        promptId?: string
+    ) => {
+        direction: 'down' | 'up'
         index: number
         promptId: string | undefined
     }
@@ -620,14 +373,21 @@ export interface llmPlaygroundPromptsLogicActions {
         target: {
             messageIndex?: number
             promptId: string
-            type: 'message' | 'system' | 'tools'
+            type: 'message' | 'response_format' | 'system' | 'tools'
         } | null
     ) => {
         target: {
             messageIndex?: number | undefined
             promptId: string
-            type: 'message' | 'system' | 'tools'
+            type: 'message' | 'response_format' | 'system' | 'tools'
         } | null
+    }
+    setLocalResponseSchemaJson: (
+        json: string | null,
+        promptId?: string
+    ) => {
+        json: string | null
+        promptId: string | undefined
     }
     setLocalToolsJson: (
         json: string | null,
@@ -668,6 +428,20 @@ export interface llmPlaygroundPromptsLogicActions {
     ) => {
         promptId: string | undefined
         reasoningLevel: ReasoningLevel
+    }
+    setResponseFormat: (
+        responseFormat: PlaygroundResponseFormat | null,
+        promptId?: string
+    ) => {
+        promptId: string | undefined
+        responseFormat: PlaygroundResponseFormat | null
+    }
+    setResponseSchemaJsonError: (
+        promptId: string,
+        error: string | null
+    ) => {
+        error: string | null
+        promptId: string
     }
     setSourceNames: (
         promptName: string | null,
@@ -753,6 +527,7 @@ export interface llmPlaygroundPromptsLogicMeta {
         topP: (activePromptConfig: PromptConfig) => number | null
         reasoningLevel: (activePromptConfig: PromptConfig) => ReasoningLevel
         tools: (activePromptConfig: PromptConfig) => Record<string, unknown>[] | null
+        responseFormat: (activePromptConfig: PromptConfig) => PlaygroundResponseFormat | null
         messages: (activePromptConfig: PromptConfig) => Message[]
         linkedSource: (promptConfigs: PromptConfig[]) => {
             evaluationId: string | null
@@ -789,9 +564,14 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
         setThinking: (thinking: boolean, promptId?: string) => ({ thinking, promptId }),
         setReasoningLevel: (reasoningLevel: ReasoningLevel, promptId?: string) => ({ reasoningLevel, promptId }),
         setTools: (tools: Record<string, unknown>[] | null, promptId?: string) => ({ tools, promptId }),
+        setResponseFormat: (responseFormat: PlaygroundResponseFormat | null, promptId?: string) => ({
+            responseFormat,
+            promptId,
+        }),
         clearConversation: (promptId?: string) => ({ promptId }),
         setMessages: (messages: Message[], promptId?: string) => ({ messages, promptId }),
         deleteMessage: (index: number, promptId?: string) => ({ index, promptId }),
+        moveMessage: (index: number, direction: 'up' | 'down', promptId?: string) => ({ index, direction, promptId }),
         addMessage: (message?: Partial<Message>, promptId?: string) => ({ message, promptId }),
         addResultToConversation: (response: string, toolCalls?: MessageToolCall[], promptId?: string) => ({
             response,
@@ -807,12 +587,18 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
         }),
         setupPlaygroundFromEvent: (payload: PlaygroundSetupPayload) => ({ payload }),
         setLocalToolsJson: (json: string | null, promptId?: string) => ({ json, promptId }),
+        setLocalResponseSchemaJson: (json: string | null, promptId?: string) => ({ json, promptId }),
         clearPendingTargetModel: true,
         setEditModal: (
-            target: { type: 'tools' | 'system' | 'message'; promptId: string; messageIndex?: number } | null
+            target: {
+                type: 'tools' | 'system' | 'message' | 'response_format'
+                promptId: string
+                messageIndex?: number
+            } | null
         ) => ({ target }),
         toggleCollapsed: (key: string) => ({ key }),
         setToolsJsonError: (promptId: string, error: string | null) => ({ promptId, error }),
+        setResponseSchemaJsonError: (promptId: string, error: string | null) => ({ promptId, error }),
         setSourceSetupLoading: (isLoading: boolean) => ({ isLoading }),
         applySavedModelSelection: (selection: {
             model: string
@@ -897,6 +683,10 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                     state: PromptConfig[],
                     { tools, promptId }: { tools: Record<string, unknown>[] | null; promptId?: string }
                 ) => updatePromptConfigs(state, promptId, (prompt) => ({ ...prompt, tools })),
+                setResponseFormat: (
+                    state: PromptConfig[],
+                    { responseFormat, promptId }: { responseFormat: PlaygroundResponseFormat | null; promptId?: string }
+                ) => updatePromptConfigs(state, promptId, (prompt) => ({ ...prompt, responseFormat })),
                 clearConversation: (state: PromptConfig[], { promptId }: { promptId?: string }) =>
                     updatePromptConfigs(state, promptId, (prompt) => ({ ...prompt, messages: [] })),
                 setMessages: (
@@ -909,6 +699,24 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                             return prompt
                         }
                         return { ...prompt, messages: prompt.messages.filter((_, i) => i !== index) }
+                    }),
+                moveMessage: (
+                    state: PromptConfig[],
+                    { index, direction, promptId }: { index: number; direction: 'up' | 'down'; promptId?: string }
+                ) =>
+                    updatePromptConfigs(state, promptId, (prompt) => {
+                        const target = direction === 'up' ? index - 1 : index + 1
+                        if (
+                            index < 0 ||
+                            index >= prompt.messages.length ||
+                            target < 0 ||
+                            target >= prompt.messages.length
+                        ) {
+                            return prompt
+                        }
+                        const messages = [...prompt.messages]
+                        ;[messages[index], messages[target]] = [messages[target], messages[index]]
+                        return { ...prompt, messages }
                     }),
                 addMessage: (
                     state: PromptConfig[],
@@ -929,6 +737,16 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                     if (!response.trim() && !toolCalls?.length) {
                         return state
                     }
+                    // A result with tool calls continues with empty tool results to fill in and
+                    // run again (the mock loop); a plain response continues with a user turn.
+                    const nextTurns: Message[] = toolCalls?.length
+                        ? toolCalls.map((toolCall) => ({
+                              role: 'tool',
+                              content: '',
+                              toolCallId: toolCall.id,
+                              toolName: toolCall.name,
+                          }))
+                        : [{ role: 'user', content: '' }]
                     return updatePromptConfigs(state, promptId, (prompt) => ({
                         ...prompt,
                         messages: [
@@ -938,7 +756,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                                 content: response,
                                 ...(toolCalls?.length ? { toolCalls } : {}),
                             },
-                            { role: 'user', content: '' },
+                            ...nextTurns,
                         ],
                     }))
                 },
@@ -1030,6 +848,31 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                 },
             },
         ],
+        localResponseSchemaJsonByPromptId: [
+            {} as Record<string, string | null>,
+            {
+                resetPlayground: () => ({}),
+                setLocalResponseSchemaJson: (
+                    state: Record<string, string | null>,
+                    { json, promptId }: { json: string | null; promptId?: string }
+                ) => {
+                    if (!promptId) {
+                        return state
+                    }
+                    return { ...state, [promptId]: json }
+                },
+                setResponseFormat: (state: Record<string, string | null>, { promptId }: { promptId?: string }) => {
+                    if (!promptId) {
+                        return state
+                    }
+                    return { ...state, [promptId]: null }
+                },
+                removePromptConfig: (state: Record<string, string | null>, { promptId }: { promptId: string }) => {
+                    const { [promptId]: _, ...rest } = state
+                    return rest
+                },
+            },
+        ],
         pendingTargetModel: [
             null as string | null,
             {
@@ -1081,7 +924,11 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
             },
         ],
         editModal: [
-            null as { type: 'tools' | 'system' | 'message'; promptId: string; messageIndex?: number } | null,
+            null as {
+                type: 'tools' | 'system' | 'message' | 'response_format'
+                promptId: string
+                messageIndex?: number
+            } | null,
             {
                 resetPlayground: () => null,
                 setEditModal: (
@@ -1089,7 +936,11 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                     {
                         target,
                     }: {
-                        target: { type: 'tools' | 'system' | 'message'; promptId: string; messageIndex?: number } | null
+                        target: {
+                            type: 'tools' | 'system' | 'message' | 'response_format'
+                            promptId: string
+                            messageIndex?: number
+                        } | null
                     }
                 ) => target,
             },
@@ -1109,6 +960,20 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
             {
                 resetPlayground: () => ({}),
                 setToolsJsonError: (
+                    state: Record<string, string | null>,
+                    { promptId, error }: { promptId: string; error: string | null }
+                ) => ({ ...state, [promptId]: error }),
+                removePromptConfig: (state: Record<string, string | null>, { promptId }: { promptId: string }) => {
+                    const { [promptId]: _, ...rest } = state
+                    return rest
+                },
+            },
+        ],
+        responseSchemaJsonErrorByPromptId: [
+            {} as Record<string, string | null>,
+            {
+                resetPlayground: () => ({}),
+                setResponseSchemaJsonError: (
                     state: Record<string, string | null>,
                     { promptId, error }: { promptId: string; error: string | null }
                 ) => ({ ...state, [promptId]: error }),
@@ -1179,6 +1044,10 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
         tools: [
             (s) => [s.activePromptConfig],
             (activePromptConfig: PromptConfig): Record<string, unknown>[] | null => activePromptConfig.tools,
+        ],
+        responseFormat: [
+            (s) => [s.activePromptConfig],
+            (activePromptConfig: PromptConfig): PlaygroundResponseFormat | null => activePromptConfig.responseFormat,
         ],
         messages: [
             (s) => [s.activePromptConfig],
@@ -1260,10 +1129,24 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                 message_count: values.activePromptConfig?.messages.length ?? 0,
             })
         },
+        addResultToConversation: ({ toolCalls }) => {
+            posthog.capture('llma playground result added to conversation', {
+                has_tool_calls: !!toolCalls?.length,
+                tool_call_count: toolCalls?.length ?? 0,
+            })
+        },
+        moveMessage: ({ direction }) => {
+            posthog.capture('llma playground message moved', { direction })
+        },
         setTools: ({ tools }) => {
             posthog.capture('llma playground tools configured', {
                 action: tools ? 'set' : 'clear',
                 tool_count: tools?.length ?? 0,
+            })
+        },
+        setResponseFormat: ({ responseFormat }) => {
+            posthog.capture('llma playground response format configured', {
+                action: responseFormat ? 'set' : 'clear',
             })
         },
 
@@ -1325,6 +1208,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                                     thinking: parsedConfig.thinking,
                                     reasoningLevel: parsedConfig.reasoningLevel,
                                     tools: parsedConfig.tools,
+                                    responseFormat: parsedConfig.responseFormat,
                                     messages: parsedConfig.messages,
                                 }))
                             )
@@ -1450,7 +1334,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
 
                 // Append the generation output as assistant turn(s) so users see the full exchange.
                 // `flattenOutputMessages` unwraps LiteLLM/OpenAI `choices` shapes and string outputs,
-                // then `appendRawMessage` folds any tool-result messages into the preceding assistant turn.
+                // then `appendRawMessage` turns tool calls and results into structured turns.
                 if (payload.output != null) {
                     try {
                         for (const msg of flattenOutputMessages(payload.output)) {
@@ -1485,6 +1369,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                 action: 'save_to_linked_prompt',
                 with_messages: prompt.messages.length > 0,
                 with_tools: !!prompt.tools?.length,
+                with_response_format: !!prompt.responseFormat,
                 with_model_config: !!modelConfig,
             })
             try {
@@ -1587,6 +1472,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                 action: 'save_as_new_prompt',
                 with_messages: prompt.messages.length > 0,
                 with_tools: !!prompt.tools?.length,
+                with_response_format: !!prompt.responseFormat,
                 with_model_config: !!modelConfig,
             })
             try {

@@ -33,6 +33,7 @@ from ..logic.metrics import (
     approve_metric,
     approved_metric_names_for_team,
     bulk_approve_metrics,
+    bulk_change_metric_owner,
     bulk_soft_delete_metrics,
     metrics_for_team,
     metrics_visible_to_user,
@@ -41,14 +42,16 @@ from ..logic.metrics import (
     update_metric,
     upsert_metric,
 )
+from ..logic.pending_review import PendingGroup, PendingKind, TeamPendingReview, build_team_pending_review
 from ..logic.relationships import accept_proposal, propose_relationship, reject_proposal, relationships_for_team
-from ..logic.validation import MAX_DESCRIPTION_LENGTH, validate_metric_definition
+from ..logic.validation import DESCRIPTION_TOO_LONG_MESSAGE, MAX_DESCRIPTION_LENGTH, validate_metric_definition
 from ..models import METRIC_NAME_MAX_LENGTH
 from .contracts import HogQLMetricDefinition, MetricRead, MetricSummary
 from .models import Metric, RelationshipProposal, TableCertification
 
 __all__ = [
     "BULK_SKIP_NOT_FOUND",
+    "DESCRIPTION_TOO_LONG_MESSAGE",
     "MAX_DESCRIPTION_LENGTH",
     "METRIC_BULK_MAX",
     "METRIC_NAME_MAX_LENGTH",
@@ -58,12 +61,17 @@ __all__ = [
     "MetricSummary",
     "MetricRead",
     "metric_reads_for_ids",
+    "PendingGroup",
+    "PendingKind",
+    "TeamPendingReview",
+    "build_team_pending_review",
     "RelationshipProposal",
     "TableCertification",
     "accept_proposal",
     "approve_metric",
     "approved_metric_names_for_team",
     "bulk_approve_metrics",
+    "bulk_change_metric_owner",
     "bulk_soft_delete_metrics",
     "certification_target_name",
     "certifications_for_team",

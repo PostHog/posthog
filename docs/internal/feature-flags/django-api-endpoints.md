@@ -73,8 +73,6 @@ See [API write ownership](api-writes.md) for the call path and transaction bound
 | `POST` | `.../feature_flags/{pk}/create_static_cohort_for_flag/` | Create a static cohort from matched users                                       |
 | `GET`  | `.../feature_flags/{pk}/status/`                        | Flag status (ACTIVE, STALE, DELETED, UNKNOWN)                                   |
 | `GET`  | `.../feature_flags/{pk}/dependent_flags/`               | Flags that depend on this flag                                                  |
-| `POST` | `.../feature_flags/{pk}/dashboard/`                     | Deprecated: create a usage dashboard (sunsets September 25, 2026)               |
-| `POST` | `.../feature_flags/{pk}/enrich_usage_dashboard/`        | Deprecated: enrich an existing legacy usage dashboard (no removal date set)     |
 | `POST` | `.../feature_flags/{pk}/enable/`                        | Set `active: true` only                                                         |
 | `POST` | `.../feature_flags/{pk}/disable/`                       | Set `active: false` only                                                        |
 | `POST` | `.../feature_flags/{pk}/archive/`                       | Set `archived: true`, disabling the flag in the same write when needed          |
@@ -100,12 +98,14 @@ Both actions **proxy to the Rust flags service** via `get_flags_from_service()` 
 ### Lifecycle state actions
 
 `enable`, `disable`, `archive` and `unarchive` are the typed alternative to `PATCH` for the two state fields.
-They take no request body, so a caller cannot send back targeting it read a moment ago.
-That shrinks the lost-update window but does not close it: the serializer saves the instance `get_object()` loaded and Django writes every column, so an edit committed between that read and the save is still reverted.
+None of them reads targeting from the request body, so a caller cannot send back targeting it read a moment ago.
+Without `version`, that shrinks the lost-update window but does not close it: the serializer saves the instance `get_object()` loaded and Django writes every column, so an edit committed between that read and the save is still reverted.
 A version-sending `PATCH` has the same hole, because the conflict check only fires when the caller's own fields overlap.
 What these endpoints remove is the caller-held read, which spans as long as the caller takes rather than the inside of one request.
 Each one delegates to the matching function in `products/feature_flags/backend/facade/api.py`, which routes the write through `FeatureFlagSerializer` — the same path `PATCH` uses, so the approval gate, the dependency guards, cache invalidation and activity logging all still apply.
-The write bumps `version` under a row lock, but the stale-write conflict check does not run: it compares a caller-supplied `version`, and these endpoints take no body.
+The write bumps `version` under a row lock.
+When `enable` or `disable` gets `version`, a stale value returns 409, and a config version 2 flag requires it.
+`archive` and `unarchive` take no body, so the stale-write check does not run for them.
 All four declare `feature_flag:write`, so object-level access control requires editor.
 They are POST but they update, so each one hands the facade a `FlagLifecycleWriteRequest` that reports the write as a PATCH.
 Two things branch on the method: the serializer runs create-only validation on POST, and the approval gate returns no resource id for POST, which made pending change requests for different flags collide.
@@ -114,7 +114,7 @@ A flag already in the requested state is returned unchanged with no write at all
 
 `archive` matches the UI contract by disabling an enabled flag in the same write, because an archived flag must be disabled.
 `unarchive` leaves the flag disabled; enabling it is a separate call.
-It is the one action that cannot return a 409: every gated action declines a change that sets neither `active` nor `filters`, so an `archived`-only write never opens a change request.
+It is the one action that cannot return a 409: every gated action declines a change that sets none of `active`, `filters` and `bucketing_identifier`, so an `archived`-only write never opens a change request.
 
 ### `create_static_cohort_for_flag`
 

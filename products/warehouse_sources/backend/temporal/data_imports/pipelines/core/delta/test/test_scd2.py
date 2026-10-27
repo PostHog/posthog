@@ -37,9 +37,14 @@ class TestScd2Write:
             }
         )
 
-        await _make_writer(delta_path).write(data=batch, primary_keys=["id"])
+        writer = _make_writer(delta_path)
+        written = await writer.write(data=batch, primary_keys=["id"])
 
-        assert deltalake.DeltaTable(delta_path).metadata().configuration.get("delta.checkpointInterval") == "25"
+        live = deltalake.DeltaTable(delta_path)
+        assert live.metadata().configuration.get("delta.checkpointInterval") == "25"
+        # The ref keeps the handle of the table it created, and that handle holds every commit of the write.
+        assert await writer._table.get_delta_table() is written
+        assert written.version() == live.version()
 
     @pytest.mark.asyncio
     async def test_write_misaligned_decimal_to_local_delta(self, tmp_path: Path) -> None:

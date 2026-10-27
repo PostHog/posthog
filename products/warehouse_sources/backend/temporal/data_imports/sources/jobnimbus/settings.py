@@ -11,9 +11,13 @@ class JobNimbusEndpointConfig:
     path: str
     # JobNimbus records carry a globally unique `jnid` (not `id`), so it is a safe primary key.
     primary_keys: list[str] = field(default_factory=lambda: ["jnid"])
-    data_selector: str = "results"
+    # None selects the whole body, for endpoints that return a bare JSON list.
+    data_selector: str | None = "results"
+    params: dict[str, str] = field(default_factory=dict)
     # Account lookups (users, settings) return the whole collection in one body with no `size`/`from`.
     paginated: bool = True
+    # Set for endpoints that return a bare list of strings: each string becomes a row under this column.
+    scalar_column: str | None = None
 
 
 # JobNimbus Open API top-level list endpoints. All are full-refresh only: while records expose
@@ -27,6 +31,11 @@ JOBNIMBUS_ENDPOINTS: dict[str, JobNimbusEndpointConfig] = {
     "activities": JobNimbusEndpointConfig(name="activities", path="/activities"),
     "payments": JobNimbusEndpointConfig(name="payments", path="/payments"),
     "estimates": JobNimbusEndpointConfig(name="estimates", path="/v2/estimates"),
+    "invoices": JobNimbusEndpointConfig(name="invoices", path="/v2/invoices"),
+    "products": JobNimbusEndpointConfig(name="products", path="/v2/products"),
+    "work_orders": JobNimbusEndpointConfig(name="work_orders", path="/v2/workorders"),
+    "material_orders": JobNimbusEndpointConfig(name="material_orders", path="/v2/materialorders"),
+    "budgets": JobNimbusEndpointConfig(name="budgets", path="/budgets"),
     "users": JobNimbusEndpointConfig(
         name="users", path="/account/users", primary_keys=["id"], data_selector="users", paginated=False
     ),
@@ -41,6 +50,23 @@ JOBNIMBUS_ENDPOINTS: dict[str, JobNimbusEndpointConfig] = {
         primary_keys=["JobSourceId"],
         data_selector="sources",
         paginated=False,
+    ),
+    # Groups carry no ID; JobNimbus identifies a group by its name.
+    "groups": JobNimbusEndpointConfig(
+        name="groups",
+        path="/account/settings",
+        params={"field": "groups"},
+        primary_keys=["name"],
+        data_selector=None,
+        paginated=False,
+    ),
+    "units_of_measure": JobNimbusEndpointConfig(
+        name="units_of_measure",
+        path="/utility/uoms",
+        primary_keys=["uom"],
+        data_selector=None,
+        paginated=False,
+        scalar_column="uom",
     ),
 }
 

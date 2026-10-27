@@ -20,7 +20,7 @@ from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.models import Team
 
-from products.batch_exports.backend.filters import SUPPORTED_FILTER_TYPES
+from products.batch_exports.backend.facade.enums import SUPPORTED_FILTER_TYPES
 
 
 class UpdatePropertiesToPersonProperties(TraversingVisitor):
@@ -45,7 +45,7 @@ class InvalidFilterError(Exception):
 
 
 def compose_filters_clause(
-    filters: list[dict[str, str | bool | list[str] | None]],
+    filters: list[dict[str, str | bool | float | list[str | bool | float] | None]],
     team_id: int,
     values: dict[str, str] | None = None,
 ) -> tuple[str, dict[str, str]]:

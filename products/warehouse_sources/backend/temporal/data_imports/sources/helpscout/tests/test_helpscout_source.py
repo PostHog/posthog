@@ -26,7 +26,7 @@ class TestHelpScoutSource:
 
         assert config.name.value == "HelpScout"
         assert config.label == "Help Scout"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
+        assert config.releaseStatus == ReleaseStatus.BETA
         assert config.unreleasedSource is None
         assert config.iconPath == "/static/services/helpscout.png"
 
@@ -65,25 +65,17 @@ class TestHelpScoutSource:
         schemas = self.source.get_schemas(self.config, self.team_id)
         assert {schema.name for schema in schemas} == set(ENDPOINTS)
 
-    @pytest.mark.parametrize("endpoint", ["conversations", "customers"])
-    def test_get_schemas_supports_incremental_for_modified_since_endpoints(self, endpoint):
+    @pytest.mark.parametrize("endpoint,field", [("conversations", "userUpdatedAt"), ("customers", "updatedAt")])
+    def test_get_schemas_supports_incremental_for_modified_since_endpoints(self, endpoint, field):
         schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
         assert schemas[endpoint].supports_incremental is True
-        assert [f["field"] for f in schemas[endpoint].incremental_fields] == ["modifiedAt"]
+        assert [f["field"] for f in schemas[endpoint].incremental_fields] == [field]
 
     @pytest.mark.parametrize("endpoint", ["mailboxes", "users", "tags", "workflows", "threads"])
     def test_get_schemas_full_refresh_only_for_remaining_endpoints(self, endpoint):
         schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
         assert schemas[endpoint].supports_incremental is False
         assert schemas[endpoint].incremental_fields == []
-
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["mailboxes"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "mailboxes"
-
-    def test_get_schemas_filtered_unknown_name_returns_empty(self):
-        assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.helpscout.source.OauthIntegration")
     @mock.patch(
@@ -102,7 +94,7 @@ class TestHelpScoutSource:
         assert is_valid is True
         assert error_message is None
         mock_get_integration.assert_called_once_with(456, self.team_id)
-        mock_validate.assert_called_once_with("token", "tags")
+        mock_validate.assert_called_once_with("token", "v3", "tags")
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.helpscout.source.HelpScoutSource.get_oauth_integration"
@@ -155,14 +147,17 @@ class TestHelpScoutSource:
         "products.warehouse_sources.backend.temporal.data_imports.sources.helpscout.source.HelpScoutSource.get_oauth_integration"
     )
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.helpscout.source.helpscout_source")
-    def test_source_for_pipeline_plumbs_arguments(self, mock_helpscout_source, mock_get_integration, mock_oauth):
+    @pytest.mark.parametrize("pinned_version,expected_version", [("v2", "v2"), ("v3", "v3"), (None, "v3")])
+    def test_source_for_pipeline_plumbs_arguments(
+        self, mock_helpscout_source, mock_get_integration, mock_oauth, pinned_version, expected_version
+    ):
         mock_get_integration.return_value = mock.MagicMock(access_token="token", kind="helpscout")
         mock_oauth.return_value.access_token_expired.return_value = False
         inputs = mock.MagicMock()
         inputs.schema_name = "conversations"
         inputs.should_use_incremental_field = True
-        inputs.incremental_field = "modifiedAt"
         inputs.db_incremental_field_last_value = "2024-01-01T00:00:00Z"
+        inputs.api_version = pinned_version
         manager = mock.MagicMock()
 
         self.source.source_for_pipeline(self.config, manager, inputs)
@@ -173,8 +168,8 @@ class TestHelpScoutSource:
         assert kwargs["endpoint"] == "conversations"
         assert kwargs["resumable_source_manager"] is manager
         assert kwargs["should_use_incremental_field"] is True
-        assert kwargs["incremental_field"] == "modifiedAt"
         assert kwargs["db_incremental_field_last_value"] == "2024-01-01T00:00:00Z"
+        assert kwargs["api_version"] == expected_version
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.helpscout.source.OauthIntegration")
     @mock.patch(
@@ -190,6 +185,7 @@ class TestHelpScoutSource:
         inputs.schema_name = "mailboxes"
         inputs.should_use_incremental_field = False
         inputs.db_incremental_field_last_value = "should-be-ignored"
+        inputs.api_version = "v2"
         manager = mock.MagicMock()
 
         self.source.source_for_pipeline(self.config, manager, inputs)

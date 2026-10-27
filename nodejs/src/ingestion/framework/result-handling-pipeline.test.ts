@@ -14,7 +14,7 @@ import { createMockPipeline } from '~/tests/helpers/mock-pipeline'
 
 import { createContext } from './helpers'
 import { PipelineConfig, ResultHandlingPipeline } from './result-handling-pipeline'
-import { dlq, drop, ok, redirect } from './results'
+import { dlq, drop, ok, redirect, timeout } from './results'
 
 // Mock the pipeline helpers
 jest.mock('~/ingestion/framework/result-handling-helpers', () => ({
@@ -261,6 +261,24 @@ describe('ResultHandlingPipeline', () => {
             expect(mockProduceMessageToDLQ).toHaveBeenCalledWith(config.outputs, messages[1], testError, 'unknown')
         })
 
+        it('passes rethrowOnFailure to the DLQ produce when rejectOnDlqFailure is set', async () => {
+            const dlqError = new Error('broker down')
+            mockProduceMessageToDLQ.mockRejectedValueOnce(dlqError)
+            const message = { value: Buffer.from('dlq'), topic: 'test', partition: 0, offset: 1 } as Message
+            const testError = new Error('test error')
+
+            const resultPipeline = new ResultHandlingPipeline(
+                createMockPipeline([createContext(dlq('test dlq reason', testError), { message })]),
+                { ...config, rejectOnDlqFailure: true }
+            )
+            const results = await resultPipeline.next()
+
+            await expect(Promise.all(results![0].context.sideEffects)).rejects.toBe(dlqError)
+            expect(mockProduceMessageToDLQ).toHaveBeenCalledWith(config.outputs, message, testError, 'unknown', {
+                rethrowOnFailure: true,
+            })
+        })
+
         it('should send DLQ messages with event and uuid headers', async () => {
             mockProduceMessageToDLQ.mockResolvedValue(undefined)
 
@@ -410,6 +428,31 @@ describe('ResultHandlingPipeline', () => {
                 expect.any(Error),
                 'unknown'
             )
+        })
+
+        it('counts a timeout result without producing anything', async () => {
+            const result = timeout('budget exceeded before slowStep')
+            const messages: Message[] = [
+                { value: Buffer.from('timed out'), topic: 'test', partition: 0, offset: 1 } as Message,
+            ]
+
+            const chunkResults = [createContext(result, { message: messages[0], lastStep: 'slowStep' })]
+
+            const mockPipeline = createMockPipeline(chunkResults)
+            const resultPipeline = new ResultHandlingPipeline(mockPipeline, config)
+            const results = await resultPipeline.next()
+
+            expect(results).toHaveLength(1)
+            expect(results![0].result).toEqual(result)
+            expect(results![0].context.sideEffects).toHaveLength(0)
+            expect(mockProduceMessageToDLQ).not.toHaveBeenCalled()
+            expect(mockRedirectMessageToOutput).not.toHaveBeenCalled()
+            expect(mockLogDroppedMessage).not.toHaveBeenCalled()
+            expect(mockIngestionPipelineResultCounter.labels).toHaveBeenCalledWith({
+                result: 'timeout',
+                last_step_name: 'slowStep',
+                details: 'budget exceeded before slowStep',
+            })
         })
     })
 

@@ -355,6 +355,11 @@ class ClaudeWebSearchEngine:
                     "type": ANTHROPIC_WEB_SEARCH_TOOL_TYPE,
                     "name": "web_search",
                     "max_uses": MAX_WEB_SEARCHES_PER_PROMPT,
+                    # This tool version runs searches from code execution by default. Claude then reads
+                    # the results through encrypted stdout, and the answer text carries no citations.
+                    # Direct calls attach web_search_result_location citations, and they keep the tool
+                    # eligible for zero data retention.
+                    "allowed_callers": ["direct"],
                 }
             ],
         }

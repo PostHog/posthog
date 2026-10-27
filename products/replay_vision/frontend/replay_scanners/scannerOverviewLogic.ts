@@ -14,7 +14,7 @@ import {
 } from 'kea'
 import { router } from 'kea-router'
 
-import { dayjs } from 'lib/dayjs'
+import { Dayjs, dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { dateStringToDayJs } from 'lib/utils/dateFilters'
 import { isNullBreakdown, isOtherBreakdown } from 'scenes/insights/utils'
@@ -53,12 +53,24 @@ export interface ScannerOverviewLogicProps {
 
 const DEFAULT_DATE_FROM = '-14d'
 
+// A scanner emits no events before it was created, so for a young scanner the 14-day default is mostly empty days.
+const NEW_SCANNER_MAX_AGE_DAYS = 7
+
 // Calmer than the 3s in-flight default: first scheduled results take minutes, not seconds.
 const FIRST_SCAN_POLL_INTERVAL_MS = 15_000
 
 // The pending panel hides the overview's reload affordances, so after this many straight failed
 // checks it has to admit the failure itself instead of spinning on a promise it can't verify.
 const FIRST_SCAN_CHECK_FAILING_AFTER = 3
+
+/** The Overview's default date range: the days since a young scanner was created, else the last 14 days. */
+export function overviewDefaultDateFrom(createdAt: string | null | undefined, now: Dayjs = dayjs()): string {
+    if (!createdAt) {
+        return DEFAULT_DATE_FROM
+    }
+    const ageDays = now.startOf('day').diff(dayjs(createdAt).startOf('day'), 'day')
+    return ageDays < NEW_SCANNER_MAX_AGE_DAYS ? `-${Math.max(1, ageDays)}d` : DEFAULT_DATE_FROM
+}
 
 /** The bucket size of the Overview charts; the drill-down only knows how to map day buckets onto the Observations tab. */
 export const OVERVIEW_CHART_INTERVAL: IntervalType = 'day'
@@ -100,12 +112,14 @@ export interface scannerOverviewLogicValues {
     cohortDisabledReason: string | null
     cohortWindowDays: number
     coverageStats: CoverageStats
+    defaultOverviewDateFrom: string
     firstScanCheckFailing: boolean
     firstScanPending: boolean
     firstScanSettled: boolean
     hasActiveOverviewFilters: boolean
     monitorStats: MonitorStats
     overviewDateFrom: string | null
+    overviewDateSelection: { dateFrom: string | null } | null
     overviewDateTo: string | null
     overviewStatsApi: ObservationStatsApi | null
     overviewStatsApiLoading: boolean
@@ -176,11 +190,17 @@ export interface scannerOverviewLogicActions {
 export interface scannerOverviewLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        defaultOverviewDateFrom: (scanner: ScannerFormValues) => string
+        overviewDateFrom: (
+            overviewDateSelection: { dateFrom: string | null } | null,
+            defaultOverviewDateFrom: string
+        ) => string | null
         hasActiveOverviewFilters: (
             overviewVerdictFilter: ObservationVerdictValue[],
             overviewTagFilter: string[],
             overviewDateFrom: string | null,
-            overviewDateTo: string | null
+            overviewDateTo: string | null,
+            defaultOverviewDateFrom: string
         ) => boolean
         availableTags: (overviewStatsApi: ObservationStatsApi | null) => string[]
         monitorStats: (overviewStatsApi: ObservationStatsApi | null) => MonitorStats
@@ -246,11 +266,12 @@ export const scannerOverviewLogic = kea<scannerOverviewLogicType>([
     }),
 
     reducers({
-        overviewDateFrom: [
-            DEFAULT_DATE_FROM as string | null,
+        // Null until the user picks a range, so the default can follow the scanner's age once it loads.
+        overviewDateSelection: [
+            null as { dateFrom: string | null } | null,
             {
-                setOverviewDateRange: (_, { dateFrom }) => dateFrom,
-                clearOverviewFilters: () => DEFAULT_DATE_FROM,
+                setOverviewDateRange: (_, { dateFrom }) => ({ dateFrom }),
+                clearOverviewFilters: () => null,
             },
         ],
         overviewDateTo: [
@@ -315,16 +336,32 @@ export const scannerOverviewLogic = kea<scannerOverviewLogicType>([
     }),
 
     selectors({
+        defaultOverviewDateFrom: [
+            (s) => [s.scanner],
+            (scanner: ReplayScanner | null): string => overviewDefaultDateFrom(scanner?.created_at),
+        ],
+        overviewDateFrom: [
+            (s) => [s.overviewDateSelection, s.defaultOverviewDateFrom],
+            (selection: { dateFrom: string | null } | null, defaultDateFrom: string): string | null =>
+                selection ? selection.dateFrom : defaultDateFrom,
+        ],
         // The date default alone isn't an "active" filter; only the pills (and a non-default date) are.
         hasActiveOverviewFilters: [
-            (s) => [s.overviewVerdictFilter, s.overviewTagFilter, s.overviewDateFrom, s.overviewDateTo],
+            (s) => [
+                s.overviewVerdictFilter,
+                s.overviewTagFilter,
+                s.overviewDateFrom,
+                s.overviewDateTo,
+                s.defaultOverviewDateFrom,
+            ],
             (
                 verdictFilter: ObservationVerdictValue[],
                 tagFilter: string[],
                 dateFrom: string | null,
-                dateTo: string | null
+                dateTo: string | null,
+                defaultDateFrom: string
             ): boolean =>
-                verdictFilter.length > 0 || tagFilter.length > 0 || dateFrom !== DEFAULT_DATE_FROM || dateTo !== null,
+                verdictFilter.length > 0 || tagFilter.length > 0 || dateFrom !== defaultDateFrom || dateTo !== null,
         ],
         // Wrap the shared derivations in inline arrows with explicit return types so kea-typegen
         // can infer them (it can't resolve return types from bare imported-function references).
@@ -469,8 +506,14 @@ export const scannerOverviewLogic = kea<scannerOverviewLogicType>([
             loadOverviewStatsSuccess: syncFirstScanPoll,
             loadOverviewStatsFailure: syncFirstScanPoll,
             scannerWatermarkRefreshed: syncFirstScanPoll,
-            // Pending depends on the sweep watermark, which may resolve after the first stats response.
-            loadScannerSuccess: syncFirstScanPoll,
+            loadScannerSuccess: () => {
+                // The default range depends on the scanner's age, which may load after the first stats request.
+                if (values.overviewDateFrom !== cache.statsDateFrom) {
+                    reloadStats()
+                }
+                // Pending depends on the sweep watermark, which may resolve after the first stats response.
+                syncFirstScanPoll()
+            },
 
             saveCohort: ({ qualifier }) => actions.saveAffectedCohort(values.cohortWindowDays, qualifier),
 
@@ -488,6 +531,7 @@ export const scannerOverviewLogic = kea<scannerOverviewLogicType>([
             },
 
             loadOverviewStats: async (_, breakpoint) => {
+                cache.statsDateFrom = values.overviewDateFrom
                 const teamId = teamLogic.values.currentTeamId
                 if (!teamId || props.scannerId === 'new') {
                     actions.loadOverviewStatsFailure()

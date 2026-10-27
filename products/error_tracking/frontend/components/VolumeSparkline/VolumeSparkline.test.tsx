@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render } from '@testing-library/react'
 
-import { dragSelection, getHogChart, hoverAtIndex, setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
+import { dragSelection, getChart, hoverAtIndex, setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
 
 import { initKeaTests } from '~/test/init'
 
@@ -40,7 +40,7 @@ function renderChart(props: Partial<React.ComponentProps<typeof VolumeSparkline>
     const { container } = render(
         <VolumeSparkline sparklineKey={SPARKLINE_KEY} data={buildData()} layout="detailed" xAxis="full" {...props} />
     )
-    return getHogChart(container).element
+    return getChart(container).element
 }
 
 describe('VolumeSparkline', () => {
@@ -113,7 +113,7 @@ describe('VolumeSparkline', () => {
                     onSpikeClick={onSpikeClick}
                 />
             )
-            const wrapper = getHogChart(container).element
+            const wrapper = getChart(container).element
 
             hoverAtIndex(wrapper, 2, data.length)
             // On the outer container, past the chart's own wrapper-level handlers, so the hover
@@ -139,7 +139,7 @@ describe('VolumeSparkline', () => {
                     onSpikeClick={onSpikeClick}
                 />
             )
-            const wrapper = getHogChart(container).element
+            const wrapper = getChart(container).element
 
             hoverAtIndex(wrapper, 2, data.length)
             fireEvent.mouseMove(container.firstElementChild as HTMLElement, { clientX: 123, clientY: 45 })
@@ -152,8 +152,6 @@ describe('VolumeSparkline', () => {
 
         it('does not fire onSpikeClick for an ordinary (non-spike) bucket', () => {
             const onSpikeClick = jest.fn()
-            // A spike elsewhere enables the handler (`hasSpikes`); the click lands on an
-            // unflagged bucket.
             const data = buildData({ 2: { isSpike: true, color: 'var(--brand-red)' } })
             const wrapper = renderChart({ data, onSpikeClick })
 
@@ -161,6 +159,18 @@ describe('VolumeSparkline', () => {
             fireEvent.click(wrapper)
 
             expect(onSpikeClick).not.toHaveBeenCalled()
+        })
+
+        it.each([
+            { index: 2, cursor: 'cursor-pointer' },
+            { index: 0, cursor: 'cursor-crosshair' },
+        ])('shows $cursor over bucket $index when only spikes are clickable', ({ index, cursor }) => {
+            const data = buildData({ 2: { isSpike: true, color: 'var(--brand-red)' } })
+            const wrapper = renderChart({ data, onSpikeClick: jest.fn(), onRangeSelect: jest.fn() })
+
+            hoverAtIndex(wrapper, index, data.length)
+
+            expect(wrapper.classList.contains(cursor)).toBe(true)
         })
 
         it('never fires when no bucket in the data is flagged as a spike', () => {
@@ -232,7 +242,7 @@ describe('VolumeSparkline', () => {
             const { container, unmount } = render(
                 <VolumeSparkline sparklineKey={SPARKLINE_KEY} data={data} layout="detailed" xAxis="full" />
             )
-            hoverAtIndex(getHogChart(container).element, 2, data.length)
+            hoverAtIndex(getChart(container).element, 2, data.length)
             expect(logic.values.hoverSelection).not.toBeNull()
 
             unmount()

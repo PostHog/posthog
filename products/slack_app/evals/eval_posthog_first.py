@@ -24,10 +24,11 @@ To run::
 
 from __future__ import annotations
 
-from products.posthog_ai.eval_harness.base import SandboxedPublicEval
+from products.posthog_ai.eval_harness.base import SandboxedEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.scorers import RequiredToolCall
+from products.slack_app.evals.offline_config import offline_suite
 from products.slack_app.evals.scorers import (
     DOCS_SEARCH_TOOL_NAME,
     AnsweredAboutPostHogProduct,
@@ -60,8 +61,12 @@ async def eval_posthog_first(ctx: EvalContext) -> None:
         ),
     ]
 
-    await SandboxedPublicEval(
+    await SandboxedEval(
         experiment_name="sandboxed-slack-posthog-first-cli",
+        offline_suite=offline_suite(
+            "slack_app/eval_posthog_first::eval_posthog_first",
+            metrics=["docs_searched", "posthog_product_answer", "no_third_party_recommendation"],
+        ),
         cases=cases,
         scorers=[
             RequiredToolCall({DOCS_SEARCH_TOOL_NAME}, name="docs_searched"),
