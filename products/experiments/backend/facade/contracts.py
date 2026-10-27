@@ -6,7 +6,7 @@ between the experiments product and the rest of the system.
 """
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
@@ -253,6 +253,61 @@ class ExperimentHealthReaderAccess:
 class ExperimentValidationError(Exception):
     """Raised when the facade refuses an experiment write for its input. The message is written for the person who
     sent the input, so a caller at an HTTP boundary can return it as a 400."""
+
+
+class LegacyMigrationError(Exception):
+    """Raised when a legacy experiment can't move onto the new engine. The message is written for the person who asked
+    for the migration."""
+
+
+@frozen
+class InSessionExposureSemantics:
+    """How the in-session narrowing reads on one experiment.
+
+    One resolution serves both the recordings query's refusal and the tab's scope control, so the
+    two can't drift: the control disables exactly what the query would refuse, and the copy can say
+    when the evidence is the stamped-property stand-in rather than the exposure event itself.
+    """
+
+    # Why in-session narrowing can't answer for this experiment. None when it can.
+    unavailable_reason: str | None
+    # True when the evidence is the stamped `$feature/<key>` property: it means the flag was active in the session,
+    # not that the exposure event was captured there.
+    uses_stamped_fallback: bool
+
+    @property
+    def available(self) -> bool:
+        """True when a query carrying the narrowing would be accepted."""
+        return self.unavailable_reason is None
+
+
+@frozen
+class ExperimentExposureLinkage:
+    """A validated experiment-exposure filter, resolved to how its population will be read.
+
+    Obtained from `facade.replay.resolve_exposure_linkage` and handed back to the replay facade's
+    select builders and `session_attribution`, so a query built later reads the same resolution.
+    """
+
+    # The variants the population covers: the caller's narrowing without duplicates, or every requestable variant when
+    # the caller asked for none.
+    requested_variants: tuple[str, ...]
+    # max_memory_usage ceiling the synchronous recordings-list run must apply when the live
+    # scan needs explicit bounding instead of relying on cluster defaults. It bounds the whole
+    # embedding query, so a kill renders as the platform's generic memory-limit error rather
+    # than anything exposure-specific. Composition callers that execute the linkage's AST
+    # through their own async or batch pipelines run under those pipelines' limits and may
+    # ignore it.
+    live_scan_max_memory_bytes: int | None
+    # True when the exposure criteria apply the team's test-account filters, so the exposed
+    # population is already test-filtered at the person level. Queries that restrict their rows
+    # to this population can skip re-applying the same filters to their own rows.
+    population_filters_test_accounts: bool
+    # True when the linkage narrows to sessions with in-session exposure evidence.
+    in_session: bool
+    # The product's resolution, which only the replay facade reads back. It holds the query context, so it is typed
+    # `object` to keep that context off the contract. It is left out of equality and hashing.
+    _resolution: object = field(compare=False, repr=False)
 
 
 @dataclass(frozen=True)

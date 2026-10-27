@@ -81,11 +81,8 @@ from products.access_control.backend.presentation.access_control import AccessCo
 from products.approvals.backend.mixins import ApprovalHandlingMixin
 from products.experiments.backend.experiment_service import ExperimentService, ExperimentVersionConflict
 from products.experiments.backend.facade.api import get_experiment_health, get_experiment_health_inputs
-from products.experiments.backend.facade.contracts import ExperimentHealthReaderAccess
-from products.experiments.backend.facade.legacy_migration import (
-    LegacyMigrationError,
-    migrate_experiment as migrate_legacy_experiment,
-)
+from products.experiments.backend.facade.contracts import ExperimentHealthReaderAccess, LegacyMigrationError
+from products.experiments.backend.facade.legacy_migration import migrate_experiment as migrate_legacy_experiment
 from products.experiments.backend.facade.replay import resolve_in_session_exposure_semantics
 from products.experiments.backend.llm_metric_templates import build_template, list_templates
 
