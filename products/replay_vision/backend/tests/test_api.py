@@ -4088,7 +4088,7 @@ class TestSearchSuggestionsAction(_VisionAPITestCase):
                 scanner=scanner,
                 vector_sum=b"",
                 member_count=members,
-                label=label,
+                name=label,
                 last_member_at=last_member_at,
             )
 

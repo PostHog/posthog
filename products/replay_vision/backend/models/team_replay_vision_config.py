@@ -12,7 +12,6 @@ class TeamReplayVisionConfig(models.Model):
     team = models.OneToOneField(Team, on_delete=models.CASCADE, primary_key=True, db_constraint=False, related_name="+")
 
     # Retired with the scheduled search suggestion refresher; the columns stay until a later drop.
-    # Retired with the scheduled search suggestion refresher; the columns stay until a later drop.
     search_suggestions = deprecate_field(
         models.JSONField(
             default=list,
