@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconBook, IconChevronDown, IconDownload, IconInfo, IconNotebook, IconX } from '@posthog/icons'
+import { IconBook, IconChevronDown, IconDownload, IconNotebook, IconX } from '@posthog/icons'
 import {
     Button,
     ButtonGroup,
@@ -30,6 +30,7 @@ export interface QuillSQLEditorSecondarySaveMenuItem extends SaveAsMenuItem {
 
 export interface QuillSQLEditorSceneActionsProps {
     isMaterializedView: boolean
+    closeObjectLabel: string
     closeObjectTooltip: string
     editingViewDisabledReason: string | undefined
     editingViewLoading: boolean
@@ -49,6 +50,7 @@ export interface QuillSQLEditorSceneActionsProps {
 
 export function QuillSQLEditorSceneActions({
     isMaterializedView,
+    closeObjectLabel,
     closeObjectTooltip,
     editingViewDisabledReason,
     editingViewLoading,
@@ -199,7 +201,7 @@ export function QuillSQLEditorSceneActions({
                         variant="default"
                         size="icon"
                         onClick={() => closeEditingObject()}
-                        aria-label="close"
+                        aria-label={closeObjectLabel}
                         tooltip={closeObjectTooltip}
                     >
                         <IconX />
@@ -238,17 +240,18 @@ export function QuillSQLEditorSceneActions({
                             ) : (
                                 legacySaveAsMenuItemsGroup
                             )}
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem
-                                onClick={() => closeEditingObject()}
-                                data-attr="sql-editor-reset-view"
-                                tooltip={closeObjectTooltip}
-                            >
-                                Reset view
-                                {saveAsChooserEnabled ? <IconInfo className="ms-auto" data-icon="inline-end" /> : null}
-                            </DropdownMenuItem>
                         </DropdownMenuContent>
                     </DropdownMenu>
+                    <Button
+                        variant="default"
+                        size="icon"
+                        onClick={() => closeEditingObject()}
+                        aria-label={closeObjectLabel}
+                        tooltip={closeObjectTooltip}
+                        data-attr="sql-editor-reset-view"
+                    >
+                        <IconX />
+                    </Button>
                 </>
             ) : editingMetricName ? (
                 <>
