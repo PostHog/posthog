@@ -1,4 +1,5 @@
 import type { ReplayObservationApi } from '../generated/api.schemas'
+import { scannerLabel } from '../utils/observation'
 import { watchCardHeadline } from './components/WatchFeedCard'
 import { ScannerType } from './types'
 
@@ -10,7 +11,7 @@ export interface WatchPickSummary {
 }
 
 export function watchPickSummary(observation: ReplayObservationApi): WatchPickSummary {
-    const scannerName = (observation.scanner_snapshot?.name as string | undefined) || '(untitled scanner)'
+    const scannerName = scannerLabel(observation)
     return {
         title: watchCardHeadline(observation)?.title ?? scannerName,
         scannerName,

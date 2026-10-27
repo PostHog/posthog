@@ -6,9 +6,9 @@ moving. The platform's runtime rows and check history say where the alert stands
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime, timedelta
-from typing import Final
+from typing import Any, Final
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 from posthog.exceptions_capture import capture_exception
@@ -24,13 +24,21 @@ from products.alerts.backend.facade.contracts import (
 )
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.alerts.backend.platform_cutover import insight_state_of_platform
+from products.alerts.backend.platform_source_cycle import ERROR_CODE_KEY
 from products.alerts_platform.backend.facade.api import (
     check_page_by_legacy_id,
+    checks_with_detail_by_legacy_id,
     last_check_by_legacy_id,
     runtime_by_legacy_id,
 )
 from products.alerts_platform.backend.facade.contracts import PlatformCheckEntry
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner, PlatformAlertState
+
+# The detail key a detector check that fired on a point stores its dates under.
+FIRED_DATES_KEY: Final = "triggered_dates"
+
+# Only an AI verdict has a reason, so a check that holds one is an AI detector's.
+AI_REASON_PATH: Final = ("triggered_metadata", "rationale")
 
 _EARLIEST: Final = datetime(1970, 1, 1, tzinfo=UTC)
 _LATEST: Final = datetime(2100, 1, 1, tzinfo=UTC)
@@ -109,7 +117,49 @@ def moved_alert_check_page(
     return MovedAlertCheckPage(total=page.total, checks=tuple(_as_check(alert_id, check) for check in page.checks))
 
 
+def moved_alert_fired_checks(
+    *,
+    team_id: int,
+    moved_at: Mapping[UUID, datetime],
+    not_before: datetime | None,
+    limit: int,
+    ai_verdicts_only: bool = False,
+) -> dict[UUID, tuple[MovedAlertCheck, ...]]:
+    """Each moved alert's newest `limit` detector checks that fired on a point, newest first, from the
+    platform's history since the move and not before `not_before`.
+
+    `moved_at` holds each alert's `platform_owned_since`. `ai_verdicts_only` keeps the AI detector's
+    checks, before the limit applies, so statistical checks from another detector cannot use it up. The platform's checks before the move were
+    a parallel run, not the alert's own. A ClickHouse failure leaves out every alert, so a caller
+    shows what it has without the platform.
+    """
+    if not moved_at:
+        return {}
+    since = {alert_id: max(at, not_before) if not_before is not None else at for alert_id, at in moved_at.items()}
+    try:
+        checks = checks_with_detail_by_legacy_id(
+            team_id=team_id,
+            legacy_configuration_ids=list(since),
+            detail_paths=[(FIRED_DATES_KEY,), *([AI_REASON_PATH] if ai_verdicts_only else [])],
+            since=min(since.values()),
+            limit=limit,
+        )
+    except Exception as error:
+        capture_exception(error, additional_properties={"team_id": team_id})
+        return {}
+    return {
+        alert_id: tuple(
+            _as_check(alert_id, check) for check in entries if ensure_utc(check.occurred_at) >= since[alert_id]
+        )
+        for alert_id, entries in checks.items()
+    }
+
+
 def _as_check(alert_id: UUID, check: PlatformCheckEntry) -> MovedAlertCheck:
+    detail = check.source_detail
+    metadata = detail.get("triggered_metadata")
+    interval = detail.get("interval")
+    error_code = detail.get(ERROR_CODE_KEY)
     return MovedAlertCheck(
         id=uuid5(NAMESPACE_URL, f"{alert_id}|{check.evaluation_key}"),
         checked_at=ensure_utc(check.occurred_at),
@@ -119,4 +169,18 @@ def _as_check(alert_id: UUID, check: PlatformCheckEntry) -> MovedAlertCheck:
         if check.state == PlatformAlertState.SNOOZED
         else insight_state_of_platform(check.state, snoozed_until=None, at=check.occurred_at),
         error_message=check.error_message or None,
+        error_code=error_code if isinstance(error_code, str) else None,
+        anomaly_scores=tuple(_listed(detail, "anomaly_scores", (int, float, type(None)))),
+        triggered_points=tuple(_listed(detail, "triggered_points", (int,))),
+        triggered_dates=tuple(_listed(detail, FIRED_DATES_KEY, (str,))),
+        interval=interval if isinstance(interval, str) else None,
+        triggered_metadata=metadata if isinstance(metadata, dict) else None,
     )
+
+
+def _listed(detail: dict[str, Any], key: str, types: tuple[type, ...]) -> list[Any]:
+    """A list the check stored, keeping only items of the expected types, because history outlives the code that wrote it."""
+    values = detail.get(key)
+    if not isinstance(values, list):
+        return []
+    return [value for value in values if isinstance(value, types) and not isinstance(value, bool)]

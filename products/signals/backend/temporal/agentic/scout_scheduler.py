@@ -37,6 +37,7 @@ from products.signals.backend.scout_harness.limits import (
     TRIAL_ACTIVITY_TIMEOUT_S,
     TRIGGERED_BY_CHECK,
     TRIGGERED_BY_MANUAL,
+    TRIGGERED_BY_ONBOARDING,
     TRIGGERED_BY_SCHEDULE,
     TRIGGERED_BY_WORKFLOW,
     WORKFLOW_HARD_CEILING_S,
@@ -72,6 +73,8 @@ class RunSignalsScoutInput:
     # One-off steering typed alongside a manual trigger, or rendered from the triggering event by a
     # workflow step. Never set on a scheduled dispatch, where standing steering is a scout note instead.
     run_note: str | None = None
+    # The workflow whose "Run scout" step started a `workflow` run. Rendered in the run's prompt.
+    trigger_workflow_id: str | None = None
     trial_launch_id: str | None = None
     # The report check a `check` dispatch answers. Stamped on the run row so the check can name
     # its run and the run can record the check's verdict.
@@ -334,6 +337,7 @@ async def _run_signals_scout(input: RunSignalsScoutInput) -> RunSignalsScoutOutp
                 repository=input.repository,
                 triggered_by=input.triggered_by,
                 run_note=input.run_note,
+                trigger_workflow_id=input.trigger_workflow_id,
                 trial_launch_id=input.trial_launch_id,
                 check_id=input.check_id,
                 precheck_rows=input.precheck_rows,
@@ -552,6 +556,7 @@ async def _start_off_schedule_run(
     workflow_origin_key: str | None = None,
     run_note: str | None = None,
     check_id: str | None = None,
+    trigger_workflow_id: str | None = None,
 ) -> str:
     """Start one `RunSignalsScoutWorkflow` off-schedule under `workflow_id`; return the id.
 
@@ -574,6 +579,7 @@ async def _start_off_schedule_run(
             workflow_origin_key=workflow_origin_key,
             run_note=run_note,
             check_id=check_id,
+            trigger_workflow_id=trigger_workflow_id,
         ),
         id=workflow_id,
         task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
@@ -603,12 +609,16 @@ def start_manual_signals_scout_run(
 
 
 @async_to_sync
-async def start_onboarding_signals_scout_run(client: Client, *, team_id: int, skill_name: str) -> str:
+async def start_onboarding_signals_scout_run(
+    client: Client, *, team_id: int, skill_name: str, run_note: str | None = None
+) -> str:
     workflow_id = _off_schedule_run_workflow_id("signals-scout-onboarding", team_id, skill_name)
     try:
         await client.start_workflow(
             RunSignalsScoutWorkflow.run,
-            RunSignalsScoutInput(team_id=team_id, skill_name=skill_name, triggered_by=TRIGGERED_BY_MANUAL),
+            RunSignalsScoutInput(
+                team_id=team_id, skill_name=skill_name, triggered_by=TRIGGERED_BY_ONBOARDING, run_note=run_note
+            ),
             id=workflow_id,
             task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
             id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE,
@@ -682,6 +692,7 @@ def start_workflow_signals_scout_run(
     skill_name: str,
     workflow_origin_key: str | None = None,
     run_note: str | None = None,
+    trigger_workflow_id: str | None = None,
 ) -> str:
     """Dispatch one workflow-triggered scout run on the signals task queue; return its workflow id.
 
@@ -691,6 +702,7 @@ def start_workflow_signals_scout_run(
     callers' in-flight pre-check, both source-agnostic.
 
     `run_note` is the note the step rendered from its triggering event, for this run alone.
+    `trigger_workflow_id` is the workflow that fired, so the run can name it.
     """
     return _start_off_schedule_run(
         client,
@@ -700,4 +712,5 @@ def start_workflow_signals_scout_run(
         source=TRIGGERED_BY_WORKFLOW,
         workflow_origin_key=workflow_origin_key,
         run_note=run_note,
+        trigger_workflow_id=trigger_workflow_id,
     )

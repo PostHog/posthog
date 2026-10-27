@@ -151,6 +151,8 @@ class Suggestion:
     realized_seconds_saved_per_month: float | None
     realized_bytes_saved_per_month: float | None
     can_act: bool
+    subject_source_id: UUID | None = None
+    subject_schema_id: UUID | None = None
 
 
 @frozen

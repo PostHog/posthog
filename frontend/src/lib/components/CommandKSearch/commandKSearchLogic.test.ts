@@ -31,10 +31,12 @@ describe('commandKSearchLogic', () => {
         ['reuses a query whose request answered', false, []],
     ])('%s when it is searched again', (_, failed, cached) => {
         logic.actions.remoteLoaded('ada', { persons: [] }, failed)
+        const remoteBefore = logic.values.remote
 
-        logic.actions.requestStarted('persons', 'ada')
+        logic.actions.requestsStarted({ persons: 'ada', objects: 'ada' })
 
         expect(logic.values.remote.persons.cache['ada']).toEqual(cached)
+        expect(logic.values.remote === remoteBefore).toBe(!failed)
     })
 
     it('a See all row narrows the search to its type and keeps the words', () => {

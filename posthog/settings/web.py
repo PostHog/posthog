@@ -231,6 +231,7 @@ MIDDLEWARE = [
     "posthog.middleware.AutoLogoutImpersonateMiddleware",
     "posthog.middleware.ImpersonationReadOnlyMiddleware",
     "posthog.middleware.ImpersonationBlockedPathsMiddleware",
+    "posthog.middleware.NewEventsSchemaCookieMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "posthog.middleware.CsvNeverCacheMiddleware",
     "axes.middleware.AxesMiddleware",

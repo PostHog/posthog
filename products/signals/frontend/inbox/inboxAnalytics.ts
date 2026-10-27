@@ -49,6 +49,9 @@ export const INBOX_EVENTS = {
     REPORT_SOURCE_SUGGESTION_SHOWN: 'Inbox report source suggestion shown',
     REPORT_SOURCE_SUGGESTION_CLICKED: 'Inbox report source suggestion clicked',
     REPORT_FEEDBACK_NOTE: 'Inbox report feedback note',
+    INTERVIEW_INVITE_SHOWN: 'Inbox interview invite shown',
+    INTERVIEW_INVITE_CLICKED: 'Inbox interview invite clicked',
+    INTERVIEW_INVITE_DISMISSED: 'Inbox interview invite dismissed',
     // Cloud-only for now: the desktop inbox has no model sorts.
     RANKING_DETAILS_VIEWED: 'Inbox ranking details viewed',
     SETTINGS_CHANGED: 'Inbox settings changed',
@@ -487,6 +490,7 @@ export function captureInboxReportsImpressed(params: {
         sort_direction: params.sortDirection,
         created_window: params.createdWindow,
         ranker_id: params.rankerId,
+        has_pr: params.reports.some((report) => reportPullRequests(report).length > 0),
         impression_count: params.reports.length,
         impressions: params.reports.map((report, index) => ({
             ...baseReportProperties(report),
@@ -496,7 +500,7 @@ export function captureInboxReportsImpressed(params: {
             signal_count: report.signal_count,
             total_weight: report.total_weight,
             is_suggested_reviewer: report.is_suggested_reviewer,
-            ...(rankingSort ? { ranking_served_key: report.ranking?.served_key ?? null } : {}),
+            ...(rankingSort ? { ranking_served_key: report.ranking?.model ?? null } : {}),
         })),
     })
 }
@@ -778,6 +782,15 @@ export function captureInboxReportFeedbackNote(params: {
         note: params.note,
         surface: params.surface,
     })
+}
+
+export function captureInboxInterviewInvite(action: 'shown' | 'clicked' | 'dismissed'): void {
+    const event = {
+        shown: INBOX_EVENTS.INTERVIEW_INVITE_SHOWN,
+        clicked: INBOX_EVENTS.INTERVIEW_INVITE_CLICKED,
+        dismissed: INBOX_EVENTS.INTERVIEW_INVITE_DISMISSED,
+    }[action]
+    captureInboxEvent(event, { surface: 'report_feedback_note' })
 }
 
 export function captureSignalSourceConnected(params: {

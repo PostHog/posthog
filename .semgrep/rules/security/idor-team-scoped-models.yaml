@@ -185,6 +185,7 @@ rules:
                               |EnterpriseEventDefinition
                               |EnterprisePropertyDefinition
                               |EventFilterConfig
+                              |EventFilterPipelineOverride
                               |EventStream
                               |EventStreamMember
                               |ErrorTrackingAlert
@@ -350,6 +351,7 @@ rules:
                               |QuickFilterContext
                               |ReplayObservation
                               |ReplayObservationFeedDismissal
+                              |ReplayObservationFeedImpression
                               |ReplayObservationLabel
                               |ReplayObservationMedia
                               |ReplayObservationRequest
@@ -390,6 +392,7 @@ rules:
                               |SignalReportArtefact
                               |SignalReportCheck
                               |SignalReportMonitoringAttempt
+                              |SignalReportMonitoringResult
                               |SignalReportGithubComment
                               |SignalReportPullRequest
                               |SignalReportAssignment
@@ -398,6 +401,8 @@ rules:
                               |SignalReportSuggestedReviewer
                               |SignalReportTask
                               |SignalReportTrackerIssue
+                              |SignalReviewerExclusion
+                              |SignalReviewerExclusionRevision
                               |SignalRepositoryAreaActivity
                               |SignalTeamConfig
                               |SignalSourceConfig
@@ -409,6 +414,7 @@ rules:
                               |SignalScoutSuggestionSet
                               |SignalScoutBackgroundBand
                               |SignalSpend
+                              |AnomalyScoringState
                               |SignalScratchpad
                               |SignalProjectProfile
                               |SingleSessionSummary
@@ -422,6 +428,7 @@ rules:
                               |SubscriptionDelivery
                               |PlatformAlert
                               |PlatformAlertConfiguration
+                              |PlatformAlertDeliveryHold
                               |PlatformAlertDeliveryPath
                               |PlatformAlertThread
                               |AlertDestination
@@ -667,6 +674,7 @@ rules:
                         |EnterpriseEventDefinition
                         |EnterprisePropertyDefinition
                         |EventFilterConfig
+                        |EventFilterPipelineOverride
                         |EventStream
                         |EventStreamMember
                         |ErrorTrackingAlert
@@ -822,6 +830,7 @@ rules:
                         |QuickFilterContext
                         |ReplayObservation
                         |ReplayObservationFeedDismissal
+                        |ReplayObservationFeedImpression
                         |ReplayObservationLabel
                         |ReplayObservationMedia
                         |ReplayObservationRequest
@@ -862,6 +871,7 @@ rules:
                         |SignalReportArtefact
                         |SignalReportCheck
                         |SignalReportMonitoringAttempt
+                        |SignalReportMonitoringResult
                         |SignalReportGithubComment
                         |SignalReportPullRequest
                         |SignalReportAssignment
@@ -870,6 +880,8 @@ rules:
                         |SignalReportSuggestedReviewer
                         |SignalReportTask
                         |SignalReportTrackerIssue
+                        |SignalReviewerExclusion
+                        |SignalReviewerExclusionRevision
                         |SignalRepositoryAreaActivity
                         |SignalTeamConfig
                         |SignalSourceConfig
@@ -881,6 +893,7 @@ rules:
                         |SignalScoutSuggestionSet
                         |SignalScoutBackgroundBand
                         |SignalSpend
+                        |AnomalyScoringState
                         |SignalScratchpad
                         |SignalProjectProfile
                         |SingleSessionSummary
@@ -894,6 +907,7 @@ rules:
                         |SubscriptionDelivery
                         |PlatformAlert
                         |PlatformAlertConfiguration
+                        |PlatformAlertDeliveryHold
                         |PlatformAlertDeliveryPath
                         |PlatformAlertThread
                         |AlertDestination
@@ -1100,6 +1114,7 @@ rules:
                         |EvaluationReport
                         |Event
                         |EventFilterConfig
+                        |EventFilterPipelineOverride
                         |ExperimentTimeseriesRecalculation
                         |ExplicitTeamMembership
                         |ExportedAsset
@@ -1206,6 +1221,7 @@ rules:
                         |SignalReportArtefact
                         |SignalReportCheck
                         |SignalReportMonitoringAttempt
+                        |SignalReportMonitoringResult
                         |SignalReportSlackThread
                         |SignalReportTask
                         |SignalSourceConfig

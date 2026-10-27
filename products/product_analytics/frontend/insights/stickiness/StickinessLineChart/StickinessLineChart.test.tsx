@@ -6,7 +6,7 @@ import { setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
 
 import { ExportType } from '~/exporter/types'
 import { NodeKind } from '~/queries/schema/schema-general'
-import { buildStickinessQuery, chart, getHogChart, personsModal, renderInsight } from '~/test/insight-testing'
+import { buildStickinessQuery, chart, getChart, personsModal, renderInsight } from '~/test/insight-testing'
 
 configure({ asyncUtilTimeout: 5000 })
 // With asyncUtilTimeout at 5s, a single legitimate waitFor can exhaust Jest's default
@@ -43,7 +43,7 @@ describe('StickinessLineChart', () => {
             await screen.findByLabelText(/chart with 1 data series/i)
 
             await waitFor(() => {
-                expect(getHogChart().xTicks()).toEqual(
+                expect(getChart().xTicks()).toEqual(
                     expect.arrayContaining(['1 day', '2 days', '3 days', '4 days', '5 days'])
                 )
             })
