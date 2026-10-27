@@ -994,12 +994,6 @@ tools:
             development
         services:
             - temporal
-    tool:hog:
-        bin_script: hog
-        description: Run HogQL interpreter (TypeScript/Python) or compiled bytecode
-    tool:hoge:
-        bin_script: hoge
-        description: Compile HogQL source to bytecode or JavaScript
     tool:hoglang:
         bin_script: hoglang
         description: Run HogLang source or bytecode, or compile source to bytecode or JavaScript
