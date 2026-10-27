@@ -1,4 +1,5 @@
 import uuid
+from dataclasses import replace
 
 from django.test import TestCase
 
@@ -7,6 +8,7 @@ from parameterized import parameterized
 from posthog.models import Organization, Team
 
 from products.signals.backend.models import SignalReport
+from products.tasks.backend.facade.profiles import profile_for_task
 from products.tasks.backend.management.commands.backfill_task_profiles import backfill_task_profiles
 from products.tasks.backend.models import Task, TaskRun
 
@@ -39,7 +41,7 @@ class TestBackfillTaskProfiles(TestCase):
             ("imported_internal", "posthog_ai", True, "phai-conversation:abc", (), "posthog_ai.imported_internal"),
         ]
     )
-    def test_profile_comes_from_origin_internal_and_newest_stage(
+    def test_backfilled_profile_matches_origin_and_newest_stage_and_keeps_legacy_behavior(
         self,
         _name: str,
         origin_product: str,
@@ -49,11 +51,14 @@ class TestBackfillTaskProfiles(TestCase):
         expected_profile: str,
     ) -> None:
         task = self._task(origin_product, internal=internal, origin_key=origin_key, ai_stages=ai_stages)
+        legacy = profile_for_task(task)
 
         backfill_task_profiles()
 
         task.refresh_from_db()
+        backfilled = profile_for_task(task)
         assert task.profile == expected_profile
+        assert replace(backfilled, key=legacy.key, public=legacy.public) == legacy
 
     def test_fills_source_and_idempotency_fields_and_leaves_profiled_rows_alone(self) -> None:
         report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY)

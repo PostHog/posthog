@@ -7,10 +7,11 @@ from products.tasks.backend.facade.profiles import (
     Read,
     TaskProfile,
     TaskProfileError,
-    get_task_profile,
     profile_for_origin,
+    profile_for_task,
     register_task_profile,
 )
+from products.tasks.backend.models import Task
 
 
 class TestTaskProfileRegistry(SimpleTestCase):
@@ -20,12 +21,26 @@ class TestTaskProfileRegistry(SimpleTestCase):
             for (origin, internal), key in LEGACY_PROFILE_KEYS.items()
         ]
     )
-    def test_legacy_mapping_resolves_to_a_matching_profile(
+    def test_unprofiled_task_resolves_through_the_legacy_mapping(
         self, _name: str, origin: str, internal: bool, key: str
     ) -> None:
-        profile = get_task_profile(key)
+        profile = profile_for_task(Task(origin_product=origin, internal=internal))
 
-        self.assertEqual((profile.origin_product, profile.listed), (origin, not internal))
+        self.assertEqual((profile.key, profile.origin_product, profile.listed), (key, origin, not internal))
+
+    @parameterized.expand(
+        [
+            ("signals_research", "signal_report", True, "signals.research", "signals.research"),
+            ("imported_conversation", "posthog_ai", False, "posthog_ai.imported", "posthog_ai.imported"),
+            ("unregistered_key", "signal_report", True, "signals.retired", "signals.implementation"),
+        ]
+    )
+    def test_stored_profile_wins_unless_unregistered(
+        self, _name: str, origin: str, internal: bool, stored: str, expected: str
+    ) -> None:
+        task = Task(origin_product=origin, internal=internal, profile=stored)
+
+        self.assertEqual(profile_for_task(task).key, expected)
 
     @parameterized.expand(
         [
