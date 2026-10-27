@@ -359,6 +359,7 @@ class TestAgentProxyCallback(TestCase):
 
     @parameterized.expand([("interactive", True), ("background", False)])
     def test_permission_requested_pushes_only_for_interactive_run(self, mode: str, expect_push: bool) -> None:
+        TaskRun.objects.filter(id=self.task_run.id).update(status=TaskRun.Status.COMPLETED)
         run = self.task.create_run(mode=mode)
         body = self._body(kind="permission_requested", agent_active=False, sequence=3, request_id="request-1")
         with patch(
