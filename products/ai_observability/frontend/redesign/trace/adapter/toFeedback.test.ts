@@ -9,20 +9,23 @@ describe('toFeedback', () => {
         expect(toFeedbackChip({ total })).toEqual(expected)
     })
 
-    test('toStepFeedback puts trace-level entries and entries on a step the tree lacks on the root', () => {
-        const score = makeFeedbackScore({ nodeId: 'gen-1' })
-        const traceScore = makeFeedbackScore({ id: 'score-2', nodeId: null })
-        const orphanScore = makeFeedbackScore({ id: 'score-3', nodeId: 'gone' })
-        const feedback = makeFeedback({
-            scores: [score, traceScore, orphanScore],
-            responses: [makeFeedbackText({ nodeId: 'gen-1' }), makeFeedbackText({ id: 'text-2', nodeId: null })],
-        })
+    test.each(['trace-1', 'constructor', '__proto__'])(
+        'toStepFeedback puts trace-level entries and entries on a step the tree lacks on the root %s',
+        (traceId) => {
+            const score = makeFeedbackScore({ nodeId: 'gen-1' })
+            const traceScore = makeFeedbackScore({ id: 'score-2', nodeId: null })
+            const orphanScore = makeFeedbackScore({ id: 'score-3', nodeId: 'gone' })
+            const feedback = makeFeedback({
+                scores: [score, traceScore, orphanScore],
+                responses: [makeFeedbackText({ nodeId: 'gen-1' }), makeFeedbackText({ id: 'text-2', nodeId: null })],
+            })
 
-        expect(toStepFeedback(feedback, makeTraceResource().tree, 'trace-1')).toEqual({
-            'gen-1': { scores: [score], textCount: 1 },
-            'trace-1': { scores: [traceScore, orphanScore], textCount: 1 },
-        })
-    })
+            expect({ ...toStepFeedback(feedback, makeTraceResource().tree, traceId) }).toEqual({
+                'gen-1': { scores: [score], textCount: 1 },
+                [traceId]: { scores: [traceScore, orphanScore], textCount: 1 },
+            })
+        }
+    )
 
     test('toFeedbackMode names each step and keeps an unknown step as trace-level', () => {
         const feedback = makeFeedback({

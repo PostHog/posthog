@@ -25,6 +25,7 @@ export interface TraceViewReadyProps {
     thread: ConversationState
     timeline: { rows: TraceTimelineRowApi[]; totalMs: number }
     feedbackMode?: FeedbackModeState
+    onRetryFeedback?: () => void
     /** Null until the feedback has loaded. */
     feedbackCount?: number | null
     /** Feedback entries per step id, trace-level ones on the root. */
@@ -65,6 +66,7 @@ export function TraceView(props: TraceViewProps): JSX.Element {
                 <TraceFeedbackView
                     state={props.feedbackMode ?? FEEDBACK_LOADING}
                     onSelectStep={props.onSelectFromView}
+                    onRetry={props.onRetryFeedback}
                 />
             ) : (
                 <TraceTimeline

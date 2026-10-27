@@ -18,7 +18,8 @@ export function toStepFeedback(
     traceId: string
 ): Record<string, StepFeedback> {
     const labels = nodeLabels(tree)
-    const byStep: Record<string, StepFeedback> = {}
+    // The root's key is the trace id, which is free-form, so a prototype key such as `constructor` must not resolve.
+    const byStep: Record<string, StepFeedback> = Object.create(null)
     const entry = (nodeId: string | null): StepFeedback =>
         (byStep[treeStepId(nodeId, labels) ?? traceId] ??= { scores: [], textCount: 0 })
     for (const score of feedback.scores) {

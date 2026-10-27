@@ -107,6 +107,9 @@ export interface traceViewAdapterLogicActions {
     setEventId: (eventId: string | null) => {
         eventId: string | null
     } // aiObservabilityTraceLogic
+    retryTraceFeedback: () => {
+        value: true
+    } // traceFeedbackLogic
     loadNode: (
         nodeId: string,
         trigger: import('../types').NodeLoadTrigger
@@ -273,6 +276,8 @@ export const traceViewAdapterLogic = kea<traceViewAdapterLogicType>([
             ['setEventId', 'loadNeighbors'],
             traceViewLogic({ traceId: props.traceId, timestampHint: props.timestampHint }),
             ['loadNode', 'loadTraceSuccess'],
+            traceFeedbackLogic({ traceId: props.traceId, timestampHint: props.timestampHint }),
+            ['retryTraceFeedback'],
         ],
     })),
     actions({
@@ -463,7 +468,7 @@ export const traceViewAdapterLogic = kea<traceViewAdapterLogicType>([
         selectedStepFeedback: [
             (s) => [s.stepFeedback, s.selectedNodeId],
             (stepFeedback: Record<string, StepFeedback>, selectedNodeId: string): StepFeedback | null =>
-                stepFeedback[selectedNodeId] ?? null,
+                Object.hasOwn(stepFeedback, selectedNodeId) ? stepFeedback[selectedNodeId] : null,
         ],
         feedbackMode: [
             (s, p) => [s.traceFeedback, s.traceFeedbackFailed, s.tree, s.feedbackFocusNodeId, p.traceId],

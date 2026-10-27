@@ -26,7 +26,8 @@ export function TraceTreeRow({
     feedbackCountByNodeId,
 }: TraceTreeRowProps): JSX.Element {
     const isSelected = node.id === selectedNodeId
-    const feedbackCount = feedbackCountByNodeId?.[node.id] ?? 0
+    const feedbackCount =
+        feedbackCountByNodeId && Object.hasOwn(feedbackCountByNodeId, node.id) ? feedbackCountByNodeId[node.id] : 0
     return (
         <li>
             <button

@@ -72,13 +72,22 @@ describe('traceFeedbackLogic', () => {
         expect(feedbackHints).toEqual(['2026-09-01T10:15:00Z'])
     })
 
-    it('marks a failed read and keeps no feedback', async () => {
+    test.each([
+        ['the link timestamp', '2026-08-31T00:00:00Z', '2026-08-31T00:00:00Z'],
+        ["the trace's timestamp", null, '2026-09-01T10:15:00Z'],
+    ])('marks a failed read, keeps no feedback, and retries with %s', async (_name, timestampHint, expectedHint) => {
         silenceKeaLoadersErrors()
         feedbackStatus = 500
-        const logic = mount('2026-08-31T00:00:00Z')
+        const logic = mount(timestampHint)
 
         await expectLogic(logic)
             .toDispatchActions(['loadTraceFeedbackFailure'])
             .toMatchValues({ traceFeedback: null, traceFeedbackFailed: true })
+
+        feedbackStatus = 200
+        await expectLogic(logic, () => logic.actions.retryTraceFeedback())
+            .toDispatchActions(['loadTraceFeedbackSuccess'])
+            .toMatchValues({ traceFeedback: makeFeedback(), traceFeedbackFailed: false })
+        expect(feedbackHints).toEqual([expectedHint, expectedHint])
     })
 })
