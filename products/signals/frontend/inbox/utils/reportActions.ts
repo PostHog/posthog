@@ -17,6 +17,9 @@ export function canUnassignMe(report: SignalReport, isScopedToMe: boolean): bool
  * the server-side autostart rules: only when ready & actionable, or blocked on user input.
  */
 export function canCreateImplementationPr(report: SignalReport): boolean {
+    if (report.is_self_improvement_report && !report.repo_slug) {
+        return false
+    }
     if (primaryReportPullRequest(report).url) {
         return false
     }

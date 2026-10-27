@@ -76,6 +76,7 @@ export const SIDEBAR_PRODUCTS_WITHOUT_DOCS = new Set<string>([
     'Identity matching',
     'Product tours',
     'Pulse',
+    'Transactional',
     'Uptime monitoring',
     'Visual review',
 ])
@@ -99,6 +100,7 @@ const examples: Record<string, string> = {
     Cohorts: 'Compare people who tried a feature with those who have not.',
     Apps: 'Build an internal Python dashboard using your project data.',
     Broadcasts: 'Send an announcement to a cohort of beta testers.',
+    Transactional: 'Send a password reset email from your backend.',
     'Business knowledge': 'Give your AI assistant context about how your business works.',
     Clusters: 'Discover common themes in conversations with your AI assistant.',
     'Code review': 'Review automated findings on a pull request before it merges.',
