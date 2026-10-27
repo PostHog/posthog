@@ -53,6 +53,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.m
     SHRINK_EXHAUSTED_ERROR_MESSAGE,
     SMALLEST_PAGE_LIMIT_MAX_RETRIES,
     MetaAdsAuthError,
+    MetaAdsRateLimitError,
     MetaAdsResumeConfig,
     _earliest_supported_since,
     _fetch_integration_row,
@@ -2199,6 +2200,17 @@ class TestListAdAccounts:
     def test_transient_failure_surfaces_retry_message_to_the_picker(self, answer: Any) -> None:
         with scripted_network(always(answer)):
             with pytest.raises(IntegrationAccountListingError, match=META_AD_ACCOUNT_LISTING_UNAVAILABLE_MESSAGE):
+                list_ad_accounts(self._integration())
+
+    def test_html_429_raises_meta_ads_rate_limit_error(self) -> None:
+        # Before the HTTP-429 fallback in `_is_rate_limit_error`, this fell through to the
+        # generic, unclassified error instead of `MetaAdsRateLimitError` (which
+        # `get_oauth_accounts` turns into the actionable message the picker shows). A 429 is in
+        # the adapter's retry status_forcelist, so `always()` answers every retried attempt.
+        with scripted_network(
+            always(ScriptedResponse(status=429, body=b"<!DOCTYPE html><html><body>4xx Client Error</body></html>"))
+        ):
+            with pytest.raises(MetaAdsRateLimitError, match=META_RATE_LIMIT_ERROR_MESSAGE):
                 list_ad_accounts(self._integration())
 
     def test_page_limit_exceeded_fails_closed_instead_of_returning_partial(self) -> None:
