@@ -12,6 +12,7 @@ from posthog.schema import HogQLQuery
 from posthog.hogql.escape_sql import escape_trino_identifier
 from posthog.hogql.trino_parameters import convert_pyformat_placeholders
 
+from posthog.dataclasses import frozen
 from posthog.models import Team
 
 from products.data_modeling.backend.facade.system_tables import DATA_MODELING_ALLOWED_SYSTEM_TABLES
@@ -253,7 +254,14 @@ def _quote_row_field(name: str) -> str:
     return '"' + name.replace('"', '""') + '"'
 
 
-def _unquoted_characters(text: str) -> Iterator[tuple[int, str, int]]:
+@frozen
+class _UnquotedCharacter:
+    index: int
+    character: str
+    depth: int  # parenthesis depth after this character
+
+
+def _unquoted_characters(text: str) -> Iterator[_UnquotedCharacter]:
     """Yield each character outside quoted identifiers with its parenthesis depth after it."""
     depth = 0
     quoted = False
@@ -267,16 +275,16 @@ def _unquoted_characters(text: str) -> Iterator[tuple[int, str, int]]:
             depth += 1
         elif character == ")":
             depth -= 1
-        yield index, character, depth
+        yield _UnquotedCharacter(index=index, character=character, depth=depth)
 
 
 def _split_type_arguments(text: str) -> list[str]:
     parts: list[str] = []
     start = 0
-    for index, character, depth in _unquoted_characters(text):
-        if character == "," and depth == 0:
-            parts.append(text[start:index])
-            start = index + 1
+    for scanned in _unquoted_characters(text):
+        if scanned.character == "," and scanned.depth == 0:
+            parts.append(text[start : scanned.index])
+            start = scanned.index + 1
     parts.append(text[start:])
     return parts
 
@@ -305,9 +313,9 @@ def _is_type(text: str) -> bool:
         return False
     rest = text[match.end() :]
     if rest.startswith("("):
-        for index, character, depth in _unquoted_characters(rest):
-            if character == ")" and depth == 0:
-                rest = rest[index + 1 :]
+        for scanned in _unquoted_characters(rest):
+            if scanned.character == ")" and scanned.depth == 0:
+                rest = rest[scanned.index + 1 :]
                 break
     return rest.strip().lower() in _ROW_TYPE_SUFFIXES
 
