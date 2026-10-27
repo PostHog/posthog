@@ -42,6 +42,7 @@ _SYMBOLS: Final[dict[AlertEventKind, str]] = {
 _SOURCE_LABELS: Final[dict[SourceKind, str]] = {
     SourceKind.LOGS: "Log",
     SourceKind.INSIGHT: "Insight",
+    SourceKind.BILLING: "Billing",
 }
 
 # What a held row says, when cooldown or mute kept its announcement and only its incident moved.
@@ -76,6 +77,8 @@ class AlertMessage:
     incident_action: IncidentAction | None = None
     # The incident key the source's own stack opened incidents under, for a firing the platform took over.
     source_incident_key: str | None = None
+    # The project the alert belongs to, which a reader with alerts in several projects needs.
+    project: MessageLink | None = None
 
     @property
     def title(self) -> str:
@@ -160,6 +163,7 @@ def build_message(
     source_alert_url: str | None = None,
     overflowed: int = 0,
     source_incident_key: str | None = None,
+    project: MessageLink | None = None,
 ) -> AlertMessage:
     """The message for one transition.
 
@@ -209,4 +213,5 @@ def build_message(
         slack_elements=description.slack_elements,
         incident_action=incident_action,
         source_incident_key=source_incident_key,
+        project=project,
     )

@@ -261,10 +261,10 @@ export const PlatformAlertsUpdateBody = /* @__PURE__ */ zod.union([
                                     'How the value is compared: as it is, or as an increase or decrease from the previous interval.'
                                 ),
                             detector: zod
-                                .null()
+                                .union([zod.record(zod.string(), zod.unknown()), zod.null()])
                                 .optional()
                                 .describe(
-                                    'Always null. The platform owns threshold alerts only, so no detector applies.'
+                                    "The anomaly detector the alert uses in place of its threshold, or null for a threshold alert. It can't change through this API."
                                 ),
                         })
                         .describe("The bound the insight's value is checked against."),
@@ -579,10 +579,10 @@ export const PlatformAlertsPartialUpdateBody = /* @__PURE__ */ zod.union([
                                     'How the value is compared: as it is, or as an increase or decrease from the previous interval.'
                                 ),
                             detector: zod
-                                .null()
+                                .union([zod.record(zod.string(), zod.unknown()), zod.null()])
                                 .optional()
                                 .describe(
-                                    'Always null. The platform owns threshold alerts only, so no detector applies.'
+                                    "The anomaly detector the alert uses in place of its threshold, or null for a threshold alert. It can't change through this API."
                                 ),
                         })
                         .describe("The bound the insight's value is checked against."),

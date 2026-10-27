@@ -3,29 +3,29 @@ import React, { type ReactElement, type ReactNode } from 'react'
 
 import type { TooltipContext } from '../core/types'
 import { DefaultTooltip } from '../overlays/DefaultTooltip'
-import { getHogChart, type HogChart } from './accessor'
+import { getChart, type ChartAccessor } from './accessor'
 import { ensureJsdom } from './jsdom'
-import { HOG_CHARTS_TOOLTIP_SELECTOR } from './tooltip'
+import { TOOLTIP_SELECTOR } from './tooltip'
 
-export interface RenderHogChartOptions {
+export interface RenderChartOptions {
     /** Skip the tooltip-prop override so the chart renders its own tooltip. Context capture
      *  via `chart.waitForTooltip()` is unavailable in this mode. */
     nativeTooltip?: boolean
 }
 
-/** Render a hog-charts component and return Testing Library's `RenderResult` with a `chart`
- *  accessor attached. Throws if the rendered tree doesn't contain a hog-charts canvas.
+/** Render a quill-charts component and return Testing Library's `RenderResult` with a `chart`
+ *  accessor attached. Throws if the rendered tree doesn't contain a quill-charts canvas.
  *
  *  Sets up the jsdom mocks + sync RAF on first call (idempotent), so tests don't need a
  *  beforeEach for those. Also calls `cleanup()` and removes any leftover tooltip portal
  *  before each render — RTL's auto-cleanup doesn't always reach `FloatingPortal` children. */
-export function renderHogChart<Meta = unknown>(
+export function renderChart<Meta = unknown>(
     ui: ReactElement,
-    options: RenderHogChartOptions = {}
-): RenderResult & { chart: HogChart<Meta> } {
+    options: RenderChartOptions = {}
+): RenderResult & { chart: ChartAccessor<Meta> } {
     ensureJsdom()
     cleanup()
-    document.querySelectorAll(HOG_CHARTS_TOOLTIP_SELECTOR).forEach((el) => el.remove())
+    document.querySelectorAll(TOOLTIP_SELECTOR).forEach((el) => el.remove())
 
     const props = ui.props as { tooltip?: (ctx: TooltipContext<Meta>) => ReactNode; labels?: string[] }
 
@@ -45,7 +45,7 @@ export function renderHogChart<Meta = unknown>(
     const result = render(toRender)
     return {
         ...result,
-        chart: getHogChart<Meta>(result.container, {
+        chart: getChart<Meta>(result.container, {
             getLastTooltipContext: () => lastTooltipContext,
             totalLabels: props.labels?.length,
         }),

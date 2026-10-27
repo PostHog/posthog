@@ -6,6 +6,7 @@ import userEvent from '@testing-library/user-event'
 import { initKeaTests } from '~/test/init'
 
 import { EnrichedReviewer } from '../../types'
+import { ReviewerClaim, reviewerClaimRemoveDisabledReason } from './SuggestedReviewerClaimControls'
 import { SuggestedReviewerPerson } from './SuggestedReviewerPerson'
 import { SuggestedReviewersSectionMockup } from './SuggestedReviewersSectionMockup'
 
@@ -97,6 +98,27 @@ describe('Suggested reviewer presentation', () => {
         expect(removeButton).not.toHaveClass('opacity-0')
         await userEvent.click(removeButton)
         expect(onRemove).toHaveBeenCalledWith([maya])
+    })
+    test.each([
+        ['your own row while your claim is saving', 'me', true, 'Updating…'],
+        ['your own row when no claim is saving', 'me', false, undefined],
+        ["a teammate's row while your claim is saving", 'teammate', true, undefined],
+    ])('removal of %s', (_case, uuid, saving, expected) => {
+        const reviewer: EnrichedReviewer = {
+            github_login: uuid,
+            github_name: null,
+            relevant_commits: [],
+            user: { id: 1, uuid, first_name: 'Sam', last_name: 'Lee', email: 'sam@example.com' },
+        }
+        const claim: ReviewerClaim = {
+            claimantUuid: null,
+            currentUserUuid: 'me',
+            claimable: true,
+            saving,
+            onSetClaimed: () => undefined,
+        }
+
+        expect(reviewerClaimRemoveDisabledReason(reviewer, claim, 'Sam Lee')).toEqual(expected)
     })
     it('shows a manual addition as a reason without a source badge', () => {
         const quinn: EnrichedReviewer = {

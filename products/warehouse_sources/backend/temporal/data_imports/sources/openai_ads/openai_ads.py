@@ -2,7 +2,7 @@ import re
 import json
 import dataclasses
 from collections.abc import Callable, Iterator
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 
 from dateutil import parser
@@ -45,10 +45,10 @@ UNREACHABLE_ERROR = (
     "Couldn't reach OpenAI Ads to validate your API key. This is usually temporary, so try again in a moment."
 )
 
-# Floor for the insights window on a full refresh. OpenAI Ads launched to advertisers in 2026, so
-# no reporting data can predate this; the whole window rides a single date_range request, so a
-# generous floor costs nothing while staying within the API's 5-year time-range bound.
-DEFAULT_INSIGHTS_SINCE = date(2025, 1, 1)
+# OpenAI Ads keeps daily delivery reporting for the most recent 365 days and rejects an earlier
+# `since` with a 400 (https://developers.openai.com/ads/reporting). The window is one day shorter
+# because the API reads dates in the ad account's timezone and this source sends them in UTC.
+INSIGHTS_HISTORY_DAYS = 364
 
 
 @dataclasses.dataclass
@@ -157,13 +157,14 @@ def _insights_window(db_incremental_field_last_value: Optional[Any]) -> SyncWind
     """The [since, until] ISO date window for one insights sync.
 
     Incremental runs start at the watermark (the pipeline already rewinds it by the configured
-    lookback); full refreshes start at the product-launch floor. `until` is today — the API
-    rejects future dates.
+    lookback); full refreshes start at the oldest day the API still reports. A watermark older than
+    that day is moved up to it too. `until` is today — the API rejects future dates.
     """
     until = datetime.now(tz=UTC).date()
-    since = DEFAULT_INSIGHTS_SINCE
+    earliest = until - timedelta(days=INSIGHTS_HISTORY_DAYS)
+    since = earliest
     if db_incremental_field_last_value is not None:
-        since = _to_utc_date(db_incremental_field_last_value)
+        since = max(_to_utc_date(db_incremental_field_last_value), earliest)
     since = min(since, until)
     return SyncWindow(start=since.isoformat(), end=until.isoformat())
 

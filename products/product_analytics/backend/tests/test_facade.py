@@ -19,6 +19,7 @@ from products.product_analytics.backend.facade.api import (
     insight_variables_for_team,
     insights_including_soft_deleted_for_team,
     record_insight_view,
+    viewer_counts_by_insight,
 )
 from products.product_analytics.backend.facade.queries import run_cached_trends_query
 from products.product_analytics.backend.models.insight import Insight, InsightViewed
@@ -83,6 +84,31 @@ class TestInsightReads(BaseTest):
         )
 
         assert {insight.pk for insight in insights} == {deleted_insight.pk, live_insight.pk}
+
+    def test_viewer_counts_count_recent_signed_in_viewers_of_the_team(self) -> None:
+        viewed = Insight.objects.create(team=self.team, name="Viewed")
+        unviewed = Insight.objects.create(team=self.team, name="Unviewed")
+        other_team = Team.objects.create(organization=self.organization)
+        other_team_insight = Insight.objects.create(team=other_team, name="Other team")
+        recent = now() - timedelta(days=1)
+        for viewer in (self.user, self._create_user("second@example.com")):
+            InsightViewed.objects.create(team=self.team, user=viewer, insight=viewed, last_viewed_at=recent)
+        InsightViewed.objects.create(
+            team=self.team,
+            user=self._create_user("old@example.com"),
+            insight=viewed,
+            last_viewed_at=now() - timedelta(days=40),
+        )
+        InsightViewed.objects.create(team=None, user=None, insight=viewed, last_viewed_at=recent)
+        InsightViewed.objects.create(team=other_team, user=self.user, insight=other_team_insight, last_viewed_at=recent)
+
+        counts = viewer_counts_by_insight(
+            team_id=self.team.pk,
+            insight_ids={viewed.pk, unviewed.pk, other_team_insight.pk},
+            since=now() - timedelta(days=30),
+        )
+
+        assert counts == {viewed.pk: 2}
 
 
 class TestRunCachedTrendsQuery(BaseTest):

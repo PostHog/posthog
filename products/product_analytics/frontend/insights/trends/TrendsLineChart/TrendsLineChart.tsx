@@ -349,10 +349,11 @@ export function TrendsLineChart({
                 valueLabels: showValuesOnSeries && valueLabelFormatter ? { formatter: valueLabelFormatter } : false,
                 curve: chartStyleCurve(trendsFilter?.chartStyle),
                 showCrosshair: true,
-                tooltip: INSIGHT_TOOLTIP_CONFIG,
+                tooltip: { ...INSIGHT_TOOLTIP_CONFIG, resolveClickToNearestSeries: context?.dashboardResultMenu },
                 legend: legendConfig,
             }),
         [
+            context?.dashboardResultMenu,
             indexedResults,
             trendsFilter,
             baseCurrency,

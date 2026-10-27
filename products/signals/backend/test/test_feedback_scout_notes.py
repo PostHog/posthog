@@ -11,6 +11,7 @@ from django.apps import apps
 
 from parameterized import parameterized
 from rest_framework import status
+from social_django.models import UserSocialAuth
 
 from posthog.constants import AvailableFeature
 from posthog.models.personal_api_key import PersonalAPIKey
@@ -105,6 +106,35 @@ class TestFeedbackScoutNotes(APIBaseTest):
         # Feedback never changes the report's state — it only carries the note to the scout.
         report.refresh_from_db()
         assert report.status == SignalReport.Status.READY
+
+    @parameterized.expand(
+        [
+            ("full_name", "Ada", "Lovelace", None, "Ada Lovelace ({email})"),
+            ("no_name", "", "", None, "{email}"),
+            ("github_login", "Ada", "Lovelace", "ada-l", "Ada Lovelace ({email}, GitHub @ada-l)"),
+        ]
+    )
+    def test_feedback_note_names_the_person(
+        self, _name: str, first: str, last: str, github_login: str | None, expected: str
+    ) -> None:
+        self.user.first_name = first
+        self.user.last_name = last
+        self.user.save()
+        if github_login:
+            UserSocialAuth.objects.create(
+                user=self.user, provider="github", uid="github-1", extra_data={"login": github_login}
+            )
+        self._create_scout_skill()
+        report = self._create_report()
+        self._create_run(emitted_report_ids=[str(report.id)])
+
+        self._feedback(report, sentiment="positive", note="the repro steps were exactly right")
+
+        actor = expected.format(email=self.user.email)
+        content = self._notes()[0].content
+        # Scouts weigh feedback by who gave it, and route reviewers by GitHub login.
+        assert content.startswith(f"Inbox feedback: {actor} found useful report")
+        assert f"This is the verdict of {actor} on a report" in content
 
     def test_negative_sentiment_reads_as_not_useful(self) -> None:
         self._create_scout_skill()

@@ -7,11 +7,11 @@ import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentP
 import { urls } from 'scenes/urls'
 
 import { Composer } from 'products/posthog_ai/frontend/api/composer'
+import { useThreadSkin } from 'products/posthog_ai/frontend/api/logics'
 import {
     DEFAULT_SUGGESTIONS_DATA,
     type SuggestionItem,
     Suggestions,
-    useThreadSkin,
     Welcome,
 } from 'products/posthog_ai/frontend/api/primitives'
 import { modelCatalogueLogic } from 'products/posthog_ai/frontend/logics/modelCatalogueLogic'

@@ -131,7 +131,6 @@ export interface dataCatalogMetricSceneLogicValues {
     metricLoading: boolean
     mountedTabs: MetricSceneTab[]
     mutating: boolean
-    pendingDefinitionEdit: boolean
     runResult: DataCatalogMetricRunApi | null
     runResultLoading: boolean
     supportsMetricChecks: boolean
@@ -266,13 +265,14 @@ export interface dataCatalogMetricSceneLogicActions {
     setMutating: (mutating: boolean) => {
         mutating: boolean
     }
-    setPendingDefinitionEdit: (pendingDefinitionEdit: boolean) => {
-        pendingDefinitionEdit: boolean
-    }
     startEditingMarkdown: () => {
         value: true
     }
-    updateMetric: (patch: PatchedDataCatalogMetricApi) => {
+    updateMetric: (
+        patch: PatchedDataCatalogMetricApi,
+        approve?: boolean
+    ) => {
+        approve: boolean
         patch: PatchedDataCatalogMetricApi
     }
 }
@@ -317,13 +317,12 @@ export const dataCatalogMetricSceneLogic = kea<dataCatalogMetricSceneLogicType>(
         deleteMetric: true,
         renameMetric: (name: string) => ({ name }),
         renamedExternally: (name: string) => ({ name }),
-        updateMetric: (patch: PatchedDataCatalogMetricApi) => ({ patch }),
+        updateMetric: (patch: PatchedDataCatalogMetricApi, approve: boolean = false) => ({ patch, approve }),
         setMutating: (mutating: boolean) => ({ mutating }),
         setEditingDefinition: (editingDefinition: boolean) => ({ editingDefinition }),
         setDraftSql: (draftSql: string) => ({ draftSql }),
         setDraftMarkdown: (draftMarkdown: string) => ({ draftMarkdown }),
         startEditingMarkdown: true,
-        setPendingDefinitionEdit: (pendingDefinitionEdit: boolean) => ({ pendingDefinitionEdit }),
     }),
     loaders(({ props }) => ({
         metric: [
@@ -433,12 +432,6 @@ export const dataCatalogMetricSceneLogic = kea<dataCatalogMetricSceneLogicType>(
                 setDraftMarkdown: (_, { draftMarkdown }) => draftMarkdown,
             },
         ],
-        pendingDefinitionEdit: [
-            false,
-            {
-                setPendingDefinitionEdit: (_, { pendingDefinitionEdit }) => pendingDefinitionEdit,
-            },
-        ],
     }),
     selectors({
         mountedTabs: [
@@ -492,11 +485,6 @@ export const dataCatalogMetricSceneLogic = kea<dataCatalogMetricSceneLogicType>(
             }
             actions.setDraftSql(definitionField(metric, 'query'))
             actions.setDraftMarkdown(definitionField(metric, 'markdown'))
-            // Deferred until the metric is loaded, otherwise the draft sync above would wipe the seeded template.
-            if (values.pendingDefinitionEdit) {
-                actions.setPendingDefinitionEdit(false)
-                actions.startEditingMarkdown()
-            }
             // A reload can carry a definition the agent rewrote, so an open tab is no evidence that
             // the graph is current. Compare what the graph was requested for instead, because every
             // tab switch reloads the metric and an unchanged reload must not ask for it again.
@@ -602,14 +590,28 @@ export const dataCatalogMetricSceneLogic = kea<dataCatalogMetricSceneLogicType>(
                 actions.setMutating(false)
             }
         },
-        updateMetric: async ({ patch }) => {
+        updateMetric: async ({ patch, approve }) => {
             if (values.mutating || isInvalidMetricName(props.name)) {
                 return
             }
             actions.setMutating(true)
             try {
-                actions.setMetric(await dataCatalogMetricsPartialUpdate(projectId(), props.name, patch))
-                lemonToast.success('Metric saved')
+                const saved = await dataCatalogMetricsPartialUpdate(projectId(), props.name, patch)
+                actions.setMetric(saved)
+                if (!approve) {
+                    lemonToast.success('Metric saved')
+                    return
+                }
+                try {
+                    actions.setMetric(
+                        await dataCatalogMetricsApproveCreate(projectId(), props.name, {
+                            expected_updated_at: saved.updated_at ?? undefined,
+                        })
+                    )
+                    lemonToast.success('Metric saved and approved')
+                } catch {
+                    lemonToast.warning('Metric saved, but approving it failed. Approve it from the banner.')
+                }
             } catch (error) {
                 lemonToast.error(apiErrorDetail(error) || 'Could not save the metric. Try again.')
             } finally {
@@ -675,11 +677,6 @@ export const dataCatalogMetricSceneLogic = kea<dataCatalogMetricSceneLogicType>(
             }
             if (activeTab !== values.activeTab) {
                 actions.setActiveTab(activeTab)
-            }
-            if (searchParams.edit === 'definition') {
-                actions.setPendingDefinitionEdit(true)
-                // Consume the param so refresh or back does not reopen the editor.
-                router.actions.replace(router.values.location.pathname)
             }
             actions.loadMetric()
         },

@@ -5,6 +5,10 @@ from products.posthog_ai.eval_harness.harness.requirements import SuiteKind
 from products.posthog_ai.eval_harness.offline_results import OfflineEvalSuite, OfflineScorer
 
 _SCORERS: dict[str, dict[str, OfflineScorer]] = {
+    "feature_tip_picker": {
+        "feature_tip": OfflineScorer(kind="boolean", version=UUID("01a1692e-3104-7138-a33c-ab37d915ac6e")),
+        "no_forced_tip": OfflineScorer(kind="boolean", version=UUID("01a1692e-3589-7893-a06a-e0f1893d8a19")),
+    },
     "followup_classifier": {
         "exit_code_zero": OfflineScorer(kind="boolean", version=UUID("01a1557c-9b63-776a-91f3-113ab57c025a")),
         "followup_routing": OfflineScorer(kind="boolean", version=UUID("01a1557c-d1ca-7c68-96eb-5406fd8dde02")),

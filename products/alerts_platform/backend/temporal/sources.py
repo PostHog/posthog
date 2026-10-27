@@ -51,10 +51,16 @@ SOURCE_BINDINGS: dict[SourceKind, SourceBinding] = {
     SourceKind.INSIGHT: SourceBinding(
         workflow="insight-alert-platform-evaluate",
         task_queue=settings.ALERTS_PLATFORM_EVALUATION_TASK_QUEUE,
-        evaluation_timeout=dt.timedelta(minutes=15),
+        evaluation_timeout=dt.timedelta(minutes=20),
         # A key holds at least one check and the pool admits this many, so more keys than this
         # only start workflows that find the pool full.
         discovery_limit=settings.ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS,
+    ),
+    SourceKind.BILLING: SourceBinding(
+        workflow="billing-alert-platform-evaluate",
+        task_queue=settings.ALERTS_PLATFORM_EVALUATION_TASK_QUEUE,
+        evaluation_timeout=dt.timedelta(minutes=2),
+        discovery_limit=settings.ALERTS_PLATFORM_BILLING_KEYS_PER_TICK,
     ),
 }
 

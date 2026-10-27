@@ -34,7 +34,7 @@ import {
 import { HogTransformerService, createHogTransformerService } from './hog-transformations/hog-transformer.service'
 import { RerunJobManager } from './rerun/rerun-job.manager'
 import { RerunRequest } from './rerun/rerun-job.types'
-import { HogFlowAction } from './schema/hogflow'
+import { HogFlow, HogFlowAction } from './schema/hogflow'
 import { BatchExportHogFunctionService, NotFoundError, ParseError } from './services/batch-export-hog-function.service'
 import type { CyclotronV2JobProducer } from './services/cyclotron-v2'
 import { HogExecutorAsyncService, HogExecutorExecuteAsyncOptions } from './services/hog-executor-async.service'
@@ -62,7 +62,9 @@ import { InvocationResultsService } from './services/invocation-results.service'
 import { JobQueue } from './services/job-queue/job-queue.interface'
 import { GroupsManagerService } from './services/managers/groups-manager.service'
 import { HogFunctionManagerService } from './services/managers/hog-function-manager.service'
+import { TeamWorkflowsConfigService } from './services/managers/team-workflows-config.service'
 import { EMAIL_QUEUE_PRIORITY } from './services/messaging/email-priority'
+import { EmailSuppressionService } from './services/messaging/email-suppression.service'
 import { EmailTrackingService } from './services/messaging/email-tracking.service'
 import { EmailTrackingCodeSigner } from './services/messaging/helpers/tracking-code'
 import { RecipientTokensService } from './services/messaging/recipient-tokens.service'
@@ -195,6 +197,8 @@ export class CdpApi {
     private stepResumeJwt: ScopedServiceJwt
     private transactionalEmailJwt: ScopedServiceJwt
     private transactionalEmailIdempotencyKeys: IdempotencyKeys
+    private emailSuppressionService: EmailSuppressionService
+    private teamWorkflowsConfigService: TeamWorkflowsConfigService
     private hogFunctionMonitoringService: HogFunctionMonitoringService
     private resumeBatchJwt: ScopedServiceJwt
 
@@ -209,6 +213,8 @@ export class CdpApi {
         this.hogFunctionManager = services.hogFunctionManager
         this.hogFlowManager = services.hogFlowManager
         this.recipientTokensService = services.recipientTokensService
+        this.emailSuppressionService = services.emailSuppressionService
+        this.teamWorkflowsConfigService = services.teamWorkflowsConfigService
         this.hogExecutorAsync = services.hogExecutorAsync
         this.hogInputsService = services.hogInputsService
         this.hogFlowExecutor = services.hogFlowExecutor
@@ -936,6 +942,7 @@ export class CdpApi {
                 logs: [...result.logs, ...logs],
                 variables: result.invocation.state.variables ?? {},
                 execResult: result.execResult ?? null,
+                ...(result.emailSendResult ? { emailSendResult: result.emailSendResult } : {}),
             })
         } catch (e) {
             console.error(e)
@@ -1174,7 +1181,7 @@ export class CdpApi {
                 return reply('not_found', 404, { error: 'Workflow not found' })
             }
             if (hogFlow.trigger?.type !== 'api' || hogFlow.status !== 'active') {
-                return reply('not_sendable', 400, { error: 'Workflow is not an active transactional email' })
+                return reply('not_sendable', 400, { error: 'not_sendable' })
             }
 
             const event: HogFunctionInvocationGlobals['event'] = {
@@ -1226,12 +1233,12 @@ export class CdpApi {
                 }
             }
             try {
-                const { isLimited } = await checkHogFlowQuotaLimits(hogFlow, team.id, this.deps.quotaLimiting)
-                if (isLimited) {
+                const refusal = await this.refuseTransactionalEmail(team.id, hogFlow, to)
+                if (refusal) {
                     if (idempotencyKey) {
                         await idempotencyKeys.release(team.id, idempotencyKey, invocation.id)
                     }
-                    return reply('quota_limited', 429, { error: 'quota_limited' })
+                    return reply(refusal.outcome, refusal.status, { error: refusal.outcome })
                 }
                 this.invocationResultsService.invocationResultsRowsService.queueLifecycleRow(invocation, 'running')
                 try {
@@ -1272,6 +1279,30 @@ export class CdpApi {
             })
             return reply('error', 500, { error: e instanceof Error ? e.message : String(e) })
         }
+    }
+
+    // The email worker skips a send for these reasons too, but only after the caller has its 202. Checking them
+    // here tells the caller that the email will not go out. The worker keeps its checks, because the state can
+    // change while the job waits on the queue.
+    private async refuseTransactionalEmail(
+        teamId: number,
+        hogFlow: HogFlow,
+        to: string
+    ): Promise<{ outcome: TransactionalEmailOutcome; status: number } | null> {
+        if (await this.teamWorkflowsConfigService.getEmailSendingSuspension(teamId)) {
+            return { outcome: 'sending_suspended', status: 422 }
+        }
+        if (hogFlow.email_sending_paused_at) {
+            return { outcome: 'sending_paused', status: 422 }
+        }
+        if (await this.emailSuppressionService.isSuppressed(teamId, to, { transactional: true })) {
+            return { outcome: 'recipient_suppressed', status: 422 }
+        }
+        const { isLimited } = await checkHogFlowQuotaLimits(hogFlow, teamId, this.deps.quotaLimiting)
+        if (isLimited) {
+            return { outcome: 'quota_limited', status: 429 }
+        }
+        return null
     }
 
     private verifyScopedWorkflowJwt(

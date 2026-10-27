@@ -1,3 +1,4 @@
+import { importProjectHomepage } from 'scenes/project-homepage/importProjectHomepage'
 import { preloadedScenes } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 
@@ -78,7 +79,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.TwoFactorReset]: () => import('./authentication/two-factor-reset/TwoFactorReset'),
     [Scene.PreflightCheck]: () => import('./PreflightCheck/PreflightCheck'),
     [Scene.ProjectCreateFirst]: () => import('./project/Create'),
-    [Scene.ProjectHomepage]: () => import('./project-homepage/ProjectHomepage'),
+    [Scene.ProjectHomepage]: importProjectHomepage,
     [Scene.Library]: () => import('./library/Library'),
     [Scene.AnalyticsList]: () => import('./analytics/AnalyticsList'),
     [Scene.AnalyticsSpaces]: () => import('./analytics/AnalyticsSpaces'),

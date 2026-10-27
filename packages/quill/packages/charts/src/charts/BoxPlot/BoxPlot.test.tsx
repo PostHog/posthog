@@ -1,8 +1,8 @@
 import { waitFor } from '@testing-library/react'
 
 import type { ChartTheme } from '../../core/types'
-import { renderHogChart, waitForHogChartTooltip } from '../../testing'
-import { BoxPlot, type BoxPlotClickData } from './BoxPlot'
+import { renderChart, waitForChartTooltip } from '../../testing'
+import { BoxPlot, type BoxPlotClickData, type BoxPlotConfig } from './BoxPlot'
 import type { BoxPlotDatum, BoxPlotSeries } from './types'
 
 const THEME: ChartTheme = {
@@ -33,12 +33,12 @@ const TWO_SERIES: BoxPlotSeries[] = [
 
 describe('BoxPlot', () => {
     it('renders the canvas and reports series count via aria-label', () => {
-        const { chart } = renderHogChart(<BoxPlot series={TWO_SERIES} labels={LABELS} theme={THEME} />)
+        const { chart } = renderChart(<BoxPlot series={TWO_SERIES} labels={LABELS} theme={THEME} />)
         expect(chart.seriesCount).toBe(2)
     })
 
     it('renders a legend when requested', () => {
-        const { container } = renderHogChart(
+        const { container } = renderChart(
             <BoxPlot series={TWO_SERIES} labels={LABELS} theme={THEME} config={{ legend: { show: true } }} />
         )
         const buttons = container.querySelectorAll('[data-attr="hog-chart-box-plot-legend"] button')
@@ -53,7 +53,7 @@ describe('BoxPlot', () => {
                 data: [datum({ min: 0, max: 200 }), datum({ min: 10, max: 220 })],
             },
         ]
-        const { chart } = renderHogChart(<BoxPlot series={series} labels={['Mon', 'Tue']} theme={THEME} />)
+        const { chart } = renderChart(<BoxPlot series={series} labels={['Mon', 'Tue']} theme={THEME} />)
         const ticks = chart.yTicks()
         expect(ticks.length).toBeGreaterThan(0)
         const nums = ticks.map((t) => parseFloat(t.replace(/[^\d.-]/g, '')))
@@ -73,11 +73,25 @@ describe('BoxPlot', () => {
                 ],
             },
         ]
-        const { chart } = renderHogChart(<BoxPlot series={series} labels={['Mon', 'Tue']} theme={THEME} />)
+        const { chart } = renderChart(<BoxPlot series={series} labels={['Mon', 'Tue']} theme={THEME} />)
         const nums = chart.yTicks().map((t) => parseFloat(t.replace(/[^\d.-]/g, '')))
         const maxTick = Math.max(...nums.filter((n) => Number.isFinite(n)))
         expect(maxTick).toBeGreaterThanOrEqual(130)
         expect(maxTick).toBeLessThan(1000)
+    })
+
+    it.each([
+        { name: 'above the upper whisker', override: { mean: 700, whiskerMax: 100 }, expectTick: 700 },
+        { name: 'below the lower whisker', override: { mean: -50, whiskerMin: 10 }, expectTick: -50 },
+    ])('keeps a mean $name inside the y-axis', ({ override, expectTick }) => {
+        const series: BoxPlotSeries[] = [{ key: 'a', label: 'A', data: [datum(override)] }]
+        const { chart } = renderChart(<BoxPlot series={series} labels={['Mon']} theme={THEME} />)
+        const nums = chart
+            .yTicks()
+            .map((t) => parseFloat(t.replace(/[^\d.-]/g, '')))
+            .filter((n) => Number.isFinite(n))
+        expect(Math.max(...nums)).toBeGreaterThanOrEqual(Math.max(expectTick, 0))
+        expect(Math.min(...nums)).toBeLessThanOrEqual(Math.min(expectTick, 0))
     })
 
     it('allocates left margin wide enough for the whisker-derived y ticks (not just medians)', () => {
@@ -96,7 +110,7 @@ describe('BoxPlot', () => {
                 ],
             },
         ]
-        const { chart } = renderHogChart(<BoxPlot series={series} labels={['Mon', 'Tue']} theme={THEME} />)
+        const { chart } = renderChart(<BoxPlot series={series} labels={['Mon', 'Tue']} theme={THEME} />)
         const ticks = chart.yTicks()
         const maxTickNumeric = Math.max(
             ...ticks.map((t) => parseFloat(t.replace(/[^\d.-]/g, ''))).filter((n) => Number.isFinite(n))
@@ -105,7 +119,7 @@ describe('BoxPlot', () => {
     })
 
     it('lists the labels down the y-axis and the values along x when horizontal', () => {
-        const { chart } = renderHogChart(
+        const { chart } = renderChart(
             <BoxPlot series={TWO_SERIES} labels={LABELS} theme={THEME} config={{ axisOrientation: 'horizontal' }} />
         )
         expect(chart.yTicks()).toEqual(LABELS)
@@ -114,20 +128,20 @@ describe('BoxPlot', () => {
     })
 
     it('forwards `dataAttr` to the chart wrapper', () => {
-        const { chart } = renderHogChart(
+        const { chart } = renderChart(
             <BoxPlot series={TWO_SERIES} labels={LABELS} theme={THEME} dataAttr="boxplot-instance" />
         )
         expect(chart.element.getAttribute('data-attr')).toBe('boxplot-instance')
     })
 
     it('renders empty state without crashing', () => {
-        const { chart } = renderHogChart(<BoxPlot series={[]} labels={[]} theme={THEME} />)
+        const { chart } = renderChart(<BoxPlot series={[]} labels={[]} theme={THEME} />)
         expect(chart.seriesCount).toBe(0)
     })
 
     it('tolerates null entries in series data', () => {
         const series: BoxPlotSeries[] = [{ key: 'a', label: 'A', data: [datum(), null, datum()] }]
-        const { chart } = renderHogChart(<BoxPlot series={series} labels={LABELS} theme={THEME} />)
+        const { chart } = renderChart(<BoxPlot series={series} labels={LABELS} theme={THEME} />)
         expect(chart.seriesCount).toBe(1)
     })
 
@@ -141,13 +155,13 @@ describe('BoxPlot', () => {
                 visibility: { excluded: true },
             },
         ]
-        const { chart } = renderHogChart(<BoxPlot series={series} labels={LABELS} theme={THEME} />)
+        const { chart } = renderChart(<BoxPlot series={series} labels={LABELS} theme={THEME} />)
         expect(chart.seriesCount).toBe(1)
     })
 
     describe('tooltip context', () => {
         it('exposes the original BoxPlotDatum on each series via meta.datums (six stats reachable)', async () => {
-            const { chart } = renderHogChart(<BoxPlot series={TWO_SERIES} labels={LABELS} theme={THEME} />)
+            const { chart } = renderChart(<BoxPlot series={TWO_SERIES} labels={LABELS} theme={THEME} />)
             chart.hoverAtIndex(1)
             const tooltip = await chart.waitForTooltip()
             const aMeta = tooltip.series.a!.series.meta as { datums: (BoxPlotDatum | null)[] }
@@ -164,7 +178,7 @@ describe('BoxPlot', () => {
         })
 
         it('includes the x-axis label in the tooltip context', async () => {
-            const { chart } = renderHogChart(<BoxPlot series={TWO_SERIES} labels={LABELS} theme={THEME} />)
+            const { chart } = renderChart(<BoxPlot series={TWO_SERIES} labels={LABELS} theme={THEME} />)
             chart.hoverAtIndex(1)
             const tooltip = await chart.waitForTooltip()
             expect(tooltip.label).toBe('Tue')
@@ -184,11 +198,11 @@ describe('BoxPlot', () => {
         ]
 
         it('renders the six stats in the canonical order (Max → p75 → Median → Mean → p25 → Min)', async () => {
-            const { chart } = renderHogChart(<BoxPlot series={SINGLE_SERIES} labels={LABELS} theme={THEME} />, {
+            const { chart } = renderChart(<BoxPlot series={SINGLE_SERIES} labels={LABELS} theme={THEME} />, {
                 nativeTooltip: true,
             })
             chart.hoverAtIndex(0)
-            const tooltipEl = await waitForHogChartTooltip()
+            const tooltipEl = await waitForChartTooltip()
             const rowLabels = Array.from(tooltipEl.querySelectorAll('tr')).map((tr) =>
                 (tr.firstElementChild as HTMLElement).textContent!.trim()
             )
@@ -235,26 +249,54 @@ describe('BoxPlot', () => {
                     ['Min', '1'],
                 ],
             },
-        ])('$name', async ({ override, rows }) => {
-            const series: BoxPlotSeries[] = [{ key: 'a', label: 'A-label', data: [datum(override), datum(), datum()] }]
-            const { chart } = renderHogChart(<BoxPlot series={series} labels={LABELS} theme={THEME} />, {
-                nativeTooltip: true,
-            })
-            chart.hoverAtIndex(0)
-            const tooltipEl = await waitForHogChartTooltip()
-            const rendered = Array.from(tooltipEl.querySelectorAll('tr')).map((tr) => [
-                (tr.firstElementChild as HTMLElement).textContent!.trim(),
-                (tr.lastElementChild as HTMLElement).textContent!.trim(),
-            ])
-            expect(rendered).toEqual(rows)
-        })
+            {
+                name: 'formats every row with the tooltip value formatter',
+                override: { min: 1, p25: 20, median: 30, mean: 40, p75: 50, max: 90, whiskerMax: 80 },
+                config: { tooltip: { valueFormatter: (v: number) => `${v}ms` } },
+                rows: [
+                    ['Max', '90ms'],
+                    ['Upper whisker', '80ms'],
+                    ['75th percentile', '50ms'],
+                    ['Median', '30ms'],
+                    ['Mean', '40ms'],
+                    ['25th percentile', '20ms'],
+                    ['Min', '1ms'],
+                ],
+            },
+        ])(
+            '$name',
+            async ({
+                override,
+                rows,
+                config,
+            }: {
+                override: Partial<BoxPlotDatum>
+                rows: string[][]
+                config?: BoxPlotConfig
+            }) => {
+                const series: BoxPlotSeries[] = [
+                    { key: 'a', label: 'A-label', data: [datum(override), datum(), datum()] },
+                ]
+                const { chart } = renderChart(
+                    <BoxPlot series={series} labels={LABELS} theme={THEME} config={config} />,
+                    { nativeTooltip: true }
+                )
+                chart.hoverAtIndex(0)
+                const tooltipEl = await waitForChartTooltip()
+                const rendered = Array.from(tooltipEl.querySelectorAll('tr')).map((tr) => [
+                    (tr.firstElementChild as HTMLElement).textContent!.trim(),
+                    (tr.lastElementChild as HTMLElement).textContent!.trim(),
+                ])
+                expect(rendered).toEqual(rows)
+            }
+        )
 
         it('renders the values in the canonical row order', async () => {
-            const { chart } = renderHogChart(<BoxPlot series={SINGLE_SERIES} labels={LABELS} theme={THEME} />, {
+            const { chart } = renderChart(<BoxPlot series={SINGLE_SERIES} labels={LABELS} theme={THEME} />, {
                 nativeTooltip: true,
             })
             chart.hoverAtIndex(0)
-            const tooltipEl = await waitForHogChartTooltip()
+            const tooltipEl = await waitForChartTooltip()
             const values = Array.from(tooltipEl.querySelectorAll('tr')).map((tr) =>
                 (tr.lastElementChild as HTMLElement).textContent!.trim()
             )
@@ -262,20 +304,20 @@ describe('BoxPlot', () => {
         })
 
         it('shows the x label in the header', async () => {
-            const { chart } = renderHogChart(<BoxPlot series={SINGLE_SERIES} labels={LABELS} theme={THEME} />, {
+            const { chart } = renderChart(<BoxPlot series={SINGLE_SERIES} labels={LABELS} theme={THEME} />, {
                 nativeTooltip: true,
             })
             chart.hoverAtIndex(0)
-            const tooltipEl = await waitForHogChartTooltip()
+            const tooltipEl = await waitForChartTooltip()
             expect(tooltipEl.textContent).toContain('Mon')
         })
 
         it('renders one stat table per visible series when grouped (multi-series)', async () => {
-            const { chart } = renderHogChart(<BoxPlot series={TWO_SERIES} labels={LABELS} theme={THEME} />, {
+            const { chart } = renderChart(<BoxPlot series={TWO_SERIES} labels={LABELS} theme={THEME} />, {
                 nativeTooltip: true,
             })
             chart.hoverAtIndex(0)
-            const tooltipEl = await waitForHogChartTooltip()
+            const tooltipEl = await waitForChartTooltip()
             // Per-series header labels show in grouped mode.
             expect(tooltipEl.textContent).toContain('A')
             expect(tooltipEl.textContent).toContain('B')
@@ -283,11 +325,11 @@ describe('BoxPlot', () => {
         })
 
         it('hides the per-series label when not grouped (single series)', async () => {
-            const { chart } = renderHogChart(<BoxPlot series={SINGLE_SERIES} labels={LABELS} theme={THEME} />, {
+            const { chart } = renderChart(<BoxPlot series={SINGLE_SERIES} labels={LABELS} theme={THEME} />, {
                 nativeTooltip: true,
             })
             chart.hoverAtIndex(0)
-            const tooltipEl = await waitForHogChartTooltip()
+            const tooltipEl = await waitForChartTooltip()
             const headers = Array.from(tooltipEl.querySelectorAll('.font-semibold')).map((el) => el.textContent)
             // The single "Mon" header is the only font-semibold heading in single-series mode.
             expect(headers).toContain('Mon')
@@ -298,12 +340,12 @@ describe('BoxPlot', () => {
             const userTooltip = jest.fn(
                 (): React.ReactElement => <div data-attr="custom-boxplot-user-tooltip">custom</div>
             )
-            const { chart } = renderHogChart(
+            const { chart } = renderChart(
                 <BoxPlot series={SINGLE_SERIES} labels={LABELS} theme={THEME} tooltip={userTooltip} />,
                 { nativeTooltip: true }
             )
             chart.hoverAtIndex(0)
-            const tooltipEl = await waitForHogChartTooltip()
+            const tooltipEl = await waitForChartTooltip()
             expect(tooltipEl.querySelector('[data-attr="custom-boxplot-user-tooltip"]')).not.toBeNull()
             expect(userTooltip).toHaveBeenCalled()
         })
@@ -312,7 +354,7 @@ describe('BoxPlot', () => {
     describe('click', () => {
         it('invokes onBoxClick with the clicked datum and cross-series data', async () => {
             const onBoxClick = jest.fn()
-            const { chart } = renderHogChart(
+            const { chart } = renderChart(
                 <BoxPlot series={TWO_SERIES} labels={LABELS} theme={THEME} onBoxClick={onBoxClick} />
             )
             await chart.clickAtIndex(1)
@@ -344,7 +386,7 @@ describe('BoxPlot', () => {
             const tooltip = (): React.ReactNode => {
                 throw new Error('boom')
             }
-            const { chart } = renderHogChart(
+            const { chart } = renderChart(
                 <BoxPlot series={TWO_SERIES} labels={LABELS} theme={THEME} tooltip={tooltip} onError={onError} />
             )
             chart.hoverAtIndex(1)
@@ -354,7 +396,7 @@ describe('BoxPlot', () => {
 
     describe('children', () => {
         it('renders custom overlay children', () => {
-            const { chart } = renderHogChart(
+            const { chart } = renderChart(
                 <BoxPlot series={TWO_SERIES} labels={LABELS} theme={THEME}>
                     <div data-attr="custom-box-child" />
                 </BoxPlot>

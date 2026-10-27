@@ -696,6 +696,19 @@ class ErrorTrackingFingerprintProjectionSustainedRateThrottle(_TeamBucketRateThr
     rate = "100/hour"
 
 
+# The source maps examples scan reads the properties of every exception in the last 24 hours, and
+# browser sessions skip the default throttles. A team-wide bucket caps the project's total scans.
+# Each open of the examples dialog runs one scan, so these rates leave room for normal use.
+class ErrorTrackingSourceMapsExamplesBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "error_tracking_source_maps_examples_burst"
+    rate = "10/minute"
+
+
+class ErrorTrackingSourceMapsExamplesSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "error_tracking_source_maps_examples_sustained"
+    rate = "100/hour"
+
+
 # The logs anomaly scan aggregates weeks of baseline slices from ClickHouse in one synchronous
 # request — the heaviest single query the logs product exposes, budgeted at gigabytes of reads
 # per call. A team-wide bucket caps the project's total spend regardless of how many users or
@@ -776,6 +789,13 @@ class ReplayVisionWatchFeedBurstRateThrottle(_TeamBucketRateThrottle):
 class ReplayVisionWatchFeedSustainedRateThrottle(_TeamBucketRateThrottle):
     scope = "replay_vision_watch_feed_sustained"
     rate = "600/hour"
+
+
+# Impression reports arrive while a reader scrolls, so they get their own per-user bucket and never use up the
+# team's feed bucket.
+class ReplayVisionWatchFeedImpressionsRateThrottle(_UserBucketRateThrottle):
+    scope = "replay_vision_watch_feed_impressions"
+    rate = "120/minute"
 
 
 # Each observation search makes a synchronous embedding request and a brute-force cosine scan over

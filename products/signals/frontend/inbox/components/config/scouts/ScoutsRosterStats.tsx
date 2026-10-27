@@ -5,7 +5,7 @@ import { Tooltip } from '@posthog/lemon-ui'
 import { cn } from 'lib/utils/css-classes'
 
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
-import { scratchpadLogic } from '../../../logics/scratchpadLogic'
+import { SCRATCHPAD_WINDOW_PAGE_SIZE, scratchpadLogic } from '../../../logics/scratchpadLogic'
 import { SCOUT_ROSTER_WINDOW_LABEL } from '../../../utils/scoutRunsWindow'
 
 type StatTone = 'muted' | 'warning' | 'danger'
@@ -51,7 +51,7 @@ function Stat({
 export function ScoutsRosterStats(): JSX.Element {
     const { pauseAttentionCounts, enabledCount, emittedFindingsSummary, fleetFindingsSummaryLoadedOnce } =
         useValues(scoutFleetLogic)
-    // Mounted here rather than by the fleet logic, so the 1,000-entry scratchpad read only happens
+    // Mounted here rather than by the fleet logic, so the scratchpad read only happens
     // on the surfaces that show it, not on every inbox tab that mounts the fleet.
     const { recentlyLearnedCount, recentlyLearnedCountCapped, entries: scratchpadEntries } = useValues(scratchpadLogic)
     // A summary that hasn't landed is not zero runs. The number holds a dash until it does; a failed
@@ -103,7 +103,7 @@ export function ScoutsRosterStats(): JSX.Element {
                 label="learned"
                 tooltip={
                     recentlyLearnedCountCapped
-                        ? `Scratchpad entries your scouts wrote or refreshed in the ${SCOUT_ROSTER_WINDOW_LABEL}. Only the newest 1,000 entries are counted, and all of them fall in this window.`
+                        ? `Scratchpad entries your scouts wrote or refreshed in the ${SCOUT_ROSTER_WINDOW_LABEL}. Only the newest ${SCRATCHPAD_WINDOW_PAGE_SIZE} entries are counted, and all of them fall in this window.`
                         : `Scratchpad entries your scouts wrote or refreshed in the ${SCOUT_ROSTER_WINDOW_LABEL}.`
                 }
             />

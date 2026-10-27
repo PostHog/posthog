@@ -149,10 +149,23 @@ def restricted_property_keys_for_table_type(
     return restricted_keys
 
 
+def key_read_overlaps_restriction(first_key: str, restricted_keys: Iterable[str]) -> bool:
+    """Whether JSONDropKeys can change what a read of the top-level key `first_key` returns.
+
+    JSONDropKeys matches object keys one dot-separated segment at a time. A restricted `a` also drops the flat key
+    `a.b`, and a restricted `a.b` also filters inside the value of `a`. Any other key reads the same value from the
+    stored blob as from the masked one.
+    """
+    segments = first_key.split(".")
+    for restricted_key in restricted_keys:
+        restricted_segments = restricted_key.split(".")
+        shared = min(len(segments), len(restricted_segments))
+        if segments[:shared] == restricted_segments[:shared]:
+            return True
+    return False
+
+
 def native_property_path_overlaps_restriction(property_name: str, table_type: ast.Type, context: HogQLContext) -> bool:
     if not context.restricted_properties or not context.uses_new_events_schema():
         return False
-    return any(
-        property_name == key or property_name.startswith(key + ".") or key.startswith(property_name + ".")
-        for key in restricted_property_keys_for_table_type(table_type, context)
-    )
+    return key_read_overlaps_restriction(property_name, restricted_property_keys_for_table_type(table_type, context))

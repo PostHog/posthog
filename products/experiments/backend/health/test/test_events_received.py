@@ -120,6 +120,30 @@ class TestEventsReceived(BaseTest):
         self.assertEqual((exposure.subcode, dict(exposure.evidence)), expected_exposure)
         self.assertEqual(exposure.severity, WARNING)
 
+    def test_a_filter_on_a_deleted_flags_own_key_can_match(self) -> None:
+        flag = FeatureFlag.objects.create(team=self.team, key="checkout-test", created_by=self.user)
+        flag.key, flag.deleted = flag.tombstoned_key(), True
+        flag.save()
+        experiment = Experiment.objects.create(
+            team=self.team,
+            name="Checkout",
+            feature_flag=flag,
+            start_date=timezone.now() - timedelta(days=2),
+            exposure_criteria={
+                "exposure_config": {
+                    "kind": "ExperimentEventExposureConfig",
+                    "event": "$feature_flag_called",
+                    "properties": [
+                        {"key": "$feature_flag", "type": "event", "value": ["checkout-test"], "operator": "exact"}
+                    ],
+                }
+            },
+        )
+
+        health = get_experiment_health(team_id=self.team.id, experiment_id=experiment.id, reader_access=NO_QUERIES)
+
+        self.assertNotIn(Code.EXPOSURE_CRITERIA_CANNOT_MATCH, {finding.code for finding in health.findings})
+
     def test_shared_metrics_add_no_queries(self) -> None:
         flag = FeatureFlag.objects.create(team=self.team, key="checkout-test", created_by=self.user)
         experiment = Experiment.objects.create(team=self.team, name="Checkout", feature_flag=flag)

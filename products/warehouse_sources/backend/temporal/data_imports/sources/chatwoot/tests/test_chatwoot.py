@@ -393,6 +393,25 @@ class TestGetRowsReportingEvents:
         assert isinstance(result.raised, Exception)
         assert REPORTING_EVENTS_UNAVAILABLE_ERROR in str(result.raised)
 
+    def test_422_is_not_retried_and_matches_a_user_message(self):
+        # The resume bookmark replays the same page and window, so a 422 never changes on retry.
+        result = _driver().run(
+            "reporting_events", [ScriptedResponse(status=422, json={"error": "Unprocessable Content"})]
+        )
+
+        assert isinstance(result.raised, requests.HTTPError)
+        assert len(result.requests) == 1
+        matches = [
+            message
+            for pattern, message in ChatwootSource().get_non_retryable_errors().items()
+            if pattern in str(result.raised)
+        ]
+        # Pin the actual message, not just that one pattern matched — a key that mapped to None
+        # or the wrong text would otherwise still pass.
+        assert matches == [
+            "Chatwoot rejected a request while syncing this data. Please contact support if this persists."
+        ]
+
 
 class TestWebhookTableTransformer:
     def test_message_events_are_normalized_to_the_rest_shape(self):

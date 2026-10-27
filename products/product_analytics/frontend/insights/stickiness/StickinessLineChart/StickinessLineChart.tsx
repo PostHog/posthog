@@ -132,13 +132,20 @@ export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.
                 yAxisScaleType,
                 valueLabels: showValuesOnSeries ? { formatter: stickinessPercentFormatter } : false,
                 showCrosshair: true,
-                tooltip: tooltipConfig,
+                tooltip: { ...tooltipConfig, resolveClickToNearestSeries: context?.dashboardResultMenu },
             }),
             curve: chartStyleCurve(stickinessFilter?.chartStyle),
             // Interactive legend is a component concern, kept out of the pure transform.
             legend: legendConfig,
         }),
-        [yAxisScaleType, showValuesOnSeries, legendConfig, tooltipConfig, stickinessFilter?.chartStyle]
+        [
+            context?.dashboardResultMenu,
+            yAxisScaleType,
+            showValuesOnSeries,
+            legendConfig,
+            tooltipConfig,
+            stickinessFilter?.chartStyle,
+        ]
     )
 
     const canHandleClick = !!context?.onDataPointClick || !!hasPersonsModal

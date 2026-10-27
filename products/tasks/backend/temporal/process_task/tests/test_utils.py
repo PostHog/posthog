@@ -12,7 +12,7 @@ from posthog.models.integration import GitHubIntegration
 from posthog.models.user import User
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 
-from products.mcp_store.backend.facade.contracts import ActiveInstallation
+from products.mcp_store.backend.facade.contracts import ActiveInstallation, SandboxInstallations
 from products.tasks.backend.constants import (
     DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH,
     DEFAULT_SANDBOX_WORKING_DIR,
@@ -497,7 +497,7 @@ class TestFetchUserMcpServerConfigs(SimpleTestCase):
     CREDENTIAL_OWNER_ID = 99
     API_BASE = "https://us.posthog.com"
 
-    MOCK_FACADE = "products.tasks.backend.temporal.process_task.utils.get_installations_for_sandbox"
+    MOCK_FACADE = "products.tasks.backend.temporal.process_task.utils.resolve_installations_for_sandbox"
     MOCK_API_URL = "products.tasks.backend.temporal.process_task.utils.get_sandbox_api_url"
 
     def _make_installation(self, **kwargs) -> ActiveInstallation:
@@ -523,9 +523,11 @@ class TestFetchUserMcpServerConfigs(SimpleTestCase):
     ) -> None:
         mock_api_url.return_value = self.API_BASE
         installation = self._make_installation()
-        mock_facade.return_value = [installation]
+        mock_facade.return_value = SandboxInstallations(mounted=(installation,))
 
-        configs = get_user_mcp_server_configs(self.TOKEN, self.TEAM_ID, self.USER_ID, origin_product=origin_product)
+        configs = get_user_mcp_server_configs(
+            self.TOKEN, self.TEAM_ID, self.USER_ID, origin_product=origin_product
+        ).configs
 
         if not mounts_store:
             assert configs == []
@@ -556,11 +558,11 @@ class TestFetchUserMcpServerConfigs(SimpleTestCase):
         # Connectors are mounted unconnected, so the agent's tool search matches them on this
         # description; without it "Linear" is only findable by literally searching "linear".
         mock_api_url.return_value = self.API_BASE
-        mock_facade.return_value = [
-            self._make_installation(description="Manage Linear issues, projects, and workflows.")
-        ]
+        mock_facade.return_value = SandboxInstallations(
+            mounted=(self._make_installation(description="Manage Linear issues, projects, and workflows."),)
+        )
 
-        configs = get_user_mcp_server_configs(self.TOKEN, self.TEAM_ID, self.USER_ID)
+        configs = get_user_mcp_server_configs(self.TOKEN, self.TEAM_ID, self.USER_ID).configs
 
         assert configs[0].description == "Manage Linear issues, projects, and workflows."
 
@@ -574,7 +576,7 @@ class TestFetchUserMcpServerConfigs(SimpleTestCase):
         # the member path (and only there), so this layer must hand it over untouched, an empty
         # selection included.
         mock_api_url.return_value = self.API_BASE
-        mock_facade.return_value = []
+        mock_facade.return_value = SandboxInstallations(mounted=())
 
         get_user_mcp_server_configs(self.TOKEN, self.TEAM_ID, self.USER_ID, allowed_installation_ids=allowed)
 
@@ -617,7 +619,7 @@ class TestFetchUserMcpServerConfigs(SimpleTestCase):
         mock_api_url,
     ) -> None:
         mock_api_url.return_value = self.API_BASE
-        mock_facade.return_value = [self._make_installation()]
+        mock_facade.return_value = SandboxInstallations(mounted=(self._make_installation(),))
 
         configs = get_user_mcp_server_configs(
             self.TOKEN,
@@ -626,7 +628,7 @@ class TestFetchUserMcpServerConfigs(SimpleTestCase):
             interaction_origin=interaction_origin,
             slack_reply_context=slack_reply_context,
             origin_product=origin_product,
-        )
+        ).configs
 
         assert configs[0].headers == self._expected_user_headers(consumer=expected_consumer)
 
@@ -636,15 +638,17 @@ class TestFetchUserMcpServerConfigs(SimpleTestCase):
         self, mock_facade, mock_api_url
     ) -> None:
         mock_api_url.return_value = self.API_BASE
-        mock_facade.return_value = [
-            self._make_installation(
-                id="shared-id",
-                name="Shared",
-                proxy_path="/api/mcp_store/gateway/servers/server-id/proxy/",
-                scope="shared",
-                proxy_token="agent-token",
-            ),
-        ]
+        mock_facade.return_value = SandboxInstallations(
+            mounted=(
+                self._make_installation(
+                    id="shared-id",
+                    name="Shared",
+                    proxy_path="/api/mcp_store/gateway/servers/server-id/proxy/",
+                    scope="shared",
+                    proxy_token="agent-token",
+                ),
+            )
+        )
 
         configs = get_user_mcp_server_configs(
             self.TOKEN,
@@ -654,7 +658,7 @@ class TestFetchUserMcpServerConfigs(SimpleTestCase):
             task_agent_key="support",
             credential_owner_id=self.CREDENTIAL_OWNER_ID,
             allowed_gateway_server_ids=["server-1"],
-        )
+        ).configs
 
         # The credential owner is forwarded separately from the acting user: the sandbox acts
         # as `user_id`, but it may only mount the grants belonging to the owner. The per-scout
@@ -687,7 +691,7 @@ class TestFetchUserMcpServerConfigs(SimpleTestCase):
     @patch(MOCK_FACADE)
     def test_include_personal_is_forwarded_to_facade(self, include_personal: bool, mock_facade, mock_api_url) -> None:
         mock_api_url.return_value = self.API_BASE
-        mock_facade.return_value = []
+        mock_facade.return_value = SandboxInstallations(mounted=())
 
         get_user_mcp_server_configs(self.TOKEN, self.TEAM_ID, self.USER_ID, include_personal=include_personal)
 
@@ -706,17 +710,17 @@ class TestFetchUserMcpServerConfigs(SimpleTestCase):
     @patch(MOCK_FACADE)
     def test_returns_empty_when_no_installations(self, mock_facade, mock_api_url) -> None:
         mock_api_url.return_value = self.API_BASE
-        mock_facade.return_value = []
+        mock_facade.return_value = SandboxInstallations(mounted=())
 
-        assert get_user_mcp_server_configs(self.TOKEN, self.TEAM_ID, self.USER_ID) == []
+        assert get_user_mcp_server_configs(self.TOKEN, self.TEAM_ID, self.USER_ID).configs == []
 
     @patch(MOCK_API_URL)
     @patch(MOCK_FACADE)
     def test_strips_trailing_slash_from_api_url(self, mock_facade, mock_api_url) -> None:
         mock_api_url.return_value = "https://us.posthog.com/"
-        mock_facade.return_value = [self._make_installation()]
+        mock_facade.return_value = SandboxInstallations(mounted=(self._make_installation(),))
 
-        configs = get_user_mcp_server_configs(self.TOKEN, self.TEAM_ID, self.USER_ID)
+        configs = get_user_mcp_server_configs(self.TOKEN, self.TEAM_ID, self.USER_ID).configs
 
         assert configs[0].url.startswith("https://us.posthog.com/api/")
 
@@ -724,16 +728,18 @@ class TestFetchUserMcpServerConfigs(SimpleTestCase):
     @patch(MOCK_FACADE)
     def test_multiple_installations(self, mock_facade, mock_api_url) -> None:
         mock_api_url.return_value = self.API_BASE
-        mock_facade.return_value = [
-            self._make_installation(
-                id="abc-1", name="Linear", proxy_path="/api/environments/42/mcp_server_installations/abc-1/proxy/"
-            ),
-            self._make_installation(
-                id="abc-2", name="Notion", proxy_path="/api/environments/42/mcp_server_installations/abc-2/proxy/"
-            ),
-        ]
+        mock_facade.return_value = SandboxInstallations(
+            mounted=(
+                self._make_installation(
+                    id="abc-1", name="Linear", proxy_path="/api/environments/42/mcp_server_installations/abc-1/proxy/"
+                ),
+                self._make_installation(
+                    id="abc-2", name="Notion", proxy_path="/api/environments/42/mcp_server_installations/abc-2/proxy/"
+                ),
+            )
+        )
 
-        configs = get_user_mcp_server_configs(self.TOKEN, self.TEAM_ID, self.USER_ID)
+        configs = get_user_mcp_server_configs(self.TOKEN, self.TEAM_ID, self.USER_ID).configs
 
         assert len(configs) == 2
         assert configs[0].name == "Linear"

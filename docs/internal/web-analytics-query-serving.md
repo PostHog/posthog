@@ -69,6 +69,10 @@ request
 A miss costs one live-path serve; the background warm makes the next identical request a bucket hit.
 The dashboard "enqueues precompute" as a side effect; it never waits on it.
 
+Requests that select native JSON events keep that table choice in precompute job identities and queued revalidation payloads.
+Native and legacy revalidations use separate debounce keys, so a trial cannot suppress the project's normal rebuild.
+Builders inherit the running query's table choice; an explicit query modifier takes precedence over the staff cookie.
+
 ## Marketing search performance
 
 Search metrics and PostHog landing-page conversions load in separate requests.

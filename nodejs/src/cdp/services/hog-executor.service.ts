@@ -63,7 +63,14 @@ export type HogExecutorAsyncFunctionHandler = (
 /** The parts of an earlier step's result that carry forward into the next one. */
 export type HogExecutorPreviousResult = Pick<
     Partial<CyclotronJobInvocationResult>,
-    'finished' | 'capturedPostHogEvents' | 'warehouseWebhookPayloads' | 'logs' | 'metrics' | 'error' | 'execResult'
+    | 'finished'
+    | 'capturedPostHogEvents'
+    | 'warehouseWebhookPayloads'
+    | 'logs'
+    | 'metrics'
+    | 'error'
+    | 'execResult'
+    | 'emailSendResult'
 >
 
 export type HogExecutorExecuteOptions = {

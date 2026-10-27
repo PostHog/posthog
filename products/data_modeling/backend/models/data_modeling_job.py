@@ -55,10 +55,27 @@ class DataModelingJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     last_run_at = models.DateTimeField(default=timezone.now)
     rows_expected = models.IntegerField(null=True, blank=True, help_text="Total rows expected to be materialized")
     storage_delta_mib = models.FloatField(null=True, blank=True, default=0)
+    read_bytes = models.BigIntegerField(
+        null=True, blank=True, help_text="Bytes read by this run, including probes and retries."
+    )
+    read_rows = models.BigIntegerField(
+        null=True, blank=True, help_text="Rows read by this run, including probes and retries."
+    )
+    cpu_microseconds = models.BigIntegerField(null=True, blank=True, help_text="ClickHouse CPU time in microseconds.")
+    query_count = models.IntegerField(
+        null=True, blank=True, help_text="Number of ClickHouse queries measured for this run."
+    )
+    usage_updated_at = models.DateTimeField(
+        null=True, blank=True, help_text="When usage was last measured. Null means unmeasured."
+    )
 
     class Meta:
         db_table = "posthog_datamodelingjob"
         indexes = [
+            models.Index(fields=["team", "-created_at"], name="dmjob_team_created"),
+            models.Index(fields=["team", "-last_run_at"], name="dmjob_team_usage_run"),
+            models.Index(fields=["last_run_at"], name="dmjob_usage_run"),
+            models.Index(fields=["team", "workflow_id", "workflow_run_id"], name="dmjob_workflow_run"),
             # serves to cut lookup times for pre-existing running jobs during the preempt stage
             models.Index(fields=["team", "status"], name="datamodelingjob_team_status"),
             # serves the per-saved-query lookup of the latest job of one engine, which the

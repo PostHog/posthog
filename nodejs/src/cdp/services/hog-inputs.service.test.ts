@@ -11,6 +11,7 @@ import { createHogExecutionGlobals, createHogFunction, insertIntegration } from 
 import { compileHog } from '../templates/compiler'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../types'
 import { classifyHogError } from '../utils/hog-error-classification'
+import { NATIVE_PUSH_TEMPLATE_ID } from '../utils/push-subscription-utils'
 import { HogInputsService, formatHogInput, formatLiquidInput, getAppIdentifierForPush } from './hog-inputs.service'
 import { RecipientTokensService } from './messaging/recipient-tokens.service'
 
@@ -411,6 +412,25 @@ describe('Hog Inputs', () => {
                 preheader: escaped,
                 html: `<p>${escaped}</p>`,
             })
+        })
+
+        it('renders liquid in push notification inputs without html escaping', async () => {
+            globals.event.properties.feature = `Logs & "Traces" <beta>`
+            hogFunction.template_id = NATIVE_PUSH_TEMPLATE_ID
+            hogFunction.inputs = {
+                title: { templating: 'liquid', value: 'Try {{ event.properties.feature }}' },
+                body: { templating: 'liquid', value: '{{ event.properties.feature }}' },
+                data: { templating: 'liquid', value: { url: 'myapp://{{ event.properties.feature }}' } },
+            }
+            hogFunction.inputs_schema = [
+                { key: 'title', type: 'string', required: true },
+                { key: 'body', type: 'string', templating: 'liquid' },
+                { key: 'data', type: 'dictionary' },
+            ]
+
+            const inputs = await hogInputsService.buildInputs(hogFunction, globals)
+            const raw = `Logs & "Traces" <beta>`
+            expect(inputs).toMatchObject({ title: `Try ${raw}`, body: raw, data: { url: `myapp://${raw}` } })
         })
 
         it('drops the editor design from a liquid email instead of rendering it', async () => {

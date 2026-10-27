@@ -629,6 +629,47 @@ class TestTable(BaseTest):
             ],
         )
 
+    @parameterized.expand(
+        [
+            ("history_table", {"history_table": True}, {"id", "_ph_deleted", "valid_from", "valid_to"}),
+            (
+                "consolidated_table_whose_source_has_validity_columns",
+                {},
+                {
+                    "id",
+                    "_ph_deleted",
+                    "valid_from",
+                    "valid_to",
+                    "_ph_cdc_op",
+                    "_ph_cdc_seq",
+                    "_ph_cdc_timestamp",
+                    "_ph_deleted_at",
+                },
+            ),
+        ]
+    )
+    def test_history_table_hides_capture_bookkeeping_columns(
+        self, _name: str, options: dict, expected_visible: set[str]
+    ):
+        capture_columns = ["_ph_cdc_op", "_ph_cdc_seq", "_ph_cdc_timestamp", "_ph_deleted", "_ph_deleted_at"]
+        table = DataWarehouseTable.objects.create(
+            name="orders",
+            url_pattern="https://bucket.s3.amazonaws.com/orders",
+            format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            team=self.team,
+            options=options,
+            columns={
+                name: {"clickhouse": "String", "hogql": "StringDatabaseField"}
+                for name in ["id", *capture_columns, "valid_from", "valid_to"]
+            },
+        )
+
+        fields = table.hogql_definition().fields
+        assert {name for name, field in fields.items() if not field.hidden} == expected_visible
+        assert {column["name"] for column in table.get_user_facing_columns()} == expected_visible
+        # A hidden column must still resolve, so a query saved before it was hidden keeps running.
+        assert set(capture_columns) <= set(fields)
+
     def test_hogql_definition_new_style(self):
         credential = DataWarehouseCredential.objects.create(access_key="test", access_secret="test", team=self.team)
         table = DataWarehouseTable.objects.create(

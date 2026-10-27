@@ -36,6 +36,8 @@ const SOURCE_TYPES: Partial<Record<string, InboxOnboardingSourceApi['source_type
     ],
 }
 
+const SOURCES_EXCLUDED_FROM_SETUP: ReadonlySet<string> = new Set(['pganalyze', 'github', 'engineering_analytics'])
+
 export function setupSources(
     configs: SignalSourceConfig[],
     statuses: Partial<Record<string, SourceProductStatus>>,
@@ -47,7 +49,9 @@ export function setupSources(
     return AGENT_ROSTER_GROUPS.flatMap((group) => group.agents)
         .filter(
             (definition) =>
-                !definition.legacy && definition.source !== 'pganalyze' && (!definition.flag || flags[definition.flag])
+                !definition.legacy &&
+                !SOURCES_EXCLUDED_FROM_SETUP.has(definition.source) &&
+                (!definition.flag || flags[definition.flag])
         )
         .map((definition) => {
             const existing = configs.filter((config) => config.source_product === definition.sourceProduct)

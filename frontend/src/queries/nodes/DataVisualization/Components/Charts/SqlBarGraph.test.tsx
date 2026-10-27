@@ -9,7 +9,7 @@ import { NodeKind, ChartSettings } from '~/queries/schema/schema-general'
 import {
     type DataVizFixture,
     buildDataVisualizationQuery,
-    getHogChart,
+    getChart,
     HOVER,
     MONTHS,
     renderDataVisualization,
@@ -142,11 +142,9 @@ describe('SqlBarGraph', () => {
                 },
             })
             const canvas = await screen.findByLabelText(/chart with 2 data series/i)
-            expect([...getHogChart().xTicks(), ...getHogChart().yTicks()].some((tick) => /^202[56]-/.test(tick))).toBe(
-                false
-            )
+            expect([...getChart().xTicks(), ...getChart().yTicks()].some((tick) => /^202[56]-/.test(tick))).toBe(false)
             if (dateBucket === 'year') {
-                expect(getHogChart().xTicks()).toContain('2025')
+                expect(getChart().xTicks()).toContain('2025')
             } else if (chartType !== ChartDisplayType.ActionsBarValue) {
                 expect((await sqlChart.hoverTooltip(HOVER, dates.length)).label()).toBe('Dec 1, 00:00')
             }
@@ -205,7 +203,7 @@ describe('SqlBarGraph', () => {
                 },
             })
             await screen.findByLabelText(/chart with/i)
-            await waitFor(() => expect(getHogChart().yTicks()).toEqual(['Same label', 'Same label']))
+            await waitFor(() => expect(getChart().yTicks()).toEqual(['Same label', 'Same label']))
         })
 
         it.each([
@@ -221,7 +219,7 @@ describe('SqlBarGraph', () => {
             renderBar(display, { yAxis: [{ column: 'a' }, { column: 'b' }], ...extra }, twoSeries())
 
             await screen.findByLabelText(/chart with 2 data series/i)
-            await waitFor(() => expect(getHogChart().yTicks().length).toBeGreaterThan(0))
+            await waitFor(() => expect(getChart().yTicks().length).toBeGreaterThan(0))
         })
 
         it('renders category labels on the vertical axis for horizontal bars', async () => {
@@ -232,10 +230,10 @@ describe('SqlBarGraph', () => {
             )
 
             await screen.findByLabelText(/chart with/i)
-            await waitFor(() => expect(getHogChart().xTicks().length).toBeGreaterThan(0))
-            expect(getHogChart().yTicks()).toContain('Oct 1, 2025')
+            await waitFor(() => expect(getChart().xTicks().length).toBeGreaterThan(0))
+            expect(getChart().yTicks()).toContain('Oct 1, 2025')
             expect(
-                getHogChart()
+                getChart()
                     .xTicks()
                     .map((tick) => tick.startsWith('$'))
             ).not.toContain(false)
@@ -249,8 +247,8 @@ describe('SqlBarGraph', () => {
             )
 
             await screen.findByLabelText(/chart with 2 data series/i)
-            await waitFor(() => expect(getHogChart().yTicks().length).toBeGreaterThan(0))
-            for (const tick of getHogChart().yTicks()) {
+            await waitFor(() => expect(getChart().yTicks().length).toBeGreaterThan(0))
+            for (const tick of getChart().yTicks()) {
                 expect(tick).toMatch(/%$/)
             }
         })
@@ -276,8 +274,8 @@ describe('SqlBarGraph', () => {
             )
 
             await screen.findByLabelText(/chart with 2 data series/i)
-            await waitFor(() => expect(getHogChart().hasRightAxis).toBe(true))
-            const chart = getHogChart()
+            await waitFor(() => expect(getChart().hasRightAxis).toBe(true))
+            const chart = getChart()
             expect(chart.yTicks().length).toBeGreaterThan(0)
             expect(chart.yTicks().every((tick) => tick.startsWith('$'))).toBe(true)
             const rightTicks = chart.yRightTicks()
@@ -293,8 +291,8 @@ describe('SqlBarGraph', () => {
             )
 
             await screen.findByLabelText(/chart with/i)
-            await waitFor(() => expect(getHogChart().yRightTicks().length).toBeGreaterThan(0))
-            expect(getHogChart().yTicks()).toHaveLength(0)
+            await waitFor(() => expect(getChart().yRightTicks().length).toBeGreaterThan(0))
+            expect(getChart().yTicks()).toHaveLength(0)
         })
     })
 
@@ -347,7 +345,7 @@ describe('SqlBarGraph', () => {
             )!
             fireEvent.click(bButton)
 
-            await waitFor(() => expect(getHogChart().seriesCount).toBe(1))
+            await waitFor(() => expect(getChart().seriesCount).toBe(1))
         })
     })
 
@@ -363,7 +361,7 @@ describe('SqlBarGraph', () => {
             )
 
             await screen.findByLabelText(/chart with/i)
-            const lines = getHogChart().referenceLines()
+            const lines = getChart().referenceLines()
             expect(lines.map((l) => l.label)).toEqual(['Target'])
             expect(lines[0].orientation).toBe(orientation)
         })

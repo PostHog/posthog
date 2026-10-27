@@ -4,6 +4,7 @@ import { DEFAULT_LOADER_RETRY, LazyLoader, LoadOptions } from '~/common/utils/la
 import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
 import { PubSub } from '~/common/utils/pubsub'
+import { validTeamIds } from '~/common/utils/team-manager'
 
 import { Team } from '../../../types'
 import { HogFunctionType, HogFunctionTypeType } from '../../types'
@@ -119,11 +120,7 @@ export class HogFunctionManagerService {
             result[fn.team_id].push(fn)
         }
 
-        for (const [teamId, fns] of Object.entries(result)) {
-            result[parseInt(teamId)] = sortHogFunctions(fns)
-        }
-
-        return result
+        return Object.fromEntries(Object.entries(result).map(([teamId, fns]) => [teamId, sortHogFunctions(fns)]))
     }
 
     public async getHogFunctionIdsForTeams(
@@ -196,7 +193,7 @@ export class HogFunctionManagerService {
         const response = await this.postgres.query<Pick<HogFunctionType, 'id' | 'team_id' | 'type'>>(
             PostgresUse.COMMON_READ,
             `SELECT id, team_id, type FROM posthog_hogfunction WHERE enabled = TRUE AND deleted = FALSE AND team_id = ANY($1)`,
-            [teamIds],
+            [validTeamIds(teamIds)],
             'fetchAllTeamHogFunctions'
         )
 

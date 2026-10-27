@@ -154,12 +154,19 @@ describe('workflowLogic schedule reducers', () => {
     })
 
     describe('hasUnsavedChanges', () => {
-        it('is false after loading a saved schedule', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.setSchedules([makeSchedule()])
-            }).toMatchValues({
-                hasUnsavedChanges: false,
-            })
+        // Schedules saved through the API or MCP keep the rrule as written, which is often not the
+        // exact string the picker regenerates.
+        it.each([
+            ['the picker format', WEEKLY_MONDAY_RRULE],
+            ['no interval', 'FREQ=WEEKLY;BYDAY=MO'],
+            ['a different part order', 'FREQ=WEEKLY;BYDAY=MO;INTERVAL=1'],
+            ['a bare frequency', 'FREQ=DAILY'],
+        ])('is false after loading a saved schedule with %s, and after clearing changes', (_, rrule) => {
+            logic.actions.setSchedules([makeSchedule({ rrule })])
+            expect(logic.values.hasUnsavedChanges).toBe(false)
+
+            logic.actions.resetWorkflow(logic.values.workflow)
+            expect(logic.values.hasUnsavedChanges).toBe(false)
         })
 
         it.each([

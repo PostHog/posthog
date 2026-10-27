@@ -304,6 +304,10 @@ They're copied to three discovery locations during image build:
 - `~/.agents/skills/` – Codex agent discovery
 - `~/.claude/skills/` – Claude Code CLI discovery
 
+Evals build skills from the local checkout into a new output directory, then capture a snapshot. Model comparisons share one saved snapshot across their model runs, so rendered examples cannot change between models. `--skill-snapshot-report <results.json>` reuses a previous run's archived snapshot only if its source fingerprint and commit match the checkout. The fingerprint includes staged and unstaged changes plus untracked source files, so schema edits outside the skill folders also invalidate reuse. It excludes configured result files and comparison output directories, including outputs inside the checkout. Docker mounts the snapshot at all three discovery paths, replacing image-only skills as well. Modal builds use the same snapshot. Before the agent starts, the harness checks every skill file against a SHA-256 manifest in the agent's task filesystem and stops on missing, changed, or extra files. MCP delivery pins the archive hash and clears native bundled skills. Verification reads the delivery mode inside the running sandbox, including when a worker retrieves it by ID. Desktop skill-source preferences and shell-level MCP archive URLs cannot replace the eval snapshot.
+
+Run reports and PostHog eval metadata record the skill snapshot hash alongside the commit and dirty-worktree flag. The local run report includes the full file manifest's path. Model comparisons reject missing or different snapshot hashes. These checks confirm which files the agent can read; separate tool-call checks confirm whether it reads a skill.
+
 For details on writing skills, see [Writing skills](/handbook/engineering/ai/writing-skills).
 
 ## Multi-turn sessions
@@ -504,7 +508,9 @@ that landed since the last bake. The snapshot clones the migrated Postgres datab
 `test_posthog`, so pytest's default `--reuse-db` path also applies only newer migrations.
 The pnpm store and Playwright's Chromium are prewarmed too:
 `pnpm install --frozen-lockfile --prefer-offline` is a fast linking pass and browser installs
-are no-ops. Build outputs (node_modules, Storybook dist, Vite/Turbo caches) are deliberately
+are no-ops. The image also has `ffmpeg`, because the lean VM base ships no codec tooling,
+and the CI-pinned `semgrep`, `actionlint` and `shellcheck`, so agents can run the repo's lint gates before they push.
+Build outputs (node_modules, Storybook dist, Vite/Turbo caches) are deliberately
 not baked — the bake's checkout is deleted before the snapshot — so frontend builds always run
 from the task's own source. The bake must run on the real VM runtime —
 dockerd cannot run inside Modal's gVisor image builder — which is why it is a sandbox filesystem
@@ -518,6 +524,9 @@ at boot and dockerd does not autostart. Run the baked `bootstrap-dev-stack` help
 required — the sandbox has no TTY, and running phrocs under a pseudo-TTY makes it balloon in
 memory until it is OOM-killed — and the detached start returns while the stack is still booting,
 so `hogli wait` is what blocks until every process reports ready.
+On a 16 GiB self-driving run the full stack takes about 12 GiB and leaves no room for tests,
+so the agent should start only the datastores unless the task needs the running app
+(see `docs/internal/cloud-task-sandbox.md`).
 
 Provisioning also fires that helper detached as soon as the sandbox is up (best-effort, only on
 runs that booted the PostHog-published `posthog-dev-stack` image itself — never a user-authored

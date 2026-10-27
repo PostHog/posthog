@@ -1,7 +1,7 @@
 import { fireEvent, render, waitFor } from '@testing-library/react'
 
 import type { ChartTheme } from '../../core/types'
-import { getHogChartTooltip, renderHogChart } from '../../testing'
+import { getChartTooltip, renderChart } from '../../testing'
 import { computeSankeyLayout } from './sankey-data'
 import type { SankeyLinkInput, SankeyNodeDatum, SankeyNodeInput } from './sankey-data'
 import { labelsSharingLastGap, outsideLabelWidth, sankeyLabelBoxes } from './sankey-labels'
@@ -39,7 +39,7 @@ function nodeCenter(id: string): { clientX: number; clientY: number } {
 
 describe('SankeyChart', () => {
     it('renders node labels and column headers as DOM overlays', () => {
-        const { chart } = renderHogChart(
+        const { chart } = renderChart(
             <SankeyChart
                 nodes={NODES}
                 links={LINKS}
@@ -55,7 +55,7 @@ describe('SankeyChart', () => {
     it('drops the label of a thin node that would print over its larger neighbor', () => {
         // Two thin nodes stacked in one column: their boxes are a pixel or two tall, so their label
         // centers sit closer than a line of text. The larger flow keeps its label.
-        const { chart } = renderHogChart(
+        const { chart } = renderChart(
             <SankeyChart
                 nodes={[
                     { id: 'start', label: 'Start' },
@@ -78,7 +78,7 @@ describe('SankeyChart', () => {
     it('shows the hovered node in the tooltip, reports it once, and fires onNodeClick for it', async () => {
         const onNodeClick = jest.fn()
         const onHoverChange = jest.fn()
-        const { chart, rerender } = renderHogChart(
+        const { chart, rerender } = renderChart(
             <SankeyChart
                 nodes={NODES}
                 links={LINKS}
@@ -90,10 +90,10 @@ describe('SankeyChart', () => {
         )
         await waitFor(() => {
             fireEvent.mouseMove(chart.element, nodeCenter('a'))
-            expect(getHogChartTooltip()?.textContent).toContain('Tool A')
+            expect(getChartTooltip()?.textContent).toContain('Tool A')
         })
         // The share is of the total inflow, so the only path reads as 100%.
-        expect(getHogChartTooltip()?.textContent).toContain('100%')
+        expect(getChartTooltip()?.textContent).toContain('100%')
         fireEvent.click(chart.element)
         expect(onNodeClick).toHaveBeenCalledWith(expect.objectContaining({ id: 'a', value: 12 }))
 
@@ -105,7 +105,7 @@ describe('SankeyChart', () => {
 
         await waitFor(() => {
             fireEvent.mouseMove(chart.element, nodeCenter('a'))
-            expect(getHogChartTooltip()?.textContent).toContain('Tool A')
+            expect(getChartTooltip()?.textContent).toContain('Tool A')
         })
 
         rerender(
@@ -117,7 +117,7 @@ describe('SankeyChart', () => {
                 onHoverChange={onHoverChange}
             />
         )
-        expect(getHogChartTooltip()?.textContent).toContain('Tool A')
+        expect(getChartTooltip()?.textContent).toContain('Tool A')
         expect(onHoverChange).not.toHaveBeenLastCalledWith(null)
 
         onNodeClick.mockClear()
@@ -131,7 +131,7 @@ describe('SankeyChart', () => {
                 config={{ nodeWidth: 24 }}
             />
         )
-        await waitFor(() => expect(getHogChartTooltip()).toBeNull())
+        await waitFor(() => expect(getChartTooltip()).toBeNull())
         // The hovered node belonged to the old layout, so the host is told it is gone.
         expect(onHoverChange).toHaveBeenLastCalledWith(null)
         fireEvent.click(chart.element)
@@ -141,7 +141,7 @@ describe('SankeyChart', () => {
     it('shows the tooltip on a first tap, fires onNodeClick on the second, and clears on an empty tap', async () => {
         const onNodeClick = jest.fn()
         const onHoverChange = jest.fn()
-        const { chart } = renderHogChart(
+        const { chart } = renderChart(
             <SankeyChart
                 nodes={NODES}
                 links={LINKS}
@@ -159,7 +159,7 @@ describe('SankeyChart', () => {
             fireEvent.click(chart.element, at)
         }
         tap(nodeCenter('a'))
-        await waitFor(() => expect(getHogChartTooltip()?.textContent).toContain('Tool A'))
+        await waitFor(() => expect(getChartTooltip()?.textContent).toContain('Tool A'))
         expect(onNodeClick).not.toHaveBeenCalled()
         tap(nodeCenter('a'))
         expect(onNodeClick).toHaveBeenCalledWith(expect.objectContaining({ id: 'a' }))
@@ -172,7 +172,7 @@ describe('SankeyChart', () => {
     it('ignores a tap on an interactive overlay over a node', () => {
         const onNodeClick = jest.fn()
         const onHoverChange = jest.fn()
-        const { chart, getByRole } = renderHogChart(
+        const { chart, getByRole } = renderChart(
             <SankeyChart
                 nodes={NODES}
                 links={LINKS}
@@ -194,7 +194,7 @@ describe('SankeyChart', () => {
 
     it('fires the click on the first tap when the tooltip is disabled', () => {
         const onNodeClick = jest.fn()
-        const { chart } = renderHogChart(
+        const { chart } = renderChart(
             <SankeyChart
                 nodes={NODES}
                 links={LINKS}
@@ -212,7 +212,7 @@ describe('SankeyChart', () => {
 
     it('ignores hover and clicks from an interactive overlay child', async () => {
         const onNodeClick = jest.fn()
-        const { chart } = renderHogChart(
+        const { chart } = renderChart(
             <SankeyChart nodes={NODES} links={LINKS} theme={THEME} onNodeClick={onNodeClick}>
                 <button data-hog-charts-interactive-overlay>overlay</button>
             </SankeyChart>,
@@ -220,11 +220,11 @@ describe('SankeyChart', () => {
         )
         await waitFor(() => {
             fireEvent.mouseMove(chart.element, nodeCenter('a'))
-            expect(getHogChartTooltip()?.textContent).toContain('Tool A')
+            expect(getChartTooltip()?.textContent).toContain('Tool A')
         })
         const overlay = chart.element.querySelector('[data-hog-charts-interactive-overlay]')!
         fireEvent.mouseMove(overlay, nodeCenter('a'))
-        await waitFor(() => expect(getHogChartTooltip()).toBeNull())
+        await waitFor(() => expect(getChartTooltip()).toBeNull())
         fireEvent.click(overlay, nodeCenter('a'))
         expect(onNodeClick).not.toHaveBeenCalled()
     })
@@ -277,16 +277,16 @@ describe('SankeyChart', () => {
     })
 
     it('shows the node tooltip when the pointer is over its label, not the ribbon under it', async () => {
-        const { chart } = renderHogChart(<SankeyChart nodes={NODES} links={LINKS} theme={THEME} />, {
+        const { chart } = renderChart(<SankeyChart nodes={NODES} links={LINKS} theme={THEME} />, {
             nativeTooltip: true,
         })
         // Right of the Start node, inside its label and over the Start -> Tool A ribbon.
         const start = nodeCenter('start')
         await waitFor(() => {
             fireEvent.mouseMove(chart.element, { clientX: start.clientX + 17, clientY: start.clientY })
-            expect(getHogChartTooltip()?.textContent).toContain('Start')
+            expect(getChartTooltip()?.textContent).toContain('Start')
         })
-        expect(getHogChartTooltip()?.textContent).not.toContain('→')
+        expect(getChartTooltip()?.textContent).not.toContain('→')
     })
 
     it('places last-column labels outside the nodes when asked, and truncates headers to their span', () => {
@@ -347,7 +347,7 @@ describe('SankeyChart', () => {
             { id: 'done', label: 'Completed after a very long outcome name that needs the full margin' },
         ]
         // An 800px wrapper with a 700px left margin leaves a 92px plot, under the 160px label cap.
-        const { chart } = renderHogChart(
+        const { chart } = renderChart(
             <SankeyChart
                 nodes={nodes}
                 links={[{ source: 'start', target: 'done', value: 5 }]}
@@ -362,7 +362,7 @@ describe('SankeyChart', () => {
     })
 
     it('keeps room for column headers when a consumer overrides the top margin', () => {
-        const { chart } = renderHogChart(
+        const { chart } = renderChart(
             <SankeyChart
                 nodes={NODES}
                 links={LINKS}

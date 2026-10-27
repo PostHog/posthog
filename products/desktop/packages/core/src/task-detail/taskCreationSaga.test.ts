@@ -431,9 +431,14 @@ describe("TaskCreationSaga", () => {
     });
     const createdTask = createTask({ repository: undefined });
     const createTaskRequest = vi.fn().mockResolvedValue(createdTask);
+    const localRun = createRun({ environment: "local" });
+    const createTaskRun = vi.fn().mockResolvedValue(localRun);
     const onTaskReady = vi.fn();
     piRunner.create.mockImplementationOnce(() => piSessionCreated);
-    const saga = makeSaga({ createTask: createTaskRequest }, { onTaskReady });
+    const saga = makeSaga(
+      { createTask: createTaskRequest, createTaskRun },
+      { onTaskReady },
+    );
 
     const run = saga.run({
       content: "Draft a launch email",
@@ -454,15 +459,17 @@ describe("TaskCreationSaga", () => {
 
     expect(result.success).toBe(true);
     expect(onTaskReady).toHaveBeenCalledWith({
-      task: createdTask,
+      task: { ...createdTask, latest_run: localRun },
       workspace: null,
     });
     expect(createTaskRequest).toHaveBeenCalledWith(
       expect.objectContaining({ runtime: "pi" }),
     );
+    expect(createTaskRun).toHaveBeenCalledWith("task-123");
     expect(piRunner.create).toHaveBeenCalledWith({
       taskContext: {
         taskId: "task-123",
+        taskRunId: "run-123",
         cwd: "/tmp/scratch/task-123",
         customInstructions: "Keep the patch small.",
         additionalDirectories: ["/tmp/shared"],
@@ -476,6 +483,45 @@ describe("TaskCreationSaga", () => {
     expect(sessionService.markTaskCreationInFlight).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ["the run call fails", vi.fn().mockRejectedValue(new Error("503"))],
+    ["the run has no id", vi.fn().mockResolvedValue(createRun({ id: "" }))],
+  ])(
+    "starts a new local Pi task untagged when %s",
+    async (_label, createTaskRun) => {
+      const createdTask = createTask({ repository: undefined });
+      const deleteTask = vi.fn();
+      const onTaskReady = vi.fn();
+      const saga = makeSaga(
+        {
+          createTask: vi.fn().mockResolvedValue(createdTask),
+          createTaskRun,
+          deleteTask,
+        },
+        { onTaskReady },
+      );
+
+      const result = await saga.run({
+        content: "Draft a launch email",
+        workspaceMode: "local",
+        runtime: "pi",
+        allowNoRepo: true,
+      });
+
+      expect(result.success).toBe(true);
+      expect(deleteTask).not.toHaveBeenCalled();
+      expect(piRunner.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          taskContext: expect.objectContaining({ taskRunId: undefined }),
+        }),
+      );
+      expect(onTaskReady).toHaveBeenCalledWith({
+        task: createdTask,
+        workspace: null,
+      });
+    },
+  );
+
   it("starts a Pi session before surfacing a new worktree task", async () => {
     let resolvePiSession: () => void = () => {};
     const piSessionCreated = new Promise<void>((resolve) => {
@@ -486,7 +532,12 @@ describe("TaskCreationSaga", () => {
     mockHost.addFolder.mockResolvedValue({ id: "folder-1", path: "/repo" });
     piRunner.create.mockImplementationOnce(() => piSessionCreated);
     const saga = makeSaga(
-      { createTask: vi.fn().mockResolvedValue(createdTask) },
+      {
+        createTask: vi.fn().mockResolvedValue(createdTask),
+        createTaskRun: vi
+          .fn()
+          .mockResolvedValue(createRun({ environment: "local" })),
+      },
       { onTaskReady },
     );
 
@@ -506,7 +557,10 @@ describe("TaskCreationSaga", () => {
     expect(result).toMatchObject({ success: true });
     expect(mockHost.createWorkspace).toHaveBeenCalledOnce();
     expect(onTaskReady).toHaveBeenCalledWith({
-      task: createdTask,
+      task: {
+        ...createdTask,
+        latest_run: expect.objectContaining({ id: "run-123" }),
+      },
       workspace: expect.objectContaining({ taskId: createdTask.id }),
     });
   });

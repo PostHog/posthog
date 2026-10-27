@@ -176,9 +176,17 @@ class TestRouteThreadMessage(TestCase):
                 True,
                 None,
                 False,
+                True,
+            ),
+            ("a question to a person", {"text": "<@U_ALICE> how many signups last week?"}, True, None, False, True),
+            (
+                "a question that tags the app",
+                {"text": "<@U0BOT> how many signups last week?"},
+                True,
+                None,
+                False,
                 False,
             ),
-            ("a question to a person", {"text": "<@U_ALICE> how many signups last week?"}, True, None, False, False),
             ("a group DM", {"channel_type": "mpim"}, True, None, False, False),
             ("the flag is off", {}, False, None, False, False),
             ("the author picks up only tagged messages", {}, True, UntaggedFollowupMode.NEVER, False, False),
@@ -196,6 +204,7 @@ class TestRouteThreadMessage(TestCase):
         event = self._make_question_event(**overrides)
         with (
             patch("products.slack_app.backend.api.is_slack_app_unprompted_answers_enabled", return_value=flag_on),
+            patch("products.slack_app.backend.api.get_cached_bot_user_id", return_value="U0BOT"),
             patch("products.slack_app.backend.api._start_mention_workflow") as mock_start,
             patch("products.slack_app.backend.api._post_user_resolution_failure_reply") as mock_failure_reply,
         ):

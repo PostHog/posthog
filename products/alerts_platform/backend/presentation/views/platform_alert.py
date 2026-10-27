@@ -345,8 +345,8 @@ def _typed_create_serializer(
 
 @cache
 def create_serializers() -> dict[str, type[PlatformAlertConfigurationEditSerializer]]:
-    """One create serializer per kind whose source registered a create hook."""
-    creatable = {source.value for source, spec in editable_source_configs().items() if spec.create is not None}
+    """One create serializer per kind the API can create."""
+    creatable = {source.value for source, spec in editable_source_configs().items() if spec.creatable}
     return {
         source_kind: _typed_create_serializer(serializer)
         for source_kind, serializer in edit_serializers().items()

@@ -5032,20 +5032,20 @@ class TestCoalesceGroup:
     @pytest.mark.parametrize(
         "slot_mb,sizes,expected",
         [
-            # A 64 MiB slice at share 1.0 leaves 32 MiB of Arrow for the two copies the loader holds.
-            (64, [(10 * _MIB, 1)] * 5, [[0, 1, 2], [3, 4]]),
+            # A 32 MiB slice at share 1.0 leaves 32 MiB of Arrow for the one copy the loader holds.
+            (32, [(10 * _MIB, 1)] * 5, [[0, 1, 2], [3, 4]]),
             # Wide rows that compress badly join past the parquet cap while they fit the memory budget.
-            (64, [(10 * _MIB, 30 * _MIB)] * 4, [[0, 1, 2], [3]]),
+            (32, [(10 * _MIB, 30 * _MIB)] * 4, [[0, 1, 2], [3]]),
             # A batch bigger than the whole budget still loads, on its own.
-            (64, [(1 * _MIB, 1), (100 * _MIB, 1), (1 * _MIB, 1)], [[0], [1], [2]]),
+            (32, [(1 * _MIB, 1), (100 * _MIB, 1), (1 * _MIB, 1)], [[0], [1], [2]]),
             # A large slice is still bounded by the hard ceiling.
             (100_000, [(10 * _MIB, 1)] * 5, [[0, 1, 2, 3], [4]]),
             # Narrow batches still coalesce until the row cap.
-            (64, [(1024, 1)] * 60, [list(range(50)), list(range(50, 60))]),
+            (32, [(1024, 1)] * 60, [list(range(50)), list(range(50, 60))]),
             # One batch queued before the producer recorded its size puts the set back on the parquet cap.
-            (64, [(10 * _MIB, 30 * _MIB), (None, 30 * _MIB), (10 * _MIB, 30 * _MIB)], [[0, 1], [2]]),
+            (32, [(10 * _MIB, 30 * _MIB), (None, 30 * _MIB), (10 * _MIB, 30 * _MIB)], [[0, 1], [2]]),
             # The metadata is free-form JSON, so any other shape counts as unknown.
-            (64, [("10", 30 * _MIB), (True, 30 * _MIB), (-1, 30 * _MIB)], [[0, 1], [2]]),
+            (32, [("10", 30 * _MIB), (True, 30 * _MIB), (-1, 30 * _MIB)], [[0, 1], [2]]),
             # An unreadable pod limit gives no slice to size against.
             (None, [(10 * _MIB, 30 * _MIB)] * 3, [[0, 1], [2]]),
             # A slice that leaves no memory gives no Arrow budget.

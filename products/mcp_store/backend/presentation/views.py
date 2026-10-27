@@ -1334,7 +1334,9 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             if gateway_server is not None
             else None
         )
-        decision, block_reason = resolve_call_decision(tool, policy_context)
+        decision, block_reason = resolve_call_decision(
+            tool, policy_context, caller_owns_installation=installation.user_id == request.user.id
+        )
 
         if gateway_server is not None:
             record_tool_call_audit(

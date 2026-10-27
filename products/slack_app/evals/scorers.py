@@ -513,3 +513,50 @@ class NoUnaskedAnswer(Scorer):
             score=0.0 if (output or {}).get("answerable") else 1.0,
             metadata={"actual": (output or {}).get("answerable"), "verdict": (output or {}).get("verdict")},
         )
+
+
+FEATURE_TIP_KEY = "feature_tip"
+
+
+class FeatureTipMatch(Scorer):
+    def _name(self) -> str:
+        return FEATURE_TIP_KEY
+
+    def _run_eval_sync(self, output: dict | None, expected=None, **kwargs) -> Score:
+        want = (expected or {}).get(FEATURE_TIP_KEY) or {}
+        if "feature" not in want:
+            return Score(name=self._name(), score=None, metadata={"reason": "No expectation for this case"})
+        if output and output.get("error"):
+            return Score(name=self._name(), score=0.0, metadata={"reason": output["error"]})
+
+        got = (output or {}).get("feature")
+        return Score(
+            name=self._name(),
+            score=1.0 if got == want["feature"] else 0.0,
+            metadata={"expected": want["feature"], "actual": got, "verdict": (output or {}).get("verdict")},
+        )
+
+
+class NoForcedTip(Scorer):
+    """The expensive direction: a pick for a message that no candidate fits, which makes the tip read as an ad.
+
+    Skips on cases with a real match, so the score reads as a rate over the messages that fit nothing.
+    """
+
+    def _name(self) -> str:
+        return "no_forced_tip"
+
+    def _run_eval_sync(self, output: dict | None, expected=None, **kwargs) -> Score:
+        want = (expected or {}).get(FEATURE_TIP_KEY) or {}
+        if want.get("feature") != "none":
+            return Score(name=self._name(), score=None, metadata={"reason": "Case has a matching feature"})
+        if output and output.get("error"):
+            # A failed call picks nothing, this scorer's passing answer, so it would hide an outage.
+            return Score(name=self._name(), score=None, metadata={"reason": output["error"]})
+
+        got = (output or {}).get("feature")
+        return Score(
+            name=self._name(),
+            score=1.0 if got == "none" else 0.0,
+            metadata={"actual": got, "verdict": (output or {}).get("verdict")},
+        )

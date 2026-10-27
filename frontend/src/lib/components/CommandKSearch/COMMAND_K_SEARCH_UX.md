@@ -95,14 +95,15 @@ The input is always in exactly one mode, decided from the token under the cursor
 - Sections, in this fixed order, covering everything the current palette finds:
   1. **Results**: file system objects (insights, dashboards, feature flags, experiments, surveys, notebooks, cohorts, actions, early access features, replay playlists, data pipelines), and products. For a search with words, see [Ranked results](#ranked-results).
   2. In-memory lists, filtered on every keystroke: **Data management**, **People**, **Health**, **Misc**, **Settings** (with a Dark mode / Light mode row for "dark", "light", "theme", "appearance"), **Create new**. For a search with words they keep only items that match every word with no typo. Products rank with the results instead.
-  3. Remote lists that the file system does not hold: **Events**, **Properties**, **Workflows** (one unified search request), **Accounts** (behind the customer analytics flag), **Support tickets** (3+ characters or a ticket number), **Persons**, **Groups**.
+  3. Remote lists that the file system does not hold: **Events**, **Properties**, **Workflows** (one unified search request), **Accounts** (behind the customer analytics flag), **Support tickets** (3+ characters or a ticket number).
   4. **Ask PostHog AI**.
+  5. **Persons**, **Groups**. Person and group searches can take seconds, so they come last and nothing above them waits for them. The person search starts with the file system search, after 50 ms. In the test group of the `command-k-persons-first-for-email` experiment, a search that contains "@" waits for the person search and ranks the persons it finds with **Results**, so a person who matches every word comes first and weaker matches drop out. Persons that do not rank stay in **Persons** below.
 - With any filter (a chip, or a valid `key:value` still being typed), only **Results** and **Ask PostHog AI** show, because filters apply only to objects.
 - With an `is:` chip (not negated), **Results** holds a **View all <types>** row (`View all feature flags`) that opens the list page of that type. With no search text it is the first row; once you type a search it moves below the results. It shows only for types with a list page.
 
 ### Ranked results
 
-Results for a search with words follow ordered tie-breaking rules: words matched, typos, word proximity, name before folder, exact words, word position, exactness, the person's recent views, then recency. Products rank with the same rules through their name and search keywords, so "recordings" finds Session replay.
+Results for a search with words follow ordered tie-breaking rules: words matched, typos, word proximity, name before folder, exact words, word position, exactness, the person's recent views, then recency. Products rank with the same rules through their name and search keywords, so "recordings" finds Session replay. When a name match and a search keyword match tie, the name match ranks first, so "metrics" puts Metrics above Data catalog.
 
 - When no result has every word, results use the words that matched. A callout above the results names the dropped word ("No matches for **xyzzy**. Showing results for **report**."). When every match needs a typo, it says "No exact matches for **dashbord**. Showing close spellings." The callout is not selectable.
 - **Best matches** comes first: the three best results of different types.
@@ -153,13 +154,13 @@ Rule for adding a filter: it ships only when its values can be suggested (static
 These are the rules reviewers check. Breaking one is a bug.
 
 1. **Fixed section order.** Sections render in the order in this doc for a given mode. A section never moves above another because its data arrived first. Ranked groups are ordered by their best result for each query, and do not move while that query's rows stay on screen.
-2. **Reserve space while loading.** The Results section renders skeleton rows at its last known height (or 3 on its first load) while it loads. It does not collapse to zero and then expand. Sections below Results that usually come back empty (Events, Properties, Workflows, Accounts, Support tickets, Persons, Groups) reserve nothing on their first load and appear only once they have rows, so skeletons never show up just to collapse.
-3. **Never blank on keystroke.** Keep the previous result set visible (dimmed slightly after 150 ms) until the new set arrives. Swap in one commit.
+2. **Reserve space while loading.** On its first load, the Results section renders 3 skeleton rows, and nothing renders below it until the file system search returns. Products wait too, because they rank with the saved objects. Below Results, a section appears only once it and every section above it have loaded, so a late source never pushes rows on screen down. A section that comes back empty reserves nothing. While a section below Results is still loading, a quiet **Loading more…** row with a spinner sits at the very bottom, so people know more is coming. It fades in after 150 ms, so fast searches never flash it, and nothing above it ever moves.
+3. **Never blank on keystroke.** Keep the previous query's whole list visible (dimmed slightly after 150 ms) until the new query's results arrive. Then swap Results and the sections below it in one commit.
 4. **No mid-query re-rank.** Once rows for a query string are painted, later responses for the same query append to their own section. They never reorder rows above them.
 5. **Highlight follows identity, not index.** The highlighted row is tracked by item key (`section/type:ref`). Once the person moves the highlight (arrow keys or pointer), it stays on that item through result swaps for the same query while the item still exists. If it is gone, or the person never moved it, the first row is highlighted. Any change to the query (typing, clearing, adding or removing a chip) starts again at the first row.
 6. **Fixed row height.** Every row is one line, same height. Long names truncate with an ellipsis; the type label and timestamp never wrap.
 7. **Instant local, deferred remote.** Local sources (recents, starred, products, filter keys, type values, cached members) filter synchronously on every keystroke. Remote search debounces at 150 ms, except the file system search, which debounces at 50 ms.
-8. **Latest wins.** Each remote request is aborted when a newer one starts (`AbortController`). A late response for an older query is dropped, never painted.
+8. **Latest wins.** Each remote request is aborted when a newer one starts (`AbortController`). A late response for an older query is dropped, never painted. A request that has not answered after 3 s settles empty, so the sections below it never wait longer than that.
 9. **Chips don't reflow the list.** Committing a chip changes the query but follows rules 3 to 5 like any other edit.
 
 ## Performance budget
@@ -194,6 +195,7 @@ These are the rules reviewers check. Breaking one is a bug.
 - **Same key twice** (`is:dashboard is:insight`): the later value replaces the earlier chip. While a value for a key that already has a chip is being typed, results preview the new value instead of the chip.
 - **Invalid value** (`is:banana`): keep it as plain text, no chip, and show "No type called banana" in the Suggestions section.
 - **Ask PostHog AI**: the last section in Search mode. Without filters, the question is the input text as typed. With filters and free text, the filters read as a sentence around the text (`Find notebooks created by me called "untitled"`). With filters and no free text, the section does not show and Tab does not ask AI.
+  Asking AI does not send the question. It closes the palette and opens the PostHog AI side panel with the question in the composer, so the user can edit it and send it with Enter.
 
 ## Out of scope for v1
 

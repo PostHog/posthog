@@ -69,6 +69,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.rep
     capture_repartition_event,
     is_automatic_split_of_append_table,
     is_repartition_hold_enabled,
+    is_stale_size_split,
     maybe_flag_for_repartition,
     needs_pre_extraction_detection,
     pre_extraction_measurement_is_redundant,
@@ -474,9 +475,12 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
     )
     trigger_reason = (pending or {}).get("trigger_reason", "resume")
 
-    # Before the reset deferral too, because a reset would write this split into the new table.
+    # Drop unneeded splits before the reset deferral, or the reset would write them into the new table.
     if swap is None and is_automatic_split_of_append_table(schema, trigger_reason):
-        _drop_append_split(inputs, schema, table_ref, trigger_reason, logger)
+        _drop_queued_split(inputs, schema, table_ref, trigger_reason, "append_never_merges", logger)
+        return
+    if swap is None and is_stale_size_split(schema, trigger_reason):
+        _drop_queued_split(inputs, schema, table_ref, trigger_reason, "under_merge_split_budget", logger)
         return
 
     # Never while a swap is staged: live may already be deleted, and temp is then the only intact copy.
@@ -1213,14 +1217,15 @@ def _give_up(
     DELTA_REPARTITION_TOTAL.labels(outcome="failed").inc()
 
 
-def _drop_append_split(
+def _drop_queued_split(
     inputs: RepartitionActivityInputs,
     schema: ExternalDataSchema,
     table_ref: DeltaTableRef,
     trigger_reason: str,
+    reason: str,
     logger: FilteringBoundLogger,
 ) -> None:
-    """Discard an automatic split queued for an append table, with the temp table of its rewrite.
+    """Discard an automatic split queued for a table that does not need it, with its temp table.
 
     Same order as `_give_up`: the fresh claim fences out a predecessor that may still run as a
     zombie, and the temp table goes before the checkpoint that records where it is.
@@ -1229,43 +1234,44 @@ def _drop_append_split(
     if not schema.set_repartition_claim(
         {"token": claim_token, "job_id": inputs.job_id, "claimed_at": timezone.now().isoformat()}
     ):
-        logger.info("repartition: append split drop superseded by a newer claim")
+        logger.info("repartition: queued split drop superseded by a newer claim")
         return
     # A predecessor can stage a swap before the claim above fences it out. Temp is then the only
     # intact copy, so the swap must finish, and the next run drops nothing. The claim write reloaded
     # the config under the row lock, so this reads the current markers.
     if schema.repartition_swap is not None:
-        logger.info("repartition: a swap is staged, so the append split stays until it lands")
+        logger.info("repartition: a swap is staged, so the queued split stays until it lands")
         return
     rewrite_rows = _rewrite_rows_written(schema)
     # First, so that a delete that keeps failing cannot hold the import of a rewrite that never resumes.
     release_repartition_hold_if_claimed(schema, claim_token=claim_token)
     if not _purge_abandoned_temp(schema, table_ref, claim_token, logger):
-        # The checkpoint is the only record of the temp table, and an append table rarely runs the fresh
-        # rebuild that sweeps orphans, so the drop retries on later runs, up to the attempt cap.
+        # The checkpoint is the only record of the temp table, so a failed delete must retry on later
+        # runs, up to the attempt cap.
         drop_attempts = mark_repartition_dropping_if_claimed(schema, claim_token=claim_token)
         if drop_attempts is None:
-            logger.info("repartition: append split drop superseded by a newer claim")
+            logger.info("repartition: queued split drop superseded by a newer claim")
             return
         if drop_attempts < MAX_REPARTITION_ATTEMPTS:
-            logger.info(f"repartition: append split drop waits for the temp table delete, attempt {drop_attempts}")
+            logger.info(f"repartition: queued split drop waits for the temp table delete, attempt {drop_attempts}")
             return
         capture_exception(
-            Exception(f"repartition: could not delete the temp table of a dropped append split schema_id={schema.id}")
+            Exception(f"repartition: could not delete the temp table of a dropped queued split schema_id={schema.id}")
         )
     if not schema.abandon_repartition_if_claimed(claim_token, stamp_cooldown=False):
-        logger.info("repartition: append split drop superseded by a newer claim")
+        logger.info("repartition: queued split drop superseded by a newer claim")
         return
     logger.info(
-        f"repartition: dropped the queued split of an append table, which never merges "
+        f"repartition: dropped a queued split that the table does not need reason={reason} "
         f"schema_id={schema.id} trigger_reason={trigger_reason} rewrite_rows={rewrite_rows}",
         schema_id=str(schema.id),
         trigger_reason=trigger_reason,
+        reason=reason,
         rewrite_rows=rewrite_rows,
     )
     DELTA_REPARTITION_TOTAL.labels(outcome="skipped").inc()
     props = base_event_props(schema, schema.source, inputs.job_id)
-    props.update({"trigger_reason": trigger_reason, "reason": "append_never_merges", "rewrite_rows": rewrite_rows})
+    props.update({"trigger_reason": trigger_reason, "reason": reason, "rewrite_rows": rewrite_rows})
     capture_repartition_event("warehouse_repartition_skipped", props)
 
 

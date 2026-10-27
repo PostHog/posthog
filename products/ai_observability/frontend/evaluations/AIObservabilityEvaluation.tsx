@@ -47,7 +47,12 @@ import { EvaluationReportsTab } from './components/EvaluationReportsTab'
 import { EvaluationRunsTable } from './components/EvaluationRunsTable'
 import { EvaluationTriggers } from './components/EvaluationTriggers'
 import { NumericEvaluationConfig } from './components/NumericEvaluationConfig'
-import { formatNumericEvaluationScore, numericOutputConfigError, categoricalOutputConfigError } from './constants'
+import {
+    formatNumericEvaluationScore,
+    booleanOutputConfigError,
+    numericOutputConfigError,
+    categoricalOutputConfigError,
+} from './constants'
 import {
     evaluationOffersSessionTarget,
     evaluationSupportsReportHistory,
@@ -69,6 +74,7 @@ import {
     hasUnsetConditionRollout,
     llmEvaluationLogic,
 } from './llmEvaluationLogic'
+import { EvaluationDetailResults } from './overview/EvaluationDetailResults'
 import { statusReasonLabel, statusReasonRecoveryLabel } from './statusDisplay'
 import { EvaluationSettleStrategy, EvaluationTarget, EvaluationType } from './types'
 
@@ -101,6 +107,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
     const { searchParams } = useValues(router)
     const { featureFlags } = useValues(featureFlagLogic)
     const settlingStrategyEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVAL_SETTLING_STRATEGY]
+    const resultsCardsEnabled = !!featureFlags[FEATURE_FLAGS.AI_OBSERVABILITY_EVALUATIONS_OVERVIEW]
     const {
         setEvaluationName,
         setEvaluationDescription,
@@ -180,7 +187,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
               ? (categoricalOutputConfigError(evaluation.output_config) ?? undefined)
               : evaluation.output_type === 'numeric'
                 ? (numericOutputConfigError(evaluation.output_config, numericBoundsRequired) ?? undefined)
-                : undefined
+                : (booleanOutputConfigError(evaluation.output_config) ?? undefined)
 
     const focusTriggers = (): void => {
         setActiveTab('configuration')
@@ -460,6 +467,11 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                             </>
                                         )}
                                     </LemonBanner>
+                                )}
+                                {resultsCardsEnabled && !runsBackfillId && (
+                                    <div className="mb-4">
+                                        <EvaluationDetailResults evaluationId={evaluation.id} />
+                                    </div>
                                 )}
                                 <EvaluationRunsTable />
                             </div>

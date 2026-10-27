@@ -146,13 +146,18 @@ describe('logsViewerModalLogic', () => {
         })
 
         it('drops the scope when reopened from an unscoped entry point', async () => {
-            logic.actions.openLogsViewerModal({ id: 'person-1', pinnedFilters, personId: 'a-person-uuid' })
+            logic.actions.openLogsViewerModal({
+                id: 'person-1',
+                pinnedFilters,
+                personId: 'a-person-uuid',
+                openedFrom: 'recording',
+            })
             await expectLogic(logic).toFinishAllListeners()
             logic.actions.closeLogsViewerModal()
 
             await expectLogic(logic, () => {
                 logic.actions.openLogsViewerModal({ id: 'modal' })
-            }).toMatchValues({ pinnedFilters: null, personId: null })
+            }).toMatchValues({ pinnedFilters: null, personId: null, openedFrom: null })
         })
     })
 

@@ -756,6 +756,13 @@ export const getExperimentsHealthRetrieveUrl = (projectId: string, id: number) =
  * `running_but_flag_disabled`, as a warning. A caller who can't view the linked flag's
  * history gets the warning, because the pause is not read. A draft whose flag is already
  * active with multiple variants gets `not_started_but_multiple_variants_rolled_out` as info.
+ *
+ * A running experiment whose first primary metric is a funnel gets the info
+ * `early_significance` (subcode `below_detectable_effect`) when a significant variant's
+ * difference is smaller than the smallest difference its sample can detect, while that
+ * sample is below the one the running time estimate plans for the minimum detectable
+ * effect. It reads the metric's current stored result, the one the results page shows
+ * after its last calculation, and the running time calculator's formula.
  */
 export const experimentsHealthRetrieve = async (
     projectId: string,
