@@ -11,7 +11,6 @@ import api, { ApiConfig, ApiError } from 'lib/api'
 import { CyclotronJobInputsValidation } from 'lib/components/CyclotronJob/CyclotronJobInputsValidation'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
@@ -305,6 +304,7 @@ export interface workflowLogicValues {
     isWorkflowValid: boolean
     lastSavedAt: string | null
     logicProps: WorkflowLogicProps
+    manualTriggerDisabledReason: string | undefined
     originalWorkflow: HogFlow | null
     originalWorkflowLoading: boolean
     pendingSchedule:
@@ -3207,6 +3207,11 @@ export interface workflowLogicMeta {
             draftActionPending: 'discard' | 'publish' | null
         ) => string | undefined
         statusToggleDisabledReason: (workflow: HogFlow, hasUnsavedChanges: boolean) => string | undefined
+        manualTriggerDisabledReason: (
+            workflow: HogFlow,
+            originalWorkflow: HogFlow | null,
+            hasUnsavedChanges: boolean
+        ) => string | undefined
     }
 }
 
@@ -4215,6 +4220,24 @@ export const workflowLogic = kea<workflowLogicType>([
                 return undefined
             },
         ],
+
+        manualTriggerDisabledReason: [
+            (s) => [s.workflow, s.originalWorkflow, s.hasUnsavedChanges],
+            (workflow: HogFlow, originalWorkflow: HogFlow | null, hasUnsavedChanges: boolean): string | undefined => {
+                if (workflow?.status !== 'active') {
+                    return 'Must enable workflow to use trigger'
+                }
+                if (hasUnsavedChanges) {
+                    return 'Save changes first'
+                }
+                // A run uses the published trigger, so a trigger that lives only in the draft
+                // starts nothing.
+                if (originalWorkflow?.draft && originalWorkflow.trigger?.type !== workflow?.trigger?.type) {
+                    return 'Publish your draft first. The live workflow still uses its published trigger.'
+                }
+                return undefined
+            },
+        ],
     }),
     listeners(({ actions, values, props, cache }) => ({
         setScheduleStartsAtFromPicker: ({ pickerDate }) => {
@@ -4418,8 +4441,7 @@ export const workflowLogic = kea<workflowLogicType>([
                 draftSource &&
                 !cache.aiEmailDraftRequested &&
                 (!props.id || props.id === 'new') &&
-                prefilledEmailContent(originalWorkflow) &&
-                values.featureFlags[FEATURE_FLAGS.WORKFLOWS_AI_EMAIL_DRAFT]
+                prefilledEmailContent(originalWorkflow)
             ) {
                 cache.aiEmailDraftRequested = true
                 actions.loadAiEmailDraft(draftSource)
@@ -4461,6 +4483,10 @@ export const workflowLogic = kea<workflowLogicType>([
             // second toast, and a second schedule write that can leave a duplicate schedule.
             const saveContext = (cache.saveContexts as SaveContext[] | undefined)?.shift()
             const isAutoSave = saveContext?.initiatedByAutoSave ?? values.isAutoSave
+            // Only a manual save writes the schedule, and only once the reload below confirms it.
+            // The reset at the end of this listener re-derives the schedule editor from the saved
+            // schedule, so every other save must put the user's unsaved edits back afterwards.
+            let wroteSchedule = false
 
             if (cache.enablingWorkflow && originalWorkflow.status === 'active') {
                 cache.enablingWorkflow = false
@@ -4482,13 +4508,30 @@ export const workflowLogic = kea<workflowLogicType>([
 
                 if (hasScheduleChanges) {
                     try {
+                        // Each write answers with the saved schedule, so the editor rebaselines from
+                        // the response. Re-reading the list instead would leave a created schedule
+                        // unknown whenever that read failed, and the next save would add a second one.
                         if (pendingSchedule === null && existingScheduleId) {
                             await api.hogFlows.deleteHogFlowSchedule(workflowId, existingScheduleId)
+                            actions.setSchedules([])
                         } else if (pendingSchedule !== null && existingScheduleId) {
-                            await api.hogFlows.updateHogFlowSchedule(workflowId, existingScheduleId, pendingSchedule)
+                            actions.setSchedules([
+                                // The generated client answers with HogFlowScheduleApi, whose untyped
+                                // `variables` does not satisfy the HogFlowSchedule the editor holds.
+                                // nosemgrep: prefer-codegen-api-namespaced-workflows
+                                await api.hogFlows.updateHogFlowSchedule(
+                                    workflowId,
+                                    existingScheduleId,
+                                    pendingSchedule
+                                ),
+                            ])
                         } else if (pendingSchedule !== null) {
-                            await api.hogFlows.createHogFlowSchedule(workflowId, pendingSchedule)
+                            actions.setSchedules([
+                                // nosemgrep: prefer-codegen-api-namespaced-workflows
+                                await api.hogFlows.createHogFlowSchedule(workflowId, pendingSchedule),
+                            ])
                         }
+                        wroteSchedule = true
 
                         if (pendingSchedule !== null) {
                             posthog.capture('workflows schedule saved', {
@@ -4497,9 +4540,6 @@ export const workflowLogic = kea<workflowLogicType>([
                                 configured_via_natural_language: values.scheduleConfigSources.natural_language,
                             })
                         }
-
-                        const schedules = await api.hogFlows.getHogFlowSchedules(workflowId)
-                        actions.setSchedules(schedules)
                     } catch (e) {
                         console.error('Failed to save schedule', e)
                         lemonToast.error('Workflow saved, but schedule could not be updated')
@@ -4589,7 +4629,7 @@ export const workflowLogic = kea<workflowLogicType>([
                 !!saveContext?.keepsFormEdits ||
                 (cache.saveEditVersion !== undefined && values.workflowEditVersion !== cache.saveEditVersion)
             const editsDuringSave = editedDuringSave ? pickWorkflowEdits(values.workflow) : null
-            const scheduleEdits: ScheduleEdits | null = saveContext?.keepsFormEdits
+            const scheduleEdits: ScheduleEdits | null = !wroteSchedule
                 ? {
                       scheduleState: values.scheduleState,
                       scheduleStartsAt: values.scheduleStartsAt,
@@ -4751,7 +4791,7 @@ export const workflowLogic = kea<workflowLogicType>([
             lemonToast.info('Triggering workflow...')
 
             try {
-                await fetch(webhookUrl, {
+                const response = await fetch(webhookUrl, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -4762,6 +4802,11 @@ export const workflowLogic = kea<workflowLogicType>([
                     }),
                     credentials: 'omit',
                 })
+
+                // fetch rejects only on a network failure, so a refused webhook resolves here too.
+                if (!response.ok) {
+                    throw new Error(`the webhook returned ${response.status}`)
+                }
 
                 lemonToast.success('Workflow triggered', {
                     button: {

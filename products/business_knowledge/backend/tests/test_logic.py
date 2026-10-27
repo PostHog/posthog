@@ -1,3 +1,4 @@
+import time
 import uuid
 import datetime
 
@@ -65,6 +66,14 @@ class TestChunker(SimpleTestCase):
         assert len(chunks) >= 2
         for c in chunks:
             assert len(c.content) <= CHUNK_HARD_MAX_CHARS
+
+    def test_hard_split_of_a_long_unbroken_paragraph_stays_fast(self) -> None:
+        pieces = 4_000
+        started = time.monotonic()
+        chunks = chunk_text("a" * (CHUNK_HARD_MAX_CHARS * pieces))
+        assert time.monotonic() - started < 5
+        assert len(chunks) == pieces
+        assert all(len(chunk.content) == CHUNK_HARD_MAX_CHARS for chunk in chunks)
 
     def test_ordinals_are_zero_indexed_and_contiguous(self) -> None:
         text = "\n\n".join(f"para-{i}" * 200 for i in range(5))

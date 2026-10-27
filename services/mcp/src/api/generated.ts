@@ -20125,6 +20125,15 @@ export namespace Schemas {
       DeviceId: 'device_id',
     } as const;
 
+    export interface BugherdTaskSignalExtra {
+      status: string | null;
+      priority: string | null;
+      site: string | null;
+      url: string | null;
+      tag_names: unknown[];
+      created_at: string | null;
+    }
+
     export interface BugsnagErrorSignalExtra {
       severity: string | null;
       status: string | null;
@@ -24394,6 +24403,13 @@ export namespace Schemas {
       readonly person: ClickhouseEventPerson;
       readonly elements: readonly EventElement[];
       readonly elements_chain: string;
+    }
+
+    export interface ClickupTaskSignalExtra {
+      status_name: string | null;
+      status_type: string | null;
+      url: string | null;
+      date_created: string | null;
     }
 
     export interface DiffCluster {
@@ -41300,7 +41316,6 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `flag_off` - AI drafts are not enabled for this project
      * * `ai_not_approved` - The organization has not approved AI data processing
      * * `gateway_unconfigured` - The AI gateway is not configured
      * * `rate_limited` - The project used its hourly AI drafts
@@ -41312,7 +41327,6 @@ export namespace Schemas {
 
 
     export const EmailDraftFallbackReasonEnum = {
-      FlagOff: 'flag_off',
       AiNotApproved: 'ai_not_approved',
       GatewayUnconfigured: 'gateway_unconfigured',
       RateLimited: 'rate_limited',
@@ -41337,7 +41351,6 @@ export namespace Schemas {
       generated_by: EmailDraftOriginEnum;
       /** Why the template was used instead of a model draft. Null for a model draft.
        *
-       * * `flag_off` - AI drafts are not enabled for this project
        * * `ai_not_approved` - The organization has not approved AI data processing
        * * `gateway_unconfigured` - The AI gateway is not configured
        * * `rate_limited` - The project used its hourly AI drafts
@@ -46482,26 +46495,26 @@ export namespace Schemas {
     }
 
     /**
+     * * `semver_eq` - semver_eq
+     * * `semver_neq` - semver_neq
      * * `semver_gt` - semver_gt
      * * `semver_gte` - semver_gte
      * * `semver_lt` - semver_lt
      * * `semver_lte` - semver_lte
-     * * `semver_eq` - semver_eq
-     * * `semver_neq` - semver_neq
      * * `semver_tilde` - semver_tilde
      * * `semver_caret` - semver_caret
      * * `semver_wildcard` - semver_wildcard
      */
-    export type FeatureFlagFilterPropertySemverSchemaOperatorEnum = typeof FeatureFlagFilterPropertySemverSchemaOperatorEnum[keyof typeof FeatureFlagFilterPropertySemverSchemaOperatorEnum];
+    export type SemverOperatorEnum = typeof SemverOperatorEnum[keyof typeof SemverOperatorEnum];
 
 
-    export const FeatureFlagFilterPropertySemverSchemaOperatorEnum = {
+    export const SemverOperatorEnum = {
+      SemverEq: 'semver_eq',
+      SemverNeq: 'semver_neq',
       SemverGt: 'semver_gt',
       SemverGte: 'semver_gte',
       SemverLt: 'semver_lt',
       SemverLte: 'semver_lte',
-      SemverEq: 'semver_eq',
-      SemverNeq: 'semver_neq',
       SemverTilde: 'semver_tilde',
       SemverCaret: 'semver_caret',
       SemverWildcard: 'semver_wildcard',
@@ -46528,16 +46541,16 @@ export namespace Schemas {
       group_type_index?: number | null;
       /** Semantic version comparison operator.
        *
+       * * `semver_eq` - semver_eq
+       * * `semver_neq` - semver_neq
        * * `semver_gt` - semver_gt
        * * `semver_gte` - semver_gte
        * * `semver_lt` - semver_lt
        * * `semver_lte` - semver_lte
-       * * `semver_eq` - semver_eq
-       * * `semver_neq` - semver_neq
        * * `semver_tilde` - semver_tilde
        * * `semver_caret` - semver_caret
        * * `semver_wildcard` - semver_wildcard */
-      operator: FeatureFlagFilterPropertySemverSchemaOperatorEnum;
+      operator: SemverOperatorEnum;
       /** Semantic version string. */
       value: string;
     }
@@ -54119,6 +54132,11 @@ export namespace Schemas {
       latest_error: string | null;
     }
 
+    export interface ExternalDataSourceExists {
+      /** Whether the project has any accessible external data sources. */
+      exists: boolean;
+    }
+
     export interface ExternalDataSourceRevenueAnalyticsConfig {
       enabled?: boolean;
       include_invoiceless_charges?: boolean;
@@ -54649,6 +54667,15 @@ export namespace Schemas {
       is_multivariate: boolean;
     }
 
+    export interface FeatureFlagSetActiveRequest {
+      /**
+         * The `version` from your most recent read of this flag. Required when the flag's `filters.version` is 2, optional otherwise. When sent, the change is refused with 409 if anyone else changed the flag after that version. Null is the same as leaving it out.
+         * @minimum 0
+         * @nullable
+         */
+      version?: number | null;
+    }
+
     export interface FeatureFlagSetReleaseConditionRolloutRequest {
       /**
          * Zero-based position of the release condition in `filters.groups`, counted from the read that produced `version`.
@@ -54712,7 +54739,7 @@ export namespace Schemas {
          */
       reason_description?: string | null;
       /**
-         * The index of the condition that matched, if applicable
+         * The index of the condition that matched, if applicable. For a flag with config version 2, the zero-based index of the rule in `filters.rules` that decided the result, or null when no rule decided it.
          * @nullable
          */
       condition_index: number | null;
@@ -54725,8 +54752,10 @@ export namespace Schemas {
          * @nullable
          */
       evaluation_distinct_id: string | null;
-      /** Detailed analysis of each condition in the feature flag */
+      /** Detailed analysis of each condition in the feature flag. Always empty for a flag with config version 2, which `conditions_unavailable_reason` then explains. */
       conditions: FeatureFlagConditionAnalysis[];
+      /** Present only when `conditions` is empty because the evaluated config has no per-condition analysis. An empty list then does not mean the flag has no conditions or rules. */
+      conditions_unavailable_reason?: string;
     }
 
     export type FeatureFlagVersionResponseFilters = { [key: string]: unknown };
@@ -64553,16 +64582,18 @@ export namespace Schemas {
       depth?: InsightDataChecksDepthEnum;
     }
 
+    /**
+     * The anomaly detector the alert uses in place of its threshold, or null for a threshold alert. It can't change through this API.
+     */
+    export type InsightPlatformAlertConditionDetector = { [key: string]: unknown } | null;
+
     export interface InsightPlatformAlertCondition {
       /** The bounds the insight's value is checked against, absolute or as a percentage change. */
       threshold: InsightThreshold | null;
       /** How the value is compared: as it is, or as an increase or decrease from the previous interval. */
       comparison: AlertCondition;
-      /**
-         * Always null. The platform owns threshold alerts only, so no detector applies.
-         * @nullable
-         */
-      detector?: null;
+      /** The anomaly detector the alert uses in place of its threshold, or null for a threshold alert. It can't change through this API. */
+      detector?: InsightPlatformAlertConditionDetector;
     }
 
     /**
@@ -83962,7 +83993,10 @@ export namespace Schemas {
     }
 
     export interface PatchedAddPersonsToStaticCohortRequest {
-      /** List of person UUIDs to add to the cohort */
+      /**
+         * Person UUIDs to add to the cohort (the `id` column of the persons table, not distinct IDs). At most 1000 per request.
+         * @maxItems 1000
+         */
       person_ids?: string[];
     }
 
@@ -102455,6 +102489,20 @@ export namespace Schemas {
       created_at: string | null;
     }
 
+    export interface WrikeTaskSignalExtra {
+      status: string | null;
+      importance: string | null;
+      permalink: string | null;
+      created_date: string | null;
+    }
+
+    export interface TrelloCardSignalExtra {
+      url: string | null;
+      id_board: string | null;
+      id_list: string | null;
+      created_at: string | null;
+    }
+
     export interface SentryIssueSignalExtra {
       level: string | null;
       status: string | null;
@@ -102643,7 +102691,7 @@ export namespace Schemas {
       created_at: string | null;
     }
 
-    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | DatadogSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | UsersnapFeedbackSignalExtra | TypeformFeedbackSignalExtra | QualtricsFeedbackSignalExtra | SurveymonkeyFeedbackSignalExtra | FormbricksFeedbackSignalExtra | SurvicateFeedbackSignalExtra | SurveysparrowFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | Dynamics365TicketSignalExtra | ZohoCrmTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra | HelpscoutConversationSignalExtra | DecagonConversationSignalExtra | VitallyConversationSignalExtra | PagerdutyIncidentSignalExtra | OpsgenieAlertSignalExtra | IncidentIoIncidentSignalExtra | FirehydrantIncidentSignalExtra | SquadcastIncidentSignalExtra | ServicenowIncidentSignalExtra | SolarwindsServiceDeskIncidentSignalExtra | GrafanaIrmIncidentSignalExtra | XmattersIncidentSignalExtra | LaceworkScannerFindingSignalExtra | OrcaSecurityScannerFindingSignalExtra | TenableVulnerabilityManagementScannerFindingSignalExtra | BetterstackIncidentSignalExtra | AsanaIssueSignalExtra | MondayIssueSignalExtra | PlaneIssueSignalExtra | AzureDevopsIssueSignalExtra | MonteCarloAlertSignalExtra | BigeyeIssueSignalExtra | DynatraceIncidentSignalExtra | StatuspageIncidentSignalExtra | CronitorIncidentSignalExtra | InstatusIncidentSignalExtra | GooglePlayConsoleIssueSignalExtra | AzureApplicationInsightsIssueSignalExtra | AppsignalIssueSignalExtra | CursorIssueSignalExtra | TriggerDevErrorSignalExtra | ChecklyErrorGroupSignalExtra | RoarkIssueSignalExtra | SleekplanFeedbackSignalExtra | BettermodeFeedbackSignalExtra | DiscourseFeedbackSignalExtra | MintlifyFeedbackSignalExtra | LangsmithFeedbackSignalExtra | SprigFeedbackSignalExtra | GainsightPxFeedbackSignalExtra | TrustpilotReviewSignalExtra | OkendoReviewSignalExtra | AwsSecurityHubScannerFindingSignalExtra | AwsGuarddutyScannerFindingSignalExtra | AwsInspectorScannerFindingSignalExtra | MicrosoftDefenderCloudAppsScannerFindingSignalExtra;
+    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | ClickupTaskSignalExtra | WrikeTaskSignalExtra | TrelloCardSignalExtra | BugherdTaskSignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | DatadogSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | UsersnapFeedbackSignalExtra | TypeformFeedbackSignalExtra | QualtricsFeedbackSignalExtra | SurveymonkeyFeedbackSignalExtra | FormbricksFeedbackSignalExtra | SurvicateFeedbackSignalExtra | SurveysparrowFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | Dynamics365TicketSignalExtra | ZohoCrmTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra | HelpscoutConversationSignalExtra | DecagonConversationSignalExtra | VitallyConversationSignalExtra | PagerdutyIncidentSignalExtra | OpsgenieAlertSignalExtra | IncidentIoIncidentSignalExtra | FirehydrantIncidentSignalExtra | SquadcastIncidentSignalExtra | ServicenowIncidentSignalExtra | SolarwindsServiceDeskIncidentSignalExtra | GrafanaIrmIncidentSignalExtra | XmattersIncidentSignalExtra | LaceworkScannerFindingSignalExtra | OrcaSecurityScannerFindingSignalExtra | TenableVulnerabilityManagementScannerFindingSignalExtra | BetterstackIncidentSignalExtra | AsanaIssueSignalExtra | MondayIssueSignalExtra | PlaneIssueSignalExtra | AzureDevopsIssueSignalExtra | MonteCarloAlertSignalExtra | BigeyeIssueSignalExtra | DynatraceIncidentSignalExtra | StatuspageIncidentSignalExtra | CronitorIncidentSignalExtra | InstatusIncidentSignalExtra | GooglePlayConsoleIssueSignalExtra | AzureApplicationInsightsIssueSignalExtra | AppsignalIssueSignalExtra | CursorIssueSignalExtra | TriggerDevErrorSignalExtra | ChecklyErrorGroupSignalExtra | RoarkIssueSignalExtra | SleekplanFeedbackSignalExtra | BettermodeFeedbackSignalExtra | DiscourseFeedbackSignalExtra | MintlifyFeedbackSignalExtra | LangsmithFeedbackSignalExtra | SprigFeedbackSignalExtra | GainsightPxFeedbackSignalExtra | TrustpilotReviewSignalExtra | OkendoReviewSignalExtra | AwsSecurityHubScannerFindingSignalExtra | AwsGuarddutyScannerFindingSignalExtra | AwsInspectorScannerFindingSignalExtra | MicrosoftDefenderCloudAppsScannerFindingSignalExtra;
 
     export type SignalMatchMetadata = MatchedMetadata | NoMatchMetadata;
 
@@ -103207,20 +103255,6 @@ export namespace Schemas {
          */
       agent_response?: string;
     }
-
-    /**
-     * * `accepted` - accepted
-     * * `target_finished` - target_finished
-     * * `rejected` - rejected
-     */
-    export type ResultEnum = typeof ResultEnum[keyof typeof ResultEnum];
-
-
-    export const ResultEnum = {
-      Accepted: 'accepted',
-      TargetFinished: 'target_finished',
-      Rejected: 'rejected',
-    } as const;
 
     export interface ResultReceipt {
       /** Accepted item UUID. */
@@ -115577,70 +115611,6 @@ export namespace Schemas {
     }
 
     /**
-     * Body of POST /vision/scanners/suggest_tags/ — the classifier config currently being edited.
-     */
-    export interface SuggestTagsRequest {
-      /**
-         * The classifier's instruction prompt — the single dimension to categorize sessions by.
-         * @maxLength 10000
-         */
-      prompt: string;
-      /**
-         * The categories already configured, so suggestions never duplicate one the user has.
-         * @maxItems 200
-         * @items.maxLength 200
-         */
-      tags?: string[];
-      /** Whether the classifier assigns multiple tags per session. */
-      multi_label?: boolean;
-      /** Whether the classifier may emit tags outside the fixed vocabulary. */
-      allow_freeform_tags?: boolean;
-      /**
-         * Existing scanner to ground suggestions in its own observations (the tags and reasoning it has already produced on real recordings). Omit for an unsaved scanner.
-         * @nullable
-         */
-      scanner_id?: string | null;
-    }
-
-    /**
-     * * `observed` - observed
-     * * `product` - product
-     * * `prompt` - prompt
-     */
-    export type TagSuggestionSourceEnum = typeof TagSuggestionSourceEnum[keyof typeof TagSuggestionSourceEnum];
-
-
-    export const TagSuggestionSourceEnum = {
-      Observed: 'observed',
-      Product: 'product',
-      Prompt: 'prompt',
-    } as const;
-
-    /**
-     * One grounded tag suggestion.
-     */
-    export interface TagSuggestion {
-      /** Suggested tag to add to the vocabulary, normalized to lowercase. */
-      tag: string;
-      /** One sentence explaining the specific evidence this tag is grounded in. */
-      rationale: string;
-      /** Primary grounding: observed=a category this scanner already emitted on recordings; product=the org's events/screens; prompt=the scanner's stated goal.
-       *
-       * * `observed` - observed
-       * * `product` - product
-       * * `prompt` - prompt */
-      source: TagSuggestionSourceEnum;
-    }
-
-    /**
-     * Grounded tag suggestions for the classifier config editor.
-     */
-    export interface SuggestTagsResponse {
-      /** Suggested tags to add, most relevant first. May be empty when the evidence is too thin. */
-      suggestions: TagSuggestion[];
-    }
-
-    /**
      * * `trace` - trace
      * * `event` - event
      */
@@ -117983,84 +117953,6 @@ export namespace Schemas {
     export interface TaskRunLivingArtifactsResponse {
       /** Living artifacts for this task run. */
       artifacts: TaskRunLivingArtifactResponse[];
-    }
-
-    /**
-     * One peer agent run visible to the requesting run (agent peer messaging).
-     */
-    export interface TaskRunPeer {
-      /** The peer run's id — the address send_agent_message targets. */
-      run_id: string;
-      /** Id of the peer run's parent task. */
-      task_id: string;
-      /** Title of the peer run's parent task. */
-      task_title: string;
-      /**
-         * Email of the user whose task the peer run belongs to.
-         * @nullable
-         */
-      created_by_email: string | null;
-      /** Agent runtime of the peer run's task (e.g. 'pi'). */
-      runtime: string;
-      /**
-         * Model the peer run was started with, when recorded.
-         * @nullable
-         */
-      model: string | null;
-      /**
-         * Repository the peer run works on, or null for repo-less (channel-mode) runs.
-         * @nullable
-         */
-      repository: string | null;
-      /**
-         * Current stage of the peer run (e.g. 'build').
-         * @nullable
-         */
-      stage: string | null;
-      /** Run status: 'in_progress' or 'queued' (only these are listed). */
-      status: string;
-      /** Whether the peer accepts messages right now. Only in-progress runs are sendable; a queued run is listed but its workflow may not exist yet. Never infer sendability from status labels. */
-      sendable: boolean;
-      /**
-         * ISO-8601 timestamp of the peer run's last update.
-         * @nullable
-         */
-      updated_at: string | null;
-    }
-
-    export interface TaskRunPeerMessageRequest {
-      /**
-         * Plain-text message body (max 16000 chars). Delivered to the peer below a server-composed provenance envelope; send short summaries, never raw file dumps — use artifact_ids for files.
-         * @maxLength 16000
-         */
-      content: string;
-      /**
-         * Manifest ids of artifacts on the SENDING run to share (max 10). Each is copied into the target run's own artifact storage; the receiver gets an immutable snapshot.
-         * @maxItems 10
-         * @items.maxLength 128
-         */
-      artifact_ids?: string[];
-    }
-
-    export interface TaskRunPeerMessageResponse {
-      /** Send outcome: 'accepted' (queued for delivery — not a delivery confirmation), 'target_finished' (the peer's workflow is gone), or 'rejected' (throttled or invalid).
-       *
-       * * `accepted` - accepted
-       * * `target_finished` - target_finished
-       * * `rejected` - rejected */
-      result: ResultEnum;
-      /** Human-readable explanation of the result. */
-      detail: string;
-      /**
-         * Id of the recorded peer message, when one was created for this send.
-         * @nullable
-         */
-      message_id?: string | null;
-    }
-
-    export interface TaskRunPeersResponse {
-      /** Active agent runs the requesting run may message, most recently updated first. */
-      peers: TaskRunPeer[];
     }
 
     export interface TaskRunPostHogReference {
@@ -140253,6 +140145,10 @@ export namespace Schemas {
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
     verdict?: string;
+    /**
+     * Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
+     */
+    watch_group?: string;
     };
 
     export type VisionObservationsThumbnailRetrieveParams = {
@@ -140495,6 +140391,10 @@ export namespace Schemas {
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
     verdict?: string;
+    /**
+     * Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
+     */
+    watch_group?: string;
     };
 
     export type VisionScannersObservationsRetrieveParams = {
@@ -140554,6 +140454,10 @@ export namespace Schemas {
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
     verdict?: string;
+    /**
+     * Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
+     */
+    watch_group?: string;
     };
 
     export type VisionScannersObservationsSignalReportsListParams = {
@@ -140613,6 +140517,10 @@ export namespace Schemas {
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
     verdict?: string;
+    /**
+     * Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
+     */
+    watch_group?: string;
     };
 
     export type VisionScannersObservationsThumbnailRetrieveParams = {
@@ -140696,6 +140604,10 @@ export namespace Schemas {
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
     verdict?: string;
+    /**
+     * Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
+     */
+    watch_group?: string;
     };
 
     export type VisionScannersWatchFeedRetrieveParams = {
@@ -141110,6 +141022,10 @@ export namespace Schemas {
     } as const;
 
     export type WarehouseTablesListParams = {
+    /**
+     * Include table columns. Disable for lightweight table existence or name lookups.
+     */
+    include_columns?: boolean;
     /**
      * Number of results to return per page.
      */

@@ -47,6 +47,12 @@ class ConfigValueError(ValueError):
 
 
 @dataclass(frozen=True)
+class SyncedWarehouseTable:
+    table_id: UUID
+    name: str
+
+
+@dataclass(frozen=True)
 class RevenueViewSyncInput:
     team_id: int
     source_id: UUID
