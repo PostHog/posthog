@@ -2325,8 +2325,11 @@ def team_api_test_factory():
         @parameterized.expand(
             [
                 ("deduplicates_ids", ["C0123ABCD", "C0123ABCD"], status.HTTP_200_OK, ["C0123ABCD"]),
+                ("clears_with_null", None, status.HTTP_200_OK, []),
                 ("rejects_names", ["#support"], status.HTTP_400_BAD_REQUEST, None),
                 ("rejects_direct_messages", ["D0123ABCD"], status.HTTP_400_BAD_REQUEST, None),
+                ("rejects_non_list", "C0123ABCD", status.HTTP_400_BAD_REQUEST, None),
+                ("rejects_non_string", [123], status.HTTP_400_BAD_REQUEST, None),
                 ("caps_channels", [f"C{i:08d}" for i in range(21)], status.HTTP_400_BAD_REQUEST, None),
             ]
         )

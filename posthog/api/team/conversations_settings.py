@@ -1,6 +1,5 @@
 """Conversations settings update helpers."""
 
-import re
 import secrets
 from typing import Any
 
@@ -20,6 +19,15 @@ from products.conversations.backend.models.constants import AUTOMATED_UPDATE_SLA
 @extend_schema_field(OpenApiTypes.OBJECT)
 class ConversationsSettingsField(serializers.JSONField):
     pass
+
+
+def validate_automated_update_slack_channel_ids(channel_ids: Any) -> list[str]:
+    field = serializers.ListField(child=serializers.RegexField(regex=r"\A[CG][A-Z0-9]{6,}\Z"))
+    validated = field.run_validation([] if channel_ids is None else channel_ids)
+    unique_channel_ids = list(dict.fromkeys(validated))
+    if len(unique_channel_ids) > 20:
+        raise serializers.ValidationError("Use 20 channels or fewer.")
+    return unique_channel_ids
 
 
 MANAGED_CONVERSATIONS_SETTINGS = (
@@ -220,20 +228,12 @@ def validate_conversations_settings(
             # merge_conversations_settings, which only replaces keys present here).
             value.pop("slack_channel_ids", None)
     if AUTOMATED_UPDATE_SLACK_CHANNEL_IDS in value:
-        channel_ids = value[AUTOMATED_UPDATE_SLACK_CHANNEL_IDS]
-        if channel_ids is None:
-            channel_ids = []
-        if not isinstance(channel_ids, list) or any(
-            not isinstance(channel_id, str) or not re.fullmatch(r"[CG][A-Z0-9]{6,}", channel_id)
-            for channel_id in channel_ids
-        ):
-            raise serializers.ValidationError(
-                {AUTOMATED_UPDATE_SLACK_CHANNEL_IDS: "Use a list of Slack channel IDs, such as C0123ABCD."}
+        try:
+            value[AUTOMATED_UPDATE_SLACK_CHANNEL_IDS] = validate_automated_update_slack_channel_ids(
+                value[AUTOMATED_UPDATE_SLACK_CHANNEL_IDS]
             )
-        channel_ids = list(dict.fromkeys(channel_ids))
-        if len(channel_ids) > 20:
-            raise serializers.ValidationError({AUTOMATED_UPDATE_SLACK_CHANNEL_IDS: "Use 20 channels or fewer."})
-        value[AUTOMATED_UPDATE_SLACK_CHANNEL_IDS] = channel_ids
+        except serializers.ValidationError as error:
+            raise serializers.ValidationError({AUTOMATED_UPDATE_SLACK_CHANNEL_IDS: error.detail}) from error
     icon_url = value.get("slack_bot_icon_url")
     if icon_url is not None:
         if not isinstance(icon_url, str):
