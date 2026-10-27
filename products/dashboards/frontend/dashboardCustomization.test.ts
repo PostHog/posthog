@@ -4,6 +4,7 @@ import type { Layout, LayoutItem } from 'react-grid-layout'
 import {
     DashboardGridCompaction,
     getDashboardGridCompactor,
+    getTileSpacingChoices,
     resolveFreePlacementCollisions,
 } from './dashboardCustomization'
 
@@ -222,5 +223,16 @@ describe('dashboard grid compactors', () => {
             { i: 'active', x: 0, y: 0, w: 6, h: 100 },
             { i: 'neighbor', x: 0, y: 100, w: 6, h: 4 },
         ])
+    })
+})
+
+describe('getTileSpacingChoices', () => {
+    it.each([
+        { current: 'standard', expected: ['tight', 'condensed', 'standard'] },
+        { current: 'tight', expected: ['tight', 'condensed', 'standard'] },
+        { current: 'relaxed', expected: ['tight', 'condensed', 'standard', 'relaxed'] },
+        { current: 'wide', expected: ['tight', 'condensed', 'standard', 'wide'] },
+    ] as const)('offers $expected when the dashboard uses $current', ({ current, expected }) => {
+        expect(getTileSpacingChoices(current)).toEqual(expected)
     })
 })
