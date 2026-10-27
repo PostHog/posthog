@@ -45,9 +45,7 @@ export function TileStepNode({
             )}
         >
             <TileFace tile={tile} count={count} />
-            {interactive && workflow.id && workflow.id !== 'new' ? (
-                <StepImportNotesBadge workflowId={workflow.id} stepId={action.id} />
-            ) : null}
+            {interactive && workflow.id ? <StepImportNotesBadge workflowId={workflow.id} stepId={action.id} /> : null}
             {hover.mounted && (
                 <TileHoverCard open={hover.open} action={action} tile={tile} count={count} workflowId={workflow.id} />
             )}

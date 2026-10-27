@@ -41,7 +41,7 @@ def import_content(
     fetch_notes: dict[str, tuple[ImportNote, ...]] = {}
     fetched = False
 
-    missing = {id(source) for source in sources if _missing_template_ids(source)}
+    missing = {id(source) for source in sources if _misses_templates(source)}
     api_key = _stored_app_api_key(team_id) if missing else None
     if api_key:
         api = CustomerioAppApi(api_key)
@@ -87,14 +87,13 @@ def import_content(
     )
 
 
-def _missing_template_ids(source: CampaignSource) -> list[str]:
-    return [
-        str(action["template_id"])
-        for action in source.actions
-        if action.get("type") in _MESSAGE_ACTION_TYPES
+def _misses_templates(source: CampaignSource) -> bool:
+    return any(
+        action.get("type") in _MESSAGE_ACTION_TYPES
         and action.get("template_id") is not None
         and str(action["template_id"]) not in source.templates
-    ]
+        for action in source.actions
+    )
 
 
 def _with_fetched_templates(source: CampaignSource, app_actions: list[dict[str, Any]]) -> CampaignSource:
@@ -124,7 +123,6 @@ def _template_from_app_action(app_action: dict[str, Any]) -> dict[str, Any]:
         except ValueError:
             headers = []
     return {
-        "id": app_action.get("id"),
         "subject": app_action.get("subject"),
         "body": app_action.get("body"),
         "preheader_text": app_action.get("preheader_text"),
@@ -170,7 +168,7 @@ def _topic_categories(team_id: int) -> dict[str, ImportCategory]:
 def _identity_addresses(identities: list[dict[str, Any]]) -> dict[str, str]:
     addresses: dict[str, str] = {}
     for identity in identities:
-        if not isinstance(identity, dict) or identity.get("id") is None:
+        if identity.get("id") is None:
             continue
         email = identity.get("email")
         if not email:

@@ -4,7 +4,6 @@ import { IconInfo } from '@posthog/icons'
 
 import { workflowImportNotesLogic } from './workflowImportNotesLogic'
 
-/** Marks a step that the Customer.io import changed or left something out of. */
 export function StepImportNotesBadge({
     workflowId,
     stepId,
