@@ -1,3 +1,5 @@
+import { isUUIDLike } from 'lib/utils/guards'
+
 export interface ApiRequestTiming {
     request_total_ms: number
     // This includes API wrapper work and authentication retries before a successful response.
@@ -24,7 +26,6 @@ export interface ApiRequestTiming {
     resource_callback_ms?: number
 }
 
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const MAX_PENDING_RESOURCES = 32
 
 type ResourceTiming = Pick<
@@ -35,6 +36,12 @@ type ResourceTiming = Pick<
     | 'resource_download_ms'
     | 'resource_callback_ms'
 >
+
+function serverRequestIds(entry: PerformanceResourceTiming): string[] {
+    return (entry.serverTiming ?? [])
+        .filter((metric) => metric.name === 'request_id')
+        .map((metric) => metric.description.toLowerCase())
+}
 
 /** One API request, with resource phases attributed only by a server-provided request ID. */
 export class ApiRequestTimingRecorder {
@@ -88,7 +95,7 @@ export class ApiRequestTimingRecorder {
     private recordResponseMetadata(response: { status?: number; headers?: Headers; url?: string }): void {
         this.timing.http_status = response.status
         const requestId = response.headers?.get('X-Request-ID')
-        if (requestId && UUID_PATTERN.test(requestId)) {
+        if (requestId && isUUIDLike(requestId)) {
             this.timing.http_request_id = requestId.toLowerCase()
         } else {
             delete this.timing.http_request_id
@@ -108,10 +115,7 @@ export class ApiRequestTimingRecorder {
     private isResponseEntry(entry: PerformanceResourceTiming): boolean {
         return (
             entry.name === this.responseUrl &&
-            entry.serverTiming?.some(
-                (metric) =>
-                    metric.name === 'request_id' && metric.description.toLowerCase() === this.timing.http_request_id
-            )
+            serverRequestIds(entry).some((requestId) => requestId === this.timing.http_request_id)
         )
     }
 
@@ -139,11 +143,7 @@ export class ApiRequestTimingRecorder {
         if (entry.name !== this.requestUrl || entry.startTime < this.fetchStartedAt - 1) {
             return false
         }
-        return (
-            entry.serverTiming?.some(
-                (metric) => metric.name === 'request_id' && UUID_PATTERN.test(metric.description)
-            ) ?? false
-        )
+        return serverRequestIds(entry).some(isUUIDLike)
     }
 
     async readBody(response: Response): Promise<string> {
@@ -196,10 +196,7 @@ export class ApiRequestTimingRecorder {
               ? this.clock.getEntriesByName(this.responseUrl, 'resource')
               : []
         const matches = (entries as PerformanceResourceTiming[]).filter((entry) =>
-            entry.serverTiming?.some(
-                (serverTiming) =>
-                    serverTiming.name === 'request_id' && serverTiming.description.toLowerCase() === requestId
-            )
+            serverRequestIds(entry).includes(requestId)
         )
         if (matches.length !== 1) {
             return { resource_timing_status: matches.length > 1 ? 'ambiguous' : 'not_found' }
@@ -222,8 +219,8 @@ export class ApiRequestTimingRecorder {
         entry: PerformanceResourceTiming,
         finishedAt: number
     ): ApiRequestTiming['resource_timing_status'] {
-        const identities = entry.serverTiming.filter((metric) => metric.name === 'request_id')
-        if (identities.length !== 1 || !UUID_PATTERN.test(identities[0].description)) {
+        const identities = serverRequestIds(entry)
+        if (identities.length !== 1 || !isUUIDLike(identities[0])) {
             return 'ambiguous'
         }
         if (entry.requestStart === 0 || entry.responseStart === 0) {
