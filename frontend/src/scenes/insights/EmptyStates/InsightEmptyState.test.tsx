@@ -2,7 +2,7 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import '@testing-library/jest-dom'
 
-import { cleanup, render } from '@testing-library/react'
+import { cleanup, render, waitFor } from '@testing-library/react'
 
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -69,11 +69,13 @@ describe('EmptyStates', () => {
                 props: { sampleDataVariant: null },
                 expectSampleData: false,
             },
-        ])('renders $name', ({ team, props, expectSampleData }) => {
+        ])('renders $name', async ({ team, props, expectSampleData }) => {
             mountWithTeam(team)
             const { container } = render(<InsightEmptyState {...props} />)
 
-            expect(!!container.querySelector('[data-attr="insight-sample-data-state"]')).toBe(expectSampleData)
+            await waitFor(() =>
+                expect(!!container.querySelector('[data-attr="insight-sample-data-state"]')).toBe(expectSampleData)
+            )
             expect(!!container.querySelector('[data-attr="insight-empty-state"]')).toBe(!expectSampleData)
         })
     })

@@ -21,7 +21,7 @@ export function EvaluationReportsCallout({
     }
 
     return (
-        <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
             <span className="text-muted">
                 Evaluation reports analyze these runs and send results by email or Slack.
             </span>

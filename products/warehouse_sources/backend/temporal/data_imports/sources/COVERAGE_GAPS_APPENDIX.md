@@ -2409,17 +2409,17 @@ Note: No machine-readable spec is published; I enumerated the full /reference/\*
 
 ## Chatwoot — gaps
 
-Today (11): `agents`, `contacts`, `conversations`, `custom_attribute_definitions`, `inbox_members`, `inboxes`, `labels`, `messages`, `reporting_events`, `team_members`, `teams`
+Today (13): `agents`, `audit_logs`, `contact_labels`, `contacts`, `conversations`, `custom_attribute_definitions`, `inbox_members`, `inboxes`, `labels`, `messages`, `reporting_events`, `team_members`, `teams`
 
 Diffed against: <https://raw.githubusercontent.com/chatwoot/chatwoot/develop/swagger/swagger.json>
 
 - [x] `/api/v1/accounts/{account_id}/reporting_events (and .../conversations/{conversation_id}/reporting_events)` — the per-conversation event stream (first_response, conversation_resolved, reply_time) that every support SLA metric is computed from (high)
 - [x] `/api/v1/accounts/{account_id}/teams/{team_id}/team_members` — lookup join table resolving which agents belong to which of the already-synced teams (high)
 - [x] `/api/v1/accounts/{account_id}/inbox_members/{inbox_id}` — lookup join table resolving agent-to-inbox assignment for routing and load analysis (high)
-- [ ] `/api/v2/accounts/{account_id}/summary_reports/agent | inbox | team | channel` — vendor-computed agent/inbox/team performance rollups (resolution counts, response times) (medium)
-- [ ] `/api/v2/accounts/{account_id}/reports/conversations and /reports/summary` — conversation volume and first-response-time timeseries, the product's headline dashboard numbers (medium)
-- [ ] `/api/v1/accounts/{account_id}/conversations/{conversation_id}/labels and /contacts/{id}/labels` — the label-to-conversation and label-to-contact join tables; the labels table alone cannot be joined to anything (medium)
-- [ ] `/api/v1/accounts/{account_id}/audit_logs` — who changed what in the account, useful for change-vs-metric correlation (low)
+- ~~`/api/v2/accounts/{account_id}/summary_reports/agent | inbox | team | channel` — vendor-computed agent/inbox/team performance rollups (resolution counts, response times) (medium)~~ — skipped: each call returns averages over a caller-chosen since/until window with no stable row identity, and `reporting_events` already syncs the per-conversation events these averages come from
+- ~~`/api/v2/accounts/{account_id}/reports/conversations and /reports/summary` — conversation volume and first-response-time timeseries, the product's headline dashboard numbers (medium)~~ — skipped: neither is a timeseries. `/reports/conversations` returns live open/unattended/unassigned counts, and `/reports/summary` returns one aggregate for a caller-chosen window, both derivable from `conversations` and `reporting_events`
+- [x] `/api/v1/accounts/{account_id}/conversations/{conversation_id}/labels and /contacts/{id}/labels` — the label-to-conversation and label-to-contact join tables; the labels table alone cannot be joined to anything (medium). Added as `contact_labels`, read through the contacts list's `labels[]` filter, one walk per label. Conversation labels need no table: every `conversations` row already carries a `labels` array
+- [x] `/api/v1/accounts/{account_id}/audit_logs` — who changed what in the account, useful for change-vs-metric correlation (low). Added as `audit_logs`, incremental on `created_at`
 
 Note: Vendor's own swagger.json in the chatwoot/chatwoot repo, 90 paths. Coverage of the core objects is good; what's missing is the reporting/event layer and the membership join tables.
 
@@ -8472,16 +8472,16 @@ Today (12): `activity_events`, `categories`, `course_activities`, `course_enroll
 Diffed against: <https://developers.northpass.com/reference/get_v2-courses>
 
 - [x] `GET /v2/events` — the learner activity event stream (lesson views, completions, logins) - the fact table behind every engagement metric (high)
-- [ ] `GET /v2/groups/{group_uuid}/memberships` — the people-to-groups join table; groups and people are both synced but nothing links them (high)
-- [ ] `GET /v2/credentials/{credential_uuid}/achievements` — certificates/credentials actually earned by learners - the completion outcome enrollments only hint at (high)
-- [ ] `GET /v2/submissions and /v2/assignments/{assignment_uuid}/submissions` — learner assignment submissions with grades/status, the assessment counterpart to quizzes (high)
+- [x] `GET /v2/groups/{group_uuid}/memberships` — the people-to-groups join table; groups and people are both synced but nothing links them (high)
+- [x] `GET /v2/credentials/{credential_uuid}/achievements` — certificates/credentials actually earned by learners - the completion outcome enrollments only hint at (high)
+- [x] `GET /v2/submissions and /v2/assignments/{assignment_uuid}/submissions` — learner assignment submissions with grades/status, the assessment counterpart to quizzes (high)
 - [x] `GET /v2/courses/{course_uuid}/activities` — the lesson/activity structure inside a course - required to break enrollment progress down below course level (high)
-- [ ] `GET /v2/credentials` — lookup table resolving the credential definitions that achievements reference (medium)
+- [x] `GET /v2/credentials` — lookup table resolving the credential definitions that achievements reference (medium)
 - [ ] `GET /v2/assignments` — assignment definitions, the lookup that submissions join back to (medium)
 - [ ] `GET /v2/transcripts/{learner_id}` — per-learner transcript rolling up all course and learning-path completions (medium)
 - [ ] `GET /v2/groups/{group_uuid}/courses` — course assignments per group - which cohorts were given which curriculum (medium)
 - [ ] `GET /v2/communications/deliveries` — email delivery records for course invitations and reminders, for nudge-effectiveness analysis (medium)
-- [ ] `GET /v2/properties/people and /v2/properties/courses` — custom properties on people and courses plus /v2/properties/property-definitions as the schema lookup - the segmentation dimensions customers configure (medium)
+- [x] `GET /v2/properties/people and /v2/properties/courses` — custom properties on people and courses plus /v2/properties/property-definitions as the schema lookup - the segmentation dimensions customers configure (medium)
 - [ ] `GET /v2/quiz-attempts/{quiz_attempt_uuid}/answers and /v2/question-banks` — per-question answer detail and the question bank lookup; quizzes are synced but nothing about how learners answered (low)
 
 Note: Enumerated every /reference/get_v2-\* route from the ReadMe-hosted reference page (no public OpenAPI file is served). PostHog covers the 6 core objects plus 2 enrollment fan-outs; the learner-activity and assessment halves of the API are entirely absent.
@@ -11253,10 +11253,10 @@ Today (7): `campaign_analytics`, `campaign_leads`, `campaign_sequences`, `campai
 
 Diffed against: <https://api.smartlead.ai/llms-full.txt>
 
-- [ ] `Get Lead Categories (GET /api/v1/leads/fetch-categories)` — resolve lead_category_id in campaign leads to meaningful sales outcome labels (high)
+- [x] `Get Lead Categories (GET /api/v1/leads/fetch-categories)` — resolve lead_category_id in campaign leads to meaningful sales outcome labels (high)
 - [ ] `Get Lead Message History (GET /api/v1/campaigns/{campaign_id}/leads/{lead_id}/message-history)` — analyze complete conversations, including replies absent from sent email statistics (high)
-- [ ] `Get All Leads Activities (GET /api/v1/campaigns/all-leads-activities)` — analyze engagement events over time rather than the current state of each sent email (high)
-- [ ] `Get Warmup Statistics (GET /api/v1/email-accounts/{email_account_id}/warmup-stats)` — measure mailbox reputation, spam placement, and warmup performance (medium)
+- [x] `Get All Leads Activities (GET /api/v1/campaigns/all-leads-activities)` — analyze engagement events over time rather than the current state of each sent email (high)
+- [x] `Get Warmup Statistics (GET /api/v1/email-accounts/{email_account_id}/warmup-stats)` — measure mailbox reputation, spam placement, and warmup performance (medium)
 - [ ] `Get Campaign Email Accounts (GET /api/v1/campaigns/{campaign_id}/email-accounts)` — join campaigns to rotating sender accounts for mailbox performance analysis (medium)
 - [ ] `Get Day-wise Overall Stats (GET /api/v1/analytics/day-wise-overall-stats)` — track daily engagement totals and compare outreach performance over time (medium)
 - [ ] `Get Lead Notes (GET /api/v1/crm/leads/notes/{lead_id})` — analyze sales context and follow-up information attached to prospects (medium)
@@ -11339,10 +11339,10 @@ Today (4): `issues`, `organizations`, `projects`, `targets`
 
 Diffed against: <https://api.snyk.io/rest/openapi/2026-03-25>
 
-- [ ] `GET /orgs/{org_id}/memberships` — user-to-org membership with role - the lookup that resolves who owns the projects and issues we sync (high)
+- [x] `GET /orgs/{org_id}/memberships` — user-to-org membership with role - the lookup that resolves who owns the projects and issues we sync (high)
 - [ ] `GET /groups and GET /groups/{group_id}/orgs` — group is the parent of every org; without it multi-org rollups have no hierarchy to aggregate on (high)
-- [ ] `GET /groups/{group_id}/memberships and /org_memberships` — group-level membership and role assignment across all orgs (medium)
-- [ ] `GET /orgs/{org_id}/collections and /collections/{collection_id}/relationships/projects` — collection membership - the standard breakdown dimension for grouping projects in reporting (medium)
+- [x] `GET /groups/{group_id}/memberships and /org_memberships` — group-level membership and role assignment across all orgs (medium)
+- [x] `GET /orgs/{org_id}/collections and /collections/{collection_id}/relationships/projects` — collection membership - the standard breakdown dimension for grouping projects in reporting (medium)
 - [ ] `GET /orgs/{org_id}/policies and GET /orgs/{org_id}/policies/{policy_id}/events` — ignore/severity policies plus their event log explain why issues we sync are suppressed or re-rated (medium)
 - [ ] `GET /orgs/{org_id}/container_images (and /relationships/image_target_refs)` — container image inventory joining images to the targets already synced (medium)
 - [ ] `GET /orgs/{org_id}/audit_logs/search (and group-level equivalent)` — state/transition history for org and project changes (medium)
