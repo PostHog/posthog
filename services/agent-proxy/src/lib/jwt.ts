@@ -84,6 +84,14 @@ function assertThinTailClaim(payload: Record<string, unknown>): boolean {
     return thinTail ?? false
 }
 
+function assertAgentSendsCallbacksClaim(payload: Record<string, unknown>): boolean {
+    const agentSendsCallbacks = payload['agent_sends_callbacks']
+    if (agentSendsCallbacks !== undefined && typeof agentSendsCallbacks !== 'boolean') {
+        throw new Error('Token has invalid claim: agent_sends_callbacks must be a boolean')
+    }
+    return agentSendsCallbacks ?? false
+}
+
 function assertOriginProductClaim(payload: Record<string, unknown>): string {
     const originProduct = payload['origin_product']
     if (originProduct !== undefined && typeof originProduct !== 'string') {
@@ -166,5 +174,6 @@ export async function validateSandboxEventIngestToken(
         thinTail: assertThinTailClaim(claims),
         originProduct: assertOriginProductClaim(claims),
         ...(streamGeneration === undefined ? {} : { streamGeneration }),
+        agentSendsCallbacks: assertAgentSendsCallbacksClaim(claims),
     }
 }
