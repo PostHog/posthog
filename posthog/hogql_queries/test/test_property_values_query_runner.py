@@ -61,6 +61,12 @@ class TestPropertyValuesQueryRunner(ClickhouseTestMixin, APIBaseTest):
         runner = PropertyValuesQueryRunner(team=self.team, query=query)
         return runner.calculate().results
 
+    def _run_cached(self, query: PropertyValuesQuery) -> list[PropertyValueItem]:
+        runner = PropertyValuesQueryRunner(team=self.team, query=query)
+        response = runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS)
+        assert isinstance(response, CachedPropertyValuesQueryResponse)
+        return response.results
+
     def test_event_property_values_basic(self):
         _create_event(event="$pageview", distinct_id="u1", team=self.team, properties={"browser": "Chrome"})
         _create_event(event="$pageview", distinct_id="u2", team=self.team, properties={"browser": "Firefox"})
@@ -235,13 +241,14 @@ class TestPropertyValuesQueryRunner(ClickhouseTestMixin, APIBaseTest):
         hidden.save()
         hidden.key = "gamma"
         hidden.save()
+        FeatureFlag.objects.create(team=self.team, key="beta", created_by=self.user, filters=variant_filters("fresh"))
+        query = PropertyValuesQuery(property_type=PropertyType.EVENT, property_key="$feature/beta")
+        self._run_cached(query)
         create_access_control(
             team_id=self.team.id, resource="feature_flag", access_level="none", resource_id=str(hidden.id)
         )
-        FeatureFlag.objects.create(team=self.team, key="beta", created_by=self.user, filters=variant_filters("fresh"))
 
-        results = self._run(PropertyValuesQuery(property_type=PropertyType.EVENT, property_key="$feature/beta"))
-        assert [r.name for r in results] == ["fresh", "true", "false"]
+        assert [r.name for r in self._run_cached(query)] == ["fresh", "true", "false"]
 
     def test_feature_flag_property_without_a_flag_in_the_project_uses_events_scan(self):
         other_team = Team.objects.create(organization=Organization.objects.create(name="Other"))
@@ -262,7 +269,7 @@ class TestPropertyValuesQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         _create_event(event="$pageview", distinct_id="u1", team=self.team, properties={"$feature/beta": "retired"})
         query = PropertyValuesQuery(property_type=PropertyType.EVENT, property_key="$feature/beta")
-        PropertyValuesQueryRunner(team=self.team, query=query).run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        self._run_cached(query)
         create_access_control(
             team_id=self.team.id,
             resource="feature_flag",
@@ -270,10 +277,7 @@ class TestPropertyValuesQueryRunner(ClickhouseTestMixin, APIBaseTest):
             resource_id=str(flag.id) if rule_on_the_flag else None,
         )
 
-        response = PropertyValuesQueryRunner(team=self.team, query=query).run(
-            ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
-        )
-        assert [r.name for r in response.results] == ["retired"]
+        assert [r.name for r in self._run_cached(query)] == ["retired"]
 
     def test_restricted_feature_flag_property_is_not_served(self):
         FeatureFlag.objects.create(team=self.team, key="beta", created_by=self.user, filters=MULTIVARIATE_FILTERS)

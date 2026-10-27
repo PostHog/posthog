@@ -32,7 +32,10 @@ from posthog.models.event.new_events_schema import use_new_events_schema
 from posthog.utils import convert_property_value, flatten, get_instance_region, relative_date_parse
 
 from products.access_control.backend.property_access_control import get_restricted_property_names
-from products.feature_flags.backend.facade.property_values import get_flag_property_values
+from products.feature_flags.backend.facade.property_values import (
+    flag_property_values_revision,
+    get_flag_property_values,
+)
 
 PROPERTY_VALUES_TABLE_FLAG = "property-values-table"
 
@@ -106,7 +109,7 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
         )
 
     @cached_property
-    def _feature_flag_property_values(self) -> list[bool | str] | None:
+    def _feature_flag_key(self) -> str | None:
         key = self.query.property_key
         if (
             self.query.property_type != PropertyType.EVENT
@@ -114,7 +117,13 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
             or not key.startswith(FEATURE_FLAG_PROPERTY_PREFIX)
         ):
             return None
-        return get_flag_property_values(self.team, key.removeprefix(FEATURE_FLAG_PROPERTY_PREFIX))
+        return key.removeprefix(FEATURE_FLAG_PROPERTY_PREFIX)
+
+    @cached_property
+    def _feature_flag_property_values(self) -> list[bool | str] | None:
+        if self._feature_flag_key is None:
+            return None
+        return get_flag_property_values(self.team, self._feature_flag_key)
 
     def _calculate_event_from_flag(self, values: list[bool | str]) -> PropertyValuesQueryResponse:
         search = (self.query.search_value or "").lower()
@@ -207,8 +216,8 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
         # masking; the version marker keeps them from being served.
         payload["property_values_version"] = 2
         # A cached answer must not outlive a flag edit or a new access rule on the flag.
-        if self._feature_flag_property_values is not None:
-            payload["feature_flag_property_values"] = self._feature_flag_property_values
+        if self._feature_flag_key is not None:
+            payload["feature_flag_revision"] = flag_property_values_revision(self.team, self._feature_flag_key)
         return payload
 
     def _person_query(self) -> ast.SelectQuery:

@@ -12,11 +12,32 @@ if TYPE_CHECKING:
     from posthog.models.team import Team
 
 
+def flag_property_values_revision(team: "Team", key: str) -> str | None:
+    visible = _visible_flag(team, key)
+    if visible is None:
+        return None
+    flag, hidden_flag_ids = visible
+    return f"{flag.id}:{flag.updated_at}:{','.join(sorted(hidden_flag_ids))}"
+
+
 def get_flag_property_values(team: "Team", key: str) -> list[bool | str] | None:
+    visible = _visible_flag(team, key)
+    if visible is None:
+        return None
+    flag, hidden_flag_ids = visible
+    strings = [
+        *served_string_values(flag.filters),
+        *served_strings_in_edits(team_id=flag.team_id, flag_key=key, excluded_flag_ids=hidden_flag_ids),
+    ]
+    values: list[bool | str] = [*dict.fromkeys(strings), True, False]
+    return values
+
+
+def _visible_flag(team: "Team", key: str) -> tuple[FeatureFlag, set[str]] | None:
     flag = (
         FeatureFlag.objects_including_soft_deleted.filter(team__project_id=team.project_id, key=key)
         .order_by("deleted")
-        .only("team_id", "filters")
+        .only("team_id", "filters", "updated_at")
         .first()
     )
     if flag is None or not every_member_has_resource_access(
@@ -28,9 +49,4 @@ def get_flag_property_values(team: "Team", key: str) -> list[bool | str] | None:
     )
     if str(flag.id) in hidden_flag_ids:
         return None
-    strings = [
-        *served_string_values(flag.filters),
-        *served_strings_in_edits(team_id=flag.team_id, flag_key=key, excluded_flag_ids=hidden_flag_ids),
-    ]
-    values: list[bool | str] = [*dict.fromkeys(strings), True, False]
-    return values
+    return flag, hidden_flag_ids
