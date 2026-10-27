@@ -51,7 +51,7 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSchema,
     ExternalDataSource,
 )
-from products.warehouse_sources.backend.facade.source_inputs import SourceInputsStore
+from products.warehouse_sources.backend.facade.source_inputs import SourceInputsStore, UnreadableSourceInputsError
 from products.warehouse_sources.backend.facade.source_management import SourceRegistry, SourceSchema
 from products.warehouse_sources.backend.facade.types import (
     ExternalDataSourceAccessMethod,
@@ -558,7 +558,12 @@ def update_managed_warehouse_root_password(*, organization_id: str | UUID, passw
                 MANAGED_WAREHOUSE_PROJECT_READER_CREDENTIAL_KIND,
             }:
                 continue
-            if SourceInputsStore.load(source) != config:
+            try:
+                current = SourceInputsStore.load(source)
+            except UnreadableSourceInputsError:
+                # Malformed legacy inputs are replaced with the valid config, not left to block rotation.
+                current = None
+            if current != config:
                 SourceInputsStore.save(source, config)
 
 
