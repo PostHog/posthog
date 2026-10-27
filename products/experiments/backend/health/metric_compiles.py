@@ -6,16 +6,20 @@ show here.
 
 The compile runs as the reader, with the reader's warehouse access. The compiler's messages, such as its "Did you mean"
 suggestions, can name any table or column that the compile can see, so a reader only sees names they may query. A
-metric that reads a table or a view that the reader may not query is not checked for them. The answer is cached per
-reader and per input of the compile. The cache key doesn't hold the cohorts, actions and warehouse tables that a metric
-names, or the reader's access, so a change to them shows when the answer expires. Until then, a message names only what
-the reader could query when it was compiled.
+metric that reads a table or a view that the reader may not query is not checked for them.
+
+Only an answer without a compiler message is cached, per reader and per input of the compile. A failure's message can
+name the tables that the reader may query, and a denial is a decision on the reader's access, so both compile again on
+every read and follow the reader's current access. The cache key doesn't hold the cohorts, actions and warehouse tables
+that a metric names, or the reader's access, so a metric that compiled can show as passing until its answer expires,
+also after one of them is deleted or the reader loses access.
 """
 
 import re
 import json
 import hashlib
 from datetime import timedelta
+from enum import StrEnum
 from typing import Any
 
 from django.core.cache import cache
@@ -33,6 +37,7 @@ from posthog.hogql.errors import (
     TableAccessDeniedError,
 )
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models.user import User
 
@@ -53,15 +58,31 @@ from products.experiments.backend.models.team_experiments_config import TeamExpe
 
 # Part of the cache key. Raise it when the cached answer changes shape.
 _ANSWER_SHAPE = 1
-_COMPILES_CACHE_SECONDS = int(timedelta(days=1).total_seconds())
-# A failure can go away without an edit of the metric, for example when a deleted cohort is restored.
-_FAILURE_CACHE_SECONDS = int(timedelta(hours=1).total_seconds())
 _MAX_MESSAGE_LENGTH = 1000
 
-_COMPILES = "compiles"
-_UNKNOWN = "unknown"
-_NO_ACCESS = "no_access"
-_EXPOSURE_QUERY_FAILS = "exposure_query_fails"
+
+class _Outcome(StrEnum):
+    COMPILES = "compiles"
+    # The compile raised an error that names no problem of the metric, such as a defect of PostHog.
+    UNKNOWN = "unknown"
+    # The metric reads a warehouse table or view that the reader may not query.
+    NO_ACCESS = "no_access"
+    EXPOSURE_QUERY_FAILS = "exposure_query_fails"
+
+
+@frozen
+class _Failure:
+    kind: ExperimentHealthMetricCompileErrorKind
+    message: str
+
+
+# A failure and NO_ACCESS depend on the reader's current access, as the module docstring explains, so they aren't cached.
+_CACHE_SECONDS = {
+    _Outcome.COMPILES: int(timedelta(days=1).total_seconds()),
+    # The cause can go away without an edit of the metric, for example when a deleted cohort is restored.
+    _Outcome.UNKNOWN: int(timedelta(hours=1).total_seconds()),
+    _Outcome.EXPOSURE_QUERY_FAILS: int(timedelta(hours=1).total_seconds()),
+}
 # The errors that the configuration of the experiment causes. HogQL raises its NotImplementedError for a filter that
 # combines settings it doesn't support, such as an element selector with "contains".
 _CONFIGURATION_ERRORS = (ValidationError, ExposedHogQLError, HogQLNotImplementedError, pydantic.ValidationError)
@@ -89,24 +110,23 @@ def _load_metric_compiles(experiment: Experiment, user: User | None) -> MetricCo
     no_access_count = 0
     exposure_query_fails = False
     for calculation_config in configs.values():
-        answer = _answer(compiler, calculation_config)
-        if answer == _UNKNOWN:
-            unknown_count += 1
-        elif answer == _NO_ACCESS:
-            no_access_count += 1
-        elif answer == _EXPOSURE_QUERY_FAILS:
-            exposure_query_fails = True
-        elif isinstance(answer, dict):
-            kind = ExperimentHealthMetricCompileErrorKind(answer["kind"])
-            failures.append(
-                MetricCompileFailure(
-                    name=calculation_metric_name(experiment, calculation_config),
-                    role=calculation_config.role,
-                    kind=kind,
-                    message=None if _can_hold_evaluation_rules(kind, calculation_config) else answer["message"],
-                    definition=calculation_config.definition,
+        match _answer(compiler, calculation_config):
+            case _Outcome.UNKNOWN:
+                unknown_count += 1
+            case _Outcome.NO_ACCESS:
+                no_access_count += 1
+            case _Outcome.EXPOSURE_QUERY_FAILS:
+                exposure_query_fails = True
+            case _Failure(kind=kind, message=message):
+                failures.append(
+                    MetricCompileFailure(
+                        name=calculation_metric_name(experiment, calculation_config),
+                        role=calculation_config.role,
+                        kind=kind,
+                        message=None if _can_hold_evaluation_rules(kind, calculation_config) else message,
+                        definition=calculation_config.definition,
+                    )
                 )
-            )
     return MetricCompiles(
         metric_count=len(configs),
         failures=() if exposure_query_fails else tuple(failures),
@@ -126,17 +146,19 @@ def _can_hold_evaluation_rules(
     )
 
 
-def _answer(compiler: "_MetricCompiler", calculation_config: MetricCalculationConfig) -> str | dict[str, str]:
+def _answer(compiler: "_MetricCompiler", calculation_config: MetricCalculationConfig) -> _Outcome | _Failure:
     cache_key = _cache_key(compiler.experiment.team_id, compiler.user, calculation_config)
     cached = cache.get(cache_key)
-    if cached in (_COMPILES, _UNKNOWN, _NO_ACCESS, _EXPOSURE_QUERY_FAILS) or isinstance(cached, dict):
-        return cached
+    if isinstance(cached, str) and cached in _CACHE_SECONDS:
+        return _Outcome(cached)
+    answer: _Outcome | _Failure
     try:
         answer = compiler.compile(calculation_config.definition)
     except Exception as error:
         capture_exception(error)
-        answer = _UNKNOWN
-    cache.set(cache_key, answer, _COMPILES_CACHE_SECONDS if answer == _COMPILES else _FAILURE_CACHE_SECONDS)
+        answer = _Outcome.UNKNOWN
+    if isinstance(answer, _Outcome) and answer in _CACHE_SECONDS:
+        cache.set(cache_key, answer.value, _CACHE_SECONDS[answer])
     return answer
 
 
@@ -150,7 +172,7 @@ class _MetricCompiler:
         self._team_config = team_config
         self._database: Database | None = None
 
-    def compile(self, definition: dict[str, Any]) -> str | dict[str, str]:
+    def compile(self, definition: dict[str, Any]) -> _Outcome | _Failure:
         try:
             metric = build_metric(definition)
         except pydantic.ValidationError as error:
@@ -169,14 +191,14 @@ class _MetricCompiler:
         try:
             runner.compile_query(self._database)
         except TableAccessDeniedError:
-            return _NO_ACCESS
+            return _Outcome.NO_ACCESS
         except _CONFIGURATION_ERRORS as error:
             # The exposure criteria and the project's test account filters are part of every metric's query, so a
             # failure in them fails every metric and isn't a problem of the metric.
             if not self._exposure_query_compiles(runner):
-                return _EXPOSURE_QUERY_FAILS
+                return _Outcome.EXPOSURE_QUERY_FAILS
             return _failure(_error_kind(error), _error_message(error))
-        return _COMPILES
+        return _Outcome.COMPILES
 
     def _exposure_query_compiles(self, runner: ExperimentQueryRunner) -> bool:
         assert self._database is not None
@@ -187,8 +209,8 @@ class _MetricCompiler:
         return True
 
 
-def _failure(kind: ExperimentHealthMetricCompileErrorKind, message: str) -> dict[str, str]:
-    return {"kind": kind.value, "message": message[:_MAX_MESSAGE_LENGTH]}
+def _failure(kind: ExperimentHealthMetricCompileErrorKind, message: str) -> _Failure:
+    return _Failure(kind=kind, message=message[:_MAX_MESSAGE_LENGTH])
 
 
 def _error_kind(error: Exception) -> ExperimentHealthMetricCompileErrorKind:

@@ -1,6 +1,6 @@
 from contextlib import nullcontext
 from datetime import timedelta
-from typing import Any
+from typing import Any, Literal
 
 from posthog.test.base import BaseTest
 from unittest.mock import Mock, patch
@@ -16,6 +16,7 @@ from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationExecutor
 from products.experiments.backend.facade.api import get_experiment_health
 from products.experiments.backend.facade.contracts import (
     ExperimentHealth,
@@ -194,6 +195,12 @@ class TestMetricCannotCompile(BaseTest):
                 ("invalid_definition", WARNING, "source"),
             ),
             (
+                "unnamed_stored_definition_without_a_source",
+                "metrics",
+                {"kind": "ExperimentMetric", "metric_type": "mean", "uuid": "m", "source": None},
+                ("invalid_definition", WARNING, 'the primary metric "Mean Event"'),
+            ),
+            (
                 "secondary_metric_only",
                 "metrics_secondary",
                 _mean(_hogql(COMPOUND)),
@@ -300,19 +307,25 @@ class TestMetricCannotCompile(BaseTest):
             (
                 "table_the_reader_may_not_query",
                 "stripe_charges",
-                True,
+                "before_the_read",
                 (NOT_CHECKED, "Couldn't check 1 metric that reads data you don't have access to"),
             ),
             (
                 "suggestion_for_a_reader_who_may_query_the_table",
                 "stripe_charge",
-                False,
+                "never",
                 (ExperimentHealthCheckStatus.FINDING, "Unknown table `stripe_charge`. Did you mean: stripe_charges?"),
             ),
             (
                 "no_suggestion_of_a_table_the_reader_may_not_query",
                 "stripe_charge",
-                True,
+                "before_the_read",
+                (ExperimentHealthCheckStatus.FINDING, "Unknown table `stripe_charge`."),
+            ),
+            (
+                "no_suggestion_after_the_reader_loses_access",
+                "stripe_charge",
+                "after_a_first_read",
                 (ExperimentHealthCheckStatus.FINDING, "Unknown table `stripe_charge`."),
             ),
         ]
@@ -320,7 +333,11 @@ class TestMetricCannotCompile(BaseTest):
     # The flag `hogql-warehouse-access-control` turns on warehouse access control.
     @patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))
     def test_compiles_with_the_readers_warehouse_access(
-        self, _name: str, table_name: str, denied: bool, expected: tuple[ExperimentHealthCheckStatus, str]
+        self,
+        _name: str,
+        table_name: str,
+        denied: Literal["never", "before_the_read", "after_a_first_read"],
+        expected: tuple[ExperimentHealthCheckStatus, str],
     ) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
@@ -341,10 +358,13 @@ class TestMetricCannotCompile(BaseTest):
             credential=DataWarehouseCredential.objects.create(team=self.team, access_key="key", access_secret="secret"),
             url_pattern="",
         )
-        if denied:
+        experiment = self._experiment(metrics=[_warehouse_sum(table_name)])
+        if denied == "after_a_first_read":
+            self._health(experiment)
+        if denied != "never":
             AccessControl.objects.create(team=self.team, resource="warehouse_objects", access_level="none")
 
-        health = self._health(self._experiment(metrics=[_warehouse_sum(table_name)]))
+        health = self._health(experiment)
 
         [check] = [check for check in health.checks if check.key == KEY]
         findings = [finding for finding in health.findings if finding.code == CODE]
@@ -352,19 +372,35 @@ class TestMetricCannotCompile(BaseTest):
             (check.status, findings[0].evidence["metric_1_message"] if findings else check.reason), expected
         )
 
-    def test_the_answer_is_cached_until_the_metric_changes(self) -> None:
-        experiment = self._experiment(metrics=[_mean(_hogql(COMPOUND))])
+    def test_a_metric_that_compiles_is_cached_until_the_metric_changes(self) -> None:
+        experiment = self._experiment(metrics=[_mean(_hogql("sum(toFloat(properties.revenue))"))])
 
         with patch.object(
             ExperimentQueryRunner, "compile_query", autospec=True, side_effect=ExperimentQueryRunner.compile_query
         ) as compile_query:
             first = self._health(experiment)
             second = self._health(experiment)
-            experiment.metrics = [_mean(_hogql("sum(toFloat(properties.revenue))"))]
+            experiment.metrics = [_mean(_hogql(COMPOUND))]
             experiment.save()
-            fixed = self._health(experiment)
+            broken = self._health(experiment)
 
         self.assertEqual(compile_query.call_count, 2)
         self.assertEqual(first.findings, second.findings)
-        self.assertIn(CODE, [finding.code for finding in first.findings])
-        self.assertNotIn(CODE, [finding.code for finding in fixed.findings])
+        self.assertNotIn(CODE, [finding.code for finding in first.findings])
+        self.assertIn(CODE, [finding.code for finding in broken.findings])
+
+    def test_the_compile_runs_no_precompute(self) -> None:
+        # With this modifier, HogQL precomputes a subquery of daily unique pageview persons before it prints the query.
+        self.team.modifiers = {"usePreaggregatedIntermediateResults": True}
+        self.team.save()
+        daily_uniques = (
+            "1 IN (SELECT uniqExact(person_id) FROM events WHERE event = '$pageview' "
+            "AND timestamp >= '2026-01-01' AND timestamp < '2026-01-08' GROUP BY toStartOfDay(timestamp))"
+        )
+        experiment = self._experiment(metrics=[_filtered({"type": "hogql", "key": daily_uniques})])
+
+        with patch.object(LazyComputationExecutor, "execute", return_value=Mock(ready=False)) as precompute:
+            health = self._health(experiment)
+
+        precompute.assert_not_called()
+        self.assertEqual({check.key: check.status for check in health.checks}[KEY], ExperimentHealthCheckStatus.PASSED)

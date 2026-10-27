@@ -3672,7 +3672,7 @@ export interface ExperimentHealthInputsApi {
     exposure_events: ExperimentHealthInputsExposureEventsApi | null
     /** Whether the project has received each event that the metrics and the exposure criteria name, by event name. A name that ingestion keeps no record of is absent. */
     events_received: ExperimentHealthInputsApiEventsReceived
-    /** The compile of each metric's query without running it, as the reader, which the metric queries check reads. Cached per reader for a day, or an hour when a metric fails. Null when the compile itself failed. */
+    /** The compile of each metric's query without running it, as the reader, which the metric queries check reads. A metric that compiles is cached per reader for a day, and a failing metric compiles again on every request. Null when the compile itself failed. */
     metric_compiles: ExperimentHealthInputsMetricCompilesApi | null
     /** The changes of the flag since launch that can move exposed people. Null when the experiment is not running, is archived, its flag is missing or deleted, or the read failed. */
     flag_history: ExperimentHealthInputsFlagHistoryApi | null

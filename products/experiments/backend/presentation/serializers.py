@@ -3470,7 +3470,8 @@ class ExperimentHealthInputsSerializer(serializers.Serializer):
         allow_null=True,
         help_text=(
             "The compile of each metric's query without running it, as the reader, which the metric queries check "
-            "reads. Cached per reader for a day, or an hour when a metric fails. Null when the compile itself failed."
+            "reads. A metric that compiles is cached per reader for a day, and a failing metric compiles again on "
+            "every request. Null when the compile itself failed."
         ),
     )
     flag_history = ExperimentHealthInputsFlagHistorySerializer(

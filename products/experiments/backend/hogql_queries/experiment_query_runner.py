@@ -455,6 +455,11 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             bypass_warehouse_access_control=self.bypass_warehouse_access_control,
             database=database,
         )
+        modifiers = self.query_modifiers()
+        # With this modifier, the executor writes preaggregated results to ClickHouse and waits for them before it
+        # prints the query, and a compile must run nothing. When no results are ready, the executor keeps the query
+        # unchanged, so the compile of the unchanged query checks what a calculation can fall back to.
+        modifiers.usePreaggregatedIntermediateResults = False
         try:
             HogQLQueryExecutor(
                 query_type="ExperimentQuery",
@@ -464,7 +469,7 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
                 bypass_warehouse_access_control=self.bypass_warehouse_access_control,
                 context=context,
                 timings=self.timings,
-                modifiers=self.query_modifiers(),
+                modifiers=modifiers,
                 workload=self.workload,
             ).generate_clickhouse_sql()
         except TableAccessDeniedError:
