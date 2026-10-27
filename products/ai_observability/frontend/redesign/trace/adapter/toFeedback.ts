@@ -37,6 +37,10 @@ export function toStepFeedback(
     return byStep
 }
 
+export function stepFeedbackOf(stepFeedback: Record<string, StepFeedback>, nodeId: string): StepFeedback | null {
+    return Object.hasOwn(stepFeedback, nodeId) ? stepFeedback[nodeId] : null
+}
+
 export interface FeedbackModeArgs {
     feedback: TraceFeedbackApi
     tree: TraceNodeApi[]

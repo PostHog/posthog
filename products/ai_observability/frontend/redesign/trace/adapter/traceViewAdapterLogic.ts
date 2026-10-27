@@ -31,7 +31,7 @@ import {
     TraceMode,
 } from '../types'
 import { toDatasetItemSource } from './toDatasetItemSource'
-import { toFeedbackChip, toFeedbackMode, toStepFeedback } from './toFeedback'
+import { stepFeedbackOf, toFeedbackChip, toFeedbackMode, toStepFeedback } from './toFeedback'
 import { toBackLink, toHeader } from './toHeader'
 import { NodeDetailData, toNodeDetail } from './toNodeDetail'
 import { toThread } from './toThread'
@@ -471,7 +471,7 @@ export const traceViewAdapterLogic = kea<traceViewAdapterLogicType>([
         selectedStepFeedback: [
             (s) => [s.stepFeedback, s.selectedNodeId],
             (stepFeedback: Record<string, StepFeedback>, selectedNodeId: string): StepFeedback | null =>
-                Object.hasOwn(stepFeedback, selectedNodeId) ? stepFeedback[selectedNodeId] : null,
+                stepFeedbackOf(stepFeedback, selectedNodeId),
         ],
         feedbackMode: [
             (s, p) => [s.traceFeedback, s.traceFeedbackFailed, s.tree, s.feedbackFocusNodeId, p.traceId],
