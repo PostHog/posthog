@@ -80,8 +80,10 @@ class _Builder:
     def build(self) -> TranslatedWorkflow:
         source_edges = [edge for edge in self.campaign.get("edges") or [] if isinstance(edge, dict)]
         for edge in source_edges:
+            # Customer.io can send a branch index as a string, and every later check compares numbers.
+            index = int(edge["index"]) if edge.get("index") is not None else None
             self.links.setdefault(str(edge.get("from")), []).append(
-                (str(edge.get("to")), str(edge.get("type") or "continue"), edge.get("index"))
+                (str(edge.get("to")), str(edge.get("type") or "continue"), index)
             )
 
         workflow_actions_order = [str(action_id) for action_id in self.campaign.get("workflow_action_ids") or []]

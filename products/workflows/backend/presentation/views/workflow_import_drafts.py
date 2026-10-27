@@ -1,5 +1,6 @@
 """Turns Customer.io automations into draft workflows, checked the way the create endpoint checks them."""
 
+import time
 from dataclasses import asdict
 from typing import Any, cast
 from uuid import UUID
@@ -55,9 +56,11 @@ def import_campaigns(
     segments: list[dict[str, Any]],
     request: Request,
 ) -> ImportRun:
+    deadline = time.monotonic() + _REQUEST_SECONDS
     content = import_content(
-        team.id, [_campaign_source(payload) for payload in payloads], options, sender_identities, segments
+        team.id, [_campaign_source(payload) for payload in payloads], options, sender_identities, segments, deadline
     )
+    access = UserAccessControl(user=user, team=team)
     with defer_hog_flow_reloads():
         results = [
             import_campaign(
@@ -68,10 +71,15 @@ def import_campaigns(
                 dry_run,
                 content.fetch_notes.get(str(source.campaign.get("id")), ()),
                 request,
+                access,
             )
             for source in content.sources
         ]
     return ImportRun(results=results, content_fetched=content.fetched)
+
+
+# The import runs inside the request, so everything it reads from Customer.io shares one time limit.
+_REQUEST_SECONDS = 60
 
 
 def _campaign_source(payload: dict[str, Any]) -> CampaignSource:
@@ -93,11 +101,12 @@ def import_campaign(
     dry_run: bool,
     extra_notes: tuple[ImportNote, ...],
     request: Request,
+    access: UserAccessControl,
 ) -> dict[str, Any]:
     """Imports one Customer.io automation, or previews it, and returns its result in the response shape."""
     try:
         translated = translate_campaign(source, options)
-    except (ValueError, TypeError, RecursionError) as error:
+    except (ValueError, TypeError, AttributeError, KeyError, IndexError, RecursionError) as error:
         logger.info("workflows.import.unreadable_campaign", team_id=team.id, error=type(error).__name__)
         return {
             "source_id": str(source.campaign.get("id")),
@@ -119,7 +128,7 @@ def import_campaign(
         "validation_errors": [],
     }
     previous = previous_import(team, translated.source_id)
-    if previous.hog_flow_id is not None and not _can_edit(team, user, previous):
+    if previous.hog_flow_id is not None and not _can_edit(access, team, previous):
         return _skipped(
             result,
             previous.hog_flow_id,
@@ -195,14 +204,14 @@ def _skipped(result: dict[str, Any], workflow_id: UUID | None, message: str) -> 
     return {**result, "status": "skipped", "workflow_id": str(workflow_id), "notes": [asdict(note)]}
 
 
-def _can_edit(team: Team, user: User, previous: PreviousImport) -> bool:
+def _can_edit(access: UserAccessControl, team: Team, previous: PreviousImport) -> bool:
     ref = ObjectAccessRef(
         resource="hog_flow",
         id=str(previous.hog_flow_id),
         team_id=team.id,
         created_by_id=previous.hog_flow_created_by_id,
     )
-    return UserAccessControl(user=user, team=team).check_access_level_for_ref(ref, "editor")
+    return access.check_access_level_for_ref(ref, "editor")
 
 
 def _validated_draft(team: Team, workflow: dict[str, Any], request: Request) -> tuple[dict[str, Any] | None, list[str]]:

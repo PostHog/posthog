@@ -182,7 +182,7 @@ def describe(condition: Any) -> str:
     if kind == "foreign_event":
         return f"event {condition.get('event_name')}"
     if kind == "message":
-        event = condition.get("event") or {}
+        event = condition.get("event") if isinstance(condition.get("event"), dict) else {}
         prefix = "has not " if condition.get("inverse") else ""
         return f"{prefix}{event.get('type', 'message event')} ({event.get('name', '*')})"
     if isinstance(condition.get("segment"), dict):
