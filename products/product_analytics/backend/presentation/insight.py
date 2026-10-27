@@ -1,5 +1,6 @@
 import json
 import builtins
+from collections import defaultdict
 from collections.abc import Sequence
 from datetime import datetime, timedelta
 from functools import lru_cache
@@ -99,7 +100,7 @@ from posthog.models.activity_logging.activity_page import (
     activity_page_response,
     parse_activity_page_params,
 )
-from posthog.models.file_system.file_system import delete_file
+from posthog.models.file_system.file_system import delete_files
 from posthog.models.organization import Organization
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.team.team import Team
@@ -2751,7 +2752,7 @@ When set, the specified dashboard's filters and date range override will be appl
         insights = list(
             Insight.objects_including_soft_deleted.filter(
                 id__in=ids, team__project_id=self.team.project_id, deleted=deleted
-            )
+            ).select_related("team")
         )
         found_ids = {insight.id for insight in insights}
         skipped: list[dict[str, Any]] = [
@@ -2810,8 +2811,13 @@ When set, the specified dashboard's filters and date range override will be appl
                 Insight.objects_including_soft_deleted.filter(
                     id__in=insight_ids, team__project_id=self.team.project_id
                 ).update(deleted=True, last_modified_at=now(), last_modified_by=current_user)
+                refs_by_team: dict[int, list[str]] = defaultdict(list)
+                teams = {}
                 for insight in insights:
-                    delete_file(team=insight.team, file_type="insight", ref=insight.short_id)
+                    teams[insight.team_id] = insight.team
+                    refs_by_team[insight.team_id].append(insight.short_id)
+                for team_id, refs in refs_by_team.items():
+                    delete_files(team=teams[team_id], file_type="insight", refs=refs)
                 # Match InsightSerializer.update: hide the insights' tiles and remove linked alerts.
                 hide_tiles_for_insights(insight_ids)
                 delete_insight_alerts(insight_ids)
