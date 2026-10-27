@@ -2067,6 +2067,7 @@ async def test_trial_runs_keep_runtime_and_state_separate_from_the_production_sc
     assert isinstance(prompt, str)
     assert "Report follow-up checks are limited in this private trial" in prompt
     assert "scout-report-check-create" not in prompt
+    assert outcome.run_id is not None
     bridge = await SignalScoutRun.objects.aget(id=outcome.run_id)
     if task_cancelled:
         assert bridge.summary == ""

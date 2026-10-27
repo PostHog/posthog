@@ -1,3 +1,4 @@
+from collections.abc import Mapping
 from datetime import UTC, date, datetime, time, timedelta
 from typing import TypedDict, cast
 from uuid import UUID
@@ -80,7 +81,7 @@ class ModelUsage:
         }
 
     @classmethod
-    def engine_usage(cls, row: dict[str, object], engines: tuple[DataModelingJobEngine, ...]) -> list[EngineUsage]:
+    def engine_usage(cls, row: Mapping[str, object], engines: tuple[DataModelingJobEngine, ...]) -> list[EngineUsage]:
         return [
             EngineUsage(
                 engine=engine,
@@ -146,7 +147,7 @@ class ModelUsage:
         status_jobs = cls.all_jobs(team_id, start, end, engines).filter(saved_query_id__in=saved_query_ids)
         overview = jobs.aggregate(**cls.aggregates())
         usage_updated_at = jobs.aggregate(latest=Max("usage_updated_at"))["latest"]
-        daily = {
+        daily: dict[date, Mapping[str, object]] = {
             row["day"]: row
             for row in jobs.annotate(day=TruncDate("last_run_at", tzinfo=UTC))
             .values("day")
@@ -179,7 +180,7 @@ class ModelUsage:
         )
         count = models.count()
         offset = (page - 1) * page_size
-        rows = list(
+        rows: list[Mapping[str, object]] = list(
             models.order_by(F("read_bytes").desc(nulls_last=True), "saved_query_id")[offset : offset + page_size]
         )
         return {

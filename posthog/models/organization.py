@@ -1,7 +1,8 @@
 import sys
+from collections.abc import Collection
 from datetime import datetime, timedelta
 from functools import cache as functools_cache
-from typing import TYPE_CHECKING, Any, Literal, Optional, TypedDict, Union
+from typing import TYPE_CHECKING, Any, Literal, Optional, Self, TypedDict, Union
 
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
@@ -378,8 +379,8 @@ class Organization(ModelActivityMixin, UUIDTModel):
     __repr__ = sane_repr("name")
 
     @classmethod
-    def from_db(cls, db: Any, field_names: Any, values: Any) -> "Organization":
-        instance = super().from_db(db, field_names, values)
+    def from_db(cls, db: str | None, field_names: Collection[str], values: Collection[Any], **kwargs: Any) -> Self:
+        instance = super().from_db(db, field_names, values, **kwargs)
         instance._loaded_name = instance.__dict__.get("name")
         return instance
 

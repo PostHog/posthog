@@ -1294,7 +1294,7 @@ class ReplayScannerFilter(django_filters.FilterSet):
         invalid = sorted(t for t in tokens if not t.isdecimal())
         if invalid:
             raise ValidationError({"created_by": f"Non-numeric value(s) {invalid}; user IDs must be integers."})
-        return queryset.filter(created_by_id__in=tokens)
+        return queryset.filter(created_by_id__in=[int(t) for t in tokens])
 
     def _filter_experiment_id(
         self, queryset: QuerySet[ReplayScanner], _name: str, value: str
@@ -1701,11 +1701,16 @@ def select_watch_feed_candidates(
     rows: list[dict[str, Any]] = []
     for start in range(0, len(newest_first), WATCH_FEED_CANDIDATE_CAP):
         chunk = newest_first[start : start + WATCH_FEED_CANDIDATE_CAP]
-        rows += list(
-            accessible_observations(access, team_id, ReplayObservation.objects.filter(team_id=team_id, id__in=chunk))
-            .annotate(feed_viewed=viewed)
-            .order_by("-created_at", "-id")
-            .values("id", "scanner_id", "session_id", "created_at", "watch_rank", "feed_viewed")
+        rows += cast(
+            list[dict[str, Any]],
+            list(
+                accessible_observations(
+                    access, team_id, ReplayObservation.objects.filter(team_id=team_id, id__in=chunk)
+                )
+                .annotate(feed_viewed=viewed)
+                .order_by("-created_at", "-id")
+                .values("id", "scanner_id", "session_id", "created_at", "watch_rank", "feed_viewed")
+            ),
         )
         if len(rows) >= WATCH_FEED_CANDIDATE_CAP:
             break

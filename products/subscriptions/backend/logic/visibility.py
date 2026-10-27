@@ -149,12 +149,13 @@ def _target_filter(user_access_control: UserAccessControl, team_id: int, targets
     if not has_object_rules and not denies_a_target_resource:
         return Q()
 
-    team_dashboards = targets.dashboards.filter(team_id=team_id)
-    blocked_insights = blocked_target_ids(user_access_control, targets.insights.filter(team_id=team_id), "insight")
+    team_dashboards = targets.dashboards.filter(team_id=team_id)  # type: ignore[arg-type]  # django-stubs treats a Manager field as a descriptor
+    target_insights = targets.insights.filter(team_id=team_id)  # type: ignore[arg-type]  # django-stubs treats a Manager field as a descriptor
+    blocked_insights = blocked_target_ids(user_access_control, target_insights, "insight")
     blocked_dashboards = blocked_target_ids(user_access_control, team_dashboards, "dashboard")
     # Distinct so the context-ref array below holds one entry per dashboard, not one per blocked tile.
     dashboards_with_blocked_tiles = (
-        targets.tiles.filter(dashboard__in=team_dashboards, insight_id__in=blocked_insights)
+        targets.tiles.filter(dashboard__in=team_dashboards, insight_id__in=blocked_insights)  # type: ignore[arg-type]  # django-stubs treats a Manager field as a descriptor
         .values("dashboard_id")
         .distinct()
     )

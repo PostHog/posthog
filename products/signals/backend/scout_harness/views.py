@@ -2747,8 +2747,8 @@ def _upsert_scout_config(
         skill_name=skill_name,
         defaults={
             **defaults,
-            "created_by": request.user,
-            "enabled_by": request.user if tunables.get("enabled", True) else None,
+            "created_by": cast(User, request.user),
+            "enabled_by": cast(User, request.user) if tunables.get("enabled", True) else None,
         },
     )
     if created or not tunables:

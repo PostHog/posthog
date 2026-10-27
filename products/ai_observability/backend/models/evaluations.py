@@ -1,4 +1,6 @@
 from typing import Any
+from collections.abc import Collection
+from typing import Any, Self
 
 from django.db import models, transaction
 from django.db.models.signals import post_save
@@ -156,8 +158,8 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
         self._initial_status = self.status
 
     @classmethod
-    def from_db(cls, db, field_names, values):
-        instance = super().from_db(db, field_names, values)
+    def from_db(cls, db: str | None, field_names: Collection[str], values: Collection[Any], **kwargs: Any) -> Self:
+        instance = super().from_db(db, field_names, values, **kwargs)
         instance._initial_enabled = instance.enabled
         instance._initial_status = instance.status
         return instance
