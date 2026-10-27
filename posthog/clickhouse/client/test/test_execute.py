@@ -6,6 +6,8 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch
 
+from clickhouse_driver.columns.datecolumn import DateColumn
+
 from posthog.hogql.query_stats import query_stats_scope
 
 from posthog.clickhouse.client.connection import (
@@ -269,6 +271,10 @@ def test_query_with_columns_removes_columns_by_type(types, row, expected):
 def test_sync_execute_decodes_date32_outside_driver_default_range(raw_day_number_hex, expected):
     # RowBinary keeps the raw day number, the same way ClickHouse 26.9+ passes through out-of-range
     # Parquet and CAST values. The driver's default lookup table stops at 1900-2299.
+    lookup_size = len(DateColumn.date_lut)
+
     rows = sync_execute(f"SELECT d FROM format(RowBinary, 'd Date32', unhex('{raw_day_number_hex}'))", flush=False)
 
     assert rows == [(expected,)]
+    # The lookup is shared by every query in the process, so out-of-range days must not be cached in it.
+    assert len(DateColumn.date_lut) == lookup_size
