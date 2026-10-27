@@ -633,17 +633,20 @@ class TestWarehouseAlerts(APIBaseTest):
         if who == "opted_out":
             person.partial_notification_settings = {"plugin_disabled": False}
             person.save()
-        if who == "no_project_access":
-            # A private project, which an organization member reaches only through an explicit grant.
+        if who in ("no_project_access", "no_warehouse_access"):
             self.organization.available_product_features = [
                 {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
             ]
             self.organization.save(update_fields=["available_product_features"])
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
             self.organization_membership.save(update_fields=["level"])
+        if who == "no_project_access":
+            # A private project, which an organization member reaches only through an explicit grant.
             AccessControl.objects.create(
                 team=self.team, resource="project", resource_id=str(self.team.id), access_level="none"
             )
+        if who == "no_warehouse_access":
+            AccessControl.objects.create(team=self.team, resource="external_data_source", access_level="none")
         return person
 
     @parameterized.expand(
@@ -653,6 +656,14 @@ class TestWarehouseAlerts(APIBaseTest):
             ("nobody_when_the_alert_does_not_email", SourceKind.WAREHOUSE_SOURCE, "member", False, False),
             ("not_a_member_who_turned_off_pipeline_emails", SourceKind.WAREHOUSE_SOURCE, "opted_out", True, False),
             ("not_a_member_without_project_access", SourceKind.WAREHOUSE_SOURCE, "no_project_access", True, False),
+            ("not_a_member_without_warehouse_access", SourceKind.WAREHOUSE_SOURCE, "no_warehouse_access", True, False),
+            (
+                "not_a_member_of_a_destination_alert_without_warehouse_access",
+                SourceKind.WAREHOUSE_DESTINATION,
+                "no_warehouse_access",
+                True,
+                False,
+            ),
             ("not_a_user_of_another_organization", SourceKind.WAREHOUSE_SOURCE, "another_organization", True, False),
         ]
     )
