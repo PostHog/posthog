@@ -825,17 +825,26 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             state["initial_permission_mode"] = permission_mode
         state["ai_defaults_source"] = resolved.source
 
-    def live_cloud_run_ids(self) -> list[uuid.UUID]:
-        live_runs = self.runs.filter(
-            team_id=self.team_id,
-            environment=TaskRun.Environment.CLOUD,
-            status__in=[TaskRun.Status.QUEUED, TaskRun.Status.IN_PROGRESS],
-        ).values_list("id", "state")
+    def live_cloud_run_ids(self, exclude_run_id: uuid.UUID) -> list[uuid.UUID]:
+        live_runs = (
+            self.runs.filter(
+                team_id=self.team_id,
+                environment=TaskRun.Environment.CLOUD,
+                status__in=[TaskRun.Status.QUEUED, TaskRun.Status.IN_PROGRESS],
+            )
+            .exclude(id=exclude_run_id)
+            .values_list("id", "state")
+        )
         return [
             run_id
             for run_id, state in live_runs
             if not (state or {}).get("await_user_message") and not (state or {}).get("cancel_requested_at")
         ]
+
+    def observe_run_started_beside_live_runs(self, task_run: "TaskRun") -> None:
+        live_run_ids = self.live_cloud_run_ids(exclude_run_id=task_run.id)
+        if live_run_ids:
+            execute_after_commit(lambda: log_run_started_beside_live_run(task_run, live_run_ids))
 
     def create_run(
         self,
@@ -877,11 +886,6 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                 raise InvalidTaskOriginError(
                     "This task uses an unsupported origin. Start it locally or create a new task to run it in the cloud."
                 )
-            live_run_ids = (
-                task.live_cloud_run_ids()
-                if effective_environment == TaskRun.Environment.CLOUD and scheduled_at is None
-                else []
-            )
 
             state: dict = {} if task.runtime == Task.Runtime.PI else {"mode": mode}
             if extra_state:
@@ -983,12 +987,12 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                 state=state,
                 branch=branch,
             )
+            if effective_environment == TaskRun.Environment.CLOUD and scheduled_at is None:
+                task.observe_run_started_beside_live_runs(task_run)
 
             def emit_created_events() -> None:
                 task_run.publish_stream_state_event()
                 observe_task_run_created(task_run)
-                if live_run_ids:
-                    log_run_started_beside_live_run(task_run, live_run_ids)
                 task.capture_event(
                     "task_run_created",
                     {
@@ -2446,6 +2450,7 @@ class TaskRun(models.Model):
         "sandbox_connect_token",
         "sandbox_backend",
         "failure_error_type",
+        "cancel_requested_at",
     )
 
     def restore_cloud_resume_state(self, prior_state: dict[str, Any]) -> None:

@@ -1339,6 +1339,7 @@ class TestTaskRun(TestCase):
                 "pending_user_message": "Review the attachment",
                 "pending_user_artifact_ids": ["artifact-1"],
                 "failure_error_type": "poll_timeout",
+                "cancel_requested_at": requested_at.isoformat(),
                 "startup_requested_at": requested_at.isoformat(),
             },
         )
@@ -1351,6 +1352,7 @@ class TestTaskRun(TestCase):
         self.assertEqual(run.analytics_properties()["startup_requested_at"], run.queued_at.isoformat())
 
         self.assertNotIn("failure_error_type", run.state)
+        self.assertNotIn("cancel_requested_at", run.state)
         self.assertNotIn("sandbox_id", run.state)
         self.assertNotIn("sandbox_url", run.state)
         self.assertNotIn("sandbox_jwt_kid", run.state)

@@ -25,7 +25,7 @@ from products.tasks.backend.metrics import (
     WORKFLOW_DISPATCH_READY,
     observe_task_run_dispatch_callback,
 )
-from products.tasks.backend.models import TaskRun, TaskWorkflowDispatch, execute_after_commit
+from products.tasks.backend.models import Task, TaskRun, TaskWorkflowDispatch, execute_after_commit
 from products.tasks.backend.temporal.process_task.workflow import PendingFollowup
 
 DISPATCH_PAYLOAD_VERSION = 1
@@ -273,7 +273,22 @@ def materialize_due_scheduled_task_runs(batch_size: int) -> int:
     SCHEDULED_TASK_RUN_MATERIALIZATION_TOTAL.labels(outcome="materialized").inc(len(valid_run_ids))
     WORKFLOW_DISPATCH_CREATED_TOTAL.labels(kind=TaskWorkflowDispatch.Kind.CREATE).inc(len(dispatches))
     SCHEDULED_TASK_RUN_MATERIALIZATION_TOTAL.labels(outcome="invalid").inc(len(invalid_run_ids))
+    _observe_runs_started_beside_live_runs(valid_run_ids)
     return len(valid_run_ids)
+
+
+def _observe_runs_started_beside_live_runs(run_ids: list[UUID]) -> None:
+    if not run_ids:
+        return
+    with transaction.atomic():
+        tasks = {
+            task.id: task
+            for task in Task.objects.select_for_update()
+            .filter(id__in=TaskRun.objects.filter(id__in=run_ids).values("task_id"))
+            .order_by("id")
+        }
+        for task_run in TaskRun.objects.filter(id__in=run_ids).select_related("task"):
+            tasks[task_run.task_id].observe_run_started_beside_live_runs(task_run)
 
 
 def claim_dispatches(instance_id: str, batch_size: int, lease: timedelta) -> list[TaskWorkflowDispatch]:
