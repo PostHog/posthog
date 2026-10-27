@@ -12,6 +12,9 @@ from products.knowledge_writer.merge_check.check import run_merge_check
 from products.knowledge_writer.merge_check.judge import JudgeVerdict
 
 COMPONENT_PATH = "products/feature_flags/frontend/FlagBanner.tsx"
+COMPONENT_CHUNK = f"diff --git a/{COMPONENT_PATH} b/{COMPONENT_PATH}\n-old\n+new\n"
+UNMAPPED_CHUNK = "diff --git a/bin/start b/bin/start\n-old\n+new\n"
+GENERATED_CHUNK = "diff --git a/posthog/schema.py b/posthog/schema.py\n-old\n+new\n"
 FLAGS_PAGES = [f"https://posthog.com/docs/feature-flags/page-{number}" for number in range(200)]
 
 
@@ -33,7 +36,9 @@ class FakePostHogGitHub:
                 }
             ]
             return github_response(json.dumps(pulls))
-        return github_response(f"diff --git a/{COMPONENT_PATH} b/{COMPONENT_PATH}\n-old\n+new\n")
+        if path.endswith("/.gitattributes"):
+            return github_response("# Generated code\nposthog/schema.py linguist-generated\n")
+        return github_response(GENERATED_CHUNK + UNMAPPED_CHUNK + COMPONENT_CHUNK)
 
 
 def github_response(body: str) -> requests.Response:
@@ -56,8 +61,12 @@ def judge_with_parse(parse: Callable[..., object]) -> Anthropic:
     return cast(Anthropic, client)
 
 
-def judge_returning(verdict: JudgeVerdict) -> Anthropic:
-    return judge_with_parse(lambda **_request: SimpleNamespace(stop_reason="end_turn", parsed_output=verdict))
+def judge_recording(verdict: JudgeVerdict, judge_requests: list[dict]) -> Anthropic:
+    def parse(**request: object) -> object:
+        judge_requests.append(request)
+        return SimpleNamespace(stop_reason="end_turn", parsed_output=verdict)
+
+    return judge_with_parse(parse)
 
 
 def judge_returning_malformed_output() -> Anthropic:
@@ -67,8 +76,9 @@ def judge_returning_malformed_output() -> Anthropic:
     return judge_with_parse(parse)
 
 
-def test_mapped_merge_flagged_by_judge_yields_kind_and_every_listed_page_once_in_judge_order() -> None:
+def test_mapped_merge_judged_on_mapped_first_non_generated_diff_yields_every_listed_page_once() -> None:
     commit_sha = "a" * 40
+    judge_requests: list[dict] = []
     verdict = JudgeVerdict(
         needs_docs=True,
         change_kind=DocsChangeKind.UPDATE,
@@ -80,9 +90,10 @@ def test_mapped_merge_flagged_by_judge_yields_kind_and_every_listed_page_once_in
         commit_sha,
         github=FakePostHogGitHub(commit_sha),
         http=fake_sitemap(),
-        anthropic_client=judge_returning(verdict),
+        anthropic_client=judge_recording(verdict, judge_requests),
     )
 
+    assert judge_requests[0]["messages"][0]["content"].endswith(f"<diff>\n{COMPONENT_CHUNK}{UNMAPPED_CHUNK}\n</diff>")
     assert (report.needs_docs, report.change_kind) == (True, DocsChangeKind.UPDATE)
     assert report.page_urls == (FLAGS_PAGES[-1], *FLAGS_PAGES[:3])
 

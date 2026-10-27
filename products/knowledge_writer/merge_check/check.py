@@ -2,15 +2,17 @@ import httpx
 from anthropic import Anthropic
 
 from ..backend.facade.contracts import MergeCheckReport
-from .judge import MAX_DIFF_CHARACTERS, judge_merge
+from .judge import judge_merge
 from .routing import load_path_map, mapped_sections, section_page_urls
 from .sources import (
     POSTHOG_REPOSITORY,
     GitHubReader,
     find_merged_pull_request,
+    is_generated_path,
     is_test_path,
     read_commit_diff_by_path,
     read_docs_page_urls,
+    read_generated_path_patterns,
 )
 
 
@@ -28,18 +30,24 @@ def run_merge_check(
     if not pull_request.is_trusted_author:
         return no_docs_report(commit_sha, commit_url, title=pull_request.title, reason="untrusted_author")
     diff_by_path = read_commit_diff_by_path(github, commit_sha)
-    sections = mapped_sections(diff_by_path, load_path_map())
+    path_map = load_path_map()
+    sections = mapped_sections(diff_by_path, path_map)
     if not sections:
         return no_docs_report(commit_sha, commit_url, title=pull_request.title, reason="unmapped")
     docs_page_urls = read_docs_page_urls(http)
     candidate_page_urls = dict.fromkeys(
         url for section in sections for url in section_page_urls(section, docs_page_urls)
     )
-    non_test_diff = "".join(chunk for path, chunk in diff_by_path.items() if not is_test_path(path))
+    generated_path_patterns = read_generated_path_patterns(github, commit_sha)
+    judged_paths = [
+        path for path in diff_by_path if not is_test_path(path) and not is_generated_path(path, generated_path_patterns)
+    ]
+    mapped_paths_first = sorted(judged_paths, key=lambda path: not mapped_sections([path], path_map))
+    judged_diff = "".join(diff_by_path[path] for path in mapped_paths_first)
     verdict = judge_merge(
         anthropic_client,
         title=pull_request.title,
-        non_test_diff=non_test_diff[:MAX_DIFF_CHARACTERS],
+        judged_diff=judged_diff,
         section_page_urls=list(candidate_page_urls),
     )
     if not verdict.needs_docs or verdict.change_kind is None:

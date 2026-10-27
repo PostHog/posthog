@@ -1,4 +1,5 @@
 import re
+import fnmatch
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -16,6 +17,7 @@ SITEMAP_URL = "https://posthog.com/sitemap/sitemap-0.xml"
 TRUSTED_AUTHOR_ASSOCIATIONS = frozenset({"MEMBER", "OWNER"})
 SITEMAP_DOCS_URL_PATTERN = re.compile(r"<loc>(https://posthog\.com/docs/[^<]+)</loc>")
 DIFF_FILE_HEADER_PATTERN = re.compile(r"^diff --git a/\S+ b/(\S+)$")
+GENERATED_ATTRIBUTES = frozenset({"linguist-generated", "linguist-generated=true"})
 TEST_PATH_PATTERN = re.compile(
     r"(^|/)(tests?|__tests__|__snapshots__)/|(^|/)test_[^/]+\.py$|\.(test|spec|stories)\.[jt]sx?$"
 )
@@ -126,6 +128,34 @@ def read_commit_diff_by_path(github: GitHubReader, commit_sha: str) -> dict[str,
 
 def is_test_path(path: str) -> bool:
     return TEST_PATH_PATTERN.search(path) is not None
+
+
+def read_generated_path_patterns(github: GitHubReader, commit_sha: str) -> list[str]:
+    response = github.api_request(
+        "GET",
+        f"/repos/{POSTHOG_REPOSITORY}/contents/.gitattributes",
+        endpoint="/repos/{owner}/{repo}/contents/{path}",
+        params={"ref": commit_sha},
+        headers={"Accept": "application/vnd.github.raw"},
+        priority=Priority.NORMAL,
+    )
+    if response.status_code == 404:
+        return []
+    response.raise_for_status()
+    attribute_lines = [line.split() for line in response.text.splitlines() if not line.startswith("#")]
+    return [
+        fields[0].lstrip("/")
+        for fields in attribute_lines
+        if len(fields) > 1 and GENERATED_ATTRIBUTES & set(fields[1:])
+    ]
+
+
+def is_generated_path(path: str, generated_path_patterns: list[str]) -> bool:
+    file_name = path.rpartition("/")[2]
+    return any(
+        fnmatch.fnmatchcase(path, pattern) or ("/" not in pattern and fnmatch.fnmatchcase(file_name, pattern))
+        for pattern in generated_path_patterns
+    )
 
 
 def read_docs_page_urls(http: httpx.Client) -> list[str]:

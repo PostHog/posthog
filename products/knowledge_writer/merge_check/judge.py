@@ -7,7 +7,7 @@ from ..backend.facade.enums import DocsChangeKind
 
 JUDGE_MODEL = "claude-haiku-5-5"
 JUDGE_AI_PRODUCT = "knowledge_writer"
-MAX_DIFF_CHARACTERS = 30_000
+MAX_DIFF_CHARACTERS = 400_000
 JUDGE_TIMEOUT_SECONDS = 120
 JUDGE_MAX_RETRIES = 1
 
@@ -35,7 +35,7 @@ def judge_client(commit_sha: str) -> Anthropic:
 
 
 def judge_merge(
-    anthropic_client: Anthropic, *, title: str, non_test_diff: str, section_page_urls: list[str]
+    anthropic_client: Anthropic, *, title: str, judged_diff: str, section_page_urls: list[str]
 ) -> JudgeVerdict:
     page_list = "\n".join(section_page_urls)
     try:
@@ -50,7 +50,7 @@ def judge_merge(
                     "role": "user",
                     "content": (
                         f"Commit title: {title}\n\nSection pages:\n{page_list}\n\n"
-                        f"<diff>\n{non_test_diff[:MAX_DIFF_CHARACTERS]}\n</diff>"
+                        f"<diff>\n{judged_diff[:MAX_DIFF_CHARACTERS]}\n</diff>"
                     ),
                 }
             ],
