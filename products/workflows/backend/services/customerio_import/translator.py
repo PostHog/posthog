@@ -35,6 +35,7 @@ _WEEKDAYS = ["monday", "tuesday", "wednesday", "thursday", "friday"]
 _PASS_THROUGH = {"filter_match_delay_action"}
 _LAYOUT_CONTENT = re.compile(r"\{\{-?\s*content\s*-?\}\}")
 _STATIC_SEGMENT_TYPES = {"static", "manual"}
+_SEGMENT_IDS = re.compile(r"\b(segments?) (\d+(?:, \d+)*)\b")
 _CHANNEL_NAMES = {
     "push_action": "push notification",
     "twilio_action": "SMS",
@@ -63,7 +64,7 @@ class _Builder:
         self.notes.append(
             ImportNote(
                 level=level,
-                message=message,
+                message=_SEGMENT_IDS.sub(self._name_segments, message),
                 step_id=action["id"] if action else None,
                 step_name=action.get("name") if action else None,
             )
@@ -178,7 +179,7 @@ class _Builder:
                 "cohort_id": self.options.segment_cohorts[segments[0]],
                 "transition": "left" if inverse else "entered",
             }
-        described = [f"in segment {self._segment_label(segment)}" for segment in segments] + [
+        described = [f"in segment {segment}" for segment in segments] + [
             conditions.describe(attribute) for attribute in attributes
         ]
         what = "; ".join(described) or "a segment"
@@ -292,6 +293,10 @@ class _Builder:
                 NoteLevel.APPROXIMATED,
                 "Customer.io throttles this automation's sends. Set an email sending limit on the workflow.",
             )
+
+    def _name_segments(self, match: re.Match[str]) -> str:
+        labels = [self._segment_label(segment_id) for segment_id in match.group(2).split(", ")]
+        return f"{match.group(1)} {', '.join(labels)}"
 
     def _segment_label(self, segment_id: str) -> str:
         segment = self.options.segments.get(segment_id)

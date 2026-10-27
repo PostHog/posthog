@@ -206,6 +206,7 @@ class TestCustomerioCampaignTranslation(BaseTest):
             level == NoteLevel.NEEDS_INPUT and step is None and '"Beta list" (9) is a static list' in text
             for level, step, text in messages
         )
+        assert any(text.startswith('Only people in segment "Beta list" (9) can enter') for _, _, text in messages)
         assert not any(step == "cio_1" and "sender" in text for _, step, text in messages)
 
     def test_language_split_keeps_only_the_default_message(self) -> None:
