@@ -7,12 +7,12 @@ findings rather than a schedule.
 
 import re
 import uuid
-from collections import Counter
 from datetime import datetime, timedelta
 from typing import Any
 
 from django.core.cache import cache
-from django.db.models import F
+from django.db.models import F, Window
+from django.db.models.functions import RowNumber
 
 import numpy as np
 import structlog
@@ -49,8 +49,6 @@ MAX_ACTIVE_THEMES = 2_000
 MAX_SUGGESTED_QUERIES = 4
 # A cross-scanner view takes at most this many suggestions from one scanner, so one busy scanner never fills it.
 _PER_SCANNER_SUGGESTIONS = 2
-# Enough candidates to fill every slot after the per-scanner cap and dedupe drop some.
-_SUGGESTION_CANDIDATES = 50
 THEME_NAME_SAMPLES = 8
 THEME_NAMING_DAILY_CAP = 100
 MAX_THEME_LABEL_WORDS = 10
@@ -235,20 +233,22 @@ async def name_theme(team_id: int, theme_id: uuid.UUID, now: datetime) -> str | 
 
 def theme_suggestions(team_id: int, scanner_ids: list[str], now: datetime) -> list[str]:
     """The names of the largest active themes among the given scanners, as example searches."""
+    per_scanner_cap = MAX_SUGGESTED_QUERIES if len(scanner_ids) == 1 else _PER_SCANNER_SUGGESTIONS
+    # Each scanner's own top themes are ranked first, so one scanner with many themes never crowds out the rest.
     themes = (
         ReplayScannerSearchTheme.objects.for_team(team_id)
         .filter(scanner_id__in=scanner_ids, last_member_at__gte=now - THEME_ACTIVE_WINDOW)
         .exclude(name="")
+        .annotate(
+            scanner_rank=Window(RowNumber(), partition_by=[F("scanner_id")], order_by=[F("member_count").desc(), "id"])
+        )
         .order_by("-member_count", "id")
-        .values_list("scanner_id", "name")[:_SUGGESTION_CANDIDATES]
+        .values_list("scanner_id", "name", "scanner_rank")
     )
-    per_scanner_cap = MAX_SUGGESTED_QUERIES if len(scanner_ids) == 1 else _PER_SCANNER_SUGGESTIONS
-    taken: Counter[uuid.UUID] = Counter()
     queries: list[str] = []
-    for scanner_id, name in themes:
-        if name in queries or taken[scanner_id] >= per_scanner_cap:
+    for _scanner_id, name, scanner_rank in themes:
+        if scanner_rank > per_scanner_cap or name in queries:
             continue
-        taken[scanner_id] += 1
         queries.append(name)
         if len(queries) == MAX_SUGGESTED_QUERIES:
             break
