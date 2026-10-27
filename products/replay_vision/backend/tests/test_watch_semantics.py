@@ -74,10 +74,10 @@ class TestAssignSemantics(BaseTest):
         feed_group_cache.clear()
         self.scanner = self._scanner(ScannerType.SUMMARIZER)
 
-    def _scanner(self, scanner_type: str, valence: str = "") -> ReplayScanner:
+    def _scanner(self, scanner_type: str, valence: str = "", name: str = "checkout") -> ReplayScanner:
         return ReplayScanner.objects.create(
             team=self.team,
-            name="checkout",
+            name=name,
             scanner_type=scanner_type,
             prompt_valence=valence,
             scanner_config={"prompt": "What happened at checkout?"},
@@ -129,7 +129,7 @@ class TestAssignSemantics(BaseTest):
         assert first.watch_rank["theme"] == str(joined[0].theme.theme_id)
 
     def test_a_monitor_answer_the_scanner_is_not_looking_for_gets_a_group_but_no_theme(self) -> None:
-        monitor = self._scanner(ScannerType.MONITOR, PromptValence.BAD)
+        monitor = self._scanner(ScannerType.MONITOR, PromptValence.BAD, name="checkout errors")
         observation = self._observation(output={"scanner_type": "monitor", "verdict": "no"}, scanner=monitor)
 
         assignment = self._assign(observation, _vector(1.0))
