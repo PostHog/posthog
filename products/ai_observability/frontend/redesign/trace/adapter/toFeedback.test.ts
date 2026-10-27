@@ -44,6 +44,7 @@ describe('toFeedback', () => {
             scores: [makeFeedbackScore({ nodeId: 'gen-1' }), makeFeedbackScore({ id: 'score-2', nodeId: 'gone' })],
             responses: [makeFeedbackText({ nodeId: 'gen-1' }), survey],
             unanswered,
+            surveyResponsesStatus: 'failed',
         })
 
         const mode = toFeedbackMode({ feedback, tree: makeTraceResource().tree, traceId: 'trace-1', focusNodeId: null })
@@ -52,6 +53,7 @@ describe('toFeedback', () => {
         expect(mode.responses.map((item) => item.step)).toEqual([{ id: 'gen-1', name: 'gen-1' }, null])
         expect(mode.responses[1]).toEqual({ ...survey, step: null, focused: false })
         expect(mode.unanswered).toEqual(unanswered)
+        expect(mode.surveysFailed).toBe(true)
     })
 
     test.each([

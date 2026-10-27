@@ -24,7 +24,10 @@ export const FocusedOnAStep: Story = { args: { state: FIXTURE_FEEDBACK_MODE } }
 export const ScoresOnly: Story = { args: { state: { ...unfocused, responses: [] } } }
 export const WithSurveys: Story = { args: { state: FIXTURE_FEEDBACK_MODE_WITH_SURVEYS } }
 export const Narrow: Story = { args: { state: FIXTURE_FEEDBACK_MODE_WITH_SURVEYS }, decorators: [withWidth(520)] }
-export const Empty: Story = { args: { state: { status: 'ready', scores: [], responses: [], unanswered: [] } } }
+export const Empty: Story = {
+    args: { state: { status: 'ready', scores: [], responses: [], unanswered: [], surveysFailed: false } },
+}
+export const SurveyReadFailed: Story = { args: { state: { ...unfocused, responses: [], surveysFailed: true } } }
 export const Loading: Story = {
     args: { state: { status: 'loading' } },
     parameters: { testOptions: { waitForLoadersToDisappear: false } },

@@ -148,6 +148,7 @@ export type FeedbackModeState =
           scores: FeedbackScoreRow[]
           responses: FeedbackResponseItem[]
           unanswered: TraceUnansweredSurveyApi[]
+          surveysFailed: boolean
       }
 
 export interface FeedbackChipData {

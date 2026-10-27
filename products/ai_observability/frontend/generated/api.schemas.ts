@@ -1532,6 +1532,15 @@ export interface TraceUnansweredSurveyApi {
     timestamp: string
 }
 
+export type SurveyResponsesStatusEnumApi =
+    (typeof SurveyResponsesStatusEnumApi)[keyof typeof SurveyResponsesStatusEnumApi]
+
+export const SurveyResponsesStatusEnumApi = {
+    Ok: 'ok',
+    Failed: 'failed',
+    NotPermitted: 'not_permitted',
+} as const
+
 export interface TraceFeedbackSummaryApi {
     /** Scores plus responses. */
     total: number
@@ -1548,6 +1557,8 @@ export interface TraceFeedbackApi {
     responses: (TraceFeedbackTextApi | TraceSurveyResponseApi)[]
     /** Surveys shown with the trace and not answered, oldest first. */
     unanswered: TraceUnansweredSurveyApi[]
+    /** ok when survey responses are included, failed when the survey read failed, not_permitted when the token lacks the survey:read and query:read scopes. */
+    surveyResponsesStatus: SurveyResponsesStatusEnumApi
     summary: TraceFeedbackSummaryApi
 }
 

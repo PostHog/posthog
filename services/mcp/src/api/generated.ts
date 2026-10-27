@@ -116486,6 +116486,15 @@ export namespace Schemas {
       offset: number;
     }
 
+    export type SurveyResponsesStatusEnum = typeof SurveyResponsesStatusEnum[keyof typeof SurveyResponsesStatusEnum];
+
+
+    export const SurveyResponsesStatusEnum = {
+      Ok: 'ok',
+      Failed: 'failed',
+      NotPermitted: 'not_permitted',
+    } as const;
+
     export type SurveyResultsWidgetCatalogEntryOpenApiWidgetType = typeof SurveyResultsWidgetCatalogEntryOpenApiWidgetType[keyof typeof SurveyResultsWidgetCatalogEntryOpenApiWidgetType];
 
 
@@ -120392,6 +120401,8 @@ export namespace Schemas {
       responses: (TraceFeedbackText | TraceSurveyResponse)[];
       /** Surveys shown with the trace and not answered, oldest first. */
       unanswered: TraceUnansweredSurvey[];
+      /** ok when survey responses are included, failed when the survey read failed, not_permitted when the token lacks the survey:read and query:read scopes. */
+      surveyResponsesStatus: SurveyResponsesStatusEnum;
       summary: TraceFeedbackSummary;
     }
 

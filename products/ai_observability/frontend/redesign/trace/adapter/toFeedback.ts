@@ -64,5 +64,6 @@ export function toFeedbackMode({
         scores: feedback.scores.map((score) => ({ ...score, ...placement(score.nodeId) })),
         responses: feedback.responses.map((response) => ({ ...response, ...placement(nodeIdOf(response)) })),
         unanswered: feedback.unanswered,
+        surveysFailed: feedback.surveyResponsesStatus === 'failed',
     }
 }

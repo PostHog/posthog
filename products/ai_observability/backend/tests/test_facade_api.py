@@ -107,7 +107,9 @@ def test_feedback_maps_scores_texts_and_survey_responses_oldest_first() -> None:
         patch.object(api, "load_trace_feedback_rows", return_value=rows),
         patch.object(api, "get_survey_responses_linked_to", return_value=linked),
     ):
-        feedback = api.get_trace_feedback(team=None, user=None, trace_id="trace-1", timestamp_hint=None)  # type: ignore[arg-type]
+        feedback = api.get_trace_feedback(
+            team=None, user=None, trace_id="trace-1", timestamp_hint=None, include_surveys=True
+        )  # type: ignore[arg-type]
 
     assert [(score.name, score.value, score.node_id) for score in feedback.scores] == [("helpfulness", "0", "gen-uuid")]
     assert [(response.kind, response.id) for response in feedback.responses] == [("survey", "sub-1"), ("text", "text")]
@@ -133,35 +135,50 @@ def test_feedback_maps_scores_texts_and_survey_responses_oldest_first() -> None:
     assert feedback.summary == contracts.TraceFeedbackSummary(total=3, thumbs_up=1, thumbs_down=0)
 
 
+SURVEY_READ = call(
+    None,
+    None,
+    property_name="$ai_trace_id",
+    property_value="trace-1",
+    since=datetime(2026, 9, 1, tzinfo=UTC),
+    until=datetime(2026, 10, 2, tzinfo=UTC),
+)
+WITH_FEEDBACK = (make_feedback_row(uuid="metric", metric_value_json="1", timestamp=T0),)
+
+
 @parameterized.expand(
     [
-        (
-            "a trace with feedback",
-            (make_feedback_row(uuid="metric", metric_value_json="1", timestamp=T0),),
-            [
-                call(
-                    None,
-                    None,
-                    property_name="$ai_trace_id",
-                    property_value="trace-1",
-                    since=datetime(2026, 9, 1, tzinfo=UTC),
-                    until=datetime(2026, 10, 2, tzinfo=UTC),
-                )
-            ],
-        ),
-        ("a trace without feedback or a hint", (), []),
+        ("a trace with feedback", WITH_FEEDBACK, True, None, [SURVEY_READ], "ok"),
+        ("a trace without feedback or a hint", (), True, None, [], "ok"),
+        ("a token without the survey scopes", WITH_FEEDBACK, False, None, [], "not_permitted"),
+        ("a failed survey read", WITH_FEEDBACK, True, RuntimeError("timeout"), [SURVEY_READ], "failed"),
     ]
 )
 def test_feedback_reads_the_surveys_linked_to_the_trace_from_its_day(
-    _name: str, rows: tuple[FeedbackEventRow, ...], expected_reads: list[object]
+    _name: str,
+    rows: tuple[FeedbackEventRow, ...],
+    include_surveys: bool,
+    survey_error: Exception | None,
+    expected_reads: list[object],
+    expected_status: str,
 ) -> None:
     with (
         patch.object(api, "load_trace_feedback_rows", return_value=rows),
-        patch.object(api, "get_survey_responses_linked_to", return_value=NO_SURVEYS) as read_surveys,
+        patch.object(
+            api, "get_survey_responses_linked_to", return_value=NO_SURVEYS, side_effect=survey_error
+        ) as read_surveys,
+        patch.object(api, "capture_exception"),
     ):
-        api.get_trace_feedback(team=None, user=None, trace_id="trace-1", timestamp_hint=None)  # type: ignore[arg-type]
+        feedback = api.get_trace_feedback(
+            team=None,  # type: ignore[arg-type]
+            user=None,
+            trace_id="trace-1",
+            timestamp_hint=None,
+            include_surveys=include_surveys,
+        )
 
     assert read_surveys.call_args_list == expected_reads
+    assert (feedback.survey_responses_status, len(feedback.scores)) == (expected_status, len(rows))
 
 
 class TestGetTraceEvaluationResults(ClickhouseTestMixin, BaseTest):

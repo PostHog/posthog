@@ -3,11 +3,13 @@ from datetime import date, datetime
 
 from posthog.schema import HogQLPropertyFilter
 
+from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 
 from products.surveys.backend.facade.api import (
     LinkedSurveyAnswer,
     LinkedSurveyResponse,
+    LinkedSurveyResponses,
     SurveyRef,
     get_survey_responses_linked_to,
 )
@@ -233,22 +235,29 @@ def _to_evaluation_result(result: EvaluationResult) -> contracts.TraceEvaluation
     )
 
 
+NO_LINKED_SURVEYS = LinkedSurveyResponses(responses=(), unanswered=())
+
+
 def get_trace_feedback(
-    team: Team, user: User | None, trace_id: str, timestamp_hint: datetime | None
+    team: Team, user: User | None, trace_id: str, timestamp_hint: datetime | None, *, include_surveys: bool
 ) -> contracts.TraceFeedback:
     """End-user feedback on a trace, from its feedback events and the survey responses linked to it. An unknown trace
-    has none."""
+    has none. Survey responses are read only with `include_surveys`, and a failed survey read leaves them out."""
     rows = load_trace_feedback_rows(team, user, trace_id, timestamp_hint)
     feedback = TraceFeedback(trace_id, rows)
+    survey_responses_status: contracts.TraceSurveyResponsesStatus = "ok" if include_surveys else "not_permitted"
+    linked = NO_LINKED_SURVEYS
     window = survey_window(rows, timestamp_hint)
-    linked = (
-        get_survey_responses_linked_to(
-            team, user, property_name="$ai_trace_id", property_value=trace_id, since=window.start, until=window.end
-        )
-        if window is not None
-        else None
-    )
-    survey_responses = linked.responses if linked is not None else ()
+    if include_surveys and window is not None:
+        try:
+            linked = get_survey_responses_linked_to(
+                team, user, property_name="$ai_trace_id", property_value=trace_id, since=window.start, until=window.end
+            )
+        except Exception as error:
+            # Survey responses are one feedback source among several, so their failure must not hide the others.
+            capture_exception(error)
+            survey_responses_status = "failed"
+    survey_responses = linked.responses
     thumbs = count_thumbs(survey_responses)
     scores = [_to_feedback_score(score) for score in feedback.scores]
     responses: list[contracts.TraceFeedbackText | contracts.TraceSurveyResponse] = sorted(
@@ -263,8 +272,9 @@ def get_trace_feedback(
         responses=responses,
         unanswered=[
             contracts.TraceUnansweredSurvey(survey=_to_survey(survey.survey), timestamp=survey.shown_at)
-            for survey in (linked.unanswered if linked is not None else ())
+            for survey in linked.unanswered
         ],
+        survey_responses_status=survey_responses_status,
         summary=contracts.TraceFeedbackSummary(
             total=len(scores) + len(responses), thumbs_up=thumbs.up, thumbs_down=thumbs.down
         ),

@@ -210,6 +210,9 @@ class TraceUnansweredSurvey(Contract):
     timestamp: datetime = Field(description="When the survey was first shown.")
 
 
+TraceSurveyResponsesStatus = Literal["ok", "failed", "not_permitted"]
+
+
 TraceFeedbackResponse = Annotated[TraceFeedbackText | TraceSurveyResponse, Field(discriminator="kind")]
 
 
@@ -224,6 +227,9 @@ class TraceFeedback(Contract):
     responses: list[TraceFeedbackResponse] = Field(description="What users said, oldest first.")
     unanswered: list[TraceUnansweredSurvey] = Field(
         description="Surveys shown with the trace and not answered, oldest first."
+    )
+    survey_responses_status: TraceSurveyResponsesStatus = Field(
+        description="ok when survey responses are included, failed when the survey read failed, not_permitted when the token lacks the survey:read and query:read scopes."
     )
     summary: TraceFeedbackSummary
 

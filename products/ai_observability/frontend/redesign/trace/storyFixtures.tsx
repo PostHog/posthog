@@ -450,6 +450,7 @@ export const FIXTURE_FEEDBACK_MODE: Extract<FeedbackModeState, { status: 'ready'
         },
     ],
     unanswered: [],
+    surveysFailed: false,
 }
 
 const answerQuality = { id: '0192f2a4-5c1e-7000-8000-00000000a001', name: 'Answer quality' }
@@ -523,6 +524,7 @@ export const FIXTURE_FEEDBACK_MODE_WITH_SURVEYS: Extract<FeedbackModeState, { st
         },
         { survey: { id: '0192f2a4-5c1e-7000-8000-00000000a005', name: null }, timestamp: '2026-09-01T10:30:00Z' },
     ],
+    surveysFailed: false,
 }
 
 export function withWidth(px: number): Decorator {

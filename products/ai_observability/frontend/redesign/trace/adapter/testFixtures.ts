@@ -186,6 +186,7 @@ export function makeFeedback(overrides: Partial<TraceFeedbackApi> = {}): TraceFe
         scores,
         responses,
         unanswered: [],
+        surveyResponsesStatus: 'ok',
         summary: { total: scores.length + responses.length, thumbsUp: 0, thumbsDown: 0 },
         ...overrides,
     }

@@ -360,6 +360,25 @@ class TestTraceFeedbackView(ClickhouseTestMixin, APIBaseTest):
             ("text", "Too long, but correct.", None)
         ]
         assert body["summary"]["total"] == 2
+        assert body["surveyResponsesStatus"] == "ok"
+
+    @parameterized.expand(
+        [
+            ("only the trace scope", ["llm_analytics:read"], "not_permitted"),
+            ("the survey response scopes too", ["llm_analytics:read", "survey:read", "query:read"], "ok"),
+        ]
+    )
+    def test_includes_survey_responses_only_for_a_token_with_the_survey_scopes(
+        self, _name: str, scopes: list[str], expected: str
+    ) -> None:
+        _create_feedback(self.team)
+        headers = {"authorization": f"Bearer {self.create_personal_api_key_with_scopes(scopes)}"}
+        self.client.logout()
+
+        response = self.client.get(self._url(_encode("trace-1")), headers=headers)
+
+        assert response.status_code == 200
+        assert (response.json()["surveyResponsesStatus"], response.json()["summary"]["total"]) == (expected, 2)
 
     def test_an_unknown_trace_has_no_feedback(self) -> None:
         response = self.client.get(self._url(_encode("trace-2")))
