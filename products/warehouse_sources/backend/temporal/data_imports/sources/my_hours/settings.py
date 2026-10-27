@@ -92,6 +92,11 @@ MY_HOURS_ENDPOINTS: dict[str, MyHoursEndpointConfig] = {
 
 ENDPOINTS = tuple(MY_HOURS_ENDPOINTS.keys())
 
+# Teams are a Pro plan feature, so these tables need a probe of the team listing before setup.
+TEAMS_PROBE_PATH = "/Teams/getall"
+TEAM_ENDPOINTS = frozenset({"teams", "team_members"})
+TEAMS_UNAVAILABLE_ERROR = "Teams are only available on the My Hours Pro plan, and this API key cannot read them."
+
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     TIME_LOGS_ENDPOINT: [
         {

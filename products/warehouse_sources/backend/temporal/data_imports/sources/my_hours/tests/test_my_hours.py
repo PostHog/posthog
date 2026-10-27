@@ -26,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.my_hours.m
 from products.warehouse_sources.backend.temporal.data_imports.sources.my_hours.settings import (
     ENDPOINTS,
     MY_HOURS_ENDPOINTS,
+    TEAMS_UNAVAILABLE_ERROR,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.my_hours.source import MyHoursSource
 
@@ -97,6 +98,40 @@ class TestCheckAccess:
         assert status == 0
         assert message is not None and "boom" in message
         assert {request.path for request in network.requests_log} == {"/api/Clients"}
+
+
+class TestEndpointPermissions:
+    def setup_method(self) -> None:
+        self.source = MyHoursSource()
+        self.config = MyHoursSourceConfig(api_key="mh-key")
+
+    @parameterized.expand([("forbidden", 403), ("unauthorized", 401)])
+    def test_team_tables_are_flagged_when_the_plan_refuses_teams(self, _name: str, status: int) -> None:
+        with scripted_network([ScriptedResponse(status=status)]) as network:
+            permissions = self.source.get_endpoint_permissions(self.config, 1, list(ENDPOINTS))
+
+        assert permissions["teams"] == TEAMS_UNAVAILABLE_ERROR
+        assert permissions["team_members"] == TEAMS_UNAVAILABLE_ERROR
+        assert all(reason is None for name, reason in permissions.items() if name not in ("teams", "team_members"))
+        assert [request.path for request in network.requests_log] == ["/api/Teams/getall"]
+
+    @parameterized.expand(
+        [
+            ("reachable", ScriptedResponse(json=[])),
+            ("server_error", ScriptedResponse(status=500)),
+            ("connection_error", requests.ConnectionError("boom")),
+        ]
+    )
+    def test_team_tables_stay_selectable_unless_refused(
+        self, _name: str, answer: ScriptedResponse | BaseException
+    ) -> None:
+        with scripted_network(always(answer)):
+            assert self.source.get_endpoint_permissions(self.config, 1, list(ENDPOINTS)) == dict.fromkeys(ENDPOINTS)
+
+    def test_no_probe_when_no_team_table_is_requested(self) -> None:
+        with scripted_network([]) as network:
+            assert self.source.get_endpoint_permissions(self.config, 1, ["clients"]) == {"clients": None}
+        assert network.requests_log == []
 
 
 def _empty_answer(request: RecordedRequest) -> ScriptedResponse:
