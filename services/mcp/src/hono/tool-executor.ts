@@ -79,6 +79,10 @@ import type { ResolvedState } from './request-state-resolver'
 import type { SkillCatalogService } from './skill-catalog-service'
 import type { ToolCatalog } from './tool-catalog'
 
+const RENDER_UI_UNSUPPORTED_CLIENT_TEXT =
+    "This client can't show interactive views, so render-ui displayed nothing to the user. " +
+    'Present the data you already retrieved as text or a table instead. Do not call render-ui again.'
+
 interface ResolvedTool {
     name: string
     schema: ZodObjectAny
@@ -323,10 +327,13 @@ export class ToolExecutor {
         }
 
         if (toolName === 'render-ui') {
-            // render-ui is only advertised to MCP Apps hosts; reject calls from others.
+            // render-ui is only advertised to MCP Apps hosts, so reject calls from others. A host
+            // can still reach this branch when it was detected as a UI host on `tools/list` and
+            // not on `tools/call`, which is how Claude Code on the claude.ai connector sees it.
+            // Tell the model how to answer without the view, so it does not report a missing tool.
             if (!state.renderUiEnabled) {
                 toolCallsTotal.inc({ tool: toolName, status: 'error' })
-                return { content: [{ type: 'text', text: `Tool ${toolName} not found` }], isError: true }
+                return { content: [{ type: 'text', text: RENDER_UI_UNSUPPORTED_CLIENT_TEXT }], isError: true }
             }
             return this.callRenderUiTool(callParams, state, analyticsMeta)
         }

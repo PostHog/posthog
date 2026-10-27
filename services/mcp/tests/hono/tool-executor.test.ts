@@ -823,7 +823,7 @@ describe('ToolExecutor', () => {
             expect(result.structuredContent.app_key).toBe('survey')
         })
 
-        it('rejects a render-ui call when render-ui is disabled', async () => {
+        it('rejects a render-ui call when render-ui is disabled, telling the model to answer in text', async () => {
             const state = makeToolExecutorState([uiAppTool], { useSingleExec: true, renderUiEnabled: false })
 
             const result = (await executor.handleToolCall(
@@ -831,8 +831,12 @@ describe('ToolExecutor', () => {
                 state
             )) as any
 
-            expect(result.isError).toBe(true)
-            expect(result.content[0].text).toContain('not found')
+            // The whole result, so a render directive (`_meta.ui`, `structuredContent`) cannot ride along.
+            expect(result).toEqual({
+                isError: true,
+                content: [{ type: 'text', text: expect.stringContaining('Do not call render-ui again') }],
+            })
+            expect(result.content[0].text).not.toContain('not found')
         })
     })
 
