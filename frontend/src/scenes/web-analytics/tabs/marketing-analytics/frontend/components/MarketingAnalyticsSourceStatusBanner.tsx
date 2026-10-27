@@ -4,6 +4,8 @@ import { LemonBanner } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
+import { ExternalDataSchemaStatus } from '~/types'
+
 import { SourceSetupPanel } from 'products/marketing_analytics/frontend/dashboard/SourceSetupPanel'
 
 import { MarketingSourceStatus, marketingAnalyticsLogic } from '../logic/marketingAnalyticsLogic'
@@ -43,8 +45,11 @@ export const MarketingAnalyticsSourceStatusBanner = ({
                 <SourceSetupPanel
                     state="waiting"
                     compact
+                    showIllustration={false}
                     manageSourceDataAttr="marketing-source-status-settings"
                     expansionKey="source-status"
+                    title="Some connections need attention"
+                    description="Fix these connections to keep your spend data up to date."
                     connections={sourcesWithIssues.map((source) => ({
                         id: source.id,
                         name:
@@ -53,7 +58,11 @@ export const MarketingAnalyticsSourceStatusBanner = ({
                                   `${nativeSourceDisplayLabel(source.source_type)} (${source.id.slice(0, 8)})`
                                 : source.name,
                         sourceType: source.source_type,
-                        status: 'Needs attention',
+                        status:
+                            source.status === ExternalDataSchemaStatus.Failed ||
+                            source.status === MarketingSourceStatus.Error
+                                ? 'Sync failed'
+                                : 'Needs attention',
                         detail: source.statusMessage,
                         manageUrl:
                             source.type === 'native'
