@@ -84,11 +84,13 @@ class CustomerIOImportService:
             self.progress["topics_found"] = len(topics)
             self._import_categories(topics)
 
-            # Step 3: Process globally unsubscribed users
-            self._process_globally_unsubscribed_users()
-
-            # Step 4: Import addresses Customer.io's email provider suppressed
+            # Step 3: Import addresses Customer.io's email provider suppressed. They go before the global
+            # unsubscribes because those can run to hundreds of pages, past the request timeout, and each page
+            # saves on its own, so the shorter suppression lists finish first.
             self._import_suppressions()
+
+            # Step 4: Process globally unsubscribed users
+            self._process_globally_unsubscribed_users()
 
             self.progress["status"] = "completed"
 
