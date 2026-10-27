@@ -60,6 +60,12 @@ It installs the Coder CLI at the server's version into `~/.hogli/bin`, logs in, 
 Each optional step has a `--configure-<step>` and `--skip-configure-<step>` flag: `ssh`, `git-identity`, `git-signing`, `region`, `dotfiles`, `claude`.
 Run it again when a command prints `Coder CLI vX does not match server vY`, because it reinstalls the matching CLI.
 
+Each region has its own Coder server. `us-east-1` uses `coder.dev.posthog.dev` and `eu-central-1` uses `coder-eu.dev.posthog.dev`.
+The saved region (`--configure-region`) picks the server for the setup login and for every devbox command. `devbox:start --region` must match it.
+Boxes and logins do not carry across regions, so a box made in one region is not visible from the other.
+Boxes created in `eu-central-1` before the EU server existed are on the US server with an `-eu` suffix. They are reachable only while the saved region is `us-east-1`.
+The `coder` CLI holds one login at a time. When a command says it is logged in to the other region's server, run `hogli devbox:setup --configure-region` and pick the region you want.
+
 On Linux, the reachability check can run `sudo tailscale set --accept-routes` and prompt for a password.
 Run setup interactively once before an agent drives devbox commands unattended.
 
@@ -73,7 +79,7 @@ This creates the box on first use and resumes it after a stop.
 It returns once the box's startup scripts finish, so the box is ready to connect to. `devbox:restart`, `devbox:update` and `devbox:clone` wait the same way. If a script fails or the wait gives up, the box still runs and hogli prints a warning that points to `hogli devbox:logs`.
 It brings up the PostHog stack only when the workspace has `--start-app` set, which is covered in [Run the PostHog app](#run-the-posthog-app).
 `--disk` (`100` or `200` GiB) applies only when the box is created.
-`--region` (`us-east-1` or `eu-central-1`) starts that region's default box and creates it if it doesn't exist, so leave it off when resuming an existing box.
+`--region` (`us-east-1` or `eu-central-1`) must match the saved region. It starts that region's default box and creates it if it doesn't exist. Leave it off when you resume an existing box.
 A box's region can't change.
 
 The default box is `devbox-<coder-user>`, and a labeled box is `devbox-<coder-user>-<label>`.

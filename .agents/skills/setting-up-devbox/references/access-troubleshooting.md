@@ -32,6 +32,7 @@ If the tailnet is right and doctor still reports the control plane unreachable w
 
 Doctor can show `[ok] Tailscale connected` and still fail reachability with a DNS cause (`DNS lookup for coder.dev.posthog.dev failed`).
 That means the name never reaches the internal resolver.
+The host depends on the saved region. `eu-central-1` uses `coder-eu.dev.posthog.dev`. In the checks below, use the host from doctor's `Coder URL` line.
 Check in this order:
 
 1. **Wrong tailnet.** Doctor checks the tailnet before DNS, so a DNS cause usually means the tailnet is right or unknown. Confirm the `Tailnet:` line anyway.

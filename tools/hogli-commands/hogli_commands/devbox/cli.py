@@ -75,9 +75,11 @@ from .coder import (
     open_web_ide,
     parse_workspace_target,
     port_forward_replace,
+    preferred_region,
     print_setup_summary,
     region_from_workspace_name,
     restart_workspace,
+    saved_region,
     server_supports_user_secrets,
     share_workspace,
     ssh_replace,
@@ -155,7 +157,7 @@ def resolve_workspace_name(
     workspace in the multi-box case. This keeps a saved region pref from
     silently masking existing workspaces created before the pref was set.
     """
-    effective_region = region if region is not None else _preferred_region()
+    effective_region = region if region is not None else preferred_region()
     if workspace is not None:
         target_name = parse_workspace_target(workspace, region=effective_region)
         # Shared workspace targets (`@user[/label]`) are looked up against the
@@ -752,34 +754,13 @@ def maybe_configure_git_signing(
     click.echo("Restart any running devbox (`hogli devbox:restart`) to pick up the new gitconfig.")
 
 
-def _saved_region() -> str | None:
-    """Return the saved region preference, or ``None`` when absent or invalid.
-
-    A persisted value that's no longer in ``REGIONS`` (e.g. a stale entry
-    from a hand-edited config) reads as unset instead of poisoning every
-    downstream lookup.
-    """
-    saved = load_config().get("region")
-    return saved if saved in REGIONS else None
-
-
-def _preferred_region() -> str:
-    """Return the saved preferred region, falling back to ``DEFAULT_REGION``.
-
-    Centralized so every command path that needs the user's region
-    preference reads the same value -- and so the fallback to the built-in
-    default lives in one place.
-    """
-    return _saved_region() or DEFAULT_REGION
-
-
 def maybe_configure_region(configure_region: bool | None) -> None:
-    """Optionally persist the preferred region for new devboxes.
+    """Optionally persist the preferred region for devboxes.
 
-    The region is create-only on a workspace, so saving it locally just
-    pre-fills ``devbox:start --region`` and determines the default
-    workspace name (eu-central-1 boxes carry an ``-eu`` suffix). Existing
-    workspaces are untouched.
+    The saved region picks the Coder server every devbox command talks to
+    and determines the default workspace name (eu-central-1 boxes carry an
+    ``-eu`` suffix). ``devbox:start --region`` must match it. This does not
+    change existing workspaces.
     """
     config = load_config()
     existing_region = config.get("region")
@@ -794,8 +775,9 @@ def maybe_configure_region(configure_region: bool | None) -> None:
 
     click.echo()
     click.echo(click.style("Preferred region", bold=True))
-    click.echo("  Choose which region new devboxes should land in.")
-    click.echo("  This is saved locally and used as the default for `hogli devbox:start`.")
+    click.echo("  Choose which region your devboxes run in.")
+    click.echo("  Each region has its own Coder server, so this also picks the server hogli logs in to.")
+    click.echo("  Devboxes and logins do not carry across regions.")
     if existing_region:
         click.echo(f"  Current: {existing_region}")
     click.echo()
@@ -873,7 +855,7 @@ def devbox_doctor() -> None:
     surfaced explicitly whenever the control plane is unreachable.
     """
     click.echo(click.style("Devbox doctor", bold=True))
-    click.echo(f"  Coder URL: {get_coder_url()}")
+    click.echo(f"  Coder URL: {get_coder_url()} (region {preferred_region()})")
     click.echo()
 
     connected, tailnet = tailscale_state()
@@ -1037,7 +1019,7 @@ def _reset_region() -> bool:
         click.echo("Nothing to clear: region preference was not set.")
         return False
     clear_region(config)
-    click.echo("Cleared saved region preference. New workspaces will use the built-in default.")
+    click.echo(f"Cleared saved region preference. Devbox commands now use {DEFAULT_REGION} and its Coder server.")
     return True
 
 
@@ -1186,12 +1168,12 @@ def _confirm_run_setup() -> bool:
         return True
     click.echo()
     click.echo("hogli devbox:setup will check or configure:")
+    click.echo("  - Devbox region, which picks the Coder server (optional)")
     click.echo("  - Tailscale + Coder reachability")
     click.echo("  - Local SSH config for Coder hosts")
     click.echo("  - File sync tooling (mutagen) for devbox:sync")
     click.echo("  - Git identity (name/email) for new workspaces")
     click.echo("  - Git commit signing key propagation")
-    click.echo("  - Preferred region for new workspaces (optional)")
     click.echo("  - Dotfiles repo for new workspaces (optional)")
     click.echo("  - Claude OAuth token as a Coder user secret (optional)")
     click.echo()
@@ -1217,7 +1199,7 @@ def _confirm_run_setup() -> bool:
 @click.option(
     "--configure-region/--skip-configure-region",
     default=None,
-    help="Prompt for the preferred region (us-east-1 or eu-central-1) for new devboxes",
+    help="Prompt for your devbox region (us-east-1 or eu-central-1), which picks the Coder server every devbox command uses",
 )
 @click.option(
     "--configure-dotfiles/--skip-configure-dotfiles",
@@ -1252,6 +1234,14 @@ def devbox_setup(
         ],
     )
 
+    if not explicit and not _confirm_run_setup():
+        click.echo("Aborted. Re-run `hogli devbox:setup` when ready.")
+        return
+
+    # The region picks the Coder server, so configure it before the steps
+    # that probe, install from, and log in to that server.
+    maybe_configure_region(configure_region)
+
     click.echo(click.style("Configuring devbox CLI access...", bold=True))
     ensure_coder_reachable("rerun `hogli devbox:setup`.")
     ensure_coder_installed(verbose=verbose)
@@ -1265,10 +1255,6 @@ def devbox_setup(
 
     status = _collect_setup_status(secret_names)
     _print_setup_status(status)
-
-    if not explicit and not _confirm_run_setup():
-        click.echo("Aborted. Re-run `hogli devbox:setup` when ready.")
-        return
 
     mutagen.ensure_mutagen_installed(verbose=verbose)
     mutagen.ensure_daemon_with_shim()
@@ -1284,7 +1270,6 @@ def devbox_setup(
     )
     maybe_configure_git_identity(configure_git_identity)
     maybe_configure_git_signing(configure_git_signing, known_secret_names=secret_names)
-    maybe_configure_region(configure_region)
     maybe_configure_dotfiles(configure_dotfiles)
     maybe_configure_claude_secret(configure_claude_setup, known_secret_names=secret_names)
     print_setup_summary()
@@ -1437,14 +1422,14 @@ def _maybe_hint_region_mismatch(name: str) -> None:
     gate on a bare invocation (a label or ``--region`` is already a deliberate
     choice).
     """
-    saved = _saved_region()
+    saved = saved_region()
     if saved is None or extract_workspace_label(name) is not None:
         return
     box_region = region_from_workspace_name(name)
     if box_region != saved:
         click.echo(
             f"Your devbox '{name}' is in {box_region}, but your saved region is {saved}. "
-            f"Create a {saved} devbox with `hogli devbox:start --region {saved}`."
+            f"Start your default {saved} devbox with `hogli devbox:start --region {saved}`."
         )
 
 
@@ -1474,9 +1459,9 @@ def _maybe_hint_region_mismatch(name: str) -> None:
     type=click.Choice(REGIONS),
     default=None,
     help=(
-        "Region whose default devbox to start, creating it if needed (a devbox's region is "
-        "set at creation and cannot change). Defaults to the value saved by "
-        "`devbox:setup --configure-region`, then us-east-1."
+        "Start the default devbox for this region, and create it if needed. The region must match "
+        "the one saved by `devbox:setup --configure-region` (us-east-1 when unset), because each "
+        "region has its own Coder server."
     ),
 )
 @click.option(
@@ -1496,8 +1481,14 @@ def devbox_start(
     verbose: bool,
 ) -> None:
     """Start or create the remote devbox."""
+    effective_region = preferred_region()
+    if region is not None and region != effective_region:
+        _fail(
+            f"Devboxes live on a separate Coder server for each region, and your saved region is "
+            f"{effective_region}. To switch to {region}, run `hogli devbox:setup --configure-region`.",
+            cause="region_flag_not_saved_region",
+        )
     ensure_runtime_ready()
-    effective_region = region or _preferred_region()
     if workspace is None and region is not None:
         # An explicit --region targets that region's default directly, so it
         # can be created (or resumed) regardless of boxes in other regions.

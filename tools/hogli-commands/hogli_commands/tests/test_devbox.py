@@ -26,6 +26,14 @@ from hogli_commands.devbox import (
 
 runner = CliRunner()
 
+_REGIONAL_MANIFEST = {
+    "metadata": {
+        "devbox": {
+            "coder_urls": {"us-east-1": "https://us.example.com", "eu-central-1": "https://eu.example.com"},
+        }
+    }
+}
+
 
 @pytest.fixture(autouse=True)
 def agent_ready_immediately(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -421,20 +429,71 @@ class TestCoderConfig:
         monkeypatch.delenv("CODER_URL", raising=False)
         monkeypatch.setenv(env_key, env_value)
 
-        with patch(
-            "hogli_commands.devbox.coder.load_manifest", return_value={"metadata": {"devbox": {"coder_url": "ignored"}}}
-        ):
+        with patch("hogli_commands.devbox.coder.load_manifest", return_value=_REGIONAL_MANIFEST):
             assert coder.get_coder_url() == expected_url
 
-    def test_get_coder_url_falls_back_to_manifest_metadata(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    @pytest.mark.parametrize(
+        "saved_region, expected_url",
+        [
+            (None, "https://us.example.com"),
+            ("ap-southeast-2", "https://us.example.com"),
+            ("eu-central-1", "https://eu.example.com"),
+        ],
+        ids=["default", "unknown-saved-region", "saved-region"],
+    )
+    def test_get_coder_url_resolves_region_deployment(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        devbox_config_path: Path,
+        saved_region: str | None,
+        expected_url: str,
+    ) -> None:
         monkeypatch.delenv("HOGLI_DEVBOX_CODER_URL", raising=False)
         monkeypatch.delenv("CODER_URL", raising=False)
+        if saved_region is not None:
+            devbox_config_path.write_text(json.dumps({"region": saved_region}))
 
-        with patch(
-            "hogli_commands.devbox.coder.load_manifest",
-            return_value={"metadata": {"devbox": {"coder_url": "https://manifest.example.com"}}},
-        ):
-            assert coder.get_coder_url() == "https://manifest.example.com"
+        with patch("hogli_commands.devbox.coder.load_manifest", return_value=_REGIONAL_MANIFEST):
+            assert coder.get_coder_url() == expected_url
+
+    @pytest.mark.parametrize(
+        "whoami_returncode, whoami_url, expected",
+        [
+            (0, "https://us.example.com/", True),
+            (0, "https://eu.example.com", False),
+            (1, "", False),
+        ],
+        ids=["same-deployment", "other-region-deployment", "logged-out"],
+    )
+    def test_coder_authenticated_requires_the_region_deployment(
+        self, monkeypatch: pytest.MonkeyPatch, whoami_returncode: int, whoami_url: str, expected: bool
+    ) -> None:
+        monkeypatch.setattr(coder, "coder_installed", lambda: True)
+        monkeypatch.setattr(coder, "get_coder_url", lambda: "https://us.example.com")
+        stdout = json.dumps([{"url": whoami_url, "username": "test-user"}])
+        monkeypatch.setattr(
+            coder, "_run", lambda args, **kw: subprocess.CompletedProcess(args, whoami_returncode, stdout, "")
+        )
+
+        assert coder.coder_authenticated() is expected
+
+    def test_runtime_ready_names_both_deployments_on_region_mismatch(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        monkeypatch.setattr(coder, "ensure_coder_reachable", lambda: None)
+        monkeypatch.setattr(coder, "coder_installed", lambda: True)
+        monkeypatch.setattr(coder, "preferred_region", lambda: "eu-central-1")
+        monkeypatch.setattr(coder, "get_coder_url", lambda: "https://eu.example.com")
+        stdout = json.dumps([{"url": "https://us.example.com/", "username": "test-user"}])
+        monkeypatch.setattr(coder, "_run", lambda args, **kw: subprocess.CompletedProcess(args, 0, stdout, ""))
+
+        with pytest.raises(SystemExit):
+            coder.ensure_runtime_ready()
+
+        output = capsys.readouterr().out
+        assert "https://us.example.com/" in output
+        assert "https://eu.example.com" in output
+        assert "hogli devbox:setup --configure-region" in output
 
     def test_runtime_ready_requires_setup_when_coder_missing(
         self,
@@ -1394,7 +1453,7 @@ class TestResolveWorkspaceName:
     def test_own_label_falls_back_to_cross_region_match(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """If preferred-region name doesn't exist, find a workspace with the same label in another region."""
         monkeypatch.setattr(coder, "get_username", lambda: "test-user")
-        monkeypatch.setattr(devbox_cli, "_preferred_region", lambda: "eu-central-1")
+        monkeypatch.setattr(devbox_cli, "preferred_region", lambda: "eu-central-1")
         monkeypatch.setattr(
             devbox_cli,
             "list_user_workspaces",
@@ -1408,7 +1467,7 @@ class TestResolveWorkspaceName:
     def test_multiple_workspaces_falls_back_to_other_region_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """With no default in the preferred region, the other region's default wins over failing."""
         monkeypatch.setattr(coder, "get_username", lambda: "test-user")
-        monkeypatch.setattr(devbox_cli, "_preferred_region", lambda: "eu-central-1")
+        monkeypatch.setattr(devbox_cli, "preferred_region", lambda: "eu-central-1")
         monkeypatch.setattr(
             devbox_cli,
             "list_user_workspaces",
@@ -1419,7 +1478,7 @@ class TestResolveWorkspaceName:
 
     def test_own_label_prefers_preferred_region_when_both_exist(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(coder, "get_username", lambda: "test-user")
-        monkeypatch.setattr(devbox_cli, "_preferred_region", lambda: "eu-central-1")
+        monkeypatch.setattr(devbox_cli, "preferred_region", lambda: "eu-central-1")
         monkeypatch.setattr(
             devbox_cli,
             "list_user_workspaces",
@@ -1427,13 +1486,6 @@ class TestResolveWorkspaceName:
         )
         name, _ = devbox_cli.resolve_workspace_name("api")
         assert name == "devbox-test-user-api-eu"
-
-    def test_preferred_region_falls_back_when_saved_value_unknown(
-        self, monkeypatch: pytest.MonkeyPatch, devbox_config_path: Path
-    ) -> None:
-        # Simulate a hand-edited config with a region that's no longer in REGIONS.
-        devbox_config_path.write_text(json.dumps({"region": "ap-southeast-2"}))
-        assert devbox_cli._preferred_region() == coder.DEFAULT_REGION
 
     def test_no_workspaces_returns_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(
@@ -1555,13 +1607,13 @@ class TestDevboxCommands:
 
         assert result.exit_code == 0
         assert calls == [
+            "region:False",
             "reachable",
             "install",
             "login",
             "ssh:False",
             "git:False",
             "signing:False",
-            "region:False",
             "dotfiles:False",
             "claude:False",
             "summary",
@@ -1762,7 +1814,8 @@ class TestDevboxCommands:
         assert result.exit_code == 0, result.output
         assert captured["preset"] == "none"
 
-    def test_devbox_start_forwards_region_flag(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_devbox_start_forwards_region_flag(self, monkeypatch: pytest.MonkeyPatch, devbox_config_path: Path) -> None:
+        devbox_config.save_region("eu-central-1")
         captured: dict[str, str | None] = {}
 
         monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
@@ -1829,25 +1882,32 @@ class TestDevboxCommands:
         assert captured["name"] == "devbox-test-user-eu"
         assert "region=eu-central-1" in result.output
 
-    def test_devbox_start_explicit_region_overrides_saved_preference(
-        self, monkeypatch: pytest.MonkeyPatch, devbox_config_path: Path
+    @pytest.mark.parametrize(
+        "saved_region, region_flag",
+        [("us-east-1", "eu-central-1"), (None, "eu-central-1"), ("eu-central-1", "us-east-1")],
+        ids=["saved-us-flag-eu", "unset-flag-eu", "saved-eu-flag-us"],
+    )
+    def test_devbox_start_rejects_region_other_than_saved(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        devbox_config_path: Path,
+        saved_region: str | None,
+        region_flag: str,
     ) -> None:
-        """An explicit --region flag should win over the saved preference for both region and name."""
-        devbox_config.save_region("us-east-1")
-
+        if saved_region is not None:
+            devbox_config.save_region(saved_region)
         captured: dict[str, str | None] = {}
-
         monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
         monkeypatch.setattr(devbox_cli, "list_user_workspaces", lambda: [])
         monkeypatch.setattr(coder, "get_username", lambda: "test-user")
-        monkeypatch.setattr(devbox_cli, "get_workspace", lambda name, workspaces=None: None)
         monkeypatch.setattr(devbox_cli, "create_workspace", _stub_create_workspace(captured))
 
-        result = runner.invoke(cli, ["devbox:start", "--region", "eu-central-1"])
+        result = runner.invoke(cli, ["devbox:start", "--region", region_flag])
 
-        assert result.exit_code == 0, result.output
-        assert captured["region"] == "eu-central-1"
-        assert captured["name"] == "devbox-test-user-eu"
+        assert result.exit_code != 0
+        assert captured == {}
+        assert f"saved region is {saved_region or coder.DEFAULT_REGION}" in result.output
+        assert "hogli devbox:setup --configure-region" in result.output
 
     @pytest.mark.parametrize(
         "saved_region, boxes, expected_resumed, expected_hint",
@@ -1925,6 +1985,7 @@ class TestDevboxCommands:
         self, monkeypatch: pytest.MonkeyPatch, devbox_config_path: Path, existing_boxes: list[str]
     ) -> None:
         """`--region` targets that region's default directly, creating it even when other boxes exist."""
+        devbox_config.save_region("eu-central-1")
         captured: dict[str, str | None] = {}
         resumed: list[str] = []
 
@@ -2397,6 +2458,11 @@ class TestDevboxSetupGate:
     ) -> None:
         monkeypatch.setattr(devbox_cli, "_confirm_run_setup", lambda: False)
         configure_calls: list[str] = []
+        monkeypatch.setattr(
+            devbox_cli,
+            "maybe_configure_region",
+            lambda *a, **kw: configure_calls.append("region"),
+        )
         monkeypatch.setattr(
             devbox_cli,
             "maybe_configure_git_identity",

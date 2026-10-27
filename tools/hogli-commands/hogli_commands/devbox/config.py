@@ -100,7 +100,7 @@ def clear_git_identity(config: DevboxConfig | None = None) -> DevboxConfig:
 
 
 def save_region(region: str) -> DevboxConfig:
-    """Persist the preferred region for new workspaces."""
+    """Persist the devbox region, which picks the Coder server and the default workspace name."""
     config = load_config()
     config["region"] = region
     save_config(config)
@@ -108,7 +108,7 @@ def save_region(region: str) -> DevboxConfig:
 
 
 def clear_region(config: DevboxConfig | None = None) -> DevboxConfig:
-    """Drop the saved preferred region so new workspaces fall back to the built-in default.
+    """Drop the saved region so devbox commands fall back to the built-in default region and its Coder server.
 
     Pass ``config`` to reuse an already-loaded dict and avoid a redundant disk read.
     """
