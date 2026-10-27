@@ -41,11 +41,11 @@ describe('native result-menu links', () => {
             const props = {
                 key: 'native-links',
                 query,
-                dashboardMenu: true,
             }
             const logic = biDrilldownLogic(props)
             const unmount = logic.mount()
             try {
+                logic.actions.setInteraction({ x: 40, y: 40 })
                 logic.actions.inspect({ status: 'paid' })
                 render(<BIDrilldownMenu logicProps={props} />)
                 await screen.findByText('View underlying rows')
