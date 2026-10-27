@@ -1450,6 +1450,34 @@ export interface TraceEvaluationResultsApi {
     results: TraceEvaluationResultApi[]
 }
 
+export interface TraceExportCreateApi {
+    /** When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table. */
+    timestamp_hint?: string
+}
+
+export type ExportStatusEnumApi = (typeof ExportStatusEnumApi)[keyof typeof ExportStatusEnumApi]
+
+export const ExportStatusEnumApi = {
+    Pending: 'pending',
+    Complete: 'complete',
+    Failed: 'failed',
+} as const
+
+export interface TraceExportApi {
+    /** The export id, used to read its status and download the file. */
+    id: number
+    /** Whether the file is still being written, ready, or failed. */
+    status: ExportStatusEnumApi
+    /** The name the downloaded JSON file gets. */
+    filename: string
+    /** When the export was requested. */
+    createdAt: string
+    /** When the file is deleted. */
+    expiresAfter: string | null
+    /** Why the export failed, null unless status is failed. */
+    exception: string | null
+}
+
 export interface TraceNodeMetadataApi {
     provider: string | null
     temperature: number | null
@@ -1485,6 +1513,18 @@ export interface TraceNodeDetailApi {
     error: string | null
     metadata: TraceNodeMetadataApi
     event: TraceNodeEventApi | null
+}
+
+export interface TraceExportFileApi {
+    /** The trace as the trace endpoint returns it. */
+    trace: TraceApi
+    /** Every node with its event properties as ingested, inputs and outputs included: the root first, then the tree in pre-order. */
+    nodes: TraceNodeDetailApi[]
+}
+
+export interface TraceExportErrorApi {
+    /** Why the file cannot be downloaded yet. */
+    detail: string
 }
 
 export type DatasetJSONValueApi = { [key: string]: unknown } | unknown[] | string | number | boolean
@@ -1792,20 +1832,11 @@ export interface DatasetExportCreateApi {
     revision?: number
 }
 
-export type DatasetExportReadStatusEnumApi =
-    (typeof DatasetExportReadStatusEnumApi)[keyof typeof DatasetExportReadStatusEnumApi]
-
-export const DatasetExportReadStatusEnumApi = {
-    Pending: 'pending',
-    Complete: 'complete',
-    Failed: 'failed',
-} as const
-
 export interface DatasetExportReadApi {
     /** Export ID used to check status and download the file. */
     readonly id: number
     /** Current export state: pending, complete, or failed. */
-    readonly status: DatasetExportReadStatusEnumApi
+    readonly status: ExportStatusEnumApi
     /** Immutable dataset revision included in the export. */
     readonly dataset_revision: number
     /** Generated JSONL filename. */

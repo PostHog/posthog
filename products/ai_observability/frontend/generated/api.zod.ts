@@ -311,6 +311,18 @@ export const AiObservabilityOfflineExperimentsUploadCreateBody = /* @__PURE__ */
 })
 
 /**
+ * Starts writing the trace and every node, inputs and outputs included, to a JSON file. Poll the export until it completes, then download it.
+ */
+export const AiObservabilityTracesExportsCreateBody = /* @__PURE__ */ zod.object({
+    timestamp_hint: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe(
+            'When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.'
+        ),
+})
+
+/**
  * Create an item and its first immutable version. An identical client item ID retry returns the existing item. A different payload or an archived match returns a conflict.
  */
 export const datasetItemsCreateBodyClientItemIdMax = 255

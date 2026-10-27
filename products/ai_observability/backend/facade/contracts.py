@@ -138,6 +138,27 @@ class TraceEvaluationResults(Contract):
     results: list[TraceEvaluationResult]
 
 
+TraceExportStatus = Literal["pending", "complete", "failed"]
+TRACE_EXPORT_STATUSES: tuple[TraceExportStatus, ...] = get_args(TraceExportStatus)
+
+
+class TraceExport(Contract):
+    id: int = Field(description="The export id, used to read its status and download the file.")
+    status: TraceExportStatus = Field(description="Whether the file is still being written, ready, or failed.")
+    filename: str = Field(description="The name the downloaded JSON file gets.")
+    created_at: datetime = Field(description="When the export was requested.")
+    expires_after: datetime | None = Field(description="When the file is deleted.")
+    exception: str | None = Field(description="Why the export failed, null unless status is failed.")
+
+
+class TraceExportFile(Contract):
+    trace: Trace = Field(description="The trace as the trace endpoint returns it.")
+    nodes: list[TraceNodeDetail] = Field(
+        description="Every node with its event properties as ingested, inputs and outputs included: the root first, "
+        "then the tree in pre-order."
+    )
+
+
 AttentionReason = Literal["errored", "silent", "worse"]
 BucketStatus = Literal["none", "dip", "normal"]
 Interval = Literal["hour", "day"]

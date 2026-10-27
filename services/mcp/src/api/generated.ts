@@ -36904,10 +36904,10 @@ export namespace Schemas {
       detail: string;
     }
 
-    export type DatasetExportReadStatusEnum = typeof DatasetExportReadStatusEnum[keyof typeof DatasetExportReadStatusEnum];
+    export type ExportStatusEnum = typeof ExportStatusEnum[keyof typeof ExportStatusEnum];
 
 
-    export const DatasetExportReadStatusEnum = {
+    export const ExportStatusEnum = {
       Pending: 'pending',
       Complete: 'complete',
       Failed: 'failed',
@@ -36917,7 +36917,7 @@ export namespace Schemas {
       /** Export ID used to check status and download the file. */
       readonly id: number;
       /** Current export state: pending, complete, or failed. */
-      readonly status: DatasetExportReadStatusEnum;
+      readonly status: ExportStatusEnum;
       /** Immutable dataset revision included in the export. */
       readonly dataset_revision: number;
       /** Generated JSONL filename. */
@@ -120384,6 +120384,31 @@ export namespace Schemas {
       results: TraceEvaluationResult[];
     }
 
+    export interface TraceExport {
+      /** The export id, used to read its status and download the file. */
+      id: number;
+      /** Whether the file is still being written, ready, or failed. */
+      status: ExportStatusEnum;
+      /** The name the downloaded JSON file gets. */
+      filename: string;
+      /** When the export was requested. */
+      createdAt: string;
+      /** When the file is deleted. */
+      expiresAfter: string | null;
+      /** Why the export failed, null unless status is failed. */
+      exception: string | null;
+    }
+
+    export interface TraceExportCreate {
+      /** When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table. */
+      timestamp_hint?: string;
+    }
+
+    export interface TraceExportError {
+      /** Why the file cannot be downloaded yet. */
+      detail: string;
+    }
+
     export interface TraceNodeMetadata {
       provider: string | null;
       temperature: number | null;
@@ -120419,6 +120444,13 @@ export namespace Schemas {
       error: string | null;
       metadata: TraceNodeMetadata;
       event: TraceNodeEvent | null;
+    }
+
+    export interface TraceExportFile {
+      /** The trace as the trace endpoint returns it. */
+      trace: Trace;
+      /** Every node with its event properties as ingested, inputs and outputs included: the root first, then the tree in pre-order. */
+      nodes: TraceNodeDetail[];
     }
 
     export interface TraceReviewCreate {

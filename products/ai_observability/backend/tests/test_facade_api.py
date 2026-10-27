@@ -1,23 +1,34 @@
+import tempfile
 from collections.abc import Callable
+from contextlib import suppress
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import pytest
-from posthog.test.base import BaseTest, ClickhouseTestMixin
+from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
 from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
 from posthog.models import Team
+from posthog.models.ai_events.test_util import bulk_create_ai_events
 from posthog.models.event.util import bulk_create_events
+from posthog.models.organization import OrganizationMembership
+from posthog.models.user import User
+from posthog.tasks import exporter
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.ai_observability.backend.facade import api
+from products.ai_observability.backend.facade import api, contracts
+from products.ai_observability.backend.logic.traces.trace_export import TraceExportRequest
 from products.ai_observability.backend.logic.traces.trace_queries import LoadedTrace
 from products.ai_observability.backend.models.evaluations import Evaluation
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
+from products.exports.backend.facade.api import ExportedAsset, InvalidExportContext, read_export_asset_content
 
 from .logic.traces.rows import make_evaluation_result_event, make_row
+from .logic.traces.test_trace_queries import TraceEventsMixin
+from .property_access import hide_event_property
 
 T0 = datetime(2026, 9, 1, 10, 0, tzinfo=UTC)
 
@@ -145,3 +156,142 @@ class TestGetTraceEvaluationResults(ClickhouseTestMixin, BaseTest):
         results = api.get_trace_evaluation_results(self.team, None, "trace-1").results
 
         assert [(result.id, result.is_backfill) for result in results] == [(live, False), (backfill, True)]
+
+
+SPAN = "00000000-0000-0000-0000-000000000011"
+GENERATION = "00000000-0000-0000-0000-000000000012"
+LATER = "00000000-0000-0000-0000-000000000013"
+ROOT_EVENT = "00000000-0000-0000-0000-000000000014"
+QUESTION = [{"role": "user", "content": "Which plan fits a team of five?"}]
+ANSWER = [{"role": "assistant", "content": "The team plan."}]
+
+
+class TestTraceExportFile(TraceEventsMixin, ClickhouseTestMixin, APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        bulk_create_ai_events(
+            [
+                self._event(ROOT_EVENT, event="$ai_trace", properties={"$ai_input_state": {"question": "Why?"}}),
+                self._event(
+                    SPAN,
+                    timestamp=T0 + timedelta(seconds=1),
+                    properties={"$ai_parent_id": "trace-1", "$ai_span_id": "span-1"},
+                ),
+                self._event(
+                    GENERATION,
+                    event="$ai_generation",
+                    timestamp=T0 + timedelta(seconds=2),
+                    properties={
+                        "$ai_parent_id": "span-1",
+                        "$ai_input": QUESTION,
+                        "$ai_output_choices": ANSWER,
+                        "$ai_provider": "openai",
+                    },
+                ),
+                self._event(LATER, timestamp=T0 + timedelta(seconds=3), properties={"$ai_parent_id": "trace-1"}),
+            ]
+        )
+
+    def _export(self, trace_id: str = "trace-1", created_by: User | None = None) -> ExportedAsset:
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format="application/json",
+            export_context=TraceExportRequest(trace_id=trace_id, timestamp_hint=T0).to_context(),
+            created_by=created_by or self.user,
+        )
+        with suppress(InvalidExportContext):
+            exporter.export_asset_direct(asset)
+        asset.refresh_from_db()
+        return asset
+
+    def _file(self, asset: ExportedAsset) -> contracts.TraceExportFile:
+        content = read_export_asset_content(team_id=self.team.pk, asset_id=asset.id)
+        assert content is not None, asset.exception
+        return contracts.TraceExportFile.model_validate_json(content)
+
+    @parameterized.expand([("one batch", 20), ("a batch per node", 1)])
+    def test_writes_the_trace_and_every_node_with_its_io(self, _name: str, batch_size: int) -> None:
+        with patch.object(api, "TRACE_EXPORT_NODE_BATCH_SIZE", batch_size):
+            asset = self._export()
+
+        file = self._file(asset)
+        assert asset.exception is None
+        assert file.trace.id == "trace-1"
+        assert [node.id for node in file.nodes] == ["trace-1", SPAN, GENERATION, LATER]
+        root, generation = file.nodes[0].event, file.nodes[2].event
+        assert root is not None and root.properties["$ai_input_state"] == {"question": "Why?"}
+        assert generation is not None and generation.properties["$ai_input"] == QUESTION
+
+    def test_leaves_out_properties_the_creator_may_not_read(self) -> None:
+        hide_event_property(self.team, self.user, "$ai_input")
+
+        generation = self._file(self._export()).nodes[2].event
+
+        assert generation is not None
+        assert "$ai_input" not in generation.properties
+        assert generation.properties["$ai_provider"] == "openai"
+
+    def test_fails_when_the_creator_lost_access(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        member = User.objects.create_and_join(self.organization, "trace-exporter@example.com", "testtest")
+        AccessControl.objects.create(
+            team=self.team,
+            resource="llm_analytics",
+            access_level="none",
+            organization_member=OrganizationMembership.objects.get(user=member, organization=self.organization),
+        )
+
+        asset = self._export(created_by=member)
+
+        assert (asset.exception, asset.has_content) == ("You no longer have access to this trace.", False)
+
+    @parameterized.expand(
+        [
+            ("a missing trace", "trace-2", None, "This trace is no longer available."),
+            ("a file over the cap", "trace-1", 10, "This trace is larger than 250 MB, so it can't be exported."),
+        ]
+    )
+    def test_fails_as_a_user_error_and_leaves_no_file(
+        self, _name: str, trace_id: str, max_bytes: int | None, message: str
+    ) -> None:
+        with (
+            tempfile.TemporaryDirectory() as temporary_directory,
+            patch.object(api, "MAX_TRACE_EXPORT_BYTES", max_bytes or api.MAX_TRACE_EXPORT_BYTES),
+            patch.object(tempfile, "tempdir", temporary_directory),
+        ):
+            asset = self._export(trace_id)
+            leftover_files = list(Path(temporary_directory).iterdir())
+
+        assert (asset.exception, asset.failure_type) == (message, "user")
+        assert leftover_files == []
+
+
+class TestGetTraceExport(BaseTest):
+    def _asset(self, *, trace_id: str = "trace-1", created_by: User | None = None, kind: str = "llm_trace") -> int:
+        context = {**TraceExportRequest(trace_id=trace_id, timestamp_hint=None).to_context(), "kind": kind}
+        return ExportedAsset.objects.create(
+            team=self.team, export_format="application/json", export_context=context, created_by=created_by or self.user
+        ).id
+
+    def test_reads_my_export_of_this_trace(self) -> None:
+        export = api.get_trace_export(self.team, self.user, "trace-1", self._asset())
+
+        assert (export.status, export.exception) == ("pending", None)
+
+    @parameterized.expand(
+        [
+            ("another user's export", lambda test: test._asset(created_by=test._teammate()), "trace-1"),
+            ("an export of another trace", lambda test: test._asset(), "trace-2"),
+            ("an export of another kind", lambda test: test._asset(kind="dataset"), "trace-1"),
+        ]
+    )
+    def test_hides(self, _name: str, asset_for: Callable[["TestGetTraceExport"], int], trace_id: str) -> None:
+        with pytest.raises(api.TraceExportNotFoundError):
+            api.get_trace_export(self.team, self.user, trace_id, asset_for(self))
+
+    def _teammate(self) -> User:
+        return User.objects.create_and_join(self.organization, "teammate@example.com", "testtest")

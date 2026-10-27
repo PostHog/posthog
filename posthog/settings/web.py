@@ -730,6 +730,8 @@ SPECTACULAR_SETTINGS = {
             #
             # The choices come from a typing.Literal via get_args; there is no class.
             "BlockedByEnum": ["x_frame_options", "frame_ancestors"],
+            # ai_observability's dataset and trace exports report the same states.
+            "ExportStatusEnum": "products.ai_observability.backend.facade.contracts.TRACE_EXPORT_STATUSES",
             "FeatureFlagRequestTypeEnum": ["remote_evaluation", "local_evaluation"],
             "PropertyFilterTypeEnum": [
                 "event",
