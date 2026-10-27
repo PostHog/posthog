@@ -248,6 +248,9 @@ Numeric scores can use the domain of their configured scorer version. The API va
 
 `OfflineEvalSuite.experiment_options` accepts the SDK's `ExperimentOptions` for external dataset identifiers, `prompt_version`, model/application versions, and `run_source`.
 The harness owns the experiment ID, start time, suite key, and expected counts.
+Each case's `output["model"]` becomes the item's `model_version`, so one-shot suites can report the model they actually used and compare different models within one experiment.
+Cases without a model, or with `model=None`, inherit the experiment's model version.
+Invalid model identifiers are omitted and recorded in the item's `omitted_fields`; the case's scores still upload.
 For external datasets, case metadata can supply `dataset_item_identifier` and `dataset_item_version_identifier`.
 The harness publisher does not support hosted datasets. A non-null `dataset_revision_id` stops preparation with a local error before any upload request.
 
