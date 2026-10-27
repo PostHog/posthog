@@ -1967,6 +1967,7 @@ export namespace Schemas {
     };
     export type TrendsQueryResponse = {
         boxplot_data?: (Array<BoxPlotDatum> | null) | undefined;
+        breakdownTotals?: (Array<Record<string, unknown>> | null) | undefined;
         error?: (string | null) | undefined;
         hasMore?: (boolean | null) | undefined;
         hogql?: (string | null) | undefined;

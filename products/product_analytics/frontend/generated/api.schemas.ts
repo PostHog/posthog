@@ -1491,10 +1491,17 @@ export interface AccessControlFilterWarningApi {
     type?: 'access_control'
 }
 
+/**
+ * For unique-count series with a breakdown: the same series without the breakdown, so each day's distinct count.
+ */
+export type TrendsQueryResponseApiBreakdownTotals = { [key: string]: unknown }[] | null
+
 export type TrendsQueryResponseApiResultsItem = { [key: string]: unknown }
 
 export interface TrendsQueryResponseApi {
     boxplot_data?: BoxPlotDatumApi[] | null
+    /** For unique-count series with a breakdown: the same series without the breakdown, so each day's distinct count. */
+    breakdownTotals?: TrendsQueryResponseApiBreakdownTotals
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
     /** Wether more breakdown values are available. */

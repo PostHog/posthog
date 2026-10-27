@@ -5802,10 +5802,17 @@ export namespace Schemas {
       series_label?: string | null;
     }
 
+    /**
+     * For unique-count series with a breakdown: the same series without the breakdown, so each day's distinct count.
+     */
+    export type TrendsQueryResponseBreakdownTotals = { [key: string]: unknown }[] | null;
+
     export type TrendsQueryResponseResultsItem = { [key: string]: unknown };
 
     export interface TrendsQueryResponse {
       boxplot_data?: BoxPlotDatum[] | null;
+      /** For unique-count series with a breakdown: the same series without the breakdown, so each day's distinct count. */
+      breakdownTotals?: TrendsQueryResponseBreakdownTotals;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Wether more breakdown values are available. */
@@ -100475,10 +100482,17 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
+    /**
+     * For unique-count series with a breakdown: the same series without the breakdown, so each day's distinct count.
+     */
+    export type QueryResponseAlternative60BreakdownTotals = { [key: string]: unknown }[] | null;
+
     export type QueryResponseAlternative60ResultsItem = { [key: string]: unknown };
 
     export interface QueryResponseAlternative60 {
       boxplot_data?: BoxPlotDatum[] | null;
+      /** For unique-count series with a breakdown: the same series without the breakdown, so each day's distinct count. */
+      breakdownTotals?: QueryResponseAlternative60BreakdownTotals;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Wether more breakdown values are available. */
