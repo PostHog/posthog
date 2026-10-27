@@ -138,7 +138,7 @@ def emails_replace_failure_digest(team: Team) -> bool:
 def _decide(team_id: int, *, already_decided: bool) -> DefaultAlertOutcome:
     if already_decided:
         return DefaultAlertOutcome.ALREADY_DECIDED
-    if not ExternalDataSource.objects.filter(team_id=team_id, deleted=False).exists():
+    if not ExternalDataSource.objects.filter(team_id=team_id).exclude(deleted=True).exists():
         return DefaultAlertOutcome.NO_SOURCE
     with team_scope(team_id):
         has_own_alert = list_configurations(team_id=team_id, source_kinds=_SOURCE_KINDS, limit=1, offset=0).total > 0
