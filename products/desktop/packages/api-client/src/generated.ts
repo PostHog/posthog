@@ -20774,13 +20774,11 @@ export namespace Schemas {
         | "confirm";
     /**
      * * `wrong_area` - Not their area
-     * * `owned_by_someone_else` - Someone else owns it
      * * `unavailable` - Not available
      * * `other` - Other
      */
     export type ReviewerRemovalReasonEnum =
         | "wrong_area"
-        | "owned_by_someone_else"
         | "unavailable"
         | "other";
     export type ReviewerState = {
