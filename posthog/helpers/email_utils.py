@@ -299,6 +299,11 @@ GMAIL_CANONICAL_LOCAL_EXPRESSION = Replace(
     Value(""),
 )
 
+# SQL counterpart of the domain part of an address, lowercased. The `user_email_domain_idx` index on
+# `User` is built on this expression. Postgres only uses a functional index when the query filters on
+# the identical expression, so a lookup by email domain must filter on this constant.
+EMAIL_DOMAIN_EXPRESSION = Func(Lower("email"), Value("@"), Value(2), function="split_part", output_field=CharField())
+
 
 def reject_plus_addressed_email(value: str) -> None:
     """Raise if the local part of `value` contains '+'."""

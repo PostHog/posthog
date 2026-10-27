@@ -17,6 +17,7 @@ from posthog.constants import AvailableFeature
 from posthog.egress.limiter.policies import Priority
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import (
+    EMAIL_DOMAIN_EXPRESSION,
     GMAIL_CANONICAL_LOCAL_EXPRESSION,
     STRIPPED_EMAIL_EXPRESSION,
     EmailLookupHandler,
@@ -360,6 +361,7 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
             models.Index(GMAIL_CANONICAL_LOCAL_EXPRESSION, name="user_gmail_canonical_idx"),
             # Serves the `LOWER(email)` fold `EmailLookupHandler.get_user_by_email` resolves on.
             models.Index(Lower("email"), name="posthog_user_lower_email_idx"),
+            models.Index(EMAIL_DOMAIN_EXPRESSION, name="user_email_domain_idx"),
         ]
 
     # Remove unused attributes from `AbstractUser`
