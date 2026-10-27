@@ -80,6 +80,7 @@ function materialize(
         realized_seconds_saved_per_month: null,
         realized_bytes_saved_per_month: null,
         can_act: canAct,
+        assignee: null,
     }
 }
 
