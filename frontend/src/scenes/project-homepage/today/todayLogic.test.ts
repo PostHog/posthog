@@ -3,6 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { useMocks } from '~/mocks/jest'
+import { recentItemsModel } from '~/models/recentItemsModel'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
@@ -18,6 +19,7 @@ import { makeHighlightItem, makeHighlights } from './todayTestFixtures'
 import { todayVerdictLogic } from './todayVerdictLogic'
 
 describe('todayLogic', () => {
+    let frequentResponse: [number, unknown]
     let listResponse: [number, any]
     let listParams: URLSearchParams | null
     let reportResponse: [number, any] | null
@@ -25,6 +27,7 @@ describe('todayLogic', () => {
     let highlightCalls: number
 
     beforeEach(() => {
+        frequentResponse = [200, []]
         highlightResponses = [[200, makeHighlights()]]
         listResponse = [200, { results: [], count: 0 }]
         highlightCalls = 0
@@ -32,6 +35,7 @@ describe('todayLogic', () => {
         reportResponse = null
         useMocks({
             get: {
+                '/api/projects/:team_id/file_system/frequent/': () => frequentResponse,
                 '/api/projects/:team_id/signals/reports/': ({ request }) => {
                     listParams = new URL(request.url).searchParams
                     return listResponse
@@ -47,6 +51,28 @@ describe('todayLogic', () => {
             },
         })
         initKeaTests()
+    })
+
+    it.each([200, 500])('uses frequent items or falls back to recents when the request returns %i', async (status) => {
+        const entry = (id: string): { id: string; path: string; type: string; ref: string } => ({
+            id,
+            path: `Dashboards/${id}`,
+            type: 'dashboard',
+            ref: id,
+        })
+        frequentResponse = [status, status === 200 ? [entry('daily'), entry('weekly')] : {}]
+        const logic = todayLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        recentItemsModel.actions.loadRecentsSuccess(['a', 'b', 'c', 'd'].map(entry))
+        expect(logic.values.recentObjects.map((item) => item.id)).toEqual(
+            status === 200 ? ['a', 'b', 'daily', 'weekly', 'c', 'd'] : ['a', 'b', 'c', 'd']
+        )
+        logic.actions.jumpBackOpened(logic.values.recentObjects[2], 3, status === 200)
+        expect(posthog.capture).toHaveBeenCalledWith(
+            'today jump back opened',
+            expect.objectContaining({ position: 3, reason: status === 200 ? 'frequent' : 'recent' })
+        )
     })
 
     afterEach(() => {

@@ -18,8 +18,17 @@ import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { TodayHomeHeading } from './TodayHomeHeading'
 import { RECENT_OBJECT_COUNT, todayLogic } from './todayLogic'
 
-function RecentObjectRow({ entry }: { entry: FileSystemEntry }): JSX.Element {
+function RecentObjectRow({
+    entry,
+    position,
+    frequent,
+}: {
+    entry: FileSystemEntry
+    position: number
+    frequent: boolean
+}): JSX.Element {
     const preview = useMemo(() => objectPreview(entry), [entry])
+    const { jumpBackOpened } = useActions(todayLogic)
     return (
         <li className="TodayJumpRow">
             <TodayObjectIcon type={entry.type} className="TodayJumpRow__icon" />
@@ -28,11 +37,14 @@ function RecentObjectRow({ entry }: { entry: FileSystemEntry }): JSX.Element {
                     to={preview.href ?? undefined}
                     className="TodayJumpRow__link"
                     data-attr="today-home-recent-object"
+                    onClick={() => jumpBackOpened(entry, position, frequent)}
                 >
                     {preview.name}
                 </LinkPrimitive>
                 {preview.typeLabel && (
-                    <span className="TodayJumpRow__meta">{capitalizeFirstLetter(preview.typeLabel)}</span>
+                    <span className="TodayJumpRow__meta">
+                        {frequent ? 'Opened often' : capitalizeFirstLetter(preview.typeLabel)}
+                    </span>
                 )}
             </TodayPreviewTrigger>
         </li>
@@ -41,7 +53,7 @@ function RecentObjectRow({ entry }: { entry: FileSystemEntry }): JSX.Element {
 
 export function TodayRecents(): JSX.Element {
     useMountedLogic(todayObjectGlanceLogic)
-    const { recentObjects, recentsHasLoaded, listExpanded } = useValues(todayLogic)
+    const { recentObjects, frequentObjectsLoading, recentsHasLoaded, listExpanded } = useValues(todayLogic)
     const { setListExpanded } = useActions(todayLogic)
     const { pickPane } = useActions(todayShellLogic)
     const titleId = useId()
@@ -63,8 +75,8 @@ export function TodayRecents(): JSX.Element {
                     </Collapsible.Trigger>
                 )}
             </div>
-            {!recentsHasLoaded ? (
-                <p className="TodayHome__note">Finding what you looked at last…</p>
+            {!recentsHasLoaded || frequentObjectsLoading ? (
+                <p className="TodayHome__note">Finding your recent and frequent items…</p>
             ) : recentObjects.length === 0 ? (
                 <p className="TodayHome__note">
                     <span>
@@ -84,15 +96,25 @@ export function TodayRecents(): JSX.Element {
             ) : (
                 <TodayPreviewCardProvider>
                     <ul className="TodayJumpList">
-                        {shown.map((entry) => (
-                            <RecentObjectRow key={entry.id} entry={entry} />
+                        {shown.map((entry, index) => (
+                            <RecentObjectRow
+                                key={entry.id}
+                                entry={entry}
+                                position={index + 1}
+                                frequent={entry.jumpBackReason === 'frequent'}
+                            />
                         ))}
                     </ul>
                     {more.length > 0 && (
                         <Collapsible.Panel className="TodayJumpList__more">
                             <ul className="TodayJumpList">
-                                {more.map((entry) => (
-                                    <RecentObjectRow key={entry.id} entry={entry} />
+                                {more.map((entry, index) => (
+                                    <RecentObjectRow
+                                        key={entry.id}
+                                        entry={entry}
+                                        position={RECENT_OBJECT_COUNT + index + 1}
+                                        frequent={entry.jumpBackReason === 'frequent'}
+                                    />
                                 ))}
                             </ul>
                         </Collapsible.Panel>
