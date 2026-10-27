@@ -26,6 +26,7 @@ export function SentryMigrationItemCard({
     const checkboxId = `sentry-migration-${item.id}`
     const filters = item.suppression_rule_filters
     const filterRows = filters ? describeSuppressionFilters(filters) : []
+    const builtInFilter = item.built_in_filter
 
     return (
         <Card size="sm">
@@ -42,67 +43,79 @@ export function SentryMigrationItemCard({
                         <Label htmlFor={checkboxId}>{item.sentry_setting}</Label>
                     </div>
                     <div className="flex flex-wrap items-center gap-1">
-                        {item.already_in_posthog && (
-                            <Badge variant="completed">
-                                {item.built_in_filter ? 'Already on' : 'Already in PostHog'}
+                        {builtInFilter ? (
+                            <Badge variant={item.already_in_posthog ? 'completed' : 'success'}>
+                                {item.already_in_posthog ? 'Already on' : 'Built into PostHog'}
                             </Badge>
+                        ) : (
+                            <>
+                                {item.already_in_posthog && <Badge variant="completed">Already in PostHog</Badge>}
+                                <Badge variant={fitBadge.variant}>{fitBadge.label}</Badge>
+                            </>
                         )}
-                        <Badge variant={fitBadge.variant}>{fitBadge.label}</Badge>
                     </div>
                 </div>
             </CardHeader>
-            <CardContent className="flex flex-col gap-2">
-                <div className="flex flex-col gap-1">
-                    <Text size="xs" variant="muted" weight="medium" className="m-0">
-                        In Sentry
+            {builtInFilter ? (
+                <CardContent className="flex flex-col gap-1">
+                    <Text size="sm" className="m-0">
+                        Turns on the <span className="font-medium">{builtInFilter.name}</span> rule
                     </Text>
-                    <Text size="xs" className="m-0 break-all font-mono" translate="no">
-                        {item.sentry_value}
-                    </Text>
-                </div>
-                {item.built_in_filter ? (
-                    <div className="flex flex-col gap-1">
-                        <Text size="xs" variant="muted" weight="medium" className="m-0">
-                            Automatic suppression rule in PostHog
-                        </Text>
-                        <Text size="xs" weight="medium" className="m-0">
-                            {item.built_in_filter.name}
-                        </Text>
-                        <Text size="xs" className="m-0">
-                            {item.built_in_filter.description}
-                        </Text>
-                    </div>
-                ) : item.rate_limit ? (
-                    <div className="flex flex-col gap-1">
-                        <Text size="xs" variant="muted" weight="medium" className="m-0">
-                            Project rate limit in PostHog
-                        </Text>
-                        <Text size="xs" className="m-0" translate="no">
-                            {formatRateLimit(item.rate_limit)}
-                        </Text>
-                    </div>
-                ) : filters && filterRows.length > 0 ? (
-                    <div className="flex flex-col gap-1">
-                        <Text size="xs" variant="muted" weight="medium" className="m-0">
-                            Manual suppression rule in PostHog, matching {filters.type === 'OR' ? 'any' : 'all'} of
-                        </Text>
-                        {filterRows.map((row, index) => (
-                            <Text key={index} size="xs" className="m-0 break-all">
-                                <span>{row.property}</span>{' '}
-                                <span className="text-muted-foreground">{row.operator}</span>{' '}
-                                <span className="font-mono" translate="no">
-                                    {row.value}
-                                </span>
-                            </Text>
-                        ))}
-                    </div>
-                ) : null}
-                {item.note && (
                     <Text size="xs" variant="muted" className="m-0">
-                        {item.note}
+                        {builtInFilter.description}
                     </Text>
-                )}
-            </CardContent>
+                    {builtInFilter.compared_with_sentry.length > 0 && (
+                        <ul className="m-0 mt-1 flex list-disc flex-col gap-0.5 pl-4">
+                            {builtInFilter.compared_with_sentry.map((point) => (
+                                <li key={point} className="text-xs">
+                                    {point}
+                                </li>
+                            ))}
+                        </ul>
+                    )}
+                </CardContent>
+            ) : (
+                <CardContent className="flex flex-col gap-2">
+                    <div className="flex flex-col gap-1">
+                        <Text size="xs" variant="muted" weight="medium" className="m-0">
+                            In Sentry
+                        </Text>
+                        <Text size="xs" className="m-0 break-all font-mono" translate="no">
+                            {item.sentry_value}
+                        </Text>
+                    </div>
+                    {item.rate_limit ? (
+                        <div className="flex flex-col gap-1">
+                            <Text size="xs" variant="muted" weight="medium" className="m-0">
+                                Project rate limit in PostHog
+                            </Text>
+                            <Text size="xs" className="m-0" translate="no">
+                                {formatRateLimit(item.rate_limit)}
+                            </Text>
+                        </div>
+                    ) : filters && filterRows.length > 0 ? (
+                        <div className="flex flex-col gap-1">
+                            <Text size="xs" variant="muted" weight="medium" className="m-0">
+                                Manual suppression rule in PostHog, matching {filters.type === 'OR' ? 'any' : 'all'} of
+                            </Text>
+                            {filterRows.map((row, index) => (
+                                <Text key={index} size="xs" className="m-0 break-all">
+                                    <span>{row.property}</span>{' '}
+                                    <span className="text-muted-foreground">{row.operator}</span>{' '}
+                                    <span className="font-mono" translate="no">
+                                        {row.value}
+                                    </span>
+                                </Text>
+                            ))}
+                        </div>
+                    ) : null}
+                    {item.note && (
+                        <Text size="xs" variant="muted" className="m-0">
+                            {item.note}
+                        </Text>
+                    )}
+                </CardContent>
+            )}
         </Card>
     )
 }

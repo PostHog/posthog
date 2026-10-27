@@ -90,6 +90,10 @@ class SentryMigrationBuiltInFilterSerializer(serializers.Serializer):
     )
     name = serializers.CharField(help_text="Name of the automatic suppression rule in PostHog settings.")
     description = serializers.CharField(help_text="What the automatic suppression rule drops.")
+    compared_with_sentry = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Short points on what the PostHog rule adds to the Sentry filter, or does differently.",
+    )
 
 
 class SentryMigrationItemSerializer(serializers.Serializer):

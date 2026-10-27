@@ -42,7 +42,7 @@ const LEGACY_BROWSER: SentryMigrationItemApi = {
     sentry_setting: 'Errors from legacy browsers',
     sentry_value: 'Internet Explorer 11, Safari 5 and older',
     fit: 'partial',
-    note: 'PostHog has one legacy browser rule with fixed versions, so it can drop more or fewer browsers than your Sentry selection.',
+    note: null,
     suppression_rule_filters: null,
     rate_limit: null,
     built_in_filter: {
@@ -50,6 +50,9 @@ const LEGACY_BROWSER: SentryMigrationItemApi = {
         name: 'Legacy browsers',
         description:
             'Drop exceptions from Internet Explorer, Chrome before 87, Edge before 88, Firefox before 78, Safari before 14 and Opera before 73.',
+        compared_with_sentry: [
+            'Replaces your Sentry selection (Internet Explorer 11, Safari 5 and older) with these versions',
+        ],
     },
     already_in_posthog: true,
 }
