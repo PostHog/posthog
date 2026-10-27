@@ -43,6 +43,15 @@ if TYPE_CHECKING:
     from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 from products.aeo.backend.facade.hogql import aeo_citation_checks
+from products.ai_observability.backend.facade.hogql import (
+    offline_evaluation_result_payloads,
+    offline_evaluation_results,
+    offline_evaluation_usage_ledger,
+    offline_experiment_item_payloads,
+    offline_experiment_items,
+    offline_experiments,
+    score_definition_versions,
+)
 from products.customer_analytics.backend.facade.customer_tasks_hogql import customer_tasks
 from products.customer_analytics.backend.facade.hogql import (
     account_channel_summaries,
@@ -2851,23 +2860,29 @@ score_definitions: PostgresTable = PostgresTable(
     postgres_table_name="llm_analytics_scoredefinition",
     access_scope="llm_analytics",
     access_control_creator_id_field="created_by_id",
-    description="Definitions of scores/metrics used when reviewing LLM traces; one row per score definition.",
+    description="Scorers used in trace reviews and offline evaluations; one row per score definition.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Score definition UUID."),
         "team_id": IntegerDatabaseField(name="team_id"),
         "name": StringDatabaseField(name="name", description="Score definition name."),
+        "short_name": StringDatabaseField(name="short_name", description="Short scorer name used in result tables."),
         "description": StringDatabaseField(name="description", description="What the score measures."),
         "kind": StringDatabaseField(
             name="kind", description="Score value type, e.g. 'categorical', 'numeric', 'boolean'."
         ),
         "archived": BooleanDatabaseField(name="archived", description="Whether the definition is archived."),
         "current_version_id": UUIDDatabaseField(
-            name="current_version_id", nullable=True, description="Currently active version of this definition."
+            name="current_version_id",
+            nullable=True,
+            description="Active version; joins to score_definition_versions.id.",
         ),
         "created_by_id": IntegerDatabaseField(
             name="created_by_id", nullable=True, description="User who created the definition."
         ),
         "created_at": DateTimeDatabaseField(name="created_at", description="When the definition was created."),
+        "updated_by_id": IntegerDatabaseField(
+            name="updated_by_id", nullable=True, description="User who last updated the scorer."
+        ),
         "updated_at": DateTimeDatabaseField(
             name="updated_at", nullable=True, description="When the definition was last updated."
         ),
@@ -3940,6 +3955,19 @@ class SystemTables(TableNode):
         "review_queue_items": TableNode(name="review_queue_items", table=review_queue_items),
         "review_queues": TableNode(name="review_queues", table=review_queues),
         "score_definitions": TableNode(name="score_definitions", table=score_definitions),
+        "score_definition_versions": TableNode(name="score_definition_versions", table=score_definition_versions),
+        "offline_experiments": TableNode(name="offline_experiments", table=offline_experiments),
+        "offline_experiment_items": TableNode(name="offline_experiment_items", table=offline_experiment_items),
+        "offline_experiment_item_payloads": TableNode(
+            name="offline_experiment_item_payloads", table=offline_experiment_item_payloads
+        ),
+        "offline_evaluation_results": TableNode(name="offline_evaluation_results", table=offline_evaluation_results),
+        "offline_evaluation_result_payloads": TableNode(
+            name="offline_evaluation_result_payloads", table=offline_evaluation_result_payloads
+        ),
+        "offline_evaluation_usage_ledger": TableNode(
+            name="offline_evaluation_usage_ledger", table=offline_evaluation_usage_ledger
+        ),
         "session_recording_playlists": TableNode(name="session_recording_playlists", table=session_recording_playlists),
         "replay_scanners": TableNode(name="replay_scanners", table=replay_scanners),
         "revenue_analytics_config": TableNode(name="revenue_analytics_config", table=revenue_analytics_config),

@@ -73,6 +73,8 @@ _TRANSITIVE_SYSTEM_TABLE_SCOPES: dict[str, frozenset[str]] = {
     # Task predicates need these public channel IDs even under object-only task grants.
     "system._task_public_channels": frozenset({"task"}),
     "system.customer_tasks": frozenset({"account"}),
+    "system.offline_evaluation_results": frozenset({"llm_analytics"}),
+    "system.offline_evaluation_result_payloads": frozenset({"llm_analytics"}),
 }
 
 

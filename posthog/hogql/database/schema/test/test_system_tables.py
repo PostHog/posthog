@@ -1,5 +1,6 @@
 import json
 import uuid
+from datetime import timedelta
 from types import SimpleNamespace
 
 import time_machine
@@ -18,6 +19,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.constants import AvailableFeature
 from posthog.models import (
     DataDeletionRequest,
     Group,
@@ -37,14 +39,24 @@ from posthog.models.team.team_revenue_analytics_config import TeamRevenueAnalyti
 from posthog.persons_db import persons_db_connection
 from posthog.persons_seed import insert_seed_group, insert_seed_group_type_mapping
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.role import Role
 from products.actions.backend.models.action import Action
 from products.aeo.backend.facade.testing import create_citation_check
 from products.ai_observability.backend.models.datasets import Dataset, DatasetItem, DatasetItemVersion, DatasetRevision
 from products.ai_observability.backend.models.evaluation_directories import EvaluationDirectory
 from products.ai_observability.backend.models.evaluations import Evaluation
+from products.ai_observability.backend.models.offline_evaluations import (
+    OfflineEvaluationResult,
+    OfflineEvaluationResultPayload,
+    OfflineEvaluationUsageLedger,
+    OfflineExperiment,
+    OfflineExperimentItem,
+    OfflineExperimentItemPayload,
+    PayloadState,
+)
 from products.ai_observability.backend.models.review_queues import ReviewQueue, ReviewQueueItem
-from products.ai_observability.backend.models.score_definitions import ScoreDefinition
+from products.ai_observability.backend.models.score_definitions import ScoreDefinition, ScoreDefinitionVersion
 from products.ai_observability.backend.models.trace_reviews import TraceReview, TraceReviewScore
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.annotations.backend.models.annotation import Annotation
@@ -136,6 +148,7 @@ ALL_SYSTEM_TABLE_NAMES = sorted(name for name, node in SystemTables().children.i
 
 # {table_name: "sql_alias.column_name"} for team_id filter assertion
 TEAM_ID_FILTER_PATTERNS = {
+    "score_definition_versions": "system__score_definitions.team_id",
     "ingestion_warnings": "ingestion_warnings.team_id",  # ClickHouse-native table, no system__ prefix
     "teams": "system__teams.id",  # team_id is aliased to id column
     # Junction tables without team_id; isolation is enforced via an account_id IN system.accounts predicate
@@ -753,6 +766,66 @@ def _create_score_definition(team: Team, label: str) -> ScoreDefinition:
     return definition
 
 
+def _create_score_definition_version(team: Team, label: str) -> ScoreDefinitionVersion:
+    definition = _create_score_definition(team, label)
+    assert definition.current_version is not None
+    return definition.current_version
+
+
+def _create_offline_experiment(team: Team, label: str) -> OfflineExperiment:
+    return OfflineExperiment.objects.for_team(team.pk).create(
+        id=uuid.uuid4(),
+        team=team,
+        name=f"experiment_{label}",
+        started_at=timezone.now(),
+        submission_fingerprint="a" * 64,
+    )
+
+
+def _create_offline_experiment_item(team: Team, label: str) -> OfflineExperimentItem:
+    return OfflineExperimentItem.objects.for_team(team.pk).create(
+        id=uuid.uuid4(),
+        team=team,
+        experiment=_create_offline_experiment(team, label),
+        submission_fingerprint="b" * 64,
+        payload_state=PayloadState.AVAILABLE,
+        payload_expires_at=timezone.now() + timedelta(days=30),
+    )
+
+
+def _create_offline_evaluation_result(team: Team, label: str) -> OfflineEvaluationResult:
+    version = _create_score_definition_version(team, label)
+    return OfflineEvaluationResult.objects.for_team(team.pk).create(
+        team=team,
+        item=_create_offline_experiment_item(team, label),
+        scorer_definition=version.definition,
+        scorer_version=version,
+        status=OfflineEvaluationResult.Status.OK,
+        boolean_value=True,
+        submission_fingerprint="c" * 64,
+        payload_state=PayloadState.AVAILABLE,
+        payload_expires_at=timezone.now() + timedelta(days=30),
+    )
+
+
+def _create_offline_experiment_item_payload(team: Team, label: str) -> OfflineExperimentItemPayload:
+    return OfflineExperimentItemPayload.objects.for_team(team.pk).create(
+        team=team, item=_create_offline_experiment_item(team, label), data={"input": label}
+    )
+
+
+def _create_offline_evaluation_result_payload(team: Team, label: str) -> OfflineEvaluationResultPayload:
+    return OfflineEvaluationResultPayload.objects.for_team(team.pk).create(
+        team=team, result=_create_offline_evaluation_result(team, label), data={"reasoning": label}
+    )
+
+
+def _create_offline_evaluation_usage_ledger(team: Team, label: str) -> OfflineEvaluationUsageLedger:
+    return OfflineEvaluationUsageLedger.objects.for_team(team.pk).create(
+        team_id=team.pk, organization_id=team.organization_id, experiment_id=uuid.uuid4(), quantity=2
+    )
+
+
 def _create_trace_review_score(team: Team, label: str) -> TraceReviewScore:
     user = _get_or_create_user_for_team(team, label)
     review = TraceReview.objects.create(
@@ -1168,6 +1241,13 @@ SYSTEM_TABLE_FACTORIES = [
     ("review_queues", _create_review_queue),
     ("sandbox_environments", _create_sandbox_environment),
     ("score_definitions", _create_score_definition),
+    ("score_definition_versions", _create_score_definition_version),
+    ("offline_experiments", _create_offline_experiment),
+    ("offline_experiment_items", _create_offline_experiment_item),
+    ("offline_evaluation_results", _create_offline_evaluation_result),
+    ("offline_experiment_item_payloads", _create_offline_experiment_item_payload),
+    ("offline_evaluation_result_payloads", _create_offline_evaluation_result_payload),
+    ("offline_evaluation_usage_ledger", _create_offline_evaluation_usage_ledger),
     ("scout_configs", _create_scout_config),
     ("scout_run_emissions", _create_scout_run_emission),
     ("scout_runs", _create_scout_run),
@@ -1240,6 +1320,97 @@ class TestSystemTablesTeamIsolation(NonAtomicBaseTest):
         )
 
         assert response.results == [("high",)]
+
+    def test_offline_results_join_experiments_and_pinned_scorer_versions(self) -> None:
+        result = _create_offline_evaluation_result(self.team, "joined")
+        response = execute_hogql_query(
+            """
+            SELECT experiments.name, results.boolean_value, results.numeric_value,
+                   versions.version, versions.config.true_label, scorers.name
+            FROM system.offline_evaluation_results AS results
+            JOIN system.offline_experiment_items AS items ON items.id = results.item_id
+            JOIN system.offline_experiments AS experiments ON experiments.id = items.experiment_id
+            JOIN system.score_definition_versions AS versions ON versions.id = results.scorer_version_id
+            JOIN system.score_definitions AS scorers ON scorers.id = versions.definition_id
+            """,
+            team=self.team,
+            user=self.user,
+        )
+        assert response.results == [(result.item.experiment.name, True, None, 1, "Yes", result.scorer_definition.name)]
+
+    @parameterized.expand(
+        [
+            ("numeric", "numeric_value", 0.75),
+            ("categorical", "categorical_values", ["correct", "concise"]),
+        ]
+    )
+    def test_offline_result_score_types(self, kind: str, column: str, value: float | list[str]) -> None:
+        result = _create_offline_evaluation_result(self.team, kind)
+        result.scorer_definition.kind = kind
+        result.scorer_definition.save(update_fields=["kind"])
+        result.boolean_value = None
+        setattr(result, column, value)
+        result.save(update_fields=["boolean_value", column])
+
+        response = execute_hogql_query(
+            f"SELECT {column} FROM system.offline_evaluation_results", team=self.team, user=self.user
+        )
+
+        assert response.results == [(value,)]
+
+    @parameterized.expand(
+        [
+            ("score_definition_versions", False),
+            ("score_definition_versions", True),
+            ("offline_evaluation_results", False),
+            ("offline_evaluation_result_payloads", False),
+        ]
+    )
+    def test_offline_scorer_denial_filters_versions_results_and_payloads(self, table: str, is_creator: bool) -> None:
+        hidden = _create_offline_evaluation_result_payload(self.team, "hidden")
+        visible = _create_offline_evaluation_result_payload(self.team, "visible")
+        definition = hidden.result.scorer_definition
+        definition.created_by = self.user if is_creator else None
+        definition.save(update_fields=["created_by"])
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        AccessControl.objects.create(
+            team=self.team,
+            resource="llm_analytics",
+            resource_id=str(hidden.result.scorer_definition_id),
+            access_level="none",
+        )
+
+        response = execute_hogql_query(f"SELECT id FROM system.{table}", team=self.team, user=self.user)
+
+        expected_id = visible.result.scorer_version_id if table == "score_definition_versions" else visible.pk
+        expected_ids = {str(expected_id)}
+        if is_creator:
+            expected_ids.add(str(hidden.result.scorer_version_id))
+        assert {str(row[0]) for row in response.results} == expected_ids
+
+    @parameterized.expand(
+        [
+            ("offline_experiment_item_payloads", _create_offline_experiment_item_payload, "item"),
+            ("offline_evaluation_result_payloads", _create_offline_evaluation_result_payload, "result"),
+        ]
+    )
+    def test_offline_payloads_hide_expired_owner_data(self, table, factory, owner_field) -> None:
+        available = factory(self.team, "available")
+        expired = factory(self.team, "expired")
+        owner = getattr(expired, owner_field)
+        owner.payload_state = PayloadState.EXPIRED
+        owner.save(update_fields=["payload_state"])
+
+        response = execute_hogql_query(f"SELECT id, data FROM system.{table}", team=self.team, user=self.user)
+
+        assert len(response.results) == 1
+        assert str(response.results[0][0]) == str(available.pk)
+        assert json.loads(response.results[0][1]) == available.data
 
     def test_data_deletion_requests_excludes_non_query_backed_requests(self):
         self._authorize_data_deletion_requests()

@@ -22,6 +22,8 @@ from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.shared_link_user import SharedLinkUser
 from posthog.synthetic_user import SyntheticUser
 
+from products.ai_observability.backend.models.score_definitions import ScoreDefinition
+
 
 class TestAccessControlSystemTables(BaseTest):
     """Test resource-level access control for system tables."""
@@ -446,6 +448,43 @@ class TestRestParityForObjectGrants(BaseTest):
         database = Database.create_for(team=self.team, user=self.user)
         assert "system.message_categories" in database._denied_tables
 
+    @parameterized.expand([("none",), ("viewer",)])
+    def test_scorer_creator_keeps_versions_under_object_rules(self, resource_access: str) -> None:
+        own = ScoreDefinition.objects.create(team=self.team, name="Own scorer", kind="boolean", created_by=self.user)
+        other = ScoreDefinition.objects.create(team=self.team, name="Other scorer", kind="boolean")
+        self._ac(resource="llm_analytics", access_level=resource_access)
+        for definition in [own, other]:
+            self._ac(
+                resource="llm_analytics",
+                resource_id=str(definition.id),
+                access_level="viewer" if resource_access == "none" and definition == other else "none",
+                organization_member=self.membership,
+            )
+
+        sql, context = self._compile("SELECT id FROM system.score_definition_versions")
+        assert "system__score_definitions.team_id" in sql
+        id_lists = self._id_list_placeholders(context).values()
+        if resource_access == "none":
+            assert [str(own.id)] in id_lists
+            assert "or(in(toString(system__score_definition_versions.definition_id)" in sql
+        else:
+            assert [str(other.id)] in id_lists
+            assert "notIn(toString(system__score_definition_versions.definition_id)" in sql
+
+    @parameterized.expand(
+        [
+            ("evaluation", "offline_experiments"),
+            ("evaluation", "offline_evaluation_usage_ledger"),
+            ("evaluation", "offline_evaluation_results"),
+            ("llm_analytics", "offline_evaluation_results"),
+            ("llm_analytics", "offline_evaluation_result_payloads"),
+        ]
+    )
+    def test_offline_tables_require_all_resource_permissions(self, scope: str, table: str) -> None:
+        self._ac(resource=scope, access_level="none")
+        with self.assertRaises(TableAccessDeniedError):
+            self._compile(f"SELECT id FROM system.{table}")
+
     @parameterized.expand([("data_modeling_views", "id"), ("data_modeling_jobs", "saved_query_id")])
     def test_denied_view_is_filtered_from_its_metadata_tables(self, table: str, column: str) -> None:
         view_id = "018f0000-0000-0000-0000-000000000002"
@@ -634,6 +673,8 @@ class TestAccessControlIntegration(BaseTest):
             ("_ticket_tagged_items",),
             ("_ticket_assignments",),
             ("_ticket_assignee_roles",),
+            ("score_definition_versions",),
+            ("offline_evaluation_results",),
         ]
     )
     def test_query_without_user_fails_on_scoped_table(self, table: str) -> None:

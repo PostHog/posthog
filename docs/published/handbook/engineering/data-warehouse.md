@@ -39,6 +39,18 @@ The totals cover measured runs only; missing measurements and days without measu
 The current UTC day is excluded because usage is updated daily.
 These measurements describe query work and are not billing amounts.
 
+## AI observability system tables
+
+The SQL editor can query AI observability data directly from Postgres through the `system` namespace:
+
+- Datasets: `system.datasets`, `system.dataset_revisions`, `system.dataset_items`, and `system.dataset_item_versions`.
+- Scorers: `system.score_definitions` and `system.score_definition_versions`. Join versions on `definition_id = score_definitions.id`; `current_version_id` identifies the active version.
+- Offline evaluations: `system.offline_experiments`, `system.offline_experiment_items`, and `system.offline_evaluation_results`. Join items to experiments on `experiment_id`, and results to items on `item_id`. Results pin their scoring configuration through `scorer_version_id`.
+- Optional payloads: `system.offline_experiment_item_payloads` and `system.offline_evaluation_result_payloads`. Each payload's `id` matches its item or result. Only payloads whose owner has `payload_state = 'available'` are returned.
+- Usage: `system.offline_evaluation_usage_ledger`. Sum `quantity` to count newly accepted results across all statuses. Entries survive experiment deletion, so use a left join when adding experiment details.
+
+Queries are scoped to the current project. Dataset tables require dataset access; scorer tables require AI observability access and honor scorer permissions. Offline tables require evaluation access. Results and their payloads also require scorer access and only return results for visible scorers. These access rules also partition cached query results.
+
 ## SQL editor drafts
 
 Saving a view infers its column types with LIMIT 0 on the outer SELECT branches and explicit IN subqueries.

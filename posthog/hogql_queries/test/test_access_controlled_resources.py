@@ -73,6 +73,13 @@ class TestQueriedAccessControlledResources(BaseTest):
     @parameterized.expand(
         [
             ("system_table", "select * from system.notebooks", {"notebook"}),
+            ("scorer_versions", "select * from system.score_definition_versions", {"llm_analytics"}),
+            ("offline_results", "select * from system.offline_evaluation_results", {"evaluation", "llm_analytics"}),
+            (
+                "offline_result_payloads",
+                "select * from system.offline_evaluation_result_payloads",
+                {"evaluation", "llm_analytics"},
+            ),
             ("through_subquery", "select * from (select * from system.notebooks)", {"notebook"}),
             ("through_cte_body", "with n as (select 1 from system.notebooks) select * from n", {"notebook"}),
             ("multiple", "select 1 from system.notebooks, system.surveys", {"notebook", "survey"}),
