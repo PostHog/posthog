@@ -991,7 +991,6 @@ export class ToolExecutor {
             trackInnerCall,
             state.scopeGatedTools,
             {
-                isInlineExecUiHost: state.clientProfile.isInlineExecUiHost(),
                 mcpClientName: getEffectiveMCPClientIdentity(state.requestContext, state.sessionContext).mcpClientName,
                 learnCatalog: this.instructionsBuilder.buildExecLearnCatalog(
                     state,

@@ -687,7 +687,6 @@ export function makeToolExecutorState(
             capabilities: { supportsInstructions: true },
             isCliModeEnabled: vi.fn(() => false),
             isClaudeUiHost: vi.fn(() => false),
-            isInlineExecUiHost: vi.fn(() => false),
             isClaudeChatHost: vi.fn(() => false),
             isAnthropicConnector: vi.fn(() => false),
         } as any,

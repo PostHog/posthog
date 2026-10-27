@@ -454,24 +454,6 @@ describe('MCPClientProfile', () => {
         })
     })
 
-    describe('isInlineExecUiHost()', () => {
-        it('is true for the ClaudeCode vendor client', () => {
-            expect(new MCPClientProfile({ vendorClient: 'ClaudeCode' }).isInlineExecUiHost()).toBe(true)
-        })
-
-        // Claude.ai and Cowork render via the separate render-ui tool, not the inline exec payload.
-        it.each([['ClaudeAI'], ['Cowork'], ['ClaudeDesign'], ['some-random-tool'], ['']])(
-            'is false for the %s vendor client',
-            (vendorClient) => {
-                expect(new MCPClientProfile({ vendorClient }).isInlineExecUiHost()).toBe(false)
-            }
-        )
-
-        it('is false when no vendor client is set (the user-agent is not a fallback here)', () => {
-            expect(new MCPClientProfile({ userAgent: 'Claude-User' }).isInlineExecUiHost()).toBe(false)
-        })
-    })
-
     describe('isClaudeChatHost()', () => {
         it.each([
             // Claude web/desktop ignore the `instructions` payload → keep env-context.

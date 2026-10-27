@@ -227,13 +227,6 @@ export function classifyLearnCommand(
 export interface ExecToolOptions {
     requireDestructiveConfirmation?: boolean
     learnCatalog?: ExecLearnCatalog
-    /**
-     * Client is an inline-exec UI-app host that renders MCP UI apps on the exec
-     * response (Claude Code). Gets the same UI-app payload treatment as the
-     * PostHog Desktop consumer: structuredContent suppressed toward the model, app data
-     * re-homed onto `_meta`. Computed from the client profile at the call site.
-     */
-    isInlineExecUiHost?: boolean
     mcpClientName?: string | undefined
     /**
      * Resolves the caller's third-party MCP tools (see `lib/gateway-tools.ts`). Awaited
@@ -2219,7 +2212,11 @@ export function createExecTool(
                             _meta: { [APP_DATA_META_KEY]: appData as Record<string, unknown> },
                         })
                     }
-                    const isInlineUiAppHost = isPostHogCodeConsumer(mcpConsumer) || options.isInlineExecUiHost === true
+                    // Only PostHog Desktop mounts a UI app from the `exec` response. Anthropic hosts mount
+                    // an iframe only for a tool that declares `_meta.ui.resourceUri` on `tools/list`, which
+                    // `exec` does not, so they render through `render-ui`. For any other client, the render
+                    // note would tell the model that the user sees a chart that never appears.
+                    const isInlineUiAppHost = isPostHogCodeConsumer(mcpConsumer)
                     if (includeAppData || (tool._meta?.ui?.resourceUri && isInlineUiAppHost)) {
                         const isStringResult = typeof result === 'string'
                         const distinctId =
@@ -2230,8 +2227,8 @@ export function createExecTool(
                                 toolMeta: tool._meta,
                                 toolName: tool.name,
                                 params: useJson ? { ...input, output_format: 'json' } : input,
-                                // Inline-exec UI-app hosts (PostHog Desktop, Claude Code)
-                                // surface `structuredContent` to the model in preference to the
+                                // PostHog Desktop, the inline-exec UI-app host,
+                                // surfaces `structuredContent` to the model in preference to the
                                 // text content, which would bury a compact formatted table under
                                 // the raw JSON. When such a table exists, re-home the UI app's data
                                 // onto `_meta` (see APP_DATA_META_KEY) so the model reads the compact

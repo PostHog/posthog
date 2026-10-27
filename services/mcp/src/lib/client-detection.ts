@@ -189,13 +189,6 @@ export const ANTHROPIC_UI_HOST_VENDOR_FRAGMENTS = ['claudeai', 'cowork'] as cons
 // is not a chat host even though it is a UI host.
 export const ANTHROPIC_CHAT_HOST_VENDOR_FRAGMENTS = ['claudeai'] as const
 
-// Anthropic surfaces that render MCP UI apps on the `exec` response itself, so they
-// get the same treatment as the PostHog Desktop consumer. `Cowork` is not one: Claude
-// desktop chat reports `Cowork` and mounts an iframe only for a tool that declares
-// `_meta.ui.resourceUri` on `tools/list`, which `exec` does not. It renders through
-// `render-ui`, like `ClaudeAI`.
-export const INLINE_EXEC_UI_APP_VENDOR_FRAGMENTS = ['claudecode'] as const
-
 // User-Agent Anthropic clients send when they connect without the
 // `x-anthropic-client` header (Claude.ai web/desktop and internal Anthropic
 // tooling). It's a generic Anthropic signal — Claude Code and Cowork can send it
@@ -320,25 +313,16 @@ export class MCPClientProfile {
         // The per-request vendor client (`x-anthropic-client`) is authoritative: it
         // distinguishes the Claude surfaces that pool the same MCP transport —
         // `ClaudeAI` (web/desktop) and `Cowork`, both `render-ui` hosts, from
-        // `ClaudeCode`, which only renders UI apps inline on the `exec` response
-        // (see `isInlineExecUiHost`). When it's present, trust it exclusively; only
-        // fall back to the `Claude-User` user-agent when the vendor header is
-        // absent. Otherwise a non-render-ui surface like Claude Code — which can
-        // share the `Claude-User` user-agent with web/desktop — would be
-        // misclassified as a UI host.
+        // `ClaudeCode`, which mounts no UI app from a claude.ai connector server.
+        // When it's present, trust it exclusively; only fall back to the
+        // `Claude-User` user-agent when the vendor header is absent. Otherwise a
+        // non-render-ui surface like Claude Code — which can share the
+        // `Claude-User` user-agent with web/desktop — would be misclassified as a
+        // UI host.
         if (this.vendorClient) {
             return matchesAnyFragment(this.vendorClient, ANTHROPIC_UI_HOST_VENDOR_FRAGMENTS)
         }
         return matchesAnyFragment(this.userAgent, ANTHROPIC_UI_HOST_USER_AGENT_FRAGMENTS)
-    }
-
-    isInlineExecUiHost(): boolean {
-        // Claude Code renders MCP UI apps inline on the single-exec `exec` tool, while
-        // Claude.ai and Cowork render through the separate `render-ui` tool.
-        // Like PostHog Desktop, Claude Code surfaces `structuredContent` to the model, so
-        // the exec UI-app branch suppresses it and re-homes the app data onto `_meta`.
-        // The per-request vendor header (`ClaudeCode`) is the reliable signal.
-        return matchesAnyFragment(this.vendorClient, INLINE_EXEC_UI_APP_VENDOR_FRAGMENTS)
     }
 
     isClaudeChatHost(): boolean {
