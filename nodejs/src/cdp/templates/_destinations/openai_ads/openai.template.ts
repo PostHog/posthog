@@ -162,6 +162,74 @@ const build_inputs = (defaults: { eventType?: string; actionSource?: string } = 
             required: false,
         },
         {
+            key: 'phone',
+            type: 'string',
+            label: 'Phone number',
+            description:
+                'Phone number for conversion matching, sent SHA-256 hashed. It must include the country code, for example +1 415 555 2671 or 0044 20 7946 0000. A number without a country code is left out, because it cannot be matched. A value that is already a SHA-256 hash is sent as is. Leave blank to omit.',
+            default: '{person.properties.phone}',
+            secret: false,
+            required: false,
+        },
+        {
+            key: 'firstName',
+            type: 'string',
+            label: 'First name',
+            description:
+                'First name for conversion matching. It is lowercased, spaces and punctuation are removed, and it is sent SHA-256 hashed. Leave blank to omit.',
+            default: '{person.properties.first_name}',
+            secret: false,
+            required: false,
+        },
+        {
+            key: 'lastName',
+            type: 'string',
+            label: 'Last name',
+            description:
+                'Last name for conversion matching. It is lowercased, spaces and punctuation are removed, and it is sent SHA-256 hashed. Leave blank to omit.',
+            default: '{person.properties.last_name}',
+            secret: false,
+            required: false,
+        },
+        {
+            key: 'city',
+            type: 'string',
+            label: 'City',
+            description: 'City for conversion matching. OpenAI takes it unhashed. Leave blank to omit.',
+            default: '{person.properties.$geoip_city_name}',
+            secret: false,
+            required: false,
+        },
+        {
+            key: 'region',
+            type: 'string',
+            label: 'Region',
+            description: 'State or region for conversion matching. OpenAI takes it unhashed. Leave blank to omit.',
+            default: '{person.properties.$geoip_subdivision_1_name}',
+            secret: false,
+            required: false,
+        },
+        {
+            key: 'postalCode',
+            type: 'string',
+            label: 'Postal code',
+            description:
+                'Postal code for conversion matching. OpenAI takes it unhashed. A value with characters other than letters, numbers, spaces, or hyphens is left out. Leave blank to omit.',
+            default: '{person.properties.$geoip_postal_code}',
+            secret: false,
+            required: false,
+        },
+        {
+            key: 'country',
+            type: 'string',
+            label: 'Country code',
+            description:
+                'Two-letter ISO country code for conversion matching, for example US. OpenAI takes it unhashed. Any other value is left out. Leave blank to omit.',
+            default: '{person.properties.$geoip_country_code}',
+            secret: false,
+            required: false,
+        },
+        {
             key: 'ipAddress',
             type: 'string',
             label: 'IP address',
@@ -213,20 +281,63 @@ export const template: HogFunctionTemplate = {
     category: ['Advertisement'],
     code_language: 'hog',
     code: `
+// A value that is already a SHA-256 hash is sent as is, so a mapping that hashes upstream is not hashed twice
+fn existingSha256(value) {
+    let lowered := lower(trim(toString(value)))
+    return match(lowered, '^[a-f0-9]{64}$') ? lowered : null
+}
+
+// OpenAI hashes the digits only: the country code without the leading + or 00. A number without
+// a country code is dropped, because guessing the country would send a hash that matches the wrong person or nobody.
+fn hashPhone(value) {
+    let phone := trim(toString(value))
+    for (let separator in [' ', '-', '.', '(', ')']) {
+        phone := replaceAll(phone, separator, '')
+    }
+    if (startsWith(phone, '+')) {
+        phone := substring(phone, 2)
+    } else if (startsWith(phone, '00')) {
+        phone := substring(phone, 3)
+    } else {
+        return null
+    }
+    if (not match(phone, '^[1-9][0-9]{7,14}$')) {
+        return null
+    }
+    return sha256Hex(phone)
+}
+
+// OpenAI removes whitespace and ASCII punctuation from names, and keeps accents and other non-ASCII characters
+fn hashName(value) {
+    let name := lower(trim(toString(value)))
+    for (let character in splitByString('', ' !"#$%&\\'()*+,-./:;<=>?@[\\\\]^_\`{|}~')) {
+        name := replaceAll(name, character, '')
+    }
+    return empty(name) ? null : sha256Hex(name)
+}
+
 let userData := {}
 if (not empty(inputs.obref)) {
     userData.obref := inputs.obref
 }
 if (not empty(inputs.email)) {
-    userData.emails_sha256 := [sha256Hex(lower(trim(inputs.email)))]
+    userData.emails_sha256 := [existingSha256(inputs.email) ?? sha256Hex(lower(trim(toString(inputs.email))))]
 }
 if (not empty(inputs.externalId)) {
-    userData.external_ids_sha256 := [sha256Hex(trim(toString(inputs.externalId)))]
+    userData.external_ids_sha256 := [existingSha256(inputs.externalId) ?? sha256Hex(trim(toString(inputs.externalId)))]
+}
+if (not empty(inputs.phone)) {
+    let phoneHash := existingSha256(inputs.phone) ?? hashPhone(inputs.phone)
+    if (empty(phoneHash)) {
+        print('\`phone\` has no country code or is not a valid phone number. Sending the conversion without it.')
+    } else {
+        userData.phone_numbers_sha256 := [phoneHash]
+    }
 }
 // OpenAI can only attribute a conversion that carries at least one strong identifier;
-// IP address and user agent alone are not enough
+// IP address, user agent, name and location alone are not enough
 if (empty(inputs.oppref) and length(keys(userData)) == 0) {
-    print('No \`oppref\`, \`obref\`, \`email\` or \`externalId\` to identify the user with. Skipping...')
+    print('No \`oppref\`, \`obref\`, \`email\`, \`externalId\` or \`phone\` to identify the user with. Skipping...')
     return
 }
 if (not empty(inputs.ipAddress)) {
@@ -234,6 +345,36 @@ if (not empty(inputs.ipAddress)) {
 }
 if (not empty(inputs.userAgent)) {
     userData.user_agent := inputs.userAgent
+}
+if (not empty(inputs.firstName)) {
+    let firstNameHash := existingSha256(inputs.firstName) ?? hashName(inputs.firstName)
+    if (not empty(firstNameHash)) {
+        userData.first_names_sha256 := [firstNameHash]
+    }
+}
+if (not empty(inputs.lastName)) {
+    let lastNameHash := existingSha256(inputs.lastName) ?? hashName(inputs.lastName)
+    if (not empty(lastNameHash)) {
+        userData.last_names_sha256 := [lastNameHash]
+    }
+}
+if (not empty(inputs.city)) {
+    userData.cities := [trim(toString(inputs.city))]
+}
+if (not empty(inputs.region)) {
+    userData.regions := [trim(toString(inputs.region))]
+}
+if (not empty(inputs.postalCode)) {
+    let postalCode := trim(toString(inputs.postalCode))
+    if (match(postalCode, '^[A-Za-z0-9 -]{1,32}$')) {
+        userData.postal_codes := [postalCode]
+    }
+}
+if (not empty(inputs.country)) {
+    let country := upper(trim(toString(inputs.country)))
+    if (match(country, '^[A-Z]{2}$')) {
+        userData.countries := [country]
+    }
 }
 
 let conversion := {
@@ -292,6 +433,7 @@ let res := fetch(f'https://bzr.openai.com/v1/events?pid={inputs.pixelId}', {
         'Content-Type': 'application/json'
     },
     'body': {
+        'integration_source': 'posthog',
         'events': [conversion]
     }
 })
