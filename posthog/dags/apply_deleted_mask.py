@@ -41,21 +41,27 @@ class DeletedMaskPartition:
     deleted_rows: int
 
 
+@frozen
+class PartitionRowCounts:
+    physical_rows: int
+    live_rows: int
+
+
 def _partition_filter(partitions: Sequence[str], column: str) -> str:
     return f"AND {column} IN %(partitions)s" if partitions else ""
 
 
 def _deleted_rows_by_partition(
     placement: TargetPlacement, partitions: Sequence[str]
-) -> Callable[[Client], dict[str, tuple[int, int]]]:
-    """A callable that returns {partition: (physical_rows, live_rows)} for the table on one host."""
+) -> Callable[[Client], dict[str, PartitionRowCounts]]:
+    """A callable that returns the row counts of each partition of the table on one host."""
     parameters = {
         "database": settings.CLICKHOUSE_DATABASE,
         "table": placement.target.data_table,
         "partitions": list(partitions),
     }
 
-    def count(client: Client) -> dict[str, tuple[int, int]]:
+    def count(client: Client) -> dict[str, PartitionRowCounts]:
         # Patch parts sit in partitions of their own and hold no rows of the table, so only the
         # data parts count as physical rows. count() applies both the deleted mask and patch parts.
         physical = client.execute(
@@ -80,7 +86,10 @@ def _deleted_rows_by_partition(
                 parameters,
             )
         )
-        return {partition_id: (rows, live.get(partition_id, 0)) for partition_id, rows in physical}
+        return {
+            partition_id: PartitionRowCounts(physical_rows=rows, live_rows=live.get(partition_id, 0))
+            for partition_id, rows in physical
+        }
 
     return count
 
@@ -105,18 +114,19 @@ def _find_deleted_mask_partitions_op(name: str, target: DeletionTarget) -> dagst
         ).result()
         for host, counts in per_host.items():
             assert host.shard_num is not None
-            for partition, (physical_rows, live_rows) in counts.items():
-                if not physical_rows:
+            for partition, rows in counts.items():
+                if not rows.physical_rows:
                     continue
-                ratio = (physical_rows - live_rows) / physical_rows
+                deleted_rows = rows.physical_rows - rows.live_rows
+                ratio = deleted_rows / rows.physical_rows
                 report.setdefault(partition, {})[host.shard_num] = round(ratio, 4)
                 if ratio >= config.min_deleted_ratio:
                     found.append(
                         DeletedMaskPartition(
                             partition=partition,
                             shard=host.shard_num,
-                            physical_rows=physical_rows,
-                            deleted_rows=physical_rows - live_rows,
+                            physical_rows=rows.physical_rows,
+                            deleted_rows=deleted_rows,
                         )
                     )
 
