@@ -26,8 +26,8 @@ logger = structlog.get_logger(__name__)
 # The research prompt shows this many of the team's most-used tags, so a run reuses a tag before it
 # invents a near duplicate.
 TEAM_TAG_VOCABULARY_SIZE = 30
-# Bounds the vocabulary query to the team's newest tagged reports, so its cost does not grow with
-# the team's report history.
+# The vocabulary query reads at most this many of the team's newest reports, so its cost does not
+# grow with the team's report history.
 TEAM_TAG_VOCABULARY_SAMPLE = 500
 
 
@@ -74,15 +74,15 @@ def coerce_report_tags(tags: Sequence[object]) -> list[str]:
 
 
 def team_tag_vocabulary(team_id: int) -> list[str]:
-    """The team's most-used report tags, most-used first, counted over its newest tagged reports."""
+    """The team's most-used report tags, most-used first, counted over its newest reports."""
+    # Limit first and filter in Python. A SQL filter on `tags` or `status` before the limit can walk
+    # the team's whole history on the `(team, created_at)` index when few reports match.
     rows = (
         SignalReport.objects.filter(team_id=team_id)
-        .exclude(status=SignalReport.Status.DELETED)
-        .exclude(tags=[])
         .order_by("-created_at")
-        .values_list("tags", flat=True)[:TEAM_TAG_VOCABULARY_SAMPLE]
+        .values_list("tags", "status")[:TEAM_TAG_VOCABULARY_SAMPLE]
     )
-    counts = Counter(tag for tags in rows for tag in tags)
+    counts = Counter(tag for tags, status in rows if status != SignalReport.Status.DELETED for tag in tags)
     return [tag for tag, _ in counts.most_common(TEAM_TAG_VOCABULARY_SIZE)]
 
 
