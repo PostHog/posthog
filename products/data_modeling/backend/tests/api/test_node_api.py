@@ -1078,6 +1078,13 @@ class TestNodeObjectVisibility(WarehouseAccessControlTestMixin):
         self.assertIn(str(upper_case_node.id), node_ids)
         self.assertNotIn(str(self.customers_by_row_name_node.id), node_ids)
 
+    def test_a_node_named_after_a_denied_soft_deleted_table_is_hidden(self):
+        archived_table = DataWarehouseTable.objects.create(name="archived", team=self.team, deleted=True)
+        archived_node = table_node(self.team, self.dag, "archived", {"origin": "warehouse"})
+        self._deny("warehouse_table", archived_table.id)
+
+        self.assertNotIn(str(archived_node.id), self._listed_nodes())
+
     def test_a_denied_view_drops_the_edges_that_touch_it(self):
         self._deny("warehouse_view", self.accounts_query.id)
 

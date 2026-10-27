@@ -69,7 +69,7 @@ def hidden_node_ids(team_id: int, user_access_control: "UserAccessControl") -> f
         readable = _readable_saved_query_ids(team_id, user_access_control, set(saved_query_by_node.values()))
         hidden |= {node_id for node_id, saved_query_id in saved_query_by_node.items() if saved_query_id not in readable}
     if denied_tables and unresolved_table_names:
-        for node_id, matched in _tables_matching_names(team_id, unresolved_table_names).items():
+        for node_id, matched in _tables_matching_names(team_id, unresolved_table_names, denied_tables).items():
             if matched & denied_tables:
                 hidden.add(node_id)
 
@@ -106,7 +106,9 @@ def _readable_saved_query_ids(
     }
 
 
-def _tables_matching_names(team_id: int, unresolved_table_names: dict[str, str]) -> dict[str, set[UUID]]:
+def _tables_matching_names(
+    team_id: int, unresolved_table_names: dict[str, str], denied_tables: frozenset[UUID]
+) -> dict[str, set[UUID]]:
     """Table ids each unmarked table node could name, under either spelling of the table name.
 
     An exact match wins, and a case-insensitive one is the fallback, the same order HogQL resolves a
@@ -114,7 +116,8 @@ def _tables_matching_names(team_id: int, unresolved_table_names: dict[str, str])
     """
     exact: dict[str, set[UUID]] = defaultdict(set)
     folded: dict[str, set[UUID]] = defaultdict(set)
-    for table_id, names in all_queryable_table_keys(team_id).items():
+    # The denied set covers soft-deleted tables, so their names join the queryable ones.
+    for table_id, names in all_queryable_table_keys(team_id, including=denied_tables).items():
         for name in (names.row_name, names.queryable_key):
             exact[name].add(table_id)
             folded[name.lower()].add(table_id)

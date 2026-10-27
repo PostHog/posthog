@@ -451,36 +451,40 @@ def all_queryable_table_names(team_id: int) -> dict[UUID, str]:
     return dict(rows.values_list("id", "name"))
 
 
-def all_queryable_table_keys(team_id: int) -> dict[UUID, contracts.TableNames]:
-    """Every queryable table of this team, by id, under both the names it answers to. One query.
+def all_queryable_table_keys(team_id: int, *, including: Collection[UUID] = ()) -> dict[UUID, contracts.TableNames]:
+    """Every queryable table of this team, by id, under both the names it answers to. One query,
+    or two with ``including``.
 
     A caller matching what a query read against what a person may reach has to know both spellings.
+    ``including`` adds those tables whatever their state, for a caller that also matches names
+    against soft-deleted tables.
     """
     from posthog.hogql.database.database import (  # noqa: PLC0415 -- keeps HogQL off this module's import path
         get_data_warehouse_table_name,
     )
 
-    rows = (
-        _DataWarehouseTable.raw_objects.queryable()
-        .filter(team_id=team_id)
-        .select_related("external_data_source")
-        .only(
-            "id",
-            "name",
-            "external_data_source_id",
-            "external_data_source__id",
-            "external_data_source__access_method",
-            "external_data_source__source_type",
-            "external_data_source__prefix",
-        )
-    )
+    tables = list(_table_keys_queryset(_DataWarehouseTable.raw_objects.queryable().filter(team_id=team_id)))
+    if including:
+        tables += list(_table_keys_queryset(_DataWarehouseTable.raw_objects.filter(team_id=team_id, id__in=including)))
     return {
         table.id: contracts.TableNames(
             row_name=table.name,
             queryable_key=get_data_warehouse_table_name(table.external_data_source, table.name),
         )
-        for table in rows
+        for table in tables
     }
+
+
+def _table_keys_queryset(queryset: QuerySet[_DataWarehouseTable]) -> QuerySet[_DataWarehouseTable]:
+    return queryset.select_related("external_data_source").only(
+        "id",
+        "name",
+        "external_data_source_id",
+        "external_data_source__id",
+        "external_data_source__access_method",
+        "external_data_source__source_type",
+        "external_data_source__prefix",
+    )
 
 
 def direct_access_table_ids(team_id: int) -> set[UUID]:
