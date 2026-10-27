@@ -4114,7 +4114,7 @@ Diffed against: <https://raw.githubusercontent.com/e2b-dev/infra/main/spec/opena
 - [ ] `GET /teams` — team lookup resolving the teamID stamped on sandboxes, templates and snapshots (medium)
 - [x] `GET /templates/{templateID}` (returns the template's build list) — template build history - durations, statuses and failure rates for the build pipeline (medium)
 - [ ] `GET /templates/{templateID}/builds/{buildID}/status` — per-build status and logs; see the reasons below (medium)
-- [ ] `GET /templates/{templateID}/tags` — template version/tag lookup, needed to attribute sandboxes to a template version (low)
+- [x] `GET /templates/{templateID}/tags` — template version/tag lookup, needed to attribute sandboxes to a template version (low)
 - [ ] `GET /volumes` — persistent volume inventory and their sandbox attachments (low)
 - [ ] `GET /v2/sandboxes/{sandboxID}/logs` — per-sandbox logs for failure analysis; high volume and per-ID fetch, so nice to have (low)
 
@@ -4125,6 +4125,7 @@ Not covered, with reasons:
 - `/teams` is the one endpoint in the spec that does not accept `ApiKeyAuth` — it is `AuthProviderBearerAuth` only, so the team-scoped API key this source stores cannot call it. Its `Team` schema also returns the team's live `apiKey`, which must not land in a warehouse table. The gap's rationale does not hold either: `ListedSandbox`, `Template` and `SnapshotInfo` carry no `teamID` to resolve.
 - `/teams/{teamID}/metrics/max` returns a single `{timestamp, value}` object per `metric` enum value, so it is one scalar per call rather than a table, and it is the max of the `team_metrics` series over the same window.
 - `/templates/{templateID}/builds/{buildID}/status` is a second fan-out hop costing one request per build. Its only non-log fields (`templateID`, `buildID`, `status`) already arrive in `template_builds`; the rest is build log entries.
+- `/templates/{templateID}/tags` is covered by `template_tags`, one request per template. A tag name is unique only within its template, so the key is `templateID` plus `tag`. The tag's `createdAt` changes when the tag moves to a new build, so the table has no partition key.
 - `/teams/{teamID}/metrics` and the sandbox metrics endpoints do take `start`/`end` filters, but the spec documents no ordering guarantee, and a fan-out child's global ascending watermark would advance past sandboxes a partial run has not reached. Both ship full refresh, like the rest of the source.
 
 ## Easybill — gaps
@@ -12517,10 +12518,10 @@ Today (8): `balance_transactions`, `campaigns`, `funding_sources`, `invoices`, `
 Diffed against: <https://raw.githubusercontent.com/tremendous-rewards/tremendous-python/HEAD/tremendous/api/tremendous_api.py>
 
 - [x] `balance_transactions` — the account ledger; every debit/credit behind orders and funding sources (high)
-- [ ] `roles` — lookup table resolving the role ids on members (high)
-- [ ] `topups` — funding top-up transactions that explain balance movements (medium)
-- [ ] `fields` — custom field definitions that decode the custom_fields carried on orders and rewards (medium)
-- [ ] `organizations` — org roster for multi-org accounts; resolves the organization id on orders, members and invoices (medium)
+- [x] `roles` — lookup table resolving the role ids on members (high)
+- [x] `topups` — funding top-up transactions that explain balance movements (medium)
+- [x] `fields` — custom field definitions that decode the custom_fields carried on orders and rewards (medium)
+- [x] `organizations` — org roster for multi-org accounts; resolves the organization id on orders, members and invoices (medium)
 - [ ] `connected_organizations` — platform-partner child orgs, needed to attribute spend for resellers (medium)
 - [ ] `connected_organization_members` — member roster per connected org (low)
 - [ ] `fraud_reviews` — orders held for fraud review and their disposition (low)

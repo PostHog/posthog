@@ -10,7 +10,7 @@ The common alias uses `.github/scripts/ordered-image-release.sh`. `.github/actio
 
 After a successful default-branch build, reuse the helper under the repository-owner, `CD_DEPLOY_ENABLED` and `ORDERED_IMAGE_ALIAS_PAUSED` gates from `ordered_image_alias` in `.github/workflows/container-images-cd.yml`. Keep one active production publisher during switchover or rollback.
 
-Run `bash .github/scripts/ordered-image-release.sh tag` in the executing checkout with `GITHUB_SHA` equal to the built revision. It writes `tag` to `GITHUB_OUTPUT`, preserving first-parent ordering and `r<12-digit ordinal>-<sha6>`. A shallow checkout fetches complete history from its configured origin. Missing history yields a warning and no tag; surface that result as the common caller does.
+Run `bash .github/scripts/ordered-image-release.sh tag` in the executing checkout with `GITHUB_SHA` equal to the built revision. It writes `tag` to `GITHUB_OUTPUT`, preserving first-parent ordering and `r<12-digit ordinal>-<sha6>`. Use a full-history blobless checkout (`fetch-depth: 0`, `filter: blob:none`) with non-cone sparse checkout of `.github`. A shallow checkout yields a warning and no tag; surface that result as the common caller does.
 
 Install the pinned, checksum-verified client with `bash .github/scripts/ordered-image-release.sh install "$RUNNER_TEMP/regctl"`. After approved registry authentication, run the helper's `publish` command:
 
@@ -27,7 +27,7 @@ The helper skips publication with a warning if the build digest, destination reg
 
 The helper's `read` operation prints the resolved digest and emits the same outcome as publication through one ECR readback function. Only `present-at-expected-digest` establishes publication. `absent`, `integrity-mismatch` and `unknown` do not. A copy error can reconcile to exact presence; a successful copy can have unknown readback. The common publish step has no `id` and does not consume the helper's `outcome` output. A green fail-soft job or an annotation does not prove publication. Same-digest reruns reconcile, while immutable conflicts retain their mismatch outcome. Never copy publisher/readback shell per service.
 
-Image annotations and consumer `source.repo` keep canonical `PostHog/posthog` identity. History and policy evaluation use the actual workflow checkout and built SHA. Fetch from that checkout's configured origin, never from an endpoint derived from the canonical annotation. Missing executing history is an explicit failure, not unrelated input. Images built in their own repositories retain their existing publisher family.
+Image annotations and consumer `source.repo` keep canonical `PostHog/posthog` identity. History and policy evaluation use the actual workflow checkout and built SHA. Fetch missing policy blobs from that checkout's configured origin, never from an endpoint derived from the canonical annotation. Missing executing history is an explicit failure, not unrelated input. Images built in their own repositories retain their existing publisher family.
 
 ## Canonical policy and origin bindings
 
@@ -59,7 +59,7 @@ Keep the common ordered alias attempt first. The selective job depends on its co
 
 For each resolved channel destination, list every registry page and select the greatest visible tag matching the complete bare ordered-alias grammar. Resolve its digest and full canonical source revision, then validate its ordinal and executing first-parent membership. Malformed identity or missing history blocks that channel. Never use the common repository frontier, push boundary, build marker or deployed revision as the channel baseline. Older builds skip; equal-revision reruns report `present` at the expected digest and block with `integrity-mismatch` at a different digest.
 
-Before comparing paths, batch-fetch missing interval trees from the executing checkout's configured origin within the fetch budget. Missing trees after bounded fetching block publication. A failed availability probe retains its cause alongside any fetch error. Match every entry after the channel frontier through the successful build with that channel's filter at the build revision. This recovers relevant changes from failed or skipped earlier builds. Compare effective policy fingerprints at every policy change in the interval, including reverted changes. Other channels' changes do not qualify this channel, and historical destination rebinding is rejected.
+Before comparing paths, require complete history with trees in the executing checkout; missing trees block publication without fetching. Batch-fetch only missing policy blobs from its configured origin, with up to three attempts and 5 and 15 second waits inside the existing fetch budget. Match every entry after the channel frontier through the successful build with that channel's filter at the build revision. This recovers relevant changes from failed or skipped earlier builds. Compare effective policy fingerprints at every policy change in the interval, including reverted changes. Other channels' changes do not qualify this channel, and historical destination rebinding is rejected.
 
 A qualifying channel copies the exact built digest from the common source to its origin repository in the authenticated registry with the existing helper. Results persist in `shared-image-releases/results.json` and per-channel logs. Each run attempt uploads evidence as `shared-image-releases-${{ github.run_attempt }}`. `published` records a new verified publication; `present` records an existing exact publication. Only `present-at-expected-digest` establishes a baseline. `absent`, `integrity-mismatch` and `unknown` remain blocked, and helper crashes, timeouts or missing outcome lines retain their primary reason. One blocked channel does not stop other workers.
 
@@ -79,7 +79,8 @@ The workflow allows four channels and two concurrent registry workers. A local r
 
 | Work                           | Bound              |
 | ------------------------------ | ------------------ |
-| Tree and policy fetching       | 60 seconds         |
+| Policy-blob fetching           | 60 seconds         |
+| Retry waits within fetching    | 5 and 15 seconds   |
 | History comparison             | 30 seconds         |
 | Combined command output        | 64 MiB             |
 | Registry operation             | 15 seconds         |
@@ -88,6 +89,6 @@ The workflow allows four channels and two concurrent registry workers. A local r
 | Action total                   | 720 seconds        |
 | Publish step and selective job | 13 and 18 minutes  |
 
-Commands kill their process group on timeout or output exhaustion; the helper's copy and readback stay in the caller's process group so a supervising runner's cancellation reaches them. The helper's own timeout then signals only the client; its descendants remain bounded by the caller's group kill or the step timeout. Bounded fetching, unavailable trees and registry timeouts must leave blocked channels unadvanced. The independent common job retains its own attempt and budget. Activation must verify real fallback copy times, replica visibility, quiet intervals and retained rollback images.
+Commands kill their process group on timeout or output exhaustion; the helper's copy and readback stay in the caller's process group so a supervising runner's cancellation reaches them. The helper's own timeout then signals only the client; its descendants remain bounded by the caller's group kill or the step timeout. Bounded policy-blob fetching, unavailable trees and registry timeouts must leave blocked channels unadvanced. The independent common job retains its own attempt and budget. Activation must verify real fallback copy times, replica visibility, quiet intervals and retained rollback images.
 
 This guidance grants no publication, infrastructure apply, cluster operation or rollout authority.

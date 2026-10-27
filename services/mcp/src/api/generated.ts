@@ -7708,55 +7708,16 @@ export namespace Schemas {
       variants: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[];
     }
 
-    export type ExperimentSignificanceCode = typeof ExperimentSignificanceCode[keyof typeof ExperimentSignificanceCode];
-
-
-    export const ExperimentSignificanceCode = {
-      Significant: 'significant',
-      NotEnoughExposure: 'not_enough_exposure',
-      LowWinProbability: 'low_win_probability',
-      HighLoss: 'high_loss',
-      HighPValue: 'high_p_value',
-    } as const;
-
-    export interface ExperimentVariantTrendsBaseStats {
-      absolute_exposure: number;
-      count: number;
-      exposure: number;
-      key: string;
-    }
-
-    export interface ExperimentVariantFunnelsBaseStats {
-      failure_count: number;
-      key: string;
-      success_count: number;
-    }
-
-    export type ExperimentQueryResponseCredibleIntervals = {[key: string]: number[]} | null;
-
-    export type ExperimentQueryResponseInsight = { [key: string]: unknown }[] | null;
-
-    export type ExperimentQueryResponseProbability = {[key: string]: number} | null;
-
     export interface ExperimentQueryResponse {
       baseline?: ExperimentStatsBaseValidated | null;
       /** Results grouped by breakdown value. When present, baseline and variant_results contain aggregated data. */
       breakdown_results?: ExperimentBreakdownResult[] | null;
       clickhouse_sql?: string | null;
-      credible_intervals?: ExperimentQueryResponseCredibleIntervals;
       hogql?: string | null;
-      insight?: ExperimentQueryResponseInsight;
       /** Whether exposures were served from the precomputation system */
       is_precomputed?: boolean | null;
       kind?: 'ExperimentQuery';
-      metric?: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric | null;
-      p_value?: number | null;
-      probability?: ExperimentQueryResponseProbability;
-      significance_code?: ExperimentSignificanceCode | null;
-      significant?: boolean | null;
-      stats_version?: number | null;
       variant_results?: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[] | null;
-      variants?: ExperimentVariantTrendsBaseStats[] | ExperimentVariantFunnelsBaseStats[] | null;
       /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
       warnings?: DataWarehouseSyncWarning[] | null;
     }
@@ -29338,7 +29299,7 @@ export namespace Schemas {
          * @nullable
          */
       readonly name: string | null;
-      /** Description of the dashboard. */
+      /** Short note for people who open the dashboard. Say what it shows in one or two sentences, about 30 words. Leave it empty when the name already says it. Do not write how it was built or changed. */
       readonly description: string;
       /** Whether the dashboard is pinned to the top of the list. */
       readonly pinned: boolean;
@@ -79995,6 +79956,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly repo_slug: string | null;
+      /** Whether this is a scout self-improvement report. Most update a team-owned skill in the skills store, but reports with a selected repository can still produce a pull request. */
+      readonly is_self_improvement_report: boolean;
       readonly is_suggested_reviewer: boolean;
       /** Distinct source products contributing signals to this report (from ClickHouse). */
       readonly source_products: readonly string[];
@@ -99349,31 +99312,16 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export type QueryResponseAlternative19CredibleIntervals = {[key: string]: number[]} | null;
-
-    export type QueryResponseAlternative19Insight = { [key: string]: unknown }[] | null;
-
-    export type QueryResponseAlternative19Probability = {[key: string]: number} | null;
-
     export interface QueryResponseAlternative19 {
       baseline?: ExperimentStatsBaseValidated | null;
       /** Results grouped by breakdown value. When present, baseline and variant_results contain aggregated data. */
       breakdown_results?: ExperimentBreakdownResult[] | null;
       clickhouse_sql?: string | null;
-      credible_intervals?: QueryResponseAlternative19CredibleIntervals;
       hogql?: string | null;
-      insight?: QueryResponseAlternative19Insight;
       /** Whether exposures were served from the precomputation system */
       is_precomputed?: boolean | null;
       kind?: 'ExperimentQuery';
-      metric?: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric | null;
-      p_value?: number | null;
-      probability?: QueryResponseAlternative19Probability;
-      significance_code?: ExperimentSignificanceCode | null;
-      significant?: boolean | null;
-      stats_version?: number | null;
       variant_results?: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[] | null;
-      variants?: ExperimentVariantTrendsBaseStats[] | ExperimentVariantFunnelsBaseStats[] | null;
       /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
       warnings?: DataWarehouseSyncWarning[] | null;
     }
@@ -102760,6 +102708,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly repo_slug: string | null;
+      /** Whether this is a scout self-improvement report. Most update a team-owned skill in the skills store, but reports with a selected repository can still produce a pull request. */
+      readonly is_self_improvement_report: boolean;
       readonly is_suggested_reviewer: boolean;
       /** Distinct source products contributing signals to this report (from ClickHouse). */
       readonly source_products: readonly string[];
@@ -134218,6 +134168,19 @@ export namespace Schemas {
      * Delete folder contents too (default: true). Set false to delete only empty folders. Nonempty folders return HTTP 409 with code directory_not_empty.
      */
     recursive?: boolean;
+    };
+
+    export type FileSystemFrequentListParams = {
+    /**
+     * Maximum number of frequently viewed items to return.
+     * @minimum 1
+     * @maximum 20
+     */
+    limit?: number;
+    /**
+     * A search term.
+     */
+    search?: string;
     };
 
     export type FileSystemSearchRetrieveParams = {
