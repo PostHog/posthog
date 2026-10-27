@@ -380,8 +380,9 @@ def tombstone_organization_record(organization_id: str) -> None:
     """Cascade-delete the Organization row, then re-insert a minimal deleted marker.
 
     Only the cascade removes every current and future org-scoped child row; the tombstone keeps
-    id/name/created_at/customer_id. bulk_create fires no signals, so the deletion workflow's
-    billing activity is the real-time flag path.
+    id/created_at/customer_id. The name is dropped: it can contain personal data, so the tombstone
+    must not retain it. bulk_create fires no signals, so the deletion workflow's billing activity
+    is the real-time flag path.
     """
     import uuid
 
@@ -393,9 +394,7 @@ def tombstone_organization_record(organization_id: str) -> None:
 
     with transaction.atomic():
         original = (
-            Organization.objects.filter(id=organization_id)
-            .values("name", "created_at", "customer_id", "deleted")
-            .first()
+            Organization.objects.filter(id=organization_id).values("created_at", "customer_id", "deleted").first()
         )
         if original is None or original["deleted"]:
             return
@@ -403,7 +402,7 @@ def tombstone_organization_record(organization_id: str) -> None:
         now = timezone.now()
         tombstone = Organization(
             id=organization_id,
-            name=original["name"],
+            name="",
             deleted=True,
             deleted_at=now,
             is_active=False,

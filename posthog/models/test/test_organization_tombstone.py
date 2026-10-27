@@ -31,7 +31,7 @@ class TestTombstoneOrganizationRecord(BaseTest):
         tombstone = Organization.objects.get(id=organization.id)
         assert bool(tombstone.deleted) is True
         assert tombstone.deleted_at is not None
-        assert tombstone.name == "doomed org"
+        assert tombstone.name == ""
         assert tombstone.slug == f"deleted-{organization.id.hex}"
         assert tombstone.customer_id == "cus_tombstone_test"
         assert tombstone.created_at == original_created_at

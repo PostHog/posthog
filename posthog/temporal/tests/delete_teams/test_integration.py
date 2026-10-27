@@ -139,7 +139,7 @@ async def test_organization_workflow_deletes_real_rows():
     }
 
     tombstone = await sync_to_async(Organization.objects.get)(id=org_id)
-    assert tombstone.name == "doomed org"
+    assert tombstone.name == ""
     assert tombstone.slug == f"deleted-{tombstone.id.hex}"
     assert tombstone.is_active is False
     assert tombstone.is_not_active_reason == Organization.DeactivationReason.DELETED
