@@ -57,10 +57,11 @@ def import_campaigns(
     request: Request,
 ) -> ImportRun:
     deadline = time.monotonic() + _REQUEST_SECONDS
-    content = import_content(
-        team.id, [_campaign_source(payload) for payload in payloads], options, sender_identities, segments, deadline
-    )
     access = UserAccessControl(user=user, team=team)
+    sources = [_campaign_source(payload) for payload in payloads]
+    content = import_content(
+        team.id, sources, options, sender_identities, segments, deadline, _left_alone(team, sources, access)
+    )
     with defer_hog_flow_reloads():
         results = [
             import_campaign(
@@ -80,6 +81,19 @@ def import_campaigns(
 
 # The import runs inside the request, so everything it reads from Customer.io shares one time limit.
 _REQUEST_SECONDS = 60
+
+
+def _left_alone(team: Team, sources: list[CampaignSource], access: UserAccessControl) -> frozenset[str]:
+    """The ids of automations whose earlier import the user can't change, either way `import_campaign` skips them."""
+    skipped: set[str] = set()
+    for source in sources:
+        source_id = str(source.campaign.get("id"))
+        previous = previous_import(team, source_id)
+        if previous.hog_flow_id is not None and (
+            not previous.hog_flow_is_draft or not _can_edit(access, team, previous)
+        ):
+            skipped.add(source_id)
+    return frozenset(skipped)
 
 
 def _campaign_source(payload: dict[str, Any]) -> CampaignSource:
