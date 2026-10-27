@@ -5,7 +5,7 @@ import { quillCardBorderClass } from './quillCardBorder'
 
 export function QuillWidgetCard({ body, bodyHeightClassName, footer, danger = false }: WidgetCardProps): JSX.Element {
     return (
-        <Card size="sm" flush className={cn('py-0', quillCardBorderClass(danger))}>
+        <Card size="sm" flush className={cn('w-full py-0', quillCardBorderClass(danger))}>
             {body && (
                 // Product widgets keep PostHog's own colours inside the quill thread.
                 <CardContent data-not-quill>

@@ -4,7 +4,7 @@ import clsx from 'clsx'
 import { useActions, useAsyncActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { RefObject, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Responsive as ReactGridLayout } from 'react-grid-layout'
+import { GridLayout, Responsive as ReactGridLayout } from 'react-grid-layout'
 import type { Layout, LayoutItem } from 'react-grid-layout'
 import { type PositionStrategy, setTransform } from 'react-grid-layout/core'
 
@@ -485,6 +485,19 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             updateContainerWidth(gridWidth, BREAKPOINT_COLUMN_COUNTS[bandBreakpoint])
         }
     }, [showBands, gridWidth, bandBreakpoint, updateContainerWidth])
+    const bandGridConfig = useMemo(
+        () => ({
+            cols: BREAKPOINT_COLUMN_COUNTS[bandBreakpoint],
+            rowHeight,
+            margin,
+            containerPadding: CONTAINER_PADDING,
+        }),
+        [bandBreakpoint, rowHeight, margin]
+    )
+    const handleBandLayoutChange = useCallback(
+        (layout: Layout) => handleLayoutChange(layout, { [bandBreakpoint]: layout }),
+        [handleLayoutChange, bandBreakpoint]
+    )
 
     const handleResizeStart = useCallback(
         (
@@ -635,6 +648,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                     key={tile.id}
                     tile={tile}
                     insight={insight}
+                    resultMenuEnabled={placement === DashboardPlacement.Dashboard && !isSharedView() && !layoutEditMode}
                     loadingQueued={loadingQueued}
                     loading={loading}
                     // The dashboard load queue owns this tile, so the card must not start its own query.
@@ -754,12 +768,6 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         dragConfig,
         resizeConfig,
         compactor: gridCompactor,
-        rowHeight,
-        margin,
-        containerPadding: CONTAINER_PADDING,
-        onLayoutChange: handleLayoutChange,
-        breakpoints: BREAKPOINTS,
-        cols: BREAKPOINT_COLUMN_COUNTS,
         onResizeStart: handleResizeStart,
         onResizeStop: handleResizeStop,
         onDragStart: handleDragStart,
@@ -789,9 +797,10 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                         height={sectionRows * (rowHeight + margin[1]) - margin[1]}
                     />
                 )}
-                <ReactGridLayout
+                {/* Not Responsive: its layout copy and the inner grid's can swap on every render while tiles stream in. */}
+                <GridLayout
                     {...gridProps}
-                    // The grid takes a new tile's position from `layouts`, so a stable key lets tiles stream
+                    // The grid takes a new tile's position from `layout`, so a stable key lets tiles stream
                     // into a band without a remount that resets every chart already in it.
                     key={section.key}
                     width={gridWidth}
@@ -801,11 +810,12 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                         layoutEditMode && (isLastSection ? 'pb-[40vh]' : 'pb-24'),
                         isDraggingOutOfSection && '[&_.react-grid-placeholder]:hidden'
                     )}
-                    breakpoint={bandBreakpoint}
-                    layouts={sectionLayouts}
+                    gridConfig={bandGridConfig}
+                    layout={sectionLayouts[bandBreakpoint] ?? []}
+                    onLayoutChange={handleBandLayoutChange}
                 >
                     {section.tiles.map(renderTile)}
-                </ReactGridLayout>
+                </GridLayout>
             </div>
         )
     }
@@ -864,6 +874,12 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
 
                     <ReactGridLayout
                         {...gridProps}
+                        rowHeight={rowHeight}
+                        margin={margin}
+                        containerPadding={CONTAINER_PADDING}
+                        breakpoints={BREAKPOINTS}
+                        cols={BREAKPOINT_COLUMN_COUNTS}
+                        onLayoutChange={handleLayoutChange}
                         width={gridWidth}
                         style={{ width: gridWidth }}
                         className={className}

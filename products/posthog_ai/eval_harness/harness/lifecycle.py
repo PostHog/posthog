@@ -209,7 +209,7 @@ class SandboxedEvalHarness:
                 validate_eval_env(
                     self.options.agent_runtime,
                     kinds=kinds,
-                    engine_env=self._engine.required_env(no_send_logs=all(suite.no_send_logs for suite in suites)),
+                    engine_env=self._engine.required_env(),
                 )
                 if Infra.SANDBOX in required:
                     self.provider = build_provider(

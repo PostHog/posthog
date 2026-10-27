@@ -224,6 +224,7 @@ export interface SectionsInput extends SectionsQuery {
     remote: RemoteSlots
     stale: boolean
     personsFirst: boolean
+    settingsInResults: boolean
 }
 
 const isRanked = (query: SectionsQuery): boolean =>
@@ -243,11 +244,35 @@ export function pickDisplayedQuery(
     return { query: shown, stale: true }
 }
 
+const exactSettingsMatches = (settings: SearchItem[], localQuery: string): SearchItem[] =>
+    localQuery ? matchLocal('settings', settings, localQuery, true) : []
+
 export const resultsSettled = (query: SectionsQuery, remote: RemoteSlots): boolean =>
     isSettled(remote.results, query.remoteQueries.results)
 
-const filterLocal = (source: LocalSource, items: SearchItem[], query: string): SearchItem[] =>
-    source === 'create' ? filterNewItems(items, query) : filterSearchItems(items, query)
+const LOCAL_MATCH_CACHE_SIZE = 50
+const localMatchCache = new WeakMap<SearchItem[], Map<string, SearchItem[]>>()
+
+function matchLocal(source: LocalSource, items: SearchItem[], query: string, ranked: boolean): SearchItem[] {
+    const strict = ranked && source !== 'create'
+    const key = `${strict ? 'strict' : 'fuzzy'}:${query}`
+    let byQuery = localMatchCache.get(items)
+    if (!byQuery) {
+        byQuery = new Map()
+        localMatchCache.set(items, byQuery)
+    }
+    const cached = byQuery.get(key)
+    if (cached) {
+        return cached
+    }
+    const fuzzy = source === 'create' ? filterNewItems(items, query) : filterSearchItems(items, query)
+    const matches = strict ? strictLocalMatches(fuzzy, query) : fuzzy
+    if (byQuery.size >= LOCAL_MATCH_CACHE_SIZE) {
+        byQuery.delete(byQuery.keys().next().value!)
+    }
+    byQuery.set(key, matches)
+    return matches
+}
 
 function withViewAll(results: CommandKSection | null, viewAll: ViewAll | null): CommandKSection | null {
     if (!viewAll) {
@@ -261,17 +286,30 @@ function withViewAll(results: CommandKSection | null, viewAll: ViewAll | null): 
     }
 }
 
+const plainName = (item: SearchItem): string =>
+    String(item.displayName || item.name)
+        .toLowerCase()
+        .replace(/\s*\([^)]*\)\s*$/, '')
+        .trim()
+
+export function rankableSettings(local: LocalLists, localQuery: string): SearchItem[] {
+    const productNames = new Set(local.products.map(plainName))
+    return exactSettingsMatches(local.settings, localQuery).filter((item) => !productNames.has(plainName(item)))
+}
+
 function rankedResultsSections(
     results: SearchItem[],
     query: string,
     local: LocalLists,
     localQuery: string,
     state: CommandKSection['state'],
-    persons: SearchItem[]
+    persons: SearchItem[],
+    settingsInResults: boolean
 ): CommandKSection[] {
     const words = freeWords(query)
     return buildRankedResults({
         persons,
+        settings: settingsInResults ? rankableSettings(local, localQuery) : [],
         query: words.join(' '),
         highlightWords: words,
         results,
@@ -317,10 +355,7 @@ function lowerSections(
             if (ranked && source === 'products') {
                 continue
             }
-            const filtered =
-                ranked && source !== 'create'
-                    ? strictLocalMatches(filterLocal(source, local[source], localQuery), localQuery)
-                    : filterLocal(source, local[source], localQuery)
+            const filtered = matchLocal(source, local[source], localQuery, ranked).filter((item) => !shown.has(item.id))
             const themeItem = source === 'settings' ? input.themeItem : null
             const rows = themeItem
                 ? itemRows(source, [themeItem, ...filtered], SECONDARY_LIMIT + 1)
@@ -386,7 +421,15 @@ export function buildSections(input: SectionsInput): CommandKSection[] {
         sections.push(remoteSection('persons', leadingPersons, state))
     }
     if (ranked && results && resultsQuery) {
-        const rankedSections = rankedResultsSections(results, resultsQuery, local, localQuery, state, leadingPersons)
+        const rankedSections = rankedResultsSections(
+            results,
+            resultsQuery,
+            local,
+            localQuery,
+            state,
+            leadingPersons,
+            input.settingsInResults
+        )
         sections.push(
             ...(rankedSections.some((section) => section.key === 'results')
                 ? rankedSections.map((section) =>
