@@ -163,6 +163,42 @@ describe('HomeTabDefault query reuse', () => {
         await waitFor(() => expect(container.querySelector('[data-attr="metric-card-sparkline"]')).not.toBeNull())
     })
 
+    it('shows the metric details and opens the same total in the insight editor, outside the tile button', async () => {
+        mockedQuery.mockImplementation(async () => ({
+            results: [{ ...trendsNumber.result[0], aggregated_value: 10 }],
+            last_refresh: new Date().toISOString(),
+        }))
+        render(
+            <HomeTabStatTile
+                stat={getHomeTabStatQueries({ date_from: '-7d' }, true).find(({ key }) => key === 'sessions')!}
+                compare
+                selected={false}
+                onSelect={() => {}}
+            />
+        )
+        const tileButton = screen.getByLabelText('Sessions', { selector: 'button' })
+        await waitFor(() => expect(within(tileButton).getByText('10')).toBeInTheDocument())
+
+        const info = document.querySelector('[data-attr="card-meta-info"]') as HTMLElement
+        const more = screen.getByLabelText('more')
+        expect(tileButton.contains(info) || tileButton.contains(more)).toBe(false)
+
+        await act(async () => info.click())
+        expect(await screen.findByText('Last 7 days')).toBeInTheDocument()
+        expect(screen.getByLabelText('Last computed time')).toBeInTheDocument()
+
+        await act(async () => more.click())
+        const explore = (await screen.findByText('Explore')).closest('a')!
+        const exploreQuery = JSON.parse(new URLSearchParams(new URL(explore.href).hash.slice(1)).get('q')!)
+        expect(exploreQuery).toMatchObject({
+            source: {
+                dateRange: { date_from: '-7d' },
+                compareFilter: { compare: true },
+                trendsFilter: { display: ChartDisplayType.BoldNumber },
+            },
+        })
+    })
+
     it('replaces sample metrics and charts with live queries when the project starts receiving events', async () => {
         ensureJsdom()
         teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, ingested_event: false, is_demo: false })
