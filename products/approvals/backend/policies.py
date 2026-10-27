@@ -88,7 +88,7 @@ class PolicyEngine:
 
     def get_policy_for_action(self, action_class, team, organization):
         """Get the active policy for an action, falling back to its fallback action keys in order."""
-        for action_key in (action_class.key, *action_class.fallback_policy_action_keys):
+        for action_key in (action_class.key, *action_class.fallback_policy_action_keys_for(organization)):
             policy = self.get_policy(action_key, team, organization)
             if policy:
                 return policy

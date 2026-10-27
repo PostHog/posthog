@@ -2,9 +2,11 @@ import { ReactNode } from 'react'
 
 import { cn } from 'lib/utils/css-classes'
 
-import { COMBINED_SAVING_LABEL, SavingHighlight } from '../suggestionCopy'
+import { SavingHighlight } from '../suggestionCopy'
 
 const AMOUNT_CLASS = 'text-sm font-semibold tabular-nums text-success'
+export const SAVING_COLUMNS_CLASS =
+    '@min-[36rem]/suggestions:grid-cols-[minmax(0,1fr)_10rem_7.5rem] @min-[36rem]/suggestions:gap-x-3'
 
 export interface SuggestionRowProps {
     suggestionId: string
@@ -37,9 +39,7 @@ export function SuggestionRow({
                 <div
                     className={cn(
                         'grid grid-cols-1 gap-y-2 px-3 py-2.5 @min-[36rem]/suggestions:items-center @min-[36rem]/suggestions:gap-x-3',
-                        highlight
-                            ? '@min-[36rem]/suggestions:grid-cols-[minmax(0,1fr)_10rem_minmax(15rem,auto)]'
-                            : '@min-[36rem]/suggestions:grid-cols-[minmax(0,1fr)_auto]'
+                        highlight ? SAVING_COLUMNS_CLASS : '@min-[36rem]/suggestions:grid-cols-[minmax(0,1fr)_auto]'
                     )}
                 >
                     <div className="flex min-w-0 items-start gap-2">
@@ -53,19 +53,7 @@ export function SuggestionRow({
                                     <span translate="no" className={AMOUNT_CLASS}>
                                         {highlight.amount}
                                     </span>
-                                    {highlight.bytes && (
-                                        <>
-                                            <span aria-hidden className="text-muted">
-                                                ·
-                                            </span>
-                                            <span translate="no" className={AMOUNT_CLASS}>
-                                                {highlight.bytes.amount}
-                                            </span>
-                                        </>
-                                    )}
-                                    <span className="text-xs text-secondary">
-                                        {highlight.bytes ? COMBINED_SAVING_LABEL : highlight.label}
-                                    </span>
+                                    <span className="text-xs text-secondary">{highlight.narrowLabel}</span>
                                 </div>
                             )}
                             <div className="flex flex-wrap items-baseline gap-x-4 gap-y-0.5 overflow-hidden text-xs text-secondary">
@@ -85,10 +73,9 @@ export function SuggestionRow({
                             <span translate="no" className={AMOUNT_CLASS}>
                                 {highlight.amount}
                             </span>
-                            <span className="text-xs text-secondary">{highlight.label}</span>
-                            {highlight.bytes && (
+                            {highlight.detail && (
                                 <span translate="no" className="text-xs tabular-nums text-secondary">
-                                    {`${highlight.bytes.amount} ${highlight.bytes.label}`}
+                                    {highlight.detail}
                                 </span>
                             )}
                         </div>

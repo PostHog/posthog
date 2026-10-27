@@ -21,7 +21,7 @@ import { RecipientManagerRecipient, RecipientsManagerService } from '../managers
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
 import { selectEmailSenderIntegrationId } from './email-sender-selection'
-import { EmailSuppressionService } from './email-suppression.service'
+import { EmailSuppressionService, SuppressionCheckOptions } from './email-suppression.service'
 import {
     addTrackingToEmail,
     resolveEmailEngagementDistinctId,
@@ -33,7 +33,11 @@ import { SES_SENSITIVE_TAG } from './helpers/ses'
 import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME } from './helpers/tracking-code'
 import { addUtmTagsToEmail, renderUtmOverrides, resolveUtmTags } from './helpers/utm'
 import { MessageAssetsService } from './message-assets.service'
-import { RecipientTokensService } from './recipient-tokens.service'
+import {
+    PreferencesTokenSource,
+    RecipientTokensService,
+    preferencesTokenSourceForInvocation,
+} from './recipient-tokens.service'
 
 const sesThrottleResponsesTotal = new Counter({
     name: 'cdp_ses_throttle_responses_total',
@@ -515,7 +519,9 @@ export class EmailService {
             // of whether the invocation came from a workflow action or an email destination hog
             // function. Checking here means callers can't bypass it by taking a different upstream
             // route. Covers `to`, `cc`, and `bcc`; a suppressed address anywhere blocks the send.
-            const skipReason = await this.buildSuppressionSkipReason(invocation.teamId, params)
+            const skipReason = await this.buildSuppressionSkipReason(invocation.teamId, params, {
+                transactional: invocation.hogFunction?.metadata?.message_category_type === 'transactional',
+            })
             if (skipReason) {
                 addLog('info', skipReason)
                 result.emailSendResult = { status: 'skipped', reason: skipReason }
@@ -866,7 +872,8 @@ export class EmailService {
     // matching against the normalized suppression identifier.
     private async buildSuppressionSkipReason(
         teamId: number,
-        params: CyclotronInvocationQueueParametersEmailType
+        params: CyclotronInvocationQueueParametersEmailType,
+        options: SuppressionCheckOptions
     ): Promise<string | null> {
         const recipients: string[] = []
         if (params.to?.email && params.to.email.trim()) {
@@ -881,7 +888,7 @@ export class EmailService {
         const results = await Promise.all(
             recipients.map(async (email) => ({
                 email,
-                suppressed: await this.emailSuppressionService.isSuppressed(teamId, email),
+                suppressed: await this.emailSuppressionService.isSuppressed(teamId, email, options),
             }))
         )
         const suppressed = results.filter((r) => r.suppressed).map((r) => r.email)
@@ -1173,10 +1180,10 @@ export class EmailService {
         const isTransactionalEmail = result.invocation.hogFunction?.metadata?.message_category_type === 'transactional'
         if (sendEmailParams.Content?.Simple) {
             const unsubscribeHeaders = !isTransactionalEmail
-                ? this.generateUnsubscribeHeaders({
-                      team_id: result.invocation.teamId,
-                      identifier: params.to.email,
-                  })
+                ? this.generateUnsubscribeHeaders(
+                      { team_id: result.invocation.teamId, identifier: params.to.email },
+                      preferencesTokenSourceForInvocation(result.invocation)
+                  )
                 : []
             sendEmailParams.Content.Simple.Headers = [...unsubscribeHeaders, trackingHeader, AUTO_SUBMITTED_HEADER]
         }
@@ -1211,12 +1218,13 @@ export class EmailService {
     }
 
     private generateUnsubscribeHeaders(
-        recipient: Pick<RecipientManagerRecipient, 'team_id' | 'identifier'>
+        recipient: Pick<RecipientManagerRecipient, 'team_id' | 'identifier'>,
+        source: PreferencesTokenSource | undefined
     ): MessageHeader[] {
         return [
             {
                 Name: 'List-Unsubscribe',
-                Value: `<${this.recipientTokensService.generateOneClickUnsubscribeUrl(recipient)}>`,
+                Value: `<${this.recipientTokensService.generateOneClickUnsubscribeUrl(recipient, source)}>`,
             },
             {
                 Name: 'List-Unsubscribe-Post',

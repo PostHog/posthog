@@ -13,6 +13,7 @@ from django.db import transaction
 
 from pydantic import BaseModel
 
+from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
 from posthog.enums import LabeledStrEnum
 from posthog.llm.gateway_client import GatewayNotConfiguredError, ensure_scout_trial_capture_ready
@@ -27,7 +28,8 @@ from posthog.models.user_integration import (
 )
 from posthog.temporal.oauth import TOKEN_EXPIRATION_SECONDS, PosthogMcpScopes, has_write_scopes
 
-from products.mcp_store.backend.facade.api import get_installations_for_sandbox
+from products.mcp_store.backend.facade.api import resolve_installations_for_sandbox
+from products.mcp_store.backend.facade.contracts import UnmountedInstallation, UnmountedInstallationReason
 from products.tasks.backend import model_catalog
 from products.tasks.backend.constants import (
     ALLOWED_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATHS,
@@ -590,6 +592,43 @@ def loop_mcp_installation_allowlist(state: dict | None) -> list[str] | None:
     return [str(i) for i in ids] if isinstance(ids, list) else []
 
 
+@frozen
+class UserMcpServerConfigs:
+    configs: list[McpServerConfig]
+    unmounted: tuple[UnmountedInstallation, ...] = ()
+
+
+_UNMOUNTED_REASON_NOTICES: dict[UnmountedInstallationReason, str] = {
+    "needs_reconnect": "reconnect it in the MCP Store",
+    "server_disabled": "a project admin turned this server off",
+    "revoked": "a project admin turned this server off for you",
+}
+
+
+def unmounted_mcp_installations_notice(unmounted: Sequence[UnmountedInstallation]) -> str | None:
+    """The run-log warning for connections the user expects but the run left out.
+
+    A connection the run's own selection excluded, or one the user's personal copy replaced,
+    is the expected outcome, so it is not reported.
+    """
+    missing = [
+        f"{installation.name} ({_UNMOUNTED_REASON_NOTICES[installation.reason]})"
+        for installation in unmounted
+        if installation.reason in _UNMOUNTED_REASON_NOTICES
+    ]
+    if not missing:
+        return None
+    noun = "connection was" if len(missing) == 1 else "connections were"
+    return f"{len(missing)} MCP Store {noun} not added to this run: {', '.join(missing)}."
+
+
+def unmounted_mcp_installations_log_fields(unmounted: Sequence[UnmountedInstallation]) -> list[dict[str, str]]:
+    return [
+        {"id": installation.id, "name": installation.name, "scope": installation.scope, "reason": installation.reason}
+        for installation in unmounted
+    ]
+
+
 def get_user_mcp_server_configs(
     token: str,
     team_id: int,
@@ -603,7 +642,7 @@ def get_user_mcp_server_configs(
     task_agent_key: str | None = None,
     credential_owner_id: int | None = None,
     allowed_gateway_server_ids: list[str] | None = None,
-) -> list[McpServerConfig]:
+) -> UserMcpServerConfigs:
     """Fetch MCP Store installations for sandbox use and return configs.
 
     Unmapped tasks include shared team installations. Built-in agent tasks only
@@ -634,12 +673,14 @@ def get_user_mcp_server_configs(
     identity propagates through the MCP Store proxy to whichever upstream MCP
     the user installed. Non-PostHog upstreams ignore the header.
 
-    Returns an empty list on errors (non-fatal).
+    ``unmounted`` carries the installations the run reached but left out, with the reason.
+
+    Returns no configs on errors (non-fatal).
     """
     if origin_product == "account_audit":
-        return []
+        return UserMcpServerConfigs(configs=[])
 
-    installations = get_installations_for_sandbox(
+    resolution = resolve_installations_for_sandbox(
         team_id,
         user_id=user_id,
         include_personal=include_personal,
@@ -655,7 +696,7 @@ def get_user_mcp_server_configs(
     )
 
     configs: list[McpServerConfig] = []
-    for installation in installations:
+    for installation in resolution.mounted:
         headers = [
             {"name": "Authorization", "value": f"Bearer {installation.proxy_token or token}"},
             {"name": "x-posthog-mcp-consumer", "value": consumer},
@@ -670,7 +711,7 @@ def get_user_mcp_server_configs(
             )
         )
 
-    return configs
+    return UserMcpServerConfigs(configs=configs, unmounted=resolution.unmounted)
 
 
 def build_imported_mcp_server_configs(
@@ -1545,12 +1586,15 @@ def run_gateway_env_vars(ctx: TaskProcessingContext, task: Task) -> dict[str, st
             "AI_GATEWAY_AI_STAGE": (ctx.state or {}).get("ai_stage") or "scout",
         }
     if "own-subscription" in (ctx.claude_model_access, ctx.codex_model_access):
+        if ctx.task_runtime == "pi" and ctx.origin_product == "signals_scout":
+            raise GatewayNotConfiguredError("Pi scouts require the AI gateway")
         record_gateway_routing(run_id=ctx.run_id, team_id=ctx.team_id, uses_gateway=False)
         return {}
     ai_stage = (ctx.state or {}).get("ai_stage")
     requires_go = resolve_sandbox_ai_product(ctx.origin_product, ai_stage, internal=task.internal) == (
         POSTHOG_CODE_PRODUCT
     )
+    requires_pi_scout = ctx.task_runtime == "pi" and ctx.origin_product == "signals_scout"
     try:
         env_vars = ai_gateway_env_vars(
             team_id=ctx.team_id,
@@ -1567,6 +1611,13 @@ def run_gateway_env_vars(ctx: TaskProcessingContext, task: Task) -> dict[str, st
         if not _record_pinned_gateway_product(ctx.run_id, ctx.state, pinned):
             if requires_go:
                 raise posthog_code_token_unavailable("pin_unrecorded", ctx.team_id)
+            if requires_pi_scout:
+                raise ProcessTaskTransientError(
+                    "Could not record the Pi scout's gateway model pin.",
+                    {"team_id": ctx.team_id, "run_id": ctx.run_id},
+                    RuntimeError("pin_unrecorded"),
+                    capture=False,
+                )
             # The model-change guard reads that stamp; unstamped, a run can move off its pin with no fallback.
             for key in _TOKEN_ENV_KEYS:
                 env_vars.pop(key, None)
@@ -1575,6 +1626,13 @@ def run_gateway_env_vars(ctx: TaskProcessingContext, task: Task) -> dict[str, st
     except Exception as e:
         if requires_go:
             raise posthog_code_token_unavailable("mint_failed", ctx.team_id) from e
+        if requires_pi_scout:
+            raise ProcessTaskTransientError(
+                "The Pi scout's AI gateway is temporarily unavailable.",
+                {"team_id": ctx.team_id, "run_id": ctx.run_id},
+                e,
+                capture=False,
+            ) from e
         # Degrading to the Python gateway beats failing the provisioning activity and the run.
         AI_GATEWAY_TOKEN_MINTS.labels(result="error").inc()
         logger.warning(
@@ -1583,6 +1641,10 @@ def run_gateway_env_vars(ctx: TaskProcessingContext, task: Task) -> dict[str, st
             exc_info=True,
         )
         env_vars = {}
+    if ctx.task_runtime == "pi" and ctx.origin_product == "signals_scout" and not env_vars.get("AI_GATEWAY_TOKEN"):
+        raise GatewayTokenUnavailableError(
+            "Pi scouts require a scoped AI gateway token", {"team_id": ctx.team_id, "run_id": ctx.run_id}
+        )
     # Retry provisioning if coverage cannot be recorded; otherwise fallback usage can look fully accounted for.
     record_gateway_routing(
         run_id=ctx.run_id,
@@ -1668,6 +1730,17 @@ def ai_gateway_env_vars(
         resolve_sandbox_ai_product(origin_product, ai_stage, internal=internal) if team_id is not None else None
     )
     requires_go = ai_product == POSTHOG_CODE_PRODUCT
+    requires_pi_scout = runtime == "pi" and origin_product == "signals_scout"
+    if requires_pi_scout and not (
+        ai_product == "signals_scout"
+        and settings.SANDBOX_AI_GATEWAY_URL
+        and settings.SANDBOX_AI_GATEWAY_MINT_KEY
+        and settings.SANDBOX_AI_GATEWAY_PRODUCTS
+        and sandbox_product_routed(ai_product, ai_stage, settings.SANDBOX_AI_GATEWAY_PRODUCTS)
+    ):
+        raise GatewayTokenUnavailableError(
+            "Pi scouts require configured scoped AI gateway routing.", {"team_id": team_id}
+        )
     if not (settings.SANDBOX_AI_GATEWAY_URL and settings.SANDBOX_AI_GATEWAY_PRODUCTS):
         if requires_go:
             raise posthog_code_token_unavailable("not_configured", team_id)
@@ -1713,6 +1786,10 @@ def ai_gateway_env_vars(
                 )
                 if requires_go:
                     raise posthog_code_token_unavailable(refusal, team_id)
+                if requires_pi_scout:
+                    raise GatewayTokenUnavailableError(
+                        "The AI gateway refused the Pi scout token.", {"team_id": team_id, "reason": refusal}
+                    )
                 # The legacy gateway refuses an exhausted bucket with a retryable 429. A background
                 # workflow run has nobody to read the refusal, so the agent retries until the idle
                 # timeout and the run fails as lost. Fail it here with the real reason.
@@ -1722,6 +1799,8 @@ def ai_gateway_env_vars(
                     )
                 return env_vars
             mint_kwargs: dict[str, Any] = {}
+            if requires_pi_scout:
+                mint_kwargs["raise_on_failure"] = True
             if ai_product == POSTHOG_CODE_PRODUCT:
                 free_pin = posthog_code_allowed_models(team_id)
                 if free_pin is not None:

@@ -921,6 +921,17 @@ def _status_change_properties(
     }
 
 
+def _is_first_visible_report(team_id: int, report_id: str) -> bool:
+    # The id breaks a tie between reports that became visible in the same instant.
+    first = (
+        SignalReport.objects.filter(team_id=team_id, first_visible_at__isnull=False)
+        .order_by("first_visible_at", "id")
+        .values_list("id", flat=True)
+        .first()
+    )
+    return first is not None and str(first) == report_id
+
+
 @receiver(post_save, sender=SignalReport)
 def capture_status_change_analytics(
     sender: type[SignalReport],
@@ -994,6 +1005,7 @@ def capture_status_change_analytics(
                 properties={
                     **properties,
                     "previous_status": previous_status,
+                    "is_first_report": _is_first_visible_report(instance.team_id, report_id),
                     **_actor_properties(actor, actor_user),
                     **_classification_snapshot(
                         report_id,

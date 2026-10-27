@@ -7,7 +7,13 @@ from django.db.models import QuerySet
 
 import boto3
 import posthoganalytics
-from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    OpenApiResponse,
+    extend_schema,
+    extend_schema_field,
+    extend_schema_view,
+)
 from rest_framework import filters, parsers, request, response, serializers, status, viewsets
 
 from posthog.schema import DatabaseSerializedFieldType
@@ -581,6 +587,18 @@ class CreateTableFromUploadSerializer(UploadedFileSerializer):
         return table_name
 
 
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "include_columns",
+                bool,
+                description="Include table columns. Disable for lightweight table existence or name lookups.",
+                default=True,
+            )
+        ]
+    )
+)
 class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     """
     Create, Read, Update and Delete Warehouse Tables.
