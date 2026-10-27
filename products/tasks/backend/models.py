@@ -639,12 +639,12 @@ class Task(Taggable, DeletedMetaFields, models.Model):
     def mcp_gateway_server_allowlist(self) -> list[str] | None:
         """Gateway server ids the run may mount, gating every grant regardless of scope.
 
-        None (no snapshot) leaves mount resolution unfiltered — every non-scout task, and
-        pre-snapshot rows. Once a snapshot exists, a malformed value fails closed to an empty
-        allowlist: a scout whose selection is unreadable must not fall back to mounting every
-        reachable grant. Reads through `mcp_builtin_agent_key` like the owner id: only a
-        stamped agent task carries one.
+        Monitoring checks always mount nothing because their credentials permit analytics reads only.
+        Other stamped agents read their persisted selection. Missing snapshots leave mounts
+        unfiltered; malformed snapshots fail closed to avoid granting unselected connections.
         """
+        if self.is_monitoring_check:
+            return []
         if self.mcp_builtin_agent_key is None:
             return None
         ids = (self.state or {}).get(MCP_GATEWAY_SERVER_ALLOWLIST_STATE_KEY)
@@ -669,6 +669,20 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         if not isinstance(tools, list) or not all(isinstance(tool, str) for tool in tools):
             return []
         return list(tools)
+
+    @classmethod
+    def monitoring_check_q(cls, *, relation: Literal["", "task"] = "") -> models.Q:
+        prefix = {"": "", "task": "task__"}[relation]
+        return models.Q(**{f"{prefix}origin_product": cls.OriginProduct.SIGNAL_REPORT}) & models.Q(
+            **{f"{prefix}state__contains": {"monitoring_authored_check": True}}
+        )
+
+    @property
+    def is_monitoring_check(self) -> bool:
+        return (
+            self.origin_product == self.OriginProduct.SIGNAL_REPORT
+            and (self.state or {}).get("monitoring_authored_check") is True
+        )
 
     @classmethod
     def scout_experiment_q(cls, *, relation: Literal["", "task"] = "") -> models.Q:
@@ -1285,6 +1299,9 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             raise ValueError(f"Agent key {mcp_builtin_agent_key!r} does not match task origin {origin_product!r}")
 
         initial_state: dict[str, Any] = {}
+        if origin_product == Task.OriginProduct.SIGNAL_REPORT and ai_stage == "monitoring_authored_check":
+            initial_state["monitoring_authored_check"] = True
+            initial_state[MCP_GATEWAY_SERVER_ALLOWLIST_STATE_KEY] = []
         if mcp_builtin_agent_key:
             initial_state[MCP_BUILT_IN_AGENT_STATE_KEY] = mcp_builtin_agent_key
             # Only ever recorded alongside the agent marker: without one there is no agent

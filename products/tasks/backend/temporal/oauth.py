@@ -206,11 +206,20 @@ def create_oauth_access_token(
             cause=RuntimeError(f"Task {task.id} missing sandbox OAuth user"),
         )
 
+    monitoring_check = task.is_monitoring_check is True or (
+        task.origin_product == Task.OriginProduct.SIGNAL_REPORT
+        and (run_state or {}).get("ai_stage") == "monitoring_authored_check"
+    )
+    if monitoring_check:
+        scopes = "signals_monitoring"
+
     token_options: dict[str, Any] = {
         "scopes": scopes,
         "application": _oauth_application_for_task(task),
         "sandbox_task_id": task.id,
     }
+    if monitoring_check:
+        token_options["include_mcp_builtin_agent_scope"] = True
     if task.origin_product in {
         Task.OriginProduct.SIGNALS_SCOUT,
         Task.OriginProduct.SIGNALS_SCOUT_SUGGESTIONS,

@@ -57,6 +57,7 @@ def task_control_q(user_id: int | None) -> Q:
         (channeled_q | legacy_q)
         & scout_trial_visibility_q(user_id)
         & ~Q(origin_product__in=PRODUCT_PRIVATE_ORIGIN_PRODUCTS)
+        & ~Task.monitoring_check_q()
     )
 
 
@@ -74,6 +75,7 @@ def task_visibility_q(user_id: int | None) -> Q:
         (channeled_q | legacy_q)
         & scout_trial_visibility_q(user_id)
         & ~Q(origin_product__in=PRODUCT_PRIVATE_ORIGIN_PRODUCTS)
+        & ~Task.monitoring_check_q()
     )
 
 
@@ -88,4 +90,9 @@ def task_run_visibility_q(user_id: int | None) -> Q:
     trial_visibility = ~Task.scout_experiment_q(relation="task")
     if user_id is not None:
         trial_visibility |= Q(task__created_by_id=user_id)
-    return (channeled_q | legacy_q) & trial_visibility & ~Q(task__origin_product__in=PRODUCT_PRIVATE_ORIGIN_PRODUCTS)
+    return (
+        (channeled_q | legacy_q)
+        & trial_visibility
+        & ~Q(task__origin_product__in=PRODUCT_PRIVATE_ORIGIN_PRODUCTS)
+        & ~Task.monitoring_check_q(relation="task")
+    )

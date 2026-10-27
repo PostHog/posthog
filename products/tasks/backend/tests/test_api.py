@@ -369,6 +369,41 @@ class BaseTaskAPITest(TestCase):
 
 
 class TestBuiltInAgentTaskAccess(BaseTaskAPITest):
+    @parameterized.expand([("owner",), ("teammate",)])
+    def test_monitoring_tasks_are_private_to_the_product(self, actor: str) -> None:
+        owner = self.user if actor == "owner" else self.create_organization_user()
+        task = Task.objects.create(
+            team=self.team,
+            created_by=owner,
+            title="Monitoring check",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            internal=True,
+            state={"monitoring_authored_check": True},
+        )
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        base = f"/api/projects/@current/tasks/{task.id}/"
+        run_url = f"{base}runs/{run.id}/"
+        for suffix in (
+            "",
+            "runs/",
+            f"runs/{run.id}/",
+            f"runs/{run.id}/session_logs/",
+            f"runs/{run.id}/connection_token/",
+        ):
+            assert self.client.get(f"{base}{suffix}").status_code == status.HTTP_404_NOT_FOUND
+        assert (
+            self.client.post(
+                f"{run_url}command/",
+                {"jsonrpc": "2.0", "method": "user_message", "params": {"content": "Continue verification"}},
+                format="json",
+            ).status_code
+            == status.HTTP_404_NOT_FOUND
+        )
+        assert self.client.patch(base, {"title": "Changed check"}, format="json").status_code == 404
+        response = self.client.get("/api/projects/@current/tasks/?internal=true")
+        assert response.status_code == 200
+        assert str(task.id) not in {row["id"] for row in response.json()["results"]}
+
     def _built_in_agent_client(self) -> APIClient:
         application = OAuthApplication.objects.create(
             name="Built-in agent sandbox",
@@ -499,9 +534,11 @@ class TestScoutTrialTaskVisibility(BaseTaskAPITest):
         if marker == "monitoring_check_internal":
             task.origin_product = Task.OriginProduct.SIGNAL_REPORT
             task.origin_key = None
-            task.save(update_fields=["origin_product", "origin_key"])
+            task.state = {"monitoring_authored_check": True}
+            task.save(update_fields=["origin_product", "origin_key", "state"])
         client = self._trial_log_client(
-            scopes=f"task:read internal_run:read {marker}:read",
+            scopes=f"task:read internal_run:read {marker}:read"
+            + (" mcp_builtin_agent:read" if marker == "monitoring_check_internal" else ""),
             client_id=SIGNALS_APP_CLIENT_ID_DEV if marker == "monitoring_check_internal" else ARRAY_APP_CLIENT_ID_DEV,
         )
         base = f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/"

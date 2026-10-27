@@ -605,3 +605,5 @@ def test_run_token_defaults_to_the_dispatched_scopes(
         create_oauth_access_token_for_run(task, state, scopes=requested)
 
     assert mock_create.call_args.kwargs["scopes"] == granted
+    if granted == "signals_monitoring":
+        assert mock_create.call_args.kwargs["include_mcp_builtin_agent_scope"] is True

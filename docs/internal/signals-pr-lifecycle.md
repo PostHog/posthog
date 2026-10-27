@@ -176,6 +176,9 @@ history, and current-attempt evidence through a session attachment. The agent us
 as a user with access to the report's environment. Its `signals_monitoring` credential preset grants
 no write scopes, including on the provisioning token. A sandbox-only read marker permits log uploads
 and bounded lifecycle updates only for the token's exact bound run. It grants no report or general task writes.
+Monitoring tasks are private to the product: members cannot read their logs, send commands, or connect
+to their sandboxes through the Tasks API. They mount no connector installations, and their tokens
+cannot call the member MCP Store proxy or tool endpoints, regardless of connector rollout flags.
 Every attached measurement plan's query and
 eligibility query require analytics access, even for an agent-only attempt. Analytics context retains query permission
 markers on the TaskRun. A queued task rechecks Monitoring, the definition, user access, and execution

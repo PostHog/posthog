@@ -25,6 +25,7 @@ from posthog.models.instance_setting import override_instance_config
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import OrganizationMembership
 from posthog.security.url_validation import PinnedUrlVerdict
+from posthog.temporal.oauth import SIGNALS_APP_CLIENT_ID_DEV
 from posthog.test.authentication_checks import covers_authentication
 
 from products.mcp_store.backend.agents import create_gateway_agent_token, sync_built_in_agents
@@ -55,6 +56,8 @@ from products.mcp_store.backend.presentation.views import (
     _is_valid_posthog_code_callback_url,
 )
 from products.mcp_store.backend.proxy import validate_installation_auth
+from products.tasks.backend.models import Task
+from products.tasks.backend.temporal.oauth import create_oauth_access_token
 
 ALLOWED_VERDICT = PinnedUrlVerdict(allowed=True, reason=None, pinned_ips=set())
 ALLOW_URL = patch("products.mcp_store.backend.url_policy.validate_url_and_pin_ips", return_value=ALLOWED_VERDICT)
@@ -2595,7 +2598,8 @@ class TestMCPServiceAccountAPI(APIBaseTest):
             ]
         assert len(five_server_queries.captured_queries) == len(one_server_queries.captured_queries)
 
-    def test_built_in_agent_oauth_cannot_use_member_mcp_or_control_plane(self) -> None:
+    @parameterized.expand([("built_in",), ("monitoring",)])
+    def test_built_in_agent_oauth_cannot_use_member_mcp_or_control_plane(self, agent: str) -> None:
         self._make_admin()
         catalog = self.client.get(self._api_url()).json()["results"]
         account = next(agent for agent in catalog if agent["agent_key"] == "scout")
@@ -2613,6 +2617,30 @@ class TestMCPServiceAccountAPI(APIBaseTest):
             gateway_server=server,
         )
         client = self._oauth_client(built_in_agent=True)
+        if agent == "monitoring":
+            OAuthApplication.objects.create(
+                name="Signals sandbox",
+                client_id=SIGNALS_APP_CLIENT_ID_DEV,
+                redirect_uris="https://example.com/callback",
+                client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+                authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                algorithm="RS256",
+                organization=self.organization,
+                user=self.user,
+            )
+            task = Task.objects.create(
+                team=self.team,
+                created_by=self.user,
+                title="Monitoring check",
+                origin_product=Task.OriginProduct.SIGNAL_REPORT,
+                state={"monitoring_authored_check": True},
+            )
+            with patch(
+                "products.tasks.backend.temporal.oauth.is_builtin_agent_enforcement_enabled", return_value=False
+            ):
+                token = create_oauth_access_token(task, scopes="full")
+            client = APIClient()
+            client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
 
         assert client.get(f"/api/environments/{self.team.id}/mcp_server_installations/").status_code == 403
         assert (
@@ -2622,6 +2650,14 @@ class TestMCPServiceAccountAPI(APIBaseTest):
         assert (
             client.post(
                 f"/api/environments/{self.team.id}/mcp_server_installations/{installation.id}/proxy/"
+            ).status_code
+            == 403
+        )
+        assert (
+            client.post(
+                f"/api/projects/{self.team.id}/mcp_server_installations/{installation.id}/call_tool/",
+                data={"tool_name": "update_record", "arguments": {}},
+                format="json",
             ).status_code
             == 403
         )

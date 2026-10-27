@@ -95,8 +95,14 @@ class TestTask(TestCase):
 
         self.assertEqual(TaskRun.objects.filter(task=task).exists(), expected_run)
 
+    @parameterized.expand(
+        [
+            ("ordinary", Task.OriginProduct.USER_CREATED, None),
+            ("monitoring", Task.OriginProduct.SIGNAL_REPORT, "monitoring_authored_check"),
+        ]
+    )
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
-    def test_create_and_run_minimal(self, mock_execute_workflow):
+    def test_create_and_run_minimal(self, _name, origin, ai_stage, mock_execute_workflow):
         user = User.objects.create(email="test@test.com")
         Integration.objects.create(team=self.team, kind="github", config={})
 
@@ -105,7 +111,9 @@ class TestTask(TestCase):
                 team=self.team,
                 title="Test Create and Run",
                 description="Test Description",
-                origin_product=Task.OriginProduct.USER_CREATED,
+                origin_product=origin,
+                ai_stage=ai_stage,
+                mcp_gateway_server_ids=[],
                 user_id=user.id,
                 repository="posthog/posthog",
             )
@@ -113,7 +121,7 @@ class TestTask(TestCase):
         self.assertIsNotNone(task.id)
         self.assertEqual(task.title, "Test Create and Run")
         self.assertEqual(task.description, "Test Description")
-        self.assertEqual(task.origin_product, Task.OriginProduct.USER_CREATED)
+        self.assertEqual(task.origin_product, origin)
         self.assertEqual(task.team, self.team)
         self.assertEqual(task.created_by, user)
         self.assertEqual(task.repository, "posthog/posthog")
@@ -127,6 +135,8 @@ class TestTask(TestCase):
         task_run = TaskRun.objects.get(id=call_args.kwargs["run_id"])
         self.assertEqual(task_run.task, task)
         self.assertEqual(task_run.status, TaskRun.Status.QUEUED)
+        task.refresh_from_db()
+        self.assertEqual(task.mcp_gateway_server_allowlist, [] if ai_stage else None)
 
     @parameterized.expand([("committed", False), ("rolled_back", True)])
     def test_create_and_run_captures_only_committed_tasks(self, _name: str, rolled_back: bool) -> None:
