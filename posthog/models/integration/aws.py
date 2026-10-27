@@ -6,6 +6,7 @@ import secrets
 from collections.abc import Mapping
 from typing import Any, ClassVar, Literal
 
+from django.conf import settings
 from django.db import transaction
 
 import structlog
