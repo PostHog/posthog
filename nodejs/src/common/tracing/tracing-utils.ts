@@ -1,4 +1,16 @@
-import { Attributes, Context, HrTime, Span, SpanKind, SpanStatusCode, Tracer, context, trace } from '@opentelemetry/api'
+import {
+    Attributes,
+    Context,
+    HrTime,
+    Span,
+    SpanKind,
+    SpanStatusCode,
+    TraceFlags,
+    Tracer,
+    context,
+    isSpanContextValid,
+    trace,
+} from '@opentelemetry/api'
 import { Counter, Histogram, Summary, exponentialBuckets } from 'prom-client'
 
 import { defaultConfig } from '~/common/config/config'
@@ -44,6 +56,13 @@ function getHighResTimestamp(): HrTime {
     const nanos = Math.round((epochMillis % 1000) * 1_000_000)
     return [seconds, nanos]
 }
+
+// The sampler is parent-based, so a child of an unsampled span is never exported.
+function hasUnsampledParent(ctx: Context): boolean {
+    const parent = trace.getSpanContext(ctx)
+    return parent !== undefined && isSpanContextValid(parent) && (parent.traceFlags & TraceFlags.SAMPLED) === 0
+}
+
 /**
  * Wraps a function in an OpenTelemetry tracing span.
  */
@@ -54,12 +73,16 @@ export function withTracingSpan<T>(
     fn: () => Promise<T>,
     parentContext?: Context
 ): Promise<T> {
+    const ctx = parentContext ?? context.active()
+    if (hasUnsampledParent(ctx)) {
+        return parentContext ? context.with(parentContext, fn) : fn()
+    }
     const _tracer = typeof tracer === 'string' ? trace.getTracer(tracer) : tracer
     const startHrTime = getHighResTimestamp()
     return _tracer.startActiveSpan(
         name,
         { kind: SpanKind.CLIENT, attributes: attrs, startTime: startHrTime },
-        parentContext ?? context.active(),
+        ctx,
         async (span) => {
             try {
                 const out = await fn()
