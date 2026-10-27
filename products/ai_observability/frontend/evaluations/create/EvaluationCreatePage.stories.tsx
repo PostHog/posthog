@@ -40,8 +40,7 @@ const meta: Meta = {
         pageUrl: urls.aiObservabilityEvaluation('new'),
         featureFlags: [FEATURE_FLAGS.AI_OBSERVABILITY_EVALUATIONS_OVERVIEW],
         testOptions: {
-            // The preview lists the run rate once the volume estimate loads.
-            waitForSelector: '[data-attr="llma-evaluation-create-scope"] li',
+            waitForSelector: '[data-attr="llma-evaluation-create-step-body-name"]',
         },
     },
 }

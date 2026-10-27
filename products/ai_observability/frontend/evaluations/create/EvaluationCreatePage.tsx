@@ -3,12 +3,12 @@ import { router } from 'kea-router'
 import posthog from 'posthog-js'
 import { useMemo, useRef } from 'react'
 
-import { LemonButton, LemonTag } from '@posthog/lemon-ui'
+import { LemonTag } from '@posthog/lemon-ui'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
 import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
-import { SceneStickyBar, useSceneStickyBarBottom } from '~/layout/scenes/components/SceneStickyBar'
+import { SceneStickyBar } from '~/layout/scenes/components/SceneStickyBar'
 
 import { booleanOutputConfigError, numericOutputConfigError } from '../constants'
 import { evaluationSupportsReports } from '../evaluationCapabilities'
@@ -17,11 +17,9 @@ import { evaluationVolumeLogic } from '../evaluationVolumeLogic'
 import { hasUnsetConditionRollout, llmEvaluationLogic } from '../llmEvaluationLogic'
 import { defaultEvaluationTemplates } from '../templates'
 import { categoryResultError, creationChecklist } from './creationChecklist'
-import { EvaluationCreateButton } from './EvaluationCreateButton'
 import { EvaluationCreateSteps } from './EvaluationCreateSteps'
-import { EvaluationResultPreview } from './EvaluationResultPreview'
 
-/** The new evaluation form: steps under a pinned sentence that sums up the setup, with a preview beside them. */
+/** The new evaluation form: centered steps under a sentence that sums up the setup. */
 export function EvaluationCreatePage({ templateKey }: { templateKey?: string }): JSX.Element | null {
     const {
         evaluation,
@@ -37,7 +35,6 @@ export function EvaluationCreatePage({ templateKey }: { templateKey?: string }):
     const { volume } = useValues(evaluationVolumeLogic(logicProps))
     const template = defaultEvaluationTemplates.find((entry) => entry.key === templateKey)
     const headerRef = useRef<HTMLDivElement>(null)
-    const headerBottom = useSceneStickyBarBottom(headerRef)
 
     const checklist = useMemo(() => {
         if (!evaluation) {
@@ -111,35 +108,9 @@ export function EvaluationCreatePage({ templateKey }: { templateKey?: string }):
                         <h1 className="mb-0 text-2xl font-semibold">New evaluation</h1>
                         {template && <LemonTag type="muted">{`From the ${template.name} template`}</LemonTag>}
                     </div>
-                    {/* Narrow screens stack the summary under the form, so the actions also sit up here. */}
-                    <div className="flex gap-2 @min-[64rem]/evaluation:hidden">
-                        <LemonButton type="secondary" onClick={handleCancel}>
-                            Cancel
-                        </LemonButton>
-                        <EvaluationCreateButton
-                            onCreate={handleCreate}
-                            disabledReason={checklist.find((item) => !item.done)?.todo}
-                            data-attr="llma-evaluation-create-submit-top"
-                        />
-                    </div>
                 </SceneStickyBar>
-                {/* Fixed column widths keep the summary next to the form instead of drifting to the window's edge. */}
-                <div className="grid gap-4 grid-cols-1 @min-[64rem]/evaluation:grid-cols-[minmax(0,56rem)_18rem] items-start">
-                    <div className="bg-bg-light border rounded p-4 @min-[40rem]/evaluation:p-6 min-w-0">
-                        <EvaluationCreateSteps />
-                    </div>
-                    {/* Pinned just under the sticky header, so scrolling never hides the checklist behind it. */}
-                    <div
-                        className="flex flex-col gap-4 @min-[64rem]/evaluation:sticky"
-                        // eslint-disable-next-line react/forbid-dom-props
-                        style={{ top: headerBottom + 16 }}
-                    >
-                        <EvaluationResultPreview
-                            checklist={checklist}
-                            onCreate={handleCreate}
-                            onCancel={handleCancel}
-                        />
-                    </div>
+                <div className="w-full max-w-4xl mx-auto">
+                    <EvaluationCreateSteps checklist={checklist} onCreate={handleCreate} onCancel={handleCancel} />
                 </div>
             </div>
         </BindLogic>

@@ -50,11 +50,13 @@ export function EvaluationSentence({
     }
     const needsModel = evaluation.evaluation_type === 'llm_judge' && !selectedModel
     const isActive = (key: SentencePart): boolean => (onPartClick ? !!activeParts?.includes(key) : open === key)
-    const part = (key: SentencePart, text: React.ReactNode): JSX.Element => (
+    const part = (key: SentencePart, text: React.ReactNode, missing = false): JSX.Element => (
         <LemonButton
             // As an overview, the parts of the current step stand out, so the sentence shows where you are.
             type={onPartClick && isActive(key) ? 'primary' : 'secondary'}
             size="small"
+            // Red reads as an open panel in the panels layout, so only the step overview marks a missing part.
+            status={missing && onPartClick ? 'danger' : 'default'}
             active={isActive(key)}
             sideIcon={
                 onPartClick ? undefined : (
@@ -83,8 +85,15 @@ export function EvaluationSentence({
 
     return (
         <section className="flex flex-col gap-3" data-attr="llma-evaluation-create-sentence">
-            <div className="flex flex-col gap-1 text-lg">
-                <p className="mb-0 leading-[2.5rem] flex flex-wrap items-center gap-x-2">
+            {/* As an overview the sentence reads as one line, wrapping only when the page is narrow. */}
+            <div
+                className={
+                    onPartClick
+                        ? 'flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-base'
+                        : 'flex flex-col gap-1 text-lg'
+                }
+            >
+                <p className={onPartClick ? 'contents' : 'mb-0 leading-[2.5rem] flex flex-wrap items-center gap-x-2'}>
                     <span>Run</span>
                     {part('method', methodText(evaluation, usesDecisionModel))}
                     {evaluation.evaluation_type === 'llm_judge' && (
@@ -92,12 +101,8 @@ export function EvaluationSentence({
                             <span>with</span>
                             {part(
                                 'model',
-                                // Reads as an empty field, so it does not look like the part that is open.
-                                needsModel ? (
-                                    <span className="text-secondary">pick a model</span>
-                                ) : (
-                                    (selectedModelName ?? selectedModel)
-                                )
+                                needsModel ? 'pick a model' : (selectedModelName ?? selectedModel),
+                                needsModel
                             )}
                         </>
                     )}
@@ -111,7 +116,7 @@ export function EvaluationSentence({
                     <span>for</span>
                     {part('triggers', triggerText(evaluation))}
                 </p>
-                <p className="mb-0 leading-[2.5rem] flex flex-wrap items-center gap-x-2">
+                <p className={onPartClick ? 'contents' : 'mb-0 leading-[2.5rem] flex flex-wrap items-center gap-x-2'}>
                     <span>and alert me</span>
                     {part(
                         'reports',
