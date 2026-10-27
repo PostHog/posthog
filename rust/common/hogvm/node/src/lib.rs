@@ -169,11 +169,9 @@ pub fn execute_sync(
         _ => Vec::new(),
     };
     let max_steps = options.and_then(|o| o.max_steps).map(|m| m as usize);
-    catching_panics(|| {
-        run_batch(&tokens, std::slice::from_ref(&globals), false, max_steps)
-            .into_iter()
-            .next()
-            .expect("run_batch returns one result per event")
+    catching_panics(|| match build_program(tokens) {
+        Ok(program) => exec::run_program(&program, globals, max_steps),
+        Err(e) => exec::error_result(&e, 0.0),
     })
 }
 
@@ -243,12 +241,7 @@ pub fn execute_registered_sync(
 ) -> NapiResult<HogExecResult> {
     let max_steps = options.and_then(|o| o.max_steps).map(|m| m as usize);
     catching_panics(|| match get_registered(handle) {
-        Ok(program) => {
-            exec::run_batch_program(&program, std::slice::from_ref(&globals), false, max_steps)
-                .into_iter()
-                .next()
-                .expect("one result per event")
-        }
+        Ok(program) => exec::run_program(&program, globals, max_steps),
         Err(e) => exec::error_result(&e, 0.0),
     })
 }
