@@ -138,6 +138,7 @@ from products.signals.backend.free_trial import (
     capture_signal_report_free_trial_paused,
 )
 from products.signals.backend.implementation_pr import (
+    ImplementationPr,
     fetch_implementation_prs_for_reports,
     implementation_pr_report_filter,
     primary_pull_request,
@@ -182,6 +183,7 @@ from products.signals.backend.report_check_authoring import (
     replace_metric_check,
 )
 from products.signals.backend.report_claims import (
+    ReportClaim,
     actor_works_under_claim,
     get_active_claim,
     get_active_claims,
@@ -2303,6 +2305,22 @@ class SignalReportViewSet(
             "billing_period_bounds": current_billing_period_bounds(self.organization),
         }
 
+    @staticmethod
+    def _claim_and_pull_request_context(
+        report_ids: list[str],
+        pull_requests_map: dict[str, list[ImplementationPr]],
+        claims: dict[str, ReportClaim],
+    ) -> dict[str, object]:
+        implementation_pr_by_report = {rid: primary_pull_request(prs) for rid, prs in pull_requests_map.items()}
+        return {
+            "pull_requests_map": pull_requests_map,
+            "claims_map": dict.fromkeys(report_ids) | claims,
+            "claim_responsible_users_map": responsible_users(claims.values()),
+            "implementation_pr_url_map": {rid: pr.url for rid, pr in implementation_pr_by_report.items()},
+            "implementation_pr_state_map": {rid: pr.state for rid, pr in implementation_pr_by_report.items()},
+            "implementation_pr_merged_ids": {rid for rid, pr in implementation_pr_by_report.items() if pr.merged},
+        }
+
     def _enriched_report_context(self, report: SignalReport) -> dict:
         # Detail-view parity with list(): inject the source metadata map the serializer reads.
         # This lookup is best-effort so a ClickHouse failure cannot hide the report.
@@ -2314,10 +2332,8 @@ class SignalReportViewSet(
             signal_meta_map = {}
         try:
             pull_requests_map = fetch_implementation_prs_for_reports(report_ids, team_id=self.team_id)
-            implementation_pr_by_report = {rid: primary_pull_request(prs) for rid, prs in pull_requests_map.items()}
         except Exception:
             logger.exception("signals.enriched_context.implementation_pr_failed", report_id=str(report.id))
-            implementation_pr_by_report = {}
             pull_requests_map = {}
         try:
             source_suggestion = current_source_suggestion(self.team, str(report.id))
@@ -2334,12 +2350,7 @@ class SignalReportViewSet(
             **self.get_serializer_context(),
             "source_products_map": {rid: meta.source_products for rid, meta in signal_meta_map.items()},
             "scout_names_map": {rid: meta.scout_name for rid, meta in signal_meta_map.items() if meta.scout_name},
-            "pull_requests_map": pull_requests_map,
-            "claims_map": dict.fromkeys(report_ids) | claims,
-            "claim_responsible_users_map": responsible_users(claims.values()),
-            "implementation_pr_url_map": {rid: pr.url for rid, pr in implementation_pr_by_report.items()},
-            "implementation_pr_state_map": {rid: pr.state for rid, pr in implementation_pr_by_report.items()},
-            "implementation_pr_merged_ids": {rid for rid, pr in implementation_pr_by_report.items() if pr.merged},
+            **self._claim_and_pull_request_context(report_ids, pull_requests_map, claims),
             "source_suggestions_map": {str(report.id): source_suggestion},
             "report_plans_map": {str(report.id): plan},
         }
@@ -2903,10 +2914,8 @@ class SignalReportViewSet(
         with tracer.start_as_current_span("signals.reports.list.fetch_implementation_prs"):
             try:
                 pull_requests_map = fetch_implementation_prs_for_reports(report_ids, team_id=self.team_id)
-                implementation_pr_by_report = {rid: primary_pull_request(prs) for rid, prs in pull_requests_map.items()}
             except Exception:
                 logger.exception("signals.reports.list.implementation_pr_failed", report_count=len(report_ids))
-                implementation_pr_by_report = {}
                 pull_requests_map = {}
 
         # One grouped query for the whole page, in place of the per-row annotation the other
@@ -2932,12 +2941,7 @@ class SignalReportViewSet(
             **self.get_serializer_context(),
             "source_products_map": {rid: meta.source_products for rid, meta in signal_meta_map.items()},
             "scout_names_map": {rid: meta.scout_name for rid, meta in signal_meta_map.items() if meta.scout_name},
-            "pull_requests_map": pull_requests_map,
-            "claims_map": dict.fromkeys(report_ids) | claims,
-            "claim_responsible_users_map": responsible_users(claims.values()),
-            "implementation_pr_url_map": {rid: pr.url for rid, pr in implementation_pr_by_report.items()},
-            "implementation_pr_state_map": {rid: pr.state for rid, pr in implementation_pr_by_report.items()},
-            "implementation_pr_merged_ids": {rid for rid, pr in implementation_pr_by_report.items() if pr.merged},
+            **self._claim_and_pull_request_context(report_ids, pull_requests_map, claims),
             "first_billable_pr_run_at_map": first_billable_pr_run_at_map,
             "inbox_ranker": self._inbox_ranker,
         }
