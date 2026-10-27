@@ -48357,6 +48357,11 @@ export namespace Schemas {
          * @nullable
          */
       flag_called_during_run: boolean | null;
+      /**
+         * Whether PostHog has recorded a call of the flag after the end. The flag state check reads it on an ended experiment whose flag is still active with multiple variants. False only after 3 days without a recorded call. Null before the end, before those 3 days are over, or when the organization's flag calls can't be read.
+         * @nullable
+         */
+      flag_called_after_end: boolean | null;
       /** The events the exposure criteria count. Null when the stored exposure criteria don't parse. */
       exposure_events: ExperimentHealthInputsExposureEvents | null;
       /** Whether the project has received each event that the metrics and the exposure criteria name, by event name. A name that ingestion keeps no record of is absent. */
@@ -79744,6 +79749,8 @@ export namespace Schemas {
        * * `closed` - Closed
        * * `merged` - Merged */
       readonly implementation_pr_state: SignalReportAssignmentPrStateEnum | null;
+      /** Who or what suppressed the step, with the same values as the report's `suppression_source`. Null unless the step is suppressed. */
+      readonly suppression_source: SignalReportSuppressionSourceEnum | null;
     }
 
     export interface ReportPlan {
@@ -79898,7 +79905,7 @@ export namespace Schemas {
       readonly channel_id: string | null;
       /** The served ranking model's predictions from the latest ranking score artefact. Its status says whether the report is scored, stale or unscored, or that the user cannot see the ranking model. */
       readonly ranking: ReportRanking;
-      /** The plan this report leads or is a step of, with every step in it. A report that other reports link to with `part_of` is a plan. Null when the report is in no plan, and always null in list responses, because finding a plan's steps scans the project's report links. */
+      /** The plan this report leads or is a step of, with every step in it. A report that other reports link to with `part_of` is a plan. Null when the report is in no plan, and always null in list responses, because finding a plan's steps costs several queries per report. */
       readonly plan: ReportPlan | null;
       /**
          * Coarse sort key from the ranker named by the list response's ranker field, for sort=recommended only. Lower keys rank first. It is the score decile of the ranker's outcome (open, action or fix), then the priority as a tiebreak. The priority ranker uses the priority only. Reports without a usable score sort after scored ones. Null for every other sort.
@@ -98172,6 +98179,31 @@ export namespace Schemas {
       pins: PulsePin[];
     }
 
+    export interface PushTokenSubscription {
+      /**
+         * The person's distinct ID in this project.
+         * @maxLength 200
+         */
+      distinct_id: string;
+      /**
+         * The APNs device token or FCM registration token of one device.
+         * @maxLength 4096
+         */
+      device_token: string;
+    }
+
+    export interface PushTokenImportRequest {
+      /** Up to 1000 devices to register on this push channel. List a person once per device. */
+      subscriptions: PushTokenSubscription[];
+    }
+
+    export interface PushTokenImportResponse {
+      /** Number of devices stored on their person. */
+      imported: number;
+      /** Distinct IDs with at least one device that was not stored. Send those rows again. */
+      failed_distinct_ids: string[];
+    }
+
     export interface QualtricsFeedbackSignalExtra {
       survey_id: string | null;
       recorded_date: string | null;
@@ -102519,7 +102551,7 @@ export namespace Schemas {
       readonly channel_id: string | null;
       /** The served ranking model's predictions from the latest ranking score artefact. Its status says whether the report is scored, stale or unscored, or that the user cannot see the ranking model. */
       readonly ranking: ReportRanking;
-      /** The plan this report leads or is a step of, with every step in it. A report that other reports link to with `part_of` is a plan. Null when the report is in no plan, and always null in list responses, because finding a plan's steps scans the project's report links. */
+      /** The plan this report leads or is a step of, with every step in it. A report that other reports link to with `part_of` is a plan. Null when the report is in no plan, and always null in list responses, because finding a plan's steps costs several queries per report. */
       readonly plan: ReportPlan | null;
     }
 

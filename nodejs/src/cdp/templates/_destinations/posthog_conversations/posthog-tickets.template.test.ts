@@ -119,16 +119,46 @@ describe('posthog conversations ticket templates', () => {
 
         const fetchUrl = (): string => tester.mockInternalFetch.mock.calls[0][0] as string
 
-        it('does not request the field by default', async () => {
-            await tester.invoke({ ticket_id: TICKET_UUID })
-            expect(fetchUrl()).not.toContain('include_first_customer_message_text')
-        })
-
-        it('appends the query param when opted in', async () => {
-            await tester.invoke({ ticket_id: TICKET_UUID, include_first_customer_message_text: true })
-            expect(fetchUrl()).toContain(
-                `/internal/conversations/tickets/${TICKET_UUID}?include_first_customer_message_text=true`
-            )
+        it.each([
+            { name: 'does not request the field by default', inputs: {}, query: '' },
+            {
+                name: 'treats a zero length as unset',
+                inputs: { first_customer_message_max_bytes: 0 },
+                query: '',
+            },
+            {
+                name: 'turns the field on when only a length is set',
+                inputs: { first_customer_message_max_bytes: 3000 },
+                query: '?include_first_customer_message_text=true&first_customer_message_max_bytes=3000',
+            },
+            {
+                name: 'appends the query param when opted in',
+                inputs: { include_first_customer_message_text: true },
+                query: '?include_first_customer_message_text=true',
+            },
+            {
+                name: 'passes the length when opted in',
+                inputs: { include_first_customer_message_text: true, first_customer_message_max_bytes: 3000 },
+                query: '?include_first_customer_message_text=true&first_customer_message_max_bytes=3000',
+            },
+            {
+                name: 'reads a length saved as text',
+                inputs: { first_customer_message_max_bytes: '3000' },
+                query: '?include_first_customer_message_text=true&first_customer_message_max_bytes=3000',
+            },
+            {
+                name: 'drops the fraction from a length, which Django would reject',
+                inputs: { include_first_customer_message_text: true, first_customer_message_max_bytes: 2500.7 },
+                query: '?include_first_customer_message_text=true&first_customer_message_max_bytes=2500',
+            },
+            {
+                name: 'bounds a huge length before it becomes exponent notation',
+                inputs: { include_first_customer_message_text: true, first_customer_message_max_bytes: 1e21 },
+                query: '?include_first_customer_message_text=true&first_customer_message_max_bytes=100000',
+            },
+        ])('$name', async ({ inputs, query }) => {
+            await tester.invoke({ ticket_id: TICKET_UUID, ...inputs })
+            expect(fetchUrl().split(`/internal/conversations/tickets/${TICKET_UUID}`)[1]).toEqual(query)
         })
     })
 })
