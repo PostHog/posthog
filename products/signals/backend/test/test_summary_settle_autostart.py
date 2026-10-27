@@ -124,6 +124,8 @@ class _Recorder:
         self.candidate_on_first_check = candidate_on_first_check
         self.researches = 0
         self.autostarts = 0
+        self.spend_owners: list[str | None] = []
+        self.work_owners: list[str | None] = []
         self.candidate_checks = 0
         # Auto-starts completed by the time the notification child made its first state check. The
         # child only waits for the implementation PR if the task already exists then, so a 0 here
@@ -169,20 +171,27 @@ async def _run_summary_workflow(
     async def fake_fetch(input: FetchSignalsForReportInput) -> FetchSignalsForReportOutput:
         return FetchSignalsForReportOutput(signals=[_signal_data()])
 
+    @activity.defn(name="report_spend_owner_activity")
+    async def fake_spend_owner(input: SignalReportSummaryWorkflowInputs) -> str:
+        return str(uuid.UUID(int=recorder.researches + 1))
+
     @activity.defn(name="mark_report_in_progress_activity")
     async def fake_mark_in_progress(input: MarkReportInProgressInput) -> None:
         return None
 
     @activity.defn(name="report_safety_judge_activity")
     async def fake_safety(input: SafetyJudgeInput) -> SafetyJudgeOutput:
+        recorder.work_owners.append(input.signal_id)
         return SafetyJudgeOutput(safe=True, explanation="ok")
 
     @activity.defn(name="select_repository_activity")
     async def fake_select_repo(input: SelectRepositoryInput) -> RepoSelectionResult:
+        recorder.work_owners.append(input.signal_id)
         return RepoSelectionResult(repository="owner/repo", reason="selected")
 
     @activity.defn(name="run_agentic_report_activity")
     async def fake_research(input: RunAgenticReportInput) -> RunAgenticReportOutput:
+        recorder.work_owners.append(input.signal_id)
         recorder.researches += 1
         return RunAgenticReportOutput(
             title="t",
@@ -202,6 +211,10 @@ async def _run_summary_workflow(
     @activity.defn(name="publish_report_completed_activity")
     async def fake_publish(input: PublishReportCompletedInput) -> None:
         return None
+
+    @activity.defn(name="publish_report_spend_activity")
+    async def fake_publish_spend(input: SignalReportSummaryWorkflowInputs) -> None:
+        recorder.spend_owners.append(input.signal_id)
 
     @activity.defn(name="implementation_buffer_seconds_activity")
     async def fake_buffer(input: ImplementationBufferInput) -> int:
@@ -232,11 +245,13 @@ async def _run_summary_workflow(
                 fake_quota,
                 fake_fetch,
                 fake_mark_in_progress,
+                fake_spend_owner,
                 fake_safety,
                 fake_select_repo,
                 fake_research,
                 fake_mark_ready,
                 fake_publish,
+                fake_publish_spend,
                 fake_buffer,
                 fake_candidate,
                 fake_autostart,
@@ -308,6 +323,8 @@ async def test_signal_during_buffer_re_researches_instead_of_implementing():
     # A signal landed during the buffer (report back to candidate), so the run loops to re-research
     # rather than implementing the now-stale summary; implementation only starts after it settles again.
     assert recorder.researches == 2
+    assert recorder.spend_owners == [str(uuid.UUID(int=1)), str(uuid.UUID(int=2))]
+    assert recorder.work_owners == [str(uuid.UUID(int=1))] * 3 + [str(uuid.UUID(int=2))] * 3
     assert recorder.candidate_checks == 2
     assert recorder.autostarts == 1
     # Only the settled run notifies, so no card goes out for the summary the re-research replaced.

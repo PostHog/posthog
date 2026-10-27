@@ -1605,6 +1605,7 @@ async def run_multi_turn_research(
     verbose: bool = False,
     output_fn: OutputFn = None,
     signal_report_id: str | None = None,
+    spend_signal_id: str | None = None,
     has_business_knowledge: bool = False,
     resolved_report_title: str | None = None,
     resolved_report_summary: str | None = None,
@@ -1668,6 +1669,7 @@ async def run_multi_turn_research(
         output_fn=output_fn,
         origin_product=tasks_facade.TaskOriginProduct.SIGNAL_REPORT,
         signal_report_id=signal_report_id,
+        spend_signal_id=spend_signal_id,
         ai_stage=AI_STAGE_RESEARCH,
         internal=True,
         analytics_query_context=(
