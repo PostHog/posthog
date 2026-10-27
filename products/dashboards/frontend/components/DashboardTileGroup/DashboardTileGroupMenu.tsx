@@ -38,7 +38,7 @@ export function DashboardTileGroupMenu({
             tooltip="Group actions"
             loading={copyLoading}
             disabledReason={copyLoading ? 'Copying group' : undefined}
-            dropdown={{ onVisibilityChange: (visible) => visible && loadDashboardsIfNeeded() }}
+            dropdown={{ onVisibilityChange: (visible) => visible && onCopyToDashboard && loadDashboardsIfNeeded() }}
             overlay={
                 <div className="min-w-48 p-1">
                     {onCopyToDashboard && (
