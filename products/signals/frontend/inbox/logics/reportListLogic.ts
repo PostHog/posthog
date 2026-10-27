@@ -25,6 +25,7 @@ import { captureInboxReportAction, type InboxReportActionSurface, setInboxServed
 import {
     INBOX_PRIMARY_REPORT_SECTION_KEY,
     INBOX_SCOPE_ENTIRE_PROJECT,
+    INBOX_SCOPE_CLAIMED_BY_YOU,
     INBOX_SCOPE_FOR_YOU,
     InboxReportSectionKey,
     InboxScope,
@@ -185,6 +186,7 @@ export interface reportListLogicValues {
     reportsLoadFailed: boolean
     reportsResponse: ReportListResponse | null
     reportsResponseLoading: boolean
+    scopeAssignee: 'me' | undefined
     scopeReviewerUuid: string | undefined
     staleMetricReportIds: string[]
     totalCount: number | null
@@ -359,6 +361,7 @@ export interface reportListLogicMeta {
     key: 'dismissed' | 'held-back' | 'monitoring' | 'needs-decision' | 'not-actionable' | 'resolved'
     __keaTypeGenInternalSelectorTypes: {
         scopeReviewerUuid: (scope: InboxScope, user: UserType | null) => string | undefined
+        scopeAssignee: (scope: InboxScope) => 'me' | undefined
         listApiParams: (
             searchQuery: string,
             activeSortField: InboxSortField,
@@ -367,6 +370,7 @@ export interface reportListLogicMeta {
             scoutFilter: string[],
             priorityFilter: SignalReportPriority[],
             scopeReviewerUuid: string | undefined,
+            scopeAssignee: 'me' | undefined,
             activeCreatedWindow: InboxCreatedWindow | null,
             arg: any
         ) => any
@@ -617,6 +621,11 @@ export const reportListLogic = kea<reportListLogicType>([
             (scope: InboxScope, user: UserType | null): string | undefined =>
                 scope === INBOX_SCOPE_FOR_YOU ? (user?.uuid ?? undefined) : teammateUuidFromScope(scope),
         ],
+        // The server resolves `me` to the requesting user.
+        scopeAssignee: [
+            (s) => [s.scope],
+            (scope: InboxScope): 'me' | undefined => (scope === INBOX_SCOPE_CLAIMED_BY_YOU ? 'me' : undefined),
+        ],
         // The section's fixed filter merged with the user-driven chrome + reviewer scope (server-side).
         listApiParams: [
             (s) => [
@@ -627,6 +636,7 @@ export const reportListLogic = kea<reportListLogicType>([
                 s.scoutFilter,
                 s.priorityFilter,
                 s.scopeReviewerUuid,
+                s.scopeAssignee,
                 s.activeCreatedWindow,
                 (_, p) => p.listParams,
             ],
@@ -638,6 +648,7 @@ export const reportListLogic = kea<reportListLogicType>([
                 scoutFilter: string[],
                 priorityFilter: import('../types').SignalReportPriority[],
                 suggestedReviewer: string | undefined,
+                assignee: 'me' | undefined,
                 activeCreatedWindow: InboxCreatedWindow | null,
                 listParams
             ) => {
@@ -649,6 +660,7 @@ export const reportListLogic = kea<reportListLogicType>([
                     scout: scoutFilter.length > 0 ? scoutFilter.join(',') : undefined,
                     priority: priorityFilter.length > 0 ? priorityFilter.join(',') : undefined,
                     suggested_reviewers: suggestedReviewer,
+                    assignee,
                     created_window: activeCreatedWindow ?? undefined,
                     // Rows render from Postgres alone; `loadReportSourceMeta` fills the source line after.
                     include_source_metadata: 'false',

@@ -1,7 +1,12 @@
+import { MOCK_DEFAULT_USER } from 'lib/api.mock'
+
 import type { Meta, StoryObj } from '@storybook/react'
+
+import type { SignalReportAssigneeApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { SignalReportActionability, SignalReportPriority, SignalReportStatus } from '../../types'
 import { AnimatedEllipsis } from './AnimatedEllipsis'
+import { ReportClaimTag } from './ReportClaimTag'
 import { SignalReportActionabilityBadge } from './SignalReportActionabilityBadge'
 import { SignalReportPriorityBadge } from './SignalReportPriorityBadge'
 import { SignalReportStatusBadge } from './SignalReportStatusBadge'
@@ -21,6 +26,20 @@ const ACTIONABILITIES: SignalReportActionability[] = [
     'requires_human_input',
     'not_actionable',
 ]
+
+function userClaim(user: { id: number; uuid: string; first_name: string; email: string }): SignalReportAssigneeApi {
+    return {
+        claim_id: null,
+        kind: 'user',
+        user: { ...user, last_name: '' },
+        task_id: null,
+        agent: null,
+        claimed_at: '2026-06-10T12:00:00Z',
+    }
+}
+
+const MY_CLAIM = userClaim(MOCK_DEFAULT_USER)
+const TEAMMATE_CLAIM = userClaim({ id: 2, uuid: 'teammate-uuid', first_name: 'Robin', email: 'robin@example.com' })
 
 function Row({ label, children }: { label: string; children: React.ReactNode }): JSX.Element {
     return (
@@ -48,6 +67,10 @@ export const AllBadges: Story = {
                 {ACTIONABILITIES.map((a) => (
                     <SignalReportActionabilityBadge key={a} actionability={a} />
                 ))}
+            </Row>
+            <Row label="Claim">
+                <ReportClaimTag report={{ assignee: MY_CLAIM }} />
+                <ReportClaimTag report={{ assignee: TEAMMATE_CLAIM }} />
             </Row>
             <Row label="Working">
                 <span className="text-sm text-secondary">

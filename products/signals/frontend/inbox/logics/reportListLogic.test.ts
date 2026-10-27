@@ -10,6 +10,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import {
+    INBOX_SCOPE_CLAIMED_BY_YOU,
     INBOX_SCOPE_ENTIRE_PROJECT,
     INBOX_SCOPE_FOR_YOU,
     InboxReportSectionKey,
@@ -135,6 +136,23 @@ describe('reportListLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
             expect(requestedOffsets).toEqual(['0', String(FIRST_PAGE.length)])
         })
+
+        it.each([
+            { scope: INBOX_SCOPE_FOR_YOU, suggested_reviewers: MOCK_USER_UUID, assignee: undefined },
+            { scope: INBOX_SCOPE_CLAIMED_BY_YOU, suggested_reviewers: undefined, assignee: 'me' },
+            { scope: 'teammate:t-1', suggested_reviewers: 't-1', assignee: undefined },
+            { scope: INBOX_SCOPE_ENTIRE_PROJECT, suggested_reviewers: undefined, assignee: undefined },
+        ] as { scope: InboxScope; suggested_reviewers?: string; assignee?: string }[])(
+            'narrows the $scope request to suggested_reviewers=$suggested_reviewers and assignee=$assignee',
+            ({ scope, suggested_reviewers, assignee }) => {
+                logic.actions.setScope(scope)
+                const { suggested_reviewers: sentReviewers, assignee: sentAssignee } = logic.values.listApiParams
+                expect({ suggested_reviewers: sentReviewers, assignee: sentAssignee }).toEqual({
+                    suggested_reviewers,
+                    assignee,
+                })
+            }
+        )
 
         // A failed next page keeps the loaded rows and `hasMore`, and the scroll sentinel may sit
         // inside the viewport without re-firing. The flag is what surfaces the retry control, and a
