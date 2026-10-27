@@ -135,7 +135,11 @@ const mockAuthenticatedClient = vi.hoisted(() => ({
   startGithubUserIntegrationConnect: vi.fn(),
   getTaskRunSessionLogsResult: vi.fn(),
   getTaskRunSessionLogsPage: vi.fn(),
+  getClaudeUserIntegration: vi.fn(),
 }));
+
+const mockClaudeTokenHas = vi.hoisted(() => vi.fn());
+const mockClaudeTokenClear = vi.hoisted(() => vi.fn());
 
 type MockAuthenticatedClient = typeof mockAuthenticatedClient;
 
@@ -339,7 +343,8 @@ vi.mock("@posthog/di/container", () => ({
         logs: mockTrpcLogs,
         cloudTask: mockTrpcCloudTask,
         claudeSubscriptionToken: {
-          has: { query: vi.fn().mockResolvedValue(true) },
+          has: { query: mockClaudeTokenHas },
+          clear: { mutate: mockClaudeTokenClear },
         },
         fs: mockTrpcFs,
         skills: mockTrpcSkills,
@@ -491,6 +496,12 @@ const createMockSession = (
 describe("SessionService", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockClaudeTokenHas.mockResolvedValue(true);
+    mockAuthenticatedClient.getClaudeUserIntegration.mockResolvedValue({
+      status: "not_connected",
+      connected_at: null,
+      expires_at: null,
+    });
     mockConvertStoredEntriesToEvents.mockImplementation(() => []);
     mockHasSessionPromptEventForTaskRun.mockReturnValue(false);
     resetSessionService();
@@ -7075,6 +7086,44 @@ describe("SessionService", () => {
       expect(eventUnsubscribe).toHaveBeenCalled();
       expect(permissionUnsubscribe).toHaveBeenCalled();
     });
+  });
+
+  describe("resolveCloudModelAccess", () => {
+    it.each([
+      ["connected", false, null],
+      ["reauth_required", true, "Claude does not accept your token"],
+      ["reauth_required", false, "Claude does not accept your token"],
+      ["not_connected", true, null],
+      ["not_connected", false, "Save a Claude token"],
+    ] as const)(
+      "checks a %s server Claude token (local token: %s)",
+      async (status, hasLocalToken, error) => {
+        mockFeatureFlags.isEnabled.mockReturnValue(true);
+        mockAuthenticatedClient.getClaudeUserIntegration.mockResolvedValue({
+          status,
+          connected_at: null,
+          expires_at: null,
+        });
+        mockClaudeTokenHas.mockResolvedValue(hasLocalToken);
+        mockClaudeTokenClear.mockResolvedValue(undefined);
+        const access = getSessionService().resolveCloudModelAccess(
+          "claude",
+          "own-subscription",
+        );
+
+        if (error) {
+          await expect(access).rejects.toThrow(error);
+          expect(mockClaudeTokenClear).toHaveBeenCalledTimes(
+            status === "reauth_required" ? 1 : 0,
+          );
+        } else {
+          await expect(access).resolves.toEqual({
+            kind: "own-subscription",
+            adapter: "claude",
+          });
+        }
+      },
+    );
   });
 
   describe("sendPrompt", () => {

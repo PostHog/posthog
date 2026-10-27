@@ -3,9 +3,17 @@ import {
   type ClaudeSubscriptionTokenStore,
 } from "@posthog/core/cloud-task/identifiers";
 import { publicProcedure, router } from "@posthog/host-trpc/trpc";
-import { claudeSubscriptionTokenInput } from "@posthog/workspace-server/services/claude-subscription/schemas";
+import {
+  claudeSubscriptionAccountInput,
+  claudeSubscriptionTokenInput,
+} from "@posthog/workspace-server/services/claude-subscription/schemas";
 
 export const claudeSubscriptionTokenRouter = router({
+  accountKey: publicProcedure.query(({ ctx }) =>
+    ctx.container
+      .get<ClaudeSubscriptionTokenStore>(CLAUDE_SUBSCRIPTION_TOKEN_STORE)
+      .getAccountKey(),
+  ),
   has: publicProcedure.query(({ ctx }) =>
     ctx.container
       .get<ClaudeSubscriptionTokenStore>(CLAUDE_SUBSCRIPTION_TOKEN_STORE)
@@ -16,11 +24,13 @@ export const claudeSubscriptionTokenRouter = router({
     .mutation(({ ctx, input }) =>
       ctx.container
         .get<ClaudeSubscriptionTokenStore>(CLAUDE_SUBSCRIPTION_TOKEN_STORE)
-        .save(input.token),
+        .save(input.token, input.expectedAccountKey),
     ),
-  clear: publicProcedure.mutation(({ ctx }) =>
-    ctx.container
-      .get<ClaudeSubscriptionTokenStore>(CLAUDE_SUBSCRIPTION_TOKEN_STORE)
-      .clear(),
-  ),
+  clear: publicProcedure
+    .input(claudeSubscriptionAccountInput.optional())
+    .mutation(({ ctx, input }) =>
+      ctx.container
+        .get<ClaudeSubscriptionTokenStore>(CLAUDE_SUBSCRIPTION_TOKEN_STORE)
+        .clear(input?.expectedAccountKey),
+    ),
 });

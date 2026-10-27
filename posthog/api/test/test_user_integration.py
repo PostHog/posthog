@@ -2,7 +2,7 @@ import json
 import time
 import uuid
 import base64
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 from urllib.parse import parse_qs, urlencode, urlparse
 
@@ -1805,6 +1805,30 @@ class TestUserIntegrationSlackEndpoints(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
 
+def _sandbox_api_client(user: User, organization: Organization) -> APIClient:
+    application = OAuthApplication.objects.create(
+        name="Task sandbox",
+        client_id=ARRAY_APP_CLIENT_ID_DEV,
+        client_type=OAuthApplication.CLIENT_PUBLIC,
+        authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+        algorithm="RS256",
+        redirect_uris="https://example.com/callback",
+        organization=organization,
+        user=user,
+    )
+    token = OAuthAccessToken.objects.create(
+        user=user,
+        application=application,
+        token=f"pha_sandbox_{uuid.uuid4().hex}",
+        expires=timezone.now() + timedelta(hours=1),
+        scope="user:read user:write",
+        sandbox_task_id=uuid.uuid4(),
+    )
+    client = APIClient()
+    client.credentials(HTTP_AUTHORIZATION=f"Bearer {token.token}")
+    return client
+
+
 class TestUserIntegrationCodexEndpoints(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -1814,27 +1838,7 @@ class TestUserIntegrationCodexEndpoints(APIBaseTest):
         cache.clear()
 
     def _sandbox_client(self) -> APIClient:
-        application = OAuthApplication.objects.create(
-            name="Task sandbox",
-            client_id=ARRAY_APP_CLIENT_ID_DEV,
-            client_type=OAuthApplication.CLIENT_PUBLIC,
-            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-            algorithm="RS256",
-            redirect_uris="https://example.com/callback",
-            organization=self.organization,
-            user=self.user,
-        )
-        token = OAuthAccessToken.objects.create(
-            user=self.user,
-            application=application,
-            token=f"pha_sandbox_{uuid.uuid4().hex}",
-            expires=timezone.now() + timedelta(hours=1),
-            scope="user:read user:write",
-            sandbox_task_id=uuid.uuid4(),
-        )
-        client = APIClient()
-        client.credentials(HTTP_AUTHORIZATION=f"Bearer {token.token}")
-        return client
+        return _sandbox_api_client(self.user, self.organization)
 
     def _openai_response(self, status_code: int, body: dict[str, Any]) -> requests.Response:
         response = requests.Response()
@@ -1967,3 +1971,115 @@ class TestUserIntegrationCodexEndpoints(APIBaseTest):
             == status.HTTP_403_FORBIDDEN
         )
         assert UserIntegration.objects.filter(user=self.user, kind="codex").exists()
+
+
+class TestUserIntegrationClaudeEndpoints(APIBaseTest):
+    token = "sk-ant-oat01-" + "x" * 40
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.user.email = "claude-employee@posthog.com"
+        self.user.is_staff = True
+        self.user.is_email_verified = True
+        self.user.save(update_fields=["email", "is_staff", "is_email_verified"])
+        flag = patch("posthog.api.user_integration_claude.posthoganalytics.feature_enabled", return_value=True)
+        self.flag_enabled = flag.start()
+        self.addCleanup(flag.stop)
+        cache.clear()
+
+    def test_connect_stores_the_token_and_never_returns_it(self):
+        assert self.client.get("/api/users/@me/integrations/claude/").json() == {
+            "status": "not_connected",
+            "connected_at": None,
+            "expires_at": None,
+        }
+
+        response = self.client.post(
+            "/api/users/@me/integrations/claude/", {"token": f"  {self.token}\n"}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["status"] == "connected"
+        assert datetime.fromisoformat(response.json()["expires_at"]) - datetime.fromisoformat(
+            response.json()["connected_at"]
+        ) == timedelta(days=365)
+        assert "sk-ant" not in response.content.decode()
+        assert UserIntegration.objects.get(user=self.user, kind="claude").sensitive_config == {"token": self.token}
+        assert self.client.get("/api/users/@me/integrations/claude/").json()["status"] == "connected"
+
+        assert self.client.delete("/api/users/@me/integrations/claude/").status_code == status.HTTP_204_NO_CONTENT
+        assert not UserIntegration.objects.filter(user=self.user, kind="claude").exists()
+
+    @parameterized.expand(
+        [
+            ("api_key", {"token": "sk-ant-api03-" + "x" * 40}, status.HTTP_400_BAD_REQUEST, True),
+            ("flag_off", {"token": "sk-ant-oat01-" + "x" * 40}, status.HTTP_404_NOT_FOUND, False),
+        ]
+    )
+    def test_connect_stores_nothing_when_refused(self, _name, payload, expected_status, flag_enabled):
+        self.flag_enabled.return_value = flag_enabled
+
+        response = self.client.post("/api/users/@me/integrations/claude/", payload, format="json")
+
+        assert response.status_code == expected_status
+        assert not UserIntegration.objects.filter(user=self.user, kind="claude").exists()
+
+    @parameterized.expand([("connect", "post"), ("disconnect", "delete")])
+    def test_sandbox_token_cannot_change_the_token(self, _name, method):
+        self.client.post("/api/users/@me/integrations/claude/", {"token": self.token}, format="json")
+
+        response = getattr(_sandbox_api_client(self.user, self.organization), method)(
+            "/api/users/@me/integrations/claude/", {"token": "sk-ant-oat01-" + "y" * 40}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert UserIntegration.objects.get(user=self.user, kind="claude").sensitive_config == {"token": self.token}
+
+    @parameterized.expand(
+        [
+            ("customer", "customer@example.com", False, True),
+            ("staff_external_email", "staff@example.com", True, True),
+            ("unverified", "employee@posthog.com", True, False),
+            ("unverified_null", "employee@posthog.com", True, None),
+            ("non_staff", "employee@posthog.com", False, True),
+            ("subdomain", "employee@team.posthog.com", True, True),
+        ]
+    )
+    def test_employee_access_is_required_even_when_the_flag_is_enabled(
+        self, _name: str, email: str, is_staff: bool, verified: bool | None
+    ) -> None:
+        self.user.email = email
+        self.user.is_staff = is_staff
+        self.user.is_email_verified = verified
+        self.user.save(update_fields=["email", "is_staff", "is_email_verified"])
+
+        for method in ("get", "post", "delete"):
+            response = getattr(self.client, method)(
+                "/api/users/@me/integrations/claude/", {"token": self.token}, format="json"
+            )
+            assert response.status_code == status.HTTP_403_FORBIDDEN, (method, response.json())
+        assert not UserIntegration.objects.filter(user=self.user, kind="claude").exists()
+        self.flag_enabled.assert_not_called()
+
+    @parameterized.expand([(method, verified) for method in ("get", "post", "delete") for verified in (False, True)])
+    def test_staff_can_access_only_their_own_claude_token(self, method: str, verified: bool) -> None:
+        owner = User.objects.create_user(
+            email="token-owner@posthog.com", password=None, first_name="Owner", is_staff=True, is_email_verified=True
+        )
+        integration = UserIntegration.objects.create(
+            user=owner,
+            kind="claude",
+            integration_id="setup_token",
+            config={"status": "connected"},
+            sensitive_config={"token": self.token},
+        )
+        self.user.is_email_verified = verified
+        self.user.save(update_fields=["is_email_verified"])
+
+        response = getattr(self.client, method)(
+            f"/api/users/{owner.uuid}/integrations/claude/", {"token": "sk-ant-oat01-" + "y" * 40}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        integration.refresh_from_db()
+        assert integration.sensitive_config == {"token": self.token}

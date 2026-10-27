@@ -10,7 +10,7 @@ import {
   type TaskService,
 } from "@posthog/core/task-detail/taskService";
 import { pendingPromptRecordFromContent } from "@posthog/core/tasks/pendingPrompts";
-import { useService, useServiceOptional } from "@posthog/di/react";
+import { useService } from "@posthog/di/react";
 import type { HostTrpcClient } from "@posthog/host-router/client";
 import { useHostTRPC, useHostTRPCClient } from "@posthog/host-router/react";
 import {
@@ -30,10 +30,8 @@ import {
   subscriptionModelAccess,
   useAdapterSubscription,
 } from "@posthog/ui/features/settings/adapterSubscription";
-import {
-  CLAUDE_SUBSCRIPTION_TOKEN_SETTINGS,
-  type ClaudeSubscriptionTokenSettings,
-} from "@posthog/ui/features/settings/claudeSubscriptionTokenSettings";
+import { useClaudeCloudAccount } from "@posthog/ui/features/settings/claudeCloudAccount";
+import { claudeTokenExpiryWarning } from "@posthog/ui/features/settings/claudeCloudToken";
 import { settleFailedPromptRecord } from "@posthog/ui/features/task-detail/pendingPromptActions";
 import { useTaskInputPrefillStore } from "@posthog/ui/features/task-detail/stores/taskInputPrefillStore";
 import { openTask } from "@posthog/ui/router/useOpenTask";
@@ -238,6 +236,14 @@ export function useTaskCreation({
   const hostClient = useHostTRPCClient();
   const codexSubscription = useAdapterSubscription("codex");
   const claudeSubscription = useAdapterSubscription("claude");
+  const claudeCloudAccount = useClaudeCloudAccount({
+    enabled:
+      workspaceMode === "cloud" &&
+      runtime !== "pi" &&
+      adapter === "claude" &&
+      claudeSubscription.cloudFlagEnabled &&
+      claudeSubscription.cloudSubscriptionOn,
+  });
   const trpc = useHostTRPC();
   const queryClient = useQueryClient();
   const defaultAdditionalDirectoriesQuery = useQuery(
@@ -266,9 +272,6 @@ export function useTaskCreation({
   const { data: tasks } = useTasks();
 
   const currentProjectId = useAuthStateValue((state) => state.currentProjectId);
-  const claudeTokenStore = useServiceOptional<ClaudeSubscriptionTokenSettings>(
-    CLAUDE_SUBSCRIPTION_TOKEN_SETTINGS,
-  );
   const { personalChannel } = useTaskChannels();
 
   const hasRequiredPath = allowNoRepo
@@ -338,20 +341,6 @@ export function useTaskCreation({
             toast.error("Claude plan billing is unavailable for cloud tasks", {
               description:
                 "Try again later, or select PostHog in the Billing menu.",
-            });
-            return false;
-          }
-          try {
-            if (!claudeTokenStore || !(await claudeTokenStore.has())) {
-              toast.error("Add your Claude token before starting this task", {
-                description:
-                  "Open Settings > Harness and save a token for cloud tasks.",
-              });
-              return false;
-            }
-          } catch {
-            toast.error("Cannot check your Claude token", {
-              description: "Open Settings > Harness and try again.",
             });
             return false;
           }
@@ -619,6 +608,15 @@ export function useTaskCreation({
               }
             }
             setAdditionalDirectoriesOverride(null);
+            const claudeTokenWarning =
+              input.claudeCloudModelAccess === "own-subscription"
+                ? claudeTokenExpiryWarning(claudeCloudAccount.data, new Date())
+                : null;
+            if (claudeTokenWarning) {
+              toast.warning("Claude token expires soon", {
+                description: claudeTokenWarning,
+              });
+            }
             // Guarantee the editor draft is wiped on success. editor.clear()
             // above only runs inside the onTaskReady callback (and after it
             // navigates the editor may be torn down); clearing the persisted
@@ -728,15 +726,9 @@ export function useTaskCreation({
       queryClient,
       taskService,
       tasks,
-      codexSubscription.flagEnabled,
-      codexSubscription.loginState,
-      codexSubscription.subscriptionOn,
-      claudeSubscription.flagEnabled,
-      claudeSubscription.loginState,
-      claudeSubscription.subscriptionOn,
       claudeSubscription,
+      claudeCloudAccount.data,
       codexSubscription,
-      claudeTokenStore,
     ],
   );
 

@@ -2,7 +2,7 @@ import type { ClaudeSubscriptionTokenStore } from "@posthog/core/cloud-task/iden
 
 export type ClaudeSubscriptionTokenSettings = Pick<
   ClaudeSubscriptionTokenStore,
-  "has" | "save" | "clear"
+  "getAccountKey" | "has" | "save" | "clear"
 >;
 
 export const CLAUDE_SUBSCRIPTION_TOKEN_SETTINGS = Symbol.for(

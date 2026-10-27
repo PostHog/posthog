@@ -262,22 +262,46 @@ class TestGetTaskProcessingContextActivity:
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.parametrize(
-        "subscription,is_trial,resume,launches_agent",
+        "subscription,is_trial,resume,launches_agent,claude_token_on_server,is_employee",
         [
-            (False, False, False, True),
-            (True, False, False, True),
-            (False, True, False, True),
-            (False, False, True, True),
-            (False, False, False, False),
+            (False, False, False, True, False, True),
+            (True, False, False, True, False, True),
+            (True, False, False, True, False, False),
+            (True, False, False, True, True, True),
+            (True, False, False, True, True, False),
+            (False, True, False, True, False, True),
+            (False, False, True, True, False, True),
+            (False, False, False, False, False, True),
         ],
     )
     def test_get_task_processing_context_success(
-        self, activity_environment, test_task, subscription, is_trial, resume, launches_agent
+        self,
+        activity_environment,
+        test_task,
+        subscription,
+        is_trial,
+        resume,
+        launches_agent,
+        claude_token_on_server,
+        is_employee,
     ):
         owner = User.objects.create_user(
-            email="subscription-owner@example.com", password=None, first_name="Owner", distinct_id="subscription-owner"
+            email="subscription-owner@posthog.com",
+            password=None,
+            first_name="Owner",
+            distinct_id="subscription-owner",
+            is_staff=is_employee,
+            is_email_verified=True,
         )
         OrganizationMembership.objects.create(organization=test_task.team.organization, user=owner)
+        if claude_token_on_server:
+            UserIntegration.objects.create(
+                user=owner,
+                kind="claude",
+                integration_id="setup_token",
+                config={"status": "connected"},
+                sensitive_config={"token": "sk-ant-oat01-" + "x" * 40},
+            )
         extra_state: dict[str, object] = {"claude_model_access": "own-subscription"} if subscription else {}
         if is_trial:
             test_task.origin_product = Task.OriginProduct.SIGNALS_SCOUT
@@ -302,6 +326,10 @@ class TestGetTaskProcessingContextActivity:
             flag.side_effect = lambda key, distinct_id=None, **kwargs: (
                 key == CLAUDE_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG and distinct_id == owner.distinct_id
             )
+            if not is_employee:
+                with pytest.raises(ProcessTaskFatalError, match="verified PostHog employee"):
+                    async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
+                return
             result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
 
         assert result.agent_shadow_enabled is launches_agent
@@ -321,6 +349,7 @@ class TestGetTaskProcessingContextActivity:
         assert result.agent_otel_telemetry_enabled is (not is_trial)
         assert result.context_layer_enabled is (not is_trial)
         assert result.state is not None
+        assert result.claude_subscription_server is claude_token_on_server
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.parametrize(
@@ -363,6 +392,33 @@ class TestGetTaskProcessingContextActivity:
             )
 
         assert result.sandbox_backend == expected_backend
+
+    @pytest.mark.django_db(transaction=True)
+    def test_claude_subscription_run_stops_when_claude_rejected_the_token(self, activity_environment, test_task):
+        owner = User.objects.create_user(
+            email="claude-owner@posthog.com",
+            password=None,
+            first_name="Owner",
+            distinct_id="claude-owner",
+            is_staff=True,
+            is_email_verified=True,
+        )
+        OrganizationMembership.objects.create(organization=test_task.team.organization, user=owner)
+        UserIntegration.objects.create(
+            user=owner, kind="claude", integration_id="setup_token", config={"status": "reauth_required"}
+        )
+        task_run = test_task.create_run(
+            acting_user_id=owner.id, extra_state={"claude_model_access": "own-subscription"}
+        )
+
+        with patch(
+            "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
+            return_value=True,
+        ):
+            with pytest.raises(ProcessTaskFatalError, match="Claude does not accept your token"):
+                async_to_sync(activity_environment.run)(
+                    get_task_processing_context, GetTaskProcessingContextInput(run_id=str(task_run.id))
+                )
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.parametrize("integration_status", [None, "reauth_required", "connected"])

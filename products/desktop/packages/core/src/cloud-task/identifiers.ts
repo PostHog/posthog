@@ -11,9 +11,10 @@ export interface ICloudTaskAuth {
 }
 
 export interface ClaudeSubscriptionTokenStore {
+  getAccountKey(): Promise<string | null>;
   get(expectedAccountKey?: string): Promise<string | null>;
-  save(token: string): Promise<void>;
-  clear(): Promise<void>;
+  save(token: string, expectedAccountKey?: string): Promise<void>;
+  clear(expectedAccountKey?: string): Promise<void>;
   clearAll(): Promise<void>;
   has(): Promise<boolean>;
 }

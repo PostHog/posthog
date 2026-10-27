@@ -103,6 +103,7 @@ from products.tasks.backend.models import DevStackImageTarget, SandboxSnapshot
 from .agent_server_launcher import (
     AGENT_SERVER_PORT as AGENT_SERVER_PORT,
     AGENT_SERVER_PREFLIGHT_CREDENTIAL_EXIT_CODE,
+    AGENT_SERVER_PREFLIGHT_REJECTED_CREDENTIAL_EXIT_CODE,
     AGENT_SERVER_PREFLIGHT_REUSE_MARKER,
     AGENT_SERVER_PREFLIGHT_TIMEOUT_SECONDS,
     AgentServerLaunchMixin,
@@ -888,7 +889,9 @@ class ModalSandbox(AgentServerLaunchMixin):
     def _sandbox_runtime(self) -> str | None:
         return "vm" if self.config.is_vm else "gvisor"
 
-    def _agent_server_preflight(self, allowed_domains: list[str] | None) -> AgentServerPreflight:
+    def _agent_server_preflight(
+        self, allowed_domains: list[str] | None, *, has_replacement_credential: bool = False
+    ) -> AgentServerPreflight:
         script = build_modal_agent_server_launch_script(
             allowed_domains,
             bundled_skills_clear_command=build_bundled_skills_clear_command(),
@@ -913,14 +916,27 @@ class ModalSandbox(AgentServerLaunchMixin):
             return self.execute(f"bash {shlex.quote(script_path)}", timeout_seconds=timeout_seconds)
 
         result, total_ms = self._run_launch_preparation(
-            run, completed_exit_codes=(0, AGENT_SERVER_PREFLIGHT_CREDENTIAL_EXIT_CODE)
+            run,
+            completed_exit_codes=(
+                0,
+                AGENT_SERVER_PREFLIGHT_CREDENTIAL_EXIT_CODE,
+                AGENT_SERVER_PREFLIGHT_REJECTED_CREDENTIAL_EXIT_CODE,
+            ),
         )
         if _launch_preparation_failed_stage(result.stderr) == "bundled_skills":
             raise RuntimeError(f"Failed to clear bundled skills in sandbox {self.id}: {result.stderr}")
-        if result.exit_code != AGENT_SERVER_PREFLIGHT_CREDENTIAL_EXIT_CODE:
+        if result.exit_code not in (
+            AGENT_SERVER_PREFLIGHT_CREDENTIAL_EXIT_CODE,
+            AGENT_SERVER_PREFLIGHT_REJECTED_CREDENTIAL_EXIT_CODE,
+        ):
             self._finish_launch_preparation(result, upload_ms=0, total_ms=total_ms)
-        preflight = self._read_agent_server_preflight(result, (), allowed_domains)
-        if AGENT_SERVER_PREFLIGHT_REUSE_MARKER in result.stdout.splitlines():
+        preflight = self._read_agent_server_preflight(
+            result, (), allowed_domains, has_replacement_credential=has_replacement_credential
+        )
+        if AGENT_SERVER_PREFLIGHT_REUSE_MARKER in result.stdout.splitlines() or result.exit_code in (
+            AGENT_SERVER_PREFLIGHT_CREDENTIAL_EXIT_CODE,
+            AGENT_SERVER_PREFLIGHT_REJECTED_CREDENTIAL_EXIT_CODE,
+        ):
             return preflight
         return dataclasses.replace(preflight, launch_prepared=True)
 

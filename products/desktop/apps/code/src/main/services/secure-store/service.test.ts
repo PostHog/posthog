@@ -130,6 +130,11 @@ describe("SecureStoreService", () => {
       account.mockResolvedValue(otherAccount);
       await expect(store.get()).resolves.toBeNull();
       await expect(store.get("original-account")).rejects.toThrow("Sign in");
+      await expect(
+        store.save("original-token", "original-account"),
+      ).rejects.toThrow("Sign in");
+      await expect(store.clear("original-account")).rejects.toThrow("Sign in");
+      await expect(store.get()).resolves.toBeNull();
       await store.save("other-token");
       await store.clear();
       account.mockResolvedValue("original-account");

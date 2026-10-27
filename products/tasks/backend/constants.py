@@ -227,6 +227,9 @@ OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAGS: dict[str, str] = {
 # The plan name a person reads when a subscription run is refused. Every layer that gates,
 # refuses, or explains one of these runs takes the name from here.
 SUBSCRIPTION_PLAN_NAMES: dict[str, str] = {"claude": "Claude plan", "codex": "ChatGPT plan"}
+CLAUDE_REJECTED_TOKEN_MESSAGE = (
+    "Claude does not accept your token. Create a new token in Settings > Harness. Then start the task again."
+)
 CODEX_SUBSCRIPTION_EGRESS_DOMAINS: tuple[str, ...] = ("chatgpt.com",)
 
 SnapshotKind = Literal["filesystem", "directory"]

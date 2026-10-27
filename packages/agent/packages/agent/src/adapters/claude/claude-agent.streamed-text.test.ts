@@ -32,6 +32,7 @@ interface ClientMocks {
 
 function makeAgent(options?: {
   onStructuredOutput?: (output: Record<string, unknown>) => Promise<void>;
+  onAuthenticationFailed?: () => void;
 }): { agent: Agent; client: ClientMocks } {
   const client: ClientMocks = {
     sessionUpdate: vi.fn().mockResolvedValue(undefined),
@@ -549,6 +550,32 @@ describe("ClaudeAcpAgent.prompt — streamed assistant text wiring", () => {
     await expect(steerPromise).resolves.toMatchObject({
       _meta: { steer: false, steerDeclineCause: "turn_ended_first" },
     });
+    await expect(promptPromise).resolves.toMatchObject({
+      stopReason: "end_turn",
+    });
+  });
+
+  it("reports each assistant message that failed authentication", async () => {
+    const onAuthenticationFailed = vi.fn();
+    const { agent } = makeAgent({ onAuthenticationFailed });
+    const sessionId = "s-auth-failed";
+    const { query, input } = installFakeSession(agent, sessionId);
+
+    const promptPromise = agent.prompt({
+      sessionId,
+      prompt: [{ type: "text", text: "hello" }],
+    });
+    await tick();
+    await echoUserMessage(query, input);
+    await send(query, assistantMessage(sessionId, "msg_ok", "fine"));
+    expect(onAuthenticationFailed).not.toHaveBeenCalled();
+    await send(query, {
+      ...assistantMessage(sessionId, "msg_auth", "Invalid token"),
+      error: "authentication_failed",
+    });
+    expect(onAuthenticationFailed).toHaveBeenCalledOnce();
+
+    await send(query, resultSuccess(sessionId));
     await expect(promptPromise).resolves.toMatchObject({
       stopReason: "end_turn",
     });

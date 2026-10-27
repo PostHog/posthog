@@ -18,6 +18,7 @@ import {
   IDLE_RESUME_STOP_REASON,
 } from "@posthog/agent-contracts";
 import { SIMPLIFIED_TECHNICAL_ENGLISH_INSTRUCTION as STE100_INSTRUCTION } from "@posthog/harness/extensions/benjamin";
+import * as localTools from "@posthog/harness/extensions/local-tools";
 import { zipSync } from "fflate";
 import jwt from "jsonwebtoken";
 import { HttpResponse, http } from "msw";
@@ -37,7 +38,10 @@ import { getSessionJsonlPath } from "../adapters/claude/session/jsonl-hydration"
 import { selectProduct } from "../boot/select-product";
 import type { ContextSelectionResponse } from "../context-selection/schemas";
 import type { PermissionMode } from "../execution-mode";
-import type { PostHogAPIClient } from "../posthog-api";
+import {
+  ClaudeSubscriptionTokenError,
+  type PostHogAPIClient,
+} from "../posthog-api";
 import { formatConversationForResume, type ResumeState } from "../resume";
 import type { ProductLaunchConfiguration, TaskSource } from "../sdk/product";
 import { SessionLogWriter } from "../session-log-writer";
@@ -58,6 +62,7 @@ import {
   SSE_KEEPALIVE_INTERVAL_MS,
   UPSTREAM_PROVIDER_FAILURE_MESSAGE,
 } from "./agent-server";
+import { CLAUDE_SUBSCRIPTION_TOKEN_FAILED_MESSAGES } from "./claude-subscription-token";
 import { ContextSelection, type HumanMessage } from "./context-selection";
 import { type JwtPayload, SANDBOX_CONNECTION_AUDIENCE } from "./jwt";
 import type { ExistingPrCheckoutResult } from "./pr-checkout";
@@ -313,6 +318,33 @@ interface NativeResumeTestServer {
 }
 
 let nextTestPort = 20000;
+
+function sseEvents(body: ReadableStream<Uint8Array>): {
+  next: () => Promise<Record<string, unknown>>;
+  cancel: () => Promise<void>;
+} {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffered = "";
+  return {
+    next: async () => {
+      for (;;) {
+        const end = buffered.indexOf("\n\n");
+        if (end >= 0) {
+          const frame = buffered.slice(0, end);
+          buffered = buffered.slice(end + 2);
+          if (frame.startsWith("data: ")) return JSON.parse(frame.slice(6));
+        } else {
+          const chunk = await reader.read();
+          if (chunk.done)
+            throw new Error("Event stream ended before initialization");
+          buffered += decoder.decode(chunk.value, { stream: true });
+        }
+      }
+    },
+    cancel: () => reader.cancel(),
+  };
+}
 
 function getNextTestPort(): number {
   const port = nextTestPort;
@@ -1810,7 +1842,9 @@ describe("AgentServer HTTP Mode", () => {
       },
     );
 
-    function createFailureTestServer() {
+    function createFailureTestServer(
+      overrides: Partial<ConstructorParameters<typeof AgentServer>[0]> = {},
+    ) {
       const appendRawLine = vi.fn();
       const testServer = new AgentServer({
         port,
@@ -1822,6 +1856,7 @@ describe("AgentServer HTTP Mode", () => {
         mode: "interactive",
         taskId: "test-task-id",
         runId: "test-run-id",
+        ...overrides,
       }) as unknown as {
         eventStreamSender: {
           enqueue: ReturnType<typeof vi.fn>;
@@ -2195,6 +2230,174 @@ describe("AgentServer HTTP Mode", () => {
         expect.objectContaining({
           status: "failed",
           error_message: `upstream_provider_failure: ${UPSTREAM_PROVIDER_FAILURE_MESSAGE}`,
+        }),
+      );
+    });
+
+    it("reports a rejected Claude token and asks for a new one", async () => {
+      const testServer = createFailureTestServer({
+        claudeRunToken: "run-token",
+      }) as ReturnType<typeof createFailureTestServer> & {
+        posthogAPI: {
+          requestClaudeSubscriptionToken: ReturnType<typeof vi.fn>;
+        };
+        handleClaudeTokenRejected(token: string): void;
+      };
+      let rejectReport: (error: Error) => void = () => undefined;
+      testServer.posthogAPI.requestClaudeSubscriptionToken = vi.fn(
+        () =>
+          new Promise<string>((_resolve, reject) => {
+            rejectReport = reject;
+          }),
+      );
+
+      testServer.handleClaudeTokenRejected("sk-ant-oat01-fake");
+      testServer.handleClaudeTokenRejected("sk-ant-oat01-fake");
+      const failure = testServer.handleTurnFailure(
+        interactivePayload,
+        "initial",
+        RequestError.authRequired(),
+      );
+      await vi.waitFor(() =>
+        expect(
+          testServer.posthogAPI.requestClaudeSubscriptionToken,
+        ).toHaveBeenCalled(),
+      );
+      expect(testServer.posthogAPI.updateTaskRun).not.toHaveBeenCalled();
+      rejectReport(
+        new ClaudeSubscriptionTokenError(
+          "reauth_required",
+          409,
+          "Paste again.",
+        ),
+      );
+      await failure;
+
+      expect(
+        testServer.posthogAPI.requestClaudeSubscriptionToken,
+      ).toHaveBeenCalledExactlyOnceWith(
+        "test-task-id",
+        "test-run-id",
+        "run-token",
+        createHash("sha256").update("sk-ant-oat01-fake").digest("hex"),
+        expect.any(Number),
+      );
+      expect(testServer.posthogAPI.updateTaskRun).toHaveBeenCalledWith(
+        "task-1",
+        "run-1",
+        expect.objectContaining({
+          status: "failed",
+          error_message: `agent_error: ${CLAUDE_SUBSCRIPTION_TOKEN_FAILED_MESSAGES.reauth_required}`,
+        }),
+      );
+    });
+
+    it.each([
+      ["initial", RequestError.authRequired()],
+      ["followup", new Error("API Error: 503 private provider body")],
+    ] as const)(
+      "asks for a new token when Claude rejects a relayed token (%s turn)",
+      async (phase, error) => {
+        const testServer = createFailureTestServer() as ReturnType<
+          typeof createFailureTestServer
+        > & {
+          posthogAPI: {
+            requestClaudeSubscriptionToken: ReturnType<typeof vi.fn>;
+          };
+          handleClaudeTokenRejected(token: string): void;
+        };
+        testServer.posthogAPI.requestClaudeSubscriptionToken = vi.fn();
+
+        testServer.handleClaudeTokenRejected("sk-ant-oat01-fake");
+        await testServer.handleTurnFailure(interactivePayload, phase, error);
+
+        expect(
+          testServer.posthogAPI.requestClaudeSubscriptionToken,
+        ).not.toHaveBeenCalled();
+        expect(testServer.posthogAPI.updateTaskRun).toHaveBeenCalledWith(
+          "task-1",
+          "run-1",
+          expect.objectContaining({
+            status: "failed",
+            error_message: expect.stringContaining(
+              CLAUDE_SUBSCRIPTION_TOKEN_FAILED_MESSAGES.reauth_required,
+            ),
+          }),
+        );
+      },
+    );
+
+    it("does not blame the Claude token for a failure in a later turn", async () => {
+      const testServer = createFailureTestServer({
+        claudeRunToken: "run-token",
+      }) as ReturnType<typeof createFailureTestServer> & {
+        posthogAPI: {
+          requestClaudeSubscriptionToken: ReturnType<typeof vi.fn>;
+        };
+        handleClaudeTokenRejected(token: string): void;
+        runOwnedTurn<T>(operation: () => Promise<T>): Promise<T>;
+      };
+      testServer.posthogAPI.requestClaudeSubscriptionToken = vi.fn(
+        async () => "sk-ant-oat01-fake",
+      );
+
+      testServer.handleClaudeTokenRejected("sk-ant-oat01-fake");
+      await testServer.runOwnedTurn(async () => undefined);
+      await testServer.handleTurnFailure(
+        interactivePayload,
+        "initial",
+        new Error("Tool crashed"),
+      );
+
+      expect(testServer.posthogAPI.updateTaskRun).toHaveBeenCalledWith(
+        "task-1",
+        "run-1",
+        expect.objectContaining({
+          status: "failed",
+          error_message: expect.not.stringContaining(
+            CLAUDE_SUBSCRIPTION_TOKEN_FAILED_MESSAGES.reauth_required,
+          ),
+        }),
+      );
+    });
+
+    it("keeps the Claude token rejection while another turn starts", async () => {
+      const testServer = createFailureTestServer({
+        claudeRunToken: "run-token",
+      }) as ReturnType<typeof createFailureTestServer> & {
+        posthogAPI: {
+          requestClaudeSubscriptionToken: ReturnType<typeof vi.fn>;
+        };
+        handleClaudeTokenRejected(token: string): void;
+        runOwnedTurn<T>(operation: () => Promise<T>): Promise<T>;
+      };
+      testServer.posthogAPI.requestClaudeSubscriptionToken = vi.fn(
+        async () => "sk-ant-oat01-fake",
+      );
+      let finishStartupTurn: () => void = () => undefined;
+      const startupTurn = testServer.runOwnedTurn(
+        () =>
+          new Promise<void>((resolve) => {
+            finishStartupTurn = resolve;
+          }),
+      );
+
+      testServer.handleClaudeTokenRejected("sk-ant-oat01-fake");
+      await testServer.runOwnedTurn(async () => undefined);
+      finishStartupTurn();
+      await startupTurn;
+      await testServer.handleTurnFailure(
+        interactivePayload,
+        "initial",
+        RequestError.authRequired(),
+      );
+
+      expect(testServer.posthogAPI.updateTaskRun).toHaveBeenCalledWith(
+        "task-1",
+        "run-1",
+        expect.objectContaining({
+          status: "failed",
+          error_message: `agent_error: ${CLAUDE_SUBSCRIPTION_TOKEN_FAILED_MESSAGES.reauth_required}`,
         }),
       );
     });
@@ -3838,7 +4041,7 @@ describe("AgentServer HTTP Mode", () => {
       );
     });
 
-    it.each(["token", "no_token", "cancel", "reconnect"])(
+    it.each(["token", "no_token", "rejected", "cancel", "reconnect"])(
       "handles %s during subscription initialization",
       async (outcome) => {
         const s = createServer({ claudeModelAccess: "own-subscription" });
@@ -3852,27 +4055,11 @@ describe("AgentServer HTTP Mode", () => {
           }),
         );
         if (!response.body) throw new Error("Expected an event stream");
-        let reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let buffered = "";
-        const nextEvent = async (): Promise<Record<string, unknown>> => {
-          for (;;) {
-            const end = buffered.indexOf("\n\n");
-            if (end >= 0) {
-              const frame = buffered.slice(0, end);
-              buffered = buffered.slice(end + 2);
-              if (frame.startsWith("data: ")) return JSON.parse(frame.slice(6));
-            } else {
-              const chunk = await reader.read();
-              if (chunk.done)
-                throw new Error("Event stream ended before initialization");
-              buffered += decoder.decode(chunk.value, { stream: true });
-            }
-          }
-        };
+        let events = sseEvents(response.body);
         try {
-          let event = await nextEvent();
-          while (event.type !== "credential_request") event = await nextEvent();
+          let event = await events.next();
+          while (event.type !== "credential_request")
+            event = await events.next();
           const health = await app.fetch(
             new Request("http://localhost/health"),
           );
@@ -3894,10 +4081,9 @@ describe("AgentServer HTTP Mode", () => {
                 headers: { Authorization: authorization },
               }),
             );
-            await reader.cancel();
+            await events.cancel();
             if (!replacement.body) throw new Error("Expected an event stream");
-            reader = replacement.body.getReader();
-            buffered = "";
+            events = sseEvents(replacement.body);
           }
           const body = JSON.stringify({
             jsonrpc: "2.0",
@@ -3908,7 +4094,9 @@ describe("AgentServer HTTP Mode", () => {
               credential: "claude_subscription_token",
               ...(outcome === "no_token"
                 ? { error: "no_token" }
-                : { token: "sk-ant-oat01-fake-test-token" }),
+                : outcome === "rejected"
+                  ? { error: "no_token", reason: "reauth_required" }
+                  : { token: "sk-ant-oat01-fake-test-token" }),
             },
           });
           for (const overrides of [
@@ -3945,25 +4133,91 @@ describe("AgentServer HTTP Mode", () => {
               result: { resolved: true },
             });
           }
-          if (outcome === "no_token") {
+          if (outcome === "no_token" || outcome === "rejected") {
             await vi.waitFor(async () => {
               const failed = await app.fetch(
                 new Request("http://localhost/health"),
               );
               expect((await failed.json()).failureCode).toBe(
-                "claude_credential_unavailable",
+                outcome === "rejected"
+                  ? "claude_credential_unavailable_rejected"
+                  : "claude_credential_unavailable",
               );
             });
             return;
           }
-          while (event.type !== "connected") event = await nextEvent();
+          while (event.type !== "connected") event = await events.next();
           const ready = await app.fetch(new Request("http://localhost/health"));
           expect((await ready.json()).hasSession).toBe(true);
           expect(JSON.stringify(appendLogCalls)).not.toContain(
             "sk-ant-oat01-fake-test-token",
           );
         } finally {
-          await reader.cancel().catch(() => undefined);
+          await events.cancel().catch(() => undefined);
+        }
+      },
+    );
+
+    it.each([
+      ["token", 200, { token: "sk-ant-oat01-fake-server-token" }],
+      ["reauth", 409, { code: "reauth_required", error: "Paste again." }],
+    ] as const)(
+      "gets the Claude token from PostHog instead of Desktop (%s)",
+      async (outcome, status, tokenResponse) => {
+        const tokenRequests: unknown[] = [];
+        mswServer.use(
+          http.post(
+            "http://localhost:8000/api/projects/:projectId/tasks/:taskId/runs/:runId/claude_subscription_token/",
+            async ({ request }) => {
+              tokenRequests.push({
+                runToken: request.headers.get("X-Task-Run-Token"),
+                body: await request.json(),
+              });
+              return HttpResponse.json(tokenResponse, { status });
+            },
+          ),
+        );
+        const s = createServer({
+          claudeModelAccess: "own-subscription",
+          claudeRunToken: "run-token",
+        });
+        const { app } = s as unknown as {
+          app: { fetch(request: Request): Promise<Response> | Response };
+        };
+        const response = await app.fetch(
+          new Request("http://localhost/events", {
+            headers: { Authorization: `Bearer ${createToken()}` },
+          }),
+        );
+        if (!response.body) throw new Error("Expected an event stream");
+        const events = sseEvents(response.body);
+        try {
+          if (outcome === "reauth") {
+            await vi.waitFor(async () => {
+              const failed = await app.fetch(
+                new Request("http://localhost/health"),
+              );
+              expect((await failed.json()).failureCode).toBe(
+                "claude_credential_unavailable_rejected",
+              );
+            });
+          } else {
+            const seen: unknown[] = [];
+            let event = await events.next();
+            while (event.type !== "connected") {
+              seen.push(event.type);
+              event = await events.next();
+            }
+            expect(seen).not.toContain("credential_request");
+            expect(JSON.stringify(appendLogCalls)).not.toContain(
+              "sk-ant-oat01-fake-server-token",
+            );
+          }
+          expect(tokenRequests).toEqual([
+            { runToken: "run-token", body: { rejected_token_sha256: null } },
+          ]);
+        } finally {
+          await events.cancel().catch(() => undefined);
         }
       },
     );
@@ -7357,7 +7611,12 @@ describe("AgentServer HTTP Mode", () => {
   });
 
   describe("buildCloudSystemPrompt", () => {
+    beforeEach(() => {
+      vi.spyOn(localTools, "resolveGithubToken").mockReturnValue(undefined);
+    });
+
     afterEach(() => {
+      vi.mocked(localTools.resolveGithubToken).mockRestore();
       vi.unstubAllEnvs();
     });
 
@@ -7577,7 +7836,7 @@ describe("AgentServer HTTP Mode", () => {
     it("tells the agent to self-assign through gh rather than match a name", () => {
       // `gh` already knows who the run acts as, so the agent must read it rather than
       // ask the user for a handle it is forbidden from guessing.
-      vi.stubEnv("GITHUB_TOKEN", "ghu_actor");
+      vi.mocked(localTools.resolveGithubToken).mockReturnValue("ghu_actor");
       const s = createServer();
       const prompt = (s as unknown as TestableServer).buildCloudSystemPrompt();
       expect(prompt).toContain("You have GitHub access in this session.");
@@ -7597,7 +7856,7 @@ describe("AgentServer HTTP Mode", () => {
       async (origin) => {
         // Non-Slack runs open issues under a person's credentials too, so this must not
         // sit behind `isSlack`.
-        vi.stubEnv("GITHUB_TOKEN", "ghu_actor");
+        vi.mocked(localTools.resolveGithubToken).mockReturnValue("ghu_actor");
         const s = createServer();
         await openProduct(s, origin);
         expect(

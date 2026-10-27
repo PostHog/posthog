@@ -3,13 +3,17 @@ import { randomUUID } from "node:crypto";
 export const CREDENTIAL_RELAY_TIMEOUT_MS = 120_000;
 
 export class CredentialRelayError extends Error {
-  constructor(readonly code: "cancelled" | "timeout" | "no_token") {
+  constructor(
+    readonly code: "cancelled" | "timeout" | "no_token" | "rejected",
+  ) {
     super(
       code === "cancelled"
         ? "Session is shutting down."
         : code === "timeout"
           ? "The credential request timed out waiting for PostHog Desktop."
-          : "PostHog Desktop could not provide the Claude token.",
+          : code === "rejected"
+            ? "Claude does not accept the relayed token."
+            : "PostHog Desktop could not provide the Claude token.",
     );
     this.name = "CredentialRelayError";
   }
@@ -64,6 +68,7 @@ export class CredentialRelay {
     requestId: string;
     token?: string;
     error?: string;
+    reason?: string;
   }): boolean {
     const pending = this.pending.get(params.requestId);
     if (!pending) return params.requestId === this.completedRequestId;
@@ -73,7 +78,11 @@ export class CredentialRelay {
     if (params.token && !params.error) {
       pending.resolve(params.token);
     } else {
-      pending.reject(new CredentialRelayError("no_token"));
+      pending.reject(
+        new CredentialRelayError(
+          params.reason === "reauth_required" ? "rejected" : "no_token",
+        ),
+      );
     }
     return true;
   }

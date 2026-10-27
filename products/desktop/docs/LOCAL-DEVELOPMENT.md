@@ -103,6 +103,14 @@ cp .env.example .env
 pnpm dev
 ```
 
+## Claude cloud subscription access
+
+Claude cloud subscriptions require an active staff account with a verified `@posthog.com` email address.
+The backend checks these fields when a user connects a token, starts a run, or requests a token.
+The backend also checks tokens from the Desktop relay. Employees can manage only their own token.
+The `posthog-code-claude-own-subscription-cloud` flag controls access within this group. A flag change cannot grant access to other users.
+Development mode does not skip the backend checks.
+
 ## Test local code and skill changes together
 
 - `hogli start` with the Desktop intent uses local checkout skills and rebuilds them when you edit them. Select the intent once with `hogli dev:setup`.
