@@ -49,9 +49,9 @@ def rehost_images(
             notes=(
                 ImportNote(
                     level=WorkflowImportNoteLevel.NEEDS_INPUT,
-                    message=f"{len(all_urls)} email {_images(len(all_urls))} still load from Customer.io's servers, "
+                    message=f"{len(all_urls)} email {_images(len(all_urls))} still {_load(len(all_urls))} from Customer.io's servers, "
                     "because this API key can't write to the media library (uploaded_media:write). Import with a "
-                    "key that can, or upload them before you close your Customer.io account.",
+                    f"key that can, or upload {_them(len(all_urls))} before you close your Customer.io account.",
                 ),
             ),
         )
@@ -84,8 +84,8 @@ def rehost_images(
                 ImportNote(
                     level=WorkflowImportNoteLevel.NEEDS_INPUT,
                     message=f"{len(missed)} {_images(len(missed))} could not be copied from Customer.io and still "
-                    f"load from its servers: {', '.join(missed[:3])}{'…' if len(missed) > 3 else ''}. Upload "
-                    "them to the media library before you close your Customer.io account.",
+                    f"{_load(len(missed))} from its servers: {', '.join(missed[:3])}{'…' if len(missed) > 3 else ''}. "
+                    f"Upload {_them(len(missed))} to the media library before you close your Customer.io account.",
                     step_id=action["id"],
                     step_name=action.get("name"),
                 )
@@ -241,3 +241,11 @@ def _with_html(action: dict[str, Any], body: str) -> dict[str, Any]:
 
 def _images(count: int) -> str:
     return "image" if count == 1 else "images"
+
+
+def _load(count: int) -> str:
+    return "loads" if count == 1 else "load"
+
+
+def _them(count: int) -> str:
+    return "it" if count == 1 else "them"
