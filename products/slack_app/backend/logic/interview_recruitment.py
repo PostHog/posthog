@@ -6,9 +6,8 @@ how the click is counted.
 Three surfaces show an invitation:
 
 - The bad-rating modal always shows the link, because the reader already chose to tell us what went wrong.
-- The Home tab shows a button when the ``slack-app-interview-recruitment`` flag selects the reader.
-- A private message under the answer offers the interview when the flag selects the reader and the
-  reader shows frustration: a thumbs-down reaction on an answer, or a message that the decision model
+- The Home tab always shows a button.
+- A private message under the answer offers the interview when the reader shows frustration: a thumbs-down reaction on an answer, or a message that the decision model
   reads as unhappy with the assistant or PostHog. A reader gets at most one such message in ``INVITE_INTERVAL``, and
   "Don't ask again" stops these messages only. The model runs only after every cheap gate passes, so
   most answers cost no call.
@@ -32,8 +31,7 @@ from posthog.llm.system_one import ChoiceAnswer, ChoiceQuestion
 from posthog.llm.system_one_client import build_system_one_client
 from posthog.models.integration import Integration, SlackIntegration
 
-from products.slack_app.backend.analytics import capture_slack_event, slack_distinct_id
-from products.slack_app.backend.feature_flags import is_slack_app_interview_recruitment_enabled
+from products.slack_app.backend.analytics import capture_slack_event
 from products.slack_app.backend.logic.feature_tips.state import FeatureTipsState, get_state, update_state
 from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.slack_app.backend.services.inbox_interactivity import post_response_url
@@ -111,7 +109,7 @@ class SentimentVerdict:
 
 
 def linked_posthog_user(integration: Integration, slack_user_id: str) -> User | None:
-    """The PostHog user behind this Slack identity. Best-effort, because the result only targets the flag and labels events."""
+    """The PostHog user behind this Slack identity. Best-effort, because the result only labels events and model calls."""
     try:
         return find_linked_posthog_user(
             slack_user_id=slack_user_id,
@@ -121,15 +119,6 @@ def linked_posthog_user(integration: Integration, slack_user_id: str) -> User | 
     except Exception:
         logger.warning("slack_app_interview_user_lookup_failed", integration_id=integration.id, exc_info=True)
         return None
-
-
-def is_recruiting(integration: Integration, slack_user_id: str, posthog_user: User | None) -> bool:
-    distinct_id = (
-        posthog_user.distinct_id
-        if posthog_user is not None and posthog_user.distinct_id
-        else slack_distinct_id(integration, slack_user_id)
-    )
-    return is_slack_app_interview_recruitment_enabled(integration, distinct_id)
 
 
 def book_button(integration_id: int, surface: InterviewSurface, **extra: str | None) -> dict[str, Any]:
@@ -175,8 +164,6 @@ def offer_frustration_invite(request: FrustrationInviteRequest) -> bool:
         return False
     # A reaction arrives after the answer, so a tip may already sit under that answer. No answer gets two prompts.
     if state.last_shown_at is not None and now - state.last_shown_at < TIP_GAP:
-        return False
-    if not is_recruiting(integration, request.slack_user_id, request.posthog_user):
         return False
     # The limit stops the count at the threshold, so a reader with a long history costs no full scan.
     thread_count = (
