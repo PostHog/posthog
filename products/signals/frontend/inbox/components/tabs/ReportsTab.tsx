@@ -338,18 +338,21 @@ export function ReportsTab(): JSX.Element {
 
     return (
         <div className="mx-auto flex w-full max-w-4xl flex-col gap-4 px-6 py-3">
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+            <div className="flex flex-wrap items-center gap-2">
                 <InboxReportFilters />
                 <div className="ml-auto flex shrink-0 items-center gap-2">
                     <LemonButton
                         type="primary"
                         size="small"
                         to={urls.inboxTriage()}
-                        sideIcon={<KeyboardShortcut t />}
-                        tooltip="Go through the reports that need a pull request one at a time"
+                        tooltip={
+                            <>
+                                Go through the reports that need a pull request one at a time <KeyboardShortcut t />
+                            </>
+                        }
                         data-attr="inbox-triage-mode"
                     >
-                        Triage mode
+                        Triage
                     </LemonButton>
                     <InboxScopeFilter />
                 </div>
