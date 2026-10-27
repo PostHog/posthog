@@ -1,9 +1,12 @@
+from typing import cast
+
 from django import forms
 from django.contrib import admin
 from django.http import HttpRequest
 
 from posthog.admin.paginators.no_count_paginator import NoCountPaginator
-from posthog.models.organization import OrganizationAITerms
+from posthog.models.organization import Organization, OrganizationAITerms
+from posthog.models.user import User
 
 
 def _desktop_beta_terms_accepted(organization: OrganizationAITerms) -> bool:
@@ -23,6 +26,7 @@ class OrganizationAITermsForm(forms.ModelForm):
     class Meta:
         model = OrganizationAITerms
         fields = ["is_ai_data_processing_approved"]
+        labels = {"is_ai_data_processing_approved": "In-app AI data processing approved"}
 
 
 @admin.register(OrganizationAITerms)
@@ -54,8 +58,13 @@ class OrganizationAITermsAdmin(admin.ModelAdmin):
     def save_model(
         self, request: HttpRequest, obj: OrganizationAITerms, form: OrganizationAITermsForm, change: bool
     ) -> None:
-        super().save_model(request, obj, form, change)
+        if "is_ai_data_processing_approved" in form.changed_data:
+            # Save through the concrete model, because the activity log and the Organization signals
+            # listen for sender=Organization and ignore a save that this proxy model sends.
+            organization = Organization.objects.get(pk=obj.pk)
+            organization.is_ai_data_processing_approved = obj.is_ai_data_processing_approved
+            organization.save(update_fields=["is_ai_data_processing_approved"])
         if form.cleaned_data.get("revoke_desktop_beta_terms"):
             from products.tasks.backend.facade import api as tasks_facade  # noqa: PLC0415
 
-            tasks_facade.revoke_desktop_beta_terms(obj.id)
+            tasks_facade.revoke_desktop_beta_terms(obj.id, cast(User, request.user))

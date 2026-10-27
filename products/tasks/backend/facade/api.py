@@ -56,6 +56,8 @@ from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.ingress.contracts import WebhookDelivery
 from posthog.models import Team, User
+from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+from posthog.models.activity_logging.model_activity import get_was_impersonated
 from posthog.models.comment.comment import CANVAS_COMMENT_SCOPES
 from posthog.models.integration import Integration
 from posthog.models.integration.codex import CodexAccessGrant, CodexAuthError, CodexReauthRequired, CodexUserIntegration
@@ -2563,8 +2565,35 @@ def accept_desktop_beta_terms(organization_id: UUID, user_id: int) -> contracts.
     return contracts.DesktopBetaTermsAcceptanceDTO(is_desktop_beta_terms_accepted=True)
 
 
-def revoke_desktop_beta_terms(organization_id: UUID) -> contracts.DesktopBetaTermsAcceptanceDTO:
-    DesktopBetaTermsAcceptance.objects.filter(organization_id=organization_id).delete()
+def revoke_desktop_beta_terms(organization_id: UUID, user: User) -> contracts.DesktopBetaTermsAcceptanceDTO:
+    with transaction.atomic():
+        acceptance = DesktopBetaTermsAcceptance.objects.filter(organization_id=organization_id).first()
+        if acceptance is not None:
+            acceptance.delete()
+            # The deleted row is the only record of who accepted and when, so the audit entry keeps both.
+            log_activity(
+                organization_id=organization_id,
+                team_id=None,
+                user=user,
+                was_impersonated=get_was_impersonated(),
+                item_id=organization_id,
+                scope="Organization",
+                activity="updated",
+                detail=Detail(
+                    changes=[
+                        Change(
+                            type="Organization",
+                            action="revoked",
+                            field="PostHog Desktop beta terms",
+                            before={
+                                "accepted_by_user_id": acceptance.accepted_by_user_id,
+                                "accepted_at": acceptance.accepted_at.isoformat(),
+                            },
+                            after=None,
+                        )
+                    ]
+                ),
+            )
     return contracts.DesktopBetaTermsAcceptanceDTO(is_desktop_beta_terms_accepted=False)
 
 
