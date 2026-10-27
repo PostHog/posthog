@@ -396,12 +396,9 @@ def get_aws_storage_options() -> dict[str, str]:
 
 
 def _combine_batches(batches: list[pa.RecordBatch]) -> pa.RecordBatch:
-    if len(batches) == 1:
-        return batches[0]
-
-    table = pa.Table.from_batches(batches)
-    table = table.combine_chunks()
-    return table.to_batches(max_chunksize=table.num_rows)[0]
+    # Always copy, even a single batch. A streamed batch is a zero-copy view of the IPC bytes, where
+    # buffers are only 8-byte aligned, and delta-rs panics on a decimal128 buffer off a 16-byte boundary.
+    return pa.concat_batches(batches)
 
 
 def _transform_date_and_datetimes(batch: pa.RecordBatch, types: list[tuple[str, str]]) -> pa.RecordBatch:
