@@ -26,6 +26,7 @@ from products.messaging.backend.facade.contracts import (
     QueuedEmail,
     QuotaLimited,
     RecipientSuppressed,
+    RecipientUnreachable,
     SenderUnavailable,
     SendingPaused,
     SendingSuspended,
@@ -76,6 +77,11 @@ PIPELINE_REFUSALS: dict[str, tuple[type[TransactionalEmailError], str]] = {
         RecipientSuppressed,
         "The recipient is on this project's suppression list after a hard bounce or a spam complaint, so the "
         "email can't be sent. Remove the address from the suppression list if it can receive email again.",
+    ),
+    "recipient_unreachable": (
+        RecipientUnreachable,
+        "The recipient's address can't receive email: it isn't a valid address, or its domain has no mail servers, "
+        "so the email would bounce. Check the address for a typo.",
     ),
     "not_sendable": (TransactionalEmailPaused, "The template's transactional email isn't active."),
 }
