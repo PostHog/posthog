@@ -136,6 +136,7 @@ export function AIObservabilityScoreDefinitions(): JSX.Element {
             className: '@max-[40rem]/scorers:hidden',
             render: (_, scoreDefinition) => (
                 <ResourceTags
+                    compact
                     entity="scorers"
                     resourceId={scoreDefinition.id}
                     tags={scoreDefinition.tags}
