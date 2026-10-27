@@ -108,6 +108,8 @@ WATCH_PICK_PEOPLE_BOOST_CAP = 2.0
 WATCH_PICK_GROUP_CANDIDATES = 3
 # Group members older than the feed's longest window before the oldest pick can never fall inside a requested window.
 WATCH_FEED_MEMBER_LOOKBACK = timedelta(days=90)
+# How much wider the second pick fetch reads when the first is all copies of a few feed groups.
+WATCH_PICK_REFILL_FACTOR = 10
 
 _ANCHOR_CACHE_TTL_S = 7 * 24 * 3600
 
@@ -279,7 +281,7 @@ def _cap_feed_groups(rows: list[dict[str, Any]], cap: int) -> dict[Any, dict[str
 
 
 def _pick_window_rows(
-    ranked: QuerySet[ReplayObservation], current_ranks: QuerySet[ReplayObservation], limit: int | None
+    ranked: QuerySet[ReplayObservation], current_ranks: QuerySet[ReplayObservation], limit: int
 ) -> list[dict[str, Any]]:
     """Each scanner's top-fifth issue rows in pick order: every scanner's best first, then every second-best.
 
@@ -361,12 +363,15 @@ def select_embedding_picks(
         watch_category=KeyTextTransform("category", "watch_rank"),
         contrast_type=jsonb_typeof(KeyTransform("contrast", "watch_rank")),
     ).filter(contrast_type="number")
-    # Bounds the fetch, since a client-side cursor buffers every row; only a window full of copies needs the rest.
+    # Bounds the fetch, since a client-side cursor buffers every row. A window full of copies reads a wider slice
+    # once, still bounded, and a feed that stays short past it shows fewer picks rather than reading every row.
     fetch_limit = cap * (WATCH_PICK_GROUP_CANDIDATES + 1)
     rows = _pick_window_rows(ranked, current_ranks, fetch_limit)
     window_values = _cap_feed_groups(rows, cap)
     if len(window_values) < cap and len(rows) == fetch_limit:
-        window_values = _cap_feed_groups(_pick_window_rows(ranked, current_ranks, None), cap)
+        window_values = _cap_feed_groups(
+            _pick_window_rows(ranked, current_ranks, fetch_limit * WATCH_PICK_REFILL_FACTOR), cap
+        )
     if not window_values:
         return []
     # Counted over readable rows only, so a group never reveals how many restricted sessions it holds. Members
