@@ -75,7 +75,6 @@ rules:
                               |AgentArtifact
                               |AgentIdentityCredential
                               |AgentIdentityLinkState
-                              |AgentPeerMessage
                               |AgentRevision
                               |AgentSandboxInstance
                               |AgentSession
@@ -87,6 +86,7 @@ rules:
                               |AITrainingDeletionRequest
                               |Alert
                               |AlertConfiguration
+                              |InsightAlertInvestigation
                               |Annotation
                               |Announcement
                               |AnnouncementDelivery
@@ -391,6 +391,7 @@ rules:
                               |SignalReportArtefact
                               |SignalReportCheck
                               |SignalReportMonitoringAttempt
+                              |SignalReportMonitoringResult
                               |SignalReportGithubComment
                               |SignalReportPullRequest
                               |SignalReportAssignment
@@ -399,6 +400,8 @@ rules:
                               |SignalReportSuggestedReviewer
                               |SignalReportTask
                               |SignalReportTrackerIssue
+                              |SignalReviewerExclusion
+                              |SignalReviewerExclusionRevision
                               |SignalRepositoryAreaActivity
                               |SignalTeamConfig
                               |SignalSourceConfig
@@ -424,6 +427,7 @@ rules:
                               |SubscriptionDelivery
                               |PlatformAlert
                               |PlatformAlertConfiguration
+                              |PlatformAlertDeliveryHold
                               |PlatformAlertDeliveryPath
                               |PlatformAlertThread
                               |AlertDestination
@@ -560,7 +564,6 @@ rules:
                         |AgentArtifact
                         |AgentIdentityCredential
                         |AgentIdentityLinkState
-                        |AgentPeerMessage
                         |AgentRevision
                         |AgentSandboxInstance
                         |AgentSession
@@ -572,6 +575,7 @@ rules:
                         |AITrainingDeletionRequest
                         |Alert
                         |AlertConfiguration
+                        |InsightAlertInvestigation
                         |Annotation
                         |Announcement
                         |AnnouncementDelivery
@@ -866,6 +870,7 @@ rules:
                         |SignalReportArtefact
                         |SignalReportCheck
                         |SignalReportMonitoringAttempt
+                        |SignalReportMonitoringResult
                         |SignalReportGithubComment
                         |SignalReportPullRequest
                         |SignalReportAssignment
@@ -874,6 +879,8 @@ rules:
                         |SignalReportSuggestedReviewer
                         |SignalReportTask
                         |SignalReportTrackerIssue
+                        |SignalReviewerExclusion
+                        |SignalReviewerExclusionRevision
                         |SignalRepositoryAreaActivity
                         |SignalTeamConfig
                         |SignalSourceConfig
@@ -899,6 +906,7 @@ rules:
                         |SubscriptionDelivery
                         |PlatformAlert
                         |PlatformAlertConfiguration
+                        |PlatformAlertDeliveryHold
                         |PlatformAlertDeliveryPath
                         |PlatformAlertThread
                         |AlertDestination
@@ -1212,6 +1220,7 @@ rules:
                         |SignalReportArtefact
                         |SignalReportCheck
                         |SignalReportMonitoringAttempt
+                        |SignalReportMonitoringResult
                         |SignalReportSlackThread
                         |SignalReportTask
                         |SignalSourceConfig

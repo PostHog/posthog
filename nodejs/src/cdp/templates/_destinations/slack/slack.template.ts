@@ -48,6 +48,8 @@ let res := fetch('https://slack.com/api/chat.postMessage', {
 if (res.status != 200 or res.body.ok == false) {
   throw Error(f'Failed to post message to Slack: {res.status}: {res.body}');
 }
+
+return {'channel': res.body.channel, 'ts': res.body.ts};
 `.trim(),
     inputs_schema: [
         {
@@ -143,7 +145,7 @@ if (res.status != 200 or res.body.ok == false) {
             type: 'string',
             label: 'Reply in thread',
             description:
-                'Timestamp of the message to reply under. Leave this empty to post a new message. In a workflow triggered by a Slack message, use {event.properties.thread_ts ?? event.properties.ts} to reply under the message that started the run.',
+                'Timestamp of the message to reply under. Leave this empty to post a new message. In a workflow triggered by a Slack message, use {event.properties.thread_ts ?? event.properties.ts} to reply under the message that started the run. To reply under a message that an earlier Slack step posted, add an output variable named slack_ts with result path ts to that step, then use {variables.slack_ts}.',
             secret: false,
             required: false,
             hidden: false,

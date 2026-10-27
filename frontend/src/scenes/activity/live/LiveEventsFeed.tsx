@@ -22,6 +22,12 @@ export type LiveEventsFeedColumn = 'event' | 'person' | 'url' | 'recording' | 't
 
 const ALL_COLUMNS: LiveEventsFeedColumn[] = ['event', 'person', 'url', 'recording', 'timestamp', 'more']
 
+export function getWebAnalyticsLiveFeedColumns(sessionRecordingOptIn: boolean): LiveEventsFeedColumn[] {
+    return sessionRecordingOptIn
+        ? ['event', 'person', 'url', 'timestamp', 'recording']
+        : ['event', 'person', 'url', 'timestamp']
+}
+
 const COLUMN_DEFINITIONS: Record<LiveEventsFeedColumn, LemonTableColumn<LiveEvent, keyof LiveEvent | undefined>> = {
     event: {
         title: 'Event',
@@ -58,7 +64,7 @@ const COLUMN_DEFINITIONS: Record<LiveEventsFeedColumn, LemonTableColumn<LiveEven
     recording: {
         title: '',
         key: 'recording' as any,
-        width: 0,
+        width: 56,
         render: function Render(_, event: LiveEvent) {
             const sessionId = event.properties.$session_id
             if (typeof sessionId !== 'string' || !sessionId) {

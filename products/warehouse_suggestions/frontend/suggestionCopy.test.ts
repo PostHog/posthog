@@ -56,21 +56,21 @@ describe('suggestionCopy', () => {
             { seconds: 17 * 60, bytes: 3.2 * TB },
             {
                 amount: '~17 minutes',
-                label: 'query time saved a month',
-                bytes: { amount: '~3.20 TB', label: 'less scanned' },
+                detail: '~3.20 TB less scanned',
+                narrowLabel: 'saved a month, ~3.20 TB less scanned',
             },
             'Saves about 17 minutes of query time and 3.20 TB of scanning a month',
         ],
         [
             'time and too few bytes to name',
             { seconds: 17 * 60, bytes: 40 * MB },
-            { amount: '~17 minutes', label: 'query time saved a month' },
+            { amount: '~17 minutes', detail: null, narrowLabel: 'saved a month' },
             'Saves about 17 minutes of query time a month',
         ],
         [
             'only bytes',
             { seconds: 30, bytes: 40 * MB },
-            { amount: '~40.00 MB', label: 'less data scanned a month' },
+            { amount: '~40.00 MB', detail: 'less scanned', narrowLabel: 'less scanned a month' },
             'Saves about 40.00 MB of scanning a month',
         ],
     ])('names every saving worth naming when a suggestion saves %s', (_name, saving, highlight, sentence) => {

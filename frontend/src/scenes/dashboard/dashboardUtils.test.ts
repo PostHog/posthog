@@ -38,6 +38,7 @@ import {
     SEARCH_PARAM_QUERY_VARIABLES_KEY,
     shouldSharedDashboardAutoForceForStaleTime,
     TaskQueue,
+    TileLoads,
 } from './dashboardUtils'
 
 describe('searchParamsWithUrlFilters', () => {
@@ -712,5 +713,31 @@ describe('getInsightQueryError', () => {
 
     it('returns null when the query did not error', () => {
         expect(getInsightQueryError({} as InsightModel)).toBeNull()
+    })
+})
+
+describe('TileLoads', () => {
+    it('cancels every tile that shares a load, and settles once that load finishes', async () => {
+        const tileLoads = new TileLoads<string>()
+        const refresh = new AbortController()
+        const removeListener = jest.spyOn(refresh.signal, 'removeEventListener')
+        const batch = tileLoads.start([1, 2], refresh.signal, 'batch')
+        const single = tileLoads.start([3], refresh.signal, 'single')
+
+        const cancelled = tileLoads.cancel([1])
+        let settled = false
+        void cancelled.settled.then(() => (settled = true))
+        await Promise.resolve()
+
+        expect(cancelled.tiles).toEqual([
+            { tileId: 1, refresh: 'batch' },
+            { tileId: 2, refresh: 'batch' },
+        ])
+        expect([batch.signal.aborted, single.signal.aborted, settled]).toEqual([true, false, false])
+
+        batch.finish()
+        await cancelled.settled
+        expect(removeListener).toHaveBeenCalledTimes(1)
+        expect(tileLoads.cancel([2]).tiles).toEqual([])
     })
 })

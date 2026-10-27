@@ -553,7 +553,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                     run_mode=UNKNOWN_RUN_MODE,
                     error_class="none" if shadow_cancelled else error_class(str(shadow_err)),
                 ).add(1)
-                await self._finalize_orphaned_managed_warehouse_job(managed_warehouse_job_id, inputs, str(shadow_err))
+                await self._finalize_orphaned_managed_warehouse_job(managed_warehouse_job_id, inputs, shadow_err)
                 temporalio.workflow.logger.warning(
                     f"Managed warehouse shadow activity failed (managed_warehouse_only): {str(shadow_err)}",
                     extra=inputs.properties_to_log,
@@ -927,7 +927,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
             return shadow_result.error is None
         except Exception as shadow_err:
             get_managed_warehouse_shadow_finished_metrics("error").add(1)
-            await self._finalize_orphaned_managed_warehouse_job(managed_warehouse_job_id, inputs, str(shadow_err))
+            await self._finalize_orphaned_managed_warehouse_job(managed_warehouse_job_id, inputs, shadow_err)
             temporalio.workflow.logger.warning(
                 f"Managed warehouse shadow comparison failed: {str(shadow_err)}",
                 extra=inputs.properties_to_log,
@@ -939,9 +939,11 @@ class MaterializeViewWorkflow(PostHogWorkflow):
         self,
         managed_warehouse_job_id: str | None,
         inputs: MaterializeViewWorkflowInputs,
-        error: str,
+        error: BaseException,
     ) -> None:
         """Mark a managed warehouse shadow job FAILED when its activity died before self-finalizing.
+
+        A cancelled activity marks the job CANCELLED instead, since it never got to fail on its own.
 
         The shadow activity finalizes its own job on the happy path and on caught errors, but a
         timeout, worker loss, or a raise before its try block leaves the job stuck in RUNNING. The
@@ -959,6 +961,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                     dag_id=inputs.dag_id,
                     job_id=managed_warehouse_job_id,
                     error=f"Managed warehouse shadow activity did not finalize: {error}",
+                    cancelled=_is_cancellation(error),
                     update_node=False,
                 ),
                 start_to_close_timeout=dt.timedelta(minutes=5),
