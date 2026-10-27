@@ -53,6 +53,7 @@ from posthog.models.user import User
 from posthog.utils import str_to_bool
 
 from products.approvals.backend.actions.experiments import LaunchExperimentAction
+from products.approvals.backend.actions.feature_flags import OWNER_REWRITES_RELEASE_CONDITIONS
 from products.approvals.backend.ownership import scope_by_owner_enabled
 from products.approvals.backend.policies import PolicyEngine
 from products.cohorts.backend.models.cohort import Cohort
@@ -330,6 +331,15 @@ assert set(_FREEZE_EXPOSURE_BLOCKER_MESSAGES) == _expected_blockers, (
     f"_FREEZE_EXPOSURE_BLOCKER_MESSAGES out of sync with ExposureFreezeBlocker: "
     f"{_expected_blockers ^ set(_FREEZE_EXPOSURE_BLOCKER_MESSAGES)}"
 )
+
+
+def _lifecycle_rewrite_context() -> dict[str, Any]:
+    """Serializer context for a flag write inside freezing, unfreezing or resetting an experiment.
+
+    Each of those operations is reviewed as a whole at its endpoint, so the release conditions it
+    rewrites on its own flag must not be reviewed a second time by `experiment.update`.
+    """
+    return {OWNER_REWRITES_RELEASE_CONDITIONS: True}
 
 
 def _restrict_filters_to_frozen_cohort(filters: dict, cohort_id: int) -> dict:
@@ -2273,16 +2283,11 @@ class ExperimentService:
 
                 # 5. Persist the narrowed filters via the gated flag write.
                 #
-                # Design note (approvals): FeatureFlagSerializer.update is decorated with @approval_gate.
-                # The `feature_flag.update` policy gates release condition changes on standalone flags
-                # only. An experiment owns this flag, so only `active` and `rollout_percentage` changes
-                # are gated here (see UpdateFeatureFlagAction in
-                # products/approvals/backend/actions/feature_flags.py).
-                # Freezing exposure only AND-s a cohort condition into each group's `properties` and stamps
-                # `description`; it changes neither `active` nor `rollout_percentage`, so the gate never
-                # matches and no change request is raised. We therefore don't special-case ApprovalRequired
-                # here. If approvals ever gate property/cohort changes on experiment flags, revisit this: the
-                # snapshot cohort would then need to outlive a pending change request rather than be cleaned up below.
+                # Design note (approvals): the freeze is reviewed as a whole at its endpoint, by the
+                # `experiment.freeze_exposure` action, before this snapshot is built. This write only
+                # adds a cohort condition to each group and stamps `description`, so it is marked as
+                # the experiment's own rewrite and `experiment.update` does not review it again. The
+                # rollout is unchanged, so no other flag policy matches and no ApprovalRequired is raised.
                 # Mark the write as freeze-driven so the flag's log entry does not read as
                 # a manual targeting edit.
                 locked_flag._activity_trigger = self._exposure_freeze_trigger(experiment, frozen=True)
@@ -2292,6 +2297,7 @@ class ExperimentService:
                     team=self.team,
                     user=self.user,
                     request=request,
+                    serializer_context=_lifecycle_rewrite_context(),
                 )
         except Exception:
             exposure_snapshot.delete()
@@ -2566,7 +2572,14 @@ class ExperimentService:
         new_filters, cohort_ids = _strip_frozen_exposure(flag.filters or {})
 
         flag._activity_trigger = self._exposure_freeze_trigger(experiment, frozen=False)
-        update_flag(flag, {"filters": new_filters}, team=self.team, user=self.user, request=request)
+        update_flag(
+            flag,
+            {"filters": new_filters},
+            team=self.team,
+            user=self.user,
+            request=request,
+            serializer_context=_lifecycle_rewrite_context(),
+        )
 
         # Refresh so the experiment's nested flag reflects the restored filters when serialized.
         flag.refresh_from_db()
@@ -3011,7 +3024,14 @@ class ExperimentService:
         flag._activity_trigger = self._exposure_freeze_trigger(experiment, frozen=False)
         if request is not None:
             self._assert_flag_access(flag)
-            update_flag(flag, {"filters": stripped_filters}, team=self.team, user=self.user, request=request)
+            update_flag(
+                flag,
+                {"filters": stripped_filters},
+                team=self.team,
+                user=self.user,
+                request=request,
+                serializer_context=_lifecycle_rewrite_context(),
+            )
         else:
             # Non-HTTP callers have no acting user: a system write (user=None) skips the
             # approval gate — this runs inside the caller's transaction, where an

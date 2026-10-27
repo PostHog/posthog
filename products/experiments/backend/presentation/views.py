@@ -78,6 +78,7 @@ from products.access_control.backend.facade.user_access_control import (
     access_level_satisfied_for_resource,
 )
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
+from products.approvals.backend.decorators import approval_gate
 from products.approvals.backend.mixins import ApprovalHandlingMixin
 from products.experiments.backend.experiment_service import ExperimentService, ExperimentVersionConflict
 from products.experiments.backend.facade.api import get_experiment_health, get_experiment_health_inputs
@@ -1166,6 +1167,7 @@ class EnterpriseExperimentsViewSet(
         responses=ExperimentSerializer,
     )
     @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
+    @approval_gate("experiment.freeze_exposure")
     def freeze_exposure(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """
         Freeze exposure on a running experiment while metrics keep flowing.
@@ -1190,6 +1192,7 @@ class EnterpriseExperimentsViewSet(
         responses=ExperimentSerializer,
     )
     @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
+    @approval_gate("experiment.unfreeze_exposure")
     def unfreeze_exposure(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """
         Reopen enrollment on an exposure-frozen experiment.
@@ -1211,6 +1214,7 @@ class EnterpriseExperimentsViewSet(
         responses=ExperimentSerializer,
     )
     @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
+    @approval_gate("experiment.reset")
     def reset(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """
         Reset an experiment back to draft state.

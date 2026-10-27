@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from typing import Any
 
@@ -12,6 +13,8 @@ from posthog.constants import AvailableFeature
 
 from products.approvals.backend.exceptions import ApprovalRequired
 from products.approvals.backend.models import ApprovalPolicy, ChangeRequest, ChangeRequestState
+from products.approvals.backend.services import apply_change_request
+from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.models.experiment import Experiment
 
@@ -346,3 +349,139 @@ class TestCreatingALiveExperimentUnderALaunchPolicy(APIBaseTest):
 
         with self._scoped_by_owner(False), self.assertRaises(ApprovalRequired):
             self._create("pre-rollout-flag", start_date=datetime(2026, 1, 1, tzinfo=UTC))
+
+
+@contextmanager
+def _stub_exposure_snapshot():
+    with (
+        patch.object(
+            ExperimentService, "_fetch_exposed_person_uuids", return_value=["00000000-0000-0000-0000-000000000001"]
+        ),
+        patch(
+            "products.experiments.backend.experiment_service.get_person_ids_and_uuids_by_uuids",
+            new=lambda team_id, uuids, **kwargs: [(index + 1, person_uuid) for index, person_uuid in enumerate(uuids)],
+        ),
+        patch(
+            "products.cohorts.backend.models.cohort.Cohort.insert_users_list_by_id_uuid_pairs_skip_validation",
+            return_value=0,
+        ),
+    ):
+        yield
+
+
+_ROLLOUT_OVER_50 = {"type": "before_after", "field": "rollout_percentage", "operator": ">", "value": 50}
+
+
+@patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)
+class TestExperimentOperationsUnderTheUpdatePolicy(APIBaseTest):
+    _METRIC = {
+        "kind": "ExperimentMetric",
+        "metric_type": "mean",
+        "uuid": "m1",
+        "source": {"kind": "EventsNode", "event": "$pageview"},
+    }
+
+    def setUp(self):
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.APPROVALS, "name": AvailableFeature.APPROVALS}
+        ]
+        self.organization.save()
+
+    def _running_experiment(self, key: str, *, frozen: bool) -> Experiment:
+        service = ExperimentService(team=self.team, user=self.user)
+        experiment = service.create_experiment(
+            name=key,
+            feature_flag_key=key,
+            metrics=[self._METRIC],
+            primary_metrics_ordered_uuids=["m1"],
+            allow_unknown_events=True,
+            start_date=datetime(2026, 1, 1, tzinfo=UTC),
+        )
+        if frozen:
+            request = APIRequestFactory().post("/fake")
+            request.user = self.user
+            experiment = service.freeze_exposure(experiment, request=request)
+        return experiment
+
+    def _policy(self, action_key: str, conditions: dict[str, Any]) -> ApprovalPolicy:
+        return ApprovalPolicy.objects.create(
+            organization=self.organization,
+            team=self.team,
+            action_key=action_key,
+            conditions=conditions,
+            approver_config={"quorum": 1, "users": [self.user.id]},
+            created_by=self.user,
+        )
+
+    def _status(self, experiment: Experiment) -> str:
+        return Experiment.objects.get(id=experiment.id).status_label
+
+    def _snapshot_count(self) -> int:
+        return Cohort.objects.filter(team=self.team, name__startswith="Exposure snapshot", deleted=False).count()
+
+    @parameterized.expand(
+        [
+            ("freeze", "freeze_exposure", False, "exposure_frozen"),
+            ("unfreeze", "unfreeze_exposure", True, "running"),
+            ("reset", "reset", False, "draft"),
+        ]
+    )
+    def test_an_unconditioned_update_policy_holds_the_operation_until_approval(
+        self, _mock_enabled, name: str, endpoint: str, frozen: bool, status_after: str
+    ) -> None:
+        with _stub_exposure_snapshot():
+            experiment = self._running_experiment(f"{name}-held", frozen=frozen)
+            status_before = self._status(experiment)
+            snapshots_before = self._snapshot_count()
+            self._policy("experiment.update", conditions={})
+
+            with patch("products.approvals.backend.ownership.scope_by_owner_state", return_value=True):
+                response = self.client.post(f"/api/projects/{self.team.id}/experiments/{experiment.id}/{endpoint}/")
+
+                assert response.status_code == 409, response.json()
+                change_request = ChangeRequest.objects.get(id=response.json()["change_request_id"])
+                assert change_request.action_key == f"experiment.{endpoint}"
+                assert self._status(experiment) == status_before
+                # Nothing the operation creates exists before approval, the freeze snapshot included.
+                assert self._snapshot_count() == snapshots_before
+
+                apply_change_request(change_request)
+
+            assert self._status(experiment) == status_after
+
+    @parameterized.expand(
+        [
+            (f"{name}_{case}", endpoint, frozen, status_after, conditions, rolled_out)
+            for name, endpoint, frozen, status_after in [
+                ("freeze", "freeze_exposure", False, "exposure_frozen"),
+                ("unfreeze", "unfreeze_exposure", True, "running"),
+                ("reset", "reset", False, "draft"),
+            ]
+            for case, conditions, rolled_out in [
+                ("under_a_rollout_condition", _ROLLOUT_OVER_50, True),
+                ("before_rollout", {}, False),
+            ]
+        ]
+    )
+    def test_the_operation_runs_at_once_when_the_update_policy_does_not_cover_it(
+        self,
+        _mock_enabled,
+        _name: str,
+        endpoint: str,
+        frozen: bool,
+        status_after: str,
+        conditions: dict[str, Any],
+        rolled_out: bool,
+    ) -> None:
+        with _stub_exposure_snapshot():
+            experiment = self._running_experiment(f"{endpoint}-open", frozen=frozen)
+            self._policy("experiment.update", conditions=conditions)
+            self._policy("feature_flag.update", conditions={})
+
+            with patch("products.approvals.backend.ownership.scope_by_owner_state", return_value=rolled_out):
+                response = self.client.post(f"/api/projects/{self.team.id}/experiments/{experiment.id}/{endpoint}/")
+
+        assert response.status_code == 200, response.json()
+        assert self._status(experiment) == status_after
+        assert not ChangeRequest.objects.filter(team=self.team).exists()
