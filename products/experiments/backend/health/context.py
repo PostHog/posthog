@@ -1,18 +1,21 @@
 from collections.abc import Mapping
 from datetime import date, datetime, timedelta
 from enum import StrEnum
-from typing import Any
+from typing import Any, Literal
 
 from django.conf import settings
+from django.db.models import QuerySet
 from django.utils import timezone
 
 import pydantic
 
 from posthog.schema import (
     ActionsNode,
+    CohortPropertyFilter,
     EventPropertyFilter,
     ExperimentEventExposureConfig,
     MultipleVariantHandling,
+    PersonPropertyFilter,
     PropertyOperator,
 )
 
@@ -20,6 +23,8 @@ from posthog.dataclasses import frozen
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team.team import Team
 
+from products.cohorts.backend.models.cohort import Cohort
+from products.event_definitions.backend.models import PropertyDefinition, effective_project_id_expr
 from products.experiments.backend.facade.contracts import (
     ExperimentHealthFlagChangeKind,
     ExperimentHealthMetricCompileErrorKind,
@@ -171,6 +176,7 @@ class FlagState:
     variants: tuple[FlagVariant, ...]
     # The release conditions that can serve a request, in evaluation order.
     reachable_conditions: tuple[ReachableCondition, ...]
+    cohort_ids: frozenset[int] = frozenset()
 
 
 @frozen
@@ -316,6 +322,30 @@ class FlagKeyFilter:
     values: tuple[str | float | bool, ...]
 
 
+ExposurePropertyType = Literal["event", "person"]
+
+
+@frozen
+class ExposurePropertyFilter:
+    """A filter of the exposure criteria on an event or a person property. The exposure query applies it to each event
+    that it reads, so it leaves out events, not users."""
+
+    type: ExposurePropertyType
+    key: str
+    operator: PropertyOperator
+    # None when the filter has no value. A list of values compiles differently from a missing value.
+    values: tuple[str | float | bool, ...] | None
+
+
+@frozen
+class ExposureCohort:
+    """A cohort that the exposure criteria filter on."""
+
+    id: int
+    name: str
+    is_static: bool
+
+
 @frozen
 class ExposureEvents:
     """The events that the exposure criteria count."""
@@ -333,6 +363,9 @@ class ExposureEvents:
     # The event, or the action's name, that has to follow a user's flag call before the user counts. None without an
     # activation, which the exposure query reads only next to the flag call events.
     activation: str | None = None
+    property_filters: tuple[ExposurePropertyFilter, ...] = ()
+    # The filters inside an action's steps are not read.
+    cohort_ids: tuple[int, ...] = ()
 
 
 @frozen
@@ -375,6 +408,11 @@ class HealthContext:
     # Whether the project has received each event that `metric_events` and `exposure_events` name. A name that
     # ingestion never writes an event definition for is absent, because its absence proves nothing.
     events_received: Mapping[str, bool]
+    # Whether the project has received each property that `exposure_events.property_filters` name, by type and key. A
+    # property that the definitions can't answer for is absent.
+    exposure_properties_received: Mapping[tuple[ExposurePropertyType, str], bool]
+    # The cohorts of `exposure_events.cohort_ids` that exist. The exposure query fails on a deleted or missing cohort.
+    exposure_cohorts: tuple[ExposureCohort, ...]
     exposures: ExposureTotals | None
     # None when not loaded. The health endpoint loads it. The exposure answer loads it only when the sample ratio test
     # fails, because the load can query the exposures and `srm` is the only exposure check that reads it.
@@ -417,7 +455,21 @@ def parse_flag_state(
             _reachable_condition(index + 1, conditions[index], variant_keys, aggregation_group_type_index)
             for index in reachable
         ),
+        cohort_ids=frozenset(
+            cohort_id for condition in conditions if isinstance(condition, dict) for cohort_id in _cohort_ids(condition)
+        ),
     )
+
+
+def _cohort_ids(condition: Mapping[str, Any]) -> list[int]:
+    properties = condition.get("properties")
+    return [
+        int(prop["value"])
+        for prop in (properties if isinstance(properties, list) else [])
+        if isinstance(prop, dict)
+        and prop.get("type") == "cohort"
+        and (isinstance(prop.get("value"), int) or (isinstance(prop.get("value"), str) and prop["value"].isdigit()))
+    ]
 
 
 def _reachable_condition(
@@ -568,6 +620,9 @@ def _exposure_events(experiment: Experiment) -> ExposureEvents | None:
     config = criteria.exposure_config if criteria else None
     properties = config.properties if isinstance(config, ExperimentEventExposureConfig) else []
     activation = criteria.activation_config if criteria and has_activation_config(criteria) else None
+    # The exposure query applies the filters of an action too, and those of the activation only next to the default
+    # exposure event.
+    filters = [*((config.properties or []) if config else []), *((activation.properties or []) if activation else [])]
     return ExposureEvents(
         custom_event=event if event is not None and not reads_flag_calls else None,
         required_flag_key=flag_key if reads_flag_calls else None,
@@ -579,6 +634,17 @@ def _exposure_events(experiment: Experiment) -> ExposureEvents | None:
             if isinstance(prop, EventPropertyFilter) and prop.key == "$feature_flag"
         ),
         activation=_activation_name(activation) if activation else None,
+        property_filters=tuple(
+            ExposurePropertyFilter(
+                type=prop.type,
+                key=prop.key,
+                operator=prop.operator or PropertyOperator.EXACT,
+                values=None if prop.value is None else _filter_values(prop.value),
+            )
+            for prop in filters
+            if isinstance(prop, EventPropertyFilter | PersonPropertyFilter)
+        ),
+        cohort_ids=tuple(dict.fromkeys(prop.value for prop in filters if isinstance(prop, CohortPropertyFilter))),
     )
 
 
@@ -614,8 +680,97 @@ def _events_received(
     checked = {name for name in names if _has_event_definition(name)}
     project_id = experiment.team.project_id
     received = defined_event_names(project_id, checked, seen_only=True)
-    checked -= _deleted_definition_names(project_id, checked - received, since=_deletions_since(experiment))
+    checked -= _deleted_definition_names(
+        project_id, checked - received, scope="EventDefinition", since=_deletions_since(experiment)
+    )
     return {name: name in received for name in checked}
+
+
+# Ingestion writes no property definition for these names: HogQL reads them from columns, or ingestion skips them. See
+# `SKIP_PROPERTIES` in rust/property-defs-rs/src/types.rs, and `property_to_expr` in posthog/hogql/property.py.
+_PROPERTIES_WITHOUT_DEFINITION: dict[ExposurePropertyType, frozenset[str]] = {
+    "event": frozenset(
+        {"$set", "$set_once", "$unset", "$groups", *(f"$group_{index}" for index in range(5)), "$elements_chain"}
+    ),
+    "person": frozenset({"distinct_id"}),
+}
+_PROPERTY_DEFINITION_TYPES: dict[ExposurePropertyType, int] = {
+    "event": PropertyDefinition.Type.EVENT,
+    "person": PropertyDefinition.Type.PERSON,
+}
+
+
+def _has_property_definition(property_type: ExposurePropertyType, key: str) -> bool:
+    # HogQL computes a `$virt` property at query time, and ingestion skips a person property of a push subscription.
+    # Ingestion replaces a NUL in a name, so the definition holds another name.
+    return not (
+        key in _PROPERTIES_WITHOUT_DEFINITION[property_type]
+        or key.startswith("$virt")
+        or (property_type == "person" and key.startswith("$device_push_subscription_"))
+        or "\x00" in key
+        or len(key.encode()) > _MAX_EVENT_DEFINITION_NAME_BYTES
+    )
+
+
+def _exposure_properties_received(
+    experiment: Experiment, exposure_events: ExposureEvents | None
+) -> dict[tuple[ExposurePropertyType, str], bool]:
+    filters = exposure_events.property_filters if exposure_events else ()
+    checked = {(f.type, f.key) for f in filters if _has_property_definition(f.type, f.key)}
+    if not checked:
+        return {}
+    project_id = experiment.team.project_id
+    received: set[tuple[ExposurePropertyType, str]] = set()
+    for definition_type, name in _property_definitions(project_id, name__in={key for _, key in checked}).values_list(
+        "type", "name"
+    ):
+        if definition_type == PropertyDefinition.Type.EVENT:
+            received.add(("event", name))
+        elif definition_type == PropertyDefinition.Type.PERSON:
+            received.add(("person", name))
+    missing = checked - received
+    if not missing:
+        return dict.fromkeys(checked, True)
+    # Ingestion can be set to keep no definitions for a project, so a project without any of a type proves nothing.
+    unrecorded_types = {
+        property_type
+        for property_type, _ in missing
+        if not _property_definitions(project_id, type=_PROPERTY_DEFINITION_TYPES[property_type]).exists()
+    }
+    # Ingestion writes a deleted definition again only once the property drops out of its cache, which no time bounds,
+    # so a deletion at any time leaves the answer open.
+    deleted = _deleted_definition_names(project_id, {key for _, key in missing}, scope="PropertyDefinition", since=None)
+    return {
+        (property_type, key): (property_type, key) in received
+        for property_type, key in checked
+        if (property_type, key) in received or (property_type not in unrecorded_types and key not in deleted)
+    }
+
+
+def _property_definitions(project_id: int, **filters: Any) -> QuerySet[PropertyDefinition]:
+    # The project scope as `posthog_propdef_proj_uniq` stores it, so the lookup uses that index.
+    return PropertyDefinition.objects.alias(effective_project_id=effective_project_id_expr()).filter(
+        effective_project_id=project_id, **filters
+    )
+
+
+def _exposure_cohorts(experiment: Experiment, exposure_events: ExposureEvents | None) -> tuple[ExposureCohort, ...]:
+    cohort_ids = exposure_events.cohort_ids if exposure_events else ()
+    if not cohort_ids:
+        return ()
+    cohorts = {
+        cohort_id: (name, is_static)
+        for cohort_id, name, is_static in Cohort.objects.filter(
+            team__project_id=experiment.team.project_id, pk__in=cohort_ids, deleted=False
+        ).values_list("id", "name", "is_static")
+    }
+    return tuple(
+        ExposureCohort(
+            id=cohort_id, name=cohorts[cohort_id][0] or f"Cohort {cohort_id}", is_static=cohorts[cohort_id][1]
+        )
+        for cohort_id in cohort_ids
+        if cohort_id in cohorts
+    )
 
 
 # Ingestion writes a deleted definition again when it next sees the event, which takes up to about an hour for an
@@ -630,16 +785,25 @@ def _deletions_since(experiment: Experiment) -> datetime:
     return min(experiment.start_date, recent) if experiment.start_date is not None else recent
 
 
-def _deleted_definition_names(project_id: int, names: set[str], *, since: datetime) -> set[str]:
-    # Until ingestion writes a deleted definition again, the project can hold the event without a definition.
+def _deleted_definition_names(
+    project_id: int,
+    names: set[str],
+    *,
+    scope: Literal["EventDefinition", "PropertyDefinition"],
+    since: datetime | None,
+) -> set[str]:
+    # Until ingestion writes a deleted definition again, the project can hold the event or property without one.
     if not names:
         return set()
+    deletions = ActivityLog.objects.filter(
+        team_id__in=Team.objects.filter(project_id=project_id).values("id"),
+        scope=scope,
+        activity="deleted",
+    )
+    if since is not None:
+        deletions = deletions.filter(created_at__gte=since)
     return set(
-        ActivityLog.objects.filter(
-            team_id__in=Team.objects.filter(project_id=project_id).values("id"),
-            scope="EventDefinition",
-            activity="deleted",
-            created_at__gte=since,
+        deletions.filter(
             # These match the condition of `idx_alog_team_act_scope_usr`, so the lookup reads only the deletions. A
             # deletion made while impersonating a user is not read.
             was_impersonated=False,
@@ -688,6 +852,8 @@ def load_health_context(
         metric_events=metric_events,
         exposure_events=exposure_events,
         events_received=_events_received(experiment, metric_events, exposure_events),
+        exposure_properties_received=_exposure_properties_received(experiment, exposure_events),
+        exposure_cohorts=_exposure_cohorts(experiment, exposure_events),
         exposures=exposures,
         flag_history=flag_history,
         condition_set_traffic=None,

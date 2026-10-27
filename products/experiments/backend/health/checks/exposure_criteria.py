@@ -2,25 +2,32 @@
 Exposure criteria that no event can match, read from the criteria alone. Pure functions, no I/O.
 
 The zero exposures check reports an experiment that counted nobody. This check names the cause when the criteria show
-it: a custom exposure event that the project never received, or a filter on the flag call events that requires
-another flag than the one the exposure query requires.
+it: a custom exposure event that the project never received, a filter on the flag call events that requires another
+flag than the one the exposure query requires, or a filter that requires a property the project never received.
 """
 
 from posthog.schema import PropertyOperator
 
 from products.experiments.backend.facade.contracts import (
+    ExperimentHealthCheckStatus,
     ExperimentHealthFinding,
     ExperimentHealthFindingActionKind,
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
 )
-from products.experiments.backend.health.checks.events_received import not_received_severity, quoted
-from products.experiments.backend.health.context import FlagKeyFilter, HealthContext
+from products.experiments.backend.health.checks.events_received import joined, not_received_severity, quoted
+from products.experiments.backend.health.context import (
+    ExposureEvents,
+    ExposurePropertyFilter,
+    FlagKeyFilter,
+    HealthContext,
+)
 from products.experiments.backend.health.skips import (
     NO_FLAG,
     NOT_AFTER_END,
     NOT_ON_ARCHIVED,
     CheckOutcome,
+    CheckSkip,
     not_applicable,
     not_checked,
 )
@@ -28,6 +35,42 @@ from products.experiments.backend.health.skips import (
 # pinned: the subcodes are sent as `finding_variant` on the health finding events, so insights group on them.
 EXPOSURE_EVENT_NOT_INGESTED = "exposure_event_not_ingested"
 FILTER_ON_ANOTHER_FLAG = "filter_on_another_flag"
+FILTER_ON_PROPERTY_NOT_INGESTED = "filter_on_property_not_ingested"
+
+# A filter with one of these operators matches no event that lacks the property: the query reads a missing property as
+# null, and `property_to_expr` compares null as false for them. The other operators match such an event.
+_REQUIRES_THE_PROPERTY = frozenset(
+    {
+        PropertyOperator.EXACT,
+        PropertyOperator.ICONTAINS,
+        PropertyOperator.ICONTAINS_MULTI,
+        PropertyOperator.STARTS_WITH,
+        PropertyOperator.ENDS_WITH,
+        PropertyOperator.REGEX,
+        PropertyOperator.GT,
+        PropertyOperator.GTE,
+        PropertyOperator.LT,
+        PropertyOperator.LTE,
+        PropertyOperator.MIN,
+        PropertyOperator.MAX,
+        PropertyOperator.IS_SET,
+        PropertyOperator.IS_DATE_EXACT,
+        PropertyOperator.IS_DATE_BEFORE,
+        PropertyOperator.IS_DATE_AFTER,
+        PropertyOperator.BETWEEN,
+        PropertyOperator.IN_,
+        PropertyOperator.IS_CLEANED_PATH_EXACT,
+        PropertyOperator.SEMVER_EQ,
+        PropertyOperator.SEMVER_NEQ,
+        PropertyOperator.SEMVER_GT,
+        PropertyOperator.SEMVER_GTE,
+        PropertyOperator.SEMVER_LT,
+        PropertyOperator.SEMVER_LTE,
+        PropertyOperator.SEMVER_TILDE,
+        PropertyOperator.SEMVER_CARET,
+        PropertyOperator.SEMVER_WILDCARD,
+    }
+)
 
 
 def exposure_criteria_cannot_match(ctx: HealthContext) -> CheckOutcome:
@@ -36,6 +79,20 @@ def exposure_criteria_cannot_match(ctx: HealthContext) -> CheckOutcome:
     events = ctx.exposure_events
     if events is None:
         return not_checked("Couldn't check because the exposure criteria can't be read")
+    event_outcome = _exposure_event_cannot_match(ctx, events)
+    if isinstance(event_outcome, ExperimentHealthFinding):
+        return event_outcome
+    property_outcome = _property_filter_cannot_match(ctx, events)
+    if isinstance(property_outcome, ExperimentHealthFinding):
+        return property_outcome
+    # A part that couldn't read its input leaves a problem possible, and a part that looked makes the check look.
+    for outcome in (event_outcome, property_outcome):
+        if isinstance(outcome, CheckSkip) and outcome.status == ExperimentHealthCheckStatus.NOT_CHECKED:
+            return outcome
+    return None if event_outcome is None or property_outcome is None else event_outcome
+
+
+def _exposure_event_cannot_match(ctx: HealthContext, events: ExposureEvents) -> CheckOutcome:
     event = events.custom_event
     if event is not None:
         if ctx.has_ended:
@@ -49,6 +106,28 @@ def exposure_criteria_cannot_match(ctx: HealthContext) -> CheckOutcome:
         return not_applicable(NO_FLAG if ctx.flag is None else "Doesn't check exposure criteria that use an action")
     other = next((f for f in events.flag_key_filters if _requires_another_flag(f, flag_key)), None)
     return None if other is None else _filter_on_another_flag(flag_key, other)
+
+
+def _property_filter_cannot_match(ctx: HealthContext, events: ExposureEvents) -> CheckOutcome:
+    filters = [f for f in events.property_filters if f.key != "$feature_flag" and _requires_the_property(f)]
+    if not filters:
+        return not_applicable("The exposure criteria have no filter that requires a property")
+    received = ctx.exposure_properties_received
+    missing = [f for f in filters if received.get((f.type, f.key)) is False]
+    if missing:
+        return _filter_on_property_not_ingested(ctx, missing)
+    if any((f.type, f.key) not in received for f in filters):
+        return not_checked("Couldn't check because PostHog keeps no record of a property that a filter names")
+    return None
+
+
+def _requires_the_property(property_filter: ExposurePropertyFilter) -> bool:
+    values = property_filter.values
+    if property_filter.operator == PropertyOperator.IS_SET:
+        # The test ignores a value, but an empty list of values matches every event.
+        return values is None or len(values) > 0
+    # Without a value, `exact` tests that the property is missing, and an empty list of values matches every event.
+    return property_filter.operator in _REQUIRES_THE_PROPERTY and bool(values)
 
 
 def _requires_another_flag(flag_filter: FlagKeyFilter, flag_key: str) -> bool:
@@ -93,6 +172,32 @@ def _exposure_event_not_ingested(ctx: HealthContext, event: str) -> ExperimentHe
             f"received yet. Until it arrives, nobody is counted as exposed. {advice}"
         ),
         evidence={"event": event},
+    )
+
+
+def _filter_on_property_not_ingested(
+    ctx: HealthContext, filters: list[ExposurePropertyFilter]
+) -> ExperimentHealthFinding:
+    properties = list(dict.fromkeys(f'the {f.type} property "{f.key}"' for f in filters))
+    one = len(properties) == 1
+    advice = (
+        f"Check the {'name' if one else 'names'} for a typo, or launch the experiment after your code starts sending "
+        f"{'it' if one else 'them'}."
+        if not ctx.is_launched
+        else f"Check that the {'name matches' if one else 'names match'} what your code sends, or remove the "
+        f"{'filter' if one else 'filters'}."
+    )
+    return _finding(
+        subcode=FILTER_ON_PROPERTY_NOT_INGESTED,
+        severity=not_received_severity(ctx, affects_results=True),
+        title="An exposure filter needs a property this project hasn't received",
+        detail=(
+            f"{'A filter' if one else 'Filters'} in the exposure criteria {'needs' if one else 'need'} "
+            f"{joined(properties)}, which this project hasn't received yet. Until "
+            f"{'it arrives' if one else 'they arrive'}, no event passes the {'filter' if one else 'filters'}, so "
+            f"nobody is counted as exposed. {advice}"
+        ),
+        evidence={"properties": ", ".join(dict.fromkeys(f.key for f in filters))},
     )
 
 

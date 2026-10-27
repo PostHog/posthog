@@ -977,11 +977,23 @@ class EnterpriseExperimentsViewSet(
         arrives. `metric_event_not_ingested` names each metric that
         reads an event the project never received, in the `evidence` keys `metric_N`,
         `metric_N_role` and `metric_N_events`. `exposure_criteria_cannot_match` reports a custom
-        exposure event the project never received (`exposure_event_not_ingested`), and a
+        exposure event the project never received (`exposure_event_not_ingested`), a
         `$feature_flag` filter on the flag call events that requires another flag
-        (`filter_on_another_flag`). An event not received is info before launch, in the first 24
-        hours after launch, and when only secondary metrics read it, and a warning otherwise.
-        `filter_on_another_flag` is a warning in every state, and the other findings stop at the end.
+        (`filter_on_another_flag`), and a filter on an event or person property that the project has
+        no definition of, with an operator that a missing property fails
+        (`filter_on_property_not_ingested`, the keys in `evidence.properties`). A property whose
+        definition was ever deleted is not checked. An event or property not received is info before
+        launch, in the first 24 hours after launch, and when only secondary metrics read it, and a
+        warning otherwise. `filter_on_another_flag` and `filter_on_property_not_ingested` report in
+        every state, and the other findings stop at the end.
+
+        `exposure_filters` reads the cohort and event property filters of the exposure criteria and
+        of the activation, not the test account filters. `exposure_filter_on_dynamic_cohort` is a
+        warning in every state: the results use the members of a dynamic cohort at the calculation,
+        not at exposure. Its subcode is `cohort_in_release_conditions` when the flag's release
+        conditions use the cohort too, and `evidence.cohort_ids` names the cohorts.
+        `exposure_filter_excludes_events` is info: a negated filter on an event property leaves out
+        events, not users (`evidence.properties`).
 
         `metric_cannot_compile` builds and compiles the query of each metric without running it, as
         the caller, so a metric that every calculation fails on shows before launch. A metric that

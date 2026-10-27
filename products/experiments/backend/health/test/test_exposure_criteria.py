@@ -11,9 +11,15 @@ from products.experiments.backend.facade.contracts import ExperimentHealthFindin
 from products.experiments.backend.health.checks.exposure_criteria import (
     EXPOSURE_EVENT_NOT_INGESTED,
     FILTER_ON_ANOTHER_FLAG,
+    FILTER_ON_PROPERTY_NOT_INGESTED,
     exposure_criteria_cannot_match,
 )
-from products.experiments.backend.health.context import ExposureEvents, FlagKeyFilter, HealthContext
+from products.experiments.backend.health.context import (
+    ExposureEvents,
+    ExposurePropertyFilter,
+    FlagKeyFilter,
+    HealthContext,
+)
 from products.experiments.backend.health.skips import (
     NOT_AFTER_END,
     NOT_ON_ARCHIVED,
@@ -45,6 +51,30 @@ def _custom_event(received: dict[str, bool], **changes: Any) -> HealthContext:
         flag_key_filters=(),
     )
     return replace(RUNNING_CONTEXT, exposure_events=events, events_received=received, **changes)
+
+
+def _property_filter(
+    received: bool | None,
+    operator: PropertyOperator = EXACT,
+    values: tuple[str | float | bool, ...] | None = ("pro",),
+    *,
+    custom_event: str | None = None,
+    action: bool = False,
+    **changes: Any,
+) -> HealthContext:
+    events = ExposureEvents(
+        custom_event=custom_event,
+        required_flag_key=None if custom_event or action else "checkout-test",
+        variant_property="$feature/checkout-test" if custom_event or action else "$feature_flag_response",
+        flag_key_filters=(),
+        property_filters=(ExposurePropertyFilter(type="person", key="plan", operator=operator, values=values),),
+    )
+    return replace(
+        RUNNING_CONTEXT,
+        exposure_events=events,
+        exposure_properties_received={} if received is None else {("person", "plan"): received},
+        **changes,
+    )
 
 
 class TestExposureCriteriaCannotMatch(TestCase):
@@ -92,6 +122,41 @@ class TestExposureCriteriaCannotMatch(TestCase):
                 "custom_event_after_the_end",
                 _custom_event({"checkout_viewed": False}, **ENDED),
                 not_applicable(NOT_AFTER_END),
+            ),
+            ("property_not_received", _property_filter(False), (FILTER_ON_PROPERTY_NOT_INGESTED, Severity.WARNING)),
+            (
+                "property_not_received_in_a_draft",
+                _property_filter(False, **DRAFT),
+                (FILTER_ON_PROPERTY_NOT_INGESTED, Severity.INFO),
+            ),
+            (
+                "property_not_received_after_the_end",
+                _property_filter(False, **ENDED),
+                (FILTER_ON_PROPERTY_NOT_INGESTED, Severity.WARNING),
+            ),
+            (
+                "property_not_received_on_an_action",
+                _property_filter(False, action=True, flag=None),
+                (FILTER_ON_PROPERTY_NOT_INGESTED, Severity.WARNING),
+            ),
+            (
+                "is_set_without_a_value",
+                _property_filter(False, PropertyOperator.IS_SET, None),
+                (FILTER_ON_PROPERTY_NOT_INGESTED, Severity.WARNING),
+            ),
+            ("property_received", _property_filter(True), None),
+            ("a_missing_property_passes_a_negated_filter", _property_filter(False, PropertyOperator.IS_NOT), None),
+            ("an_empty_list_matches_every_event", _property_filter(False, values=()), None),
+            ("exact_without_a_value_matches_a_missing_property", _property_filter(False, values=None), None),
+            (
+                "property_without_a_definition",
+                _property_filter(None),
+                not_checked("Couldn't check because PostHog keeps no record of a property that a filter names"),
+            ),
+            (
+                "custom_event_after_the_end_with_a_received_property",
+                _property_filter(True, custom_event="checkout_viewed", **ENDED),
+                None,
             ),
         ]
     )
