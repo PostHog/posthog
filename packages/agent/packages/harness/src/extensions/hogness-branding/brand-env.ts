@@ -1,7 +1,7 @@
 /**
- * Makes pi itself answer to "hog" instead of "pi": `--help`/usage text, the
+ * Makes pi itself answer to "hogness" instead of "pi": `--help`/usage text, the
  * default startup banner, slash-command descriptions, generated env var
- * names (`HOG_CODING_AGENT_DIR` instead of `PI_CODING_AGENT_DIR`), and
+ * names (`HOGNESS_CODING_AGENT_DIR` instead of `PI_CODING_AGENT_DIR`), and
  * error messages all derive from `@earendil-works/pi-coding-agent`'s
  * `APP_NAME`/`APP_TITLE`/`CONFIG_DIR_NAME` constants (see its
  * `config.js`), which are themselves read from a `piConfig: { name,
@@ -18,7 +18,7 @@
  * compiled-binary caveat below) the standalone binary alike.
  *
  * This module materializes a small directory containing a `package.json`
- * with `piConfig: { name: "hog" }`, symlinks *every other entry* of the
+ * with `piConfig: { name: "hogness" }`, symlinks *every other entry* of the
  * real pi package root into it (`dist/`, `docs/`, `examples/`,
  * `README.md`, …) — `getPackageDir()` isn't only used for docs/README/
  * examples paths; pi also loads runtime assets relative to it (e.g.
@@ -28,11 +28,11 @@
  * `PACKAGE_NAME` (used for self-update checks) and `VERSION` (shown in the
  * startup header) stay accurate.
  *
- * `installHogBrandEnv()` must be *called* (not just imported — see below)
+ * `installHognessBrandEnv()` must be *called* (not just imported — see below)
  * before `@earendil-works/pi-coding-agent` is evaluated, because
  * `APP_NAME`/`APP_TITLE`/`CONFIG_DIR_NAME` are read from `PI_PACKAGE_DIR` at
- * module-evaluation time, not lazily. `cli.ts`, `bin/hog.ts`, and
- * `runtime.ts` call it before dynamically importing
+ * module-evaluation time, not lazily. `cli.ts` and `runtime.ts`
+ * call it before dynamically importing
  * `@earendil-works/pi-coding-agent` or any local module that transitively
  * imports the SDK.
  *
@@ -45,14 +45,14 @@
  * originally-separate files into one output module, collapsing the file
  * boundary that ordering relied on. A real `await import(...)`, by
  * contrast, is never hoisted ahead of preceding synchronous statements, so
- * it reliably runs after `installHogBrandEnv()` regardless of bundling.
+ * it reliably runs after `installHognessBrandEnv()` regardless of bundling.
  *
- * Deliberately keeps `configDir: ".pi"` (not `.hog`) so existing pi
+ * Deliberately keeps `configDir: ".pi"` (not `.hogness`) so existing pi
  * credentials, sessions, and MCP auth on disk keep working unchanged for
  * anyone who has both installed.
  *
- * Best-effort: inside the standalone `bun build --compile` binary (see
- * `bin/hog.ts`) there is no real `node_modules` tree to resolve
+ * Best-effort: inside a standalone `bun build --compile` binary there is
+ * no real `node_modules` tree to resolve
  * `@earendil-works/pi-coding-agent`'s package root against — the same
  * limitation that excludes the `subagent` extension from that binary — so
  * failures here are swallowed and Pi falls back to its
@@ -71,11 +71,11 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const HOG_APP_NAME = "hog";
-export const HOG_BRAND_TAGLINE = "A Pi distribution by PostHog";
+export const HOGNESS_APP_NAME = "hogness";
+export const HOGNESS_BRAND_TAGLINE = "A Pi distribution by PostHog";
 // Keep pi's own on-disk config dir name so existing pi credentials,
 // sessions, and MCP auth continue to work unchanged.
-export const HOG_CONFIG_DIR_NAME = ".pi";
+export const HOGNESS_CONFIG_DIR_NAME = ".pi";
 
 // Undefined = not attempted yet; null = attempted and failed (fall back to
 // pi's own naming); string = ready to use.
@@ -114,11 +114,11 @@ function linkIfMissing(target: string, linkPath: string): void {
  * inside the compiled binary, where `@earendil-works/pi-coding-agent`
  * can't be resolved against a real `node_modules` tree).
  */
-export function hogBrandManifestDir(): string | null {
+export function hognessBrandManifestDir(): string | null {
   if (cachedManifestDir !== undefined) return cachedManifestDir;
   try {
     const real = resolveRealPiPackage();
-    const manifestDir = join(tmpdir(), "posthog-hog-brand");
+    const manifestDir = join(tmpdir(), "posthog-hogness-brand");
     mkdirSync(manifestDir, { recursive: true });
     writeFileSync(
       join(manifestDir, "package.json"),
@@ -126,7 +126,10 @@ export function hogBrandManifestDir(): string | null {
         {
           name: real.name,
           version: real.version,
-          piConfig: { name: HOG_APP_NAME, configDir: HOG_CONFIG_DIR_NAME },
+          piConfig: {
+            name: HOGNESS_APP_NAME,
+            configDir: HOGNESS_CONFIG_DIR_NAME,
+          },
         },
         null,
         2,
@@ -146,28 +149,28 @@ export function hogBrandManifestDir(): string | null {
 /**
  * Side effect: sets `process.env.PI_PACKAGE_DIR` for the current process,
  * in place, so that pi's config module — imported right after this one —
- * picks up "hog" branding when it first evaluates.
+ * picks up "hogness" branding when it first evaluates.
  */
-export function installHogBrandEnv(): void {
+export function installHognessBrandEnv(): void {
   if (process.env.PI_PACKAGE_DIR) return;
-  const dir = hogBrandManifestDir();
+  const dir = hognessBrandManifestDir();
   if (dir) process.env.PI_PACKAGE_DIR = dir;
 }
 
 /**
- * One-line brand banner (`hog (A Pi distribution by PostHog) vX.Y.Z`),
+ * One-line brand banner (`hogness (A Pi distribution by PostHog) vX.Y.Z`),
  * matching the TUI header's `brandLine()` in `./extension.ts` but as plain
  * text — for non-interactive surfaces like `--help` output, which pi
  * generates itself (see `cli/args.js`'s `printHelp()`) and only rebrands
  * as far as `APP_NAME`/`APP_TITLE` go, with no tagline of its own.
  */
-export function formatHogBrandBanner(version: string): string {
-  return `${HOG_APP_NAME} (${HOG_BRAND_TAGLINE}) v${version}`;
+export function formatHognessBrandBanner(version: string): string {
+  return `${HOGNESS_APP_NAME} (${HOGNESS_BRAND_TAGLINE}) v${version}`;
 }
 
 /** Whether `argv` (e.g. `process.argv.slice(2)`) requests pi's own
- * `--help`/`-h` usage text, which `cli.ts`/`bin/hog.ts` prefix with
- * `formatHogBrandBanner()` before delegating to pi's `main()`. */
+ * `--help`/`-h` usage text, which `cli.ts` prefixes with
+ * `formatHognessBrandBanner()` before delegating to pi's `main()`. */
 export function isHelpRequest(argv: string[]): boolean {
   return argv.includes("--help") || argv.includes("-h");
 }
