@@ -1,5 +1,6 @@
 import uuid
 from datetime import timedelta
+from types import EllipsisType
 
 from posthog.test.base import BaseTest
 from unittest.mock import patch
@@ -55,6 +56,27 @@ class TestNotificationsAPI(BaseTest):
         assert resp.json()["results"][0]["title"] == "Test notification"
         assert resp.json()["results"][0]["read"] is False
 
+    def test_access_is_checked_in_each_notifications_own_project(self) -> None:
+        self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL}]
+        self.organization.save(update_fields=["available_product_features"])
+        locked_team = Team.objects.create(organization=self.organization, name="Locked catalog")
+        self.event.resource_type = "data_catalog"
+        self.event.save(update_fields=["resource_type"])
+        self._create_notification("Locked", team=locked_team, resource_type="data_catalog")
+        AccessControl.objects.create(
+            team=locked_team,
+            resource="data_catalog",
+            organization_member=OrganizationMembership.objects.get(organization=self.organization, user=self.user),
+            access_level="none",
+        )
+
+        for url_team in (self.team, locked_team):
+            ids = {
+                row["id"]
+                for row in self.client.get(f"/api/environments/{url_team.id}/notifications/").json()["results"]
+            }
+            assert ids == {str(self.event.id)}, url_team.name
+
     def test_catalog_notification_disappears_after_access_revocation(self) -> None:
         self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL}]
         self.organization.save(update_fields=["available_product_features"])
@@ -97,7 +119,16 @@ class TestNotificationsAPI(BaseTest):
     def test_unread_count(self):
         resp = self.client.get(f"/api/environments/{self.team.id}/notifications/unread_count/")
         assert resp.status_code == 200
-        assert resp.json()["count"] == 1
+        assert resp.json() == {"count": 1, "direct_count": 1, "has_critical": False}
+
+    def test_unread_count_separates_direct_and_critical(self):
+        self._create_notification("Team failure", target_type="team", priority="critical")
+        read_critical = self._create_notification("Read critical", priority="critical")
+        NotificationReadState.objects.create(notification_event=read_critical, user=self.user)
+
+        resp = self.client.get(f"/api/environments/{self.team.id}/notifications/unread_count/")
+
+        assert resp.json() == {"count": 2, "direct_count": 1, "has_critical": True}
 
     def test_mark_read(self):
         resp = self.client.post(f"/api/environments/{self.team.id}/notifications/{self.event.id}/mark_read/")
@@ -141,7 +172,14 @@ class TestNotificationsAPI(BaseTest):
         assert resp.status_code == 200
         assert not NotificationReadState.objects.filter(notification_event=org_event, user=self.user).exists()
 
-    def test_mark_read_non_recipient_returns_404(self):
+    @parameterized.expand(
+        [
+            ("mark_read", "post", "mark_read/"),
+            ("retrieve", "get", ""),
+            ("unarchive", "post", "unarchive/"),
+        ]
+    )
+    def test_detail_endpoints_return_404_for_non_recipient(self, _name: str, method: str, suffix: str) -> None:
         other_event = NotificationEvent.objects.create(
             organization=self.organization,
             team=None,
@@ -152,9 +190,28 @@ class TestNotificationsAPI(BaseTest):
             target_id="999999",
             resolved_user_ids=[999999],
         )
-        resp = self.client.post(f"/api/environments/{self.team.id}/notifications/{other_event.id}/mark_read/")
+        url = f"/api/environments/{self.team.id}/notifications/{other_event.id}/{suffix}"
+        resp = getattr(self.client, method)(url)
         assert resp.status_code == 404
         assert not NotificationReadState.objects.filter(notification_event=other_event, user=self.user).exists()
+
+    def test_retrieve_returns_archived_state(self) -> None:
+        self.client.post(f"/api/environments/{self.team.id}/notifications/{self.event.id}/archive/")
+        resp = self.client.get(f"/api/environments/{self.team.id}/notifications/{self.event.id}/")
+        assert resp.status_code == 200
+        assert resp.json()["archived"] is True
+
+    def test_mark_all_read_only_marks_what_matches_the_filters(self):
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        other_project_event = self._create_notification("Elsewhere", team=other_team)
+        org_event = self._create_notification("Org-wide", team=None)
+
+        resp = self.client.post(f"/api/environments/{self.team.id}/notifications/mark_all_read/?team_id={self.team.id}")
+
+        assert resp.json()["updated"] == 2
+        read_ids = set(NotificationReadState.objects.values_list("notification_event_id", flat=True))
+        assert read_ids == {self.event.id, org_event.id}
+        assert other_project_event.id not in read_ids
 
     def test_mark_all_read(self):
         NotificationEvent.objects.create(
@@ -179,15 +236,15 @@ class TestNotificationsAPI(BaseTest):
         resp = self.client.get(f"/api/environments/{self.team.id}/notifications/unread_count/")
         assert resp.status_code == 200
         assert resp.json()["count"] == 1
-        assert cache.get(cache_key) == 1
+        assert cache.get(cache_key) == {"count": 1, "direct_count": 1, "has_critical": False}
 
     def test_unread_count_serves_from_cache(self):
         cache_key = _unread_count_cache_key(self.user.id, self.organization.id)
-        cache.set(cache_key, 42, 60)
+        cache.set(cache_key, {"count": 42, "direct_count": 40, "has_critical": True}, 60)
 
         resp = self.client.get(f"/api/environments/{self.team.id}/notifications/unread_count/")
         assert resp.status_code == 200
-        assert resp.json()["count"] == 42
+        assert resp.json() == {"count": 42, "direct_count": 40, "has_critical": True}
 
     def test_mark_read_invalidates_cache(self):
         cache_key = _unread_count_cache_key(self.user.id, self.organization.id)
@@ -204,12 +261,12 @@ class TestNotificationsAPI(BaseTest):
         self.client.post(f"/api/environments/{self.team.id}/notifications/{self.event.id}/mark_unread/")
         assert cache.get(cache_key) is None
 
-    def test_mark_all_read_sets_cache_to_zero(self):
+    def test_mark_all_read_invalidates_cache(self):
         cache_key = _unread_count_cache_key(self.user.id, self.organization.id)
-        cache.set(cache_key, 5, 60)
+        cache.set(cache_key, {"count": 5, "direct_count": 5, "has_critical": False}, 60)
 
         self.client.post(f"/api/environments/{self.team.id}/notifications/mark_all_read/")
-        assert cache.get(cache_key) == 0
+        assert cache.get(cache_key) is None
 
     def test_other_users_notifications_not_visible(self):
         other_user = User.objects.create_and_join(self.organization, "other@test.com", "password")
@@ -283,6 +340,75 @@ class TestNotificationsAPI(BaseTest):
         results = resp.json()["results"]
         assert len(results) == 1
         assert results[0]["resource_id"] == "abc123"
+
+    @parameterized.expand(
+        [
+            ("unread_only", "read=false", {"unread_mention", "team_failure", "org_digest"}),
+            ("read_only", "read=true", {"read_alert", "other_project"}),
+            (
+                "type_list",
+                "notification_type=comment_mention,alert_firing",
+                {"unread_mention", "read_alert", "other_project"},
+            ),
+            ("target_list", "target_type=team,organization", {"team_failure", "org_digest"}),
+            ("priority", "priority=critical", {"team_failure"}),
+            ("project_keeps_org_wide", "team_id={other_team}", {"other_project", "org_digest"}),
+        ]
+    )
+    def test_list_filters(self, _name: str, query: str, expected: set[str]) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        self.event.delete()
+        events = {
+            "unread_mention": self._create_notification(notification_type="comment_mention"),
+            "read_alert": self._create_notification(notification_type="alert_firing"),
+            "team_failure": self._create_notification(
+                notification_type="pipeline_failure", target_type="team", priority="critical"
+            ),
+            "org_digest": self._create_notification(
+                notification_type="web_analytics_digest", target_type="organization", team=None
+            ),
+            "other_project": self._create_notification(notification_type="comment_mention", team=other_team),
+        }
+        NotificationReadState.objects.create(notification_event=events["read_alert"], user=self.user)
+        NotificationReadState.objects.create(notification_event=events["other_project"], user=self.user)
+
+        resp = self.client.get(
+            f"/api/environments/{self.team.id}/notifications/?{query.format(other_team=other_team.id)}"
+        )
+
+        assert resp.status_code == 200
+        names_by_id = {str(event.id): name for name, event in events.items()}
+        assert {names_by_id[row["id"]] for row in resp.json()["results"]} == expected
+
+    @parameterized.expand(
+        [
+            ("unknown_type", "notification_type=comment_mention,not_a_type"),
+            ("unknown_target", "target_type=everyone"),
+            ("unknown_priority", "priority=urgent"),
+            ("bad_cursor", "before=yesterday"),
+        ]
+    )
+    def test_list_rejects_unknown_filter_values(self, _name: str, query: str) -> None:
+        resp = self.client.get(f"/api/environments/{self.team.id}/notifications/?{query}")
+        assert resp.status_code == 400
+
+    def test_cursor_paging_skips_nothing_when_rows_are_archived_between_pages(self) -> None:
+        for index in range(4):
+            self._create_notification(f"Item {index}")
+        url = f"/api/environments/{self.team.id}/notifications/?limit=2"
+
+        first_page = self.client.get(url).json()
+        for row in first_page["results"]:
+            self.client.post(f"/api/environments/{self.team.id}/notifications/{row['id']}/archive/")
+        seen = [row["id"] for row in first_page["results"]]
+        cursor = first_page["next_cursor"]
+        while cursor:
+            page = self.client.get(url, {"before": cursor}).json()
+            seen += [row["id"] for row in page["results"]]
+            cursor = page["next_cursor"]
+
+        assert len(seen) == 5
+        assert len(set(seen)) == 5
 
     def test_list_filter_invalid_datetime_returns_400(self):
         resp = self.client.get(f"/api/environments/{self.team.id}/notifications/?created_after=not-a-date")
@@ -462,16 +588,29 @@ class TestNotificationsAPI(BaseTest):
         )
         assert resp.status_code == 400
 
-    def _create_notification(self, title: str = "Extra") -> NotificationEvent:
+    def _create_notification(
+        self,
+        title: str = "Extra",
+        *,
+        notification_type: str = "alert_firing",
+        target_type: str = "user",
+        priority: str = "normal",
+        team: Team | None | EllipsisType = ...,
+        resource_type: str | None = None,
+        resource_id: str = "",
+    ) -> NotificationEvent:
         return NotificationEvent.objects.create(
             organization=self.organization,
-            team=self.team,
-            notification_type="alert_firing",
+            team=self.team if isinstance(team, EllipsisType) else team,
+            notification_type=notification_type,
+            priority=priority,
             title=title,
             body="",
-            target_type="user",
+            target_type=target_type,
             target_id=str(self.user.id),
             resolved_user_ids=[self.user.id],
+            resource_type=resource_type,
+            resource_id=resource_id,
         )
 
     def test_archive_notification(self):
@@ -567,6 +706,47 @@ class TestNotificationsAPI(BaseTest):
         assert resp.json()["updated"] == 3
         for ev in (self.event, a1, a2):
             assert NotificationArchiveState.objects.filter(notification_event=ev, user=self.user).exists()
+
+    def test_archive_all_with_group_filters_archives_every_item_and_returns_ids_to_undo(self) -> None:
+        group = [
+            self._create_notification(f"Run {index}", resource_type="batch_export", resource_id="be-1")
+            for index in range(25)
+        ]
+        other = self._create_notification("Other export", resource_type="batch_export", resource_id="be-2")
+        base = f"/api/environments/{self.team.id}/notifications"
+
+        resp = self.client.post(
+            f"{base}/archive_all/?notification_type=alert_firing&resource_type=batch_export&resource_id=be-1"
+        )
+
+        assert resp.json()["updated"] == 25
+        assert set(resp.json()["notification_ids"]) == {str(event.id) for event in group}
+        assert not NotificationArchiveState.objects.filter(notification_event=other).exists()
+
+        undo = self.client.post(
+            f"{base}/unarchive_bulk/",
+            {"notification_ids": resp.json()["notification_ids"], "mark_unread": True},
+            format="json",
+        )
+
+        assert undo.json()["updated"] == 25
+        assert not NotificationArchiveState.objects.filter(user=self.user).exists()
+        assert not NotificationReadState.objects.filter(notification_event__in=group, user=self.user).exists()
+
+    @parameterized.expand([("keeps_read", False, True), ("restores_unread", True, False)])
+    def test_unarchive(self, _name: str, mark_unread: bool, read_after: bool) -> None:
+        event = self._create_notification()
+        self.client.post(f"/api/environments/{self.team.id}/notifications/{event.id}/archive/")
+
+        resp = self.client.post(
+            f"/api/environments/{self.team.id}/notifications/{event.id}/unarchive/",
+            {"mark_unread": mark_unread},
+            format="json",
+        )
+
+        assert resp.status_code == 200
+        assert not NotificationArchiveState.objects.filter(notification_event=event, user=self.user).exists()
+        assert NotificationReadState.objects.filter(notification_event=event, user=self.user).exists() is read_after
 
     @parameterized.expand(
         [
