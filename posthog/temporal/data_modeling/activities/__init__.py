@@ -9,6 +9,7 @@ from .create_data_modeling_job import (
 from .enrich_view_semantics import EnrichViewSemanticsInputs, enrich_view_semantics_activity
 from .fail_materialization import FailMaterializationInputs, fail_materialization_activity
 from .get_dag_structure import GetDAGStructureInputs, get_dag_structure_activity
+from .kill_switch import get_clickhouse_kill_switch_level_activity
 from .materialize_view import (
     ClearCDPStagingInputs,
     MaterializeViewInputs,
@@ -81,6 +82,7 @@ __all__ = [
     "materialize_view_activity",
     "materialize_view_managed_warehouse_activity",
     "get_dag_structure_activity",
+    "get_clickhouse_kill_switch_level_activity",
     "preempt_dag_run_activity",
     "prepare_queryable_table_activity",
     "publish_queryable_table_activity",
