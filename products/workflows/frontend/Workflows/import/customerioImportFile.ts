@@ -16,16 +16,21 @@ function isObject(value: unknown): value is JsonObject {
     return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-function templateList(value: unknown): JsonObject[] {
+/** Templates as a list, or null when they are malformed, so the request keeps them and the API rejects it. */
+function templateList(value: unknown): JsonObject[] | null {
+    if (value === undefined || value === null) {
+        return []
+    }
     if (Array.isArray(value)) {
-        return value.filter(isObject)
+        return value.every(isObject) ? value : null
     }
     if (isObject(value)) {
-        return Object.entries(value)
-            .filter((entry): entry is [string, JsonObject] => isObject(entry[1]))
-            .map(([id, template]) => ({ ...template, id }))
+        const entries = Object.entries(value)
+        return entries.every(([, template]) => isObject(template))
+            ? entries.map(([id, template]) => ({ ...(template as JsonObject), id }))
+            : null
     }
-    return []
+    return null
 }
 
 /** One automation from the Customer.io CLI (`{campaign, actions}`), or the importer's own `{campaign, actions, templates}`. */
@@ -37,7 +42,7 @@ function toCampaign(value: unknown): CustomerioCampaignApi | null {
         campaign: value.campaign,
         // Kept as is, so the API rejects a malformed step instead of the preview hiding it.
         actions: value.actions as JsonObject[],
-        templates: templateList(value.templates),
+        templates: templateList(value.templates) ?? value.templates,
     }
 }
 
@@ -87,7 +92,10 @@ export function parseCustomerioFiles(contents: string[]): ParsedCustomerioFile {
         }
         if (isObject(value)) {
             if (Array.isArray(value.campaigns)) {
-                value.campaigns.forEach(collect)
+                for (const entry of value.campaigns) {
+                    // A malformed entry is kept as is, so the API rejects the request instead of dropping it.
+                    campaigns.push(toCampaign(entry) ?? (entry as CustomerioCampaignApi))
+                }
             }
             if (Array.isArray(value.templates)) {
                 value.templates.forEach(collect)
@@ -121,8 +129,12 @@ export function parseCustomerioFiles(contents: string[]): ParsedCustomerioFile {
     if (looseTemplates.length) {
         for (const campaign of campaigns) {
             const actions = campaign.actions as JsonObject[]
+            const templates = templateList(campaign.templates)
+            if (!templates || !Array.isArray(actions)) {
+                continue
+            }
             const used = looseTemplates.filter((template) => isReferenced(template, actions))
-            campaign.templates = [...templateList(campaign.templates), ...used]
+            campaign.templates = [...templates, ...used]
         }
     }
     return {
