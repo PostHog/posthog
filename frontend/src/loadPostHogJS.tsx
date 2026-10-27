@@ -98,6 +98,8 @@ export function loadPostHogJS(): void {
             api_host: window.JS_POSTHOG_HOST,
             ui_host: window.JS_POSTHOG_UI_HOST,
             defaults: 'latest',
+            // Cookie reconciliation breaks the anonymous flag handoff and group persistence in this startup flow.
+            cookieWinsOnConflict: false,
             // Hobby static files use /static/<asset>.js, without a version directory.
             ...(isHobbyDeployment() && window.JS_POSTHOG_SELF_CAPTURE
                 ? { strict_script_versioning: false as const }
