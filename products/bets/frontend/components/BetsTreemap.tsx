@@ -1,44 +1,52 @@
-import { Button } from '@posthog/quill'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
-import { layoutTreemap } from './treemapLayout'
+import { layoutTreemap, type TreemapRectangle } from './treemapLayout'
 
 export interface BetsTreemapItem {
     id: string
     label: string
     value: number
-    detail: string
+    amount: string
+    to?: string
+    available?: boolean
 }
 
-export function BetsTreemap({
-    items,
-    selected,
-    onSelect,
-    label,
-}: {
-    items: BetsTreemapItem[]
-    selected?: string | null
-    onSelect: (id: string) => void
-    label: string
-}): JSX.Element {
+function share(value: number, total: number): string {
+    const percent = (value / total) * 100
+    return percent > 0 && percent < 1 ? 'Under 1%' : `${Math.round(percent)}%`
+}
+
+function placement(rect: TreemapRectangle): { vertical: string; horizontal: string } {
+    const vertical = rect.y >= 20 ? 'above' : rect.y + rect.height <= 80 ? 'below' : 'inside'
+    const horizontal = rect.x < 15 ? 'start' : rect.x + rect.width > 85 ? 'end' : 'center'
+    return { vertical, horizontal }
+}
+
+export function BetsTreemap({ items, label }: { items: BetsTreemapItem[]; label: string }): JSX.Element {
     const rectangles = layoutTreemap(items)
+    const total = items.reduce((sum, item) => sum + Math.max(item.value, 0), 0)
     return (
-        <div className="BetsTreemap relative w-full shrink-0" role="group" aria-label={label}>
+        <span className="BetsTreemap" role="group" aria-label={label}>
             {rectangles.map((rect, index) => {
                 const item = items.find((entry) => entry.id === rect.id)!
+                const percent = share(item.value, total)
+                const description = `${item.label}, ${item.amount}, ${percent} of budget`
+                const { vertical, horizontal } = placement(rect)
+                const text = (
+                    <span className="BetsTreemap__text">
+                        <span className="BetsTreemap__name">{item.label}</span>
+                        <span className="BetsTreemap__value">
+                            {item.amount}
+                            <span className="BetsTreemap__share"> · {percent}</span>
+                        </span>
+                    </span>
+                )
                 return (
-                    <Button
+                    <span
                         key={rect.id}
-                        variant="outline"
-                        className="BetsTreemap__tile items-start"
-                        left
-                        data-tone={index % 4}
-                        data-selected={selected === rect.id || undefined}
-                        data-small={rect.width < 20 || rect.height < 20 || undefined}
-                        aria-pressed={selected === rect.id}
-                        aria-label={`${item.label}, ${item.detail}`}
-                        title={`${item.label} · ${item.detail}`}
-                        onClick={() => onSelect(rect.id)}
-                        data-attr="bets-allocation-tile"
+                        className="BetsTreemap__cell"
+                        data-vertical={vertical}
+                        data-horizontal={horizontal}
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{
                             left: `${rect.x}%`,
@@ -47,13 +55,35 @@ export function BetsTreemap({
                             height: `${rect.height}%`,
                         }}
                     >
-                        <span className="BetsTreemap__text flex-col gap-1 overflow-hidden text-left">
-                            <span className="BetsTreemap__name whitespace-normal">{item.label}</span>
-                            <span className="BetsTreemap__value opacity-70">{item.detail}</span>
+                        {item.to ? (
+                            <LinkPrimitive
+                                to={item.to}
+                                className="BetsTreemap__tile"
+                                data-tone={index % 4}
+                                data-available={item.available || undefined}
+                                aria-label={description}
+                                data-attr="bets-allocation-tile"
+                            >
+                                {text}
+                            </LinkPrimitive>
+                        ) : (
+                            <span
+                                className="BetsTreemap__tile"
+                                data-tone={index % 4}
+                                data-available={item.available || undefined}
+                            >
+                                {text}
+                            </span>
+                        )}
+                        <span className="BetsTreemap__label" aria-hidden="true">
+                            <span className="BetsTreemap__name">{item.label}</span>
+                            <span className="BetsTreemap__value">
+                                {item.amount} · {percent} of budget
+                            </span>
                         </span>
-                    </Button>
+                    </span>
                 )
             })}
-        </div>
+        </span>
     )
 }

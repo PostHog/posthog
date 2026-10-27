@@ -578,20 +578,45 @@
     }
 
     .BetsTreemap {
+        position: relative;
+        display: block;
+        width: 100%;
         height: 220px;
     }
 
-    .BetsTreemap__tile {
+    .BetsTreemap__cell {
         position: absolute;
+        display: block;
+        container-type: size;
+
+        &:has(.BetsTreemap__tile:focus-visible) {
+            z-index: 2;
+        }
+    }
+
+    .BetsTreemap__tile {
+        --bets-treemap-hover-scale: 1.02;
+        --bets-treemap-active: color-mix(in sRGB, var(--today-marker) 14%, var(--today-paper));
+        --bets-treemap-lift:
+            inset 0 0 0 1px color-mix(in sRGB, var(--today-marker) 55%, var(--today-paper)),
+            0 0 0 2px var(--today-paper), var(--today-card-shadow);
+
+        position: absolute;
+        inset: 2px;
+        display: flex;
         align-items: flex-start;
         justify-content: flex-start;
-        padding: 12px;
+        padding: 11px;
         overflow: hidden;
         color: var(--today-ink);
+        text-decoration: none;
         background: var(--today-soft);
-        border: 2px solid var(--today-paper);
         border-radius: 5px;
-        box-shadow: none;
+        outline: none;
+        transition:
+            transform 180ms var(--today-ease),
+            background-color 150ms var(--today-ease),
+            box-shadow 150ms var(--today-ease);
 
         &[data-tone='1'] {
             background: color-mix(in sRGB, var(--today-ink) 12%, var(--today-paper));
@@ -605,45 +630,225 @@
             background: color-mix(in sRGB, var(--today-ink) 7%, var(--today-paper));
         }
 
-        &[data-small] {
-            padding: 0;
-            border-width: 1px;
-
-            .BetsTreemap__text {
-                display: none;
-            }
+        &[data-available] {
+            background: var(--today-paper);
+            box-shadow: inset 0 0 0 1px var(--today-line);
         }
 
-        &[data-selected] {
-            box-shadow: inset 0 0 0 2px var(--today-focus-border);
+        &:focus-visible {
+            background: var(--bets-treemap-active);
+            box-shadow:
+                var(--bets-treemap-lift),
+                0 0 0 4px var(--today-focus-border);
+            transform: scale(var(--bets-treemap-hover-scale));
         }
     }
 
     .BetsTreemap__text {
         display: flex;
+        flex-direction: column;
+        gap: 2px;
+        min-width: 0;
+        text-align: start;
     }
 
     .BetsTreemap__name {
+        overflow: hidden;
         font-size: 12px;
+        font-weight: 500;
         line-height: 1.3;
+        text-overflow: ellipsis;
     }
 
     .BetsTreemap__value {
         font-size: 11px;
+        font-variant-numeric: tabular-nums;
+        color: var(--today-muted);
+        white-space: nowrap;
+    }
+
+    .BetsTreemap__share {
+        opacity: 0;
+        transition: opacity 150ms var(--today-ease);
+    }
+
+    .BetsTreemap__label {
+        position: absolute;
+        z-index: 3;
+        display: none;
+        flex-direction: column;
+        gap: 2px;
+        width: max-content;
+        max-width: 220px;
+        padding: 6px 9px;
+        color: var(--today-ink);
+        text-align: start;
+        pointer-events: none;
+        background: var(--today-card);
+        border: 1px solid var(--today-line);
+        border-radius: 6px;
+        box-shadow: var(--today-card-shadow);
+        opacity: 0;
+        transition:
+            opacity 150ms var(--today-ease),
+            transform 150ms var(--today-ease);
+        transform: scale(0.97);
+
+        .BetsTreemap__name {
+            white-space: normal;
+        }
+    }
+
+    .BetsTreemap__cell[data-vertical='above'] .BetsTreemap__label {
+        bottom: calc(100% + 6px);
+        transform-origin: bottom center;
+    }
+
+    .BetsTreemap__cell[data-vertical='below'] .BetsTreemap__label {
+        top: calc(100% + 6px);
+        transform-origin: top center;
+    }
+
+    .BetsTreemap__cell[data-vertical='inside'] .BetsTreemap__label {
+        top: 50%;
+        translate: 0 -50%;
+    }
+
+    .BetsTreemap__cell[data-horizontal='start'] .BetsTreemap__label {
+        left: 0;
+    }
+
+    .BetsTreemap__cell[data-horizontal='end'] .BetsTreemap__label {
+        right: 0;
+    }
+
+    .BetsTreemap__cell[data-horizontal='center'] .BetsTreemap__label {
+        left: 50%;
+        translate: -50% 0;
+    }
+
+    .BetsTreemap__cell[data-horizontal='center'][data-vertical='inside'] .BetsTreemap__label {
+        translate: -50% -50%;
+    }
+
+    .BetsTreemap__tile:focus-visible .BetsTreemap__share {
+        opacity: 1;
     }
 
     .Bets__allocationPreview {
+        display: block;
+        padding: 0;
+        cursor: pointer;
+        background: none;
+        border: 0;
+        border-radius: 6px;
+        outline: none;
+
+        &:focus-visible {
+            box-shadow:
+                0 0 0 2px var(--today-paper),
+                0 0 0 3px var(--today-focus-border);
+        }
+
         .BetsTreemap {
             height: 90px;
         }
 
         .BetsTreemap__tile {
+            --bets-treemap-hover-scale: 1.08;
+
+            inset: 1px;
             padding: 0;
-            border-width: 1px;
+            border-radius: 3px;
         }
 
         .BetsTreemap__text {
             display: none;
+        }
+
+        .BetsTreemap__label {
+            display: flex;
+        }
+
+        .BetsTreemap__cell .BetsTreemap__label {
+            top: auto;
+            bottom: calc(100% + 6px);
+            transform-origin: bottom center;
+        }
+
+        .BetsTreemap__cell[data-vertical='inside'] .BetsTreemap__label {
+            translate: 0 0;
+        }
+
+        .BetsTreemap__cell[data-horizontal='center'] .BetsTreemap__label {
+            translate: -50% 0;
+        }
+    }
+
+    &.BetsAllocationDialog {
+        top: 50%;
+        max-width: min(760px, calc(100vw - 3rem));
+        max-height: calc(100dvh - 2rem);
+        transition:
+            opacity 200ms var(--today-ease),
+            scale 200ms var(--today-ease);
+        transform-origin: center;
+        translate: -50% -50%;
+
+        &[data-starting-style],
+        &[data-ending-style] {
+            opacity: 0;
+            scale: 0.96;
+        }
+
+        &[data-ending-style] {
+            transition-duration: 150ms;
+        }
+
+        .BetsTreemap {
+            height: min(380px, 55dvh);
+        }
+    }
+
+    @container (width < 112px) or (height < 60px) {
+        .BetsTreemap__tile {
+            --bets-treemap-hover-scale: 1.08;
+
+            padding: 0;
+        }
+
+        .BetsTreemap__text {
+            display: none;
+        }
+
+        .BetsTreemap__label {
+            display: flex;
+        }
+
+        .BetsTreemap__tile:focus-visible + .BetsTreemap__label {
+            opacity: 1;
+            transform: none;
+        }
+    }
+
+    @media (hover: hover) and (pointer: fine) {
+        .BetsTreemap__cell:hover {
+            z-index: 2;
+
+            .BetsTreemap__tile {
+                background: var(--bets-treemap-active);
+                box-shadow: var(--bets-treemap-lift);
+                transform: scale(var(--bets-treemap-hover-scale));
+            }
+
+            .BetsTreemap__share,
+            .BetsTreemap__label {
+                opacity: 1;
+            }
+
+            .BetsTreemap__label {
+                transform: none;
+            }
         }
     }
 
@@ -909,5 +1114,26 @@
 
     .Bets__statusFrame:first-child {
         opacity: 1;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .Bets .BetsTreemap__tile,
+    .Bets .BetsTreemap__label,
+    .Bets .BetsTreemap__share,
+    .Bets.BetsAllocationDialog {
+        transition: none;
+    }
+
+    .Bets .BetsTreemap__tile,
+    .Bets .BetsTreemap__tile:focus-visible,
+    .Bets .BetsTreemap__cell:hover .BetsTreemap__tile,
+    .Bets .BetsTreemap__label {
+        transform: none;
+    }
+
+    .Bets.BetsAllocationDialog[data-starting-style],
+    .Bets.BetsAllocationDialog[data-ending-style] {
+        scale: 1;
     }
 }
