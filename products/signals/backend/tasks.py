@@ -40,7 +40,7 @@ from products.signals.backend.implementation_dispatch_tasks import (
 )
 from products.signals.backend.implementation_pr import PrCloseReason, close_implementation_pr_for_report
 from products.signals.backend.inbox_push_notifications import notify_pull_request_ready, notify_report_visible
-from products.signals.backend.inbox_summary import sync_pull_request_participants
+from products.signals.backend.inbox_summary import github_datetime, sync_pull_request_participants
 from products.signals.backend.models import (
     SignalReport,
     SignalReportPullRequest,
@@ -54,7 +54,7 @@ from products.signals.backend.models import (
 from products.signals.backend.pr_origin import write_origin_section
 from products.signals.backend.pull_request_body import BodyEditOutcome
 from products.signals.backend.pull_request_label import apply_pull_request_label
-from products.signals.backend.pull_requests import update_pull_request_review_decision
+from products.signals.backend.pull_requests import update_pull_request_review_decision, update_pull_request_state
 from products.signals.backend.report_generation.repo_activity import (
     ACTIVITY_KEEP_WARM_WINDOW,
     rebuild_repository_activity,
@@ -170,6 +170,14 @@ def refresh_pull_request_review_decision(team_id: int, repository: str, pr_numbe
     )
     if github is None:
         return
+    if pr.state == SignalReportPullRequest.State.MERGED and pr.merged_at is None:
+        details = github.get_pull_request(pr.repository, pr.number)
+        merged_at = github_datetime(details.get("merged_at"))
+        if not details.get("success") or details.get("merged") is not True or merged_at is None:
+            raise GitHubIntegrationError("Could not verify the pull request merge time")
+        update_pull_request_state(
+            team_id=team_id, repository=pr.repository, number=pr.number, state="merged", merged_at=merged_at
+        )
     snapshot = github.get_pull_request_snapshot(pr.url)
     if not snapshot.get("success"):
         logger.warning(
