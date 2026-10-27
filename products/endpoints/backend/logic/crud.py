@@ -17,7 +17,7 @@ from rest_framework.request import Request
 
 from posthog.schema import EndpointRequest, HogQLQuery
 
-from posthog.api.tagged_item import cleanup_orphan_tags, set_tags_on_object
+from posthog.api.tagged_item import replace_tags_on_object
 from posthog.clickhouse.query_tagging import Product
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
@@ -42,10 +42,9 @@ def apply_tags(endpoint: Endpoint, tags: list[str] | None) -> None:
     """Replace the endpoint's tags. No-op when tags is None (field omitted)."""
     if tags is None:
         return
-    # `prefetched_tags` is a dynamic attribute populated by the TaggedItem prefetch / set_tags_on_object;
+    # `prefetched_tags` is a dynamic attribute populated by the TaggedItem prefetch / replace_tags_on_object;
     # it's not declared on the Endpoint model.
-    endpoint.prefetched_tags = set_tags_on_object(tags, endpoint)  # type: ignore[attr-defined]
-    cleanup_orphan_tags(endpoint.team_id)
+    endpoint.prefetched_tags = replace_tags_on_object(tags, endpoint)  # type: ignore[attr-defined]
 
 
 @dataclasses.dataclass(frozen=True)
