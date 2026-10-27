@@ -24,6 +24,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.ahrefs.set
     MAX_PAGE_ROWS,
     MAX_REFDOMAIN_ROWS,
     NON_RETRYABLE_ERRORS,
+    QUOTA_RETRY_ERROR,
+    RETRYABLE_QUOTA_ERRORS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
@@ -54,6 +56,12 @@ class AhrefsSource(SimpleSource[AhrefsSourceConfig]):
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return NON_RETRYABLE_ERRORS
+
+    def get_retryable_errors(self) -> set[str]:
+        return set(RETRYABLE_QUOTA_ERRORS)
+
+    def get_retry_exhausted_errors(self) -> dict[str, str]:
+        return dict.fromkeys(RETRYABLE_QUOTA_ERRORS, QUOTA_RETRY_ERROR)
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         return CANONICAL_DESCRIPTIONS

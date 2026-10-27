@@ -317,31 +317,38 @@ class TestNotifyExternalDataSyncFailures:
         assert mock_sender.called == expected_sent
 
     @pytest.mark.parametrize(
-        "notified_age,expected_sent",
+        "should_sync,auto_disabled,sync_type_config,notified_age",
         [
-            (dt.timedelta(days=8), True),  # still failing past the window -> remind again
-            (dt.timedelta(days=6), False),  # notified recently, no new run -> stay silent
+            (False, True, {}, dt.timedelta(days=8)),
+            (False, True, {}, dt.timedelta(days=90)),
+            (True, False, {"cdc_broken": {"reason": "auto_dropped_critical_lag"}}, dt.timedelta(days=8)),
         ],
     )
-    def test_renotifies_still_failing_schema_without_a_newer_run(self, notified_age, expected_sent):
-        # A paused schema never runs again, so it produces no newer failed job. It must
-        # still get a reminder once its last email ages past the re-notify window.
+    def test_paused_schema_is_listed_only_once(self, should_sync, auto_disabled, sync_type_config, notified_age):
+        # A paused schema never runs again, so once a digest has listed it, later digests stay
+        # silent about it however long it stays failed.
         team, source = _create_team_and_source()
-        ExternalDataSchema.objects.create(
+        notified_at = dt.datetime.now(dt.UTC) - notified_age
+        schema = ExternalDataSchema.objects.create(
             name="Charge",
             team=team,
             source=source,
             status=ExternalDataSchema.Status.FAILED,
-            should_sync=False,
-            auto_disabled_at=dt.datetime.now(dt.UTC) - notified_age,
+            should_sync=should_sync,
+            auto_disabled_at=notified_at if auto_disabled else None,
+            sync_type_config=sync_type_config,
             latest_error="Invalid API key",
-            last_error_notified_at=dt.datetime.now(dt.UTC) - notified_age,
+            last_error_notified_at=notified_at,
         )
+        job = ExternalDataJob.objects.create(
+            team=team, pipeline=source, schema=schema, status=ExternalDataJob.Status.FAILED
+        )
+        ExternalDataJob.objects.filter(id=job.id).update(finished_at=notified_at - dt.timedelta(minutes=5))
 
         with patch(SENDER_PATH) as mock_sender:
             notify_external_data_sync_failures(team.pk)
 
-        assert mock_sender.called == expected_sent
+        mock_sender.assert_not_called()
 
 
 class TestGetTeamIdsWithRecentSyncFailures:
@@ -436,19 +443,19 @@ class TestGetTeamIdsWithRecentSyncFailures:
 
         assert get_team_ids_with_recent_sync_failures() == [team.pk]
 
-    def test_includes_still_failing_schema_past_the_renotify_window(self):
-        # PostHog halted this schema itself, so it never runs again. No recent failed run
-        # (30h stale) and the last email is 8 days old: the team would drop out forever
-        # without the re-notify path.
-        team = self._create_schema_with_job(
+    @pytest.mark.parametrize("notified_age", [dt.timedelta(days=8), dt.timedelta(days=90)])
+    def test_excludes_paused_schema_already_notified(self, notified_age):
+        # PostHog halted this schema itself, so it never runs again. Its one digest already went
+        # out, so the catch-up sweep must not pick it up again however old that email is.
+        self._create_schema_with_job(
             schema_status=ExternalDataSchema.Status.FAILED,
-            job_finished_at=dt.datetime.now(dt.UTC) - dt.timedelta(hours=30),
-            last_error_notified_at=dt.datetime.now(dt.UTC) - dt.timedelta(days=8),
+            job_finished_at=dt.datetime.now(dt.UTC) - notified_age - dt.timedelta(minutes=5),
+            last_error_notified_at=dt.datetime.now(dt.UTC) - notified_age,
             should_sync=False,
-            auto_disabled_at=dt.datetime.now(dt.UTC) - dt.timedelta(days=9),
+            auto_disabled_at=dt.datetime.now(dt.UTC) - notified_age,
         )
 
-        assert get_team_ids_with_recent_sync_failures() == [team.pk]
+        assert get_team_ids_with_recent_sync_failures() == []
 
     def test_only_returns_qualifying_teams(self):
         qualifying = self._create_schema_with_job(

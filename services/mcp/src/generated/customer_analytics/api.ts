@@ -1073,8 +1073,6 @@ export const customerTasksPartialUpdateBodyNameMax = 400
 
 export const CustomerTasksPartialUpdateBody = () => zod.object({
     account_id: zod.string().nullish().describe('UUID of a visible account, or null to remove the account link.'),
-    name: zod.string().max(customerTasksPartialUpdateBodyNameMax).optional().describe('Replacement task name.'),
-    description: zod.string().nullish().describe('Replacement description, or null to clear it.'),
     assigned_to_id: zod.number().nullish().describe('Replacement assignee ID, or null to unassign.'),
     due_at: zod.iso
         .datetime({ offset: true })
@@ -1089,6 +1087,8 @@ export const CustomerTasksPartialUpdateBody = () => zod.object({
         .describe(
             'Replacement task status.\n\n\* `open` - Open\n\* `in_progress` - In progress\n\* `completed` - Completed\n\* `canceled` - Canceled'
         ),
+    name: zod.string().max(customerTasksPartialUpdateBodyNameMax).optional().describe('Replacement task name.'),
+    description: zod.string().nullish().describe('Replacement description, or null to clear it.'),
 })
 
 export const CustomerTasksActivitiesListParams = () => zod.object({

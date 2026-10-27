@@ -18,7 +18,11 @@ from structlog.types import FilteringBoundLogger
 from temporalio import workflow
 from temporalio.client import WorkflowExecutionStatus
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
-from temporalio.exceptions import ActivityError, ApplicationError
+from temporalio.exceptions import (
+    ActivityError,
+    ApplicationError,
+    TimeoutError as TemporalTimeoutError,
+)
 from temporalio.workflow import ParentClosePolicy
 
 from posthog.clickhouse.client.connection import ClickHouseUser
@@ -65,6 +69,7 @@ from products.signals.backend.spend import (
 from products.signals.backend.stack_plan import create_layer_reports, start_unblocked_layers_of_plan
 from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.agentic.report import (
+    RESEARCH_SANDBOX_UNAVAILABLE_ERROR_TYPE,
     RunAgenticReportInput,
     RunAgenticReportOutput,
     run_agentic_report_activity,
@@ -111,6 +116,7 @@ def _capture_report_event(
     source_products: list[str],
     result: str | None = None,
     failure_reason: str | None = None,
+    error_type: str | None = None,
     pending_reason: str | None = None,
     chart_count: int | None = None,
     charts_enabled: bool | None = None,
@@ -135,11 +141,13 @@ def _capture_report_event(
         properties["charts_enabled"] = charts_enabled
     if failure_reason is not None:
         properties["failure_reason"] = failure_reason
+    if error_type is not None:
+        properties["error_type"] = error_type
     if pending_reason is not None:
         properties["pending_reason"] = pending_reason
 
     if event == "signal_report_completed" and result is not None:
-        metrics.increment_report_completed(result)
+        metrics.increment_report_completed(result, failure_reason=failure_reason, error_type=error_type)
 
     try:
         posthoganalytics.capture(
@@ -156,6 +164,17 @@ def _capture_report_event(
             event=event,
             report_id=report_id,
         )
+
+
+def _activity_error_type(error: BaseException) -> str | None:
+    if not isinstance(error, ActivityError):
+        return None
+    if isinstance(error.cause, TemporalTimeoutError):
+        return "activity_timeout"
+    # Temporal puts the class name of an unhandled activity exception in the ApplicationError type.
+    if isinstance(error.cause, ApplicationError):
+        return error.cause.type
+    return None
 
 
 @frozen
@@ -230,6 +249,18 @@ async def check_report_task_settlement_activity(input: SignalReportSummaryWorkfl
             raise ApplicationError("Task spend is still settling", type="TaskSpendPending")
         if execution.status != WorkflowExecutionStatus.COMPLETED:
             raise ApplicationError("Task workflow did not complete settlement", non_retryable=True)
+
+
+RESEARCH_SANDBOX_RETRY_DELAYS = (timedelta(minutes=10), timedelta(minutes=20), timedelta(minutes=40))
+RESEARCH_SANDBOX_RETRY_BUDGET = sum(RESEARCH_SANDBOX_RETRY_DELAYS, timedelta())
+
+
+def _is_research_sandbox_unavailable(error: BaseException) -> bool:
+    cause = error.cause if isinstance(error, temporalio.exceptions.ActivityError) else error
+    return (
+        isinstance(cause, temporalio.exceptions.ApplicationError)
+        and cause.type == RESEARCH_SANDBOX_UNAVAILABLE_ERROR_TYPE
+    )
 
 
 @temporalio.workflow.defn(name="signal-report-summary")
@@ -333,6 +364,36 @@ class SignalReportSummaryWorkflow:
             start_to_close_timeout=timedelta(minutes=1),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
+
+    async def _run_research(
+        self, log: FilteringBoundLogger, research_input: RunAgenticReportInput
+    ) -> RunAgenticReportOutput:
+        retries = 0
+        while True:
+            try:
+                return await workflow.execute_activity(
+                    run_agentic_report_activity,
+                    research_input,
+                    start_to_close_timeout=timedelta(hours=4),
+                    heartbeat_timeout=timedelta(minutes=5),
+                    # Retry once: the sandbox agent turn can time out (poll_for_turn) or hit a transient LLM 429.
+                    retry_policy=RetryPolicy(maximum_attempts=2),
+                )
+            except temporalio.exceptions.ActivityError as error:
+                if (
+                    not workflow.patched("signals-research-sandbox-retry")
+                    or not _is_research_sandbox_unavailable(error)
+                    or retries >= len(RESEARCH_SANDBOX_RETRY_DELAYS)
+                ):
+                    raise
+            delay = RESEARCH_SANDBOX_RETRY_DELAYS[retries]
+            retries += 1
+            log.warning(
+                "Research sandbox unavailable, retrying after delay",
+                attempt=retries,
+                delay_seconds=int(delay.total_seconds()),
+            )
+            await workflow.sleep(delay)
 
     async def _revert_report_to_candidate(self, inputs: SignalReportSummaryWorkflowInputs) -> None:
         await workflow.execute_activity(
@@ -556,8 +617,8 @@ class SignalReportSummaryWorkflow:
                     await self._revert_report_to_candidate(inputs)
                     return False
                 # 5. Run the agentic report research flow with the selected repository to use code/MCP data to assess signals
-                agentic_result: RunAgenticReportOutput = await workflow.execute_activity(
-                    run_agentic_report_activity,
+                agentic_result = await self._run_research(
+                    log,
                     RunAgenticReportInput(
                         team_id=inputs.team_id,
                         report_id=inputs.report_id,
@@ -566,10 +627,6 @@ class SignalReportSummaryWorkflow:
                         repo_selection=repo_result,
                         repo_selection_as_of=repo_selection_as_of,
                     ),
-                    start_to_close_timeout=timedelta(hours=4),
-                    heartbeat_timeout=timedelta(minutes=5),
-                    # Retry once: the sandbox agent turn can time out (poll_for_turn) or hit a transient LLM 429.
-                    retry_policy=RetryPolicy(maximum_attempts=2),
                 )
                 await self._wait_for_task_settlement(inputs)
                 decision = ReportDecision(
@@ -777,7 +834,12 @@ class SignalReportSummaryWorkflow:
                     team_id=inputs.team_id,
                     report_id=inputs.report_id,
                     error=str(e),
-                    failure_reason="agentic_activity_error",
+                    failure_reason=(
+                        "research_sandbox_unavailable"
+                        if _is_research_sandbox_unavailable(e)
+                        else "agentic_activity_error"
+                    ),
+                    error_type=_activity_error_type(e),
                     signal_count=signal_count,
                     source_products=source_products,
                 ),
@@ -1269,12 +1331,13 @@ async def maybe_autostart_implementation_activity(input: MaybeAutostartImplement
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class MarkReportFailedInput:
     team_id: int
     report_id: str
     error: str
     failure_reason: str | None = None
+    error_type: str | None = None
     signal_count: int = 0
     source_products: list[str] = field(default_factory=list)
 
@@ -1321,6 +1384,7 @@ async def mark_report_failed_activity(input: MarkReportFailedInput) -> None:
         source_products=input.source_products,
         result="failed",
         failure_reason=input.failure_reason,
+        error_type=input.error_type,
     )
     logger.debug(
         f"Marked report {input.report_id} as failed",

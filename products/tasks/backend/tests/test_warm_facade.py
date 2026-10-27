@@ -1923,6 +1923,33 @@ class TestRunTaskWarmActivation(APIBaseTest):
         assert "await_user_message" not in run.state
         assert run.state.get("auto_publish") is True
 
+    @parameterized.expand([("run_task",), ("user_message",)])
+    def test_first_message_to_a_warm_run_logs_a_live_sibling_once(self, activation: str) -> None:
+        task, run = self._warm_run()
+        live = TaskRun.objects.create(
+            task=task, team=self.team, environment=TaskRun.Environment.CLOUD, status=TaskRun.Status.IN_PROGRESS
+        )
+        TaskRun.objects.filter(id=live.id).update(created_at=run.created_at - timedelta(minutes=1))
+
+        with (
+            patch("products.tasks.backend.models.log_run_started_beside_live_run") as log_started,
+            patch(f"{FACADE}.signal_task_run_user_message", return_value=True),
+        ):
+            if activation == "run_task":
+                facade.run_task(
+                    task.id,
+                    self.team.id,
+                    self.user.id,
+                    validated_data={"mode": "interactive", "branch": "main", "pending_user_message": "go"},
+                )
+            facade.activate_warm_task_run(run.id)
+            facade.activate_warm_task_run(run.id)
+
+        assert task.runs.count() == 2
+        log_started.assert_called_once_with(run, [live.id])
+        run.refresh_from_db()
+        assert "await_user_message" not in run.state
+
     def test_falls_back_to_description_when_no_pending_message(self):
         task, run = self._warm_run()
         task.description = "from description"

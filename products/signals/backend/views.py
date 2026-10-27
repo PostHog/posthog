@@ -133,6 +133,7 @@ from products.signals.backend.enums import ReportPriority, ReportTaskActionKind
 from products.signals.backend.facade.api import emit_signal
 from products.signals.backend.feedback_notes import forward_feedback_note
 from products.signals.backend.implementation_pr import (
+    ImplementationPr,
     fetch_implementation_prs_for_reports,
     implementation_pr_report_filter,
     primary_pull_request,
@@ -177,10 +178,13 @@ from products.signals.backend.report_check_authoring import (
     replace_metric_check,
 )
 from products.signals.backend.report_claims import (
+    ReportClaim,
     actor_works_under_claim,
     get_active_claim,
     get_active_claims,
+    reports_claimed_for_user,
     reports_with_active_claim,
+    responsible_users,
 )
 from products.signals.backend.report_content_gates import organization_report_monitoring_enabled
 from products.signals.backend.report_generation.research import ActionabilityChoice
@@ -1713,8 +1717,14 @@ class SignalReportViewSet(
         raw = self.request.query_params.get("assignee")
         if raw is None or not raw.strip():
             return queryset
-        if raw.strip().lower() != "me":
-            raise serializers.ValidationError({"assignee": "Invalid value. Allowed: me."})
+        value = raw.strip().lower()
+        if value == "mine":
+            user_id = self.request.user.id
+            if user_id is None:  # unreachable behind authentication
+                raise exceptions.NotAuthenticated()
+            return queryset.filter(reports_claimed_for_user(team_id=self.team_id, user_id=user_id))
+        if value != "me":
+            raise serializers.ValidationError({"assignee": "Invalid value. Allowed: me, mine."})
         actor = self._request_attribution()
         return queryset.filter(reports_with_active_claim(team_id=self.team_id, actor=actor))
 
@@ -2290,6 +2300,22 @@ class SignalReportViewSet(
             "billing_period_bounds": current_billing_period_bounds(self.organization),
         }
 
+    @staticmethod
+    def _claim_and_pull_request_context(
+        report_ids: list[str],
+        pull_requests_map: dict[str, list[ImplementationPr]],
+        claims: dict[str, ReportClaim],
+    ) -> dict[str, object]:
+        implementation_pr_by_report = {rid: primary_pull_request(prs) for rid, prs in pull_requests_map.items()}
+        return {
+            "pull_requests_map": pull_requests_map,
+            "claims_map": dict.fromkeys(report_ids) | claims,
+            "claim_responsible_users_map": responsible_users(claims.values()),
+            "implementation_pr_url_map": {rid: pr.url for rid, pr in implementation_pr_by_report.items()},
+            "implementation_pr_state_map": {rid: pr.state for rid, pr in implementation_pr_by_report.items()},
+            "implementation_pr_merged_ids": {rid for rid, pr in implementation_pr_by_report.items() if pr.merged},
+        }
+
     def _enriched_report_context(self, report: SignalReport) -> dict:
         # Detail-view parity with list(): inject the source metadata map the serializer reads.
         # This lookup is best-effort so a ClickHouse failure cannot hide the report.
@@ -2301,10 +2327,8 @@ class SignalReportViewSet(
             signal_meta_map = {}
         try:
             pull_requests_map = fetch_implementation_prs_for_reports(report_ids, team_id=self.team_id)
-            implementation_pr_by_report = {rid: primary_pull_request(prs) for rid, prs in pull_requests_map.items()}
         except Exception:
             logger.exception("signals.enriched_context.implementation_pr_failed", report_id=str(report.id))
-            implementation_pr_by_report = {}
             pull_requests_map = {}
         try:
             source_suggestion = current_source_suggestion(self.team, str(report.id))
@@ -2316,15 +2340,12 @@ class SignalReportViewSet(
         except Exception:
             logger.exception("signals.enriched_context.report_plan_failed", report_id=str(report.id))
             plan = None
+        claims = get_active_claims(team_id=self.team_id, report_ids=report_ids)
         return {
             **self.get_serializer_context(),
             "source_products_map": {rid: meta.source_products for rid, meta in signal_meta_map.items()},
             "scout_names_map": {rid: meta.scout_name for rid, meta in signal_meta_map.items() if meta.scout_name},
-            "pull_requests_map": pull_requests_map,
-            "claims_map": dict.fromkeys(report_ids) | get_active_claims(team_id=self.team_id, report_ids=report_ids),
-            "implementation_pr_url_map": {rid: pr.url for rid, pr in implementation_pr_by_report.items()},
-            "implementation_pr_state_map": {rid: pr.state for rid, pr in implementation_pr_by_report.items()},
-            "implementation_pr_merged_ids": {rid for rid, pr in implementation_pr_by_report.items() if pr.merged},
+            **self._claim_and_pull_request_context(report_ids, pull_requests_map, claims),
             "source_suggestions_map": {str(report.id): source_suggestion},
             "report_plans_map": {str(report.id): plan},
         }
@@ -2740,8 +2761,12 @@ class SignalReportViewSet(
                 type=OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
                 required=False,
-                enum=["me"],
-                description="Use 'me' to return reports claimed by the current user, task, or MCP agent.",
+                enum=["me", "mine"],
+                description=(
+                    "'me' returns reports claimed by exactly the requesting actor: the user, the internal task, or "
+                    "the MCP agent. 'mine' returns every report the requesting user answers for: their own claims, "
+                    "claims by MCP agents acting for them, and claims by internal tasks they started."
+                ),
             ),
         ],
     )
@@ -2884,10 +2909,8 @@ class SignalReportViewSet(
         with tracer.start_as_current_span("signals.reports.list.fetch_implementation_prs"):
             try:
                 pull_requests_map = fetch_implementation_prs_for_reports(report_ids, team_id=self.team_id)
-                implementation_pr_by_report = {rid: primary_pull_request(prs) for rid, prs in pull_requests_map.items()}
             except Exception:
                 logger.exception("signals.reports.list.implementation_pr_failed", report_count=len(report_ids))
-                implementation_pr_by_report = {}
                 pull_requests_map = {}
 
         # One grouped query for the whole page, in place of the per-row annotation the other
@@ -2908,15 +2931,12 @@ class SignalReportViewSet(
                     artefact_count=artefact_counts.get(str(report.id), 0),
                     channel_id=live_channel_ids.get(str(report.id)),
                 )
+        claims = get_active_claims(team_id=self.team_id, report_ids=report_ids)
         context = {
             **self.get_serializer_context(),
             "source_products_map": {rid: meta.source_products for rid, meta in signal_meta_map.items()},
             "scout_names_map": {rid: meta.scout_name for rid, meta in signal_meta_map.items() if meta.scout_name},
-            "pull_requests_map": pull_requests_map,
-            "claims_map": dict.fromkeys(report_ids) | get_active_claims(team_id=self.team_id, report_ids=report_ids),
-            "implementation_pr_url_map": {rid: pr.url for rid, pr in implementation_pr_by_report.items()},
-            "implementation_pr_state_map": {rid: pr.state for rid, pr in implementation_pr_by_report.items()},
-            "implementation_pr_merged_ids": {rid for rid, pr in implementation_pr_by_report.items() if pr.merged},
+            **self._claim_and_pull_request_context(report_ids, pull_requests_map, claims),
             "first_billable_pr_run_at_map": first_billable_pr_run_at_map,
             "inbox_ranker": self._inbox_ranker,
         }

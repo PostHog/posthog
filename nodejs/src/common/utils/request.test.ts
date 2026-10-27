@@ -10,6 +10,7 @@ import { parseJSON } from './json-parse'
 import { logger } from './logger'
 import {
     FetchOptions,
+    ResponseTooLargeError,
     SecureRequestError,
     fetch,
     internalFetch,
@@ -38,6 +39,9 @@ beforeAll(async () => {
         } else if (url.pathname === '/status/404') {
             res.writeHead(404)
             res.end()
+        } else if (url.pathname === '/bom') {
+            res.writeHead(200, { 'content-type': 'application/json' })
+            res.end('\ufeff{"ok":true}')
         } else if (url.pathname === '/stream/50') {
             res.writeHead(200, { 'content-type': 'application/json' })
             for (let i = 0; i < 50; i++) {
@@ -726,6 +730,29 @@ describe('_fetch response body handling', () => {
     it('should parse headers', async () => {
         const response = await internalFetch(baseUrl)
         expect(response.headers['content-type']).toBeDefined()
+    })
+
+    const streamedBodyBytes = range(50).reduce((total, i) => total + JSON.stringify({ id: i }).length + 1, 0)
+
+    it.each([
+        ['under the limit', streamedBodyBytes + 1, false],
+        ['exactly at the limit', streamedBodyBytes, false],
+        ['over the limit', streamedBodyBytes - 1, true],
+    ])('caps a streamed body %s', async (_name, maxResponseBytes, rejects) => {
+        const response = await internalFetch(`${baseUrl}/stream/50`, { maxResponseBytes })
+        if (rejects) {
+            await expect(response.text()).rejects.toBeInstanceOf(ResponseTooLargeError)
+        } else {
+            expect(await response.text()).toHaveLength(streamedBodyBytes)
+        }
+    })
+
+    it.each([
+        ['uncapped', undefined],
+        ['capped', 1024],
+    ])('strips a leading BOM from a %s body', async (_name, maxResponseBytes) => {
+        const response = await internalFetch(`${baseUrl}/bom`, { maxResponseBytes })
+        expect(await response.json()).toEqual({ ok: true })
     })
 
     it('should fully read streamed/chunked response bodies', async () => {

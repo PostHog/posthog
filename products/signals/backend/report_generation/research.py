@@ -101,6 +101,12 @@ MAX_REPORT_LAYERS = 6
 MAX_REPORT_LAYER_TITLE_LENGTH = 96
 MAX_REPORT_LAYER_SCOPE_LENGTH = 2_000
 
+# Sent once when the research agent ends its first turn with prose instead of the finding JSON.
+RESEARCH_JSON_RETRY_PROMPT = (
+    "Your last reply did not contain the JSON object the task asks for. "
+    "Reply now with only that JSON object, matching the schema above. Do not add prose or code fences."
+)
+
 
 class ReportLayer(BaseModel):
     """One pull request in a stack of dependent pull requests. Each layer becomes a child report."""
@@ -1658,6 +1664,7 @@ async def run_multi_turn_research(
         model=SignalFindingUpdate,
         branch=branch,
         step_name="report_research",
+        json_retry_prompt=RESEARCH_JSON_RETRY_PROMPT,
         verbose=verbose,
         output_fn=output_fn,
         origin_product=tasks_facade.TaskOriginProduct.SIGNAL_REPORT,

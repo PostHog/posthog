@@ -109,6 +109,14 @@ def update_task_run_status(input: UpdateTaskRunStatusInput) -> None:
             if marker in _TERMINAL_STATE_MARKERS:
                 # Atomic merge so concurrent state writers aren't clobbered; reassigned so reads below see it.
                 task_run.state = TaskRun.update_state_atomic(task_run.id, updates={marker: True})
+            if (
+                input.status == TaskRun.Status.FAILED
+                and input.error_type
+                and not (task_run.state or {}).get("failure_error_type")
+            ):
+                task_run.state = TaskRun.update_state_atomic(
+                    task_run.id, updates={"failure_error_type": input.error_type}
+                )
             if not task_run.completed_at and (
                 input.status in [TaskRun.Status.COMPLETED, TaskRun.Status.FAILED]
                 or (input.status == TaskRun.Status.CANCELLED and task_run.environment == TaskRun.Environment.CLOUD)

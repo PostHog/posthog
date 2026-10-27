@@ -58,6 +58,7 @@ from products.signals.backend.report_checks import (
 )
 from products.signals.backend.report_content_gates import team_report_monitoring_enabled
 from products.signals.backend.reviewer_rules import ReviewerRules
+from products.signals.backend.scout_harness.tools.report import is_self_improvement_title
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 from products.warehouse_sources.backend.facade.types import ExternalDataSchemaStatus
 
@@ -736,6 +737,13 @@ class SignalReportAssigneeSerializer(serializers.Serializer):
     task_id = serializers.UUIDField(allow_null=True)
     agent = serializers.CharField(allow_null=True)
     claimed_at = serializers.DateTimeField(allow_null=True)
+    responsible_user = _UserSerializer(
+        allow_null=True,
+        help_text=(
+            "The person who answers for the claim: the user for a user claim, the user an MCP agent acts for, or "
+            "the user who started an internal task. Null when no person stands behind the claim."
+        ),
+    )
 
 
 class SignalUserAutonomyConfigSerializer(serializers.ModelSerializer):
@@ -1564,6 +1572,12 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "artefact (when present). Lets list cards show repository context without a per-card fetch."
         ),
     )
+    is_self_improvement_report = serializers.SerializerMethodField(
+        help_text=(
+            "Whether this is a scout self-improvement report. Most update a team-owned skill in the skills "
+            "store, but reports with a selected repository can still produce a pull request."
+        ),
+    )
     is_suggested_reviewer = serializers.BooleanField(read_only=True, default=False)
     source_products = serializers.SerializerMethodField(
         help_text="Distinct source products contributing signals to this report (from ClickHouse).",
@@ -1680,6 +1694,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "suppression_source",
             "suppression_explanation",
             "repo_slug",
+            "is_self_improvement_report",
             "is_suggested_reviewer",
             "source_products",
             "scout_name",
@@ -1789,6 +1804,9 @@ class SignalReportSerializer(serializers.ModelSerializer):
 
     def get_summary_lead(self, obj: SignalReport) -> str:
         return summary_lead(obj.summary, SUMMARY_LEAD_LIMIT)
+
+    def get_is_self_improvement_report(self, obj: SignalReport) -> bool:
+        return is_self_improvement_title(obj.title)
 
     def get_priority(self, obj: SignalReport) -> str | None:
         prefetched = getattr(obj, "prefetched_priority_artefacts", None)
@@ -2089,6 +2107,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
         assignment = self._get_assignment(obj)
         if assignment is None or not assignment.actor_kind:
             return None
+        responsible = self._get_responsible_user(assignment)
         return {
             "claim_id": str(assignment.claim_id) if assignment.claim_id else None,
             "kind": assignment.actor_kind,
@@ -2096,7 +2115,14 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "task_id": str(assignment.actor_task_id) if assignment.actor_task_id else None,
             "agent": assignment.actor_agent,
             "claimed_at": assignment.claimed_at,
+            "responsible_user": _UserSerializer(responsible).data if responsible else None,
         }
+
+    def _get_responsible_user(self, claim: "ReportClaim") -> User | None:
+        from products.signals.backend.report_claims import responsible_user
+
+        users = self.context.get("claim_responsible_users_map")
+        return users.get(claim.claim_id) if users is not None else responsible_user(claim)
 
     def _get_assignment(self, obj: SignalReport) -> "ReportClaim | None":
         from products.signals.backend.report_claims import get_active_claim

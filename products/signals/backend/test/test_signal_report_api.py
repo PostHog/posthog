@@ -3083,6 +3083,21 @@ class TestSignalReportListAPI(APIBaseTest):
         row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
         assert row["repo_slug"] is None
 
+    @parameterized.expand(
+        [
+            ("Scout self-improvement: signals-scout-errors - noisy rule", True),
+            ("Error rate increased", False),
+        ]
+    )
+    def test_list_classifies_scout_self_improvement_reports(self, title: str, expected: bool):
+        report = self._create_report(title=title)
+
+        response = self.client.get(self._list_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
+        assert row["is_self_improvement_report"] is expected
+
 
 class TestAssociatedTaskRunsForReports(APIBaseTest):
     """`SignalReport.associated_task_runs_for_reports` — the batched, page-wide counterpart of
