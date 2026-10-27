@@ -287,7 +287,7 @@ flowchart TD
 
 A Flash turn runs one of two designs, picked by the fetch activity (`select_review_design`, `reviewer/constants.py`).
 The **single-agent design** (`reviewhog-flash-2-3`) replaces steps 4, 5, and 8 below with parallel Codex sandbox
-sessions, all on `SINGLE_AGENT_FLASH_ARM` (`gpt-6.1-sol` @ medium) and all returning `SingleAgentReview`:
+sessions, all on the PR's arm set (below) and all returning `SingleAgentReview`:
 
 - **The main session** (`single_agent_review_activity`) reviews the whole PR. Its system prompt is `core.md` (the
   DevEx-owned rubric, adapted from OpenAI's Codex review rubric). A failed main session fails the turn.
@@ -301,6 +301,18 @@ sessions, all on `SINGLE_AGENT_FLASH_ARM` (`gpt-6.1-sol` @ medium) and all retur
   and image assets, and `max_migration.txt`. One session runs per lens and part, so a turn opens at most 9 sessions, under one
   `MAX_CONCURRENT_SANDBOXES` semaphore. A lens session gets `FLASH_LENS_SESSION_TIMEOUT` (10 minutes, retry
   included) instead of the sandbox timeout. A failed or timed-out lens session costs only its own findings.
+
+**Arm sets.** `SINGLE_AGENT_ARM_SETS` (`reviewer/constants.py`) names each set of arms the sessions can run on: one arm
+for the main session, one for every lens session. The `control` set runs every session on `SINGLE_AGENT_FLASH_ARM`
+(`gpt-6.1-sol` @ medium). The multivariate `reviewhog-single-agent-arms` flag, keyed by the PR like the splits in the
+push gate, picks a set by its variant; no variant, an unknown variant, an evaluation failure, or a coordinated PR gives
+`control`, so turning the flag off is the kill switch. The fetch activity records the name on `ReviewMeta.arm_set`, and
+every session of the turn reads it from `SandboxStageInput.arm_set`. A set's name keeps its meaning: another model or
+effort gets a new name. A session on another arm than the control arm whose agent fails runs once more on the control
+arm, so an outage of that model never costs the review. Each result is stamped with the arm that ran it, and dedup
+reads each session's result under its own arm, else the control arm. The started, completed, and failed events carry
+`single_agent_arm_set`; the completed event also counts `flash_arm_fallbacks`. Session cost is on `$ai_generation` by
+`$ai_model` and `ai_stage`.
 
 The fetch activity records the number of lens parts on `ReviewMeta.lens_chunk_count`; each lens activity rebuilds its
 part from the PR snapshot. The task prompt (`prompt.jinja`) carries the title, description, numbered diff, earlier
