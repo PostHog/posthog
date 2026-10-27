@@ -460,6 +460,10 @@ class TestUpdateTaskRunStatusActivity:
         assert len(props["error_message"]) == 500
         assert props["error_message"].endswith("TypeError: cannot read boot manifest")
         assert props.get("sandbox_backend") == expected_backend
+        test_task_run.refresh_from_db()
+        assert (test_task_run.state or {}).get("failure_error_type") == (
+            None if expected_error_type == "unspecified" else expected_error_type
+        )
 
     @pytest.mark.django_db(transaction=True)
     @patch("products.tasks.backend.models.posthoganalytics.capture")

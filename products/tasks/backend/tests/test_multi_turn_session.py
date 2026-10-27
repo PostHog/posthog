@@ -26,6 +26,7 @@ from products.tasks.backend.logic.services.custom_prompt_internals import (
     AgentTurnFailed,
     CustomPromptSandboxContext,
     EmptyAgentTurnError,
+    TaskRunFailed,
     TurnPollResult,
     TurnPollTimeout,
     _create_task_and_trigger,
@@ -985,7 +986,9 @@ class TestPollForTurnTerminalDrain:
         skip = len(turn_1)  # start-of-turn-2 cursor — what MultiTurnSession passes
 
         # Simulate the task reaching FAILED status mid-poll
-        fake_task_run = FakeTaskRun(status="failed", error_message="sandbox killed")
+        fake_task_run = FakeTaskRun(
+            status="failed", error_message="sandbox killed", state={"failure_error_type": "RepositoryAccessError"}
+        )
 
         with (
             patch("posthog.storage.object_storage.read", return_value=log),
@@ -993,8 +996,10 @@ class TestPollForTurnTerminalDrain:
             patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 0),
             patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake_task_run),
         ):
-            with pytest.raises(RuntimeError, match="terminal status"):
+            with pytest.raises(TaskRunFailed, match="terminal status") as exc_info:
                 await poll_for_turn(fake_task_run, skip_lines=skip)
+
+        assert exc_info.value.error_type == "RepositoryAccessError"
 
     @parameterized.expand(
         [

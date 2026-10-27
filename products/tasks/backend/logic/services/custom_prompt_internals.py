@@ -269,6 +269,18 @@ class AgentTurnFailed(RuntimeError):
         return self.category in UPSTREAM_RETRYABLE_ERROR_CATEGORIES
 
 
+class TaskRunFailed(RuntimeError):
+    """The TaskRun failed before the agent produced a usable message.
+
+    `error_type` is the failure class the task workflow recorded on the run (for example
+    `RepositoryAccessError`), or None when the run recorded none.
+    """
+
+    def __init__(self, message: str, *, error_type: str | None) -> None:
+        super().__init__(message)
+        self.error_type = error_type
+
+
 SESSION_FILE_ARTIFACT_TYPE = "context"
 
 
@@ -663,6 +675,7 @@ async def poll_for_turn(
                 task_run,
                 refreshed_status=refreshed.status,
                 error_message=refreshed.error_message,
+                error_type=(refreshed.state or {}).get("failure_error_type"),
                 printed_lines=printed_lines,
                 original_skip_lines=original_skip_lines,
                 verbose=verbose,
@@ -688,6 +701,7 @@ async def poll_for_turn(
             task_run,
             refreshed_status=refreshed.status,
             error_message=refreshed.error_message,
+            error_type=(refreshed.state or {}).get("failure_error_type"),
             printed_lines=printed_lines,
             original_skip_lines=original_skip_lines,
             verbose=verbose,
@@ -870,6 +884,7 @@ async def _drain_final_log(
     *,
     refreshed_status: str,
     error_message: str | None = None,
+    error_type: str | None = None,
     printed_lines: int,
     original_skip_lines: int,
     verbose: bool,
@@ -912,9 +927,10 @@ async def _drain_final_log(
             )
     reason = "end_turn with empty response" if final_state.empty_end_turn else "no agent message"
     cause = f" (cause: {error_message})" if error_message else ""
-    raise RuntimeError(
-        f"custom_prompt - drain_final_log: TaskRun reached terminal status={refreshed_status}{cause} — {reason}"
-    )
+    message = f"custom_prompt - drain_final_log: TaskRun reached terminal status={refreshed_status}{cause} — {reason}"
+    if refreshed_status == TaskRun.Status.FAILED:
+        raise TaskRunFailed(message, error_type=error_type)
+    raise RuntimeError(message)
 
 
 def _extract_agent_error(log_content: str | None, skip_lines: int = 0) -> AgentError | None:

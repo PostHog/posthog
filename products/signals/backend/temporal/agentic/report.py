@@ -84,7 +84,7 @@ from products.signals.backend.typed_report_links import (
     outgoing_links,
 )
 from products.tasks.backend.facade import api as tasks_facade
-from products.tasks.backend.facade.agents import CustomPromptSandboxContext
+from products.tasks.backend.facade.agents import CustomPromptSandboxContext, TaskRunFailed
 
 logger = structlog.get_logger(__name__)
 
@@ -1278,4 +1278,8 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
             team_id=input.team_id,
             error=str(error),
         )
+        # Temporal reports only the class name of an activity error, so surface the sandbox run's
+        # own failure class instead of the generic one the session wraps it in.
+        if isinstance(error, TaskRunFailed) and error.error_type:
+            raise temporalio.exceptions.ApplicationError(str(error), type=error.error_type) from error
         raise

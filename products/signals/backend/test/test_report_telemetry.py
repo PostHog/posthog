@@ -3,6 +3,13 @@ from uuid import uuid4
 import pytest
 from unittest.mock import patch
 
+from temporalio.exceptions import (
+    ActivityError,
+    ApplicationError,
+    TimeoutError as TemporalTimeoutError,
+    TimeoutType,
+)
+
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 
@@ -14,6 +21,7 @@ from products.signals.backend.temporal.summary import (
     MarkReportPendingInput,
     MarkReportReadyInput,
     ResetReportToPotentialInput,
+    _failure_error_type,
     mark_report_failed_activity,
     mark_report_in_progress_activity,
     mark_report_pending_input_activity,
@@ -96,6 +104,37 @@ async def test_started_and_ready_fire_expected_captures(ateam, charts_enabled, c
     assert report.researching_signal_count == 2
 
 
+def _activity_error(cause: BaseException) -> ActivityError:
+    error = ActivityError(
+        "Activity task failed",
+        scheduled_event_id=1,
+        started_event_id=2,
+        identity="worker",
+        activity_type="run_agentic_report_activity",
+        activity_id="1",
+        retry_state=None,
+    )
+    error.__cause__ = cause
+    return error
+
+
+@pytest.mark.parametrize(
+    "error,expected",
+    [
+        (_activity_error(ApplicationError("clone failed", type="RepositoryAccessError")), "RepositoryAccessError"),
+        (
+            _activity_error(
+                TemporalTimeoutError("timed out", type=TimeoutType.START_TO_CLOSE, last_heartbeat_details=[])
+            ),
+            "start_to_close",
+        ),
+        (ValueError("bad output"), "ValueError"),
+    ],
+)
+def test_failure_error_type_unwraps_activity_errors(error, expected):
+    assert _failure_error_type(error) == expected
+
+
 @pytest.mark.asyncio
 @pytest.mark.django_db
 async def test_failed_fires_completed_with_failure_reason(ateam):
@@ -114,6 +153,7 @@ async def test_failed_fires_completed_with_failure_reason(ateam):
                 report_id=report_id,
                 error="Failed safety review: contains PII",
                 failure_reason="safety_judge_rejected",
+                error_type="RepositoryAccessError",
                 signal_count=3,
                 source_products=["zendesk"],
             )
@@ -126,6 +166,7 @@ async def test_failed_fires_completed_with_failure_reason(ateam):
     assert kwargs["properties"]["result"] == "failed"
     assert "chart_count" not in kwargs["properties"]
     assert kwargs["properties"]["failure_reason"] == "safety_judge_rejected"
+    assert kwargs["properties"]["error_type"] == "RepositoryAccessError"
     assert kwargs["properties"]["signal_count"] == 3
     assert kwargs["properties"]["source_products"] == ["zendesk"]
 
