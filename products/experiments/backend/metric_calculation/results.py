@@ -36,9 +36,11 @@ from django.utils import timezone as django_timezone
 
 import structlog
 
+from posthog.schema import ExperimentQueryResponse
+
 from posthog.dataclasses import frozen
 
-from products.experiments.backend.logic.result_stats import MetricResultStats
+from products.experiments.backend.logic.result_stats import MetricResultStats, parse_stored_response
 from products.experiments.backend.metric_calculation.config import MetricCalculationConfig, build_calculation_configs
 from products.experiments.backend.models.experiment import (
     Experiment,
@@ -187,8 +189,21 @@ class MetricResultStore:
 
     def current_result(self, calculation_config: MetricCalculationConfig) -> MetricResultStats | None:
         """The statistics of the result that `current_outcome` picks, or None when it has none or doesn't parse."""
+        response = self.current_response(calculation_config)
+        return MetricResultStats.from_response(response) if response is not None else None
+
+    def current_response(self, calculation_config: MetricCalculationConfig) -> ExperimentQueryResponse | None:
+        """The baseline and variant results of the result that `current_outcome` picks, or None when it has none or
+        doesn't parse."""
         stored = self._current_rows({self.experiment_id: calculation_config}).values_list("result", flat=True).first()
-        return MetricResultStats.from_stored(stored)
+        return parse_stored_response(stored)
+
+    def current_data_until(self, calculation_config: MetricCalculationConfig) -> datetime | None:
+        """When the data of the result that `current_outcome` picks ends, as `current_outcomes` defines it, or None when
+        it has none."""
+        # F() selects the alias, which values_list can't select by name.
+        rows = self._current_rows({self.experiment_id: calculation_config})
+        return rows.values_list(F("data_until"), flat=True).first()
 
     def previous_completed(
         self, metric_uuid: str, calculation_key: str, *, before: datetime
