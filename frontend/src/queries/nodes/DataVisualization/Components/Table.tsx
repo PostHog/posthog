@@ -12,7 +12,7 @@ import { lightenDarkenColor } from 'lib/utils/colors'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { parseHogQLX } from '~/queries/nodes/HogQLX/render'
+import { HOGQLX_TAGS_NO_ATTRIBUTES, parseHogQLX } from '~/queries/nodes/HogQLX/render'
 import { VisualizationNode, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
@@ -111,8 +111,11 @@ export const MAX_COLUMN_WIDTH = 320
 const COLUMN_WIDTH_SAMPLE_CELLS = 5000
 const MIN_COLUMN_WIDTH_SAMPLE_ROWS = 10
 
-// Counts the visible text of a parsed HogQLX value. Tags without children (sparklines, buttons, images)
-// and plain objects render as widgets or JSON, so they get the widest column.
+// Tags that renderHogQLX renders as their children's text. Keep in sync with render.tsx.
+const HOGQLX_TEXT_TAGS = new Set([...HOGQLX_TAGS_NO_ATTRIBUTES, 'a', 'blink', 'marquee', 'redacted'])
+
+// Counts the visible text of a parsed HogQLX value. Other tags (sparklines, buttons, images) and plain
+// objects render as widgets or JSON, so they get the widest column.
 function getHogQLXTextLength(value: unknown): number {
     if (value == null) {
         return 0
@@ -123,8 +126,11 @@ function getHogQLXTextLength(value: unknown): number {
     if (Array.isArray(value)) {
         return value.reduce((total: number, child) => total + getHogQLXTextLength(child), 0)
     }
-    if ('__hx_tag' in value && 'children' in value) {
-        return getHogQLXTextLength(value.children)
+    const { __hx_tag: tag, children, source, href } = value as Record<string, unknown>
+    if (typeof tag === 'string' && HOGQLX_TEXT_TAGS.has(tag)) {
+        const content = children ?? source
+        // Links without content show their href
+        return content ? getHogQLXTextLength(content) : tag === 'a' ? getHogQLXTextLength(href) : 0
     }
     return Infinity
 }
