@@ -584,14 +584,21 @@ class TestUpdateHogFunctionCode(BaseTest):
                 for hog in [*unedited_hogs, edited_hog]
             ]
 
+        first_run = [
+            "Updated: 2",
+            "Updated from earlier template version 1: 1",
+            "Updated from earlier template version 2: 1",
+        ]
+        expected_runs = [first_run, ["Updated: 0"]] if swaps else [["does not contain"]]
         with patch(
             "posthog.management.commands.update_hog_function_code.compile_hog",
             return_value="compiled_bytecode",
         ):
-            for expected in ("Updated: 2", "Updated: 0") if swaps else ("does not contain",):
+            for expected in expected_runs:
                 out = StringIO()
                 call_command("update_hog_function_code", replace_key="microsoft-ads-capi-normalization", stdout=out)
-                self.assertIn(expected, out.getvalue())
+                for line in expected:
+                    self.assertIn(line, out.getvalue())
 
         for function in functions:
             function.refresh_from_db()

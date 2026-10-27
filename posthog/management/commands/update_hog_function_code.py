@@ -182,7 +182,9 @@ class Command(BaseCommand):
         replaceOption = replaceOptions[replace_key]
 
         current_template_code: str | None = None
-        earlier_versions: set[str] = set()
+        # Maps each earlier version's code to its 1-based position, so the summary can count destinations per version
+        earlier_versions: dict[str, int] = {}
+        updated_per_version: dict[int, int] = {}
         if "whole_code_versions" in replaceOption:
             template = HogFunctionTemplate.get_template(replaceOption["template_id"])
             marker = replaceOption.get("template_marker", "")
@@ -194,7 +196,11 @@ class Command(BaseCommand):
                 )
                 return
             current_template_code = template.code
-            earlier_versions = {version.strip() for version in replaceOption["whole_code_versions"]}
+            earlier_versions = {
+                version.strip(): position
+                for position, version in enumerate(replaceOption["whole_code_versions"], start=1)
+            }
+            updated_per_version = dict.fromkeys(earlier_versions.values(), 0)
 
         queryset = HogFunction.objects.filter(
             type="destination", deleted=False, template_id=replaceOption["template_id"]
@@ -226,9 +232,9 @@ class Command(BaseCommand):
                     continue
 
                 new_hog = destination.hog
-                if current_template_code is not None:
-                    if destination.hog.strip() in earlier_versions:
-                        new_hog = current_template_code
+                matched_version = earlier_versions.get(destination.hog.strip())
+                if current_template_code is not None and matched_version is not None:
+                    new_hog = current_template_code
                 for replacement in replaceOption["replacements"]:
                     if replacement["from_string"] in new_hog:
                         new_hog = new_hog.replace(replacement["from_string"], replacement["to_string"])
@@ -244,6 +250,8 @@ class Command(BaseCommand):
                     continue
 
                 updated_count += 1
+                if matched_version is not None:
+                    updated_per_version[matched_version] += 1
                 if not dry_run:
                     destination.hog = new_hog
                     destination.bytecode = new_bytecode
@@ -256,6 +264,8 @@ class Command(BaseCommand):
                 f"Update completed in {duration:.2f}s. Found: {total_found}, Updated: {updated_count}, Failed: {len(failed)}"
             )
         )
+        for position, count in updated_per_version.items():
+            self.stdout.write(f"Updated from earlier template version {position}: {count}")
 
         if failed:
             self.stdout.write(self.style.WARNING(f"{len(failed)} destination(s) failed to compile and were skipped:"))
