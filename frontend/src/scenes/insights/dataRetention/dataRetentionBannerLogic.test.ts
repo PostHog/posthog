@@ -14,6 +14,11 @@ const RETENTION = {
     retention_months: 84,
     retained_from: '2019-09-22',
     docs_url: 'https://posthog.com/docs/data/events-retention',
+    project_retention_months: null,
+    organization_retention_months: null,
+    plan_retention_months: 84,
+    min_retention_months: 1,
+    max_retention_months: 84,
 }
 
 describe('dataRetentionBannerLogic', () => {
@@ -22,18 +27,27 @@ describe('dataRetentionBannerLogic', () => {
             name: 'reads the window from the events retention endpoint',
             response: [200, RETENTION],
             retentionMonths: 84,
+            actionLabel: 'Upgrade plan',
+        },
+        {
+            name: 'links to settings when a setting shortens the window',
+            response: [200, { ...RETENTION, retention_months: 12, organization_retention_months: 12 }],
+            retentionMonths: 12,
+            actionLabel: 'Change retention',
         },
         {
             name: 'treats a null window as retention not enforced',
             response: [200, { ...RETENTION, retention_months: null, retained_from: null }],
             retentionMonths: null,
+            actionLabel: 'Upgrade plan',
         },
         {
             name: 'treats an empty response as retention not enforced',
             response: [204],
             retentionMonths: null,
+            actionLabel: 'Upgrade plan',
         },
-    ])('$name', async ({ response, retentionMonths }) => {
+    ])('$name', async ({ response, retentionMonths, actionLabel }) => {
         useMocks({ get: { '/api/projects/:team_id/events_retention/': () => response } })
         initKeaTests()
         const logic = dataRetentionBannerLogic()
@@ -42,6 +56,7 @@ describe('dataRetentionBannerLogic', () => {
         await expectLogic(logic)
             .toDispatchActions(['loadRetentionMonths', 'loadRetentionMonthsSuccess'])
             .toMatchValues({ retentionMonths, retentionEnforced: retentionMonths !== null })
+        expect(logic.values.retentionBannerAction.children).toEqual(actionLabel)
     })
 
     it('waits for the team id before loading', async () => {

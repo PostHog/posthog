@@ -21,6 +21,7 @@ import type {
     ElementsStatsRetrieveParams,
     ElementsValuesListParams,
     EventsRetentionApi,
+    EventsRetentionUpdateApi,
     InsightApi,
     InsightBulkDeleteRequestApi,
     InsightBulkDeleteResponseApi,
@@ -49,6 +50,7 @@ import type {
     InsightsTrendingRetrieveParams,
     InsightsUpdateParams,
     InsightsViewedCreateParams,
+    OrganizationEventsRetentionApi,
     PaginatedColumnConfigurationListApi,
     PaginatedElementListApi,
     PaginatedInsightListApi,
@@ -76,6 +78,45 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getOrganizationEventsRetentionRetrieveUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/events_retention_setting/`
+}
+
+/**
+ * Returns the events retention window that every project without its own window uses, and the range an organization admin can set.
+ * @summary Get the organization's events retention window
+ */
+export const organizationEventsRetentionRetrieve = async (
+    organizationId: string,
+    options?: RequestInit
+): Promise<OrganizationEventsRetentionApi> => {
+    return apiMutator<OrganizationEventsRetentionApi>(getOrganizationEventsRetentionRetrieveUrl(organizationId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getOrganizationEventsRetentionUpdateUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/events_retention_setting/`
+}
+
+/**
+ * Sets how long every project without its own window keeps events. Events older than the window are deleted on the next monthly cleanup and can't be restored. Organization admins only.
+ * @summary Set the organization's events retention window
+ */
+export const organizationEventsRetentionUpdate = async (
+    organizationId: string,
+    eventsRetentionUpdateApi: EventsRetentionUpdateApi,
+    options?: RequestInit
+): Promise<OrganizationEventsRetentionApi> => {
+    return apiMutator<OrganizationEventsRetentionApi>(getOrganizationEventsRetentionUpdateUrl(organizationId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(eventsRetentionUpdateApi),
+    })
+}
 
 export const getColumnConfigurationsListUrl = (projectId: string, params?: ColumnConfigurationsListParams) => {
     const normalizedParams = new URLSearchParams()
@@ -353,7 +394,7 @@ export const getEventsRetentionRetrieveUrl = (projectId: string) => {
 }
 
 /**
- * Returns how far back events stay queryable for this project. The window comes from the organization's plan and is read-only. Both window fields are null while no retention window applies to the project.
+ * Returns how far back events stay queryable for this project, the windows set for the project and its organization, and the range an admin can set. Both window fields are null while no retention window applies to the project.
  * @summary Get the events retention window for a project
  */
 export const eventsRetentionRetrieve = async (
@@ -363,6 +404,27 @@ export const eventsRetentionRetrieve = async (
     return apiMutator<EventsRetentionApi>(getEventsRetentionRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getEventsRetentionUpdateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/events_retention/`
+}
+
+/**
+ * Sets how long this project keeps events, overriding the organization's window. Events older than the window are deleted on the next monthly cleanup and can't be restored. Project admins only.
+ * @summary Set the events retention window for a project
+ */
+export const eventsRetentionUpdate = async (
+    projectId: string,
+    eventsRetentionUpdateApi: EventsRetentionUpdateApi,
+    options?: RequestInit
+): Promise<EventsRetentionApi> => {
+    return apiMutator<EventsRetentionApi>(getEventsRetentionUpdateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(eventsRetentionUpdateApi),
     })
 }
 
