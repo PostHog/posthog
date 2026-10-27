@@ -73,6 +73,15 @@ const DAY_ADDITIVE_MATHS = new Set<string>([
     'first_matching_event_for_group',
 ])
 
+// Cohorts overlap, and a hidden "Other" bucket drops part of the whole from the results.
+function breakdownSplitsAWhole(breakdownFilter: BreakdownFilter | null | undefined): boolean {
+    return (
+        hasBreakdownFilter(breakdownFilter) &&
+        breakdownFilter.breakdown_type !== 'cohort' &&
+        !breakdownFilter.breakdown_hide_other_aggregation
+    )
+}
+
 function percentOfTotalGroupKey(item: IndexedTrendResult): string {
     return JSON.stringify([getResultOrder(item), item.compare_label ?? ''])
 }
@@ -189,7 +198,8 @@ export interface insightsTableDataLogicMeta {
                 | null
         ) => boolean
         getPercentOfDayTotal: (
-            indexedResults: IndexedTrendResult[]
+            indexedResults: IndexedTrendResult[],
+            showPercentOfDayTotal: boolean
         ) => (item: IndexedTrendResult, index: number) => number | null
     }
 }
@@ -356,7 +366,7 @@ export const insightsTableDataLogic = kea<insightsTableDataLogicType>([
                 allowAggregation &&
                 (isNonTimeSeriesDisplay || aggregation === AggregationType.Total) &&
                 !!series?.every((entity) => !entity.math || entity.math === 'total' || entity.math === 'sum') &&
-                hasBreakdownFilter(breakdownFilter) &&
+                breakdownSplitsAWhole(breakdownFilter) &&
                 !hasFormulaResults(querySource),
         ],
         // Totals include hidden rows and "Other", so hiding one doesn't change the others' share.
@@ -388,24 +398,27 @@ export const insightsTableDataLogic = kea<insightsTableDataLogicType>([
                 isTrends &&
                 !isNonTimeSeriesDisplay &&
                 !!series?.every((entity) => !entity.math || DAY_ADDITIVE_MATHS.has(entity.math)) &&
-                hasBreakdownFilter(breakdownFilter) &&
+                breakdownSplitsAWhole(breakdownFilter) &&
                 !hasFormulaResults(querySource),
         ],
         getPercentOfDayTotal: [
-            (s) => [s.indexedResults],
-            (indexedResults: IndexedTrendResult[]) => {
+            (s) => [s.indexedResults, s.showPercentOfDayTotal],
+            (indexedResults: IndexedTrendResult[], showPercentOfDayTotal: boolean) => {
+                if (!showPercentOfDayTotal) {
+                    return (): number | null => null
+                }
                 const totals = new Map<string, number[]>()
                 for (const result of indexedResults) {
                     const key = percentOfTotalGroupKey(result)
                     const dayTotals = totals.get(key) ?? []
-                    result.data.forEach((value, index) => {
+                    result.data?.forEach((value, index) => {
                         dayTotals[index] = (dayTotals[index] ?? 0) + (value ?? 0)
                     })
                     totals.set(key, dayTotals)
                 }
                 return (item: IndexedTrendResult, index: number): number | null => {
                     const total = totals.get(percentOfTotalGroupKey(item))?.[index]
-                    const value = item.data[index]
+                    const value = item.data?.[index]
                     return total && value != null ? value / total : null
                 }
             },

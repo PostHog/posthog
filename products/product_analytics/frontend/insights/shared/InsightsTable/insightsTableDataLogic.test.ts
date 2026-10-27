@@ -99,6 +99,24 @@ describe('insightsTableDataLogic', () => {
             ['a breakdown of total counts', {}, true, true],
             ['no breakdown', { breakdownFilter: undefined }, false, false],
             [
+                'a cohort breakdown',
+                { breakdownFilter: { breakdown: [1, 'all'], breakdown_type: 'cohort' } },
+                false,
+                false,
+            ],
+            [
+                'the "Other" bucket hidden',
+                {
+                    breakdownFilter: {
+                        breakdown: '$browser',
+                        breakdown_type: 'event',
+                        breakdown_hide_other_aggregation: true,
+                    },
+                },
+                false,
+                false,
+            ],
+            [
                 'unique users',
                 { series: [{ kind: NodeKind.EventsNode, event: '$pageview', math: BaseMathType.UniqueUsers }] },
                 false,
@@ -402,6 +420,18 @@ describe('insightsTableDataLogic', () => {
             expect(previousItem!.count).toBe(80)
         })
 
+        it('getPercentOfDayTotal handles results without daily data', async () => {
+            const insight: Partial<InsightModel> = {
+                result: [makeCompareResult({ data: null as any })],
+            }
+
+            await expectLogic(logic, () => {
+                builtDataNodeLogic.actions.loadDataSuccess(insight)
+            }).toFinishAllListeners()
+
+            expect(logic.values.getPercentOfDayTotal(logic.values.indexedResults[0], 0)).toBeNull()
+        })
+
         it('percent of total divides by the total of the same series and period', async () => {
             const row = (
                 order: number,
@@ -428,7 +458,18 @@ describe('insightsTableDataLogic', () => {
                 ],
             }
 
+            const query: TrendsQuery = {
+                kind: NodeKind.TrendsQuery,
+                series: [
+                    { kind: NodeKind.EventsNode, event: '$pageview' },
+                    { kind: NodeKind.EventsNode, event: '$pageview' },
+                ],
+                breakdownFilter: { breakdown: '$browser', breakdown_type: 'event' },
+                compareFilter: { compare: true },
+            }
+
             await expectLogic(logic, () => {
+                insightVizDataLogic.findMounted(props)?.actions.updateQuerySource(query)
                 builtDataNodeLogic.actions.loadDataSuccess(insight)
             }).toFinishAllListeners()
 
